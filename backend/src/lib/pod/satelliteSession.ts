@@ -43,18 +43,22 @@ import {
   deviceConfig,
   displayMode,
   layout as layoutEvent,
+  replyText,
   soundTrigger,
   alarmFire as alarmFireEvent,
   alarmStop as alarmStopEvent,
   assetSync as assetSyncEvent,
+  streamDeckConfig,
   transcript,
   type FaceState,
+  type StreamDeckConfigPayload,
   type WyomingEvent,
 } from '@/lib/pod/wyoming'
 import { effectiveSettings } from '@/lib/pod/deviceSettings'
 import { getDeviceMode } from '@/lib/pod/displayMode'
 import { resolveDeviceDescriptor } from '@/lib/pod/deviceStudio'
 import { handleAlarmAction } from '@/lib/pod/scheduler'
+import { handleButtonPress } from '@/lib/pod/streamDeckActions'
 
 type Send = (ev: WyomingEvent) => void
 
@@ -73,6 +77,7 @@ export class SatelliteSession implements PodFireTarget {
   private wakeWord: string | null = null
   private resolvedWakeId: string | null = null // device override → companion model → app default
   private replyStyleOverride = 'inherit'        // device-group reply-length override (server-side)
+  private replyMode: 'voice' | 'text' = 'voice' // device tells us: speak the reply, or show it as text
   private wakeResolved = false // don't load a detector until we know which model (post-auth)
   private wakeSuppressedUntil = 0 // ignore wake until this time (post-TTS self-barge guard)
   private _deviceId: string | null = null
@@ -131,6 +136,13 @@ export class SatelliteSession implements PodFireTarget {
           // and coordinate the dismiss across any other devices ringing the same alarm.
           const action = d.action === 'snooze' ? 'snooze' : 'cancel'
           void handleAlarmAction(String(d.alarm_id), action, this._deviceId)
+        } else if (d && d.name === 'button_press' && this.userId && typeof d.page_id === 'string') {
+          void handleButtonPress(String(d.page_id), Number(d.row), Number(d.col), this.userId)
+        } else if (d && d.name === 'reply_mode' && typeof d.mode === 'string') {
+          // Device toggled voice ↔ text reply (the bottom-right control). Text mode →
+          // we type the reply on its screen instead of speaking it.
+          this.replyMode = d.mode === 'text' ? 'text' : 'voice'
+          logger.info(`[pod] reply mode → ${this.replyMode}`)
         }
         break
       }
@@ -251,6 +263,12 @@ export class SatelliteSession implements PodFireTarget {
   syncAssets(packId: string | null, files: Array<{ path: string; url: string; sha256: string }>): void {
     if (this.closed || !files.length) return
     this.send(assetSyncEvent(packId, files))
+  }
+
+  /** Push the stream deck button grid to this device (controller mode). */
+  applyStreamDeckConfig(config: StreamDeckConfigPayload): void {
+    if (this.closed) return
+    this.send(streamDeckConfig(config))
   }
 
   /** Push an unprompted alarm/timer event. The Pod shows its ring screen + tone. */
@@ -421,18 +439,36 @@ export class SatelliteSession implements PodFireTarget {
     const ac = new AbortController()
     this.turnAbort = ac
 
-    // Speak each sentence as soon as the LLM finishes it — so the first words play
-    // while the model is still generating the rest. Cuts time-to-first-word from
-    // "wait for the whole reply" down to "wait for the first sentence".
+    const tokens = runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, replyStyleOverride: this.replyStyleOverride, signal: ac.signal })
     try {
-      await this.speakStreaming(
-        runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, replyStyleOverride: this.replyStyleOverride, signal: ac.signal }),
-        ac.signal,
-      )
+      if (this.replyMode === 'text') {
+        // Text-only: type the reply onto the device screen, no TTS.
+        await this.typeReply(tokens, ac.signal)
+      } else {
+        // Voice: speak each sentence as soon as the LLM finishes it (low latency).
+        await this.speakStreaming(tokens, ac.signal)
+      }
     } catch (e) {
-      logger.warn(`[pod] brain/tts error: ${(e as Error).message}`)
+      logger.warn(`[pod] brain/reply error: ${(e as Error).message}`)
     }
     if (!ac.signal.aborted) this.setState('idle')
+  }
+
+  /** Stream the reply to the device as TEXT (typewriter), updating its on-screen panel
+   *  as sentences complete. Used when the device is in "text only" reply mode. */
+  private async typeReply(tokens: AsyncIterable<string>, signal: AbortSignal): Promise<void> {
+    let buf = ''
+    let lastSent = 0
+    for await (const tok of tokens) {
+      if (signal.aborted) return
+      buf += tok
+      // Push updates on sentence/length boundaries so it "types" without flooding the socket.
+      if (buf.length - lastSent >= 24 || /[.!?…]\s*$/.test(buf)) {
+        lastSent = buf.length
+        this.send(replyText(stripForSpeech(buf)))
+      }
+    }
+    if (!signal.aborted && buf.trim()) this.send(replyText(stripForSpeech(buf)))
   }
 
   /** Consume the LLM token stream and speak it sentence-by-sentence as it arrives:

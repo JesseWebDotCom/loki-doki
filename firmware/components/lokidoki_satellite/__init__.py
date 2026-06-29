@@ -26,6 +26,7 @@ CONF_SPEAKER = "speaker"
 CONF_STATUS_LIGHT = "status_light"
 CONF_FACE_SENSOR = "face_sensor"
 CONF_MODE_SENSOR = "mode_sensor"
+CONF_REPLY_SENSOR = "reply_sensor"
 CONF_BACKLIGHT = "backlight"
 
 CONFIG_SCHEMA = cv.Schema(
@@ -41,6 +42,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FACE_SENSOR): cv.use_id(text_sensor.TextSensor),
         # Optional text sensor that mirrors the server-pushed screen mode (Testing tab).
         cv.Optional(CONF_MODE_SENSOR): cv.use_id(text_sensor.TextSensor),
+        # Optional text sensor carrying the companion's typed reply (text-only mode).
+        cv.Optional(CONF_REPLY_SENSOR): cv.use_id(text_sensor.TextSensor),
         # Optional screen backlight to dim on idle (driven by pushed settings).
         cv.Optional(CONF_BACKLIGHT): cv.use_id(light.LightState),
     }
@@ -71,6 +74,10 @@ async def to_code(config):
     if CONF_MODE_SENSOR in config:
         mode = await cg.get_variable(config[CONF_MODE_SENSOR])
         cg.add(var.set_mode_sensor(mode))
+
+    if CONF_REPLY_SENSOR in config:
+        reply = await cg.get_variable(config[CONF_REPLY_SENSOR])
+        cg.add(var.set_reply_sensor(reply))
 
     if CONF_BACKLIGHT in config:
         bl = await cg.get_variable(config[CONF_BACKLIGHT])

@@ -394,7 +394,7 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     return;
   }
   if (type == "user-event") {
-    std::string name, state, token, mode;
+    std::string name, state, token, mode, reply;
     bool dim_enabled = false;
     int dim_percent = 30, dim_after_s = 60;
     json::parse_json(data_json, [&](JsonObject root) -> bool {
@@ -402,12 +402,16 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       state = root["state"].as<std::string>();
       token = root["token"].as<std::string>();
       mode = root["mode"].as<std::string>();  // "" when absent (face.state/auth events)
+      reply = root["text"].as<std::string>(); // companion reply text (text-only mode)
       if (root["dimEnabled"].is<bool>()) dim_enabled = root["dimEnabled"].as<bool>();
       if (root["dimPercent"].is<int>()) dim_percent = root["dimPercent"].as<int>();
       if (root["dimAfterS"].is<int>()) dim_after_s = root["dimAfterS"].as<int>();
       return true;
     });
-    if (name == "face.state") {
+    if (name == "reply_text") {
+      // Companion's typed reply — surface it to the LVGL panel via the text sensor.
+      if (this->reply_sensor_ != nullptr) this->reply_sensor_->publish_state(reply);
+    } else if (name == "face.state") {
       this->face_ = state;
       this->update_led_();
     } else if (name == "auth" && !token.empty()) {
@@ -461,6 +465,14 @@ void LokiDokiSatellite::announce_or_auth_() {
     this->send_event_("user-event", data, nullptr, 0);
     ESP_LOGI(TAG, "announcing for claim (hwid %s)", this->hwid_().c_str());
   }
+  // Tell the server our current reply mode (voice/text) so it speaks or types replies.
+  this->send_reply_mode_();
+}
+
+void LokiDokiSatellite::send_reply_mode_() {
+  if (!this->connected_) return;
+  std::string m = this->voice_reply_ ? "voice" : "text";
+  this->send_event_("user-event", std::string("{\"name\":\"reply_mode\",\"mode\":\"") + m + "\"}", nullptr, 0);
 }
 
 std::string LokiDokiSatellite::hwid_() const { return get_mac_address_pretty(); }

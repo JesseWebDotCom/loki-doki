@@ -119,6 +119,15 @@ export function transcript(text: string): WyomingEvent {
 }
 
 /**
+ * Loki Doki text-reply extension (Wyoming `user-event`): the companion's reply as TEXT,
+ * for a device in "text only" reply mode (voice muted). The device types it on screen
+ * (bottom-middle) instead of playing TTS. Sent progressively so it appears to type.
+ */
+export function replyText(text: string): WyomingEvent {
+  return { type: 'user-event', data: { name: 'reply_text', text } }
+}
+
+/**
  * Loki Doki display extension (carried on Wyoming `user-event`): tells the Pod
  * what animation/expression the companion should show. The mouth is driven on
  * the Pod from the audio amplitude — see the "Companion face" section of
@@ -187,6 +196,35 @@ export function alarmFire(a: { alarm_id: string; label: string; tone_url: string
 }
 export function alarmStop(alarmId: string): WyomingEvent {
   return { type: 'user-event', data: { name: 'alarm_stop', alarm_id: alarmId } }
+}
+
+/**
+ * Loki Doki stream-deck extension (Wyoming `user-event`): pushes the full button
+ * grid config to a device in controller mode. The device renders pages natively
+ * in LVGL and only contacts the server when a button is pressed — no pixel streaming.
+ */
+export function streamDeckConfig(config: StreamDeckConfigPayload): WyomingEvent {
+  return { type: 'user-event', data: { name: 'stream_deck_config', ...config } }
+}
+
+export interface StreamDeckConfigPayload {
+  pages: Array<{
+    id: string
+    name: string
+    gridRows: number
+    gridCols: number
+    sortOrder: number
+    buttons: Array<{
+      id: string
+      row: number
+      col: number
+      icon: string
+      label: string
+      bgColor: string
+      textColor: string
+      action: Record<string, unknown>
+    }>
+  }>
 }
 
 export type FaceState = 'idle' | 'listening' | 'thinking' | 'talking' | 'sleeping'

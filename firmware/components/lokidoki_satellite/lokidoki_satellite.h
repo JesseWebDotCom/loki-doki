@@ -38,6 +38,8 @@ class LokiDokiSatellite : public Component {
   // "touch-test") so a screen device can switch LVGL pages from the admin Testing
   // tab. Screenless pods leave this unset.
   void set_mode_sensor(text_sensor::TextSensor *s) { this->mode_sensor_ = s; }
+  // Optional: carries the companion's typed reply (shown on screen in text-only mode).
+  void set_reply_sensor(text_sensor::TextSensor *s) { this->reply_sensor_ = s; }
   // Optional: screen backlight to dim on idle (driven by pushed config). Screenless
   // pods leave this unset.
   void set_backlight(light::LightState *bl) { this->backlight_ = bl; }
@@ -61,6 +63,13 @@ class LokiDokiSatellite : public Component {
   void set_mic_enabled(bool e) { this->mic_enabled_ = e; }
   bool is_mic_enabled() const { return this->mic_enabled_; }
   void toggle_mic_enabled() { this->mic_enabled_ = !this->mic_enabled_; }
+  // Tap-to-talk: a MOMENTARY action (not a toggle) — open one listen turn now, like
+  // saying the wake word once. Enables the mic uplink and asks the server to capture.
+  void request_listen() { this->mic_enabled_ = true; this->send_event_("detection", "{\"name\":\"tap\"}", nullptr, 0); }
+  // Voice ↔ text reply toggle. Text mode = the companion's reply is typed on screen
+  // (reply_sensor) instead of spoken; mute the local speaker too so it stays silent.
+  bool voice_reply() const { return this->voice_reply_; }
+  void toggle_voice_reply() { this->voice_reply_ = !this->voice_reply_; this->muted_ = !this->voice_reply_; this->send_reply_mode_(); }
 
   // Stream Deck controller mode. Called from the YAML on_boot lambda to hand us
   // the blank LVGL page we dynamically populate with button cells.
@@ -76,6 +85,7 @@ class LokiDokiSatellite : public Component {
 
   // ── Wyoming framing ──
   // Header line {"type","data_length","payload_length"}\n + JSON data + payload.
+  void send_reply_mode_();  // tell the server whether to speak or type replies
   void send_event_(const char *type, const std::string &data_json, const uint8_t *payload,
                    size_t payload_len);
   void process_event_(const std::string &type, const std::string &data_json,
@@ -108,6 +118,8 @@ class LokiDokiSatellite : public Component {
   text_sensor::TextSensor *face_sensor_{nullptr};
   std::string published_face_;  // last value pushed to face_sensor_ (de-dupe)
   text_sensor::TextSensor *mode_sensor_{nullptr};  // server-pushed screen mode
+  text_sensor::TextSensor *reply_sensor_{nullptr}; // companion's typed reply (text mode)
+  bool voice_reply_{true};                         // true = speak reply; false = type it
   std::string published_mode_;  // last value pushed to mode_sensor_ (de-dupe)
 
   // Idle screen dimming (configured live via the server's `config` event).

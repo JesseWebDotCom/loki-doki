@@ -418,10 +418,14 @@ lvgl:
             src: boot_logo
             align: CENTER
             y: -150
+            # Round the widget box so the bloom hugs the logo's squircle instead of
+            # glowing as a hard square (the shadow follows the object's radius).
+            radius: 52
+            clip_corner: true
             shadow_color: 0x8B5CF6
-            shadow_width: 80
-            shadow_spread: 10
-            shadow_opa: 55%
+            shadow_width: 85
+            shadow_spread: 6
+            shadow_opa: 60%
         - label:
             id: lbl_brand
             align: CENTER
@@ -469,6 +473,19 @@ lvgl:
                   text: ""
                   text_font: font_footer
                   text_color: 0xFFFFFF
+        # The companion's typed reply (text-only mode), centered above the controls.
+        # Driven by the reply_text sensor below; hidden until a reply arrives.
+        - label:
+            id: lbl_reply
+            align: BOTTOM_MID
+            y: -150
+            width: 980
+            text: ""
+            text_font: font_date
+            text_color: 0xFFFFFF
+            long_mode: wrap
+            text_align: CENTER
+            hidden: true
         # Two transparent corner hit-targets that line up with the server-rendered icons:
         # bottom-LEFT (the ear) = start/stop listening; bottom-RIGHT (the speaker) = mute
         # the companion's voice. No visible chrome — the icons come from the layout image;
@@ -483,13 +500,13 @@ lvgl:
             shadow_width: 0
             on_click:
               then:
-                # Toggle listening + flash a native confirmation pill so the tap is
-                # obviously registered (the icon itself is part of the server image).
+                # MOMENTARY tap-to-talk: open one listen turn (like saying the wake word).
+                # Confirm with a brief "Listening" pill; the server then drives the real
+                # listening/thinking/speaking states via face_state.
                 - lambda: |-
-                    id(satellite)->toggle_mic_enabled();
-                    bool on = id(satellite)->is_mic_enabled();
-                    lv_label_set_text(id(state_label), on ? "Listening" : "Mic off");
-                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(on ? 0x16A34A : 0x475569), 0);
+                    id(satellite)->request_listen();
+                    lv_label_set_text(id(state_label), "Listening");
+                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);
                     lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
         - button:
             id: btn_mute
@@ -501,12 +518,14 @@ lvgl:
             shadow_width: 0
             on_click:
               then:
+                # Toggle voice ↔ text reply (tells the server which to do) + confirm.
                 - lambda: |-
-                    id(satellite)->toggle_muted();
-                    bool m = id(satellite)->is_muted();
-                    lv_label_set_text(id(state_label), m ? "Text only" : "Voice reply");
-                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(m ? 0xD97706 : 0x2563EB), 0);
+                    id(satellite)->toggle_voice_reply();
+                    bool voice = id(satellite)->voice_reply();
+                    lv_label_set_text(id(state_label), voice ? "Voice reply" : "Text only");
+                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(voice ? 0x2563EB : 0xD97706), 0);
                     lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+                    if (!voice) lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer
@@ -730,6 +749,18 @@ text_sensor:
               // idle / connecting → footer hidden, just the clock
               lv_obj_add_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
             }
+  # The companion's typed reply (text-only reply mode) — show it bottom-middle.
+  - platform: template
+    id: reply_text
+    on_value:
+      then:
+        - lambda: |-
+            if (x.empty()) {
+              lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_label_set_text(id(lbl_reply), x.c_str());
+              lv_obj_clear_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+            }
 
 external_components:
   # The shared Wyoming/Loki-Doki satellite runtime (firmware/components/).
@@ -750,4 +781,5 @@ lokidoki_satellite:
   speaker: tab5_speaker
   face_sensor: face_state
   mode_sensor: display_mode   # server-pushed screen mode (Admin → Devices → Testing)
+  reply_sensor: reply_text    # companion's typed reply for text-only mode
   backlight: backlight       # idle dimming, configured centrally via device settings
