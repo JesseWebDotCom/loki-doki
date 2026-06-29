@@ -493,8 +493,8 @@ lvgl:
             text_align: CENTER
             hidden: true
         # Native voice controls (bottom corners) — drawn by the firmware so the icon +
-        # label flip INSTANTLY on tap. Bottom-LEFT (ear) = tap to talk. Bottom-RIGHT =
-        # Voice <-> Text reply (montserrat speaker/mute glyph, proven to boot).
+        # label flip INSTANTLY on tap. Hidden until the first layout frame arrives (never
+        # on the "Connecting" splash). LEFT (ear) = tap to talk. RIGHT = Voice <-> Text.
         - button:
             id: btn_wake
             align: BOTTOM_LEFT
@@ -507,6 +507,7 @@ lvgl:
             bg_opa: COVER
             border_width: 0
             shadow_width: 0
+            hidden: true
             widgets:
               - image:
                   src: img_ear
@@ -521,13 +522,14 @@ lvgl:
         - label:
             id: lbl_wake
             align: BOTTOM_LEFT
-            x: 22
-            y: -18
-            width: 172
+            x: 8
+            y: -16
+            width: 200
             text: "Tap to talk"
-            text_font: font_footer
+            text_font: font_sd_label
             text_color: 0xEAEAF2
             text_align: CENTER
+            hidden: true
         - button:
             id: btn_voice
             align: BOTTOM_RIGHT
@@ -540,6 +542,7 @@ lvgl:
             bg_opa: COVER
             border_width: 0
             shadow_width: 0
+            hidden: true
             widgets:
               - label:
                   id: lbl_voice_icon
@@ -552,20 +555,21 @@ lvgl:
                 - lambda: |-
                     id(satellite)->toggle_voice_reply();
                     bool voice = id(satellite)->voice_reply();
-                    lv_label_set_text(id(lbl_voice_icon), voice ? "" : "");
+                    lv_label_set_text(id(lbl_voice_icon), voice ? "" : "");
                     lv_label_set_text(id(lbl_voice), voice ? "Voice reply" : "Text only");
                     lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(voice ? 0x2563EB : 0xD97706), 0);
                     if (voice) lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
         - label:
             id: lbl_voice
             align: BOTTOM_RIGHT
-            x: -22
-            y: -18
-            width: 172
+            x: -8
+            y: -16
+            width: 200
             text: "Voice reply"
-            text_font: font_footer
+            text_font: font_sd_label
             text_color: 0xEAEAF2
             text_align: CENTER
+            hidden: true
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer
@@ -715,6 +719,19 @@ interval:
           lv_obj_clear_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
           lv_obj_invalidate(id(ambient_img));
           id(cam)->clear_new_frame();
+          // First real layout frame = connected. Drop the "Connecting" splash and
+          // reveal the voice controls (they must NEVER show on the splash). Once only.
+          static bool revealed = false;
+          if (!revealed) {
+            revealed = true;
+            lv_obj_add_flag(id(lbl_brand), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lbl_connecting), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(boot_logo_img), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
+          }
 
   # ── Camera: FPS + bytes/frame readout (from the decoder's running counters) ────
   - interval: 500ms
