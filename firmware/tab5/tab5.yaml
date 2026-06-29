@@ -534,6 +534,8 @@ lvgl:
                     id(satellite)->toggle_mic_mute();
                     bool muted = id(satellite)->is_mic_muted();
                     lv_label_set_text(id(lbl_wake), muted ? "Muted" : "Listening");
+                    // Dim the button to grey when muted (off), accent when live.
+                    lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(muted ? 0x4B5563 : 0x7C3AED), 0);
                     if (muted) {
                       lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN);
                       lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN);
@@ -590,6 +592,7 @@ lvgl:
                     bool muted = id(satellite)->is_audio_muted();
                     lv_label_set_text(id(lbl_voice_icon), muted ? "" : "");
                     lv_label_set_text(id(lbl_voice), muted ? "Sound off" : "Sound on");
+                    lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(muted ? 0x4B5563 : 0x2563EB), 0);
         - label:
             id: lbl_voice
             align: BOTTOM_RIGHT
@@ -882,10 +885,10 @@ text_sensor:
             } else {
               lv_obj_add_flag(id(btn_wake), LV_OBJ_FLAG_CLICKABLE);
               lv_obj_add_flag(id(btn_voice), LV_OBJ_FLAG_CLICKABLE);
-              // Mute state is shown by the icons (mic/mic-off, speaker/speaker-off),
-              // not colour — restore both to their normal accents on idle.
-              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x7C3AED), 0);
-              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(0x2563EB), 0);
+              // On idle, restore each button's colour — but keep a muted one greyed
+              // (off), so a turn doesn't un-grey a control the user muted.
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(id(satellite)->is_mic_muted() ? 0x4B5563 : 0x7C3AED), 0);
+              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(id(satellite)->is_audio_muted() ? 0x4B5563 : 0x2563EB), 0);
             }
   # The companion's typed reply (text-only reply mode) — show it bottom-middle.
   - platform: template

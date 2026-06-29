@@ -354,8 +354,15 @@ void LokiDokiSatellite::flush_tx_() {
     this->disconnect_("send error");
     return;
   }
-  if (this->tx_off_ >= this->tx_buf_.size()) {  // fully drained — reclaim memory
+  if (this->tx_off_ >= this->tx_buf_.size()) {  // fully drained — reclaim everything
     this->tx_buf_.clear();
+    this->tx_off_ = 0;
+  } else if (this->tx_off_ > TX_QUEUE_CAP) {
+    // CRITICAL: reclaim the already-SENT prefix even when not fully drained. Under
+    // continuous mic streaming the queue never empties (the mic always adds more), so
+    // the sent prefix used to accumulate forever → heap exhaustion → std::bad_alloc
+    // → reboot loop a few seconds after the mic goes live. Compact like pump_rx_ does.
+    this->tx_buf_.erase(this->tx_buf_.begin(), this->tx_buf_.begin() + this->tx_off_);
     this->tx_off_ = 0;
   }
 }
@@ -476,15 +483,11 @@ void LokiDokiSatellite::send_reply_mode_() {
 }
 
 void LokiDokiSatellite::toggle_mic_mute() {
+  // SOFTWARE mute only: on_mic_data_ drops every sample while !mic_enabled_, so nothing
+  // is ever buffered or transmitted (no wake, no PTT) — a real functional mute. We do
+  // NOT stop the mic peripheral: touching the shared I2S bus outside the playback
+  // handoff reboots the device (that's what crashed when tapping the mic).
   this->mic_enabled_ = !this->mic_enabled_;
-  // on_mic_data_ already drops everything while !mic_enabled_, so nothing is ever
-  // transmitted. Additionally stop/start the mic peripheral so it isn't even capturing
-  // — but ONLY when idle: never touch the shared I2S bus mid-playback (the speaker owns
-  // it then; racing it abort()s the driver). Muting is UI-gated to idle, so this holds.
-  if (this->mic_ != nullptr && !this->playing_) {
-    if (this->mic_enabled_) this->mic_->start();
-    else this->mic_->stop();
-  }
   ESP_LOGI(TAG, "microphone %s", this->mic_enabled_ ? "live" : "MUTED (privacy)");
 }
 
