@@ -105,20 +105,31 @@ const SOCKET_HANDLERS = {
  *  treated as UP: it means a prior (hot-reload) instance still holds the port and is
  *  serving — devices can connect, so it's healthy, not an error to retry forever. */
 function bindGateway(): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = globalThis as any
+  // A `--hot` reload re-evaluates this module but leaves the PREVIOUS instance's
+  // listener holding the port — with STALE socket handlers bound to the old session
+  // code. Stop it via a globalThis handle so we can bind FRESH handlers; otherwise
+  // every device connection keeps running pre-reload code and server-side fixes
+  // (e.g. reply-mode / typed replies) silently never take effect. Force-close so the
+  // device drops and reconnects onto the new listener.
+  if (g.__podGatewayServer) {
+    try { g.__podGatewayServer.stop(true) } catch { /* already gone */ }
+    g.__podGatewayServer = null
+  }
   try {
     server = Bun.listen({ hostname: '0.0.0.0', port: gw.port, socket: SOCKET_HANDLERS })
+    g.__podGatewayServer = server
     gw.listening = true; gw.error = ''; gw.since = Date.now()
     logger.info(`[pod] Wyoming gateway listening on tcp://0.0.0.0:${gw.port}`)
     return true
   } catch (e) {
     const msg = (e as Error).message
-    if (/EADDRINUSE|address already in use|Failed to listen/i.test(msg)) {
-      gw.listening = true; gw.error = ''
-      logger.info(`[pod] gateway port :${gw.port} already bound (previous instance) — treating as up`)
-      return true
-    }
+    // Port still held (just-stopped listener mid-close, or a foreign process). Mark
+    // DOWN so the self-heal watchdog re-binds in a moment — do NOT "treat as up", or
+    // we'd leave stale handlers serving devices (the bug this whole block fixes).
     gw.listening = false; gw.error = msg; server = null
-    logger.error(`[pod] gateway bind failed on :${gw.port}: ${msg} — self-heal will retry`)
+    logger.warn(`[pod] gateway bind failed on :${gw.port}: ${msg} — self-heal will retry`)
     return false
   }
 }
