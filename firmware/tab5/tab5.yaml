@@ -484,8 +484,8 @@ lvgl:
         - label:
             id: lbl_reply
             align: BOTTOM_MID
-            y: -150
-            width: 980
+            y: -26
+            width: 860
             text: ""
             text_font: font_date
             text_color: 0xFFFFFF
@@ -519,6 +519,7 @@ lvgl:
                     lv_label_set_text(id(state_label), "Listening");
                     lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);
                     lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+                    lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);  // clear last reply
         - label:
             id: lbl_wake
             align: BOTTOM_LEFT
@@ -814,10 +815,38 @@ text_sensor:
         - lambda: |-
             if (x.empty()) {
               lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+              // Reply gone → bring the corner controls back.
+              lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
             } else {
               lv_label_set_text(id(lbl_reply), x.c_str());
               lv_obj_clear_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+              // Reading the reply → hide the corner controls so they don't crowd it.
+              lv_obj_add_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
             }
+        # (Re)start the auto-hide countdown on every update so the reply clears a while
+        # after the LAST chunk arrives, instead of lingering on screen forever.
+        - script.execute: hide_reply_timer
+
+# Auto-hide the typed reply ~22 s after the last update (mode: restart resets the
+# countdown on each streamed chunk, so it only fires once the reply has settled).
+script:
+  - id: hide_reply_timer
+    mode: restart
+    then:
+      - delay: 22s
+      - lambda: |-
+          lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+          // Reply done → restore the corner controls.
+          lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
 
 external_components:
   # The shared Wyoming/Loki-Doki satellite runtime (firmware/components/).
