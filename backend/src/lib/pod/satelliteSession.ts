@@ -30,11 +30,6 @@ import { evictForDevice } from '@/lib/pod/registry'
 import { ensureCompanionWakeword } from '@/lib/pod/companionWake'
 import type { PodFireEvent, PodFireTarget } from '@/lib/pod/registry'
 
-// Per-device cooldown for the spoken "Connected and ready" greeting. A device
-// re-authenticates on every reconnect (network blip, server restart), and greeting
-// each time is noisy — only speak it after a real gap (a genuine power-cycle).
-const lastAnnounceAt = new Map<string, number>()
-const ANNOUNCE_COOLDOWN_MS = 15 * 60 * 1000
 import {
   audioChunk,
   audioStart,
@@ -611,30 +606,6 @@ export class SatelliteSession implements PodFireTarget {
     resolveDeviceDescriptor(device.id)
       .then((desc) => { if (desc && !this.closed) this.applyLayout(desc as unknown as Record<string, unknown>) })
       .catch(() => {})
-    // Audibly confirm the device reached the server — a screenless satellite has no
-    // other way to show it's online and working. Fire-and-forget so auth never blocks.
-    void this.announceConnected()
-  }
-
-  /** Speak a short confirmation on (re)connect. Reuses the verified speak() path
-   *  (same as the admin Test button); guarded so it never blocks or throws into auth. */
-  private async announceConnected(): Promise<void> {
-    try {
-      if (this.closed || !this._deviceId) return
-      // Stay quiet if we greeted this device recently — avoids re-announcing on every
-      // quick reconnect / server restart. Only a real power-cycle (long gap) speaks.
-      const now = Date.now()
-      if (now - (lastAnnounceAt.get(this._deviceId) ?? 0) < ANNOUNCE_COOLDOWN_MS) return
-      lastAnnounceAt.set(this._deviceId, now)
-      this.turnAbort?.abort()
-      const ac = new AbortController()
-      this.turnAbort = ac
-      logger.info('[pod] announcing "Connected and ready" on the device')
-      await this.speak('Connected and ready.', ac.signal)
-      if (!ac.signal.aborted) this.setState('idle')
-    } catch (e) {
-      logger.warn(`[pod] connected-announce failed: ${(e as Error).message}`)
-    }
   }
 
   private async ensureUser(): Promise<string | null> {
