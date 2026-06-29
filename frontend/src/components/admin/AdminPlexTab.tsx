@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2, CheckCircle2, XCircle, Server, ExternalLink, UserCheck, UserX } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
   getPlexConfig,
   savePlexConfig,
@@ -10,9 +14,6 @@ import {
   type PlexConfigSummary,
   type PlexServer,
 } from '@/lib/plex/api'
-
-const inputCls = 'w-full rounded-xl border border-border bg-card px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40'
-const btnCls = 'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50'
 
 export function AdminPlexTab() {
   const [cfg, setCfg] = useState<PlexConfigSummary | null>(null)
@@ -96,116 +97,140 @@ export function AdminPlexTab() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-8 py-2">
-      <header className="space-y-1">
-        <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <Server className="size-5 text-amber-400" /> Plex
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Configure the shared Plex Media Server here. Each user then links their own Plex account in
-          Settings → Plex (or from the Shows/Movies apps) so their Watchlist and progress stay personal.
-        </p>
-      </header>
-
-      {/* Connection status */}
-      {(connOk !== null || cfg.hasToken) && (
-        <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
-          {connOk === false ? (
-            <XCircle className="size-4 text-red-400" />
-          ) : (
-            <CheckCircle2 className="size-4 text-emerald-400" />
-          )}
-          {connOk === false
-            ? 'Saved, but the server could not be reached.'
-            : serverName
-              ? `Connected to ${serverName}.`
-              : cfg.hasToken
-                ? 'A Plex token is configured.'
-                : 'Not connected.'}
+    <div className="flex flex-col max-w-3xl">
+      {/* Page header */}
+      <div className="flex items-start gap-3 p-5 pb-5">
+        <div className="rounded-lg bg-muted p-2 shrink-0">
+          <Server className="size-5 text-muted-foreground" />
         </div>
-      )}
+        <div>
+          <h2 className="text-base font-semibold">Plex</h2>
+          <p className="text-sm text-muted-foreground">
+            Configure the shared Plex Media Server. Each user then links their own Plex account in
+            Settings → Plex so their watchlist and progress stay personal.
+          </p>
+        </div>
+      </div>
 
-      {/* One-click sign-in */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Sign in with Plex</h2>
-        <p className="text-xs text-muted-foreground">Approve a code on plex.tv — no token to copy.</p>
-        {pin ? (
-          <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
-            <p className="text-sm">
-              Enter code <span className="font-mono text-lg font-bold tracking-widest text-amber-300">{pin.code}</span> at{' '}
-              <a href="https://plex.tv/link" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">
-                plex.tv/link <ExternalLink className="size-3" />
-              </a>
-            </p>
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" /> Waiting for approval…
-            </p>
-          </div>
-        ) : (
-          <button onClick={beginLink} disabled={linking} className={`${btnCls} bg-amber-500/15 text-amber-300 hover:bg-amber-500/25`}>
-            {linking ? <Loader2 className="size-4 animate-spin" /> : <Server className="size-4" />} Sign in with Plex
-          </button>
-        )}
-        {servers.length > 1 && (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Choose a server:</p>
-            {servers.map((s) => (
-              <button
-                key={s.uri}
-                onClick={() => save({ baseUrl: s.uri, token })}
-                className="flex w-full items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5 text-sm hover:bg-muted"
-              >
-                <span>{s.name}</span>
-                <span className="text-xs text-muted-foreground">{s.local ? 'local' : 'remote'}</span>
-              </button>
-            ))}
+      <div className="px-5 space-y-5">
+        {/* Connection status */}
+        {(connOk !== null || cfg.hasToken) && (
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+            {connOk === false
+              ? <XCircle className="size-4 text-red-400 shrink-0" />
+              : <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />}
+            <span>
+              {connOk === false
+                ? 'Saved, but the server could not be reached.'
+                : serverName
+                  ? `Connected to ${serverName}.`
+                  : cfg.hasToken
+                    ? 'A Plex token is configured.'
+                    : 'Not connected.'}
+            </span>
           </div>
         )}
-      </section>
 
-      {/* Manual entry */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Or enter manually</h2>
-        <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">Server URL</label>
-          <input className={inputCls} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://192.168.1.10:32400" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">X-Plex-Token {cfg.hasToken && <span className="text-emerald-400">(set — leave blank to keep)</span>}</label>
-          <input className={inputCls} value={token} onChange={(e) => setToken(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxxx" type="password" />
-        </div>
-        <button
-          onClick={() => save({ baseUrl, ...(token ? { token } : {}) })}
-          disabled={saving || !baseUrl.trim()}
-          className={`${btnCls} bg-foreground text-background hover:opacity-90`}
-        >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : null} Save & test
-        </button>
-      </section>
+        {/* One-click sign-in */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Sign in with Plex</CardTitle>
+            <CardDescription>Approve a code on plex.tv — no token to copy.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pin ? (
+              <div className="space-y-2 rounded-xl border border-border bg-muted/50 px-4 py-3">
+                <p className="text-sm">
+                  Enter code{' '}
+                  <span className="font-mono text-lg font-bold tracking-widest">{pin.code}</span>{' '}
+                  at{' '}
+                  <a href="https://plex.tv/link" target="_blank" rel="noreferrer"
+                    className="inline-flex items-center gap-1 underline text-brand">
+                    plex.tv/link <ExternalLink className="size-3" />
+                  </a>
+                </p>
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" /> Waiting for approval…
+                </p>
+              </div>
+            ) : (
+              <Button variant="outline" onClick={beginLink} disabled={linking}>
+                {linking ? <Loader2 className="size-4 animate-spin mr-1.5" /> : <Server className="size-4 mr-1.5" />}
+                Sign in with Plex
+              </Button>
+            )}
+            {servers.length > 1 && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Multiple servers found — choose one:</p>
+                <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+                  {servers.map(s => (
+                    <button key={s.uri} onClick={() => save({ baseUrl: s.uri, token })}
+                      className="flex w-full items-center justify-between px-4 py-2.5 text-sm hover:bg-muted transition-colors text-left">
+                      <span>{s.name}</span>
+                      <span className="text-xs text-muted-foreground">{s.local ? 'local' : 'remote'}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Who has linked their own Plex account */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Linked accounts</h2>
-        <p className="text-xs text-muted-foreground">
-          Each user links their own Plex account in Settings → Plex. Their watchlist and watched-state sync to it.
-        </p>
-        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-          {cfg.users.map((u) => (
-            <div key={u.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-              <span>{u.name}</span>
-              {u.linked ? (
-                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
-                  <UserCheck className="size-3.5" /> Linked
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <UserX className="size-3.5" /> Not linked
-                </span>
-              )}
+        {/* Manual entry */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Manual configuration</CardTitle>
+            <CardDescription>Enter the server URL and token directly.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Server URL</Label>
+              <Input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="http://192.168.1.10:32400" />
             </div>
-          ))}
-        </div>
-      </section>
+            <div className="space-y-1.5">
+              <Label>
+                X-Plex-Token{' '}
+                {cfg.hasToken && <span className="text-muted-foreground font-normal">(set — leave blank to keep)</span>}
+              </Label>
+              <Input value={token} onChange={e => setToken(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxxx" type="password" />
+            </div>
+            <Button
+              onClick={() => save({ baseUrl, ...(token ? { token } : {}) })}
+              disabled={saving || !baseUrl.trim()}>
+              {saving ? <Loader2 className="size-4 animate-spin mr-1.5" /> : null}
+              Save &amp; test
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Linked user accounts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Linked accounts</CardTitle>
+            <CardDescription>
+              Each user links their own Plex account in Settings → Plex. Their watchlist and watch history sync to it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+              {cfg.users.map(u => (
+                <div key={u.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span>{u.name}</span>
+                  {u.linked ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+                      <UserCheck className="size-3.5" /> Linked
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <UserX className="size-3.5" /> Not linked
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

@@ -9,21 +9,23 @@ export interface FrigateAnnouncement {
   camera: string | null
   kind: 'object' | 'plate' | 'review' | 'description'
   snapshotUrl: string | null
+  label: string | null
 }
 
 export interface FrigateEvent extends FrigateAnnouncement {
   source: 'genai' | 'mqtt'
-  label: string | null
   subLabel: string | null
   plate: string | null
   plateName: string | null
   severity: string | null
   description: string | null
-  createdAt: number
+  createdAt: string   // ISO string from Drizzle Date serialisation
 }
 
 export interface FrigateConfig {
   enabled: boolean
+  announceEnabled: boolean
+  cooldownMinutes: number
   baseUrl: string
   mqttHost: string
   mqttPort: number
@@ -65,8 +67,10 @@ export async function claimAnnouncement(id: string): Promise<boolean> {
   return ((await r.json()) as { claimed: boolean }).claimed
 }
 
-export async function listEvents(limit = 50): Promise<FrigateEvent[]> {
-  const r = await fetch(`/api/frigate/events?limit=${limit}`, opts)
+export async function listEvents(limit = 50, kind?: string): Promise<FrigateEvent[]> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (kind) params.set('kind', kind)
+  const r = await fetch(`/api/frigate/events?${params}`, opts)
   if (!r.ok) throw new Error('failed')
   return ((await r.json()) as { events: FrigateEvent[] }).events
 }

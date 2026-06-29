@@ -84,6 +84,11 @@ class LokiDokiSatellite : public Component {
     this->speaker_buffer_size_ = 0;     // drop buffered TTS
     this->speaker_buffer_index_ = 0;
     this->got_stop_ = true;             // let loop() end playback + hand the bus back to the mic
+    // The server streams TTS ahead of playback, so seconds of audio-chunks for THIS reply
+    // may still be queued in the socket. Discard everything that arrives until the NEXT
+    // reply's audio-start — otherwise pump_rx_() keeps refilling the buffer and playback
+    // never actually stops.
+    this->discard_reply_audio_ = true;
   }
   bool voice_reply() const { return this->voice_reply_; }
   // Audio output mute (the right control). Mutes ALL speaker output (replies, chimes,
@@ -173,6 +178,7 @@ class LokiDokiSatellite : public Component {
   // and pause the mic; once the audio drains we hand the bus back to the mic.
   bool playing_{false};
   bool got_stop_{false};             // received audio-stop for the in-flight reply
+  bool discard_reply_audio_{false};  // drop incoming TTS chunks (post-Stop) until next audio-start
   uint32_t last_play_ms_{0};
 
   std::vector<uint8_t> rx_;          // inbound frame bytes

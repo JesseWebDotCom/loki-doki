@@ -16,8 +16,9 @@ import { eq, or, isNull } from 'drizzle-orm'
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 import { db } from '@/db'
-import { devices, deviceChimes, deviceSoundPacks, deviceLayoutTemplates, clockAlarms, users } from '@/db/schema'
-import { layoutToDevice, soundToDevice, assetSyncToDevice } from '@/lib/pod/registry'
+import { devices, deviceChimes, deviceSoundPacks, deviceLayoutTemplates, controllerLayoutTemplates, clockAlarms, users } from '@/db/schema'
+import { layoutToDevice, soundToDevice, assetSyncToDevice, streamDeckToDevice } from '@/lib/pod/registry'
+import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { getServerHost } from '@/lib/pod/firmware'
 import {
   AUDIO_DIR, DEFAULT_TEMPLATE_ID, safeId, validateWidgets, renderChimeToDisk,
@@ -279,6 +280,89 @@ studio.post('/devices/:id/sound', requireAdmin, async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as { event?: string }
   const ok = soundToDevice(c.req.param('id'), b.event || 'notification')
   return ok ? c.json({ ok: true }) : c.json({ error: 'device is not connected' }, 409)
+})
+
+// ── Controller layout templates (Stream Deck / button-grid mode) ──────────────────────
+// Parallel to the display-side layout templates above. Three built-in templates ship as
+// synthetic entries (no DB row). Custom templates persist to controller_layout_templates.
+
+const BUILTIN_CONTROLLER_ENTRIES = [
+  { id: 'builtin:blank',            name: 'Blank',            builtin: true, gridRows: 3, gridCols: 5 },
+  { id: 'builtin:youtube-channels', name: 'YouTube Channels', builtin: true, gridRows: 3, gridCols: 5 },
+  { id: 'builtin:music',            name: 'Music',            builtin: true, gridRows: 3, gridCols: 5 },
+]
+
+studio.get('/studio/controller-templates', requireAdmin, async (c) => {
+  const custom = await db.select().from(controllerLayoutTemplates)
+  return c.json([...BUILTIN_CONTROLLER_ENTRIES, ...custom])
+})
+
+studio.post('/studio/controller-templates', requireAdmin, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { name?: string; gridRows?: number; gridCols?: number; pagesJson?: string }
+  if (!b.name?.trim()) return c.json({ error: 'name is required' }, 400)
+  const id = uuid(); const ts = now()
+  await db.insert(controllerLayoutTemplates).values({
+    id, name: b.name.trim(), builtin: false,
+    gridRows: clampInt(b.gridRows ?? 3, 1, 8), gridCols: clampInt(b.gridCols ?? 5, 1, 8),
+    pagesJson: b.pagesJson ?? '[]',
+    createdAt: ts, updatedAt: ts,
+  })
+  return c.json({ id })
+})
+
+studio.patch('/studio/controller-templates/:id', requireAdmin, async (c) => {
+  const id = c.req.param('id')
+  // Built-in templates are resolved dynamically — they cannot be stored or edited.
+  if (id.startsWith('builtin:')) return c.json({ error: 'built-in controller templates cannot be edited' }, 400)
+  const [row] = await db.select().from(controllerLayoutTemplates).where(eq(controllerLayoutTemplates.id, id))
+  if (!row) return c.json({ error: 'not found' }, 404)
+  const b = (await c.req.json().catch(() => ({}))) as { name?: string; gridRows?: number; gridCols?: number; pagesJson?: string }
+  await db.update(controllerLayoutTemplates).set({
+    name: b.name?.trim() || row.name,
+    gridRows: b.gridRows != null ? clampInt(b.gridRows, 1, 8) : row.gridRows,
+    gridCols: b.gridCols != null ? clampInt(b.gridCols, 1, 8) : row.gridCols,
+    pagesJson: b.pagesJson ?? row.pagesJson,
+    updatedAt: now(),
+  }).where(eq(controllerLayoutTemplates.id, id))
+  return c.json({ ok: true })
+})
+
+studio.delete('/studio/controller-templates/:id', requireAdmin, async (c) => {
+  const id = c.req.param('id')
+  if (id.startsWith('builtin:')) return c.json({ error: 'cannot delete a built-in controller template' }, 400)
+  const [row] = await db.select().from(controllerLayoutTemplates).where(eq(controllerLayoutTemplates.id, id))
+  if (!row) return c.json({ error: 'not found' }, 404)
+  // Devices assigned to this template fall back to builtin:blank.
+  await db.update(devices).set({ controllerLayoutTemplateId: null }).where(eq(devices.controllerLayoutTemplateId, id))
+  await db.delete(controllerLayoutTemplates).where(eq(controllerLayoutTemplates.id, id))
+  return c.json({ ok: true })
+})
+
+// Assign a controller layout template to a device (and optional per-device button overrides).
+// Resolves and pushes the new layout live if the device is connected.
+studio.post('/devices/:id/controller-layout', requireAdmin, async (c) => {
+  const id = c.req.param('id')
+  const [dev] = await db.select().from(devices).where(eq(devices.id, id))
+  if (!dev) return c.json({ error: 'device not found' }, 404)
+  const b = (await c.req.json().catch(() => ({}))) as { templateId?: string | null; overrides?: unknown }
+  // Validate a custom template exists (null / builtin: → no row needed).
+  if (b.templateId && !b.templateId.startsWith('builtin:')) {
+    const [t] = await db.select({ id: controllerLayoutTemplates.id }).from(controllerLayoutTemplates).where(eq(controllerLayoutTemplates.id, b.templateId))
+    if (!t) return c.json({ error: 'unknown controller template' }, 400)
+  }
+  await db.update(devices).set({
+    controllerLayoutTemplateId: b.templateId ?? null,
+    controllerLayoutOverrides: b.overrides ? JSON.stringify(b.overrides) : null,
+  }).where(eq(devices.id, id))
+  // Re-resolve and push live.
+  let online = false
+  try {
+    const cfg = await resolveControllerDescriptor(id, dev.userId)
+    online = streamDeckToDevice(id, cfg)
+  } catch (e) {
+    logger.warn(`[controller-studio] push failed for device ${id}: ${(e as Error).message}`)
+  }
+  return c.json({ ok: true, online })
 })
 
 // ── Centralised alarms (server-owned; targets devices, picks a device tone) ─────────

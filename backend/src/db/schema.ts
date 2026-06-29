@@ -135,6 +135,8 @@ export const devices = sqliteTable('devices', {
   groupId: text('group_id'),                       // device_groups.id; null → built-in Default
   layoutTemplateId: text('layout_template_id'),    // device_layout_templates.id; null → built-in default layout
   layoutOverrides: text('layout_overrides'),       // JSON: per-device tweak { theme?, volume?, alarmVolume? }
+  controllerLayoutTemplateId: text('controller_layout_template_id'), // → controller_layout_templates.id; null = builtin:blank
+  controllerLayoutOverrides: text('controller_layout_overrides'),     // JSON: per-device button overrides
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
@@ -200,38 +202,20 @@ export const deviceGroups = sqliteTable('device_groups', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
-// ── Stream Deck (controller mode for screen Pods) ─────────────────────────────
-// Per-user button pages. Each page has a configurable grid size and an ordered
-// list of buttons. Devices in stream-deck mode load the bound user's pages and
-// render them natively in LVGL at 60 fps.
-export const streamDeckPages = sqliteTable('stream_deck_pages', {
+// ── Controller layouts (Stream Deck mode for screen Pods) ─────────────────────
+// Named templates assigned to devices — parallel to device_layout_templates for
+// the display side. Built-in templates ship with dynamic data (YouTube subscriptions,
+// music stations) resolved at push time from the bound user's account.
+export const controllerLayoutTemplates = sqliteTable('controller_layout_templates', {
   id: text('id').primaryKey(),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
   gridRows: integer('grid_rows').notNull().default(3),
   gridCols: integer('grid_cols').notNull().default(5),
-  sortOrder: integer('sort_order').notNull().default(0),
+  pagesJson: text('pages_json').notNull().default('[]'), // JSON: ControllerPage[]
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
-
-// One button cell on a stream deck page. `action` is a JSON blob — see
-// StreamDeckAction type in lib/streamDeckActions.ts for the discriminated union.
-export const streamDeckButtons = sqliteTable('stream_deck_buttons', {
-  id: text('id').primaryKey(),
-  pageId: text('page_id').notNull().references(() => streamDeckPages.id, { onDelete: 'cascade' }),
-  row: integer('row').notNull(),
-  col: integer('col').notNull(),
-  icon: text('icon').notNull().default('Square'),   // emoji or Lucide icon name
-  label: text('label').notNull().default(''),
-  bgColor: text('bg_color').notNull().default('#1e1e2e'),
-  textColor: text('text_color').notNull().default('#ffffff'),
-  action: text('action').notNull().default('{}'),   // JSON: StreamDeckAction
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
-}, (t) => ({
-  pagePositionUnique: unique().on(t.pageId, t.row, t.col),
-}))
 
 // Created on first interaction between a user and a character
 export const userCharacters = sqliteTable('user_characters', {

@@ -19,6 +19,8 @@ export const ALL_ANNOUNCE_TYPES: AnnounceType[] = ['person', 'delivery', 'plate'
 
 export interface FrigateConfig {
   enabled: boolean
+  announceEnabled: boolean      // master TTS toggle — off = no spoken announcements
+  cooldownMinutes: number       // per-camera cooldown (0 = no cooldown)
   baseUrl: string | null        // e.g. http://192.168.1.50:5000  (no trailing slash)
   mqttHost: string | null
   mqttPort: number
@@ -30,7 +32,8 @@ export interface FrigateConfig {
 }
 
 export const FRIGATE_CONFIG_KEYS = [
-  'enabled', 'base_url', 'mqtt_host', 'mqtt_port', 'mqtt_username',
+  'enabled', 'announce_enabled', 'cooldown_minutes',
+  'base_url', 'mqtt_host', 'mqtt_port', 'mqtt_username',
   'mqtt_password', 'shim_token', 'announce', 'known_plates',
 ] as const
 
@@ -72,8 +75,12 @@ export async function getFrigateConfig(): Promise<FrigateConfig> {
     announce = picked
   }
 
+  const cooldown = Number(raw['cooldown_minutes'])
+
   return {
     enabled: raw['enabled'] !== false,  // default on once configured
+    announceEnabled: raw['announce_enabled'] !== false,  // default on
+    cooldownMinutes: Number.isFinite(cooldown) && cooldown >= 0 ? cooldown : 0,
     baseUrl: baseUrl ? baseUrl.replace(/\/+$/, '') : null,
     mqttHost: str(raw['mqtt_host']),
     mqttPort: Number.isFinite(port) && port > 0 ? port : 1883,

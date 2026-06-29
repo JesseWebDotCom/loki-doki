@@ -127,7 +127,10 @@ import { startPodGateway } from '@/lib/pod/gateway'
 import { startPodScheduler } from '@/lib/pod/scheduler'
 import { pod } from '@/routes/pod'
 import { studio as deviceStudio } from '@/routes/deviceStudio'
-import { streamDeck } from '@/routes/streamDeck'
+// NOTE: the legacy /api/stream-deck route (routes/streamDeck.ts) is retired — the
+// controller-layout system replaces it (controller-templates endpoints in deviceStudio.ts
+// + controllerStudio.ts). Its old module still imports the dropped stream_deck_* tables,
+// so it is intentionally NOT imported here (that would crash boot).
 import { browserSessionRoute } from '@/routes/browserSession'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
@@ -360,7 +363,7 @@ app.route('/api/voice', voice)
 app.route('/api/stt', createSttRoute(upgradeWebSocket))
 app.route('/api/pod', pod)
 app.route('/api/pod', deviceStudio)
-app.route('/api/stream-deck', streamDeck)
+// app.route('/api/stream-deck', streamDeck)  // retired — see controller-layout system
 app.route('/api/browser-session', browserSessionRoute)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)

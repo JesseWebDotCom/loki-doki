@@ -22,6 +22,7 @@ import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
 import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
+import { AdminHomeAssistantTab } from '@/components/admin/AdminHomeAssistantTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { AdminSpeedTestTab } from '@/components/admin/AdminSpeedTestTab'
 
@@ -200,8 +201,9 @@ export function AdminPage() {
         {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
         {section === 'news'       && <AdminNewsTab />}
         {section === 'devices'    && <AdminDevicesTab />}
-        {section === 'frigate'    && <AdminFrigateTab />}
-        {section === 'plex'       && <AdminPlexTab />}
+        {section === 'integrations' && sub === 'frigate'         && <AdminFrigateTab />}
+        {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}
+        {section === 'integrations' && sub === 'home-assistant'  && <AdminHomeAssistantTab />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}

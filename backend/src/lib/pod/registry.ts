@@ -152,6 +152,17 @@ export function assetSyncToDevice(deviceId: string, packId: string | null, files
   return reached
 }
 
+/** Push a StreamDeck config payload to a device's live session(s). */
+export function streamDeckToDevice(deviceId: string, config: import('@/lib/pod/wyoming').StreamDeckConfigPayload): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.applyStreamDeckConfig(config); reached = true } catch { /* dead socket */ }
+    }
+  }
+  return reached
+}
+
 /** Live Pods bound to specific device ids (for targeted centralised alarms). */
 export function podsForDevices(deviceIds: Set<string>): PodFireTarget[] {
   const out: PodFireTarget[] = []

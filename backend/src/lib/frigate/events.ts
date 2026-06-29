@@ -20,6 +20,18 @@ const DELIVERY_BRANDS: Record<string, string> = {
   lasership: 'LaserShip',
 }
 
+// Process-lifetime cooldown tracker: prevent the same camera+type from announcing
+// more than once within the configured cooldown window.
+const cooldownMap = new Map<string, number>()
+function withinCooldown(camera: string, type: string, minutes: number): boolean {
+  if (minutes <= 0) return false
+  const last = cooldownMap.get(`${camera}:${type}`) ?? 0
+  return (Date.now() - last) < minutes * 60_000
+}
+function markCooldown(camera: string, type: string): void {
+  cooldownMap.set(`${camera}:${type}`, Date.now())
+}
+
 // Process-lifetime dedup: Frigate republishes new/update/end for one tracked
 // object, so without this a single delivery would announce several times. Key is
 // `${eventId}:${reason}` so a car that later gains a plate can still announce that.
@@ -148,7 +160,9 @@ export async function ingestDetection(d: DetectionInput): Promise<void> {
 
   const snap = snapshotUrl(cfg, d.eventId)
   const clip = clipUrl(cfg, d.eventId)
-  const wants = (t: AnnounceType) => cfg.announce.includes(t)
+  const canAnnounce = cfg.announceEnabled
+  const wants = (t: AnnounceType) =>
+    canAnnounce && cfg.announce.includes(t) && !withinCooldown(d.camera, t, cfg.cooldownMinutes)
 
   // Priority: a plate or delivery is more interesting than a bare "person".
   if (plateNorm) {
@@ -156,12 +170,14 @@ export async function ingestDetection(d: DetectionInput): Promise<void> {
     const text = plateName
       ? `${plateName} just pulled up at the ${cam}.`
       : `A vehicle with plate ${d.plate} was seen at the ${cam}.`
+    const announce = wants('plate')
+    if (announce) markCooldown(d.camera, 'plate')
     await store({
       source: 'mqtt', kind: 'plate', camera: d.camera, eventId: d.eventId,
       label: d.label, subLabel: d.subLabel, plate: plateNorm, plateName,
       zones: d.zones, score: d.score, description: d.description,
       snapshotUrl: snap, clipUrl: clip,
-      announce: wants('plate'), announceText: text,
+      announce, announceText: text,
       notify: true, notifyMessage: text,
     })
     return
@@ -171,11 +187,13 @@ export async function ingestDetection(d: DetectionInput): Promise<void> {
     if (!once(`${d.eventId}:delivery`)) return
     const brand = DELIVERY_BRANDS[subKey] ?? 'A delivery vehicle'
     const text = `${brand} just arrived at the ${cam}.`
+    const announce = wants('delivery')
+    if (announce) markCooldown(d.camera, 'delivery')
     await store({
       source: 'mqtt', kind: 'object', camera: d.camera, eventId: d.eventId,
       label: d.label, subLabel: d.subLabel ?? 'delivery', zones: d.zones, score: d.score,
       description: d.description, snapshotUrl: snap, clipUrl: clip,
-      announce: wants('delivery'), announceText: text,
+      announce, announceText: text,
       notify: true, notifyMessage: text,
     })
     return
@@ -185,11 +203,13 @@ export async function ingestDetection(d: DetectionInput): Promise<void> {
     if (!once(`${d.eventId}:person`)) return
     const zoneTxt = d.zones[0] ? ` (${d.zones[0].replace(/[_-]+/g, ' ')})` : ''
     const text = `Someone's at the ${cam}${zoneTxt}.`
+    const announce = wants('person')
+    if (announce) markCooldown(d.camera, 'person')
     await store({
       source: 'mqtt', kind: 'object', camera: d.camera, eventId: d.eventId,
       label: d.label, zones: d.zones, score: d.score, description: d.description,
       snapshotUrl: snap, clipUrl: clip,
-      announce: wants('person'), announceText: text,
+      announce, announceText: text,
       notify: true, notifyMessage: text,
     })
   }
@@ -218,19 +238,23 @@ export async function ingestReview(r: ReviewInput): Promise<void> {
   const cam = humanCamera(r.camera)
   const headline = r.title?.trim() || r.description?.trim() || 'Unusual activity'
   const text = `Heads up — ${headline.replace(/\.$/, '')} at the ${cam}.`
+  const canAnnounce = cfg.announceEnabled && cfg.announce.includes('suspicious') && !withinCooldown(r.camera, 'suspicious', cfg.cooldownMinutes)
+  if (canAnnounce) markCooldown(r.camera, 'suspicious')
   await store({
     source: 'mqtt', kind: 'review', camera: r.camera, eventId: r.eventId,
     severity: cls === 'dangerous' ? 'dangerous' : 'suspicious',
     title: r.title, description: r.description,
     snapshotUrl: snapshotUrl(cfg, r.eventId), clipUrl: clipUrl(cfg, r.eventId),
-    announce: cfg.announce.includes('suspicious'), announceText: text,
+    announce: canAnnounce, announceText: text,
     notify: true, notifyMessage: text,
   })
 }
 
 // ── Query helpers (admin history + announce polling) ──────────────────────────
-export async function recentEvents(limit = 50) {
-  return db.select().from(frigateEvents).orderBy(desc(frigateEvents.createdAt)).limit(Math.min(limit, 200))
+export async function recentEvents(limit = 50, kind?: string) {
+  const base = db.select().from(frigateEvents).orderBy(desc(frigateEvents.createdAt)).limit(Math.min(limit, 200))
+  if (kind) return base.where(eq(frigateEvents.kind, kind as 'object' | 'plate' | 'review' | 'description'))
+  return base
 }
 
 export async function pendingAnnouncements() {
@@ -240,6 +264,7 @@ export async function pendingAnnouncements() {
   return db.select({
     id: frigateEvents.id, title: frigateEvents.title, camera: frigateEvents.camera,
     kind: frigateEvents.kind, snapshotUrl: frigateEvents.snapshotUrl,
+    label: frigateEvents.label,
   })
     .from(frigateEvents)
     .where(and(eq(frigateEvents.announce, true), eq(frigateEvents.spoken, false), gt(frigateEvents.createdAt, cutoff)))

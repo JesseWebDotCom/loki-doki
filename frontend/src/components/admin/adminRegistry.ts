@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera, Cpu, MonitorPlay } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera, Cpu, MonitorPlay, Plug2 } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -113,38 +113,38 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     description: 'Set up and manage your voice devices around the home',
     subsections: [
       {
-        id: 'layouts', label: 'Layouts', kind: 'anchor', anchorId: 'devices-layouts',
-        keywords: ['layout', 'layouts', 'grid', 'slot', 'widgets', 'template', 'profile', 'theme', 'dashboard', 'tab5', 'clock', 'weather', 'home', 'screen', 'display', 'ambient', 'kiosk', 'wallpaper', 'flip clock', 'date', 'background'],
-        description: 'Arrange the ambient screen — widgets in a slot grid, themed, assigned to devices',
+        id: 'layouts', label: 'Layouts', kind: 'anchor', anchorId: 'devices-layouts-tab',
+        keywords: ['layout', 'layouts', 'grid', 'slot', 'widgets', 'template', 'profile', 'theme', 'dashboard', 'tab5', 'clock', 'weather', 'home', 'screen', 'display', 'ambient', 'kiosk', 'wallpaper', 'flip clock', 'date', 'background', 'controller', 'stream deck'],
+        description: 'Layout templates for display and controller modes',
       },
       {
-        id: 'sounds', label: 'Sounds', kind: 'anchor', anchorId: 'devices-sounds',
-        keywords: ['sound', 'sounds', 'earcon', 'chime', 'chimes', 'tone', 'pack', 'wake sound', 'beep', 'audio'],
-        description: 'Sound packs, UI earcons, and the chime / alarm-tone designer',
-      },
-      {
-        id: 'alarms', label: 'Alarms', kind: 'anchor', anchorId: 'devices-alarms',
-        keywords: ['alarm', 'alarms', 'wake up', 'ring', 'snooze', 'schedule', 'tone'],
-        description: 'Centralised alarms that ring on screen devices',
-      },
-      {
-        id: 'camera-test', label: 'Camera test', kind: 'anchor', anchorId: 'devices-camera-test',
-        keywords: ['camera', 'test', 'push', 'screen', 'feed', 'mjpeg', 'snapshot'],
-        description: 'Push a live camera feed to a screen device',
+        id: 'sounds', label: 'Sounds', kind: 'anchor', anchorId: 'devices-sounds-tab',
+        keywords: ['sound', 'sounds', 'earcon', 'chime', 'chimes', 'tone', 'pack', 'wake sound', 'beep', 'audio', 'alarm', 'alarms', 'wake up', 'ring', 'snooze', 'schedule'],
+        description: 'Sound packs, earcons, and the chime designer',
       },
     ],
   },
   {
-    id: 'frigate', label: 'Frigate', icon: Camera,
-    keywords: ['frigate', 'nvr', 'camera', 'cameras', 'cctv', 'security', 'genai', 'license plate', 'lpr', 'delivery', 'mqtt'],
-    description: 'Frigate NVR integration — VLM GenAI provider, camera event notifications and announcements',
-    subsections: [],
-  },
-  {
-    id: 'plex', label: 'Plex', icon: MonitorPlay,
-    keywords: ['plex', 'media', 'server', 'watchlist', 'library', 'movies', 'shows', 'streaming', 'token', 'pin'],
-    description: 'Link your Plex Media Server — library rails, two-way Watchlist sync, and in-app playback',
-    subsections: [],
+    id: 'integrations', label: 'Integrations', icon: Plug2,
+    keywords: ['integrations', 'frigate', 'plex', 'home assistant', 'nvr', 'camera', 'media', 'smart home', 'mqtt', 'hass', 'cctv', 'security'],
+    description: 'External service integrations — Frigate NVR, Plex, and Home Assistant',
+    subsections: [
+      {
+        id: 'frigate', label: 'Frigate', kind: 'view',
+        keywords: ['frigate', 'nvr', 'camera', 'cameras', 'cctv', 'security', 'genai', 'license plate', 'lpr', 'delivery', 'mqtt'],
+        description: 'Frigate NVR — VLM GenAI provider, camera event notifications and announcements',
+      },
+      {
+        id: 'plex', label: 'Plex', kind: 'view',
+        keywords: ['plex', 'media', 'server', 'watchlist', 'library', 'movies', 'shows', 'streaming', 'token', 'pin'],
+        description: 'Link your Plex Media Server — library rails, two-way Watchlist sync, and in-app playback',
+      },
+      {
+        id: 'home-assistant', label: 'Home Assistant', kind: 'view',
+        keywords: ['home assistant', 'hass', 'smart home', 'iot', 'devices', 'entities', 'areas', 'automation', 'lights', 'thermostat'],
+        description: 'Connect Home Assistant for smart-home control via the companion',
+      },
+    ],
   },
   {
     id: 'security', label: 'Security', icon: ShieldCheck,

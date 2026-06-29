@@ -1864,36 +1864,21 @@ export function runMigrations() {
   addColumn('media_watchlist', 'plex_synced_at', 'INTEGER')
   addColumn('media_watchlist', 'deleted_at', 'INTEGER')
 
-  // Stream Deck — per-user programmable button pages for screen Pods in controller mode.
+  // Controller layout templates — named Stream Deck button-grid presets assigned to screen
+  // devices (parallel to device_layout_templates for the display side). Built-in templates
+  // ship with dynamic data resolved at push time.
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS stream_deck_pages (
+    CREATE TABLE IF NOT EXISTS controller_layout_templates (
       id TEXT NOT NULL PRIMARY KEY,
-      user_id TEXT NOT NULL,
       name TEXT NOT NULL,
+      builtin INTEGER NOT NULL DEFAULT 0,
       grid_rows INTEGER NOT NULL DEFAULT 3,
       grid_cols INTEGER NOT NULL DEFAULT 5,
-      sort_order INTEGER NOT NULL DEFAULT 0,
+      pages_json TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      updated_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_stream_deck_pages_user ON stream_deck_pages(user_id, sort_order);
-
-    CREATE TABLE IF NOT EXISTS stream_deck_buttons (
-      id TEXT NOT NULL PRIMARY KEY,
-      page_id TEXT NOT NULL,
-      row INTEGER NOT NULL,
-      col INTEGER NOT NULL,
-      icon TEXT NOT NULL DEFAULT 'Square',
-      label TEXT NOT NULL DEFAULT '',
-      bg_color TEXT NOT NULL DEFAULT '#1e1e2e',
-      text_color TEXT NOT NULL DEFAULT '#ffffff',
-      action TEXT NOT NULL DEFAULT '{}',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      FOREIGN KEY (page_id) REFERENCES stream_deck_pages(id) ON DELETE CASCADE,
-      UNIQUE (page_id, row, col)
-    );
-    CREATE INDEX IF NOT EXISTS idx_stream_deck_buttons_page ON stream_deck_buttons(page_id);
   `)
+  addColumn('devices', 'controller_layout_template_id', 'TEXT')
+  addColumn('devices', 'controller_layout_overrides', 'TEXT')
 }

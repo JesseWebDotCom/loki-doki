@@ -381,6 +381,9 @@ void LokiDokiSatellite::flush_tx_() {
 void LokiDokiSatellite::process_event_(const std::string &type, const std::string &data_json,
                                        const uint8_t *payload, size_t payload_len) {
   if (type == "audio-chunk") {
+    // After Stop we discard the rest of THIS reply's audio (still draining out of the
+    // socket) so playback halts immediately instead of playing out the backlog.
+    if (this->discard_reply_audio_) return;
     // Copy reply audio into the fixed buffer EXACTLY like HA's on_audio(): memcpy at the
     // write head if it fits, else drop the chunk. Socket backpressure (pump_rx_) keeps the
     // server from outrunning us, so in practice the buffer never overflows.
@@ -400,6 +403,7 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     if (this->mic_ != nullptr) this->mic_->stop();
     this->playing_ = true;
     this->got_stop_ = false;  // new reply — wait for its audio-stop, not just a gap
+    this->discard_reply_audio_ = false;  // a fresh reply plays normally again
     this->last_play_ms_ = millis();
     return;
   }

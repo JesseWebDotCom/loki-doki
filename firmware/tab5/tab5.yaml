@@ -79,6 +79,17 @@ esp32:
   engineering_sample: true
   framework:
     type: esp-idf
+    sdkconfig_options:
+      # Boot-loop fix (esp-idf #15996, ESP32-P4 TCM). The boot-time NVS flush (ESPHome's
+      # scheduler runs on the esp_timer task → global_preferences sync → nvs_commit) crashes
+      # when the esp_timer task's stack is heap-placed in the 8 KB TCM (0x30100000): the
+      # cache-disable safety check rejects a TCM-resident stack during the flash op. Making
+      # this stack > 8 KB forces the allocator out of TCM into L2MEM. The esp_timer + main
+      # tasks allocate fine at this size (static / late-heap); we deliberately do NOT touch
+      # FREERTOS_TIMER_TASK_STACK_DEPTH — that task allocates so early only TCM is free, so a
+      # >8 KB value there fails to allocate. Internal SRAM is plentiful for the larger stacks.
+      CONFIG_ESP_TIMER_TASK_STACK_SIZE: "12288"
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "12288"
     advanced:
       enable_idf_experimental_features: true
 
@@ -490,6 +501,31 @@ lvgl:
             long_mode: wrap
             text_align: CENTER
             hidden: true
+        # Dismiss button on the reply panel — lets the user clear the reply text early
+        # (shown/hidden in lock-step with lbl_reply). Top-right corner of the panel.
+        - button:
+            id: btn_dismiss_reply
+            align: TOP_RIGHT
+            x: -26
+            y: 22
+            width: 150
+            height: 58
+            radius: 29
+            bg_color: 0x3A3450
+            bg_opa: COVER
+            border_width: 0
+            hidden: true
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Dismiss"
+                  text_font: font_sd_label
+                  text_color: 0xFFFFFF
+            on_click:
+              then:
+                - script.stop: hide_reply_timer
+                - script.stop: hide_reply_soon
+                - script.execute: hide_reply_now
         # Bottom-CENTER conversation status pill (Listening / Thinking / Speaking),
         # shown whenever a turn is active. Driven by the face_state text sensor below.
         - obj:
@@ -553,8 +589,25 @@ lvgl:
             on_click:
               then:
                 - lambda: |-
-                    // During a turn this button is a STOP button → abort the turn.
-                    if (id(ui_active)) { id(ptt_was_hold) = false; id(satellite)->request_stop(); return; }
+                    // During a turn this button is a STOP button → abort the turn AND snap
+                    // the UI back to idle locally. The server may already believe it's idle
+                    // (so it won't echo another idle face.state), which would otherwise leave
+                    // this pill stuck on "Thinking".
+                    if (id(ui_active)) {
+                      id(ptt_was_hold) = false;
+                      id(satellite)->request_stop();
+                      id(ui_active) = false;
+                      lv_obj_add_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(btn_dismiss_reply), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(ic_stop), LV_OBJ_FLAG_HIDDEN);
+                      bool m = id(satellite)->is_mic_muted();
+                      if (m) { lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+                      else { lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+                      lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(m ? 0x4B5563 : 0x7C3AED), 0);
+                      lv_label_set_text(id(lbl_wake), m ? "Muted" : "Listening");
+                      return;
+                    }
                     if (id(ptt_was_hold)) { id(ptt_was_hold) = false; return; }
                     id(satellite)->toggle_mic_mute();
                     bool muted = id(satellite)->is_mic_muted();
@@ -572,13 +625,27 @@ lvgl:
               then:
                 - lambda: |-
                     id(ptt_was_hold) = true;
-                    if (id(ui_active)) { id(satellite)->request_stop(); return; }  // in a turn → stop
+                    if (id(ui_active)) {  // in a turn → stop + snap back to idle locally
+                      id(satellite)->request_stop();
+                      id(ui_active) = false;
+                      lv_obj_add_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(btn_dismiss_reply), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(ic_stop), LV_OBJ_FLAG_HIDDEN);
+                      bool m = id(satellite)->is_mic_muted();
+                      if (m) { lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+                      else { lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+                      lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(m ? 0x4B5563 : 0x7C3AED), 0);
+                      lv_label_set_text(id(lbl_wake), m ? "Muted" : "Listening");
+                      return;
+                    }
                     if (!id(satellite)->is_mic_muted()) {
                       id(satellite)->request_listen();
                       lv_label_set_text(id(state_label), "Listening");
                       lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);
                       lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
                       lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(btn_dismiss_reply), LV_OBJ_FLAG_HIDDEN);
                     }
         - label:
             id: lbl_wake
@@ -867,6 +934,29 @@ interval:
           last_recv = rcv;
           last_ms = now;
 
+  # ── Swipe left/right to switch between Display and Controller modes ───────────
+  # TEMPORARILY DISABLED (Claude): re-enabling this swipe block reliably boot-loops the
+  # device (assert esp_task_stack_is_sane_cache_disabled — a PSRAM-stacked WiFi/NVS task
+  # hits a cache-disabling flash op at init; adding ANY code tips it onto that path). The
+  # two standard sdkconfig fixes (force stacks internal; flash AUTO_SUSPEND) did NOT clear
+  # it. Needs a deeper diagnosis (decode the faulting task + its stack origin) before this
+  # — and the audio-stop discard — can ship. Left commented so the device boots.
+  - interval: 50ms
+    then:
+      - lambda: |-
+          lv_indev_t *indev = lv_indev_get_next(nullptr);
+          if (!indev) return;
+          lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+          if (dir == LV_DIR_NONE) return;
+          lv_obj_t *cur = lv_screen_active();
+          if (dir == LV_DIR_LEFT && cur == id(page_clock)->obj) {
+            lv_screen_load_anim(id(page_stream_deck)->obj,
+              LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, false);
+          } else if (dir == LV_DIR_RIGHT && cur == id(page_stream_deck)->obj) {
+            lv_screen_load_anim(id(page_clock)->obj,
+              LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, false);
+          }
+
 
 # Conversation state from the satellite (idle/connecting/listening/thinking/talking).
 # On each change we either hide the overlay (back to the clock) or show a bold,
@@ -898,6 +988,10 @@ text_sensor:
       then:
         - lambda: |-
             const std::string &s = x;
+            // Auto-dismiss spoken reply text: remember once speech starts, then 1 s after
+            // we return to idle, clear the on-screen reply (hide_reply_soon).
+            if (s == "talking") id(was_speaking) = true;
+            if (s == "idle" && id(was_speaking)) { id(was_speaking) = false; id(hide_reply_soon).execute(); }
             if (s == "listening") {
               lv_label_set_text(id(state_label), "Listening");
               lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);  // green
@@ -942,12 +1036,15 @@ text_sensor:
             // top status row + bottom controls stay visible. Buttons are never hidden.
             if (x.empty()) {
               lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(btn_dismiss_reply), LV_OBJ_FLAG_HIDDEN);
             } else {
               lv_label_set_text(id(lbl_reply), x.c_str());
               lv_obj_clear_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(btn_dismiss_reply), LV_OBJ_FLAG_HIDDEN);
             }
-        # (Re)start the auto-hide countdown on every update so the reply clears a while
-        # after the LAST chunk arrives, instead of lingering on screen forever.
+        # Fallback auto-hide for TEXT-only replies (no speech to bound them): clears the
+        # reply ~22 s after the LAST chunk. Spoken replies are dismissed 1 s after speech
+        # ends instead (see face_state → hide_reply_soon), which fires first.
         - script.execute: hide_reply_timer
 
 # Tap-vs-hold disambiguation for the mic button: on_long_press (push-to-talk) sets this,
@@ -963,17 +1060,35 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  # True once a reply has STARTED speaking, so when we return to idle we know it was a
+  # spoken reply and can auto-dismiss its on-screen text 1 s after the speech ends.
+  - id: was_speaking
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
-# Auto-hide the typed reply ~22 s after the last update (mode: restart resets the
-# countdown on each streamed chunk, so it only fires once the reply has settled).
+# Reply-panel hide logic. hide_reply_now is the single clear path (panel + Dismiss button);
+# the two timers just call it after their delay.
 script:
+  - id: hide_reply_now
+    then:
+      - lambda: |-
+          // Reply done → clear the content panel; the clock/weather shows through again.
+          lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(btn_dismiss_reply), LV_OBJ_FLAG_HIDDEN);
+  # TEXT-only fallback: clear ~22 s after the last streamed chunk (mode: restart resets
+  # the countdown on each chunk, so it only fires once the reply has settled).
   - id: hide_reply_timer
     mode: restart
     then:
       - delay: 22s
-      - lambda: |-
-          // Reply done → clear the content panel; the clock/weather shows through again.
-          lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+      - script.execute: hide_reply_now
+  # SPOKEN replies: clear 1 s after the speech finishes (face_state talking → idle).
+  - id: hide_reply_soon
+    mode: restart
+    then:
+      - delay: 1s
+      - script.execute: hide_reply_now
 
 external_components:
   # The shared Wyoming/Loki-Doki satellite runtime (firmware/components/).

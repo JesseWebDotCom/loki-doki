@@ -52,8 +52,9 @@ import {
 import { effectiveSettings } from '@/lib/pod/deviceSettings'
 import { getDeviceMode } from '@/lib/pod/displayMode'
 import { resolveDeviceDescriptor } from '@/lib/pod/deviceStudio'
+import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { handleAlarmAction } from '@/lib/pod/scheduler'
-import { handleButtonPress } from '@/lib/pod/streamDeckActions'
+import { handleButtonPress } from '@/lib/pod/controllerActions'
 
 type Send = (ev: WyomingEvent) => void
 
@@ -138,8 +139,8 @@ export class SatelliteSession implements PodFireTarget {
           // and coordinate the dismiss across any other devices ringing the same alarm.
           const action = d.action === 'snooze' ? 'snooze' : 'cancel'
           void handleAlarmAction(String(d.alarm_id), action, this._deviceId)
-        } else if (d && d.name === 'button_press' && this.userId && typeof d.page_id === 'string') {
-          void handleButtonPress(String(d.page_id), Number(d.row), Number(d.col), this.userId)
+        } else if (d && d.name === 'button_press' && this.userId && this._deviceId && typeof d.page_id === 'string') {
+          void handleButtonPress(this._deviceId, String(d.page_id), Number(d.row), Number(d.col), this.userId)
         } else if (d && d.name === 'reply_mode' && typeof d.mode === 'string') {
           // Device toggled voice ↔ text reply (the bottom-right control). Text mode →
           // we type the reply on its screen instead of speaking it.
@@ -152,7 +153,14 @@ export class SatelliteSession implements PodFireTarget {
           this.turnAbort?.abort()
           this.capturing = false
           this.stt?.close(); this.stt = null
-          this.setState('idle')
+          // Bracket the (aborted) reply with an audio-stop so the device ends playback
+          // cleanly — deliverReply's own finally skips it when the signal is aborted.
+          this.send(audioStop())
+          // Force-emit idle (bypassing the setState de-dupe): the device may be showing a
+          // stale "thinking" pill while we already believe we're idle — in that case a
+          // plain setState('idle') is a no-op and Stop would appear to do nothing.
+          this.state = 'idle'
+          this.send(faceState('idle'))
         }
         break
       }
@@ -607,11 +615,19 @@ export class SatelliteSession implements PodFireTarget {
     // Restore this device's screen mode (normal/camera-test/touch-test) — an offline
     // device that was put in a test mode picks it back up the instant it reconnects.
     this.setDisplayMode(getDeviceMode(device.id))
+    // Re-assert the current conversation state so a reconnecting device can't keep
+    // showing a stale "thinking"/"talking" pill from before the drop. setState() dedupes
+    // (it won't re-send the state it already holds), so push it explicitly here.
+    this.send(faceState(this.state))
     // Push the device's slot-based dashboard descriptor (assigned template or the
     // built-in default) + resolved sound map — this is how a layout/colour/sound edit
     // reaches a device that was offline when it was changed. Fire-and-forget.
     resolveDeviceDescriptor(device.id)
       .then((desc) => { if (desc && !this.closed) this.applyLayout(desc as unknown as Record<string, unknown>) })
+      .catch(() => {})
+    // Push controller layout alongside display layout on connect.
+    resolveControllerDescriptor(device.id, device.userId)
+      .then((cfg) => { if (!this.closed) this.applyStreamDeckConfig(cfg) })
       .catch(() => {})
   }
 

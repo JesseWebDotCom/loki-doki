@@ -21,6 +21,8 @@ adminFrigate.get('/config', requireAdmin, async (c) => {
   const shimBaseUrl = `http://${await getServerHost()}:${process.env.PORT ?? '3000'}/api/frigate/v1`
   return c.json({
     enabled: cfg.enabled,
+    announceEnabled: cfg.announceEnabled,
+    cooldownMinutes: cfg.cooldownMinutes,
     baseUrl: cfg.baseUrl ?? '',
     mqttHost: cfg.mqttHost ?? '',
     mqttPort: cfg.mqttPort,
@@ -38,6 +40,11 @@ adminFrigate.put('/config', requireAdmin, async (c) => {
   const body = await c.req.json() as Record<string, unknown>
 
   if ('enabled' in body) await setFrigateConfigValue('enabled', body['enabled'] !== false)
+  if ('announceEnabled' in body) await setFrigateConfigValue('announce_enabled', body['announceEnabled'] !== false)
+  if (body['cooldownMinutes'] !== undefined) {
+    const m = Number(body['cooldownMinutes'])
+    if (Number.isFinite(m) && m >= 0) await setFrigateConfigValue('cooldown_minutes', Math.floor(m))
+  }
   if (typeof body['baseUrl'] === 'string') await setFrigateConfigValue('base_url', body['baseUrl'].trim())
   if (typeof body['mqttHost'] === 'string') await setFrigateConfigValue('mqtt_host', body['mqttHost'].trim())
   if (body['mqttPort'] !== undefined) {

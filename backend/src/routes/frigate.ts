@@ -151,7 +151,8 @@ frigate.post('/announcements/:id/spoken', requireAuth, async (c) => {
 
 frigate.get('/events', requireAuth, async (c) => {
   const limit = parseInt(c.req.query('limit') ?? '50')
-  return c.json({ events: await recentEvents(Number.isFinite(limit) ? limit : 50) })
+  const kind = c.req.query('kind') || undefined
+  return c.json({ events: await recentEvents(Number.isFinite(limit) ? limit : 50, kind) })
 })
 
 export { frigate }
