@@ -820,6 +820,16 @@ interval:
               lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
               lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
               lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
+              // Reflect the RESTORED (persisted) mute settings on the controls.
+              bool micMuted = id(satellite)->is_mic_muted();
+              lv_label_set_text(id(lbl_wake), micMuted ? "Muted" : "Listening");
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(micMuted ? 0x4B5563 : 0x7C3AED), 0);
+              if (micMuted) { lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+              else { lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+              bool audMuted = id(satellite)->is_audio_muted();
+              lv_label_set_text(id(lbl_voice), audMuted ? "Sound off" : "Sound on");
+              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(audMuted ? 0x4B5563 : 0x2563EB), 0);
+              lv_label_set_text(id(lbl_voice_icon), audMuted ? "" : "");
             }
           }
           // Staleness watchdog: the server pushes layout frames continuously, so a gap

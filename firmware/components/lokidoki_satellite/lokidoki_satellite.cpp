@@ -28,6 +28,16 @@ struct StoredToken {
   char value[80];
 };
 
+// Per-device control state persisted to NVS so it survives reboots/crashes — the user's
+// mic mute + audio mute are restored on boot. `magic` guards against reading an unwritten
+// slot as a valid (all-zero) struct.
+struct StoredSettings {
+  uint32_t magic;     // == SETTINGS_MAGIC once written
+  bool mic_muted;     // microphone muted (not listening)
+  bool audio_muted;   // all speaker output muted
+};
+static const uint32_t SETTINGS_MAGIC = 0x10D10C01;
+
 // Reconnect backoff and the mic flush threshold (bytes ≈ 32 ms of 16 kHz int16).
 static const uint32_t RECONNECT_INTERVAL_MS = 3000;
 static const size_t MIC_FLUSH_BYTES = 1024;
@@ -42,6 +52,7 @@ static const size_t SPEAKER_BUFFER_SIZE = 16 * RECEIVE_SIZE;  // 16384, like HA
 
 void LokiDokiSatellite::setup() {
   this->load_token_();
+  this->load_settings_();  // restore mic/audio mute the user set before the last reboot
 
   // Pre-allocate the fixed playback buffer ONCE — Home-Assistant style (it uses a
   // RAMAllocator<uint8_t> of SPEAKER_BUFFER_SIZE). Never grown, never freed, so the
@@ -488,6 +499,7 @@ void LokiDokiSatellite::toggle_mic_mute() {
   // NOT stop the mic peripheral: touching the shared I2S bus outside the playback
   // handoff reboots the device (that's what crashed when tapping the mic).
   this->mic_enabled_ = !this->mic_enabled_;
+  this->save_settings_();
   ESP_LOGI(TAG, "microphone %s", this->mic_enabled_ ? "live" : "MUTED (privacy)");
 }
 
@@ -506,6 +518,27 @@ void LokiDokiSatellite::save_token_(const std::string &token) {
   StoredToken st{};
   std::strncpy(st.value, token.c_str(), sizeof(st.value) - 1);
   this->token_pref_.save(&st);
+  global_preferences->sync();
+}
+
+void LokiDokiSatellite::load_settings_() {
+  this->settings_pref_ = global_preferences->make_preference<StoredSettings>(fnv1_hash("lokidoki_settings"));
+  StoredSettings s{};
+  if (this->settings_pref_.load(&s) && s.magic == SETTINGS_MAGIC) {
+    this->mic_enabled_ = !s.mic_muted;
+    this->muted_ = s.audio_muted;
+    this->voice_reply_ = !s.audio_muted;  // audio off → type-only replies
+    ESP_LOGI(TAG, "restored settings: mic %s, audio %s",
+             this->mic_enabled_ ? "live" : "MUTED", this->muted_ ? "MUTED" : "on");
+  }
+}
+
+void LokiDokiSatellite::save_settings_() {
+  StoredSettings s{};
+  s.magic = SETTINGS_MAGIC;
+  s.mic_muted = !this->mic_enabled_;
+  s.audio_muted = this->muted_;
+  this->settings_pref_.save(&s);
   global_preferences->sync();
 }
 

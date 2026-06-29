@@ -88,6 +88,7 @@ class LokiDokiSatellite : public Component {
     this->muted_ = !this->muted_;          // speaker volume 0 = all output silenced
     this->voice_reply_ = !this->muted_;    // audio on → speak the reply; off → type only
     this->send_reply_mode_();
+    this->save_settings_();
   }
 
   // Stream Deck controller mode. Called from the YAML on_boot lambda to hand us
@@ -114,6 +115,8 @@ class LokiDokiSatellite : public Component {
   void announce_or_auth_();          // hello (unclaimed) or auth (paired)
   void load_token_();
   void save_token_(const std::string &token);
+  void load_settings_();   // restore per-device mic/audio mute from NVS on boot
+  void save_settings_();   // persist mic/audio mute whenever the user toggles
   std::string hwid_() const;         // stable hardware id = Wi-Fi MAC
 
   // ── feedback (LED reflects connection + conversation state) ──
@@ -183,6 +186,7 @@ class LokiDokiSatellite : public Component {
 
   std::string token_;                // device token (empty until claimed)
   ESPPreferenceObject token_pref_;
+  ESPPreferenceObject settings_pref_;  // persisted mic/audio mute (per device, in NVS)
 
   // LED state
   std::string face_{"idle"};         // last conversation state from the Host
