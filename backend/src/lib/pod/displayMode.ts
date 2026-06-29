@@ -12,8 +12,8 @@
 
 import { setModeToDevice } from '@/lib/pod/registry'
 
-export type DisplayMode = 'normal' | 'camera-test' | 'touch-test'
-export const DISPLAY_MODES: DisplayMode[] = ['normal', 'camera-test', 'touch-test']
+export type DisplayMode = 'normal' | 'camera-test' | 'touch-test' | 'stream-deck'
+export const DISPLAY_MODES: DisplayMode[] = ['normal', 'camera-test', 'touch-test', 'stream-deck']
 
 export function isDisplayMode(v: unknown): v is DisplayMode {
   return typeof v === 'string' && (DISPLAY_MODES as string[]).includes(v)

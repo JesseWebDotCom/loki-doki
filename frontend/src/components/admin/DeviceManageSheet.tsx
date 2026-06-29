@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DeviceArt } from '@/components/admin/DeviceArt'
 import { resolveDeviceModel, deviceModelName } from '@/lib/deviceCatalog'
-import { Volume2, Wifi, RefreshCw, Trash2, ChevronRight, Loader2, HelpCircle, Clock, Camera, Pointer } from 'lucide-react'
+import { Volume2, Wifi, RefreshCw, Trash2, ChevronRight, Loader2, HelpCircle, Clock, Camera, Pointer, Monitor, LayoutGrid } from 'lucide-react'
 import { toast } from '@/lib/toast'
 
 // Apple-style slide-over for managing one device: a big Test button up top, grouped
@@ -45,7 +45,7 @@ const MODES = [
   { id: 'camera-test', label: 'Camera', desc: 'Live test feed', icon: <Camera className="size-5" /> },
   { id: 'touch-test', label: 'Touch', desc: 'Tap to draw', icon: <Pointer className="size-5" /> },
 ]
-const MODE_LABEL: Record<string, string> = { normal: 'Normal', 'camera-test': 'Camera test', 'touch-test': 'Touch test' }
+const MODE_LABEL: Record<string, string> = { normal: 'Normal', 'camera-test': 'Camera test', 'touch-test': 'Touch test', 'stream-deck': 'Controller' }
 // Kinds that have a screen (so the Testing section only shows where it's meaningful).
 const SCREEN_KINDS = ['tablet', 'show']
 
@@ -241,35 +241,88 @@ export function DeviceManageSheet({
             </FieldRow>
           </Group>
 
-          {/* Testing — switch a screen device between its normal UI and test screens */}
-          {isScreen && (
-            <Group title="Testing">
-              <div className="grid grid-cols-3 gap-2 p-3">
-                {MODES.map((m) => {
-                  const active = mode === m.id
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => changeMode(m.id)}
-                      disabled={modeBusy}
-                      className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-colors disabled:opacity-60 ${
-                        active ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40'
-                      }`}
+          {/* Display / Controller — top-level mode toggle for screen devices */}
+          {isScreen && (() => {
+            const isController = mode === 'stream-deck'
+            return (
+              <Group title="Mode">
+                {/* Level 1: Display vs Controller */}
+                <div className="grid grid-cols-2 gap-2 p-3">
+                  <button
+                    onClick={() => changeMode('normal')}
+                    disabled={modeBusy}
+                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors disabled:opacity-60 ${
+                      !isController ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40'
+                    }`}
+                  >
+                    <Monitor className="size-6" />
+                    <div>
+                      <p className="text-sm font-semibold">Display</p>
+                      <p className="text-[10px] leading-tight text-muted-foreground">Ambient clock &amp; weather</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => changeMode('stream-deck')}
+                    disabled={modeBusy}
+                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors disabled:opacity-60 ${
+                      isController ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40'
+                    }`}
+                  >
+                    <LayoutGrid className="size-6" />
+                    <div>
+                      <p className="text-sm font-semibold">Controller</p>
+                      <p className="text-[10px] leading-tight text-muted-foreground">Stream Deck button grid</p>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Level 2: Display sub-modes (testing) — hidden when Controller active */}
+                {!isController && (
+                  <>
+                    <div className="border-t border-border/40 px-4 pb-1 pt-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Testing</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 px-3 pb-3">
+                      {MODES.map((m) => {
+                        const active = mode === m.id
+                        return (
+                          <button
+                            key={m.id}
+                            onClick={() => changeMode(m.id)}
+                            disabled={modeBusy}
+                            className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-colors disabled:opacity-60 ${
+                              active ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40'
+                            }`}
+                          >
+                            {m.icon}
+                            <span className="text-xs font-medium">{m.label}</span>
+                            <span className="text-[10px] leading-tight text-muted-foreground">{m.desc}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="px-4 pb-3 text-[11px] text-muted-foreground">
+                      {device.online
+                        ? 'Camera test streams a public feed (no Frigate needed). Touch test draws a pink dot wherever you press.'
+                        : 'Device is offline — the chosen mode will apply when it reconnects.'}
+                    </p>
+                  </>
+                )}
+
+                {/* Controller quick-link */}
+                {isController && (
+                  <div className="border-t border-border/40 px-4 py-3">
+                    <a
+                      href="/settings/stream-deck"
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
                     >
-                      {m.icon}
-                      <span className="text-xs font-medium">{m.label}</span>
-                      <span className="text-[10px] leading-tight text-muted-foreground">{m.desc}</span>
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="px-4 pb-3 text-[11px] text-muted-foreground">
-                {device.online
-                  ? 'Camera test streams a public feed (no Frigate needed). Touch test draws a pink dot wherever you press.'
-                  : 'Device is offline — the chosen mode will apply when it reconnects.'}
-              </p>
-            </Group>
-          )}
+                      Configure buttons <ChevronRight className="size-4" />
+                    </a>
+                  </div>
+                )}
+              </Group>
+            )
+          })()}
 
           {/* Network & software */}
           <Group title="Network & software">

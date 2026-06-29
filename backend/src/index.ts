@@ -127,6 +127,8 @@ import { startPodGateway } from '@/lib/pod/gateway'
 import { startPodScheduler } from '@/lib/pod/scheduler'
 import { pod } from '@/routes/pod'
 import { studio as deviceStudio } from '@/routes/deviceStudio'
+import { streamDeck } from '@/routes/streamDeck'
+import { browserSessionRoute } from '@/routes/browserSession'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
@@ -358,6 +360,8 @@ app.route('/api/voice', voice)
 app.route('/api/stt', createSttRoute(upgradeWebSocket))
 app.route('/api/pod', pod)
 app.route('/api/pod', deviceStudio)
+app.route('/api/stream-deck', streamDeck)
+app.route('/api/browser-session', browserSessionRoute)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
 // Deprecated alias: archives captured before the Reader→Bookmarks rename baked

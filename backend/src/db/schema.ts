@@ -200,6 +200,39 @@ export const deviceGroups = sqliteTable('device_groups', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ── Stream Deck (controller mode for screen Pods) ─────────────────────────────
+// Per-user button pages. Each page has a configurable grid size and an ordered
+// list of buttons. Devices in stream-deck mode load the bound user's pages and
+// render them natively in LVGL at 60 fps.
+export const streamDeckPages = sqliteTable('stream_deck_pages', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  gridRows: integer('grid_rows').notNull().default(3),
+  gridCols: integer('grid_cols').notNull().default(5),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// One button cell on a stream deck page. `action` is a JSON blob — see
+// StreamDeckAction type in lib/streamDeckActions.ts for the discriminated union.
+export const streamDeckButtons = sqliteTable('stream_deck_buttons', {
+  id: text('id').primaryKey(),
+  pageId: text('page_id').notNull().references(() => streamDeckPages.id, { onDelete: 'cascade' }),
+  row: integer('row').notNull(),
+  col: integer('col').notNull(),
+  icon: text('icon').notNull().default('Square'),   // emoji or Lucide icon name
+  label: text('label').notNull().default(''),
+  bgColor: text('bg_color').notNull().default('#1e1e2e'),
+  textColor: text('text_color').notNull().default('#ffffff'),
+  action: text('action').notNull().default('{}'),   // JSON: StreamDeckAction
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  pagePositionUnique: unique().on(t.pageId, t.row, t.col),
+}))
+
 // Created on first interaction between a user and a character
 export const userCharacters = sqliteTable('user_characters', {
   id: text('id').primaryKey(),

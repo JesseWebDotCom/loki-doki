@@ -35,6 +35,8 @@ export interface PodFireTarget {
   stopAlarm(alarmId: string): void
   /** Tell the device to fetch custom WAVs (url + sha256) to its SD card once. */
   syncAssets(packId: string | null, files: Array<{ path: string; url: string; sha256: string }>): void
+  /** Push the stream deck button grid to this device (controller mode). */
+  applyStreamDeckConfig(config: import('@/lib/pod/wyoming').StreamDeckConfigPayload): void
   /** Tear down this session (used to evict a stale duplicate when the device reconnects). */
   close(): void
 }

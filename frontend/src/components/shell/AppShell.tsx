@@ -26,6 +26,7 @@ import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
 import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
+import { useBrowserSession } from "@/hooks/useBrowserSession";
 
 // Pages not in APP_GROUPS (no category group in the breadcrumb).
 const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: string; gradient?: string }> = {
@@ -41,6 +42,8 @@ const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: 
 export function AppShell() {
   // Smart caching: warm pinned + recent apps' data during idle time so they open instantly.
   useAppWarmer();
+  // Stream Deck / Tab5 button commands over SSE.
+  useBrowserSession();
   const { pathname } = useLocation();
   // Full-bleed apps own their full height and let the companion float over them.
   // isReader (ZIM reader at /read/:id + docs) provides its OWN breadcrumb header, so the

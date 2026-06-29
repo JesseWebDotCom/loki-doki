@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Ear, Volume2, VolumeX } from 'lucide-react'
 import { useNow } from '@/hooks/useNow'
 import { useWeatherSnapshot } from '@/hooks/useWeatherSnapshot'
 import { WeatherHeroBg } from '@/components/weather/WeatherHeroBg'
@@ -29,7 +30,7 @@ interface Props {
   onToggleHandsFree: () => void
 }
 
-export function DeviceLayoutDisplay({ descriptor }: Props) {
+export function DeviceLayoutDisplay({ descriptor, isDeviceRender, voiceOn, handsFreeOn, onToggleVoice, onToggleHandsFree }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ w: 0, h: 0 })
   useEffect(() => {
@@ -64,8 +65,10 @@ export function DeviceLayoutDisplay({ descriptor }: Props) {
               </div>
             )
           })}
-          {/* Voice controls are drawn NATIVELY by the firmware (bottom corners) so they
-              own their toggle state — not part of the server image. */}
+          {/* Global voice controls on every layout: wake/listen (ear) bottom-left,
+              mute the companion's voice (speaker) bottom-right. */}
+          <VoiceControls theme={theme} isDeviceRender={isDeviceRender}
+            voiceOn={voiceOn} handsFreeOn={handsFreeOn} onToggleVoice={onToggleVoice} onToggleHandsFree={onToggleHandsFree} />
         </div>
         )
       })()}
@@ -78,6 +81,38 @@ function SlotWidget({ w, theme }: { w: WidgetPlacement; theme: ThemeTokens }) {
   if (w.type === 'weather') return <LiveWeather size={w.size} theme={theme} />
   // mic/mute are no longer slot widgets — they're global corner controls (VoiceControls).
   return null
+}
+
+// Wake-word (ear, bottom-left) + companion-voice mute (speaker, bottom-right) controls,
+// drawn on every layout. On a browser they toggle the shared companion state; on the
+// device render they're visual (the firmware's corner taps drive the real toggles).
+function VoiceControls({ theme, isDeviceRender, voiceOn, handsFreeOn, onToggleVoice, onToggleHandsFree }: {
+  theme: ThemeTokens; isDeviceRender: boolean
+  voiceOn: boolean; handsFreeOn: boolean; onToggleVoice: () => void; onToggleHandsFree: () => void
+}) {
+  const fs = theme.font_scale
+  // On the device render the firmware owns the live state, so show neutral affordances.
+  const hf = isDeviceRender ? false : handsFreeOn
+  const vo = isDeviceRender ? true : voiceOn
+  const Btn = ({ side, Icon, active, label, onClick }: { side: 'left' | 'right'; Icon: typeof Ear; active: boolean; label: string; onClick: () => void }) => (
+    <button
+      onClick={isDeviceRender ? undefined : onClick}
+      disabled={isDeviceRender}
+      className="absolute flex flex-col items-center gap-2"
+      style={{ [side]: 48, bottom: 28, color: theme.text, cursor: isDeviceRender ? 'default' : 'pointer' } as React.CSSProperties}
+    >
+      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: theme.accent, opacity: active ? 1 : 0.72 }}>
+        <Icon style={{ width: 56, height: 56 }} className="text-white" />
+      </span>
+      <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>{label}</span>
+    </button>
+  )
+  return (
+    <>
+      <Btn side="left" Icon={Ear} active={hf} label={hf ? 'Listening' : 'Tap to talk'} onClick={onToggleHandsFree} />
+      <Btn side="right" Icon={vo ? Volume2 : VolumeX} active={!vo} label={vo ? 'Voice reply' : 'Text only'} onClick={onToggleVoice} />
+    </>
+  )
 }
 
 function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: ThemeTokens }) {

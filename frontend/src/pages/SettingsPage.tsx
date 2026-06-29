@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Bell, Home, Info, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
+import { Bell, Home, Info, LayoutGrid, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
 import { PanelLayout, type PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsProfileTab } from '@/components/settings/SettingsProfileTab'
 import { SettingsToolsTab } from '@/components/settings/SettingsToolsTab'
@@ -9,6 +9,7 @@ import { SettingsAboutTab } from '@/components/settings/SettingsAboutTab'
 import { SettingsPrivacyTab } from '@/components/settings/SettingsPrivacyTab'
 import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab'
 import { SettingsPlexTab } from '@/components/settings/SettingsPlexTab'
+import { SettingsStreamDeckTab } from '@/components/settings/SettingsStreamDeckTab'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 const SECTIONS: PanelSection[] = [
@@ -19,6 +20,7 @@ const SECTIONS: PanelSection[] = [
   { id: 'appearance',    label: 'Appearance',      icon: Palette    },
   { id: 'content',       label: 'Content',         icon: SlidersHorizontal },
   { id: 'notifications', label: 'Notifications',   icon: Bell       },
+  { id: 'stream-deck',   label: 'Stream Deck',     icon: LayoutGrid },
   { id: 'about',         label: 'About',           icon: Info       },
 ]
 
@@ -41,6 +43,7 @@ export function SettingsPage() {
       {section === 'appearance'    && <SettingsAppearanceTab />}
       {section === 'content'       && <SettingsPrivacyTab />}
       {section === 'notifications' && <SettingsNotificationsTab />}
+      {section === 'stream-deck'   && <SettingsStreamDeckTab />}
       {section === 'about'         && <SettingsAboutTab />}
     </PanelLayout>
   )
