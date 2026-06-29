@@ -109,8 +109,8 @@ function VoiceControls({ theme, isDeviceRender, voiceOn, handsFreeOn, onToggleVo
   )
   return (
     <>
-      <Btn side="left" Icon={Ear} active={hf} label={hf ? 'Listening' : 'Tap to talk'} onClick={onToggleHandsFree} />
-      <Btn side="right" Icon={vo ? Volume2 : VolumeX} active={!vo} label={vo ? 'Sound on' : 'Muted'} onClick={onToggleVoice} />
+      <Btn side="left" Icon={Ear} active={hf} label={hf ? 'Listening' : 'Wake word'} onClick={onToggleHandsFree} />
+      <Btn side="right" Icon={vo ? Volume2 : VolumeX} active={!vo} label={vo ? 'Voice reply' : 'Text only'} onClick={onToggleVoice} />
     </>
   )
 }

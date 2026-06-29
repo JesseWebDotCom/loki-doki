@@ -87,8 +87,8 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
 
         {/* Global voice controls: wake/listen (ear) bottom-left, mute the companion's
             voice (speaker) bottom-right — shown on every layout, like the device. */}
-        <PreviewControl side="left" Icon={Ear} label="Tap to talk" accent={theme.accent} text={theme.text} fs={fs} />
-        <PreviewControl side="right" Icon={Volume2} label="Sound on" accent={theme.accent} text={theme.text} fs={fs} />
+        <PreviewControl side="left" Icon={Ear} label="Wake word" accent={theme.accent} text={theme.text} fs={fs} />
+        <PreviewControl side="right" Icon={Volume2} label="Voice reply" accent={theme.accent} text={theme.text} fs={fs} />
       </div>
     </div>
   )
