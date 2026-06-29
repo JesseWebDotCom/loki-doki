@@ -119,7 +119,13 @@ export class SatelliteSession implements PodFireTarget {
         if (this.capturing) this.stt?.end()
         break
       case 'detection':
-        // Pod did its own (micro)wake word — open a capture window.
+        // Pod did its own (micro)wake word OR a tap-to-talk. A tap carries the device's
+        // current reply mode so THIS turn honours it (robust against a separate reply_mode
+        // event being lost or racing a reconnect).
+        if (ev.data && typeof ev.data.reply === 'string') {
+          this.replyMode = ev.data.reply === 'text' ? 'text' : 'voice'
+          logger.info(`[pod] tap reply mode → ${this.replyMode}`)
+        }
         if (!this.capturing) this.startCapture()
         break
       case 'user-event': {

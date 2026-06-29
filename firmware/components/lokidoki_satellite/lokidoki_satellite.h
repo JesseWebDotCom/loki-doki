@@ -65,7 +65,13 @@ class LokiDokiSatellite : public Component {
   void toggle_mic_enabled() { this->mic_enabled_ = !this->mic_enabled_; }
   // Tap-to-talk: a MOMENTARY action (not a toggle) — open one listen turn now, like
   // saying the wake word once. Enables the mic uplink and asks the server to capture.
-  void request_listen() { this->mic_enabled_ = true; this->send_event_("detection", "{\"name\":\"tap\"}", nullptr, 0); }
+  void request_listen() {
+    this->mic_enabled_ = true;
+    // Carry the CURRENT reply mode in the tap so the server uses it for THIS turn —
+    // no dependency on a separate reply_mode event arriving (or surviving a reconnect) first.
+    std::string m = this->voice_reply_ ? "voice" : "text";
+    this->send_event_("detection", std::string("{\"name\":\"tap\",\"reply\":\"") + m + "\"}", nullptr, 0);
+  }
   // Voice ↔ text reply toggle. Text mode = the companion's reply is typed on screen
   // (reply_sensor) instead of spoken; mute the local speaker too so it stays silent.
   bool voice_reply() const { return this->voice_reply_; }
