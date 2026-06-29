@@ -67,6 +67,7 @@ esphome:
       # NOTE: switching to page_camera happens from the render interval below (a
       # one-time lv_screen_load once LVGL is fully up) — doing it here in on_boot ran
       # too early and silently no-op'd (telemetry showed on_cam_page=0).
+      - lambda: 'id(satellite)->set_stream_deck_page(id(page_stream_deck)->obj);'
 
 esp32:
   variant: esp32p4
@@ -357,6 +358,14 @@ font:
   - file: "gfonts://Roboto@medium"
     id: font_brand
     size: 120
+  - file: "gfonts://Roboto@medium"
+    id: font_sd_label
+    size: 28
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 !@#$%^&*()-_=+[]{}|;:',.<>?/\\"
+  - file: "gfonts://Roboto@medium"
+    id: font_sd_icon
+    size: 52
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .-_"
 
 # Tiny placeholder so the LVGL `image` widget has a valid src at build time; the
 # camera view repoints it at the live hardware-decoded frame buffer at runtime.
@@ -548,6 +557,13 @@ lvgl:
                   text_font: font_footer
                   text_color: 0xFFFFFF
 
+    # ── Stream Deck (controller mode) ──────────────────────────────────────────
+    # All button content is created dynamically in C++ (lokidoki_satellite.cpp)
+    # when the server pushes stream_deck_config. This page is just the canvas.
+    - id: page_stream_deck
+      bg_color: 0x0f0f1a
+      bg_opa: COVER
+
 interval:
   # ── Camera: blit the latest hardware-decoded frame into the LVGL image ─────────
   # Runs on the main loop (LVGL is single-threaded); the fetch+decode happen on the
@@ -647,6 +663,8 @@ text_sensor:
               lv_screen_load(id(page_camera)->obj);
             } else if (m == "touch-test") {
               lv_screen_load(id(page_touch)->obj);
+            } else if (m == "stream-deck") {
+              lv_screen_load(id(page_stream_deck)->obj);
             } else {  // "normal" (or anything unknown) → ambient clock
               lv_screen_load(id(page_clock)->obj);
             }

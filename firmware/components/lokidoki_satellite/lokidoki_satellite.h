@@ -25,6 +25,8 @@ class LokiDokiSatellite : public Component {
   void set_host(const std::string &host) { this->host_ = host; }
   void set_port(uint16_t port) { this->port_ = port; }
   void set_model(const std::string &model) { this->model_ = model; }
+  // Called from the LVGL button event callback (a free C function), so it must be public.
+  void send_button_press_(const std::string &page_id, int row, int col);
   void set_microphone(microphone::Microphone *mic) { this->mic_ = mic; }
   void set_speaker(speaker::Speaker *spk) { this->speaker_ = spk; }
   void set_status_light(light::LightState *light) { this->light_ = light; }
@@ -60,6 +62,10 @@ class LokiDokiSatellite : public Component {
   bool is_mic_enabled() const { return this->mic_enabled_; }
   void toggle_mic_enabled() { this->mic_enabled_ = !this->mic_enabled_; }
 
+  // Stream Deck controller mode. Called from the YAML on_boot lambda to hand us
+  // the blank LVGL page we dynamically populate with button cells.
+  void set_stream_deck_page(void *page_obj) { this->sd_page_ = page_obj; }
+
  protected:
   // ── connection lifecycle ──
   bool connect_();
@@ -88,6 +94,10 @@ class LokiDokiSatellite : public Component {
   void apply_backlight_(float brightness);
   // ESPHome's microphone delivers raw little-endian PCM BYTES (not int16 samples).
   void on_mic_data_(const std::vector<uint8_t> &data);
+
+  // ── Stream Deck ── (send_button_press_ is declared public above)
+  void handle_stream_deck_config_(const std::string &data_json);
+  void rebuild_stream_deck_ui_();
 
   std::string host_;
   uint16_t port_{10700};
@@ -148,6 +158,30 @@ class LokiDokiSatellite : public Component {
   float led_r_{1}, led_g_{1}, led_b_{1}, led_base_{0.1f};
   bool led_pulse_{false};
   uint32_t led_last_{0};
+
+  // Stream Deck state. sd_page_ is the blank LVGL lv_obj_t* set on boot;
+  // sd_pages_ holds the last config from the server; sd_btn_ctxs_ holds the
+  // heap-allocated per-button callback data (freed + re-built on each config push).
+  void *sd_page_{nullptr};
+  bool sd_needs_rebuild_{false};   // defer LVGL work to loop() (main task = LVGL safe)
+
+  struct SdButton {
+    std::string id;
+    int row{0}, col{0};
+    std::string icon;
+    std::string label;
+    uint32_t bg_color{0x1e1e2e};
+    uint32_t text_color{0xffffff};
+  };
+  struct SdPage {
+    std::string id;
+    std::string name;
+    int grid_rows{3}, grid_cols{5};
+    std::vector<SdButton> buttons;
+  };
+  std::vector<SdPage> sd_pages_;
+  int sd_active_page_{0};
+  std::vector<void *> sd_btn_ctxs_;  // heap-allocated SdBtnCtx*, freed on rebuild
 };
 
 }  // namespace lokidoki_satellite

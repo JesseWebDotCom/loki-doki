@@ -12,6 +12,12 @@
 #include <lwip/sockets.h>
 #include <lwip/netdb.h>
 
+// LVGL is only present on screen pods (Tab5). Guard so the component still
+// compiles for screenless pods (Atom Echo) where LVGL is not pulled in.
+#ifdef USE_LVGL
+#include <lvgl.h>
+#endif
+
 namespace esphome {
 namespace lokidoki_satellite {
 
@@ -72,6 +78,13 @@ void LokiDokiSatellite::dump_config() {
 void LokiDokiSatellite::loop() {
   this->tick_led_();  // keep pulsing states animating in every connection state
   this->tick_dim_();  // idle screen dimming (screen pods with a backlight)
+
+#ifdef USE_LVGL
+  if (this->sd_needs_rebuild_) {
+    this->sd_needs_rebuild_ = false;
+    this->rebuild_stream_deck_ui_();
+  }
+#endif
 
   if (!network::is_connected()) {
     if (this->connected_) this->disconnect_("network down");
@@ -427,6 +440,9 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     //   name == "alarm_fire"  → alarm screen + loop data["tone_url"] at alarm volume
     //   name == "alarm_stop"  → coordinated dismiss (stop the loop)
     // And device → server: { name:"alarm_action", alarm_id, action:"snooze"|"cancel" }.
+    if (name == "stream_deck_config" && this->sd_page_ != nullptr) {
+      this->handle_stream_deck_config_(data_json);
+    }
     return;
   }
   // transcript / detection / info: nothing to do on a screenless Pod.
@@ -575,6 +591,190 @@ void LokiDokiSatellite::on_mic_data_(const std::vector<uint8_t> &data) {
   // dropped if the uplink stalls.
   if (this->mic_buf_.size() > 8000) this->mic_buf_.clear();
   this->mic_buf_.insert(this->mic_buf_.end(), data.begin(), data.end());
+}
+
+// ── Stream Deck ─────────────────────────────────────────────────────────────
+
+#ifdef USE_LVGL
+
+namespace {
+// Per-button LVGL event callback user data. Heap-allocated on each config push,
+// freed on the next rebuild. Stored in sd_btn_ctxs_ as void* to keep lv_obj_t
+// out of the header (so the component compiles on screenless pods without LVGL).
+struct SdBtnCtx {
+  LokiDokiSatellite *self;
+  std::string page_id;
+  int row, col;
+};
+
+static void sd_btn_event_cb(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  auto *ctx = static_cast<SdBtnCtx *>(lv_event_get_user_data(e));
+  if (ctx) ctx->self->send_button_press_(ctx->page_id, ctx->row, ctx->col);
+}
+}  // namespace
+
+void LokiDokiSatellite::handle_stream_deck_config_(const std::string &data_json) {
+  // Parse pages array from the Wyoming data JSON.
+  // data_json was extracted from the `data` field of the event, so it already
+  // has the stream_deck_config payload. We pull "pages" from it.
+  this->sd_pages_.clear();
+
+  // Use ESPHome's ArduinoJson wrapper (already pulled in by json/json_util.h).
+  DynamicJsonDocument doc(32768);
+  DeserializationError err = deserializeJson(doc, data_json);
+  if (err) {
+    ESP_LOGW(TAG, "[stream-deck] failed to parse config: %s", err.c_str());
+    return;
+  }
+
+  JsonArray pages = doc["pages"];
+  if (!pages) {
+    ESP_LOGW(TAG, "[stream-deck] no pages in config");
+    return;
+  }
+
+  for (JsonObject page : pages) {
+    SdPage p;
+    p.id = page["id"] | "";
+    p.name = page["name"] | "";
+    p.grid_rows = page["gridRows"] | 3;
+    p.grid_cols = page["gridCols"] | 5;
+    JsonArray btns = page["buttons"];
+    if (btns) {
+      for (JsonObject b : btns) {
+        SdButton btn;
+        btn.id = b["id"] | "";
+        btn.row = b["row"] | 0;
+        btn.col = b["col"] | 0;
+        btn.icon = b["icon"] | "";
+        btn.label = b["label"] | "";
+        // Parse hex colors (#rrggbb → uint32).
+        const char *bg = b["bgColor"] | "#1e1e2e";
+        const char *fg = b["textColor"] | "#ffffff";
+        btn.bg_color = (uint32_t) strtol(bg + (bg[0] == '#' ? 1 : 0), nullptr, 16);
+        btn.text_color = (uint32_t) strtol(fg + (fg[0] == '#' ? 1 : 0), nullptr, 16);
+        p.buttons.push_back(std::move(btn));
+      }
+    }
+    this->sd_pages_.push_back(std::move(p));
+  }
+
+  ESP_LOGI(TAG, "[stream-deck] config: %d pages", (int) this->sd_pages_.size());
+  this->sd_active_page_ = 0;
+  this->sd_needs_rebuild_ = true;
+}
+
+void LokiDokiSatellite::rebuild_stream_deck_ui_() {
+  lv_obj_t *page = static_cast<lv_obj_t *>(this->sd_page_);
+  if (!page) return;
+
+  // Free previous button context objects.
+  for (void *p : this->sd_btn_ctxs_) delete static_cast<SdBtnCtx *>(p);
+  this->sd_btn_ctxs_.clear();
+
+  // Remove all previous children from the page.
+  lv_obj_clean(page);
+
+  if (this->sd_pages_.empty()) return;
+  if (this->sd_active_page_ >= (int) this->sd_pages_.size()) this->sd_active_page_ = 0;
+  const SdPage &p = this->sd_pages_[this->sd_active_page_];
+
+  // Panel dimensions: 1280×720 landscape (LVGL coords after 90° rotation).
+  const int W = 1280, H = 720;
+  const int GUTTER = 10;
+  const int cell_w = (W - GUTTER * (p.grid_cols + 1)) / p.grid_cols;
+  const int cell_h = (H - GUTTER * (p.grid_rows + 1)) / p.grid_rows;
+
+  for (const SdButton &btn : p.buttons) {
+    if (btn.row < 0 || btn.row >= p.grid_rows || btn.col < 0 || btn.col >= p.grid_cols) continue;
+
+    const int x = GUTTER + btn.col * (cell_w + GUTTER);
+    const int y = GUTTER + btn.row * (cell_h + GUTTER);
+
+    lv_obj_t *cell = lv_obj_create(page);
+    lv_obj_set_pos(cell, x, y);
+    lv_obj_set_size(cell, cell_w, cell_h);
+    lv_obj_set_style_bg_color(cell, lv_color_hex(btn.bg_color), 0);
+    lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(cell, 12, 0);
+    lv_obj_set_style_border_width(cell, 0, 0);
+    lv_obj_set_style_pad_all(cell, 6, 0);
+    // Pressed highlight: brighten the border.
+    lv_obj_set_style_border_color(cell, lv_color_hex(0xffffff), LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(cell, 3, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(cell, 85, LV_STATE_PRESSED);  // slight dim on press
+    lv_obj_add_flag(cell, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Icon label (top portion of cell).
+    if (!btn.icon.empty()) {
+      lv_obj_t *lbl_icon = lv_label_create(cell);
+      lv_label_set_text(lbl_icon, btn.icon.c_str());
+      // TODO(stream-deck): wire the YAML fonts (font_sd_icon/font_sd_label) into this
+      // component via a config setter — they can't be referenced by symbol from a
+      // component .cpp (they live in the generated app, different namespace → link error).
+      // Until then use the built-in LVGL default so the firmware links/flashes.
+      lv_obj_set_style_text_font(lbl_icon, LV_FONT_DEFAULT, 0);
+      lv_obj_set_style_text_color(lbl_icon, lv_color_hex(btn.text_color), 0);
+      lv_obj_set_style_text_align(lbl_icon, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_set_width(lbl_icon, cell_w - 12);
+      lv_label_set_long_mode(lbl_icon, LV_LABEL_LONG_CLIP);
+      lv_obj_align(lbl_icon, LV_ALIGN_TOP_MID, 0, 8);
+    }
+
+    // Text label (bottom portion of cell).
+    if (!btn.label.empty()) {
+      lv_obj_t *lbl_text = lv_label_create(cell);
+      lv_label_set_text(lbl_text, btn.label.c_str());
+      lv_obj_set_style_text_font(lbl_text, LV_FONT_DEFAULT, 0);
+      lv_obj_set_style_text_color(lbl_text, lv_color_hex(btn.text_color), 0);
+      lv_obj_set_style_text_align(lbl_text, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_set_width(lbl_text, cell_w - 12);
+      lv_label_set_long_mode(lbl_text, LV_LABEL_LONG_CLIP);
+      lv_obj_align(lbl_text, LV_ALIGN_BOTTOM_MID, 0, -8);
+    }
+
+    // Attach click event with per-button context.
+    auto *ctx = new SdBtnCtx{this, p.id, btn.row, btn.col};
+    this->sd_btn_ctxs_.push_back(ctx);
+    lv_obj_add_event_cb(cell, sd_btn_event_cb, LV_EVENT_CLICKED, ctx);
+  }
+
+  // Empty cells (no button configured) — show a dim placeholder.
+  for (int r = 0; r < p.grid_rows; r++) {
+    for (int c = 0; c < p.grid_cols; c++) {
+      bool has_btn = false;
+      for (const SdButton &btn : p.buttons)
+        if (btn.row == r && btn.col == c) { has_btn = true; break; }
+      if (has_btn) continue;
+
+      const int x = GUTTER + c * (cell_w + GUTTER);
+      const int y = GUTTER + r * (cell_h + GUTTER);
+      lv_obj_t *empty = lv_obj_create(page);
+      lv_obj_set_pos(empty, x, y);
+      lv_obj_set_size(empty, cell_w, cell_h);
+      lv_obj_set_style_bg_color(empty, lv_color_hex(0x1a1a2a), 0);
+      lv_obj_set_style_bg_opa(empty, LV_OPA_COVER, 0);
+      lv_obj_set_style_radius(empty, 12, 0);
+      lv_obj_set_style_border_color(empty, lv_color_hex(0x333355), 0);
+      lv_obj_set_style_border_width(empty, 1, 0);
+      lv_obj_clear_flag(empty, (lv_obj_flag_t) (LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+    }
+  }
+
+  ESP_LOGI(TAG, "[stream-deck] rebuilt UI: page=%s %dx%d", p.id.c_str(), p.grid_rows, p.grid_cols);
+}
+
+#endif  // USE_LVGL
+
+void LokiDokiSatellite::send_button_press_(const std::string &page_id, int row, int col) {
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+           "{\"name\":\"button_press\",\"page_id\":\"%s\",\"row\":%d,\"col\":%d}",
+           page_id.c_str(), row, col);
+  this->send_event_("user-event", std::string(buf), nullptr, 0);
+  ESP_LOGI(TAG, "[stream-deck] button_press page=%s (%d,%d)", page_id.c_str(), row, col);
 }
 
 }  // namespace lokidoki_satellite
