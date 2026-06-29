@@ -414,6 +414,9 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     } else if (name == "face.state") {
       this->face_ = state;
       this->update_led_();
+      // End a momentary tap-to-talk turn: once the server goes idle, close the mic
+      // uplink again (unless the user enabled hands-free wake).
+      if (state == "idle" && !this->hands_free_) this->mic_enabled_ = false;
     } else if (name == "auth" && !token.empty()) {
       // The admin just Claimed us — persist the token for next boot.
       this->token_ = token;

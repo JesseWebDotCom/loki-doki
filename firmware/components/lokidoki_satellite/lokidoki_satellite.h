@@ -64,8 +64,13 @@ class LokiDokiSatellite : public Component {
   bool is_mic_enabled() const { return this->mic_enabled_; }
   void toggle_mic_enabled() { this->mic_enabled_ = !this->mic_enabled_; }
   // Tap-to-talk: a MOMENTARY action (not a toggle) — open one listen turn now, like
-  // saying the wake word once. Enables the mic uplink and asks the server to capture.
+  // saying the wake word once. Enables the mic uplink for this turn and asks the server
+  // to capture; the uplink is dropped again when the turn ends (idle) unless hands-free.
   void request_listen() { this->mic_enabled_ = true; this->send_event_("detection", "{\"name\":\"tap\"}", nullptr, 0); }
+  // Hands-free wake mode: keep the mic uplink open continuously so the server-side wake
+  // word can trigger without a tap. Long-press the wake control to toggle it.
+  bool is_hands_free() const { return this->hands_free_; }
+  void toggle_hands_free() { this->hands_free_ = !this->hands_free_; this->mic_enabled_ = this->hands_free_; }
   // Voice ↔ text reply toggle. Text mode = the companion's reply is typed on screen
   // (reply_sensor) instead of spoken; mute the local speaker too so it stays silent.
   bool voice_reply() const { return this->voice_reply_; }
@@ -120,6 +125,7 @@ class LokiDokiSatellite : public Component {
   text_sensor::TextSensor *mode_sensor_{nullptr};  // server-pushed screen mode
   text_sensor::TextSensor *reply_sensor_{nullptr}; // companion's typed reply (text mode)
   bool voice_reply_{true};                         // true = speak reply; false = type it
+  bool hands_free_{false};                         // true = mic stays open for wake word
   std::string published_mode_;  // last value pushed to mode_sensor_ (de-dupe)
 
   // Idle screen dimming (configured live via the server's `config` event).

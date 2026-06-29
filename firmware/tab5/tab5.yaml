@@ -381,6 +381,22 @@ image:
     type: RGB565
     transparency: alpha_channel
     resize: 200x200
+  # White control glyphs (rasterized lucide icons) for the native voice controls.
+  - file: ic_ear.png
+    id: img_ear
+    type: RGB565
+    transparency: alpha_channel
+    resize: 60x60
+  - file: ic_voice.png
+    id: img_voice
+    type: RGB565
+    transparency: alpha_channel
+    resize: 60x60
+  - file: ic_text.png
+    id: img_text
+    type: RGB565
+    transparency: alpha_channel
+    resize: 60x60
 
 # ── Hardware JPEG camera source (ESP32-P4) ─────────────────────────────────────
 # Pulls JPEG frames from the server's living-room camera test endpoint and decodes
@@ -486,46 +502,105 @@ lvgl:
             long_mode: wrap
             text_align: CENTER
             hidden: true
-        # Two transparent corner hit-targets that line up with the server-rendered icons:
-        # bottom-LEFT (the ear) = start/stop listening; bottom-RIGHT (the speaker) = mute
-        # the companion's voice. No visible chrome — the icons come from the layout image;
-        # these just make the corners tappable.
+        # Native voice controls (bottom corners) — the firmware owns their state so the
+        # icon + label update INSTANTLY on tap. Bottom-LEFT (ear): TAP = talk now (one
+        # turn), LONG-PRESS = toggle hands-free wake. Bottom-RIGHT: tap = Voice <-> Text.
         - button:
             id: btn_wake
             align: BOTTOM_LEFT
-            width: 320
-            height: 240
-            bg_opa: 0%
+            x: 50
+            y: -66
+            width: 116
+            height: 116
+            radius: 58
+            bg_color: 0x7C3AED
+            bg_opa: COVER
             border_width: 0
             shadow_width: 0
+            widgets:
+              - image:
+                  src: img_ear
+                  align: CENTER
             on_click:
               then:
-                # MOMENTARY tap-to-talk: open one listen turn (like saying the wake word).
-                # Confirm with a brief "Listening" pill; the server then drives the real
-                # listening/thinking/speaking states via face_state.
                 - lambda: |-
                     id(satellite)->request_listen();
                     lv_label_set_text(id(state_label), "Listening");
                     lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);
                     lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+            on_long_press:
+              then:
+                - lambda: |-
+                    id(satellite)->toggle_hands_free();
+                    bool hf = id(satellite)->is_hands_free();
+                    lv_label_set_text(id(lbl_wake), hf ? "Hands-free" : "Tap to talk");
+                    lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(hf ? 0x16A34A : 0x7C3AED), 0);
+        - label:
+            id: lbl_wake
+            align: BOTTOM_LEFT
+            x: 24
+            y: -20
+            width: 168
+            text: "Tap to talk"
+            text_font: font_footer
+            text_color: 0xEAEAF2
+            text_align: CENTER
         - button:
-            id: btn_mute
+            id: btn_voice
             align: BOTTOM_RIGHT
-            width: 320
-            height: 240
-            bg_opa: 0%
+            x: -50
+            y: -66
+            width: 116
+            height: 116
+            radius: 58
+            bg_color: 0x2563EB
+            bg_opa: COVER
             border_width: 0
             shadow_width: 0
+            widgets:
+              - image:
+                  id: ic_voicetext
+                  src: img_voice
+                  align: CENTER
             on_click:
               then:
-                # Toggle voice ↔ text reply (tells the server which to do) + confirm.
-                - lambda: |-
-                    id(satellite)->toggle_voice_reply();
-                    bool voice = id(satellite)->voice_reply();
-                    lv_label_set_text(id(state_label), voice ? "Voice reply" : "Text only");
-                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(voice ? 0x2563EB : 0xD97706), 0);
-                    lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
-                    if (!voice) lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+                - lambda: 'id(satellite)->toggle_voice_reply();'
+                - if:
+                    condition:
+                      lambda: 'return id(satellite)->voice_reply();'
+                    then:
+                      - lvgl.image.update:
+                          id: ic_voicetext
+                          src: img_voice
+                      - lvgl.label.update:
+                          id: lbl_voice
+                          text: "Voice reply"
+                      - lvgl.widget.update:
+                          id: btn_voice
+                          bg_color: 0x2563EB
+                      - lvgl.widget.update:
+                          id: lbl_reply
+                          hidden: true
+                    else:
+                      - lvgl.image.update:
+                          id: ic_voicetext
+                          src: img_text
+                      - lvgl.label.update:
+                          id: lbl_voice
+                          text: "Text only"
+                      - lvgl.widget.update:
+                          id: btn_voice
+                          bg_color: 0xD97706
+        - label:
+            id: lbl_voice
+            align: BOTTOM_RIGHT
+            x: -24
+            y: -20
+            width: 168
+            text: "Voice reply"
+            text_font: font_footer
+            text_color: 0xEAEAF2
+            text_align: CENTER
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer

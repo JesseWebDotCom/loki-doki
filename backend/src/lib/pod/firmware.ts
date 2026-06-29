@@ -62,7 +62,7 @@ const FIRMWARE_MODELS: Record<string, FirmwareModel> = {
   'atom-echo': { configRel: 'atom-echo/atom-echo.yaml', chip: 'ESP32' },
   // placeholder.png backs the LVGL camera image widget (repointed at the live HW-JPEG
   // buffer at runtime); it must be present in the build dir for ESPHome to bake it in.
-  tab5: { configRel: 'tab5/tab5.yaml', chip: 'ESP32-P4', assets: ['tab5/placeholder.png', 'tab5/logo.png'] },
+  tab5: { configRel: 'tab5/tab5.yaml', chip: 'ESP32-P4', assets: ['tab5/placeholder.png', 'tab5/logo.png', 'tab5/ic_ear.png', 'tab5/ic_voice.png', 'tab5/ic_text.png'] },
 }
 
 const DEFAULT_MODEL = 'atom-echo'
