@@ -192,14 +192,15 @@ function LiveWeather({ size, theme, bg }: { size: WidgetPlacement['size']; theme
   if (big) {
     return (
       <div className="relative h-full w-full" style={{ color: theme.text }}>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <div className="flex items-center justify-center" style={{ gap: 8 }}>
-            {!bg && icon}
-            <span className="font-black tabular-nums" style={{ fontSize: 260 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
-          </div>
-          <span style={{ fontSize: 60 * fs, opacity: 0.92, marginTop: 4 }}>{snapshot!.info.desc}</span>
-          {bg && <div className="flex items-center justify-center" style={{ gap: 18, fontSize: 76 * fs, marginTop: 10 }}>{apparel.map((a, i) => <span key={i}>{a}</span>)}</div>}
-          <span style={{ fontSize: 36 * fs, opacity: 0.7, marginTop: 10 }}>{snapshot!.location}</span>
+        <div className="absolute inset-0 flex items-center justify-center" style={{ gap: 8 }}>
+          {!bg && icon}
+          <span className="font-black tabular-nums" style={{ fontSize: 260 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
+        </div>
+        {/* Description + apparel sit just BELOW the (centred) temp. */}
+        <div className="absolute inset-x-0 flex flex-col items-center" style={{ top: `calc(50% + ${130 * fs + 26}px)`, gap: 14 }}>
+          <span style={{ fontSize: 60 * fs, opacity: 0.92 }}>{snapshot!.info.desc}</span>
+          {bg && <div className="flex items-center justify-center" style={{ gap: 18, fontSize: 76 * fs }}>{apparel.map((a, i) => <span key={i}>{a}</span>)}</div>}
+          <span style={{ fontSize: 36 * fs, opacity: 0.7 }}>{snapshot!.location}</span>
         </div>
         <FullWeatherClock theme={theme} />
       </div>
@@ -214,7 +215,8 @@ function LiveWeather({ size, theme, bg }: { size: WidgetPlacement['size']; theme
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="font-black tabular-nums" style={{ fontSize: tempFont, lineHeight: 1 }}>{snapshot!.temp}°</span>
         </div>
-        <div className="absolute inset-x-0 flex flex-col items-center" style={{ bottom: '12%', gap: 8 }}>
+        {/* Description + apparel sit just BELOW the (centred) temp, following it down. */}
+        <div className="absolute inset-x-0 flex flex-col items-center" style={{ top: `calc(50% + ${tempFont / 2 + 20}px)`, gap: 10 }}>
           <span style={{ fontSize: 40 * fs, opacity: 0.88 }}>{snapshot!.info.desc}</span>
           <div className="flex items-center justify-center" style={{ gap: 14, fontSize: 58 * fs }}>{apparel.map((a, i) => <span key={i}>{a}</span>)}</div>
         </div>
