@@ -87,7 +87,7 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
 
         {/* Global voice controls: wake/listen (ear) bottom-left, mute the companion's
             voice (speaker) bottom-right — shown on every layout, like the device. */}
-        <PreviewControl side="left" Icon={Ear} label="Wake word" accent={theme.accent} text={theme.text} fs={fs} />
+        <PreviewControl side="left" Icon={Ear} label="Tap to talk" accent={theme.accent} text={theme.text} fs={fs} />
         <PreviewControl side="right" Icon={Volume2} label="Voice reply" accent={theme.accent} text={theme.text} fs={fs} />
       </div>
     </div>
@@ -133,12 +133,19 @@ function ClockWidget({ size, fs, text, accent }: { size: WidgetPlacement['size']
       </div>
     )
   }
-  const big = size === 'large' ? 150 : size === 'medium' ? 96 : 60
+  const big = size === 'large' ? 188 : size === 'medium' ? 96 : 60
   return (
     <div className="flex flex-col items-center" style={{ color: text }}>
-      <div className="font-semibold tabular-nums" style={{ fontSize: big * fs, lineHeight: 1 }}>
-        {hh}:{mm}{size === 'large' && <span style={{ fontSize: big * 0.4 * fs, color: accent }}>:{ss}</span>}
-        {size !== 'small' && <span style={{ fontSize: big * 0.3 * fs, marginLeft: 12, opacity: 0.7 }}>{ampm}</span>}
+      <div className="flex items-end font-semibold tabular-nums" style={{ fontSize: big * fs, lineHeight: 1 }}>
+        <span>{hh}:{mm}</span>
+        {size === 'large' ? (
+          <div className="flex flex-col items-start" style={{ marginLeft: 16, marginBottom: big * fs * 0.05, lineHeight: 1 }}>
+            <span style={{ fontSize: big * 0.34 * fs, color: accent }}>:{ss}</span>
+            <span style={{ fontSize: big * 0.3 * fs, opacity: 0.7, marginTop: 6 }}>{ampm}</span>
+          </div>
+        ) : (
+          size === 'medium' && <span style={{ fontSize: big * 0.3 * fs, marginLeft: 12, opacity: 0.7 }}>{ampm}</span>
+        )}
       </div>
       {size === 'large' && <div style={{ fontSize: 40 * fs, opacity: 0.85, marginTop: 12 }}>{day}, {date}</div>}
       {size === 'medium' && <div style={{ fontSize: 30 * fs, opacity: 0.8, marginTop: 8 }}>{date}</div>}

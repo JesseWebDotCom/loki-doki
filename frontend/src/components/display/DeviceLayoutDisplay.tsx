@@ -109,7 +109,7 @@ function VoiceControls({ theme, isDeviceRender, voiceOn, handsFreeOn, onToggleVo
   )
   return (
     <>
-      <Btn side="left" Icon={Ear} active={hf} label={hf ? 'Listening' : 'Wake word'} onClick={onToggleHandsFree} />
+      <Btn side="left" Icon={Ear} active={hf} label={hf ? 'Listening' : 'Tap to talk'} onClick={onToggleHandsFree} />
       <Btn side="right" Icon={vo ? Volume2 : VolumeX} active={!vo} label={vo ? 'Voice reply' : 'Text only'} onClick={onToggleVoice} />
     </>
   )
@@ -133,13 +133,20 @@ function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: Them
       </div>
     )
   }
-  const big = (size === 'large' ? 150 : size === 'medium' ? 96 : 60) * fs
+  const big = (size === 'large' ? 188 : size === 'medium' ? 96 : 60) * fs
   return (
     <div className="flex h-full w-full flex-col items-center justify-center" style={{ color: theme.text }}>
-      <div className="flex items-end font-black tabular-nums leading-none" style={{ fontSize: big }}>
-        <span>{hh}:{mm}</span>
-        {size === 'large' && <span style={{ fontSize: big * 0.4, color: theme.accent, marginLeft: 8 }}>:{ss}</span>}
-        {size !== 'small' && ampm && <span style={{ fontSize: big * 0.28, opacity: 0.7, marginLeft: 12, marginBottom: big * 0.08 }}>{ampm}</span>}
+      <div className="flex items-end leading-none" style={{ fontSize: big }}>
+        <span className="font-black tabular-nums">{hh}:{mm}</span>
+        {size === 'large' ? (
+          // Seconds stacked ABOVE the AM/PM, to the right of the time.
+          <div className="flex flex-col items-start leading-none" style={{ marginLeft: 16, marginBottom: big * 0.05 }}>
+            <span className="font-black tabular-nums" style={{ fontSize: big * 0.34, color: theme.accent }}>:{ss}</span>
+            {ampm && <span style={{ fontSize: big * 0.3, opacity: 0.7, marginTop: 6 }}>{ampm}</span>}
+          </div>
+        ) : (
+          size === 'medium' && ampm && <span style={{ fontSize: big * 0.28, opacity: 0.7, marginLeft: 12, marginBottom: big * 0.08 }}>{ampm}</span>
+        )}
       </div>
       {size === 'large' && <div style={{ fontSize: 40 * fs, opacity: 0.85, marginTop: 14 }}>{day}, {date}</div>}
       {size === 'medium' && <div style={{ fontSize: 30 * fs, opacity: 0.8, marginTop: 8 }}>{date}</div>}

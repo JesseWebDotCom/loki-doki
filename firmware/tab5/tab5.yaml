@@ -374,6 +374,13 @@ image:
   - file: placeholder.png
     id: cam_placeholder
     type: RGB565
+  # LokiDoki brand mark for the boot / "Connecting" splash (same logo as the app
+  # bootloader). RGBA so the squircle's rounded corners stay transparent on the dark bg.
+  - file: logo.png
+    id: boot_logo
+    type: RGB565
+    transparency: alpha_channel
+    resize: 200x200
 
 # ── Hardware JPEG camera source (ESP32-P4) ─────────────────────────────────────
 # Pulls JPEG frames from the server's living-room camera test endpoint and decodes
@@ -404,20 +411,31 @@ lvgl:
         # Boot / fallback splash, shown until the server's rendered layout streams in
         # (and again if it ever stops): a LokiDoki "Connecting" screen, like the boot
         # look. The ambient_img below covers this the instant layout frames arrive.
+        # The app's brand mark with a soft violet bloom (matches the bootloader glow),
+        # the LokiDoki wordmark, then "Connecting…".
+        - image:
+            id: boot_logo_img
+            src: boot_logo
+            align: CENTER
+            y: -150
+            shadow_color: 0x8B5CF6
+            shadow_width: 80
+            shadow_spread: 10
+            shadow_opa: 55%
         - label:
             id: lbl_brand
             align: CENTER
-            y: -60
+            y: 30
             text: "LokiDoki"
             text_font: font_brand
             text_color: 0xFFFFFF
         - label:
             id: lbl_connecting
             align: CENTER
-            y: 80
+            y: 140
             text: "Connecting..."
             text_font: font_date
-            text_color: 0x7C3AED
+            text_color: 0x8B5CF6
         # Server-rendered ambient LAYOUT (theme + widgets from Admin → Devices → Layouts),
         # hardware-decoded from the UDP frame stream (hw_jpeg `cam`, the same path the
         # camera test uses). Shown full-screen on TOP of the native clock once frames
@@ -451,22 +469,32 @@ lvgl:
                   text: ""
                   text_font: font_footer
                   text_color: 0xFFFFFF
-        # Whole-screen tap = start/stop listening. Replaces the old fixed mute+mic
-        # buttons that sat top-left over every layout/theme — the ambient screen is now
-        # clean and the server-rendered layout owns the whole display. A transparent
-        # full-screen button keeps tap-to-talk with no visible chrome; the state footer
-        # below still shows listening/thinking/speaking feedback.
+        # Two transparent corner hit-targets that line up with the server-rendered icons:
+        # bottom-LEFT (the ear) = start/stop listening; bottom-RIGHT (the speaker) = mute
+        # the companion's voice. No visible chrome — the icons come from the layout image;
+        # these just make the corners tappable.
         - button:
-            id: btn_tap
-            align: CENTER
-            width: 1280
-            height: 720
+            id: btn_wake
+            align: BOTTOM_LEFT
+            width: 320
+            height: 240
             bg_opa: 0%
             border_width: 0
             shadow_width: 0
             on_click:
               then:
                 - lambda: 'id(satellite)->toggle_mic_enabled();'
+        - button:
+            id: btn_mute
+            align: BOTTOM_RIGHT
+            width: 320
+            height: 240
+            bg_opa: 0%
+            border_width: 0
+            shadow_width: 0
+            on_click:
+              then:
+                - lambda: 'id(satellite)->toggle_muted();'
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer
