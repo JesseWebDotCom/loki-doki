@@ -475,6 +475,19 @@ void LokiDokiSatellite::send_reply_mode_() {
   this->send_event_("user-event", std::string("{\"name\":\"reply_mode\",\"mode\":\"") + m + "\"}", nullptr, 0);
 }
 
+void LokiDokiSatellite::toggle_mic_mute() {
+  this->mic_enabled_ = !this->mic_enabled_;
+  // on_mic_data_ already drops everything while !mic_enabled_, so nothing is ever
+  // transmitted. Additionally stop/start the mic peripheral so it isn't even capturing
+  // — but ONLY when idle: never touch the shared I2S bus mid-playback (the speaker owns
+  // it then; racing it abort()s the driver). Muting is UI-gated to idle, so this holds.
+  if (this->mic_ != nullptr && !this->playing_) {
+    if (this->mic_enabled_) this->mic_->start();
+    else this->mic_->stop();
+  }
+  ESP_LOGI(TAG, "microphone %s", this->mic_enabled_ ? "live" : "MUTED (privacy)");
+}
+
 std::string LokiDokiSatellite::hwid_() const { return get_mac_address_pretty(); }
 
 void LokiDokiSatellite::load_token_() {

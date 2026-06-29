@@ -61,9 +61,8 @@ esphome:
       - light.turn_on:
           id: backlight
           brightness: 100%
-      # Start with the mic OFF so the device doesn't wake on TV/background audio; the
-      # user taps the on-screen MIC button to start listening.
-      - lambda: 'id(satellite)->set_mic_enabled(false);'
+      # Wake word is ALWAYS ON by default (boots live, like an Echo) — the user taps the
+      # mic control to mute it for privacy. (Default mic_enabled_ is true in the component.)
       # NOTE: switching to page_camera happens from the render interval below (a
       # one-time lv_screen_load once LVGL is fully up) — doing it here in on_boot ran
       # too early and silently no-op'd (telemetry showed on_cam_page=0).
@@ -512,21 +511,42 @@ lvgl:
               - image:
                   src: img_ear
                   align: CENTER
+            # TAP = complete mute / unmute (Echo-style). HOLD = push-to-talk (skip the
+            # wake word), only while live. on_long_press sets ptt_was_hold so the click
+            # that fires on release doesn't also toggle mute.
             on_click:
               then:
                 - lambda: |-
-                    id(satellite)->request_listen();
-                    lv_label_set_text(id(state_label), "Listening");
-                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);
-                    lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
-                    lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);  // clear last reply
+                    if (id(ptt_was_hold)) { id(ptt_was_hold) = false; return; }
+                    id(satellite)->toggle_mic_mute();
+                    bool muted = id(satellite)->is_mic_muted();
+                    if (muted) {
+                      lv_label_set_text(id(lbl_wake), "Muted");
+                      lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0xDC2626), 0);  // red
+                      lv_obj_clear_flag(id(mute_banner), LV_OBJ_FLAG_HIDDEN);
+                    } else {
+                      lv_label_set_text(id(lbl_wake), "Listening");
+                      lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x7C3AED), 0);  // accent
+                      lv_obj_add_flag(id(mute_banner), LV_OBJ_FLAG_HIDDEN);
+                    }
+            on_long_press:
+              then:
+                - lambda: |-
+                    id(ptt_was_hold) = true;
+                    if (!id(satellite)->is_mic_muted()) {
+                      id(satellite)->request_listen();
+                      lv_label_set_text(id(state_label), "Listening");
+                      lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);
+                      lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+                    }
         - label:
             id: lbl_wake
             align: BOTTOM_LEFT
             x: 8
             y: -16
             width: 200
-            text: "Tap to talk"
+            text: "Listening"
             text_font: font_sd_label
             text_color: 0xEAEAF2
             text_align: CENTER
@@ -592,6 +612,25 @@ lvgl:
                   text: "Server unreachable - reconnecting..."
                   text_font: font_date
                   text_color: 0x1A1205
+        # Privacy mute banner (Echo-style red bar) — shown while the mic is muted.
+        - obj:
+            id: mute_banner
+            align: TOP_MID
+            y: 0
+            width: 1280
+            height: 92
+            radius: 0
+            bg_color: 0xDC2626
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            hidden: true
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Microphone off"
+                  text_font: font_date
+                  text_color: 0xFFFFFF
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer
@@ -852,7 +891,8 @@ text_sensor:
             } else {
               lv_obj_add_flag(id(btn_wake), LV_OBJ_FLAG_CLICKABLE);
               lv_obj_add_flag(id(btn_voice), LV_OBJ_FLAG_CLICKABLE);
-              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x7C3AED), 0);   // accent
+              // A muted mic stays red even when idle; otherwise accent.
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(id(satellite)->is_mic_muted() ? 0xDC2626 : 0x7C3AED), 0);
               bool voice = id(satellite)->voice_reply();
               lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(voice ? 0x2563EB : 0xD97706), 0);
             }
@@ -881,6 +921,14 @@ text_sensor:
         # (Re)start the auto-hide countdown on every update so the reply clears a while
         # after the LAST chunk arrives, instead of lingering on screen forever.
         - script.execute: hide_reply_timer
+
+# Tap-vs-hold disambiguation for the mic button: on_long_press (push-to-talk) sets this,
+# and the on_click that fires on release checks it so a HOLD doesn't also toggle mute.
+globals:
+  - id: ptt_was_hold
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 # Auto-hide the typed reply ~22 s after the last update (mode: restart resets the
 # countdown on each streamed chunk, so it only fires once the reply has settled).

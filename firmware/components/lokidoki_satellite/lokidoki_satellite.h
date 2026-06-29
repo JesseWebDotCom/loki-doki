@@ -63,10 +63,15 @@ class LokiDokiSatellite : public Component {
   void set_mic_enabled(bool e) { this->mic_enabled_ = e; }
   bool is_mic_enabled() const { return this->mic_enabled_; }
   void toggle_mic_enabled() { this->mic_enabled_ = !this->mic_enabled_; }
-  // Tap-to-talk: a MOMENTARY action (not a toggle) — open one listen turn now, like
-  // saying the wake word once. Enables the mic uplink and asks the server to capture.
+  // Complete (Echo-style) privacy mute. Muted = no audio leaves the device at all:
+  // on_mic_data_ drops everything (no wake word, no push-to-talk) AND we stop the mic
+  // peripheral when idle so it isn't even capturing. Tap toggles; implemented in .cpp
+  // so it can safely touch the shared I2S mic.
+  bool is_mic_muted() const { return !this->mic_enabled_; }
+  void toggle_mic_mute();
+  // Push-to-talk (HOLD): open one listen turn immediately, skipping the wake word.
+  // Only meaningful while live (the caller guards on !is_mic_muted()).
   void request_listen() {
-    this->mic_enabled_ = true;
     // Carry the CURRENT reply mode in the tap so the server uses it for THIS turn —
     // no dependency on a separate reply_mode event arriving (or surviving a reconnect) first.
     std::string m = this->voice_reply_ ? "voice" : "text";
