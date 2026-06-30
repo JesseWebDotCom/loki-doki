@@ -40,6 +40,13 @@ class LokiDokiSatellite : public Component {
   void set_mode_sensor(text_sensor::TextSensor *s) { this->mode_sensor_ = s; }
   // Optional: carries the companion's typed reply (shown on screen in text-only mode).
   void set_reply_sensor(text_sensor::TextSensor *s) { this->reply_sensor_ = s; }
+  // Optional (NATIVE LVGL experiment): publishes the assigned template's render mode
+  // ("lvgl" → draw the dashboard natively; "jpeg" → blit the server frame) from the
+  // pushed `layout` descriptor, so the LVGL layer can switch render paths.
+  void set_render_sensor(text_sensor::TextSensor *s) { this->render_sensor_ = s; }
+  // Optional (NATIVE LVGL experiment): carries the live data feed (weather + photo state)
+  // for the native dashboard as a JSON string the LVGL layer parses. Pushed as `display.data`.
+  void set_data_sensor(text_sensor::TextSensor *s) { this->data_sensor_ = s; }
   // Optional: screen backlight to dim on idle (driven by pushed config). Screenless
   // pods leave this unset.
   void set_backlight(light::LightState *bl) { this->backlight_ = bl; }
@@ -106,6 +113,12 @@ class LokiDokiSatellite : public Component {
   // the blank LVGL page we dynamically populate with button cells.
   void set_stream_deck_page(void *page_obj) { this->sd_page_ = page_obj; }
 
+  // The stable hardware id (Wi-Fi MAC) this device announced + the server stored it by —
+  // used by the native LVGL dashboard to build its per-device image URL so it matches
+  // exactly what the server has (get_mac_address() can differ on the Tab5: P4 base MAC vs
+  // the C6 Wi-Fi MAC).
+  std::string hwid() const { return this->hwid_(); }
+
   // Tell the server which view the screen is showing ("display" or "controller") so it
   // streams the matching server-rendered frame. Sent on a swipe (see tab5.yaml).
   void set_view(const std::string &view) {
@@ -160,6 +173,9 @@ class LokiDokiSatellite : public Component {
   text_sensor::TextSensor *reply_sensor_{nullptr}; // companion's typed reply (text mode)
   bool voice_reply_{true};                         // true = speak reply; false = type it
   std::string published_mode_;  // last value pushed to mode_sensor_ (de-dupe)
+  text_sensor::TextSensor *render_sensor_{nullptr}; // native-LVGL render mode ("lvgl"/"jpeg")
+  std::string published_render_;                    // last render mode pushed (de-dupe)
+  text_sensor::TextSensor *data_sensor_{nullptr};   // native-LVGL live data feed (JSON)
 
   // Idle screen dimming (configured live via the server's `config` event).
   light::LightState *backlight_{nullptr};

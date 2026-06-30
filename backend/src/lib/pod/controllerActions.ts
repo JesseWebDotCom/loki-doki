@@ -2,7 +2,7 @@ import { logger } from '@/lib/logger'
 import { pushToBrowserSession, type BrowserCommand } from '@/lib/pod/browserSession'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 
-// Executes a controller (Stream-Deck-mode) button press for the new controller-layout
+// Executes a controller-mode button press for the new controller-layout
 // system. The device only knows which (page, row, col) was tapped; we re-resolve the
 // device's effective layout, find that button, and dispatch its action to the user's
 // open browser session(s). Parallel to the display side — the layout is the source of

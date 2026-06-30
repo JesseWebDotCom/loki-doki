@@ -12,17 +12,19 @@ import type { AppEnv } from '@/types'
 import {
   createDevice, listDevices, deleteDevice, updateDevice, refreshPairingCode, redeemPairingCode, claimDevice,
 } from '@/lib/pod/devices'
-import { connectedDeviceIds, connectedActivity, speakToDevice } from '@/lib/pod/registry'
+import { connectedDeviceIds, connectedActivity, speakToDevice, orientToDevice } from '@/lib/pod/registry'
 import { ensureCompanionWakeword } from '@/lib/pod/companionWake'
 import { listPending, getPending, removePending } from '@/lib/pod/pending'
 import {
   getFirmwareStatus, detectSerialPorts, getPodWifi, setPodWifi, setServerHost,
-  buildAndFlash, isFlashBusy, resetFlashState, detectDevice,
+  buildAndFlash, isFlashBusy, resetFlashState, detectDevice, validateFirmware,
 } from '@/lib/pod/firmware'
 import {
   listGroups, createGroup, updateGroup, deleteGroup, assignDeviceGroup,
 } from '@/lib/pod/deviceSettings'
-import { captureDeviceFrame, deviceByHwid } from '@/lib/pod/displayRenderer'
+import { captureDeviceFrame, deviceByHwid, setDeviceOrientation } from '@/lib/pod/displayRenderer'
+import { rendererForTemplateId, DEFAULT_TEMPLATE_ID } from '@/lib/pod/deviceStudio'
+import { resolveDevicePhotoUrl } from '@/lib/pod/displayData'
 import { deviceDisplayMode, setDeviceCamera, setDeviceAuto, fetchCameraFrame } from '@/lib/pod/displayController'
 import { latestLivingRoomFrame } from '@/lib/pod/cameraStream'
 import { startFfmpegTest, startFfmpegSource, startUrlTest, stopTest, isTestActive } from '@/lib/pod/cameraTest'
@@ -66,6 +68,11 @@ pod.get('/display/:hwid', async (c) => {
   if (mode.mode === 'camera' && mode.cameraUrl) {
     frame = await fetchCameraFrame(mode.cameraUrl)
   }
+  // Native-LVGL devices draw their own dashboard — never server-render the page for them
+  // (the experiment's whole point). Camera mode still wins (admin test override).
+  if (!frame && rendererForTemplateId(dev.layoutTemplateId ?? DEFAULT_TEMPLATE_ID) === 'lvgl') {
+    return c.body(null, 204)
+  }
   if (!frame) frame = await captureDeviceFrame(dev.id, dev.userId) // fallback to clock/weather
 
   if (!frame) return c.json({ error: 'display rendering unavailable' }, 503)
@@ -81,6 +88,12 @@ pod.get('/display/:hwid', async (c) => {
 pod.get('/display/:hwid/stream', async (c) => {
   const dev = await deviceByHwid(c.req.param('hwid'))
   if (!dev) return c.json({ error: 'unknown device' }, 404)
+  // Native-LVGL devices render their own dashboard — no server pixels (unless an admin
+  // manual-camera override is active). Close the stream so the device falls back to native.
+  if (deviceDisplayMode(dev.id).mode !== 'camera' &&
+      rendererForTemplateId(dev.layoutTemplateId ?? DEFAULT_TEMPLATE_ID) === 'lvgl') {
+    return c.body(null, 204)
+  }
   c.header('Content-Type', 'application/octet-stream')
   c.header('Cache-Control', 'no-store')
   return stream(c, async (s) => {
@@ -101,6 +114,35 @@ pod.get('/display/:hwid/stream', async (c) => {
       await s.sleep(55)  // ~caps the rate; real limit is render + device decode/transfer
     }
   })
+})
+
+// ── Pod-facing: per-user IMAGE for the native LVGL dashboard ──────────────────
+// The device's `online_image` GETs this (URL: /api/pod/image/<mac>.jpg) and hardware-
+// decodes it into an LVGL image widget — the path for family photos. Unauthenticated by
+// the same LAN-appliance trust as /display (the device must exist + have a photo set).
+//
+// MULTI-IMAGE (stream-deck thumbnails): the controller has many button images, not one.
+// The same channel will serve a THUMBNAIL ATLAS — a single tiled JPEG of every button
+// icon — so the device does ONE fetch + ONE hardware-decode and each LVGL button points
+// at its tile (sub-region) of the decoded buffer. That keeps N images cheap. Pass 1
+// implements the single-photo case; `?kind=thumbs` is reserved for the atlas.
+pod.get('/image/:hwid', async (c) => {
+  // The hwid carries an image extension in the device's URL (…/<mac>.jpg); strip it.
+  const raw = c.req.param('hwid').replace(/\.(jpe?g|png|webp)$/i, '')
+  const url = await resolveDevicePhotoUrl(raw)
+  if (!url) return c.body(null, 404)
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!r.ok) return c.body(null, 404)
+    const ct = r.headers.get('content-type') ?? 'image/jpeg'
+    const buf = Buffer.from(await r.arrayBuffer())
+    return new Response(new Uint8Array(buf), {
+      status: 200,
+      headers: { 'Content-Type': ct, 'Cache-Control': 'no-store' },
+    })
+  } catch {
+    return c.body(null, 404)
+  }
 })
 
 // ── Pod-facing: living-room camera perf test ─────────────────────────────────
@@ -295,15 +337,21 @@ pod.post('/devices/:id/pair-code', requireAdmin, async (c) => {
 
 pod.patch('/devices/:id', requireAdmin, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
-    name?: string; userId?: string; characterId?: string | null; wakeWord?: string | null
+    name?: string; userId?: string; characterId?: string | null; wakeWord?: string | null; orientation?: number
   }
-  const updated = await updateDevice(c.req.param('id'), {
+  const id = c.req.param('id')
+  const updated = await updateDevice(id, {
     name: body.name?.trim() || undefined,
     userId: body.userId || undefined,
     characterId: body.characterId === undefined ? undefined : (body.characterId || null),
     wakeWord: body.wakeWord === undefined ? undefined : (body.wakeWord || null),
+    orientation: body.orientation !== undefined ? (Number(body.orientation) || 0) : undefined,
   })
   if (!updated) return c.json({ error: 'device not found' }, 404)
+  if (body.orientation !== undefined) {
+    setDeviceOrientation(id, updated.orientation)  // rotates the server-rendered JPEG
+    orientToDevice(id, updated.orientation)         // tells LVGL to rotate touch + native buttons
+  }
   // Assigning a companion? Kick off auto-training its wake word in the background so
   // the device answers to e.g. "Hey Loki" instead of the default — ready by next connect.
   if (updated.characterId && !updated.wakeWord) void ensureCompanionWakeword(updated.characterId)
@@ -383,6 +431,23 @@ pod.post('/firmware/flash', requireAdmin, async (c) => {
       await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) })
     } finally {
       if (podFlashAbort === ctrl) podFlashAbort = null
+    }
+  })
+})
+
+// Validate a device's firmware config (esphome config) — no compile, no flash. Streams
+// the CLI output as SSE so the admin can pre-flight a YAML/component edit from the app.
+pod.post('/firmware/validate', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { model?: string }
+  return streamSSE(c, async (stream) => {
+    const ctrl = new AbortController()
+    stream.onAbort(() => ctrl.abort())
+    const log = (line: string) => { void stream.writeSSE({ event: 'log', data: JSON.stringify({ line }) }) }
+    try {
+      await validateFirmware(body.model, log, ctrl.signal)
+      await stream.writeSSE({ event: 'done', data: JSON.stringify({ ok: true }) })
+    } catch (err) {
+      await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) })
     }
   })
 })

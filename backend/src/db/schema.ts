@@ -137,6 +137,7 @@ export const devices = sqliteTable('devices', {
   layoutOverrides: text('layout_overrides'),       // JSON: per-device tweak { theme?, volume?, alarmVolume? }
   controllerLayoutTemplateId: text('controller_layout_template_id'), // → controller_layout_templates.id; null = builtin:blank
   controllerLayoutOverrides: text('controller_layout_overrides'),     // JSON: per-device button overrides
+  orientation: integer('orientation').notNull().default(0),           // display rotation: 0 | 90 | 180 | 270
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
@@ -202,7 +203,7 @@ export const deviceGroups = sqliteTable('device_groups', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
-// ── Controller layouts (Stream Deck mode for screen Pods) ─────────────────────
+// ── Controller layouts (controller mode for screen Pods) ──────────────────────
 // Named templates assigned to devices — parallel to device_layout_templates for
 // the display side. Built-in templates ship with dynamic data (YouTube subscriptions,
 // music stations) resolved at push time from the bound user's account.

@@ -113,14 +113,24 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     description: 'Set up and manage your voice devices around the home',
     subsections: [
       {
-        id: 'layouts', label: 'Layouts', kind: 'anchor', anchorId: 'devices-layouts-tab',
-        keywords: ['layout', 'layouts', 'grid', 'slot', 'widgets', 'template', 'profile', 'theme', 'dashboard', 'tab5', 'clock', 'weather', 'home', 'screen', 'display', 'ambient', 'kiosk', 'wallpaper', 'flip clock', 'date', 'background', 'controller', 'stream deck'],
+        id: 'overview', label: 'My Devices', kind: 'view',
+        keywords: ['devices', 'device', 'list', 'pod', 'pods', 'satellite', 'pair', 'pairing', 'echo', 'tab5', 'screen', 'speaker', 'voice'],
+        description: 'Your voice devices around the home',
+      },
+      {
+        id: 'layouts', label: 'Layouts', kind: 'view',
+        keywords: ['layout', 'layouts', 'grid', 'slot', 'widgets', 'template', 'profile', 'theme', 'dashboard', 'tab5', 'clock', 'weather', 'home', 'screen', 'display', 'ambient', 'kiosk', 'wallpaper', 'flip clock', 'date', 'background', 'controller', 'button grid'],
         description: 'Layout templates for display and controller modes',
       },
       {
-        id: 'sounds', label: 'Sounds', kind: 'anchor', anchorId: 'devices-sounds-tab',
+        id: 'sounds', label: 'Sounds', kind: 'view',
         keywords: ['sound', 'sounds', 'earcon', 'chime', 'chimes', 'tone', 'pack', 'wake sound', 'beep', 'audio', 'alarm', 'alarms', 'wake up', 'ring', 'snooze', 'schedule'],
         description: 'Sound packs, earcons, and the chime designer',
+      },
+      {
+        id: 'settings', label: 'Settings', kind: 'view',
+        keywords: ['settings', 'central', 'dimming', 'brightness', 'group', 'groups', 'camera test', 'manual', 'pairing code', 'advanced'],
+        description: 'Central settings, camera test, and manual pairing',
       },
     ],
   },

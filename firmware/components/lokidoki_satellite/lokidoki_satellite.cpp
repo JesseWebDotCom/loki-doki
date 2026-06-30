@@ -418,7 +418,7 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
   if (type == "user-event") {
     std::string name, state, token, mode, reply;
     bool dim_enabled = false;
-    int dim_percent = 30, dim_after_s = 60;
+    int dim_percent = 30, dim_after_s = 60, degrees = -1;
     json::parse_json(data_json, [&](JsonObject root) -> bool {
       name = root["name"].as<std::string>();
       state = root["state"].as<std::string>();
@@ -428,6 +428,7 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       if (root["dimEnabled"].is<bool>()) dim_enabled = root["dimEnabled"].as<bool>();
       if (root["dimPercent"].is<int>()) dim_percent = root["dimPercent"].as<int>();
       if (root["dimAfterS"].is<int>()) dim_after_s = root["dimAfterS"].as<int>();
+      if (root["degrees"].is<int>()) degrees = root["degrees"].as<int>();
       return true;
     });
     if (name == "reply_text") {
@@ -448,6 +449,28 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       this->dim_after_ms_ = (uint32_t) std::max(1, dim_after_s) * 1000UL;
       this->last_active_ms_ = millis();  // re-evaluate the dim timer from now
       ESP_LOGI(TAG, "config: dim=%d %d%% after %ds", dim_enabled, dim_percent, dim_after_s);
+    } else if (name == "display.orientation" && degrees >= 0) {
+      // Rotate the LVGL display so native controls (mic/audio/status) and touch
+      // coordinates track the physical mounting orientation of the device. The Tab5
+      // physical panel is 720×1280 portrait; LVGL rotation=90 is the landscape-normal
+      // baseline (set in the YAML).
+      //
+      // Landscape modes only — portrait (90°/270°) is handled server-side (the server
+      // Canvas-rotates the JPEG to 1280×720 so the hw_jpeg decoder gets a fixed-size
+      // frame; LVGL stays at its baseline 90° for those modes).
+      //   0°  (landscape normal)  → LV_DISPLAY_ROTATION_90  (baseline — no change)
+      //   180°(landscape flipped) → LV_DISPLAY_ROTATION_270 (upside-down landscape)
+#ifdef USE_LVGL
+      // DO NOT rotate the LVGL display at runtime. Proven on the Tab5 (ESP32-P4 MIPI-DSI):
+      // calling lv_display_set_rotation() on a live screen corrupts the framebuffer (a
+      // scrambled band that the static background never repaints away). The display's
+      // orientation is set ONCE at boot by the YAML `lvgl: rotation:` (driver-level), which
+      // renders cleanly; this runtime push is therefore redundant AND destructive, so we
+      // only log it. Changing orientation requires a reflash with the right YAML rotation
+      // (the proper fix is to inject it as a build-time substitution from device.orientation
+      // — like the Wi-Fi creds — so each device boots already-oriented; TODO).
+      ESP_LOGI(TAG, "display.orientation: %d° received (runtime rotation disabled — set at boot)", degrees);
+#endif
     }
     // Screen mode — carried on `config` (restored on (re)connect) or pushed live as
     // a `display.mode` event from the admin Testing tab. Mirror it to the mode sensor
@@ -468,6 +491,29 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     // And device → server: { name:"alarm_action", alarm_id, action:"snooze"|"cancel" }.
     if (name == "stream_deck_config" && this->sd_page_ != nullptr) {
       this->handle_stream_deck_config_(data_json);
+    }
+    // ── NATIVE LVGL experiment ──────────────────────────────────────────────────
+    // The `layout` descriptor carries a `renderer` ("lvgl" → draw the dashboard
+    // natively; "jpeg" → blit the server frame). Surface it to render_sensor_ so the
+    // LVGL layer switches render paths. We don't parse the whole descriptor here — for
+    // the experiment the native page is themed in YAML; only the mode matters.
+    if (name == "layout" && this->render_sensor_ != nullptr) {
+      std::string renderer;
+      json::parse_json(data_json, [&](JsonObject root) -> bool {
+        renderer = root["renderer"].as<std::string>();
+        return true;
+      });
+      if (renderer.empty()) renderer = "jpeg";
+      if (renderer != this->published_render_) {
+        this->published_render_ = renderer;
+        this->render_sensor_->publish_state(renderer);
+        ESP_LOGI(TAG, "render mode → %s", renderer.c_str());
+      }
+    }
+    // The live data feed (weather + photo state) for the native dashboard — pass the
+    // JSON straight through to data_sensor_; the LVGL layer parses + renders it.
+    if (name == "display.data" && this->data_sensor_ != nullptr) {
+      this->data_sensor_->publish_state(data_json);
     }
     return;
   }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, Trash2, Moon, Layers, Check, MessageSquare } from 'lucide-react'
+import { Loader2, Plus, Trash2, Moon, Layers, Check, MessageSquare, Ear } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -11,10 +11,10 @@ import { toast } from '@/lib/toast'
 // settings; admin groups override them. Saving a group deploys to its online devices
 // immediately (and an offline device pulls its group's settings when it reconnects).
 
-export interface DeviceSettings { dimEnabled: boolean; dimPercent: number; dimAfterS: number; responseLength: string; showReplyText: boolean }
+export interface DeviceSettings { dimEnabled: boolean; dimPercent: number; dimAfterS: number; responseLength: string; showReplyText: boolean; wakeThreshold: number | null }
 export interface DeviceGroup { id: string; name: string; isDefault: boolean; settings: Partial<DeviceSettings>; createdAt: number }
 
-const DEFAULTS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true }
+const DEFAULTS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true, wakeThreshold: null }
 
 const RESPONSE_OPTIONS: { value: string; label: string }[] = [
   { value: 'inherit', label: 'Use companion’s setting' },
@@ -131,17 +131,19 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
   const [dimAfterS, setDimAfterS] = useState(eff.dimAfterS)
   const [responseLength, setResponseLength] = useState(eff.responseLength)
   const [showReplyText, setShowReplyText] = useState(eff.showReplyText ?? true)
+  const [wakeThreshold, setWakeThreshold] = useState<number | null>(eff.wakeThreshold ?? null)
   const [busy, setBusy] = useState(false)
 
   const dirty = name !== group.name || dimEnabled !== eff.dimEnabled || dimPercent !== eff.dimPercent
     || dimAfterS !== eff.dimAfterS || responseLength !== eff.responseLength || showReplyText !== (eff.showReplyText ?? true)
+    || wakeThreshold !== (eff.wakeThreshold ?? null)
 
   async function save() {
     setBusy(true)
     try {
       const r = await fetch(`/api/pod/groups/${group.id}`, {
         ...opts, method: 'PUT', headers: J,
-        body: JSON.stringify({ name, settings: { dimEnabled, dimPercent, dimAfterS, responseLength, showReplyText } }),
+        body: JSON.stringify({ name, settings: { dimEnabled, dimPercent, dimAfterS, responseLength, showReplyText, wakeThreshold } }),
       })
       if (!r.ok) throw new Error()
       const { deploy } = (await r.json()) as { deploy?: { online: number; total: number } }
@@ -186,6 +188,42 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
         <MessageSquare className="size-4 text-indigo-500" />
         <span className="text-sm font-medium">Show reply text on screen</span>
         <Switch className="ml-auto" checked={showReplyText} onCheckedChange={setShowReplyText} />
+      </div>
+
+      {/* Wake word sensitivity */}
+      <div className="space-y-2.5 rounded-xl bg-muted/40 p-3">
+        <div className="flex items-center gap-2">
+          <Ear className="size-4 text-amber-500" />
+          <span className="text-sm font-medium">Wake sensitivity</span>
+          <Switch
+            className="ml-auto"
+            checked={wakeThreshold !== null}
+            onCheckedChange={(on) => setWakeThreshold(on ? 0.6 : null)}
+          />
+        </div>
+        {wakeThreshold !== null ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Sensitive</span>
+              <span className="font-mono font-medium text-foreground">{wakeThreshold.toFixed(2)}</span>
+              <span>Strict</span>
+            </div>
+            <input
+              type="range" min={0.3} max={0.9} step={0.05}
+              value={wakeThreshold}
+              onChange={(e) => setWakeThreshold(Number(e.target.value))}
+              className="w-full accent-amber-500"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              {wakeThreshold <= 0.45 ? 'Very sensitive — fires easily, may get false positives.' :
+               wakeThreshold <= 0.6 ? 'Balanced — good for quiet rooms.' :
+               wakeThreshold <= 0.75 ? 'Strict — better for rooms with music or TV.' :
+               'Very strict — use only if false fires are frequent.'}
+            </p>
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">Using the model's calibrated threshold. Enable to override.</p>
+        )}
       </div>
 
       {/* Screen dimming */}

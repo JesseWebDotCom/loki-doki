@@ -31,9 +31,13 @@ export interface DeviceSettings {
   responseLength: ResponseLength
   /** Show the companion's reply as text on this screen device (false = voice only). */
   showReplyText: boolean
+  /** Override the wake-word detector's threshold (0.1–0.99). Null = use the model's
+   *  calibrated value (from train_wakeword.py FA/hr calibration). Raise for noisy rooms
+   *  where music/TV triggers false wakes; lower if the phrase stops being detected. */
+  wakeThreshold: number | null
 }
 
-export const DEFAULT_SETTINGS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true }
+export const DEFAULT_SETTINGS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true, wakeThreshold: null }
 
 const DEFAULT_GROUP_ID = 'default'
 
@@ -46,6 +50,9 @@ export function sanitizeSettings(p: Record<string, unknown>): Partial<DeviceSett
   if (typeof p.responseLength === 'string' && RESPONSE_LENGTHS.includes(p.responseLength as ResponseLength))
     out.responseLength = p.responseLength as ResponseLength
   if (typeof p.showReplyText === 'boolean') out.showReplyText = p.showReplyText
+  if (p.wakeThreshold === null) out.wakeThreshold = null
+  else if (typeof p.wakeThreshold === 'number' && Number.isFinite(p.wakeThreshold))
+    out.wakeThreshold = Math.max(0.1, Math.min(0.99, p.wakeThreshold))
   return out
 }
 

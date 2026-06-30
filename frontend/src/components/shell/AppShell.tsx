@@ -42,7 +42,7 @@ const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: 
 export function AppShell() {
   // Smart caching: warm pinned + recent apps' data during idle time so they open instantly.
   useAppWarmer();
-  // Stream Deck / Tab5 button commands over SSE.
+  // Controller / Tab5 button commands over SSE.
   useBrowserSession();
   const { pathname } = useLocation();
   // Full-bleed apps own their full height and let the companion float over them.

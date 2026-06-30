@@ -27,6 +27,8 @@ CONF_STATUS_LIGHT = "status_light"
 CONF_FACE_SENSOR = "face_sensor"
 CONF_MODE_SENSOR = "mode_sensor"
 CONF_REPLY_SENSOR = "reply_sensor"
+CONF_RENDER_SENSOR = "render_sensor"
+CONF_DATA_SENSOR = "data_sensor"
 CONF_BACKLIGHT = "backlight"
 
 CONFIG_SCHEMA = cv.Schema(
@@ -44,6 +46,10 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_MODE_SENSOR): cv.use_id(text_sensor.TextSensor),
         # Optional text sensor carrying the companion's typed reply (text-only mode).
         cv.Optional(CONF_REPLY_SENSOR): cv.use_id(text_sensor.TextSensor),
+        # Optional (native-LVGL experiment) text sensor for the assigned render mode.
+        cv.Optional(CONF_RENDER_SENSOR): cv.use_id(text_sensor.TextSensor),
+        # Optional (native-LVGL experiment) text sensor for the live data feed (JSON).
+        cv.Optional(CONF_DATA_SENSOR): cv.use_id(text_sensor.TextSensor),
         # Optional screen backlight to dim on idle (driven by pushed settings).
         cv.Optional(CONF_BACKLIGHT): cv.use_id(light.LightState),
     }
@@ -78,6 +84,14 @@ async def to_code(config):
     if CONF_REPLY_SENSOR in config:
         reply = await cg.get_variable(config[CONF_REPLY_SENSOR])
         cg.add(var.set_reply_sensor(reply))
+
+    if CONF_RENDER_SENSOR in config:
+        render = await cg.get_variable(config[CONF_RENDER_SENSOR])
+        cg.add(var.set_render_sensor(render))
+
+    if CONF_DATA_SENSOR in config:
+        data = await cg.get_variable(config[CONF_DATA_SENSOR])
+        cg.add(var.set_data_sensor(data))
 
     if CONF_BACKLIGHT in config:
         bl = await cg.get_variable(config[CONF_BACKLIGHT])

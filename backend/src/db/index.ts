@@ -1864,7 +1864,7 @@ export function runMigrations() {
   addColumn('media_watchlist', 'plex_synced_at', 'INTEGER')
   addColumn('media_watchlist', 'deleted_at', 'INTEGER')
 
-  // Controller layout templates — named Stream Deck button-grid presets assigned to screen
+  // Controller layout templates — named button-grid presets assigned to screen
   // devices (parallel to device_layout_templates for the display side). Built-in templates
   // ship with dynamic data resolved at push time.
   sqlite.exec(`
@@ -1881,4 +1881,5 @@ export function runMigrations() {
   `)
   addColumn('devices', 'controller_layout_template_id', 'TEXT')
   addColumn('devices', 'controller_layout_overrides', 'TEXT')
+  addColumn('devices', 'orientation', 'INTEGER NOT NULL DEFAULT 0')
 }

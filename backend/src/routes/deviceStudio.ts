@@ -18,6 +18,7 @@ import type { AppEnv } from '@/types'
 import { db } from '@/db'
 import { devices, deviceChimes, deviceSoundPacks, deviceLayoutTemplates, controllerLayoutTemplates, clockAlarms, users } from '@/db/schema'
 import { layoutToDevice, soundToDevice, assetSyncToDevice, streamDeckToDevice } from '@/lib/pod/registry'
+import { pushDisplayData } from '@/lib/pod/displayData'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { setNowPlaying, getNowPlaying, type NowPlaying } from '@/lib/pod/nowPlaying'
 import { getServerHost } from '@/lib/pod/firmware'
@@ -49,7 +50,11 @@ async function pushToDevice(deviceId: string): Promise<boolean> {
   // Push the asset manifest first so any custom WAVs are on the SD card before they're
   // referenced (built-in tones ship in flash and never appear here).
   if (sync.files.length) assetSyncToDevice(deviceId, sync.pack_id, sync.files)
-  return layoutToDevice(deviceId, desc as unknown as Record<string, unknown>)
+  const reached = layoutToDevice(deviceId, desc as unknown as Record<string, unknown>)
+  // A native-LVGL template needs its live data feed (weather + photo) too — push it
+  // right after the layout so the dashboard fills in immediately on a template switch.
+  if (desc.renderer === 'lvgl') void pushDisplayData(deviceId)
+  return reached
 }
 
 /** Re-push to every device currently using a given template (or the default layout). */
@@ -336,7 +341,7 @@ studio.post('/devices/:id/sound', requireAdmin, async (c) => {
   return ok ? c.json({ ok: true }) : c.json({ error: 'device is not connected' }, 409)
 })
 
-// ── Controller layout templates (Stream Deck / button-grid mode) ──────────────────────
+// ── Controller layout templates (button-grid mode) ────────────────────────────────────
 // Parallel to the display-side layout templates above. Three built-in templates ship as
 // synthetic entries (no DB row). Custom templates persist to controller_layout_templates.
 

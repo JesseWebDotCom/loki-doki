@@ -7,13 +7,13 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { DevicePreview } from '@/components/admin/DevicePreview'
 import { toast } from '@/lib/toast'
 import {
-  validateWidgets, firstFreeAnchor, footprint, WEATHER_CONDITIONS, DEFAULT_TEMPLATE_ID,
+  validateWidgets, firstFreeAnchor, footprint, WEATHER_CONDITIONS, DEFAULT_TEMPLATE_ID, rendererForTemplateId,
   type WidgetPlacement, type WidgetType, type WidgetSize, type ThemeTokens, type WeatherCondition,
   type TemplateRow, type SoundPackRow, type ChimeRow,
   opts, JSON_HEADERS, getJSON, parse,
 } from '@/lib/pod/layout'
 
-interface DeviceRow { id: string; name: string; kind: string; model: string | null; layoutTemplateId?: string | null }
+interface DeviceRow { id: string; name: string; kind: string; model: string | null; layoutTemplateId?: string | null; layoutOverrides?: string | null }
 
 interface DraftTemplate {
   id: string | null
@@ -85,6 +85,9 @@ export function DeviceLayoutsPanel({ id }: { id?: string }) {
               <div className="overflow-hidden rounded-xl"><DevicePreview theme={theme} widgets={widgets} /></div>
               <div className="flex items-center gap-2">
                 <span className="flex-1 truncate text-sm font-medium">{t.name}</span>
+                {rendererForTemplateId(t.id) === 'lvgl' && (
+                  <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-300" title="Rendered natively on-device in LVGL (experiment)">LVGL</span>
+                )}
                 {t.builtin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Built-in</span>}
               </div>
               {usedBy.length > 0
@@ -131,27 +134,48 @@ export function DeviceLayoutsPanel({ id }: { id?: string }) {
 
 function AssignRow({ device, templates }: { device: DeviceRow; templates: TemplateRow[] }) {
   const [value, setValue] = useState(device.layoutTemplateId ?? '')
+  const [photoUrl, setPhotoUrl] = useState<string>(() => parse<{ photoUrl?: string }>(device.layoutOverrides, {}).photoUrl ?? '')
   const [busy, setBusy] = useState(false)
-  async function save(v: string) {
-    setValue(v); setBusy(true)
+  // The native-LVGL dashboard can show a per-user family photo (stored in the device's
+  // layoutOverrides). The field appears only for an LVGL template; the same hardware-decode
+  // path will later serve a thumbnail atlas to the controller's many buttons.
+  const isLvgl = rendererForTemplateId(value) === 'lvgl'
+  // Persist templateId + overrides together (the route replaces overrides on each save,
+  // so we always send the current photo URL alongside).
+  async function save(v: string, photo: string) {
+    setBusy(true)
     try {
-      const r = await fetch(`/api/pod/devices/${device.id}/layout`, { ...opts, method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ templateId: v || null }) })
+      const overrides = photo.trim() ? { photoUrl: photo.trim() } : undefined
+      const r = await fetch(`/api/pod/devices/${device.id}/layout`, { ...opts, method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ templateId: v || null, overrides }) })
       if (!r.ok) throw new Error()
       toast.success(`Layout updated for ${device.name}`)
     } catch { toast.error('Couldn’t update layout') } finally { setBusy(false) }
   }
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-card px-3 py-2">
-      <span className="flex-1 truncate text-sm">{device.name}</span>
-      {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-      <select value={value} onChange={(e) => save(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2 text-xs">
-        <option value="">Default layout</option>
-        {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-      </select>
-      {/* Preview THIS device's live layout in a browser tab (what the screen shows). */}
-      <a href={`/display?deviceId=${device.id}`} target="_blank" rel="noreferrer" title="Open this device's display" className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground">
-        <ExternalLink className="size-4" />
-      </a>
+    <div className="flex flex-col gap-2 rounded-xl bg-card px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 truncate text-sm">{device.name}</span>
+        {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        <select value={value} onChange={(e) => { setValue(e.target.value); void save(e.target.value, photoUrl) }} className="h-8 rounded-md border border-input bg-background px-2 text-xs">
+          <option value="">Default layout</option>
+          {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        {/* Preview THIS device's live layout in a browser tab (what the screen shows). */}
+        <a href={`/display?deviceId=${device.id}`} target="_blank" rel="noreferrer" title="Open this device's display" className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground">
+          <ExternalLink className="size-4" />
+        </a>
+      </div>
+      {isLvgl && (
+        <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="shrink-0">Family photo URL</span>
+          <input
+            type="url" value={photoUrl} placeholder="https://…/photo.jpg"
+            onChange={(e) => setPhotoUrl(e.target.value)}
+            onBlur={() => void save(value, photoUrl)}
+            className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+          />
+        </label>
+      )}
     </div>
   )
 }

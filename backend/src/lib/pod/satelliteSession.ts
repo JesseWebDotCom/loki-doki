@@ -37,7 +37,9 @@ import {
   faceState,
   deviceConfig,
   displayMode,
+  displayOrientation,
   layout as layoutEvent,
+  displayData as displayDataEvent,
   replyText,
   soundTrigger,
   alarmFire as alarmFireEvent,
@@ -53,6 +55,7 @@ import { effectiveSettings } from '@/lib/pod/deviceSettings'
 import { getDeviceMode } from '@/lib/pod/displayMode'
 import { setDeviceView } from '@/lib/pod/displayController'
 import { resolveDeviceDescriptor } from '@/lib/pod/deviceStudio'
+import { pushDisplayData } from '@/lib/pod/displayData'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { handleAlarmAction } from '@/lib/pod/scheduler'
 import { handleButtonPress } from '@/lib/pod/controllerActions'
@@ -75,6 +78,7 @@ export class SatelliteSession implements PodFireTarget {
   private resolvedWakeId: string | null = null // device override → companion model → app default
   private replyStyleOverride = 'inherit'        // device-group reply-length override (server-side)
   private showReplyText = true                  // per-device: type the reply on screen?
+  private wakeThresholdSetting: number | null = null
   private replyMode: 'voice' | 'text' = 'voice' // device tells us: speak the reply, or show it as text
   private wakeResolved = false // don't load a detector until we know which model (post-auth)
   private wakeSuppressedUntil = 0 // ignore wake until this time (post-TTS self-barge guard)
@@ -230,14 +234,41 @@ export class SatelliteSession implements PodFireTarget {
   }
 
   /** Speak a phrase on the device on demand (the admin "Test" button) — bypasses
-   *  wake/STT/LLM so we can verify the speaker/playback path directly. */
+   *  wake/STT/LLM so we can verify the speaker/playback path directly. The whole point
+   *  is to hear the speaker, so it also bypasses the template's global mute (a "No sound"
+   *  layout sets sound_pack.volume to 0): we momentarily push an audible volume, speak,
+   *  then restore the real descriptor — the same way alarms ignore the global mute. */
   async testSpeak(text: string): Promise<void> {
     if (this.closed) return
     this.turnAbort?.abort()
     const ac = new AbortController()
     this.turnAbort = ac
-    await this.speak(text, ac.signal)
+    const restoreVolume = await this.forceAudibleForTest()
+    try {
+      await this.speak(text, ac.signal)
+    } finally {
+      // speak() returns once audio is SENT, not finished playing — wait out the device's
+      // buffer before re-muting so the tail of the test isn't clipped.
+      if (restoreVolume) setTimeout(restoreVolume, 1500)
+    }
     if (!ac.signal.aborted) this.setState('idle')
+  }
+
+  /** If the device is on a muted/"No sound" template, push an identical layout with the
+   *  output volume turned up so the test is audible. Returns a fn that re-applies the
+   *  real (muted) descriptor afterwards, or null when already audible / unavailable. */
+  private async forceAudibleForTest(): Promise<(() => void) | null> {
+    if (!this._deviceId) return null
+    try {
+      const desc = await resolveDeviceDescriptor(this._deviceId)
+      const sp = (desc as { sound_pack?: { volume?: number } } | null)?.sound_pack
+      if (!desc || !sp) return null
+      const current = typeof sp.volume === 'number' ? sp.volume : 1
+      if (current >= 0.5) return null  // already audible — leave the device untouched
+      const loud = { ...desc, sound_pack: { ...sp, volume: 1 } }
+      this.applyLayout(loud as unknown as Record<string, unknown>)
+      return () => { if (!this.closed) this.applyLayout(desc as unknown as Record<string, unknown>) }
+    } catch { return null }
   }
 
   /** Push effective settings to the device (registry → on group change / connect).
@@ -247,6 +278,11 @@ export class SatelliteSession implements PodFireTarget {
     if (this.closed) return
     if (typeof config.responseLength === 'string') this.replyStyleOverride = config.responseLength
     if (typeof config.showReplyText === 'boolean') this.showReplyText = config.showReplyText
+    if (config.wakeThreshold === null || typeof config.wakeThreshold === 'number') {
+      this.wakeThresholdSetting = config.wakeThreshold === null ? null
+        : (Number.isFinite(config.wakeThreshold as number) ? config.wakeThreshold as number : null)
+      this.wake?.setThresholdOverride(this.wakeThresholdSetting)
+    }
     this.send(deviceConfig(config))
   }
 
@@ -257,11 +293,25 @@ export class SatelliteSession implements PodFireTarget {
     this.send(displayMode(mode))
   }
 
+  /** Push display orientation so LVGL rotates touch coords + native buttons to match
+   *  the server-rendered JPEG. Re-sent on (re)connect; immediately when admin changes it. */
+  applyOrientation(degrees: number): void {
+    if (this.closed) return
+    this.send(displayOrientation(degrees))
+  }
+
   /** Push the slot-based dashboard descriptor (Admin → Devices → Layouts). Sent on
    *  (re)connect and whenever the device's template/assignment changes — no re-flash. */
   applyLayout(descriptor: Record<string, unknown>): void {
     if (this.closed) return
     this.send(layoutEvent(descriptor))
+  }
+
+  /** Push the native-LVGL live data feed (weather + photo state). Sent on (re)connect,
+   *  on layout change, and on the slow refresh timer. Ignored by JPEG-rendered devices. */
+  applyDisplayData(payload: Record<string, unknown>): void {
+    if (this.closed) return
+    this.send(displayDataEvent(payload))
   }
 
   /** Play a UI earcon for an event in the device's active sound pack. */
@@ -289,7 +339,7 @@ export class SatelliteSession implements PodFireTarget {
     this.send(assetSyncEvent(packId, files))
   }
 
-  /** Push the stream deck button grid to this device (controller mode). */
+  /** Push the controller button grid to this device (controller mode). */
   applyStreamDeckConfig(config: StreamDeckConfigPayload): void {
     if (this.closed) return
     this.send(streamDeckConfig(config))
@@ -403,7 +453,11 @@ export class SatelliteSession implements PodFireTarget {
     this.wakeLoading = true
     // Prefer the resolved wake word (device override → companion's trained model);
     // otherwise the detector falls back to the app default.
-    const w = new WakeDetector({ modelId: this.resolvedWakeId ?? this.wakeWord ?? undefined, hysteresis: POD_WAKE_HYSTERESIS })
+    const w = new WakeDetector({
+      modelId: this.resolvedWakeId ?? this.wakeWord ?? undefined,
+      hysteresis: POD_WAKE_HYSTERESIS,
+      threshold: this.wakeThresholdSetting ?? undefined,
+    })
     w.onDetect = () => this.onWakeDetect()
     w.load()
       .then((ok) => {
@@ -624,6 +678,9 @@ export class SatelliteSession implements PodFireTarget {
     // Restore this device's screen mode (normal/camera-test/touch-test) — an offline
     // device that was put in a test mode picks it back up the instant it reconnects.
     this.setDisplayMode(getDeviceMode(device.id))
+    // Push display orientation (LVGL rotation for touch + native buttons) — sent on every
+    // reconnect so the device stays in sync even after power-cycling.
+    this.applyOrientation(device.orientation ?? 0)
     // Re-assert the current conversation state so a reconnecting device can't keep
     // showing a stale "thinking"/"talking" pill from before the drop. setState() dedupes
     // (it won't re-send the state it already holds), so push it explicitly here.
@@ -632,7 +689,14 @@ export class SatelliteSession implements PodFireTarget {
     // built-in default) + resolved sound map — this is how a layout/colour/sound edit
     // reaches a device that was offline when it was changed. Fire-and-forget.
     resolveDeviceDescriptor(device.id)
-      .then((desc) => { if (desc && !this.closed) this.applyLayout(desc as unknown as Record<string, unknown>) })
+      .then((desc) => {
+        if (!desc || this.closed) return
+        this.applyLayout(desc as unknown as Record<string, unknown>)
+        // Native-LVGL devices also need the live data feed (weather + photo) right after
+        // the layout, so the dashboard fills in immediately on connect. JPEG devices fetch
+        // their own weather in the headless render tab, so they don't get this.
+        if (desc.renderer === 'lvgl') pushDisplayData(device.id).catch(() => {})
+      })
       .catch(() => {})
     // Push controller layout alongside display layout on connect.
     resolveControllerDescriptor(device.id, device.userId)

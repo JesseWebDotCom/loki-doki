@@ -20,7 +20,7 @@ const SECTIONS: PanelSection[] = [
   { id: 'appearance',    label: 'Appearance',      icon: Palette    },
   { id: 'content',       label: 'Content',         icon: SlidersHorizontal },
   { id: 'notifications', label: 'Notifications',   icon: Bell       },
-  { id: 'stream-deck',   label: 'Stream Deck',     icon: LayoutGrid },
+  { id: 'stream-deck',   label: 'Controller',      icon: LayoutGrid },
   { id: 'about',         label: 'About',           icon: Info       },
 ]
 

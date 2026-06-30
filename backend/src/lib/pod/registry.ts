@@ -25,8 +25,12 @@ export interface PodFireTarget {
   applyConfig(config: Record<string, unknown>): void
   /** Switch the device's screen mode (normal | camera-test | touch-test). */
   setDisplayMode(mode: string): void
+  /** Push display orientation (0|90|180|270) so LVGL rotates touch + native buttons. */
+  applyOrientation(degrees: number): void
   /** Push the slot-based dashboard descriptor (layout + theme + sound map). */
   applyLayout(descriptor: Record<string, unknown>): void
+  /** Push the live data feed (weather + photo state) for the native LVGL dashboard. */
+  applyDisplayData(payload: Record<string, unknown>): void
   /** Play a UI earcon for an event in the device's active sound pack. */
   playSound(event: string): void
   /** Ring a centralised alarm on this device (label + resolved tone url + snooze). */
@@ -35,7 +39,7 @@ export interface PodFireTarget {
   stopAlarm(alarmId: string): void
   /** Tell the device to fetch custom WAVs (url + sha256) to its SD card once. */
   syncAssets(packId: string | null, files: Array<{ path: string; url: string; sha256: string }>): void
-  /** Push the stream deck button grid to this device (controller mode). */
+  /** Push the controller button grid to this device (controller mode). */
   applyStreamDeckConfig(config: import('@/lib/pod/wyoming').StreamDeckConfigPayload): void
   /** Tear down this session (used to evict a stale duplicate when the device reconnects). */
   close(): void
@@ -101,6 +105,19 @@ export function configToDevice(deviceId: string, config: Record<string, unknown>
   return reached
 }
 
+/** Push display orientation to a device's live session(s) so LVGL rotates touch
+ *  coordinates and native buttons to match the server-rendered JPEG. Returns true
+ *  if the device was online; offline devices receive it on reconnect instead. */
+export function orientToDevice(deviceId: string, degrees: number): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.applyOrientation(degrees); reached = true } catch { /* dead socket */ }
+    }
+  }
+  return reached
+}
+
 /** Push a screen mode to a device's live session(s). Returns true if it was online
  *  and received it; false if offline (it'll pull its mode on reconnect instead). */
 export function setModeToDevice(deviceId: string, mode: string): boolean {
@@ -120,6 +137,18 @@ export function layoutToDevice(deviceId: string, descriptor: Record<string, unkn
   for (const t of live) {
     if (t.deviceId === deviceId) {
       try { t.applyLayout(descriptor); reached = true } catch { /* dead socket */ }
+    }
+  }
+  return reached
+}
+
+/** Push the native-LVGL live data feed (weather + photo state) to a device's live
+ *  session(s). Returns true if it reached an online socket. */
+export function dataToDevice(deviceId: string, payload: Record<string, unknown>): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.applyDisplayData(payload); reached = true } catch { /* dead socket */ }
     }
   }
   return reached

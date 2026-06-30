@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Mic, Volume2 } from 'lucide-react'
 import { LayoutContent } from '@/components/display/DeviceLayoutDisplay'
 import {
@@ -16,6 +16,7 @@ interface Props {
   width?: number              // explicit px width; omit to fill the parent (responsive)
   weather?: WeatherCondition  // (accepted for compatibility; the preview uses live weather)
   isNight?: boolean
+  orientation?: number        // 0|90|180|270 — repositions the native control row
   selectedIndex?: number      // highlight a widget in the editor
   onSelect?: (i: number) => void
   onSlotClick?: (row: number, col: number) => void
@@ -39,11 +40,36 @@ export function DevicePreview(props: Props) {
   return <div ref={ref} className="w-full">{measured > 0 && <PreviewInner {...props} width={measured} />}</div>
 }
 
-function PreviewInner({ theme: rawTheme, widgets, width = 448, selectedIndex, onSelect, onSlotClick }: Props) {
+// Where the native control row sits for each orientation (it lives at the physical
+// bottom of the panel; the firmware moves it via lv_disp_set_rotation).
+type ControlEdge = 'bottom' | 'top' | 'left' | 'right'
+function controlEdge(orientation: number): ControlEdge {
+  if (orientation === 180) return 'top'
+  if (orientation === 90)  return 'right'
+  if (orientation === 270) return 'left'
+  return 'bottom'
+}
+
+function PreviewInner({ theme: rawTheme, widgets, width = 448, orientation = 0, selectedIndex, onSelect, onSlotClick }: Props) {
   const theme = safeTheme(rawTheme)
   const scale = width / FRAME_W
   const height = FRAME_H * scale
   const fs = theme.font_scale || 1
+  const edge = controlEdge(orientation)
+  const isHoriz = edge === 'top' || edge === 'bottom'
+
+  // Positions for the native control row representation.
+  // Portrait orientations (90/270) place the control strip on the left/right edge.
+  const edgeInset = 28
+  const pillPos: React.CSSProperties = isHoriz
+    ? { [edge]: 34, left: '50%', transform: 'translateX(-50%)' }
+    : { [edge]: 34, top: '50%', transform: 'translateY(-50%)' }
+  const iconPos1 = isHoriz
+    ? { [edge]: edgeInset, left: 48 } as React.CSSProperties
+    : { [edge]: edgeInset, top: 48 } as React.CSSProperties
+  const iconPos2 = isHoriz
+    ? { [edge]: edgeInset, right: 48 } as React.CSSProperties
+    : { [edge]: edgeInset, bottom: 48 } as React.CSSProperties
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border/50 shadow-inner" style={{ width, height }}>
@@ -81,12 +107,27 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, selectedIndex, on
           )
         })}
 
-        {/* Bottom controls — static representations (native on the device). The mic
-            doubles as Stop during a turn; the centre pill shows the conversation status. */}
-        <PreviewControl side="left" Icon={Mic} label="Listening" accent={theme.accent} text={theme.text} fs={fs} />
-        <PreviewControl side="right" Icon={Volume2} label="Sound on" accent={theme.accent} text={theme.text} fs={fs} />
+        {/* Native control row — static representation of the firmware-drawn mic / audio
+            buttons + status pill. Position follows the orientation: the firmware moves
+            these via lv_disp_set_rotation() when we push the display.orientation event. */}
+        <div className="absolute" style={{ ...iconPos1, color: theme.text }}>
+          <span className="flex flex-col items-center gap-2">
+            <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: theme.accent }}>
+              <Mic className="text-white" style={{ width: 56, height: 56 }} />
+            </span>
+            <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>Listening</span>
+          </span>
+        </div>
+        <div className="absolute" style={{ ...iconPos2, color: theme.text }}>
+          <span className="flex flex-col items-center gap-2">
+            <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: theme.accent }}>
+              <Volume2 className="text-white" style={{ width: 56, height: 56 }} />
+            </span>
+            <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>Sound on</span>
+          </span>
+        </div>
         <div className="absolute flex items-center justify-center rounded-full text-white"
-          style={{ left: '50%', transform: 'translateX(-50%)', bottom: 34, height: 76, padding: '0 28px', background: '#16A34A', fontSize: 26 * fs }}>
+          style={{ ...pillPos, height: 76, padding: '0 28px', background: '#16A34A', fontSize: 26 * fs }}>
           Listening
         </div>
       </div>
@@ -94,14 +135,3 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, selectedIndex, on
   )
 }
 
-// Static representation of a corner control (mic left, audio right).
-function PreviewControl({ side, Icon, label, accent, text, fs }: { side: 'left' | 'right'; Icon: typeof Mic; label: string; accent: string; text: string; fs: number }) {
-  return (
-    <div className="absolute flex flex-col items-center gap-2" style={{ [side]: 48, bottom: 28, color: text } as React.CSSProperties}>
-      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: accent }}>
-        <Icon className="text-white" style={{ width: 56, height: 56 }} />
-      </span>
-      <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>{label}</span>
-    </div>
-  )
-}

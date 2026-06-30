@@ -40,6 +40,7 @@ const WARMUP_ZERO_FRAMES = 5
 // — a real wake phrase easily sustains it; a coincidental phoneme burst doesn't.
 const HYSTERESIS_FRAMES = 4
 const POST_WAKE_SUPPRESS_MS = 1000
+const SCORE_SMOOTHING_FRAMES = 4
 const WAKE_SAMPLE_RATE = 16_000
 
 let _ortInit = false
@@ -103,7 +104,7 @@ export class WakeDetector {
   modelId: string | null
   /** Explicit per-instance/env override; null → use the model's calibrated threshold. */
   private thresholdOverride: number | null
-  private threshold = 0.5
+  private calibratedThreshold = 0.5
   private mel: InferenceSession | null = null
   private emb: InferenceSession | null = null
   private det: InferenceSession | null = null
@@ -123,6 +124,7 @@ export class WakeDetector {
   private postResetSuppress = 0
   private consecutive = 0
   private hysteresisFrames = HYSTERESIS_FRAMES
+  private scoreWindow: number[] = []
   private lastFireAt: number | null = null
   private inferring: Promise<void> | null = null
 
@@ -138,6 +140,11 @@ export class WakeDetector {
     if (typeof opts.hysteresis === 'number' && opts.hysteresis >= 1) this.hysteresisFrames = Math.floor(opts.hysteresis)
   }
 
+  /** Update the threshold override live (e.g. when device group settings change). */
+  setThresholdOverride(t: number | null): void {
+    this.thresholdOverride = typeof t === 'number' && Number.isFinite(t) ? t : null
+  }
+
   /** Load the mel/embedding/detector sessions. Returns false if models missing. */
   async load(): Promise<boolean> {
     initOrt()
@@ -150,8 +157,8 @@ export class WakeDetector {
     // defaultThreshold is the trainer's calibrated value for that exact phrase.
     const [row] = await db.select().from(wakeWordCatalog).where(eq(wakeWordCatalog.id, id)).limit(1)
     const detPath = row?.assetPath ? join(dir, row.assetPath) : resolveDetectorPath(id)
-    this.threshold = this.thresholdOverride
-      ?? (typeof row?.defaultThreshold === 'number' && Number.isFinite(row.defaultThreshold) ? row.defaultThreshold : 0.5)
+    this.calibratedThreshold = typeof row?.defaultThreshold === 'number' && Number.isFinite(row.defaultThreshold)
+      ? row.defaultThreshold : 0.5
 
     if (!detPath || !wakeAvailable()) {
       logger.warn(`[pod] wake: missing models (detector for "${id}" or shared mel/embedding)`)
@@ -186,6 +193,7 @@ export class WakeDetector {
     this.detectorFrameIndex = 0
     this.postResetSuppress = 30 // ~2.4 s: don't fire until the buffers refill with real audio
     this.consecutive = 0
+    this.scoreWindow = []
     this.lastFireAt = null
   }
 
@@ -219,7 +227,15 @@ export class WakeDetector {
     const idx = this.detectorFrameIndex++
     let shaped = idx < WARMUP_ZERO_FRAMES ? 0 : score
     if (this.postResetSuppress > 0) { this.postResetSuppress--; shaped = 0 } // refilling after reset
-    this.handleScore(shaped)
+    this.handleScore(this.smoothScore(shaped))
+  }
+
+  private smoothScore(score: number): number {
+    this.scoreWindow.push(score)
+    if (this.scoreWindow.length > SCORE_SMOOTHING_FRAMES) this.scoreWindow.shift()
+    let sum = 0
+    for (const s of this.scoreWindow) sum += s
+    return sum / this.scoreWindow.length
   }
 
   private async inferOnce(frame: Float32Array): Promise<number> {
@@ -253,13 +269,14 @@ export class WakeDetector {
   private diagPeak = 0
   private diagN = 0
   private handleScore(score: number): void {
-    // diag: report the peak wake score periodically so we can see how close it gets.
+    const threshold = this.thresholdOverride ?? this.calibratedThreshold
+    // diag: report the peak smoothed score periodically so we can see how close it gets.
     this.diagPeak = Math.max(this.diagPeak, score)
     if (++this.diagN >= 25) {
-      logger.info(`[pod-wake-diag] peak score ${this.diagPeak.toFixed(3)} (fires at ${this.threshold.toFixed(2)})`)
+      logger.info(`[pod-wake-diag] peak score ${this.diagPeak.toFixed(3)} (fires at ${threshold.toFixed(2)})`)
       this.diagPeak = 0; this.diagN = 0
     }
-    if (score < this.threshold) {
+    if (score < threshold) {
       this.consecutive = 0
       return
     }
@@ -269,7 +286,7 @@ export class WakeDetector {
     if (this.lastFireAt !== null && now - this.lastFireAt < POST_WAKE_SUPPRESS_MS) return
     this.lastFireAt = now
     this.consecutive = 0
-    logger.info(`[pod] wake ✅ "${this.modelId}" (score ${score.toFixed(2)} ≥ ${this.threshold.toFixed(2)})`)
+    logger.info(`[pod] wake ✅ "${this.modelId}" (score ${score.toFixed(2)} ≥ ${threshold.toFixed(2)})`)
     this.onDetect?.()
   }
 }

@@ -156,6 +156,16 @@ export function displayMode(mode: string): WyomingEvent {
 }
 
 /**
+ * Loki Doki orientation extension (Wyoming `user-event`): tells the device's LVGL
+ * driver to call lv_disp_set_rotation(disp, …) so touch coordinates and native
+ * buttons rotate along with the server-rendered JPEG. Degrees: 0 | 90 | 180 | 270.
+ * Pushed on (re)connect and immediately when the admin changes the setting.
+ */
+export function displayOrientation(degrees: number): WyomingEvent {
+  return { type: 'user-event', data: { name: 'display.orientation', degrees } }
+}
+
+/**
  * Loki Doki layout extension (Wyoming `user-event`): the full slot-based dashboard
  * descriptor — which pre-built widget sits in which 3×3 slot at what size, the theme
  * tokens, and the resolved sound-pack event→URL map. Pushed on (re)connect and on any
@@ -164,6 +174,17 @@ export function displayMode(mode: string): WyomingEvent {
  */
 export function layout(descriptor: Record<string, unknown>): WyomingEvent {
   return { type: 'user-event', data: { name: 'layout', ...descriptor } }
+}
+
+/**
+ * Loki Doki live-data extension (Wyoming `user-event`): the data feed for the NATIVE
+ * LVGL dashboard (renderer 'lvgl') — current weather for the device's location and
+ * whether a family photo is configured. The device draws its own clock from on-board
+ * time; this fills in what it can't compute locally. Pushed on (re)connect, on layout
+ * change, and on a slow refresh timer. Ignored by JPEG-rendered devices.
+ */
+export function displayData(payload: Record<string, unknown>): WyomingEvent {
+  return { type: 'user-event', data: { name: 'display.data', ...payload } }
 }
 
 /**
@@ -199,7 +220,7 @@ export function alarmStop(alarmId: string): WyomingEvent {
 }
 
 /**
- * Loki Doki stream-deck extension (Wyoming `user-event`): pushes the full button
+ * Loki Doki controller extension (Wyoming `user-event`): pushes the full button
  * grid config to a device in controller mode. The device renders pages natively
  * in LVGL and only contacts the server when a button is pressed — no pixel streaming.
  */

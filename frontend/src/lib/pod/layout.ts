@@ -4,7 +4,7 @@
 
 // The built-in default layout id (mirrors backend deviceStudio.DEFAULT_TEMPLATE_ID).
 // A device with no explicit assignment shows this one.
-export const DEFAULT_TEMPLATE_ID = 'builtin:cozy_dark'
+export const DEFAULT_TEMPLATE_ID = 'builtin:lvgl_clock_weather'
 
 export const GRID_COLS = 3
 export const GRID_ROWS = 3
@@ -36,6 +36,18 @@ export interface ThemeTokens {
   text: string
   secondary?: string
   font_scale: number
+  // Optional gradient second stop + secondary accent (used by the native LVGL renderer;
+  // the React preview/JPEG path falls back to flat `bg`/`accent`). Mirrors the backend.
+  bg2?: string
+  accent2?: string
+}
+
+// How a device draws a template: 'jpeg' (server screenshots the React page) or 'lvgl'
+// (the device renders natively). Resolved from the id — built-in LVGL templates are
+// prefixed `builtin:lvgl`. Mirrors backend deviceStudio.rendererForTemplateId.
+export type DisplayRenderer = 'jpeg' | 'lvgl'
+export function rendererForTemplateId(id: string | null | undefined): DisplayRenderer {
+  return id && id.startsWith('builtin:lvgl') ? 'lvgl' : 'jpeg'
 }
 
 export const SOUND_EVENTS = ['wake', 'endpoint', 'thinking', 'success', 'error', 'alarm', 'notification'] as const
@@ -219,5 +231,10 @@ export function safeTheme(t: Partial<ThemeTokens> | null | undefined): ThemeToke
   const v = t ?? {}
   const pick = (c: string | undefined, d: string) => (typeof c === 'string' && HEX.test(c) ? c : d)
   const fs = typeof v.font_scale === 'number' && Number.isFinite(v.font_scale) && v.font_scale > 0 ? v.font_scale : 1
-  return { bg: pick(v.bg, DEFAULT_THEME.bg), accent: pick(v.accent, DEFAULT_THEME.accent), text: pick(v.text, DEFAULT_THEME.text), secondary: v.secondary, font_scale: fs }
+  return {
+    bg: pick(v.bg, DEFAULT_THEME.bg), accent: pick(v.accent, DEFAULT_THEME.accent), text: pick(v.text, DEFAULT_THEME.text),
+    secondary: v.secondary, font_scale: fs,
+    ...(v.bg2 && HEX.test(v.bg2) ? { bg2: v.bg2 } : {}),
+    ...(v.accent2 && HEX.test(v.accent2) ? { accent2: v.accent2 } : {}),
+  }
 }

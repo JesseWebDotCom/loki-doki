@@ -200,7 +200,7 @@ export function AdminPage() {
         {section === 'apps'       && <AdminAppsTab openSignal={openSignal} />}
         {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
         {section === 'news'       && <AdminNewsTab />}
-        {section === 'devices'    && <AdminDevicesTab />}
+        {section === 'devices'    && <AdminDevicesTab view={sub} />}
         {section === 'integrations' && sub === 'frigate'         && <AdminFrigateTab />}
         {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}
         {section === 'integrations' && sub === 'home-assistant'  && <AdminHomeAssistantTab />}

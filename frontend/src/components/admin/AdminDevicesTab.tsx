@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Loader2, Plus, Cpu, Copy, Check, Radio, Usb, Volume2, Settings2, Antenna,
-  AlertTriangle, RefreshCw, ChevronLeft, LayoutGrid, Music2, Wifi,
-  Monitor, Pointer, Camera, Clock, Trash2, Save, HelpCircle,
+  Loader2, Plus, Cpu, Copy, Check, Radio, Usb, Volume2, Settings2,
+  AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, LayoutGrid, Wifi,
+  Monitor, Pointer, Camera, Clock, Trash2, Save, HelpCircle, Smartphone, KeyRound, User,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,6 +43,7 @@ interface DeviceRow {
   activity: string
   hwid: string | null
   layoutTemplateId: string | null
+  orientation: number
 }
 interface UserRow { id: string; firstName: string; lastName: string; nickname: string }
 interface Companion { id: string; name: string; wakeWordPhrase?: string | null; wakeWordModelId?: string | null }
@@ -50,8 +51,9 @@ interface Detector { id: string; label: string }
 interface DiscoveredDevice { hwid: string; model: string | null; firstSeen: number }
 interface TemplateRow { id: string; name: string; builtin: boolean }
 
-type AdminTab = 'devices' | 'layouts' | 'sounds'
+type AdminTab = 'devices' | 'layouts' | 'sounds' | 'settings'
 type LayoutSubTab = 'display' | 'controller'
+type DetailTab = 'general' | 'display' | 'hardware'
 
 const opts: RequestInit = { credentials: 'include' }
 const J = { 'Content-Type': 'application/json' }
@@ -60,12 +62,6 @@ async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url, opts)
   if (!r.ok) throw new Error(`Failed to load ${url}`)
   return r.json() as Promise<T>
-}
-
-interface StreamHealth {
-  mac: string; addr: string; name: string | null; deviceId: string | null
-  sourceFps: number; sentFps: number; receivedFps: number; decodedFps: number
-  lossPct: number; lastBytes: number; ageMs: number; status: 'ok' | 'warn' | 'bad'
 }
 
 interface GatewayStatus { enabled: boolean; listening: boolean; port: number; error: string; connections: number }
@@ -94,18 +90,7 @@ function GatewayBanner() {
     } catch { toast.error("Couldn't restart the gateway") } finally { setRestarting(false) }
   }
 
-  if (up) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-card px-3 py-2 text-xs text-muted-foreground">
-        <Antenna className="size-4 text-green-500" />
-        <span className="font-medium text-foreground">Device gateway online</span>
-        <span>· port {data.port} · {data.connections} connected</span>
-        <button onClick={restart} disabled={restarting} className="ml-auto inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-          {restarting ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Restart
-        </button>
-      </div>
-    )
-  }
+  if (up) return null  // healthy gateway is the norm — stay quiet, only surface problems
   return (
     <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
       <AlertTriangle className="size-5 shrink-0 text-red-500" />
@@ -122,44 +107,74 @@ function GatewayBanner() {
   )
 }
 
-const healthTone = (s: string) => s === 'ok'
-  ? 'text-green-600 dark:text-green-400 bg-green-500/15'
-  : s === 'warn' ? 'text-amber-600 dark:text-amber-400 bg-amber-500/15'
-    : 'text-red-600 dark:text-red-400 bg-red-500/15'
-const healthLabel = (s: string) => s === 'ok' ? 'Healthy' : s === 'warn' ? 'Lossy' : 'Poor signal'
+// Developer pre-flight: validate a device's firmware config (esphome config) from the app
+// — no compile, no flash. Catches YAML / shared-component errors after a firmware edit, so
+// you don't have to be at a CLI. Streams the ESPHome output and shows pass/fail.
+function FirmwareValidateCard() {
+  const [model, setModel] = useState('tab5')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<'ok' | 'fail' | null>(null)
+  const [lines, setLines] = useState<string[]>([])
 
-function StreamHealthInline({ h }: { h: StreamHealth }) {
+  async function validate() {
+    setBusy(true); setResult(null); setLines([])
+    try {
+      const res = await fetch('/api/pod/firmware/validate', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ model }) })
+      if (!res.body) throw new Error('no stream')
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      let ok: boolean | null = null
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const blocks = buf.split('\n\n')
+        buf = blocks.pop() ?? ''
+        for (const block of blocks) {
+          let ev = 'log'; let data = ''
+          for (const ln of block.split('\n')) {
+            if (ln.startsWith('event:')) ev = ln.slice(6).trim()
+            else if (ln.startsWith('data:')) data += ln.slice(5).trim()
+          }
+          try {
+            const d = JSON.parse(data || '{}') as { line?: string; error?: string }
+            if (ev === 'log' && d.line) setLines((p) => [...p, d.line!])
+            else if (ev === 'done') ok = true
+            else if (ev === 'error') { ok = false; setLines((p) => [...p, `ERROR: ${d.error ?? 'failed'}`]) }
+          } catch { /* partial frame */ }
+        }
+      }
+      setResult(ok ? 'ok' : 'fail')
+      if (ok) toast.success('Firmware config is valid')
+      else toast.error('Firmware config is invalid — see the log')
+    } catch {
+      setResult('fail'); toast.error('Validation could not run (is ESPHome installed?)')
+    } finally { setBusy(false) }
+  }
+
   return (
-    <div className="rounded-xl bg-muted/40 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-muted-foreground">Camera stream</span>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${healthTone(h.status)}`}>
-          {healthLabel(h.status)} · {h.lossPct}% loss
-        </span>
+    <div className="max-w-2xl space-y-3 rounded-2xl border border-border/40 bg-card/40 p-4">
+      <div>
+        <h4 className="text-sm font-semibold">Validate firmware config</h4>
+        <p className="text-xs text-muted-foreground">Runs <code className="rounded bg-muted px-1">esphome config</code> on a device's firmware (no compile, no flash) to catch YAML / component errors before flashing.</p>
       </div>
-      <div className="mt-1.5 flex items-center gap-1">
-        <Stat label="source" v={h.sourceFps} />
-        <Arrow />
-        <Stat label="sent" v={h.sentFps} />
-        <Arrow />
-        <Stat label="recv" v={h.receivedFps} />
-        <Arrow />
-        <Stat label="decoded" v={h.decodedFps} highlight />
-        <span className="ml-auto text-[10px] text-muted-foreground">{Math.round(h.lastBytes / 1024)} KB</span>
+      <div className="flex items-center gap-2">
+        <Select value={model} onChange={setModel}>
+          {DEVICE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.make} {m.model}</option>)}
+        </Select>
+        <Button onClick={validate} disabled={busy}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Validate
+        </Button>
+        {result === 'ok' && <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">● Valid</span>}
+        {result === 'fail' && <span className="text-xs font-medium text-red-600 dark:text-red-400">● Invalid</span>}
       </div>
+      {lines.length > 0 && (
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/50 p-2 text-[11px] leading-snug text-muted-foreground">{lines.join('\n')}</pre>
+      )}
     </div>
   )
 }
-
-function Stat({ label, v, highlight }: { label: string; v: number; highlight?: boolean }) {
-  return (
-    <div className="flex flex-col items-center">
-      <span className={`font-mono text-sm ${highlight ? 'text-foreground font-semibold' : 'text-foreground/80'}`}>{v}</span>
-      <span className="text-[10px]">{label}</span>
-    </div>
-  )
-}
-function Arrow() { return <span className="text-muted-foreground/50">→</span> }
 
 // ── Testing mode constants (screen devices) ─────────────────────────────────────
 const MODES = [
@@ -171,23 +186,26 @@ const MODE_LABEL: Record<string, string> = { normal: 'Normal', 'camera-test': 'C
 const SCREEN_KINDS = ['tablet', 'show']
 
 // ── Main export ─────────────────────────────────────────────────────────────────
-export function AdminDevicesTab() {
+// `view` comes from the admin URL (/admin/devices/:view) so the breadcrumb and the
+// left sidebar stay in sync — overview | layouts | sounds | settings.
+export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
   const qc = useQueryClient()
   const { data: devices = [], isLoading } = useQuery({ queryKey: ['pod-devices'], queryFn: () => getJSON<DeviceRow[]>('/api/pod/devices'), refetchInterval: 2000 })
   const { data: users = [] } = useQuery({ queryKey: ['admin-users'], queryFn: () => getJSON<UserRow[]>('/api/users') })
   const { data: companions = [] } = useQuery({ queryKey: ['companions-list'], queryFn: () => getJSON<Companion[]>('/api/companions') })
   const { data: wakewords } = useQuery({ queryKey: ['wakewords-list'], queryFn: () => getJSON<{ detectors: Detector[] }>('/api/voice/wakewords') })
   const { data: discovered = [] } = useQuery({ queryKey: ['pod-discovered'], queryFn: () => getJSON<DiscoveredDevice[]>('/api/pod/discovered'), refetchInterval: 4000 })
-  const { data: streamHealth } = useQuery({
-    queryKey: ['pod-stream-health'],
-    queryFn: () => getJSON<{ devices: StreamHealth[] }>('/api/pod/devices/stream-health'),
-    refetchInterval: 2000,
-  })
-  const healthById = new Map((streamHealth?.devices ?? []).filter((h) => h.deviceId).map((h) => [h.deviceId as string, h]))
+  const { data: templates = [] } = useQuery({ queryKey: ['pod-templates'], queryFn: () => getJSON<TemplateRow[]>('/api/pod/studio/templates') })
 
-  const [activeTab, setActiveTab] = useState<AdminTab>('devices')
+  const activeTab: AdminTab = view === 'layouts' ? 'layouts'
+    : view === 'sounds' ? 'sounds'
+      : view === 'settings' ? 'settings'
+        : 'devices'
   const [layoutSubTab, setLayoutSubTab] = useState<LayoutSubTab>('display')
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null)
+
+  // Leaving the overview (e.g. clicking Layouts in the sidebar) closes any open detail.
+  useEffect(() => { setSelectedDevice(null) }, [view])
 
   // Keep selected device in sync with live poll data (status, activity).
   const selectedDeviceLive = selectedDevice ? devices.find((x) => x.id === selectedDevice.id) ?? selectedDevice : null
@@ -213,6 +231,8 @@ export function AdminDevicesTab() {
     const u = users.find((x) => x.id === id)
     return u ? (u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()) : id
   }
+  const templateName = (id: string | null) =>
+    id ? (templates.find((t) => t.id === id)?.name ?? 'Built-in default') : 'Built-in default'
 
   async function createDevice() {
     if (!name.trim() || !userId) { toast.error('Name and user are required'); return }
@@ -233,8 +253,6 @@ export function AdminDevicesTab() {
   if (activeTab === 'devices' && selectedDeviceLive) {
     return (
       <div className="flex flex-col">
-        {/* Top navigation tabs remain visible */}
-        <TabBar activeTab={activeTab} onChange={(t) => { setActiveTab(t); setSelectedDevice(null) }} />
         <DeviceDetailPage
           device={selectedDeviceLive}
           users={users}
@@ -274,9 +292,7 @@ export function AdminDevicesTab() {
 
   return (
     <div className="flex flex-col">
-      <TabBar activeTab={activeTab} onChange={setActiveTab} />
-
-      {/* ── Devices tab ── */}
+      {/* ── Devices overview ── */}
       {activeTab === 'devices' && (
         <div className="space-y-6 p-5">
           <div className="flex items-start gap-3">
@@ -309,7 +325,7 @@ export function AdminDevicesTab() {
                 <h3 className="text-sm font-semibold">Ready to set up</h3>
                 <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">{discovered.length}</span>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
                 {discovered.map((d) => (
                   <UnclaimedCard key={d.hwid} d={d} users={users} companions={companions} onClaimed={invalidate} />
                 ))}
@@ -331,65 +347,19 @@ export function AdminDevicesTab() {
                 <span className="text-sm font-medium">No devices yet — add your first one</span>
               </button>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
                 {devices.map((d) => (
                   <DeviceCard
                     key={d.id}
                     d={d}
                     userName={userName(d.userId)}
-                    health={healthById.get(d.id)}
+                    templateName={templateName(d.layoutTemplateId)}
                     onManage={() => setSelectedDevice(d)}
-                    onTest={async () => {
-                      if (!d.online) { toast.error('Power on the device to test it'); return }
-                      const r = await fetch(`/api/pod/devices/${d.id}/test`, { ...opts, method: 'POST', headers: J, body: '{}' })
-                      if (r.ok) toast.success('Playing a test sound…')
-                      else if (r.status === 409) toast.error("Device isn't connected right now")
-                      else toast.error("Couldn't reach the device")
-                    }}
                   />
                 ))}
               </div>
             )}
           </section>
-
-          {/* Server-drives-the-screen camera test */}
-          <DeviceCameraTestCard />
-
-          {/* Central settings, grouped (dimming, …) — deployed live over the gateway */}
-          <DeviceGroupsPanel />
-
-          {/* Advanced: manual create with a pairing code (for screened devices like the Tab5) */}
-          <details className="max-w-2xl rounded-2xl border border-border/40 bg-card/40">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
-              Add manually with a pairing code
-            </summary>
-            <div className="space-y-2 border-t border-border/40 p-4">
-              <p className="text-xs text-muted-foreground">
-                For a device with a screen that can show/enter a code (e.g. Tab5). Most devices should use "Add a device" above instead.
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Input placeholder="Device name (e.g. Living Room Tab)" value={name} onChange={(e) => setName(e.target.value)} />
-                <Select value={deviceType} onChange={setDeviceType}>
-                  {DEVICE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.make} {m.model}</option>)}
-                </Select>
-                <Select value={userId} onChange={setUserId}>
-                  <option value="">Bind to user…</option>
-                  {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
-                </Select>
-                <Select value={characterId} onChange={setCharacterId}>
-                  <option value="">Companion (optional)</option>
-                  {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </Select>
-                <Select value={wakeWord} onChange={setWakeWord}>
-                  <option value="">Wake word (app default)</option>
-                  {(wakewords?.detectors ?? []).map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-                </Select>
-                <Button onClick={createDevice} disabled={busy || !name.trim() || !userId}>
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : <><Plus className="size-4" /> Create</>}
-                </Button>
-              </div>
-            </div>
-          </details>
 
           <DeviceHelpDialog device={help} onOpenChange={(o) => { if (!o) setHelp(null) }} />
 
@@ -449,34 +419,53 @@ export function AdminDevicesTab() {
           <DeviceAlarmsPanel id="devices-alarms" />
         </div>
       )}
-    </div>
-  )
-}
 
-// ── Tab bar ──────────────────────────────────────────────────────────────────────
+      {/* ── Settings tab (fleet-wide tools, kept off the device list) ── */}
+      {activeTab === 'settings' && (
+        <div className="space-y-6 p-5">
+          {/* Central settings, grouped (dimming, …) — deployed live over the gateway */}
+          <DeviceGroupsPanel />
 
-function TabBar({ activeTab, onChange }: { activeTab: AdminTab; onChange: (t: AdminTab) => void }) {
-  const tabs: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'devices', label: 'Devices', icon: <Cpu className="size-3.5" /> },
-    { id: 'layouts', label: 'Layouts', icon: <LayoutGrid className="size-3.5" /> },
-    { id: 'sounds', label: 'Sounds', icon: <Music2 className="size-3.5" /> },
-  ]
-  return (
-    <div className="flex gap-1 border-b border-border/50 bg-card/30 px-5 pt-4 pb-0">
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => onChange(t.id)}
-          className={cn(
-            'inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-            activeTab === t.id
-              ? 'border-brand text-foreground'
-              : 'border-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {t.icon} {t.label}
-        </button>
-      ))}
+          {/* Server-drives-the-screen camera test */}
+          <DeviceCameraTestCard />
+
+          {/* Developer pre-flight: validate a device's firmware config from the app */}
+          <FirmwareValidateCard />
+
+          {/* Advanced: manual create with a pairing code (for screened devices like the Tab5) */}
+          <details className="max-w-2xl rounded-2xl border border-border/40 bg-card/40">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
+              Add manually with a pairing code
+            </summary>
+            <div className="space-y-2 border-t border-border/40 p-4">
+              <p className="text-xs text-muted-foreground">
+                For a device with a screen that can show/enter a code (e.g. Tab5). Most devices should use "Add a device" on the Devices tab instead.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Input placeholder="Device name (e.g. Living Room Tab)" value={name} onChange={(e) => setName(e.target.value)} />
+                <Select value={deviceType} onChange={setDeviceType}>
+                  {DEVICE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.make} {m.model}</option>)}
+                </Select>
+                <Select value={userId} onChange={setUserId}>
+                  <option value="">Bind to user…</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
+                </Select>
+                <Select value={characterId} onChange={setCharacterId}>
+                  <option value="">Companion (optional)</option>
+                  {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+                <Select value={wakeWord} onChange={setWakeWord}>
+                  <option value="">Wake word (app default)</option>
+                  {(wakewords?.detectors ?? []).map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                </Select>
+                <Button onClick={createDevice} disabled={busy || !name.trim() || !userId}>
+                  {busy ? <Loader2 className="size-4 animate-spin" /> : <><Plus className="size-4" /> Create</>}
+                </Button>
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
     </div>
   )
 }
@@ -499,11 +488,16 @@ function DeviceDetailPage({
   const art = resolveDeviceModel(device.model, device.kind)
   const isScreen = art.capabilities.includes('Touchscreen') || SCREEN_KINDS.includes(device.kind)
 
+  // Detail sub-tabs. Display tab only exists for screen devices.
+  const [tab, setTab] = useState<DetailTab>('general')
+  const activeTab: DetailTab = tab === 'display' && !isScreen ? 'general' : tab
+
   // Identity form
   const [name, setName] = useState(device.name)
   const [userId, setUserId] = useState(device.userId)
   const [characterId, setCharacterId] = useState(device.characterId ?? '')
   const [wakeWord, setWakeWord] = useState(device.wakeWord ?? '')
+  const [orientation, setOrientation] = useState(device.orientation ?? 0)
   const [saving, setSaving] = useState(false)
 
   // Settings group
@@ -519,8 +513,9 @@ function DeviceDetailPage({
   const [layoutTemplateId, setLayoutTemplateId] = useState(device.layoutTemplateId ?? '')
   const [layoutSaving, setLayoutSaving] = useState(false)
 
-  // Test sound
+  // Test sound + re-issue pairing
   const [testing, setTesting] = useState(false)
+  const [reissuing, setReissuing] = useState(false)
 
   // Re-seed the form if the device changes.
   useEffect(() => {
@@ -530,6 +525,7 @@ function DeviceDetailPage({
     setWakeWord(device.wakeWord ?? '')
     setGroupId(device.groupId ?? 'default')
     setLayoutTemplateId(device.layoutTemplateId ?? '')
+    setOrientation(device.orientation ?? 0)
   }, [device.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch groups, mode, and templates on mount.
@@ -580,6 +576,22 @@ function DeviceDetailPage({
       toast.success('Saved')
       onChanged()
     } catch { toast.error("Couldn't save changes") } finally { setSaving(false) }
+  }
+
+  // Orientation applies instantly (live to the device + re-renders the JPEG) — it lives
+  // on the Display tab, away from the Identity save bar, so persist it on click.
+  async function changeOrientation(deg: number) {
+    if (deg === orientation) return
+    const prev = orientation
+    setOrientation(deg)
+    try {
+      const r = await fetch(`/api/pod/devices/${device.id}`, {
+        ...opts, method: 'PATCH', headers: J, body: JSON.stringify({ orientation: deg }),
+      })
+      if (!r.ok) throw new Error()
+      toast.success(device.online ? `Rotated to ${deg}°` : `Orientation set to ${deg}° — applies when the device reconnects`)
+      onChanged()
+    } catch { setOrientation(prev); toast.error("Couldn't change orientation") }
   }
 
   async function assignGroup(next: string) {
@@ -633,103 +645,173 @@ function DeviceDetailPage({
     } catch { toast.error("Couldn't reach the device") } finally { setTesting(false) }
   }
 
+  async function reissuePairing() {
+    setReissuing(true)
+    try {
+      const r = await fetch(`/api/pod/devices/${device.id}/pair-code`, { ...opts, method: 'POST', headers: J, body: '{}' })
+      if (!r.ok) throw new Error()
+      toast.success('New pairing code issued — enter it on the device')
+      onChanged()
+    } catch { toast.error("Couldn't re-issue a pairing code") } finally { setReissuing(false) }
+  }
+
   const isController = mode === 'stream-deck'
 
+  const detailTabs: { id: DetailTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'general', label: 'General', icon: <Settings2 className="size-4" /> },
+    ...(isScreen ? [{ id: 'display' as DetailTab, label: 'Display', icon: <Monitor className="size-4" /> }] : []),
+    { id: 'hardware', label: 'Hardware', icon: <Cpu className="size-4" /> },
+  ]
+
   return (
-    <div className="space-y-6 p-5">
-      {/* Back + title bar */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" /> Back to Devices
-        </button>
-        <div className="flex flex-1 items-center gap-2 min-w-0">
-          <DeviceArt resolved={art} solid className="size-8 rounded-xl" />
-          <span className="truncate text-base font-semibold">{device.name}</span>
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-muted ${status.cls}`}>
-            <span className={`size-1.5 rounded-full ${status.dot} ${device.online && device.activity !== 'idle' ? 'animate-pulse' : ''}`} />
-            {status.label}
-          </span>
-          {companionName && <span className="text-xs text-muted-foreground hidden sm:inline">· {companionName}</span>}
-        </div>
-        {/* Quick action buttons */}
-        <div className="flex shrink-0 items-center gap-2">
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={onReflash}>
-            <Wifi className="size-3.5" /> Reflash
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={testSound} disabled={testing || !device.online}>
-            {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Volume2 className="size-3.5" />} Test Sound
-          </Button>
-          <Button size="sm" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={onHelp}>
-            <HelpCircle className="size-3.5" /> Help
-          </Button>
-        </div>
-      </div>
+    <div className="p-5">
+      {/* Back link */}
+      <button
+        onClick={onBack}
+        className="mb-4 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+      >
+        <ChevronLeft className="size-4" /> Back to Devices
+      </button>
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        {/* ── Identity section ── */}
-        <section className="space-y-1.5">
-          <SectionLabel>Identity</SectionLabel>
-          <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
-            <FieldRow label="Name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8 w-44 text-right text-sm" />
-            </FieldRow>
-            <FieldRow label="Owner">
-              <DetailPicker value={userId} onChange={setUserId}>
-                {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
-              </DetailPicker>
-            </FieldRow>
-            <FieldRow label="Companion">
-              <DetailPicker value={characterId} onChange={setCharacterId}>
-                <option value="">None</option>
-                {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </DetailPicker>
-            </FieldRow>
-            <FieldRow label="Wake word">
-              <DetailPicker value={wakeWord} onChange={setWakeWord}>
-                {companionPhrase
-                  ? <option value="">{companionPhrase} — {selectedCompanion?.name}'s wake word</option>
-                  : <option value="">App default (Hey Jarvis)</option>}
-                <option value="hey_jarvis">Hey Jarvis — always reliable</option>
-                {wakewords
-                  .filter((d) => d.id !== 'hey_jarvis' && d.id !== selectedCompanion?.wakeWordModelId)
-                  .map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-              </DetailPicker>
-            </FieldRow>
-          </div>
-          {dirty && (
-            <div className="flex justify-end gap-2 pt-1">
-              <Button
-                variant="ghost" size="sm"
-                onClick={() => { setName(device.name); setUserId(device.userId); setCharacterId(device.characterId ?? ''); setWakeWord(device.wakeWord ?? '') }}
-              >
-                Discard
-              </Button>
-              <Button size="sm" className="gap-1.5" onClick={save} disabled={saving}>
-                {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save changes
-              </Button>
+      <div className="flex flex-col gap-6 lg:flex-row">
+        {/* ── Left rail: device summary + section nav + actions ── */}
+        <aside className="w-full shrink-0 space-y-4 lg:w-64">
+          {/* Device summary */}
+          <div className="rounded-2xl border border-border/50 bg-card p-4">
+            <div className="flex items-center gap-3">
+              <DeviceArt resolved={art} solid className="size-12 shrink-0 rounded-2xl" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold leading-tight">{device.name}</p>
+                <p className="truncate text-xs text-muted-foreground">{deviceModelName(device.model, device.kind)}</p>
+              </div>
             </div>
-          )}
-        </section>
-
-        {/* ── Settings section ── */}
-        <section className="space-y-1.5">
-          <SectionLabel>Settings</SectionLabel>
-          <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
-            <FieldRow label="Group">
-              <DetailPicker value={groupId} onChange={assignGroup}>
-                {groups.length === 0 && <option value="default">Default</option>}
-                {groups.map((g) => <option key={g.id} value={g.isDefault ? 'default' : g.id}>{g.name}</option>)}
-              </DetailPicker>
-            </FieldRow>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className={`inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium ${status.cls}`}>
+                <span className={`size-1.5 rounded-full ${status.dot} ${device.online && device.activity !== 'idle' ? 'animate-pulse' : ''}`} />
+                {status.label}
+              </span>
+              {companionName && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{companionName}</span>
+              )}
+            </div>
           </div>
-          <p className="px-1 text-[11px] text-muted-foreground">Changing the group deploys settings to the device immediately.</p>
-        </section>
 
-        {/* ── Display Layout section (screen devices only) ── */}
-        {isScreen && (
+          {/* Section nav */}
+          <nav className="space-y-1">
+            {detailTabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  activeTab === t.id
+                    ? 'bg-brand/10 text-brand'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                )}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </nav>
+
+          {/* Quick actions */}
+          <div className="space-y-1.5 border-t border-border/40 pt-3">
+            <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={testSound} disabled={testing || !device.online}>
+              {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Volume2 className="size-3.5" />} Test sound
+            </Button>
+            <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={onHelp}>
+              <HelpCircle className="size-3.5" /> Help
+            </Button>
+          </div>
+        </aside>
+
+        {/* ── Right content ── */}
+        <div className="min-w-0 flex-1 space-y-5 lg:max-w-2xl">
+
+      {/* ── General tab ── */}
+      {activeTab === 'general' && (
+        <div className="space-y-5">
+          {/* Identity */}
+          <section className="space-y-1.5">
+            <SectionLabel>Identity</SectionLabel>
+            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+              <FieldRow label="Name">
+                <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8 w-44 text-right text-sm" />
+              </FieldRow>
+              <FieldRow label="Owner">
+                <DetailPicker value={userId} onChange={setUserId}>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
+                </DetailPicker>
+              </FieldRow>
+              <FieldRow label="Companion">
+                <DetailPicker value={characterId} onChange={setCharacterId}>
+                  <option value="">None</option>
+                  {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </DetailPicker>
+              </FieldRow>
+              <FieldRow label="Wake word">
+                <DetailPicker value={wakeWord} onChange={setWakeWord}>
+                  {companionPhrase
+                    ? <option value="">{companionPhrase} — {selectedCompanion?.name}'s wake word</option>
+                    : <option value="">App default (Hey Jarvis)</option>}
+                  <option value="hey_jarvis">Hey Jarvis — always reliable</option>
+                  {wakewords
+                    .filter((d) => d.id !== 'hey_jarvis' && d.id !== selectedCompanion?.wakeWordModelId)
+                    .map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                </DetailPicker>
+              </FieldRow>
+            </div>
+            {dirty && (
+              <div className="flex justify-end gap-2 pt-1">
+                <Button
+                  variant="ghost" size="sm"
+                  onClick={() => { setName(device.name); setUserId(device.userId); setCharacterId(device.characterId ?? ''); setWakeWord(device.wakeWord ?? '') }}
+                >
+                  Discard
+                </Button>
+                <Button size="sm" className="gap-1.5" onClick={save} disabled={saving}>
+                  {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save changes
+                </Button>
+              </div>
+            )}
+          </section>
+
+          {/* Settings */}
+          <section className="space-y-1.5">
+            <SectionLabel>Settings</SectionLabel>
+            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+              <FieldRow label="Group">
+                <DetailPicker value={groupId} onChange={assignGroup}>
+                  {groups.length === 0 && <option value="default">Default</option>}
+                  {groups.map((g) => <option key={g.id} value={g.isDefault ? 'default' : g.id}>{g.name}</option>)}
+                </DetailPicker>
+              </FieldRow>
+            </div>
+            <p className="px-1 text-[11px] text-muted-foreground">Changing the group deploys settings to the device immediately.</p>
+          </section>
+        </div>
+      )}
+
+      {/* ── Display tab (screen devices only) ── */}
+      {activeTab === 'display' && isScreen && (
+        <div className="space-y-5">
+          {/* Live preview — compact thumbnail, CSS-rotated to match how the user sees the device */}
+          {device.hwid && (
+            <section className="space-y-1.5">
+              <SectionLabel>Live preview</SectionLabel>
+              <div className="w-56 overflow-hidden rounded-xl border border-border/50 bg-black aspect-video flex items-center justify-center">
+                <img
+                  src={`/api/pod/display/${device.hwid}?t=${Date.now()}`}
+                  alt="Device screen"
+                  className={cn('h-full w-full object-contain', (orientation === 90 || orientation === 270) && 'p-1')}
+                  style={orientation === 180 ? { transform: 'rotate(180deg)' } : undefined}
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0.3' }}
+                />
+              </div>
+            </section>
+          )}
+
+          {/* Display Layout */}
           <section className="space-y-1.5">
             <SectionLabel>Display Layout</SectionLabel>
             <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
@@ -738,6 +820,39 @@ function DeviceDetailPage({
                   <option value="">Built-in default</option>
                   {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.builtin ? ' (built-in)' : ''}</option>)}
                 </DetailPicker>
+              </FieldRow>
+              <FieldRow label="Orientation">
+                <div className="w-full space-y-1">
+                  <div className="grid grid-cols-2 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                    <span>Landscape</span>
+                    <span>Portrait</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {([
+                      { deg: 0,   portrait: false, flipped: false, label: 'Normal'  },
+                      { deg: 90,  portrait: true,  flipped: false, label: 'Normal'  },
+                      { deg: 180, portrait: false, flipped: true,  label: 'Flipped' },
+                      { deg: 270, portrait: true,  flipped: true,  label: 'Flipped' },
+                    ] as const).map(({ deg, portrait, flipped, label }) => {
+                      const active = orientation === deg
+                      const Icon = portrait ? Smartphone : Monitor
+                      return (
+                        <button
+                          key={deg}
+                          onClick={() => changeOrientation(deg)}
+                          title={`${portrait ? 'Portrait' : 'Landscape'} ${label} (${deg}°)`}
+                          className={cn(
+                            'flex flex-col items-center gap-1 rounded-lg border px-1 py-2 text-center transition-colors',
+                            active ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 text-muted-foreground hover:bg-muted/40',
+                          )}
+                        >
+                          <Icon className="size-4" style={flipped ? { transform: 'rotate(180deg)' } : undefined} />
+                          <span className="text-[10px]">{label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               </FieldRow>
             </div>
             {layoutTemplateId !== (device.layoutTemplateId ?? '') && (
@@ -748,10 +863,8 @@ function DeviceDetailPage({
               </div>
             )}
           </section>
-        )}
 
-        {/* ── Mode section (screen devices only) ── */}
-        {isScreen && (
+          {/* Mode */}
           <section className="space-y-1.5">
             <SectionLabel>Mode</SectionLabel>
             <div className="overflow-hidden rounded-2xl border border-border/50 bg-card">
@@ -782,7 +895,7 @@ function DeviceDetailPage({
                   <LayoutGrid className="size-6" />
                   <div>
                     <p className="text-sm font-semibold">Controller</p>
-                    <p className="text-[10px] leading-tight text-muted-foreground">Stream Deck button grid</p>
+                    <p className="text-[10px] leading-tight text-muted-foreground">Button grid</p>
                   </div>
                 </button>
               </div>
@@ -822,35 +935,71 @@ function DeviceDetailPage({
               )}
             </div>
           </section>
-        )}
-
-        {/* ── Hardware section ── */}
-        <section className="space-y-1.5">
-          <SectionLabel>Hardware</SectionLabel>
-          <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
-            <InfoRow label="Model" value={deviceModelName(device.model, device.kind)} />
-            {device.hwid && <InfoRow label="HWID" value={<code className="font-mono text-xs">{device.hwid}</code>} />}
-            <InfoRow label="Paired" value={device.paired ? 'Yes' : 'No — needs setup'} />
-            {device.lastSeenAt && !device.online && (
-              <InfoRow label="Last seen" value={new Date(device.lastSeenAt).toLocaleString()} />
-            )}
-          </div>
-        </section>
-      </div>
-
-      {/* ── Danger zone ── */}
-      <section className="space-y-1.5">
-        <SectionLabel>Danger zone</SectionLabel>
-        <div className="overflow-hidden rounded-2xl border border-destructive/20 bg-card">
-          <button
-            onClick={onDelete}
-            className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5"
-          >
-            <Trash2 className="size-4" /> Remove this device
-          </button>
         </div>
-        <p className="px-1 text-[11px] text-muted-foreground">This will unpair the device and revoke its token. It can be re-added at any time.</p>
-      </section>
+      )}
+
+      {/* ── Hardware tab ── */}
+      {activeTab === 'hardware' && (
+        <div className="space-y-5">
+          {/* Hardware info */}
+          <section className="space-y-1.5">
+            <SectionLabel>Hardware</SectionLabel>
+            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+              <InfoRow label="Model" value={deviceModelName(device.model, device.kind)} />
+              {device.hwid && <InfoRow label="HWID" value={<code className="font-mono text-xs">{device.hwid}</code>} />}
+              <InfoRow label="Paired" value={device.paired ? 'Yes' : 'No — needs setup'} />
+              {device.lastSeenAt && !device.online && (
+                <InfoRow label="Last seen" value={new Date(device.lastSeenAt).toLocaleString()} />
+              )}
+            </div>
+          </section>
+
+          {/* Advanced: firmware + pairing maintenance */}
+          <section className="space-y-1.5">
+            <SectionLabel>Advanced</SectionLabel>
+            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+              <button
+                onClick={onReflash}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40"
+              >
+                <Wifi className="size-4 shrink-0 text-muted-foreground" />
+                <span className="flex-1">
+                  <span className="block font-medium">Reflash firmware</span>
+                  <span className="block text-[11px] text-muted-foreground">Re-run the flash wizard to update or recover this device.</span>
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
+              </button>
+              <button
+                onClick={reissuePairing}
+                disabled={reissuing}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40 disabled:opacity-60"
+              >
+                {reissuing ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : <KeyRound className="size-4 shrink-0 text-muted-foreground" />}
+                <span className="flex-1">
+                  <span className="block font-medium">Re-issue pairing code</span>
+                  <span className="block text-[11px] text-muted-foreground">Generate a fresh code to set this device up again.</span>
+                </span>
+              </button>
+            </div>
+          </section>
+
+          {/* Danger zone */}
+          <section className="space-y-1.5 lg:col-span-2">
+            <SectionLabel>Danger zone</SectionLabel>
+            <div className="overflow-hidden rounded-2xl border border-destructive/20 bg-card">
+              <button
+                onClick={onDelete}
+                className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5"
+              >
+                <Trash2 className="size-4" /> Remove this device
+              </button>
+            </div>
+            <p className="px-1 text-[11px] text-muted-foreground">This will unpair the device and revoke its token. It can be re-added at any time.</p>
+          </section>
+        </div>
+      )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -866,7 +1015,7 @@ function ControllerLayoutsPlaceholder() {
         </div>
         <div className="flex-1">
           <h3 className="text-sm font-semibold">Controller layouts</h3>
-          <p className="text-sm text-muted-foreground">Button grid templates for Stream Deck mode. Assign them to screen devices from the device detail page.</p>
+          <p className="text-sm text-muted-foreground">Button grid templates for controller mode. Assign them to screen devices from the device detail page.</p>
         </div>
       </div>
       <div className="rounded-2xl border border-dashed border-border/60 bg-background/40 px-6 py-10 text-center">
@@ -880,59 +1029,81 @@ function ControllerLayoutsPlaceholder() {
   )
 }
 
-// ── Device card (App-Store style) ──────────────────────────────────────────────
+// ── Device card — looks like the device itself ───────────────────────────────────
+// Screen devices (Tab5) show a live thumbnail of what's actually on their screen
+// (server-rendered JPEG at /api/pod/display/:hwid). Speakers show the device's own
+// illustration. Name + owner sit underneath. Click anywhere to manage.
 
-function DeviceCard({ d, userName, health, onManage, onTest }: { d: DeviceRow; userName: string; health?: StreamHealth; onManage: () => void; onTest: () => void }) {
+function DeviceCard({ d, userName, templateName, onManage }: { d: DeviceRow; userName: string; templateName: string; onManage: () => void }) {
   const art = resolveDeviceModel(d.model, d.kind)
-  const expired = !!d.pairingExpiresAt && new Date(d.pairingExpiresAt).getTime() < Date.now()
-  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn() }
   const isScreen = art.capabilities.includes('Touchscreen') || SCREEN_KINDS.includes(d.kind)
+  const hasScreen = isScreen && !!d.hwid
+  const orient = d.orientation ?? 0
+  const portrait = orient % 180 !== 0
+
+  // Refresh the screen thumbnail every few seconds so it reads as "live".
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!hasScreen) return
+    const i = setInterval(() => setTick((t) => t + 1), 6000)
+    return () => clearInterval(i)
+  }, [hasScreen])
+
+  const dot = !d.paired ? 'bg-amber-500'
+    : !d.online ? 'bg-muted-foreground/40'
+      : (ACTIVITY[d.activity] ?? ACTIVITY.idle).dot
+  const dotLabel = !d.paired ? 'Setup' : !d.online ? 'Offline' : (ACTIVITY[d.activity] ?? ACTIVITY.idle).label
+
   return (
-    <div
+    <button
       onClick={onManage}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter') onManage() }}
-      className="group flex cursor-pointer flex-col gap-4 rounded-3xl border border-border/40 bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col overflow-hidden rounded-2xl border border-border/50 bg-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex items-center gap-3.5">
-        <DeviceArt resolved={art} solid className="size-12 rounded-2xl" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold leading-tight">{d.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{deviceModelName(d.model, d.kind)}</p>
-        </div>
-        <StatusBadge d={d} />
-      </div>
-
-      <div className="-mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span>{userName}</span>
-        {isScreen && (
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">
-            {d.kind === 'tablet' ? 'Display' : 'Screen'}
-          </span>
+      {/* Device visual — the whole screen fits (letterboxed), never cropped */}
+      <div className={cn('relative flex aspect-video items-center justify-center overflow-hidden', hasScreen ? 'bg-black' : 'bg-gradient-to-br from-muted/60 to-muted/20')}>
+        {hasScreen ? (
+          <img
+            src={`/api/pod/display/${d.hwid}?t=${tick}`}
+            alt={`${d.name} screen`}
+            className={cn('h-full w-full object-contain', portrait && 'p-2')}
+            style={orient === 180 ? { transform: 'rotate(180deg)' } : undefined}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden' }}
+          />
+        ) : art.image ? (
+          <img src={art.image} alt={art.model} className="size-[46%] object-contain drop-shadow-md" loading="lazy" />
+        ) : (
+          <DeviceArt resolved={art} solid className="size-16 rounded-2xl" />
         )}
-        {!d.online && d.lastSeenAt ? <span>· seen {new Date(d.lastSeenAt).toLocaleDateString()}</span> : null}
+
+        {/* Status pill, top-right */}
+        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/45 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-sm">
+          <span className={cn('size-1.5 rounded-full', dot, d.online && d.activity !== 'idle' ? 'animate-pulse' : '')} />
+          {dotLabel}
+        </span>
+
+        {/* Pairing code overlay for unpaired devices */}
+        {!d.paired && d.pairingCode && (
+          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-lg bg-black/55 px-2 py-1.5 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[9px] text-white/70">Code</span>
+            <code className="font-mono text-xs font-semibold tracking-widest text-white">{d.pairingCode}</code>
+            <CopyButton value={d.pairingCode} />
+          </div>
+        )}
       </div>
 
-      {!d.paired && d.pairingCode && (
-        <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-          <code className="font-mono text-base font-semibold tracking-widest">{d.pairingCode}</code>
-          <CopyButton value={d.pairingCode} />
-          <span className="ml-auto text-[10px] text-muted-foreground">{expired ? 'expired' : 'enter on device'}</span>
+      {/* Name + assigned user */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold leading-tight">{d.name}</p>
+          <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+            <User className="size-3 shrink-0" />
+            <span className="truncate font-medium text-foreground/80">{userName}</span>
+            <span className="truncate text-muted-foreground/70">· {isScreen ? templateName : deviceModelName(d.model, d.kind)}</span>
+          </p>
         </div>
-      )}
-
-      {health && <StreamHealthInline h={health} />}
-
-      <div className="mt-auto flex items-center gap-2">
-        <Button size="sm" variant="secondary" className="h-9 flex-1 gap-1.5 rounded-xl text-xs" onClick={stop(onTest)} disabled={!d.online}>
-          <Volume2 className="size-3.5" /> Test
-        </Button>
-        <Button size="sm" variant="ghost" className="h-9 gap-1.5 rounded-xl px-3 text-xs text-muted-foreground hover:text-foreground" onClick={stop(onManage)}>
-          <Settings2 className="size-3.5" /> Manage
-        </Button>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5" />
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -961,39 +1132,46 @@ function UnclaimedCard({ d, users, companions, onClaimed }: { d: DiscoveredDevic
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-amber-500/30 bg-amber-500/5 p-5">
-      <div className="flex items-center gap-3.5">
-        <DeviceArt resolved={art} solid className="size-12 rounded-2xl" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold leading-tight">{deviceModelName(d.model, null)}</p>
-          <p className="text-xs text-muted-foreground">Ready to set up</p>
-        </div>
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-          <span className="size-1.5 animate-pulse rounded-full bg-amber-500" /> New
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-card">
+      {/* Device visual */}
+      <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-gradient-to-br from-amber-500/10 to-muted/20">
+        {art.image
+          ? <img src={art.image} alt={art.model} className="size-[46%] object-contain drop-shadow-md" loading="lazy" />
+          : <DeviceArt resolved={art} solid className="size-16 rounded-2xl" />}
+        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-medium text-white">
+          <span className="size-1.5 animate-pulse rounded-full bg-white" /> New
         </span>
       </div>
 
-      {!expanded ? (
-        <Button className="mt-auto w-full" onClick={() => setExpanded(true)}>Claim</Button>
-      ) : (
-        <div className="space-y-2">
-          <Input placeholder="Device name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Select value={userId} onChange={setUserId}>
-            <option value="">Assign to user…</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
-          </Select>
-          <Select value={characterId} onChange={setCharacterId}>
-            <option value="">Companion (optional)</option>
-            {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-          <div className="flex gap-2">
-            <Button className="flex-1" onClick={claim} disabled={busy || !name.trim() || !userId}>
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <><Check className="size-4" /> Claim</>}
-            </Button>
-            <Button variant="ghost" onClick={() => setExpanded(false)} disabled={busy}>Cancel</Button>
+      <div className="flex flex-col gap-3 p-3">
+        {!expanded ? (
+          <>
+            <div>
+              <p className="truncate text-sm font-semibold leading-tight">{deviceModelName(d.model, null)}</p>
+              <p className="truncate text-[11px] text-muted-foreground">Ready to set up</p>
+            </div>
+            <Button size="sm" className="w-full" onClick={() => setExpanded(true)}>Claim</Button>
+          </>
+        ) : (
+          <div className="space-y-2">
+            <Input placeholder="Device name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Select value={userId} onChange={setUserId}>
+              <option value="">Assign to user…</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
+            </Select>
+            <Select value={characterId} onChange={setCharacterId}>
+              <option value="">Companion (optional)</option>
+              {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+            <div className="flex gap-2">
+              <Button className="flex-1" onClick={claim} disabled={busy || !name.trim() || !userId}>
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <><Check className="size-4" /> Claim</>}
+              </Button>
+              <Button variant="ghost" onClick={() => setExpanded(false)} disabled={busy}>Cancel</Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -1013,20 +1191,6 @@ const ACTIVITY: Record<string, { label: string; dot: string; cls: string; pulse?
   listening: { label: 'Listening', dot: 'bg-green-500', cls: 'bg-green-500/15 text-green-600 dark:text-green-400', pulse: true },
   thinking: { label: 'Thinking', dot: 'bg-blue-500', cls: 'bg-blue-500/15 text-blue-600 dark:text-blue-400', pulse: true },
   talking: { label: 'Speaking', dot: 'bg-cyan-500', cls: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400', pulse: true },
-}
-
-function StatusBadge({ d }: { d: DeviceRow }) {
-  const s = !d.paired
-    ? { label: 'Needs setup', dot: 'bg-amber-500', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', pulse: false }
-    : !d.online
-      ? { label: 'Offline', dot: 'bg-muted-foreground/50', cls: 'bg-muted text-muted-foreground', pulse: false }
-      : ACTIVITY[d.activity] ?? ACTIVITY.idle
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${s.cls}`}>
-      <span className={`size-1.5 rounded-full ${s.dot} ${'pulse' in s && s.pulse ? 'animate-pulse' : ''}`} />
-      {s.label}
-    </span>
-  )
 }
 
 function CopyButton({ value }: { value: string }) {

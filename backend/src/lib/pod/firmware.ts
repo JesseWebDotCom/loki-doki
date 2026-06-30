@@ -62,7 +62,19 @@ const FIRMWARE_MODELS: Record<string, FirmwareModel> = {
   'atom-echo': { configRel: 'atom-echo/atom-echo.yaml', chip: 'ESP32' },
   // placeholder.png backs the LVGL camera image widget (repointed at the live HW-JPEG
   // buffer at runtime); it must be present in the build dir for ESPHome to bake it in.
-  tab5: { configRel: 'tab5/tab5.yaml', chip: 'ESP32-P4', assets: ['tab5/placeholder.png', 'tab5/logo.png', 'tab5/ic_mic.png', 'tab5/ic_micoff.png', 'tab5/ic_speaker.png', 'tab5/ic_speakeroff.png'] },
+  tab5: { configRel: 'tab5/tab5.yaml', chip: 'ESP32-P4', assets: ['tab5/placeholder.png', 'tab5/logo.png', 'tab5/ic_mic.png', 'tab5/ic_micoff.png', 'tab5/ic_speaker.png', 'tab5/ic_speakeroff.png', 'tab5/weather_fx.h',
+    'tab5/bg/clear_day.png', 'tab5/bg/clear_night.png', 'tab5/bg/partly_day.png', 'tab5/bg/partly_night.png',
+    'tab5/bg/cloudy_day.png', 'tab5/bg/cloudy_night.png', 'tab5/bg/fog_day.png', 'tab5/bg/fog_night.png',
+    'tab5/bg/drizzle_day.png', 'tab5/bg/drizzle_night.png', 'tab5/bg/rain_day.png', 'tab5/bg/rain_night.png',
+    'tab5/bg/snow_day.png', 'tab5/bg/snow_night.png', 'tab5/bg/storm_day.png', 'tab5/bg/storm_night.png',
+    'tab5/sun_rays.png',
+    'tab5/spr/balloon.png', 'tab5/spr/ufo.png', 'tab5/spr/kite.png',
+    'tab5/spr/airplane.png', 'tab5/spr/bird.png', 'tab5/spr/satellite.png',
+    'tab5/spr/petal.png', 'tab5/spr/leaf.png', 'tab5/spr/bird2.png',
+    'tab5/spr/airplane_a.png', 'tab5/spr/airplane_b.png',
+    'tab5/spr/airplane_a2.png', 'tab5/spr/airplane_b2.png', 'tab5/spr/cloud.png',
+    'tab5/spr/pine.png', 'tab5/spr/wear_sun.png', 'tab5/spr/wear_jacket.png',
+    'tab5/spr/wear_umbrella.png', 'tab5/spr/wear_scarf.png', 'tab5/spr/wear_tee.png'] },
 }
 
 const DEFAULT_MODEL = 'atom-echo'
@@ -255,6 +267,38 @@ export async function warmUpToolchain(onLine: (l: string) => void = () => {}, si
     { cwd: buildDir, onLine, signal, timeoutMs: 30 * 60_000 },
   )
   onLine('Toolchain ready.')
+}
+
+// ── validate (config check, no compile/flash) ───────────────────────────────────
+
+/**
+ * Validate a device's firmware config WITHOUT compiling or flashing — runs
+ * `esphome config` (YAML schema + external-component codegen + substitutions) on the
+ * staged build and streams the CLI output. Fast (seconds; no toolchain download) and the
+ * right pre-flight check after editing a device YAML or the shared component. Throws if
+ * the config is invalid (the CLI exits non-zero) so the caller can surface the failure.
+ */
+export async function validateFirmware(
+  model: string | undefined,
+  onLine: (l: string) => void = () => {},
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!isESPHomeInstalled()) throw new Error('ESPHome is not installed — install it first')
+  const fw = resolveFirmwareModel(model)
+  onLine(`Staging ${fw.id} firmware…`)
+  await ensureFirmwareFiles(fw, onLine, signal)
+  const { buildDir, configName } = buildPaths(fw)
+  // Structure validation doesn't need real Wi-Fi creds, but the wifi: component rejects
+  // an empty SSID — use the configured creds when present, else placeholders (same trick
+  // as the warm-up compile).
+  const { ssid, password } = await getPodWifi().catch(() => ({ ssid: '', password: '' }))
+  const host = await getServerHost().catch(() => '127.0.0.1')
+  onLine(`Validating ${fw.id} firmware config…`)
+  await runEsphome(
+    [...subsArgs({ ssid: ssid || 'validate', password: password || 'validate123', host: host || '127.0.0.1' }), 'config', configName],
+    { cwd: buildDir, onLine, signal, timeoutMs: 5 * 60_000 },
+  )
+  onLine('Configuration is valid.')
 }
 
 // ── build + flash ──────────────────────────────────────────────────────────────

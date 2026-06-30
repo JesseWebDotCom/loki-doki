@@ -271,7 +271,7 @@ export function DeviceManageSheet({
                     <LayoutGrid className="size-6" />
                     <div>
                       <p className="text-sm font-semibold">Controller</p>
-                      <p className="text-[10px] leading-tight text-muted-foreground">Stream Deck button grid</p>
+                      <p className="text-[10px] leading-tight text-muted-foreground">Button grid</p>
                     </div>
                   </button>
                 </div>

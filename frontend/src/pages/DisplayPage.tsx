@@ -21,6 +21,10 @@ export function DisplayPage() {
   const deviceId = params.get('deviceId') ?? ''
   // ?view=controller renders the button-grid controller page instead of the ambient layout.
   const isController = params.get('view') === 'controller'
+  // Orientation is handled by LVGL on the firmware via lv_display_set_rotation().
+  // The server no longer sends a pre-rotated JPEG — this param is unused but kept
+  // for future admin-preview use.
+  const orient = parseInt(params.get('orient') ?? '0') || 0
   const [descriptor, setDescriptor] = useState<Descriptor | null>(null)
   const [controllerPage, setControllerPage] = useState<ControllerPage | null>(null)
 
@@ -66,7 +70,9 @@ export function DisplayPage() {
   }, [deviceId, isController])
 
   return (
-    <div className="fixed inset-0 z-0 select-none overflow-hidden bg-[#05080c]">
+    <div
+      className="fixed inset-0 z-0 select-none overflow-hidden bg-[#05080c]"
+    >
       {isController && controllerPage && <ControllerDisplay page={controllerPage} interactive={!isDeviceRender} deviceId={deviceId} />}
       {!isController && descriptor && (
         <DeviceLayoutDisplay

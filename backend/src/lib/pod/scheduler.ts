@@ -16,6 +16,7 @@ import {
   podsForUser, podsForDevices, anyPodsConnected, stopAlarmOnDevice, type PodFireTarget,
 } from '@/lib/pod/registry'
 import { ensureBuiltins, resolveAlarmToneUrl } from '@/lib/pod/deviceStudio'
+import { startDisplayDataRefresher } from '@/lib/pod/displayData'
 import { logger } from '@/lib/logger'
 
 const TICK_MS = 5_000
@@ -38,6 +39,8 @@ export function startPodScheduler(): void {
   }
   // Seed + render the built-in chimes/packs/templates so devices have sounds + a layout.
   void ensureBuiltins()
+  // Slow refresher that re-pushes weather to connected native-LVGL devices.
+  startDisplayDataRefresher()
   setInterval(() => { void runSchedulerTick() }, TICK_MS)
   logger.info('[pod] scheduler started (alarms/timers → connected Pods)')
 }

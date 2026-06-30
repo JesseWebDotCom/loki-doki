@@ -44,6 +44,23 @@ export interface ThemeTokens {
   text: string
   secondary?: string
   font_scale: number
+  // Optional SECOND stop for a background gradient (top → bottom). Used by the native
+  // LVGL renderer to paint a themed gradient; the JPEG/React renderer falls back to a
+  // flat `bg` when absent. Hex like `bg`.
+  bg2?: string
+  // Optional secondary accent (e.g. the weather-card glow). Falls back to `accent`.
+  accent2?: string
+}
+
+// How a device should DRAW a template:
+//   'jpeg' — the server screenshots the React /display page and streams it as JPEG
+//            (the original path; pixel-perfect with the web app, server does the work).
+//   'lvgl' — the device renders the dashboard NATIVELY in LVGL from this descriptor +
+//            a pushed weather feed (no server pixels; tested for quality + performance).
+// Resolved from the template id (built-in LVGL templates are prefixed `builtin:lvgl`).
+export type DisplayRenderer = 'jpeg' | 'lvgl'
+export function rendererForTemplateId(id: string | null | undefined): DisplayRenderer {
+  return id && id.startsWith('builtin:lvgl') ? 'lvgl' : 'jpeg'
 }
 
 // The earcon event vocabulary. `null` (silent) is a first-class value per event.
@@ -151,37 +168,17 @@ export const BUILTIN_PACKS: BuiltinPack[] = [
 
 // ── Built-in templates (so a fresh screen device always has a sensible dashboard, and
 // there are simple starters to duplicate) ──
-export const DEFAULT_TEMPLATE_ID = 'builtin:cozy_dark'
+// For now we ship a SINGLE dashboard: the native-LVGL Clock & Weather. The id keeps the
+// `builtin:lvgl` prefix so rendererForTemplateId resolves it to the native renderer.
+export const DEFAULT_TEMPLATE_ID = 'builtin:lvgl_clock_weather'
 const BUILTIN_TEMPLATES = [
   {
-    // Just the clock — big and dead-centre. 'full' spans the whole grid.
-    id: 'builtin:clock', name: 'Clock',
-    theme: { bg: '#05080C', accent: '#38BDF8', text: '#F1F5F9', font_scale: 1.0 } as ThemeTokens,
-    widgets: [{ type: 'clock', size: 'full', anchor: [0, 0] }] as WidgetPlacement[],
-    soundPackId: 'builtin:minimal', volume: 0.7, alarmVolume: 1, alarmToneId: 'builtin:alarm_gentle',
-  },
-  {
-    // Just the weather — the live weather sky fills the whole screen (behind everything).
-    id: 'builtin:weather', name: 'Weather',
-    theme: { bg: '#081018', accent: '#60A5FA', text: '#F1F5F9', font_scale: 1.0 } as ThemeTokens,
-    widgets: [{ type: 'weather', size: 'full', anchor: [0, 0], bg: true }] as WidgetPlacement[],
-    soundPackId: 'builtin:chimes', volume: 0.7, alarmVolume: 1, alarmToneId: 'builtin:alarm_birdsong',
-  },
-  {
-    // Clock on the left, weather on the right — the weather column carries the live
-    // weather background full-height behind it.
-    id: 'builtin:clock_weather', name: 'Clock and Weather',
-    theme: { bg: '#0B1020', accent: '#818CF8', text: '#EEF2FF', font_scale: 1.0 } as ThemeTokens,
-    widgets: [
-      { type: 'clock', size: 'large', anchor: [0, 0] },
-      { type: 'weather', size: 'medium', anchor: [0, 2], orient: 'vertical', bg: true },
-    ] as WidgetPlacement[],
-    soundPackId: 'builtin:chimes', volume: 0.7, alarmVolume: 1, alarmToneId: 'builtin:alarm_gentle',
-  },
-  {
-    // Same split, all on a calm dark theme (no weather background).
-    id: DEFAULT_TEMPLATE_ID, name: 'Clock and Weather Dark',
-    theme: { bg: '#0E0B1A', accent: '#7C3AED', text: '#EAEAF2', font_scale: 1.0 } as ThemeTokens,
+    // The one shipped dashboard — drawn on-device in LVGL from this descriptor + a pushed
+    // weather feed (animated sky, terrain, sun/moon, suggested-wear icons). No server JPEG.
+    // The old JPEG starters (Clock / Weather / Clock+Weather / Cozy Dark) were collapsed
+    // into this one for now; ensureBuiltins() prunes them and devices fall back here.
+    id: DEFAULT_TEMPLATE_ID, name: 'Clock & Weather',
+    theme: { bg: '#0B1020', bg2: '#241652', accent: '#818CF8', accent2: '#22D3EE', text: '#EEF2FF', font_scale: 1.0 } as ThemeTokens,
     widgets: [
       { type: 'clock', size: 'large', anchor: [0, 0] },
       { type: 'weather', size: 'medium', anchor: [0, 2], orient: 'vertical' },
@@ -263,6 +260,9 @@ function parse<T>(s: string | null | undefined, fallback: T): T { try { return s
 export interface LayoutDescriptor {
   type: 'layout'
   template_id: string
+  // Native LVGL vs server-JPEG (see DisplayRenderer). The device switches its render
+  // path on this: 'lvgl' → draw natively + hide the ambient blit; 'jpeg' → blit frames.
+  renderer: DisplayRenderer
   theme: ThemeTokens
   widgets: WidgetPlacement[]
   sound_pack: {
@@ -304,7 +304,7 @@ export async function descriptorFromTemplate(
     events[ev] = audioUrl(chimeId)
   }
   return {
-    type: 'layout', template_id: tpl.id, theme, widgets,
+    type: 'layout', template_id: tpl.id, renderer: rendererForTemplateId(tpl.id), theme, widgets,
     sound_pack: {
       pack_id: tpl.soundPackId ?? null,
       volume: overrides.volume ?? tpl.volume,

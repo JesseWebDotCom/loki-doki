@@ -48,6 +48,8 @@ esphome:
   friendly_name: ${friendly_name}
   name_add_mac_suffix: true
   min_version: "2026.6.0"          # Tab5 needs recent esp32_hosted / mipi_dsi support
+  includes:
+    - weather_fx.h                 # native LVGL animated weather effects (rain/snow/etc.)
   on_boot:
     then:
       # Read the RTC time once when the system boots (upstream).
@@ -376,6 +378,33 @@ font:
     id: font_sd_icon
     size: 52
     glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .-_"
+  # ── Native LVGL dashboard fonts ──
+  # (The earlier "big font corrupts the screen" theory was wrong — the real cause was the
+  # runtime display rotation, now disabled. So a large clock font is fine.)
+  - file: "gfonts://Roboto@medium"
+    id: font_clock_lvgl
+    size: 200
+    glyphs: "0123456789:"
+  # Weather temperature — degree glyph included so "72°" renders.
+  - file: "gfonts://Roboto@medium"
+    id: font_temp_lvgl
+    size: 96
+    glyphs: "0123456789°-"
+  # Weather condition icons (Material Symbols). Only the glyphs we map weather codes to.
+  - file: "gfonts://Material Symbols Outlined"
+    id: font_weather_icons
+    size: 88
+    glyphs: [
+      "\U0000F157",   # clear_day (sun)
+      "\U0000F159",   # clear_night (moon)
+      "\U0000F15C",   # cloud (overcast)
+      "\U0000F172",   # partly_cloudy_day
+      "\U0000F174",   # partly_cloudy_night
+      "\U0000F176",   # rainy
+      "\U0000E2CD",   # weather_snowy
+      "\U0000EBDB",   # thunderstorm
+      "\U0000E818",   # foggy
+    ]
 
 # Tiny placeholder so the LVGL `image` widget has a valid src at build time; the
 # camera view repoints it at the live hardware-decoded frame buffer at runtime.
@@ -412,6 +441,57 @@ image:
     type: RGB565
     transparency: alpha_channel
     resize: 60x60
+  # Pre-dithered gradient STRIPS (8×720), one per weather condition × day/night, mirroring
+  # the web app's hero gradients. Tiled across the screen at runtime (the gradient is
+  # vertical, so an 8px strip tiles seamlessly) — smooth on the 16-bit panel, tiny in flash.
+  # Order MUST match wxfx::gradient_key indices 0..15.
+  - { file: bg/clear_day.png,    id: img_bg_0,  type: RGB565 }
+  - { file: bg/clear_night.png,  id: img_bg_1,  type: RGB565 }
+  - { file: bg/partly_day.png,   id: img_bg_2,  type: RGB565 }
+  - { file: bg/partly_night.png, id: img_bg_3,  type: RGB565 }
+  - { file: bg/cloudy_day.png,   id: img_bg_4,  type: RGB565 }
+  - { file: bg/cloudy_night.png, id: img_bg_5,  type: RGB565 }
+  - { file: bg/fog_day.png,      id: img_bg_6,  type: RGB565 }
+  - { file: bg/fog_night.png,    id: img_bg_7,  type: RGB565 }
+  - { file: bg/drizzle_day.png,  id: img_bg_8,  type: RGB565 }
+  - { file: bg/drizzle_night.png,id: img_bg_9,  type: RGB565 }
+  - { file: bg/rain_day.png,     id: img_bg_10, type: RGB565 }
+  - { file: bg/rain_night.png,   id: img_bg_11, type: RGB565 }
+  - { file: bg/snow_day.png,     id: img_bg_12, type: RGB565 }
+  - { file: bg/snow_night.png,   id: img_bg_13, type: RGB565 }
+  - { file: bg/storm_day.png,    id: img_bg_14, type: RGB565 }
+  - { file: bg/storm_night.png,  id: img_bg_15, type: RGB565 }
+  # Sun with rays — rotated at runtime for the animated clear-day sun (scene + card icon).
+  - file: sun_rays.png
+    id: img_sun
+    type: RGB565
+    transparency: alpha_channel
+  # Character sprites (anti-aliased art). Order matches wxfx::sprite_table indices 0..5.
+  - { file: spr/balloon.png,   id: img_spr_0, type: RGB565, transparency: alpha_channel }
+  - { file: spr/ufo.png,       id: img_spr_1, type: RGB565, transparency: alpha_channel }
+  - { file: spr/kite.png,      id: img_spr_2, type: RGB565, transparency: alpha_channel }
+  - { file: spr/airplane.png,  id: img_spr_3, type: RGB565, transparency: alpha_channel }
+  - { file: spr/bird.png,      id: img_spr_4, type: RGB565, transparency: alpha_channel }
+  - { file: spr/satellite.png, id: img_spr_5, type: RGB565, transparency: alpha_channel }
+  - { file: spr/petal.png,     id: img_spr_6, type: RGB565, transparency: alpha_channel }
+  - { file: spr/leaf.png,      id: img_spr_7, type: RGB565, transparency: alpha_channel }
+  - { file: spr/bird2.png,     id: img_spr_8, type: RGB565, transparency: alpha_channel }
+  - { file: spr/airplane_a.png,id: img_spr_9, type: RGB565, transparency: alpha_channel }
+  - { file: spr/airplane_b.png,id: img_spr_10,type: RGB565, transparency: alpha_channel }
+  - { file: spr/airplane_a2.png,id: img_spr_11,type: RGB565, transparency: alpha_channel }
+  - { file: spr/airplane_b2.png,id: img_spr_12,type: RGB565, transparency: alpha_channel }
+  - { file: spr/cloud.png,      id: img_spr_13,type: RGB565, transparency: alpha_channel }
+  - { file: spr/pine.png,       id: img_spr_14,type: RGB565, transparency: alpha_channel }
+  - { file: spr/wear_sun.png,     id: img_spr_15,type: RGB565, transparency: alpha_channel }
+  - { file: spr/wear_jacket.png,  id: img_spr_16,type: RGB565, transparency: alpha_channel }
+  - { file: spr/wear_umbrella.png,id: img_spr_17,type: RGB565, transparency: alpha_channel }
+  - { file: spr/wear_scarf.png,   id: img_spr_18,type: RGB565, transparency: alpha_channel }
+  - { file: spr/wear_tee.png,     id: img_spr_19,type: RGB565, transparency: alpha_channel }
+
+# NOTE: the native-LVGL family photo (online_image + http_request) was removed for now —
+# on this memory-tight P4 it was corrupting the display ("scrambled" band). The native
+# clock + weather dashboard below stands alone; the photo will return later via a lighter
+# path (the UDP/hw_jpeg channel the camera already uses, not a second TCP HTTP client).
 
 # ── Hardware JPEG camera source (ESP32-P4) ─────────────────────────────────────
 # Pulls JPEG frames from the server's living-room camera test endpoint and decodes
@@ -431,7 +511,12 @@ hw_jpeg:
 lvgl:
   displays:
     - tab5_display
-  rotation: 90                  # landscape (Google-Hub orientation)
+  rotation: 270                 # landscape, FLIPPED 180° — this unit is mounted upside-down
+                                # (device orientation 180). Booting already-rotated means the
+                                # display is NEVER re-rotated on a live screen (which corrupted
+                                # the background). The on-connect orientation push (180→270) is
+                                # then a no-op the firmware guard skips. (TEST: hardcoded for
+                                # this flipped unit; proper per-device boot rotation comes later.)
   byte_order: little_endian     # required for the Tab5 V2 panel
   bg_color: 0x05080C            # near-black ambient background
   pages:
@@ -482,6 +567,201 @@ lvgl:
             src: cam_placeholder
             align: CENTER
             hidden: true
+        # ── NATIVE LVGL DASHBOARD (experiment, renderer: 'lvgl') ─────────────────────
+        # Drawn entirely on-device — clock/date from on-board SNTP, weather from the
+        # pushed display.data feed, optional family photo via online_image. Shown ONLY
+        # when render_mode == "lvgl" (otherwise hidden, and the server JPEG blit above
+        # drives the screen). Sits above the ambient image but below the touch grid +
+        # reply panel + native controls (declared later) so those stay tappable on top.
+        - obj:
+            id: lvgl_dash
+            x: 0
+            y: 0
+            width: 1280
+            height: 720
+            bg_color: 0x0B1020
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            radius: 0
+            scrollbar_mode: "OFF"
+            scrollable: false
+            hidden: true
+            widgets:
+              # Smooth (pre-dithered) gradient background image, full-screen, behind all.
+              - image:
+                  id: bg_img
+                  src: img_bg_1
+                  align: TOP_LEFT
+                  x: 0
+                  y: 0
+              # Full-screen animated weather effects layer — sits ABOVE the background image
+              # but behind the clock/weather. Populated at runtime (rain/snow/lightning/
+              # clouds/fog/stars) by wxfx::apply_weather_fx() from the display.data handler.
+              - obj:
+                  id: lv_wx_fx
+                  x: 0
+                  y: 0
+                  width: 1280
+                  height: 720
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  radius: 0
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  clickable: false
+              # Hidden dummy line — forces ESPHome to compile LVGL's line widget so the
+              # shooting-star streaks (created in C++ in weather_fx.h) link.
+              - line:
+                  id: lv_dummy_line
+                  hidden: true
+                  points:
+                    - [0, 0]
+                    - [2, 2]
+              # Clock + date on the left, weather card on the right. Big clock font now;
+              # gradient background (navy → violet); weather card has its own sky gradient.
+              - label:
+                  id: lv_clock
+                  align: LEFT_MID
+                  x: 24
+                  y: -166
+                  width: 524
+                  text_align: RIGHT
+                  text: "--:--"
+                  text_font: font_clock_lvgl
+                  text_color: 0xFFFFFF
+              # Seconds + AM/PM stacked to the right of the big time (like the web design).
+              - label:
+                  id: lv_seconds
+                  align: LEFT_MID
+                  x: 560
+                  y: -206
+                  text: ""
+                  text_font: font_date
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lv_ampm
+                  align: LEFT_MID
+                  x: 564
+                  y: -144
+                  text: ""
+                  text_font: font_footer
+                  text_color: 0xC8D4FF
+              - label:
+                  id: lv_date
+                  align: LEFT_MID
+                  x: 24
+                  y: -14
+                  width: 524
+                  text_align: RIGHT
+                  text: ""
+                  text_font: font_date
+                  text_color: 0xFFFFFF
+              - obj:
+                  id: lv_wx_card
+                  align: RIGHT_MID
+                  x: -48
+                  y: -100
+                  width: 320
+                  height: 392
+                  # Glassmorphic card: translucent navy with a vertical gradient + hairline
+                  # border (futuristic weather-card look; the animated sky shows through).
+                  bg_opa: 52%
+                  bg_color: 0x141F36
+                  border_width: 1
+                  border_color: 0xA9C0E8
+                  border_opa: 30%
+                  radius: 32
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  clickable: true
+                  # DEMO: tap the weather card to cycle through every condition so you can
+                  # preview each animated effect on demand (the real weather overrides it on
+                  # the next data push). Remove this on_click once the effects are dialled in.
+                  on_click:
+                    then:
+                      - lambda: |-
+                          // Cycles conditions AND the seasonal previews (spring petals, autumn
+                          // leaves, summer-night fireflies, heat shimmer) via a faked month/temp.
+                          static int di = -1;
+                          static const int   codes[]  = {0,    0,    2,    3,    45,   63,   73,   81,   95,   0,    0,    0,    0};
+                          static const bool  days[]   = {true, false,true, true, true, true, true, true, true, true, true, false,true};
+                          static const int   months[] = {6,    6,    6,    6,    6,    6,    1,    6,    6,    4,    10,   7,    7};
+                          static const int   temps[]  = {72,   60,   70,   66,   58,   55,   30,   60,   62,   64,   55,   70,   95};
+                          static const char *names[]  = {"Clear day","Clear night","Partly cloudy","Cloudy",
+                                                         "Fog","Rain","Snow","Showers","Thunderstorm",
+                                                         "Spring day","Autumn day","Summer night","Heat wave"};
+                          di = (di + 1) % 13;
+                          int code = codes[di]; bool day = days[di];
+                          lv_label_set_text(id(lv_wx_cond), names[di]);
+                          wxfx::set_bg(id(bg_img), wxfx::gradient_key(code, day));
+                          wxfx::apply_weather_fx(id(lv_wx_fx), code, day);
+                          wxfx::apply_seasonal(id(lv_wx_fx), code, day, months[di], temps[di]);
+                          wxfx::apply_apparel(id(lv_wear0), id(lv_wear1), id(lv_wear2), code, day, temps[di]);
+                  # No icon + no panel — the animated background conveys the weather. Just text.
+                  widgets:
+                    - label:
+                        id: lv_wx_temp
+                        align: TOP_MID
+                        y: 26
+                        text: "--°"
+                        text_font: font_temp_lvgl
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: lv_wx_cond
+                        align: TOP_MID
+                        y: 136
+                        width: 292
+                        text: ""
+                        text_font: font_footer
+                        text_color: 0xFFFFFF
+                        text_align: CENTER
+                        long_mode: wrap
+                    - label:
+                        id: lv_wx_hilo
+                        align: TOP_MID
+                        y: 200
+                        text: ""
+                        text_font: font_footer
+                        text_color: 0xEAF0FF
+                    # Suggested-wear icons (sunglasses / jacket / umbrella / scarf / tee),
+                    # auto-centred via a flex row; unused slots are hidden at runtime.
+                    - obj:
+                        id: lv_wear_row
+                        align: TOP_MID
+                        y: 250
+                        width: 300
+                        height: 76
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "OFF"
+                        scrollable: false
+                        layout:
+                          type: flex
+                          flex_flow: ROW
+                          flex_align_main: center
+                          flex_align_cross: center
+                          flex_align_track: center
+                          pad_column: 22
+                        widgets:
+                          - image: { id: lv_wear0, src: img_spr_19 }
+                          - image: { id: lv_wear1, src: img_spr_19 }
+                          - image: { id: lv_wear2, src: img_spr_19 }
+              # Location sits OUTSIDE the weather card, centred just below it.
+              - label:
+                  id: lv_wx_loc
+                  align: RIGHT_MID
+                  x: -48
+                  y: 132
+                  width: 320
+                  text: ""
+                  text_font: font_footer
+                  text_color: 0xFFFFFF
+                  text_align: CENTER
+                  long_mode: dot
         # Invisible touch grid over the rendered CONTROLLER image: 2 rows × 5 cols across
         # the TOP TWO rows only (the bottom row is the mic/sound/status band). Hidden in the
         # display view; revealed on swipe. Each cell turns a tap on the rendered button into
@@ -885,6 +1165,9 @@ interval:
     then:
       - lambda: |-
           if (lv_screen_active() != id(page_clock)->obj) return;
+          // Native-LVGL mode draws its own dashboard — ignore any server frames entirely
+          // (the server also stops sending them for LVGL devices; this is belt-and-suspenders).
+          if (id(lvgl_mode)) return;
           static uint32_t last_frame_ms = 0;
           static bool revealed = false;
           if (id(cam)->has_new_frame()) {
@@ -978,6 +1261,9 @@ interval:
           if (dir == LV_DIR_NONE) return;
           // Only the ambient clock page is swipeable (not the camera/touch test pages).
           if (lv_screen_active() != id(page_clock)->obj) return;
+          // The controller is a server-rendered surface; in native-LVGL mode there are no
+          // server frames, so the swipe-to-controller gesture is disabled.
+          if (id(lvgl_mode)) return;
           if (dir == LV_DIR_LEFT && !id(controller_view)) {
             id(controller_view) = true;
             id(satellite)->set_view("controller");
@@ -987,6 +1273,72 @@ interval:
             id(satellite)->set_view("display");
             lv_obj_add_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);
           }
+
+  # ── Native LVGL dashboard: reveal it once, then tick the clock from on-board SNTP ──
+  # Runtime rotation is disabled (it corrupted the panel), so the dashboard renders cleanly.
+  - interval: 1s
+    then:
+      - lambda: |-
+          // Reveal the native dashboard once LVGL is up (independent of the server — no JPEG).
+          static bool inited = false;
+          if (!inited) {
+            inited = true;
+            id(lvgl_mode) = true;
+            lv_obj_add_flag(id(boot_logo_img), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lbl_brand), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lbl_connecting), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
+            // Register the 16 gradient strips + make the background TILE them full-screen.
+            const lv_image_dsc_t **bt = wxfx::bg_table();
+            bt[0]=id(img_bg_0)->get_lv_image_dsc();   bt[1]=id(img_bg_1)->get_lv_image_dsc();
+            bt[2]=id(img_bg_2)->get_lv_image_dsc();   bt[3]=id(img_bg_3)->get_lv_image_dsc();
+            bt[4]=id(img_bg_4)->get_lv_image_dsc();   bt[5]=id(img_bg_5)->get_lv_image_dsc();
+            bt[6]=id(img_bg_6)->get_lv_image_dsc();   bt[7]=id(img_bg_7)->get_lv_image_dsc();
+            bt[8]=id(img_bg_8)->get_lv_image_dsc();   bt[9]=id(img_bg_9)->get_lv_image_dsc();
+            bt[10]=id(img_bg_10)->get_lv_image_dsc(); bt[11]=id(img_bg_11)->get_lv_image_dsc();
+            bt[12]=id(img_bg_12)->get_lv_image_dsc(); bt[13]=id(img_bg_13)->get_lv_image_dsc();
+            bt[14]=id(img_bg_14)->get_lv_image_dsc(); bt[15]=id(img_bg_15)->get_lv_image_dsc();
+            lv_obj_set_size(id(bg_img), 1280, 720);
+            lv_image_set_inner_align(id(bg_img), LV_IMAGE_ALIGN_TILE);
+            wxfx::sun_dsc() = id(img_sun)->get_lv_image_dsc();
+            const lv_image_dsc_t **st = wxfx::sprite_table();
+            st[0]=id(img_spr_0)->get_lv_image_dsc(); st[1]=id(img_spr_1)->get_lv_image_dsc();
+            st[2]=id(img_spr_2)->get_lv_image_dsc(); st[3]=id(img_spr_3)->get_lv_image_dsc();
+            st[4]=id(img_spr_4)->get_lv_image_dsc(); st[5]=id(img_spr_5)->get_lv_image_dsc();
+            st[6]=id(img_spr_6)->get_lv_image_dsc(); st[7]=id(img_spr_7)->get_lv_image_dsc();
+            st[8]=id(img_spr_8)->get_lv_image_dsc();
+            st[9]=id(img_spr_9)->get_lv_image_dsc(); st[10]=id(img_spr_10)->get_lv_image_dsc();
+            st[11]=id(img_spr_11)->get_lv_image_dsc(); st[12]=id(img_spr_12)->get_lv_image_dsc();
+            st[13]=id(img_spr_13)->get_lv_image_dsc(); st[14]=id(img_spr_14)->get_lv_image_dsc();
+            st[15]=id(img_spr_15)->get_lv_image_dsc(); st[16]=id(img_spr_16)->get_lv_image_dsc();
+            st[17]=id(img_spr_17)->get_lv_image_dsc(); st[18]=id(img_spr_18)->get_lv_image_dsc();
+            st[19]=id(img_spr_19)->get_lv_image_dsc();
+            srand(millis());   // vary the random character mix from boot to boot
+          }
+          // Tick the clock + date locally every second (no server round-trip).
+          if (lv_screen_active() != id(page_clock)->obj) return;
+          ESPTime t = id(tab5_time)->now();
+          if (!t.is_valid()) return;
+          char buf[8];
+          int hr = t.hour % 12; if (hr == 0) hr = 12;
+          snprintf(buf, sizeof(buf), "%d:%02d", hr, t.minute);
+          lv_label_set_text(id(lv_clock), buf);
+          char sec[6];
+          snprintf(sec, sizeof(sec), ":%02d", t.second);
+          lv_label_set_text(id(lv_seconds), sec);
+          lv_label_set_text(id(lv_ampm), t.hour < 12 ? "AM" : "PM");
+          char dow[24];
+          t.strftime(dow, sizeof(dow), "%A, %b");
+          char date[40];
+          snprintf(date, sizeof(date), "%s %d", dow, t.day_of_month);
+          lv_label_set_text(id(lv_date), date);
+
+  # Cheap stepped rotation for the (now bigger) clear-day sun (~15×/s, not every frame).
+  - interval: 66ms
+    then:
+      - lambda: 'wxfx::tick_sun();'
 
 
 # Conversation state from the satellite (idle/connecting/listening/thinking/talking).
@@ -1078,6 +1430,81 @@ text_sensor:
         # ends instead (see face_state → hide_reply_soon), which fires first.
         - script.execute: hide_reply_timer
 
+  # ── NATIVE LVGL experiment ───────────────────────────────────────────────────────
+  # Render mode from the assigned template's descriptor ("lvgl" → draw the dashboard
+  # natively; anything else → the server JPEG blit). Switches the whole render path.
+  - platform: template
+    id: render_mode
+    on_value:
+      then:
+        - lambda: |-
+            const bool lvgl = (x == "lvgl");
+            id(lvgl_mode) = lvgl;
+            if (lvgl) {
+              // Native dashboard: drop the connecting splash + the server blit, show the
+              // native dashboard, and reveal the voice controls (no server frame arrives
+              // to trigger the normal first-frame reveal in lvgl mode).
+              lv_obj_add_flag(id(boot_logo_img), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lbl_brand), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(lbl_connecting), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
+              // Reflect the persisted mic/audio mute state on the controls.
+              bool micMuted = id(satellite)->is_mic_muted();
+              lv_label_set_text(id(lbl_wake), micMuted ? "Muted" : "Listening");
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(micMuted ? 0x4B5563 : 0x7C3AED), 0);
+              if (micMuted) { lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+              else { lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+              bool audMuted = id(satellite)->is_audio_muted();
+              lv_label_set_text(id(lbl_voice), audMuted ? "Sound off" : "Sound on");
+              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(audMuted ? 0x4B5563 : 0x2563EB), 0);
+              if (audMuted) { lv_obj_add_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
+              else { lv_obj_clear_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
+            }
+            // TEST BUILD: never switch back to the JPEG path — the dashboard is forced on
+            // in the 1s interval and stays native regardless of what the server says.
+
+  # Live data feed (weather + photo state) for the native dashboard — a JSON string we
+  # parse here to fill the weather card, pick the sky gradient, and (re)load the photo.
+  - platform: template
+    id: display_data
+    on_value:
+      then:
+        - lambda: |-
+            json::parse_json(x, [](JsonObject root) -> bool {
+              if (root["weather"].is<JsonObject>()) {
+                JsonObject w = root["weather"].as<JsonObject>();
+                int temp = w["temp"] | 0;
+                int hi = w["high"] | 0;
+                int lo = w["low"] | 0;
+                int code = w["code"] | 0;
+                bool day = w["is_day"] | true;
+                std::string text = w["text"].as<std::string>();
+                std::string loc = w["location"].as<std::string>();
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%d°", temp);
+                lv_label_set_text(id(lv_wx_temp), buf);
+                if (!text.empty()) text[0] = (char) toupper(text[0]);
+                lv_label_set_text(id(lv_wx_cond), text.c_str());
+                // Per-condition gradient background (day/night), animated effect, then
+                // seasonal/temperature ambience (petals/leaves/fireflies/heat-shimmer).
+                wxfx::set_bg(id(bg_img), wxfx::gradient_key(code, day));
+                wxfx::apply_weather_fx(id(lv_wx_fx), code, day);
+                { ESPTime nt = id(tab5_time)->now();
+                  wxfx::apply_seasonal(id(lv_wx_fx), code, day, nt.is_valid() ? nt.month : 6, temp); }
+                snprintf(buf, sizeof(buf), "H %d°   L %d°", hi, lo);
+                lv_label_set_text(id(lv_wx_hilo), buf);
+                lv_label_set_text(id(lv_wx_loc), loc.c_str());
+                wxfx::apply_apparel(id(lv_wear0), id(lv_wear1), id(lv_wear2), code, day, temp);
+              }
+              return true;
+            });
+
 # Tap-vs-hold disambiguation for the mic button: on_long_press (push-to-talk) sets this,
 # and the on_click that fires on release checks it so a HOLD doesn't also toggle mute.
 globals:
@@ -1099,6 +1526,12 @@ globals:
     initial_value: 'false'
   # True while the controller (button-grid) view is showing instead of the ambient display.
   - id: controller_view
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # NATIVE LVGL experiment: true when the assigned template's renderer is 'lvgl' — the
+  # device draws the dashboard itself (lvgl_dash) and ignores the server JPEG blit.
+  - id: lvgl_mode
     type: bool
     restore_value: no
     initial_value: 'false'
@@ -1146,4 +1579,6 @@ lokidoki_satellite:
   face_sensor: face_state
   mode_sensor: display_mode   # server-pushed screen mode (Admin → Devices → Testing)
   reply_sensor: reply_text    # companion's typed reply for text-only mode
+  render_sensor: render_mode  # native-LVGL experiment: descriptor renderer ("lvgl"/"jpeg")
+  data_sensor: display_data   # native-LVGL experiment: live weather + photo feed (JSON)
   backlight: backlight       # idle dimming, configured centrally via device settings

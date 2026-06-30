@@ -95,3 +95,63 @@ export async function weatherSummary(
   if (!parts.length) throw new Error('weather: empty')
   return parts.join(', ')
 }
+
+// Structured current-conditions snapshot for the native LVGL device dashboard (the
+// device can't reach open-meteo itself behind the home LAN, so the server fetches it
+// and pushes the fields over the gateway). Same open-meteo calls as weatherSummary,
+// but returns numbers the device renders directly + a `code`/`is_day` the firmware
+// maps to a sky gradient.
+export interface WeatherSnapshot {
+  location: string
+  temp: number
+  high: number
+  low: number
+  code: number
+  isDay: boolean
+  text: string       // short condition label (WMO[code])
+  unit: '°F' | '°C'
+}
+
+export async function weatherSnapshot(
+  opts: { location?: string; lat?: number; lng?: number; unit?: 'fahrenheit' | 'celsius' },
+  timeoutMs = 5000,
+): Promise<WeatherSnapshot> {
+  let lat = opts.lat
+  let lng = opts.lng
+  let name = opts.location ?? ''
+  if (lat === undefined || lng === undefined) {
+    if (!opts.location) throw new Error('weather: no location or coords')
+    const c = await geocode(opts.location, timeoutMs)
+    if (!c) throw new Error('weather: geocode failed')
+    lat = c.lat
+    lng = c.lng
+    name = c.name ?? opts.location
+  }
+  const unit = opts.unit === 'celsius' ? 'celsius' : 'fahrenheit'
+  const res = await fetch(
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+      `&current=temperature_2m,weather_code,is_day` +
+      `&daily=temperature_2m_max,temperature_2m_min` +
+      `&forecast_days=1&timezone=auto&temperature_unit=${unit}`,
+    { signal: AbortSignal.timeout(timeoutMs) },
+  )
+  if (!res.ok) throw new Error(`weather: forecast ${res.status}`)
+  const data = (await res.json()) as {
+    current?: { temperature_2m?: number; weather_code?: number; is_day?: number }
+    daily?: { temperature_2m_max?: number[]; temperature_2m_min?: number[] }
+  }
+  const cur = data.current
+  const daily = data.daily
+  if (typeof cur?.temperature_2m !== 'number') throw new Error('weather: no temperature')
+  const code = typeof cur.weather_code === 'number' ? cur.weather_code : 0
+  return {
+    location: name.split(',')[0]!.trim() || name,
+    temp: Math.round(cur.temperature_2m),
+    high: Math.round(daily?.temperature_2m_max?.[0] ?? cur.temperature_2m),
+    low: Math.round(daily?.temperature_2m_min?.[0] ?? cur.temperature_2m),
+    code,
+    isDay: cur.is_day !== 0,
+    text: WMO[code] ?? '',
+    unit: unit === 'celsius' ? '°C' : '°F',
+  }
+}
