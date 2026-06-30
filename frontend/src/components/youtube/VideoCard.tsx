@@ -30,6 +30,9 @@ function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'vid
     <div className={cn('relative overflow-hidden rounded-xl bg-muted', aspect === 'short' ? 'aspect-[9/16]' : 'aspect-video')}>
       <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+      {i.watch?.completed && (
+        <div className="pointer-events-none absolute inset-0 bg-black/40" />
+      )}
       {ghosted ? (
         <>
           <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
@@ -46,14 +49,16 @@ function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'vid
         <span className="absolute left-2 top-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">{i.qualityBadge}</span>
       )}
       {i.watch?.completed && (
-        <span className="absolute right-2 top-2 rounded-full bg-black/55 p-0.5"><CheckCircle2 className="size-3.5 text-emerald-400" /></span>
+        <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 backdrop-blur-sm">
+          <CheckCircle2 className="size-3" /> Watched
+        </span>
       )}
       {dur && (
         <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
       )}
-      {progress > 0 && (
+      {(progress > 0 || i.watch?.completed) && (
         <div className="absolute inset-x-0 bottom-0 h-1 bg-black/40">
-          <div className="h-full bg-[var(--yt-accent)]" style={{ width: `${Math.min(100, progress * 100)}%` }} />
+          <div className={cn('h-full', i.watch?.completed ? 'w-full bg-white/50' : 'bg-[var(--yt-accent)]')} style={i.watch?.completed ? undefined : { width: `${Math.min(100, progress * 100)}%` }} />
         </div>
       )}
     </div>
