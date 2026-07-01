@@ -5,6 +5,9 @@
 #include "esphome/core/helpers.h"
 #include "esphome/components/json/json_util.h"
 #include "esphome/components/network/util.h"
+#ifdef USE_LVGL
+#include "esphome/components/font/font.h"   // real YAML fonts for the native stream-deck grid
+#endif
 
 #include <algorithm>
 #include <cstring>
@@ -801,54 +804,79 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
   const int GUTTER = 10;
   const int cell_w = (W - GUTTER * (p.grid_cols + 1)) / p.grid_cols;
   const int cell_h = (H - GUTTER * (p.grid_rows + 1)) / p.grid_rows;
+  // The bottom row is reserved for the native mic/sound/player band (page_clock siblings),
+  // so the grid only renders rows 0..grid_rows-2.
+  const int drawn_rows = p.grid_rows > 1 ? p.grid_rows - 1 : p.grid_rows;
+  // Real YAML fonts (passed in as void* → font::Font*), falling back to the tiny built-in.
+  const lv_font_t *text_font = this->sd_text_font_
+    ? static_cast<font::Font *>(this->sd_text_font_)->get_lv_font() : LV_FONT_DEFAULT;
+
+  // Scale an RGB hex by pct (>100 lightens, <100 darkens), clamping each channel.
+  auto shade = [](uint32_t c, int pct) -> uint32_t {
+    auto ch = [pct](uint32_t v) -> uint32_t { uint32_t r = v * pct / 100; return r > 255 ? 255 : r; };
+    return (ch((c >> 16) & 0xff) << 16) | (ch((c >> 8) & 0xff) << 8) | ch(c & 0xff);
+  };
 
   for (const SdButton &btn : p.buttons) {
-    if (btn.row < 0 || btn.row >= p.grid_rows || btn.col < 0 || btn.col >= p.grid_cols) continue;
+    if (btn.row < 0 || btn.row >= drawn_rows || btn.col < 0 || btn.col >= p.grid_cols) continue;
 
     const int x = GUTTER + btn.col * (cell_w + GUTTER);
     const int y = GUTTER + btn.row * (cell_h + GUTTER);
 
-    lv_obj_t *cell = lv_obj_create(page);
+    lv_obj_t *cell = lv_button_create(page);   // a real button → reliably fires LV_EVENT_CLICKED
     lv_obj_set_pos(cell, x, y);
     lv_obj_set_size(cell, cell_w, cell_h);
-    lv_obj_set_style_bg_color(cell, lv_color_hex(btn.bg_color), 0);
+    // Glossy convex fill: lighter top → darker bottom, with a bright top edge.
+    lv_obj_set_style_bg_color(cell, lv_color_hex(shade(btn.bg_color, 138)), 0);
+    lv_obj_set_style_bg_grad_color(cell, lv_color_hex(shade(btn.bg_color, 68)), 0);
+    lv_obj_set_style_bg_grad_dir(cell, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(cell, 12, 0);
-    lv_obj_set_style_border_width(cell, 0, 0);
-    lv_obj_set_style_pad_all(cell, 6, 0);
-    // Pressed highlight: brighten the border.
-    lv_obj_set_style_border_color(cell, lv_color_hex(0xffffff), LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(cell, 3, LV_STATE_PRESSED);
-    lv_obj_set_style_bg_opa(cell, 85, LV_STATE_PRESSED);  // slight dim on press
+    lv_obj_set_style_radius(cell, 16, 0);
+    lv_obj_set_style_border_width(cell, 1, 0);
+    lv_obj_set_style_border_color(cell, lv_color_hex(shade(btn.bg_color, 165)), 0);
+    lv_obj_set_style_border_opa(cell, 140, 0);
+    lv_obj_set_style_pad_all(cell, 0, 0);
+    // Raised: soft drop shadow beneath the tile.
+    lv_obj_set_style_shadow_width(cell, 14, 0);
+    lv_obj_set_style_shadow_color(cell, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(cell, 95, 0);
+    lv_obj_set_style_shadow_ofs_y(cell, 6, 0);
+    // Depressed on press: sink down, collapse the shadow, darken the fill.
+    lv_obj_set_style_translate_y(cell, 4, LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_width(cell, 3, LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_ofs_y(cell, 1, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(cell, lv_color_hex(shade(btn.bg_color, 82)), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_grad_color(cell, lv_color_hex(shade(btn.bg_color, 50)), LV_STATE_PRESSED);
     lv_obj_add_flag(cell, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Icon label (top portion of cell).
-    if (!btn.icon.empty()) {
-      lv_obj_t *lbl_icon = lv_label_create(cell);
-      lv_label_set_text(lbl_icon, btn.icon.c_str());
-      // TODO(stream-deck): wire the YAML fonts (font_sd_icon/font_sd_label) into this
-      // component via a config setter — they can't be referenced by symbol from a
-      // component .cpp (they live in the generated app, different namespace → link error).
-      // Until then use the built-in LVGL default so the firmware links/flashes.
-      lv_obj_set_style_text_font(lbl_icon, LV_FONT_DEFAULT, 0);
-      lv_obj_set_style_text_color(lbl_icon, lv_color_hex(btn.text_color), 0);
-      lv_obj_set_style_text_align(lbl_icon, LV_TEXT_ALIGN_CENTER, 0);
-      lv_obj_set_width(lbl_icon, cell_w - 12);
-      lv_label_set_long_mode(lbl_icon, LV_LABEL_LONG_CLIP);
-      lv_obj_align(lbl_icon, LV_ALIGN_TOP_MID, 0, 8);
-    }
+    // Glass sheen: a white highlight over the top, fading to transparent (LVGL 9 grad opa).
+    lv_obj_t *sheen = lv_obj_create(cell);
+    lv_obj_remove_flag(sheen, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(sheen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(sheen, cell_w - 4, cell_h * 48 / 100);
+    lv_obj_align(sheen, LV_ALIGN_TOP_MID, 0, 1);
+    lv_obj_set_style_bg_color(sheen, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_bg_grad_color(sheen, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_bg_grad_dir(sheen, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(sheen, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_main_opa(sheen, 75, 0);   // bright at the very top
+    lv_obj_set_style_bg_grad_opa(sheen, 0, 0);    // → fully transparent at the band bottom
+    lv_obj_set_style_border_width(sheen, 0, 0);
+    lv_obj_set_style_radius(sheen, 15, 0);
+    lv_obj_set_style_pad_all(sheen, 0, 0);
 
-    // Text label (bottom portion of cell).
+    // Label along the BOTTOM of the tile (the top is for the artwork).
     if (!btn.label.empty()) {
-      lv_obj_t *lbl_text = lv_label_create(cell);
-      lv_label_set_text(lbl_text, btn.label.c_str());
-      lv_obj_set_style_text_font(lbl_text, LV_FONT_DEFAULT, 0);
-      lv_obj_set_style_text_color(lbl_text, lv_color_hex(btn.text_color), 0);
-      lv_obj_set_style_text_align(lbl_text, LV_TEXT_ALIGN_CENTER, 0);
-      lv_obj_set_width(lbl_text, cell_w - 12);
-      lv_label_set_long_mode(lbl_text, LV_LABEL_LONG_CLIP);
-      lv_obj_align(lbl_text, LV_ALIGN_BOTTOM_MID, 0, -8);
+      lv_obj_t *lbl = lv_label_create(cell);
+      lv_label_set_text(lbl, btn.label.c_str());
+      lv_obj_set_style_text_font(lbl, text_font, 0);
+      lv_obj_set_style_text_color(lbl, lv_color_hex(btn.text_color), 0);
+      lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_set_style_text_opa(lbl, LV_OPA_COVER, 0);
+      lv_obj_set_width(lbl, cell_w - 16);
+      lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+      lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -8);
     }
 
     // Attach click event with per-button context.
@@ -857,8 +885,8 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
     lv_obj_add_event_cb(cell, sd_btn_event_cb, LV_EVENT_CLICKED, ctx);
   }
 
-  // Empty cells (no button configured) — show a dim placeholder.
-  for (int r = 0; r < p.grid_rows; r++) {
+  // Empty cells (no button configured) — show a dim placeholder. Skip the reserved row.
+  for (int r = 0; r < drawn_rows; r++) {
     for (int c = 0; c < p.grid_cols; c++) {
       bool has_btn = false;
       for (const SdButton &btn : p.buttons)

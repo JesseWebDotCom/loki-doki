@@ -68,7 +68,11 @@ esphome:
       # NOTE: switching to page_camera happens from the render interval below (a
       # one-time lv_screen_load once LVGL is fully up) — doing it here in on_boot ran
       # too early and silently no-op'd (telemetry showed on_cam_page=0).
-      - lambda: 'id(satellite)->set_stream_deck_page(id(page_stream_deck)->obj);'
+      # Native stream-deck grid: build it into a container ON page_clock (so the player +
+      # mic/sound controls persist over it), using the real YAML fonts (icon + label).
+      - lambda: |-
+          id(satellite)->set_stream_deck_page(id(ctrl_native));
+          id(satellite)->set_sd_fonts((void *) id(font_sd_icon), (void *) id(font_sd_label));
 
 esp32:
   variant: esp32p4
@@ -787,11 +791,30 @@ lvgl:
                   text_color: 0xFFFFFF
                   text_align: CENTER
                   long_mode: dot
+        # NATIVE controller grid: the satellite component draws button cells into this
+        # container from the server-pushed stream-deck descriptor (real fonts + colours,
+        # instant taps → button_press, no server-rendered frames). Full-screen dark backdrop;
+        # the bottom row is left empty for the mic/sound/player band that overlays on top.
+        - obj:
+            id: ctrl_native
+            x: 0
+            y: 0
+            width: 1280
+            height: 720
+            hidden: true
+            bg_color: 0x070B14
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            radius: 0
+            scrollbar_mode: "OFF"
+            scrollable: false
         # Invisible touch grid over the rendered CONTROLLER image: 2 rows × 5 cols across
         # the TOP TWO rows only (the bottom row is the mic/sound/status band). Hidden in the
         # display view; revealed on swipe. Each cell turns a tap on the rendered button into
         # a button_press(row,col) the server resolves against the controller layout. It sits
         # below the reply panel + controls (declared later) so those stay tappable on top.
+        # (Kept for the server-rendered fallback path; native mode uses ctrl_native above.)
         - obj:
             id: touch_grid
             x: 0
@@ -806,16 +829,16 @@ lvgl:
             scrollable: false   # so a drag over the grid becomes a swipe gesture, not a scroll
             hidden: true
             widgets:
-              - button: { x: 0,    y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 0);' ] } }
-              - button: { x: 256,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 1);' ] } }
-              - button: { x: 512,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 2);' ] } }
-              - button: { x: 768,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 3);' ] } }
-              - button: { x: 1024, y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 4);' ] } }
-              - button: { x: 0,    y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 0);' ] } }
-              - button: { x: 256,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 1);' ] } }
-              - button: { x: 512,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 2);' ] } }
-              - button: { x: 768,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 3);' ] } }
-              - button: { x: 1024, y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 4);' ] } }
+              - button: { x: 0,    y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 0);' ] } }
+              - button: { x: 256,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 1);' ] } }
+              - button: { x: 512,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 2);' ] } }
+              - button: { x: 768,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 3);' ] } }
+              - button: { x: 1024, y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 4);' ] } }
+              - button: { x: 0,    y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 0);' ] } }
+              - button: { x: 256,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 1);' ] } }
+              - button: { x: 512,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 2);' ] } }
+              - button: { x: 768,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 3);' ] } }
+              - button: { x: 1024, y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 4);' ] } }
         # MAIN-CONTENT reply panel: when a reply is delivered we clear the content band
         # (over the clock/weather image) and show the text here — the top status row and
         # the bottom controls stay visible the whole time. Driven by the reply_text sensor.
@@ -1344,10 +1367,9 @@ interval:
           // Native-LVGL mode draws its own dashboard, so server frames are ignored — EXCEPT
           // when swiped into the controller view, where the controller is still a
           // server-rendered surface blitted into ambient_img on top of the (hidden) dash.
-          // Native dashboard needs NO server frames → make sure the "Server unreachable"
-          // banner is hidden and bail (otherwise a banner shown during a controller-frame
-          // gap would get stuck here on the dashboard).
-          if (id(lvgl_mode) && !id(controller_view)) {
+          // Fully native now (dashboard AND controller) → no server frames are used. Keep
+          // the "Server unreachable" banner hidden and bail.
+          if (id(lvgl_mode)) {
             lv_obj_add_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
             return;
           }
@@ -1475,17 +1497,19 @@ interval:
           int dx = lx - sx, dy = ly - sy;
           int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
           if (adx < 120 || adx < ady * 2) return;   // decisive HORIZONTAL swipe only
-          // Swipe LEFT → controller (stream deck); swipe RIGHT → back to the native dash.
+          // Swipe LEFT → NATIVE controller grid; swipe RIGHT → back to the native dashboard.
+          // Both are on-device LVGL now (no server-rendered frames), so the mic/sound/player
+          // band on page_clock persists across both.
           if (dx < 0 && !id(controller_view)) {
             id(controller_view) = true;
-            id(satellite)->set_view("controller");
-            lv_obj_clear_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);   // arm taps immediately
+            lv_obj_clear_flag(id(ctrl_native), LV_OBJ_FLAG_HIDDEN);   // native grid visuals
+            lv_obj_clear_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);    // invisible input layer on top
+            lv_obj_add_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);       // hide the dashboard
           } else if (dx > 0 && id(controller_view)) {
             id(controller_view) = false;
-            id(satellite)->set_view("display");
+            lv_obj_add_flag(id(ctrl_native), LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
-            if (id(lvgl_mode)) lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
           }
 
   # ── Native LVGL dashboard: reveal it once, then tick the clock from on-board SNTP ──

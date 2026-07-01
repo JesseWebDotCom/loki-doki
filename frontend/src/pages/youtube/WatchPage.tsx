@@ -26,7 +26,7 @@ import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
-import { acquireAudio } from '@/lib/mediaCoordinator'
+import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -107,6 +107,36 @@ export function WatchPage() {
 
   // Landing on a watch page means a full player owns playback — stop any other audio source.
   useEffect(() => { acquireAudio('youtube'); if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Report to the shared now-playing snapshot so a device player bar reflects THIS watch
+  // page (the mini-bar isn't in play here — the full player owns it). Cover = video thumb.
+  useEffect(() => {
+    if (!videoId) return
+    const report = () => {
+      void fetch('/api/pod/now-playing', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId, title, artist: author,
+          cover: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+          positionSec: Math.round(secRef.current), durationSec: Math.round(meta?.durationSec ?? 0),
+          playing: playingRef.current,
+        }),
+      }).catch(() => {})
+    }
+    report()
+    const iv = setInterval(report, 4000)
+    return () => clearInterval(iv)
+  }, [videoId, title, author, meta?.durationSec])
+
+  // Register transport controls so a remote (Tab5 player bar → server → dispatchTransport)
+  // drives THIS full player — the mini-bar's registration is stale here (it's undocked).
+  useEffect(() => registerTransport('youtube', {
+    toggle: () => playerRef.current?.togglePlay(),
+    seek: (s) => playerRef.current?.seek(s),
+    prev: () => playerRef.current?.seek(0),
+    next: () => { const nx = miniQueueRef.current[1]?.videoId; if (nx) navigate(`/youtube/watch/${nx}`) },
+    stop: () => playerRef.current?.pause(),
+  }), []) // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const upNext = useMemo(() => {

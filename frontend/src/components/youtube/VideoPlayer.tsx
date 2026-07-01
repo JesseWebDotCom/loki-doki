@@ -6,7 +6,11 @@ import { fileUrl, proxyStreamUrl, saveWatchState, type SkipSegment, type WatchMe
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
 import { VideoThumb } from '@/components/youtube/media'
 
-export interface VideoPlayerHandle { seek: (sec: number) => void }
+export interface VideoPlayerHandle {
+  seek: (sec: number) => void
+  togglePlay: () => void
+  pause: () => void
+}
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
 const PROXY_QUALITIES: { value: StreamQuality; label: string }[] = [
@@ -132,6 +136,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
       if (m) { try { m.currentTime = sec; void m.play()?.catch(() => {}) } catch { /* noop */ } }
       else if (y?.seekTo) { try { y.seekTo(sec, true); y.playVideo?.() } catch { /* noop */ } }
       setPosition(sec)
+    },
+    togglePlay: () => {
+      const m = mediaRef.current, y = ytRef.current
+      if (m) { try { m.paused ? void m.play()?.catch(() => {}) : m.pause() } catch { /* noop */ } }
+      else if (y) { try { (y.getPlayerState?.() === 1 ? y.pauseVideo : y.playVideo)?.() } catch { /* noop */ } }
+    },
+    pause: () => {
+      const m = mediaRef.current, y = ytRef.current
+      if (m) { try { m.pause() } catch { /* noop */ } } else { try { y?.pauseVideo?.() } catch { /* noop */ } }
     },
   }), [])
 

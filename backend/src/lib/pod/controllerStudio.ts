@@ -85,10 +85,10 @@ function tile(id: string, row: number, col: number, icon: string, label: string,
 
 // The default dashboard: 10 tiles in the TOP TWO rows (the bottom row is reserved on the
 // device for the global mic/sound controls + status). Content is pulled live from the
-// bound user's account; playback controls sit on the right.
+// bound user's account. No playback tiles — the device's native player bar owns transport.
 //
-//   row 0:  station · station · station · ⏮ prev   · ⏯ play/pause
-//   row 1:  video   · video   · video   · video    · ⏭ next
+//   row 0:  station · station · station · station · 🎙 podcasts
+//   row 1:  video   · video   · video   · video   · video
 async function defaultDashboardPage(userId: string): Promise<Page[]> {
   const buttons: Button[] = []
   try {
@@ -109,8 +109,8 @@ async function defaultDashboardPage(userId: string): Promise<Page[]> {
     const byId = new Map(recent.map((s) => [s.id, s]))
     const ordered = [...ids.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s), ...recent]
     const seen = new Set<string>()
-    const stations = ordered.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))).slice(0, 3)
-    for (let i = 0; i < 3; i++) {
+    const stations = ordered.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))).slice(0, 4)
+    for (let i = 0; i < 4; i++) {
       const st = stations[i]
       if (st) {
         // Stations render with the app's StationArt look (accent gradient + thematic
@@ -135,8 +135,8 @@ async function defaultDashboardPage(userId: string): Promise<Page[]> {
       .from(ytVideos)
       .innerJoin(ytSubscriptions, eq(ytVideos.subscriptionId, ytSubscriptions.id))
       .where(eq(ytSubscriptions.userId, userId))
-      .orderBy(desc(ytVideos.publishedAt)).limit(4)
-    for (let i = 0; i < 4; i++) {
+      .orderBy(desc(ytVideos.publishedAt)).limit(5)
+    for (let i = 0; i < 5; i++) {
       const v = vids[i]
       if (v) {
         // Open the video in the YouTube watch page (which plays it) — NOT the music radio.
@@ -150,12 +150,9 @@ async function defaultDashboardPage(userId: string): Promise<Page[]> {
     logger.warn(`[controller] default dashboard resolve failed: ${(e as Error).message}`)
   }
 
-  // Playback controls, grouped on the right edge.
-  buttons.push(
-    tile('pb-prev', 0, 3, '⏮', 'Previous', '#27272a', { type: 'app_action', action: 'prev_track' }),
-    tile('pb-play', 0, 4, '⏯', 'Play / Pause', '#16a34a', { type: 'app_action', action: 'play_pause' }),
-    tile('pb-next', 1, 4, '⏭', 'Next', '#27272a', { type: 'app_action', action: 'next_track' }),
-  )
+  // Transport is handled by the device's native player bar now — no playback tiles. The
+  // last row-0 slot becomes a Podcasts shortcut.
+  buttons.push(tile('podcasts', 0, 4, '🎙', 'Podcasts', '#4c1d95', { type: 'navigate', app: 'podcasts' }))
   return [{ id: 'dashboard', name: 'Dashboard', gridRows: 3, gridCols: 5, sortOrder: 0, buttons }]
 }
 
