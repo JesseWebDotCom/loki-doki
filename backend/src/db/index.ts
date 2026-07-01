@@ -1882,4 +1882,47 @@ export function runMigrations() {
   addColumn('devices', 'controller_layout_template_id', 'TEXT')
   addColumn('devices', 'controller_layout_overrides', 'TEXT')
   addColumn('devices', 'orientation', 'INTEGER NOT NULL DEFAULT 0')
+  // Pod display mode: explicit user-set mode per device (activity/status/sleeping/display).
+  // Null means the ambient clock/weather 'display' view (legacy default).
+  addColumn('devices', 'display_mode', 'TEXT')
+
+  // ── Unified screen deck (collapses display-layout / controller-layout / screen-mode
+  // into one "ordered deck of screens per device", shared between Admin → Devices and the
+  // new Settings → Devices; see schema.ts `screens` / `deviceScreens` for the full design) ──
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS screens (
+      id TEXT NOT NULL PRIMARY KEY,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      renderer TEXT NOT NULL DEFAULT 'jpeg',
+      params TEXT NOT NULL DEFAULT '{}',
+      builtin INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS device_screens (
+      id TEXT NOT NULL PRIMARY KEY,
+      device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      screen_id TEXT,
+      kind TEXT NOT NULL,
+      params TEXT NOT NULL DEFAULT '{}',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS device_screens_device_idx ON device_screens(device_id, position);
+  `)
+  // Admin-only locks gating the OWNER's Settings → Devices editor (Admin is never gated).
+  addColumn('devices', 'lock_screen_selection', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('devices', 'lock_screen_config', 'INTEGER NOT NULL DEFAULT 0')
+  // Audio/alarm bundle moved OFF the per-screen layout template onto the device (it's a
+  // device-global concern — see schema.ts comment). Old template columns stay untouched;
+  // seedDeviceDecks() (lib/pod/screenDeck.ts, called at boot) backfills these from the
+  // device's current layout template the first time it runs.
+  addColumn('devices', 'sound_pack_id', 'TEXT')
+  addColumn('devices', 'sound_volume', 'REAL')
+  addColumn('devices', 'alarm_volume', 'REAL')
+  addColumn('devices', 'sound_overrides', "TEXT NOT NULL DEFAULT '{}'")
+  addColumn('devices', 'alarm_tone_id', 'TEXT')
 }

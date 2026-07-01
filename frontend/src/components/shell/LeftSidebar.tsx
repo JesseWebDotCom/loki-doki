@@ -334,6 +334,73 @@ function ArchiveIconLink({ archive }: { archive: RecentArchive }) {
   );
 }
 
+// ── Quick status switcher ───────────────────────────────────────────────────
+const STATUS_PRESETS = [
+  { state: 'available', label: 'Available', color: '#22c55e', icon: '🟢' },
+  { state: 'busy',      label: 'Busy',      color: '#ef4444', icon: '🔴' },
+  { state: 'focusing',  label: 'Focusing',  color: '#3b82f6', icon: '🔵' },
+  { state: 'dnd',       label: 'DND',       color: '#7c3aed', icon: '🟣' },
+  { state: 'brb',       label: 'BRB',       color: '#eab308', icon: '🟡' },
+] as const
+
+function StatusQuickSwitcher({ userId }: { userId: string }) {
+  const [current, setCurrent] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!userId) return
+    fetch('/api/pod/presence', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { status?: { state?: string } | null } | null) => {
+        setCurrent(d?.status?.state ?? null)
+      })
+      .catch(() => { /* ignore */ })
+  }, [userId])
+
+  const setStatus = async (state: string | null) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      if (!state) {
+        await fetch('/api/pod/status', { method: 'DELETE', credentials: 'include' })
+        setCurrent(null)
+      } else {
+        await fetch('/api/pod/status', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state }),
+        })
+        setCurrent(state)
+      }
+    } catch { /* ignore */ } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="px-2 py-1">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5 px-1">Status</p>
+      <div className="flex flex-wrap gap-1">
+        {STATUS_PRESETS.map((p) => (
+          <button
+            key={p.state}
+            disabled={busy}
+            onClick={() => setStatus(current === p.state ? null : p.state)}
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-60 ${
+              current === p.state
+                ? 'text-white shadow-sm'
+                : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+            }`}
+            style={current === p.state ? { backgroundColor: p.color } : undefined}
+            title={current === p.state ? 'Click to clear' : `Set status to ${p.label}`}
+          >
+            <span>{p.icon}</span>
+            <span>{p.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Notification helpers ────────────────────────────────────────────────────
 // notifIcon / notifLabel / timeAgo live in @/lib/notifications, shared with the
 // Settings → Notifications tab.
@@ -831,6 +898,9 @@ export function LeftSidebar() {
                     );
                   })
                 )}
+                <DropdownMenuSeparator />
+                {/* Quick status switcher */}
+                <StatusQuickSwitcher userId={user?.id ?? ''} />
                 <DropdownMenuSeparator />
                 {/* User menu items */}
                 <DropdownMenuItem asChild>

@@ -1296,6 +1296,96 @@ function WidgetSpeedTest() {
   );
 }
 
+// ── WidgetStatus ─────────────────────────────────────────────────────────────
+const STATUS_WIDGET_PRESETS = [
+  { state: 'available', label: 'Available', color: '#22c55e', icon: '🟢' },
+  { state: 'busy',      label: 'Busy',      color: '#ef4444', icon: '🔴' },
+  { state: 'focusing',  label: 'Focusing',  color: '#3b82f6', icon: '🔵' },
+  { state: 'dnd',       label: 'DND',       color: '#7c3aed', icon: '🟣' },
+  { state: 'brb',       label: 'BRB',       color: '#eab308', icon: '🟡' },
+] as const
+
+function WidgetStatus() {
+  const { user } = useAuth()
+  const [current, setCurrent] = useState<{ state: string; label: string; color: string; timerEndsAt: number | null } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/pod/presence', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { status?: { state: string; label: string; color: string; timerEndsAt: number | null } | null } | null) => {
+        setCurrent(d?.status ?? null)
+      })
+      .catch(() => { /* ignore */ })
+  }, [user?.id])
+
+  const setStatus = async (state: string | null) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      if (!state || current?.state === state) {
+        await fetch('/api/pod/status', { method: 'DELETE', credentials: 'include' })
+        setCurrent(null)
+      } else {
+        const r = await fetch('/api/pod/status', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state }),
+        })
+        const d = await r.json() as { status?: { state: string; label: string; color: string; timerEndsAt: number | null } }
+        if (d.status) setCurrent(d.status)
+      }
+    } catch { /* ignore */ } finally { setBusy(false) }
+  }
+
+  const currentPreset = STATUS_WIDGET_PRESETS.find(p => p.state === current?.state)
+
+  return (
+    <div className="flex flex-col gap-3 p-4 h-full">
+      {/* Current status pill */}
+      <div
+        className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors"
+        style={{ backgroundColor: current?.color ?? '#6b7280' }}
+      >
+        <span>{currentPreset?.icon ?? '⚪'}</span>
+        <span>{current?.label ?? 'No status'}</span>
+        {current?.timerEndsAt && (
+          <span className="ml-auto font-mono text-xs opacity-80">
+            {Math.max(0, Math.round((current.timerEndsAt - Date.now()) / 60000))}m
+          </span>
+        )}
+      </div>
+      {/* Preset buttons */}
+      <div className="grid grid-cols-3 gap-1.5 flex-1">
+        {STATUS_WIDGET_PRESETS.map((p) => (
+          <button
+            key={p.state}
+            disabled={busy}
+            onClick={() => setStatus(p.state)}
+            className={`flex flex-col items-center justify-center gap-1 rounded-xl border p-2 text-center text-xs font-medium transition-colors disabled:opacity-60 ${
+              current?.state === p.state
+                ? 'text-white shadow-sm border-transparent'
+                : 'border-border/50 text-muted-foreground hover:bg-muted/40'
+            }`}
+            style={current?.state === p.state ? { backgroundColor: p.color } : undefined}
+          >
+            <span className="text-lg">{p.icon}</span>
+            <span>{p.label}</span>
+          </button>
+        ))}
+        <button
+          disabled={busy}
+          onClick={() => setStatus(null)}
+          className="flex flex-col items-center justify-center gap-1 rounded-xl border border-border/50 p-2 text-center text-xs font-medium text-muted-foreground hover:bg-muted/40 transition-colors disabled:opacity-60"
+        >
+          <span className="text-lg">✕</span>
+          <span>Clear</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Widget renderers ──────────────────────────────────────────────────────────
 // Keyed by canonical widget id (see lib/homeWidgets). The catalog there is the
 // source of truth for which widgets exist; this map just wires ids to views.
@@ -1314,6 +1404,7 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'podcasts-shows':     (m) => <WidgetPodcastsShows displayMode={m} />,
   'watchlist':          (m) => <WidgetWatchlist displayMode={m} />,
   'speed-test':         () => <WidgetSpeedTest />,
+  'status':             () => <WidgetStatus />,
 };
 
 function renderWidget(widget: HomeWidget, mode: 'row' | 'column'): React.ReactNode {

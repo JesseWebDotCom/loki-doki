@@ -13,6 +13,13 @@
 // pipeline end-to-end. Automatic triggers (e.g. Frigate motion → door cam) layer on
 // top later by calling setDeviceCamera() from an event source — no changes here.
 
+// Display mode the user explicitly sets per device:
+//   'display'  — ambient clock/weather (the original default)
+//   'activity' — now-playing music / Plex poster / YouTube
+//   'status'   — full-frame status color + label (BUSY-Bar mode)
+//   'sleeping' — near-black / dim; optional sleep ambient sound
+export type DeviceDisplayMode = 'display' | 'activity' | 'status' | 'sleeping'
+
 interface DisplayState {
   mode: 'auto' | 'camera'
   cameraUrl: string | null
@@ -40,6 +47,47 @@ export function setDeviceCamera(deviceId: string, cameraUrl: string, holdMs?: nu
 /** Return a device to the ambient clock/weather page. */
 export function setDeviceAuto(deviceId: string): void {
   state.delete(deviceId)
+}
+
+// ── Pod display view (activity / status / sleeping / display) ────────────────────
+// The user explicitly sets a device's display view; it persists to the DB so it
+// survives server restarts. At boot, call seedPodViews() to warm the cache from
+// the DB before the first device poll arrives.
+//
+// Distinct from:
+//   • deviceView() / setDeviceView() — the controller swipe ('display' | 'controller')
+//   • displayMode.ts getDeviceMode() — LVGL screen mode (normal/camera-test/touch-test)
+const viewModeCache = new Map<string, DeviceDisplayMode>() // deviceId → pod view
+
+/** Return the pod view for a device (falls back to 'display' if not set). */
+export function getPodView(deviceId: string): DeviceDisplayMode {
+  return viewModeCache.get(deviceId) ?? 'display'
+}
+
+/** Set the pod view in the in-memory cache AND persist to DB. */
+export async function setPodView(deviceId: string, mode: DeviceDisplayMode): Promise<void> {
+  viewModeCache.set(deviceId, mode)
+  // Lazy import to avoid circular dep — db lives in @/db which imports nothing from lib/.
+  const { db } = await import('@/db')
+  const { devices } = await import('@/db/schema')
+  const { eq } = await import('drizzle-orm')
+  await db.update(devices).set({ displayMode: mode }).where(eq(devices.id, deviceId))
+}
+
+/** Seed the pod-view cache from the DB at boot (call once from startPodScheduler). */
+export async function seedPodViews(): Promise<void> {
+  const { db } = await import('@/db')
+  const { devices } = await import('@/db/schema')
+  const rows = await db.select({ id: devices.id, displayMode: devices.displayMode }).from(devices)
+  for (const r of rows) {
+    if (r.displayMode && isValidPodView(r.displayMode)) {
+      viewModeCache.set(r.id, r.displayMode as DeviceDisplayMode)
+    }
+  }
+}
+
+export function isValidPodView(m: string): m is DeviceDisplayMode {
+  return m === 'display' || m === 'activity' || m === 'status' || m === 'sleeping'
 }
 
 // ── Controller view ──────────────────────────────────────────────────────────────

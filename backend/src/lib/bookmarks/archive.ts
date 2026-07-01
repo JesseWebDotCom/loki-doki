@@ -18,6 +18,7 @@ import { ytDlpBin, withYtDlpSlot } from '@/lib/youtube/ytdlp'
 import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
 import type { DownloadProgress } from '@/lib/download'
+import { notifyPod } from '@/lib/pod/notifyPod'
 
 // Where POST /bookmarks/:id/snapshot stashes the browser-rendered HTML for the job to pick up.
 export const renderedHtmlPath = (itemId: string) => join(dataDir, 'tmp', `bookmark-render-${itemId}.html`)
@@ -182,6 +183,7 @@ export async function runArchiveArticleJob(
         }),
         createdAt: now,
       })
+      notifyPod(item.ownerId, 'system', { message: `"${item.title || a.title || item.url}" changed` })
     }
     onProgress({ completed: 1, total: 1, speedBps: 0, etaSeconds: 0, note: `Done · ${snap.assetCount} assets${changed ? ' · changed' : ''}` })
   } catch (err) {

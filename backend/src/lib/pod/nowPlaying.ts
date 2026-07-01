@@ -27,3 +27,35 @@ export function getNowPlaying(userId: string): NowPlaying | null {
   if (Date.now() - np.updatedAt > STALE_MS) { store.delete(userId); return null }
   return np
 }
+
+// ── Plex activity slot ────────────────────────────────────────────────────────────
+// Separate from the music/YouTube now-playing since Plex is polled server-side (no
+// browser push); displayed in the 'activity' view on screen Pods.
+
+export interface PlexActivity {
+  title: string
+  showTitle: string | null   // parent show name for episodes; null for movies
+  type: 'movie' | 'episode' | 'other'
+  thumb: string | null       // relative Plex path — proxy through /api/plex/img?path=…
+  progress: number | null    // 0–1 viewOffset/duration
+  state: string | null       // 'playing' | 'paused' | 'buffering'
+  updatedAt: number
+}
+
+const plexStore = new Map<string, PlexActivity>() // userId → snapshot
+const PLEX_STALE_MS = 2 * 60 * 1000 // 2-min TTL; poller refreshes every ~30s
+
+export function setPlexActivity(userId: string, a: Omit<PlexActivity, 'updatedAt'>): void {
+  plexStore.set(userId, { ...a, updatedAt: Date.now() })
+}
+
+export function clearPlexActivity(userId: string): void {
+  plexStore.delete(userId)
+}
+
+export function getPlexActivity(userId: string): PlexActivity | null {
+  const a = plexStore.get(userId)
+  if (!a) return null
+  if (Date.now() - a.updatedAt > PLEX_STALE_MS) { plexStore.delete(userId); return null }
+  return a
+}

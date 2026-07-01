@@ -146,6 +146,25 @@ export const BUILTIN_CHIMES: BuiltinChime[] = [
       notes: [note(2093, 0, 80, 0.5), note(2637, 120, 80, 0.5), note(2093, 260, 80, 0.5),
         note(3136, 900, 90, 0.5), note(2637, 1040, 90, 0.5), note(2093, 1180, 100, 0.5),
         note(2349, 1900, 80, 0.5), note(2793, 2040, 120, 0.5)] } },
+  // ── Status display earcons ──
+  { id: 'builtin:status_set', name: 'Status Set', category: 'earcon', loop: false,
+    recipe: { waveform: 'sine', envelope: { attack_ms: 6, decay_ms: 60, sustain: 0.25, release_ms: 180 }, effects: { reverb: 0.2 },
+      notes: [note(587, 0, 100), note(880, 90, 140)] } },
+  { id: 'builtin:status_clear', name: 'Status Clear', category: 'earcon', loop: false,
+    recipe: { waveform: 'sine', envelope: { attack_ms: 6, decay_ms: 50, sustain: 0.2, release_ms: 150 }, effects: { reverb: 0.15 },
+      notes: [note(880, 0, 100), note(587, 90, 140)] } },
+  { id: 'builtin:sleep_enter', name: 'Sleep Enter', category: 'earcon', loop: false,
+    recipe: { waveform: 'sine', envelope: { attack_ms: 30, decay_ms: 120, sustain: 0.15, release_ms: 500 }, effects: { reverb: 0.4 },
+      notes: [note(440, 0, 200), note(330, 180, 280), note(220, 380, 400, 0.6)] } },
+  { id: 'builtin:wake_chime', name: 'Wake Chime', category: 'earcon', loop: false,
+    recipe: { waveform: 'sine', envelope: { attack_ms: 8, decay_ms: 60, sustain: 0.3, release_ms: 200 }, effects: { reverb: 0.25 },
+      notes: [note(523, 0, 120), note(659, 110, 130), note(784, 230, 180), note(1047, 380, 250)] } },
+  { id: 'builtin:pomodoro_work', name: 'Focus Start', category: 'earcon', loop: false,
+    recipe: { waveform: 'sine', envelope: { attack_ms: 5, decay_ms: 40, sustain: 0.35, release_ms: 160 }, effects: { reverb: 0.3 },
+      notes: [note(528, 0, 100, 0.7), note(528, 120, 140, 0.9)] } },
+  { id: 'builtin:pomodoro_break', name: 'Break Start', category: 'earcon', loop: false,
+    recipe: { waveform: 'sine', envelope: { attack_ms: 5, decay_ms: 40, sustain: 0.3, release_ms: 160 }, effects: { reverb: 0.3 },
+      notes: [note(396, 0, 140, 0.8), note(528, 150, 160, 0.7)] } },
 ]
 
 export const FALLBACK_ALARM_TONE = 'builtin:alarm_classic'

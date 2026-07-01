@@ -49,6 +49,17 @@ interface Conn {
 
 const conns = new Map<string, Conn>()
 
+// ── State-change pub/sub ──────────────────────────────────────────────────────────
+// Subscribers receive (baseUrl, entityId, newState, oldState) on every live diff
+// from subscribe_entities. baseUrl identifies the HA instance; subscribers must map
+// it to user IDs via their own config lookup (sync.ts doesn't know about users).
+type StateChangeFn = (baseUrl: string, entityId: string, newState: string, oldState: string | undefined) => void
+const stateListeners: StateChangeFn[] = []
+export function onHAStateChange(fn: StateChangeFn): () => void {
+  stateListeners.push(fn)
+  return () => { const i = stateListeners.indexOf(fn); if (i >= 0) stateListeners.splice(i, 1) }
+}
+
 const REGISTRY_REFRESH_MS = 10 * 60 * 1000
 const RECONNECT_DELAY_MS = 5000
 const INITIAL_TIMEOUT_MS = 10000
@@ -267,7 +278,14 @@ function applyEntitiesEvent(c: Conn, event: NonNullable<HAMessage['event']>): vo
   if (event.c) {
     for (const [eid, diff] of Object.entries(event.c)) {
       const plus = diff['+']
-      if (plus?.s !== undefined) c.store.states.set(eid, plus.s)
+      if (plus?.s !== undefined) {
+        const oldState = c.store.states.get(eid)
+        c.store.states.set(eid, plus.s)
+        if (plus.s !== oldState && stateListeners.length > 0) {
+          const baseUrl = c.conn.baseUrl
+          for (const fn of stateListeners) { try { fn(baseUrl, eid, plus.s, oldState) } catch { /* listener error */ } }
+        }
+      }
       if (plus?.a) {
         const fn = plus.a['friendly_name']
         const ent = c.store.entities.get(eid)

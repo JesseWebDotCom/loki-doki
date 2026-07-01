@@ -16,6 +16,7 @@ import { DeviceSoundsPanel } from '@/components/admin/DeviceSoundsPanel'
 import { DeviceAlarmsPanel } from '@/components/admin/DeviceAlarmsPanel'
 import { DeviceHelpDialog } from '@/components/admin/DeviceHelpDialog'
 import { DeviceArt } from '@/components/admin/DeviceArt'
+import { DeviceScreenDeckEditor, type DeckLocks } from '@/components/shared/DeviceScreenDeckEditor'
 import { DEVICE_MODELS, resolveDeviceModel, deviceModelName } from '@/lib/deviceCatalog'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
@@ -44,6 +45,9 @@ interface DeviceRow {
   hwid: string | null
   layoutTemplateId: string | null
   orientation: number
+  podView?: string | null  // 'display' | 'activity' | 'status' | 'sleeping'
+  lockScreenSelection?: boolean
+  lockScreenConfig?: boolean
 }
 interface UserRow { id: string; firstName: string; lastName: string; nickname: string }
 interface Companion { id: string; name: string; wakeWordPhrase?: string | null; wakeWordModelId?: string | null }
@@ -184,6 +188,14 @@ const MODES = [
 ]
 const MODE_LABEL: Record<string, string> = { normal: 'Normal', 'camera-test': 'Camera test', 'touch-test': 'Touch test', 'stream-deck': 'Controller' }
 const SCREEN_KINDS = ['tablet', 'show']
+
+const POD_VIEWS = [
+  { id: 'display',  label: 'Ambient',  desc: 'Clock & weather',  icon: '🌤' },
+  { id: 'activity', label: 'Activity', desc: 'Now playing',       icon: '🎵' },
+  { id: 'status',   label: 'Status',   desc: 'BUSY-bar mode',     icon: '🟢' },
+  { id: 'sleeping', label: 'Sleep',    desc: 'Dim + ambient',     icon: '🌙' },
+] as const
+const POD_VIEW_LABELS: Record<string, string> = Object.fromEntries(POD_VIEWS.map((v) => [v.id, v.label]))
 
 // ── Main export ─────────────────────────────────────────────────────────────────
 // `view` comes from the admin URL (/admin/devices/:view) so the breadcrumb and the
@@ -504,9 +516,13 @@ function DeviceDetailPage({
   const [groups, setGroups] = useState<{ id: string; name: string; isDefault: boolean }[]>([])
   const [groupId, setGroupId] = useState(device.groupId ?? 'default')
 
-  // Screen mode
+  // Screen mode (LVGL: normal/camera-test/touch-test)
   const [mode, setMode] = useState('normal')
   const [modeBusy, setModeBusy] = useState(false)
+
+  // Pod display view (what the device shows: ambient/activity/status/sleeping)
+  const [podView, setPodView] = useState<string>(device.podView ?? 'display')
+  const [podViewBusy, setPodViewBusy] = useState(false)
 
   // Display layout template
   const [templates, setTemplates] = useState<TemplateRow[]>([])
@@ -618,6 +634,19 @@ function DeviceDetailPage({
       const d = (await r.json()) as { online?: boolean }
       toast.success(d.online ? `Switched to ${MODE_LABEL[next]}` : `${MODE_LABEL[next]} set — applies when the device reconnects`)
     } catch { setMode(prev); toast.error("Couldn't switch mode") } finally { setModeBusy(false) }
+  }
+
+  async function changePodView(next: string) {
+    if (next === podView || podViewBusy) return
+    const prev = podView
+    setPodView(next)
+    setPodViewBusy(true)
+    try {
+      const r = await fetch(`/api/pod/devices/${device.id}/pod-view`, { ...opts, method: 'POST', headers: J, body: JSON.stringify({ view: next }) })
+      if (!r.ok) throw new Error()
+      toast.success(`Display view set to ${POD_VIEW_LABELS[next] ?? next}`)
+      onChanged()
+    } catch { setPodView(prev); toast.error("Couldn't change display view") } finally { setPodViewBusy(false) }
   }
 
   async function saveLayout() {
@@ -811,17 +840,11 @@ function DeviceDetailPage({
             </section>
           )}
 
-          {/* Display Layout */}
+          {/* Orientation */}
           <section className="space-y-1.5">
-            <SectionLabel>Display Layout</SectionLabel>
+            <SectionLabel>Orientation</SectionLabel>
             <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
-              <FieldRow label="Template">
-                <DetailPicker value={layoutTemplateId} onChange={setLayoutTemplateId}>
-                  <option value="">Built-in default</option>
-                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.builtin ? ' (built-in)' : ''}</option>)}
-                </DetailPicker>
-              </FieldRow>
-              <FieldRow label="Orientation">
+              <FieldRow label="Rotation">
                 <div className="w-full space-y-1">
                   <div className="grid grid-cols-2 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
                     <span>Landscape</span>
@@ -855,13 +878,19 @@ function DeviceDetailPage({
                 </div>
               </FieldRow>
             </div>
-            {layoutTemplateId !== (device.layoutTemplateId ?? '') && (
-              <div className="flex justify-end pt-1">
-                <Button size="sm" className="gap-1.5" onClick={saveLayout} disabled={layoutSaving}>
-                  {layoutSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Apply layout
-                </Button>
-              </div>
-            )}
+          </section>
+
+          {/* Screen deck — the ordered list of screens this device swipes between.
+              Controller is just one screen kind here, alongside clock/weather/status/etc.
+              The owner can edit this SAME deck from Settings → Devices, unless locked below. */}
+          <section className="space-y-1.5">
+            <SectionLabel>Screen deck</SectionLabel>
+            <DeviceScreenDeckEditor
+              deviceId={device.id}
+              asAdmin
+              locks={locks}
+              onLocksChange={setLocks}
+            />
           </section>
 
           {/* Mode */}

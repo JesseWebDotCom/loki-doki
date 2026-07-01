@@ -85,6 +85,55 @@ export async function setUserPlexToken(userId: string, token: string | null): Pr
   }
 }
 
+// ── Plex account username (for session attribution) ──────────────────────────────
+// PMS /status/sessions only exposes a Plex display-name string (User.title), not an id.
+// We persist the user's Plex account username at link time so the session poller can
+// match session.user → loki userId without a live plex.tv call on every poll.
+
+async function upsertUserPlexKey(userId: string, key: string, value: string): Promise<void> {
+  const now = new Date()
+  const [existing] = await db
+    .select({ id: toolUserConfig.id })
+    .from(toolUserConfig)
+    .where(and(eq(toolUserConfig.userId, userId), eq(toolUserConfig.toolId, 'plex'), eq(toolUserConfig.key, key)))
+    .limit(1)
+  if (existing) {
+    await db.update(toolUserConfig).set({ value: JSON.stringify(value), updatedAt: now }).where(eq(toolUserConfig.id, existing.id))
+  } else {
+    await db.insert(toolUserConfig).values({ id: crypto.randomUUID(), userId, toolId: 'plex', key, value: JSON.stringify(value), updatedAt: now })
+  }
+}
+
+export async function setUserPlexUsername(userId: string, username: string): Promise<void> {
+  await upsertUserPlexKey(userId, 'plex_username', username)
+}
+
+export async function getUserPlexUsername(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ value: toolUserConfig.value })
+    .from(toolUserConfig)
+    .where(and(eq(toolUserConfig.userId, userId), eq(toolUserConfig.toolId, 'plex'), eq(toolUserConfig.key, 'plex_username')))
+    .limit(1)
+  if (!row) return null
+  try { return String(JSON.parse(row.value) ?? '').trim() || null } catch { return null }
+}
+
+/** All linked users along with their stored Plex username (null if not yet fetched). */
+export async function listLinkedPlexUsers(): Promise<Array<{ userId: string; plexUsername: string | null }>> {
+  const rows = await db
+    .select({ userId: toolUserConfig.userId, key: toolUserConfig.key, value: toolUserConfig.value })
+    .from(toolUserConfig)
+    .where(and(eq(toolUserConfig.toolId, 'plex')))
+  const byUser = new Map<string, { token: boolean; username: string | null }>()
+  for (const r of rows) {
+    if (!byUser.has(r.userId)) byUser.set(r.userId, { token: false, username: null })
+    const entry = byUser.get(r.userId)!
+    if (r.key === 'token') entry.token = true
+    if (r.key === 'plex_username') { try { entry.username = String(JSON.parse(r.value) ?? '') || null } catch { /* ignore */ } }
+  }
+  return [...byUser.entries()].filter(([, v]) => v.token).map(([userId, v]) => ({ userId, plexUsername: v.username }))
+}
+
 /** Admin view: every user with their linked status + display name. */
 export async function listUsersWithPlexStatus(): Promise<Array<{ id: string; name: string; linked: boolean }>> {
   const [userRows, linked] = await Promise.all([

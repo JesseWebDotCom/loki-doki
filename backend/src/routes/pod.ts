@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono'
 import { streamSSE, stream } from 'hono/streaming'
-import { requireAdmin } from '@/middleware/auth'
+import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { logger } from '@/lib/logger'
 import { buildControllerAtlas, resolveLocalArt, renderPodcastCoverForShow } from '@/lib/pod/controllerAtlas'
 import type { AppEnv } from '@/types'
@@ -28,7 +28,8 @@ import { captureDeviceFrame, deviceByHwid, setDeviceOrientation } from '@/lib/po
 import { rendererForTemplateId, DEFAULT_TEMPLATE_ID } from '@/lib/pod/deviceStudio'
 import { resolveDevicePhotoUrl } from '@/lib/pod/displayData'
 import { getNowPlaying } from '@/lib/pod/nowPlaying'
-import { deviceDisplayMode, setDeviceCamera, setDeviceAuto, fetchCameraFrame } from '@/lib/pod/displayController'
+import { deviceDisplayMode, setDeviceCamera, setDeviceAuto, fetchCameraFrame, getPodView, setPodView, isValidPodView, type DeviceDisplayMode } from '@/lib/pod/displayController'
+import { getUserPresence, setUserStatus, clearUserStatus, setUserSleep, setUserAlert, clearUserAlert, STATUS_COLORS, STATUS_LABELS, type StatusState } from '@/lib/pod/presence'
 import { latestLivingRoomFrame } from '@/lib/pod/cameraStream'
 import { startFfmpegTest, startFfmpegSource, startUrlTest, stopTest, isTestActive } from '@/lib/pod/cameraTest'
 import { livingRoomMjpegUrl } from '@/lib/pod/cameraStream'
@@ -327,6 +328,121 @@ pod.post('/devices/:id/display', requireAdmin, async (c) => {
   return c.json({ ok: true, mode: deviceDisplayMode(id) })
 })
 
+// ── Presence & status ────────────────────────────────────────────────────────────
+// GET  /api/pod/presence?deviceId=   — returns { status, sleep, nowPlaying, plexActivity }
+// POST /api/pod/status               — set status (state, label?, color?, durationMin?)
+// DELETE /api/pod/status             — clear status
+// POST /api/pod/sleep                — enter/exit sleep mode
+
+pod.get('/presence', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  // If a deviceId is provided, resolve the owner (for the headless display page which
+  // is not authenticated as the device's user).
+  const deviceId = c.req.query('deviceId')
+  let userId = user.id
+  if (deviceId) {
+    const { db: dbInst } = await import('@/db')
+    const { devices } = await import('@/db/schema')
+    const { eq } = await import('drizzle-orm')
+    const [dev] = await dbInst.select({ userId: devices.userId }).from(devices).where(eq(devices.id, deviceId)).limit(1)
+    if (dev) userId = dev.userId
+  }
+  const presence = await getUserPresence(userId)
+  return c.json(presence)
+})
+
+pod.post('/status', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const body = (await c.req.json().catch(() => ({}))) as {
+    state?: string; label?: string; color?: string; durationMin?: number
+  }
+  const validStates: StatusState[] = ['available', 'busy', 'dnd', 'on_call', 'in_meeting', 'focusing', 'brb', 'away', 'custom']
+  if (!body.state || !validStates.includes(body.state as StatusState)) {
+    return c.json({ error: 'invalid state' }, 400)
+  }
+  const status = await setUserStatus(user.id, {
+    state: body.state as StatusState,
+    label: body.label,
+    color: body.color,
+    durationMin: body.durationMin,
+    source: 'manual',
+  })
+  // Fire status_set chime on all connected hardware Pods for this user.
+  const { podsForUser } = await import('@/lib/pod/registry')
+  for (const pod of podsForUser(user.id)) { try { pod.playSound('status_set') } catch { /* offline */ } }
+  return c.json({ ok: true, status })
+})
+
+pod.delete('/status', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  await clearUserStatus(user.id)
+  const { podsForUser } = await import('@/lib/pod/registry')
+  for (const pod of podsForUser(user.id)) { try { pod.playSound('status_clear') } catch { /* offline */ } }
+  return c.json({ ok: true })
+})
+
+pod.post('/sleep', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const body = (await c.req.json().catch(() => ({}))) as {
+    active?: boolean; dimBrightness?: number; ambientSound?: string; ambientVolume?: number
+  }
+  const active = body.active !== false  // default true
+  const sleep = await setUserSleep(user.id, {
+    active,
+    dimBrightness: body.dimBrightness,
+    ambientSound: (body.ambientSound as 'rain' | 'white_noise' | 'ocean' | 'fan' | null) ?? null,
+    ambientVolume: body.ambientVolume,
+    source: 'manual',
+  })
+  const { podsForUser } = await import('@/lib/pod/registry')
+  const chime = active ? 'sleep_enter' : 'wake_chime'
+  for (const pod of podsForUser(user.id)) { try { pod.playSound(chime) } catch { /* offline */ } }
+  return c.json({ ok: true, sleep })
+})
+
+// ── User alert (ephemeral overlay on screen-Pod displays) ────────────────────────
+// POST /api/pod/alert  { emoji, message, color?, ttlSec? }
+// DELETE /api/pod/alert
+pod.post('/alert', async (c) => {
+  const user = c.get('user')
+  if (!user?.id) return c.json({ error: 'not authenticated' }, 401)
+  const body = (await c.req.json().catch(() => ({}))) as {
+    emoji?: string; message?: string; color?: string; ttlSec?: number
+  }
+  if (!body.message) return c.json({ error: 'message required' }, 400)
+  const alert = setUserAlert(user.id, {
+    emoji: body.emoji ?? '🔔',
+    message: body.message,
+    color: body.color ?? '#1d4ed8',
+    source: 'api',
+    ttlSec: body.ttlSec,
+  })
+  return c.json({ ok: true, alert })
+})
+
+pod.delete('/alert', async (c) => {
+  const user = c.get('user')
+  if (!user?.id) return c.json({ error: 'not authenticated' }, 401)
+  clearUserAlert(user.id)
+  return c.json({ ok: true })
+})
+
+// ── Per-device pod view (display / activity / status / sleeping) ─────────────────
+// POST /api/pod/devices/:id/pod-view  { view: 'activity' | 'status' | 'sleeping' | 'display' }
+pod.post('/devices/:id/pod-view', requireAdmin, async (c) => {
+  const id = c.req.param('id')
+  const body = (await c.req.json().catch(() => ({}))) as { view?: string }
+  if (!body.view || !isValidPodView(body.view)) {
+    return c.json({ error: 'invalid view; must be display | activity | status | sleeping' }, 400)
+  }
+  await setPodView(id, body.view as DeviceDisplayMode)
+  return c.json({ ok: true, view: body.view })
+})
+
 // ── Admin: device CRUD ───────────────────────────────────────────────────────
 pod.get('/devices', requireAdmin, async (c) => {
   const rows = await listDevices()
@@ -339,6 +455,23 @@ pod.get('/devices', requireAdmin, async (c) => {
     paired: _t != null,
     online: online.has(rest.id),
     activity: activity.get(rest.id) ?? 'idle',
+    podView: getPodView(rest.id),
+  })))
+})
+
+// The current user's OWN devices (Settings → Devices — screen-deck self-service). Same
+// safe shape as the admin list (no tokenHash), scoped to devices.userId === user.id.
+pod.get('/my/devices', requireAuth, async (c) => {
+  const user = c.get('user')
+  const rows = await listDevices()
+  const online = connectedDeviceIds()
+  const activity = connectedActivity()
+  return c.json(rows.filter((d) => d.userId === user.id).map(({ tokenHash: _t, ...rest }) => ({
+    ...rest,
+    paired: _t != null,
+    online: online.has(rest.id),
+    activity: activity.get(rest.id) ?? 'idle',
+    podView: getPodView(rest.id),
   })))
 })
 

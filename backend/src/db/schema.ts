@@ -138,6 +138,21 @@ export const devices = sqliteTable('devices', {
   controllerLayoutTemplateId: text('controller_layout_template_id'), // → controller_layout_templates.id; null = builtin:blank
   controllerLayoutOverrides: text('controller_layout_overrides'),     // JSON: per-device button overrides
   orientation: integer('orientation').notNull().default(0),           // display rotation: 0 | 90 | 180 | 270
+  displayMode: text('display_mode'),                                   // explicit mode: 'display' | 'activity' | 'status' | 'sleeping' | null (= 'display')
+  // ── Unified screen deck (see device_screens below) ──
+  // Two independent admin-only locks gating the OWNER's Settings → Devices editor. The
+  // deck itself (device_screens rows) is shared — Admin and Settings mutate the SAME rows;
+  // these flags only restrict what the owner (not the admin) may do to them.
+  lockScreenSelection: integer('lock_screen_selection', { mode: 'boolean' }).notNull().default(false), // owner can't add/remove/reorder
+  lockScreenConfig: integer('lock_screen_config', { mode: 'boolean' }).notNull().default(false),        // owner can't edit a screen's params
+  // Audio/alarm bundle — device-GLOBAL (not per-screen), carved off the old layout template
+  // so it survives the device switching which screen is primary. Null → built-in defaults
+  // (see deviceStudio BUILTIN_TEMPLATES / FALLBACK_ALARM_TONE).
+  soundPackId: text('sound_pack_id'),
+  soundVolume: real('sound_volume'),
+  alarmVolume: real('alarm_volume'),
+  soundOverrides: text('sound_overrides').notNull().default('{}'),
+  alarmToneId: text('alarm_tone_id'),
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
@@ -217,6 +232,48 @@ export const controllerLayoutTemplates = sqliteTable('controller_layout_template
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ── Unified screen deck ────────────────────────────────────────────────────────
+// Collapses the display-layout / controller-layout / LVGL-screen-mode axes into ONE
+// concept: a "screen" is a kind (clock-weather, analog-clock, controller, status, ...)
+// from the `screens` catalog; a device has an ORDERED DECK of screen INSTANCES
+// (`device_screens`) that it swipes between. Admin (Admin → Devices) and the device
+// owner (Settings → Devices) edit the SAME rows — there is no separate override layer;
+// `devices.lockScreenSelection` / `lockScreenConfig` only gate what the OWNER may do.
+//
+// `deviceStudio.ts`/`controllerStudio.ts` keep their existing push/resolve functions
+// (and existing firmware push paths are unchanged for now); this is the new shared
+// data model both the admin editor and the new Settings → Devices editor operate on.
+export const screens = sqliteTable('screens', {
+  id: text('id').primaryKey(),                 // uuid, or synthetic 'builtin:<kind>' / 'builtin:<kind>:<variant>'
+  kind: text('kind').notNull(),                 // clock-weather | digital-clock | analog-clock | big-weather |
+                                                 // nightstand | controller | activity | status | sleeping
+  name: text('name').notNull(),
+  // Native firmware-drawn (device ignores server frames) vs server-JPEG (React /display,
+  // screenshotted). Explicit per catalog row — replaces the old 'builtin:lvgl' id-prefix sniff.
+  renderer: text('renderer', { enum: ['lvgl', 'jpeg'] }).notNull().default('jpeg'),
+  params: text('params').notNull().default('{}'), // per-kind descriptor union, shape depends on `kind`
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// The shared, ordered per-device deck. One row = one screen instance in the swipe order.
+// Both Admin and Settings → Devices INSERT/UPDATE/DELETE these same rows (no `source`
+// column — one source of truth). `id` is stable across reorders.
+export const deviceScreens = sqliteTable('device_screens', {
+  id: text('id').primaryKey(),
+  deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull().default(0),
+  screenId: text('screen_id'),                  // → screens.id; null = pure built-in kind, no catalog row
+  kind: text('kind').notNull(),                 // denormalized so resolve can branch without a catalog join
+  params: text('params').notNull().default('{}'), // per-instance overrides layered on screens.params
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  deviceIdx: index('device_screens_device_idx').on(t.deviceId, t.position),
+}))
 
 // Created on first interaction between a user and a character
 export const userCharacters = sqliteTable('user_characters', {

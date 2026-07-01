@@ -3,6 +3,7 @@ import { eq, and, isNull, or, desc, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { notifications, userPreferences } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
+import { notifyPod } from '@/lib/pod/notifyPod'
 import type { AppEnv } from '@/types'
 
 const notificationsRoute = new Hono<AppEnv>()
@@ -118,13 +119,15 @@ notificationsRoute.post('/', requireAdmin, async (c) => {
   }
   const id = crypto.randomUUID()
   const now = new Date()
+  const payload = body.payload ?? {}
   await db.insert(notifications).values({
     id,
     userId: body.userId ?? null,
     type: body.type,
-    payload: JSON.stringify(body.payload ?? {}),
+    payload: JSON.stringify(payload),
     createdAt: now,
   })
+  notifyPod(body.userId, body.type, payload)
   return c.json({ ok: true, id })
 })
 

@@ -17,6 +17,11 @@ import {
 } from '@/lib/pod/registry'
 import { ensureBuiltins, resolveAlarmToneUrl } from '@/lib/pod/deviceStudio'
 import { startDisplayDataRefresher } from '@/lib/pod/displayData'
+import { seedPodViews } from '@/lib/pod/displayController'
+import { ensureBuiltinScreens, seedDeviceDecks } from '@/lib/pod/screenDeck'
+import { startPlexNowWatchingPoller } from '@/lib/plex/nowWatching'
+import { timedStatusExpiry, clearUserStatus, setUserAlert } from '@/lib/pod/presence'
+import { startHAAlerts } from '@/lib/pod/haAlerts'
 import { logger } from '@/lib/logger'
 
 const TICK_MS = 5_000
@@ -39,8 +44,17 @@ export function startPodScheduler(): void {
   }
   // Seed + render the built-in chimes/packs/templates so devices have sounds + a layout.
   void ensureBuiltins()
+  // Seed the unified screen-deck catalog, then backfill any device with an empty deck
+  // from its legacy layout/controller assignment (idempotent — skips devices already seeded).
+  void ensureBuiltinScreens().then(() => seedDeviceDecks())
   // Slow refresher that re-pushes weather to connected native-LVGL devices.
   startDisplayDataRefresher()
+  // Warm the per-device display-view cache from the DB (status/activity/sleeping).
+  void seedPodViews()
+  // Poll the Plex server for active sessions → per-user PlexActivity store.
+  void startPlexNowWatchingPoller()
+  // Subscribe to HA entity state changes → doorbell/motion/lock/smoke alerts on screen Pods.
+  startHAAlerts()
   setInterval(() => { void runSchedulerTick() }, TICK_MS)
   logger.info('[pod] scheduler started (alarms/timers → connected Pods)')
 }
@@ -51,7 +65,7 @@ export async function runSchedulerTick(): Promise<void> {
   if (fired.size > 5_000) fired.clear()
   const now = new Date()
   try {
-    await Promise.all([checkAlarms(now), checkSnoozes(now), checkTimers(now)])
+    await Promise.all([checkAlarms(now), checkSnoozes(now), checkTimers(now), checkStatusExpiry(now)])
   } catch (e) {
     logger.warn(`[pod] scheduler tick error: ${(e as Error).message}`)
   }
@@ -126,11 +140,26 @@ async function checkTimers(now: Date): Promise<void> {
     if (nowMs - r.endsAt > TIMER_GRACE_MS) continue // stale (e.g. server was down) — skip
     const key = `timer:${r.id}`
     if (fired.has(key)) continue
-    const pods = podsForUser(r.userId)
-    if (pods.length === 0) continue
     fired.add(key)
+    const pods = podsForUser(r.userId)
+    // Push Wyoming event to native-LVGL Pods.
     for (const p of pods) p.fire({ kind: 'timer', label: r.label, tone: r.tone, announce: r.announce })
+    // Push an alert overlay for screen-Pod JPEG displays — they don't receive Wyoming events.
+    setUserAlert(r.userId, { emoji: '⏱', message: r.label ? `${r.label} done` : 'Timer done', color: '#3b82f6', source: 'timer', ttlSec: 30 })
     logger.info(`[pod] timer "${r.label}" → ${pods.length} pod(s)`)
+  }
+}
+
+async function checkStatusExpiry(now: Date): Promise<void> {
+  if (timedStatusExpiry.size === 0) return
+  const nowMs = now.getTime()
+  for (const [userId, info] of [...timedStatusExpiry]) {
+    if (nowMs < info.endsAt) continue
+    timedStatusExpiry.delete(userId)
+    await clearUserStatus(userId)
+    const chime = info.state === 'focusing' ? 'pomodoro_break' : 'status_clear'
+    for (const pod of podsForUser(userId)) { try { pod.playSound(chime) } catch { /* offline */ } }
+    logger.info(`[pod] status "${info.state}" expired → cleared for user ${userId}`)
   }
 }
 

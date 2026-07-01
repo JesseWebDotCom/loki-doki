@@ -126,6 +126,9 @@ import { knowledgeTool } from './knowledge'
 import { showtimesTool } from './showtimes'
 import { playMusicTool } from './playMusic'
 import { plexTool } from './plex'
+import { setStatusTool } from './setStatus'
+import { sleepTool } from './sleep'
+import { displayAlertTool } from './displayAlert'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -165,4 +168,7 @@ export const toolRegistry: Tool[] = [
   showtimesTool,
   playMusicTool,
   plexTool,
+  setStatusTool,
+  sleepTool,
+  displayAlertTool,
 ]

@@ -31,7 +31,7 @@ import { db } from '@/db'
 import { devices, sessions } from '@/db/schema'
 import { ensureChromium } from '@/lib/bookmarks/render'
 import { generateSessionToken, hashSessionToken, sessionExpiresAt } from '@/lib/session'
-import { deviceView } from '@/lib/pod/displayController'
+import { deviceView, getPodView } from '@/lib/pod/displayController'
 import { logger } from '@/lib/logger'
 
 // Where the /display SPA is actually served: the backend serves the built frontend
@@ -102,8 +102,9 @@ interface DeviceDisplay {
   page: Page
   token: string
   lastUsed: number
-  view: 'display' | 'controller'
-  orientation: number   // 0 | 90 | 180 | 270
+  view: 'display' | 'controller'  // controller swipe state
+  podView: string                  // pod display view (display/activity/status/sleeping)
+  orientation: number              // 0 | 90 | 180 | 270
 }
 
 // In-memory orientation store — updated by setDeviceOrientation() when admin saves.
@@ -121,10 +122,18 @@ function deviceOrientation(deviceId: string): number {
 // handles all rotation via lv_display_set_rotation(); the server always renders a
 // plain un-rotated JPEG. Portrait modes still use a 720×1280 viewport so the React
 // layout fills the portrait canvas before LVGL rotates the display.
+//
+// View resolution order:
+//   1. controller swipe ('controller') — overrides everything while the user is in the grid
+//   2. user-set pod view ('activity' | 'status' | 'sleeping') — explicit mode
+//   3. ambient ('display') — the default clock/weather page
 function viewUrl(deviceId: string): string {
-  const v = deviceView(deviceId)
+  if (deviceView(deviceId) === 'controller') {
+    return `${ORIGIN}/display?device=1&deviceId=${encodeURIComponent(deviceId)}&view=controller`
+  }
+  const podView = getPodView(deviceId)
   const base = `${ORIGIN}/display?device=1&deviceId=${encodeURIComponent(deviceId)}`
-  return v === 'controller' ? `${base}&view=controller` : base
+  return podView !== 'display' ? `${base}&view=${podView}` : base
 }
 
 const live = new Map<string, DeviceDisplay>()
@@ -167,7 +176,7 @@ async function createDisplay(userId: string, deviceId: string): Promise<DeviceDi
   ])
   const page = await ctx.newPage()
   await page.goto(viewUrl(deviceId), { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
-  return { ctx, page, token, lastUsed: Date.now(), view: deviceView(deviceId), orientation: orient }
+  return { ctx, page, token, lastUsed: Date.now(), view: deviceView(deviceId), podView: getPodView(deviceId), orientation: orient }
 }
 
 async function evict(deviceId: string): Promise<void> {
@@ -246,11 +255,13 @@ async function captureFrameInner(deviceId: string, userId: string): Promise<Buff
   }
   d.lastUsed = Date.now()
   try {
-    // Re-navigate when view or orientation changes (or if the SPA drifted off /display).
+    // Re-navigate when view, pod view, or orientation changes (or SPA drifted off /display).
     const wantView = deviceView(deviceId)
-    if (!d.page.url().includes('/display') || d.view !== wantView || d.orientation !== wantOrientation) {
+    const wantPodView = getPodView(deviceId)
+    if (!d.page.url().includes('/display') || d.view !== wantView || d.podView !== wantPodView || d.orientation !== wantOrientation) {
       await d.page.goto(viewUrl(deviceId), { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
       d.view = wantView
+      d.podView = wantPodView
       d.orientation = wantOrientation
     }
     let jpegBuf = Buffer.from(

@@ -1,6 +1,6 @@
 import {
   Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Headphones, Laugh, ListVideo, Music,
-  Newspaper, PlaySquare, Trophy, Tv, type LucideIcon,
+  Newspaper, PlaySquare, Radio, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -122,6 +122,13 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     description: "Latest connection speed to your server",
     icon: Gauge, color: "#06b6d4",
     gradient: "linear-gradient(135deg,#0c2a52,#0891b2)",
+    allowWide: false,
+  },
+  {
+    id: "status", title: "My Status",
+    description: "Set your availability for screen Pods (BUSY-bar style)",
+    icon: Radio, color: "#ef4444",
+    gradient: "linear-gradient(135deg,#450a0a,#dc2626)",
     allowWide: false,
   },
 ];
