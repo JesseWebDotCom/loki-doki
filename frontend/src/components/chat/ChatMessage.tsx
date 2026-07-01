@@ -1,4 +1,5 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useState } from 'react'
+import { Copy, Check, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { BlockRenderer } from './blocks/BlockRenderer'
@@ -21,9 +22,12 @@ interface ChatMessageProps {
   message: Message
   isLast?: boolean
   isGenerating?: boolean
+  /** Stable across renders (see MessageList) — takes the message id, not bound per-row,
+   *  so passing it doesn't defeat this component's memoization. */
+  onRegenerate?: (messageId: string) => void
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenerating }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenerating, onRegenerate }: ChatMessageProps) {
   const isUser = message.role === 'user'
 
   // Strip <action> tags before display (they drive avatar animation instead).
@@ -46,7 +50,7 @@ export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenera
   const isActive = isLast && isGenerating
 
   return (
-    <div className={cn('flex flex-col gap-3 px-4 text-sm text-foreground/90', isActive && 'min-h-[1.5rem]')}>
+    <div className={cn('group/msg flex flex-col gap-3 px-4 text-sm text-foreground/90', isActive && 'min-h-[1.5rem]')}>
       {/* Tool result blocks — appear before the prose commentary */}
       {message.blocks?.map((block, i) => (
         <BlockRenderer key={`${block.kind}-${i}`} block={block} />
@@ -67,9 +71,37 @@ export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenera
           ? <RoutingStatus label={message.routingLabel} />
           : <TypingDots />
       )}
+
+      {!isActive && cleanContent.length > 0 && (
+        <MessageActions content={message.content} onRegenerate={onRegenerate && !isGenerating ? () => onRegenerate(message.id) : undefined} />
+      )}
     </div>
   )
 })
+
+function MessageActions({ content, onRegenerate }: { content: string; onRegenerate?: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div className="-mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
+      <button type="button" onClick={copy} aria-label="Copy message" title="Copy"
+        className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      </button>
+      {onRegenerate && (
+        <button type="button" onClick={onRegenerate} aria-label="Regenerate response" title="Regenerate"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+          <RotateCcw className="size-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
 
 function RoutingStatus({ label }: { label: string }) {
   return (

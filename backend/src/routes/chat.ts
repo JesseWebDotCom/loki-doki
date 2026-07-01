@@ -180,37 +180,15 @@ chat.post('/stream', requireAuth, async (c) => {
     return c.json({ error: 'message too long (max 16000 characters)' }, 400)
   }
 
-  // Run getPrefs, character load, friendship lookup, locale settings, user protections,
-  // and content ceilings (admin + user) in parallel
-  const [prefs, charRow, existingRelation, locale, protections, interactionStyle, userCeiling] = await Promise.all([
-    loadUserPrefs(user.id),
-    characterId
-      ? db.select().from(characters).where(eq(characters.id, characterId)).limit(1).then(r => r[0] ?? null)
-      : Promise.resolve(null),
+  const [ctx, existingRelation] = await Promise.all([
+    resolveChatContext(user.id, characterId ?? null),
     characterId
       ? db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
           .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, characterId)))
           .limit(1).then(r => r[0] ?? null)
       : Promise.resolve(null),
-    getLocaleSettings(),
-    getProtections(user.id),
-    getInteractionStyle(user.id),
-    getUserCeiling(user.id),
   ])
-
-  // ── Resolve the active content dials ──────────────────────────────────────────
-  // The user's ceiling = their assigned content profile (optionally self-lowered).
-  // A character runs at its OWN authored config, but is CLAMPED to the user's ceiling
-  // per category — it can never exceed what the account permits (rather than being
-  // blocked outright).
-  const effCeiling = userCeiling
-  const charContent = charRow ? parseCharacterContent(charRow.contentDials) : null
-  const activeDials: ContentDials = charContent ? clampDials(charContent.dials, effCeiling) : effCeiling
-  // Candor is delivery: from the character for a character chat, else the user's style.
-  const activeInteractionStyle = charContent
-    ? { ...interactionStyle, candor: charContent.candor }
-    : interactionStyle
-  const maskProfanityActive = activeDials.profanity === 'off'
+  const { prefs, charRow, characterSystemPrompt, model, options, activeDials, interactionStyle: activeInteractionStyle, maskProfanityActive, locale, protections } = ctx
 
   if (characterId && charRow) {
     const now = new Date()
@@ -224,31 +202,6 @@ chat.post('/stream', requireAuth, async (c) => {
       writeFirstMetMemory(user.id, characterId, charRow.name, userDisplayName, now).catch(() => {})
     }
   }
-
-  let model = (prefs['chat_model'] as string | undefined) ?? await getModel()
-  // If the user has uncensored LLM blocked, fall back to the default model when
-  // their selected model is tagged uncensored in the catalog.
-  if (protections.blockUncensoredLlm && model) {
-    const catalogEntry = CATALOG.find(m => m.id === model)
-    if (catalogEntry && (catalogEntry.role === 'uncensored_llm' || catalogEntry.tags?.includes('uncensored'))) {
-      model = await getModel()
-    }
-  }
-  const options: Record<string, unknown> = {
-    temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
-    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 8192,
-    // NOTE: num_kv_cache_type and flash_attn are load-time model parameters, not
-    // per-inference parameters. Setting them here would let Ollama trigger a full
-    // model reload on any options mismatch. They belong only in warmupModel().
-  }
-  // num_predict is a ceiling, not a target — the model stops at natural completion or
-  // the cap, whichever comes first. A high default does not slow down short answers.
-  options['num_predict'] = (prefs['max_tokens'] as number | undefined) ?? 4096
-  if (prefs['seed']) options['seed'] = prefs['seed']
-
-  const characterSystemPrompt = charRow
-    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle: charRow.replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig })
-    : null
 
   // Resolve or create conversation
   let convId = incomingConvId ?? null
@@ -310,13 +263,7 @@ chat.post('/stream', requireAuth, async (c) => {
     .limit(40)
   dbMessages.reverse()
 
-  // Drop oldest messages until estimated token count fits the budget.
-  // Keep at least 4 messages (2 turns) regardless.
-  while (dbMessages.length > 4) {
-    const tokens = dbMessages.reduce((n, m) => n + Math.ceil(m.content.length / 4), 0)
-    if (tokens <= TOKEN_HISTORY_BUDGET) break
-    dbMessages.shift()
-  }
+  trimHistory(dbMessages, TOKEN_HISTORY_BUDGET)
 
   // Generate server-side assistantMessageId so the frontend can correlate across reconnects
   const assistantMessageId = crypto.randomUUID()
@@ -368,6 +315,96 @@ chat.post('/stream', requireAuth, async (c) => {
     await stream.writeSSE({
       event: 'gen',
       data: JSON.stringify({ genId: job.id, conversationId: finalConvId, assistantMessageId }),
+    })
+    await genQueue.subscribeAndTail(stream, job, 0)
+  })
+})
+
+// ── Regenerate endpoint ─────────────────────────────────────────────────────
+// Re-runs the turn that produced `assistantMessageId`: streams a fresh reply for the
+// SAME user turn rather than resubmitting it as a new one (which would duplicate the
+// question in history). The old reply is only removed once the new one completes —
+// see makeChatRun's replaceMessageId handling.
+
+chat.post('/regenerate', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { conversationId, assistantMessageId } = (await c.req.json().catch(() => ({}))) as {
+    conversationId?: string
+    assistantMessageId?: string
+  }
+  if (!conversationId || !assistantMessageId) {
+    return c.json({ error: 'conversationId and assistantMessageId are required' }, 400)
+  }
+
+  const [conv] = await db
+    .select({ id: conversations.id, title: conversations.title, characterId: conversations.characterId })
+    .from(conversations)
+    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)))
+    .limit(1)
+  if (!conv) return c.json({ error: 'conversation not found' }, 404)
+
+  // Full turn order to find the user message this reply answered.
+  const all = await db
+    .select({ id: messages.id, role: messages.role, content: messages.content })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(messages.createdAt)
+  const targetIdx = all.findIndex((m) => m.id === assistantMessageId && m.role === 'assistant')
+  const userMsg = targetIdx > 0 ? all[targetIdx - 1] : undefined
+  if (targetIdx < 0 || !userMsg || userMsg.role !== 'user') {
+    return c.json({ error: 'could not find the turn to regenerate' }, 404)
+  }
+
+  const characterId = conv.characterId
+  const { prefs, characterSystemPrompt, model, options, activeDials, interactionStyle, maskProfanityActive, locale, protections } =
+    await resolveChatContext(user.id, characterId)
+
+  const dbMessages = all.slice(0, targetIdx - 1).map((m) => ({ role: m.role, content: m.content }))
+  trimHistory(dbMessages, 800)
+
+  const newAssistantMessageId = crypto.randomUUID()
+  const run = makeChatRun({
+    userId: user.id,
+    userRole: user.role,
+    userDisplayName: user.nickname?.trim() || user.firstName?.trim() || null,
+    model,
+    options,
+    message: userMsg.content,
+    characterId,
+    characterSystemPrompt,
+    uiContext: null,
+    clientLat: null,
+    clientLng: null,
+    convId: conversationId,
+    convTitle: conv.title ?? '',
+    dbMessages,
+    prefs,
+    assistantMessageId: newAssistantMessageId,
+    cookieHeader: c.req.header('cookie') ?? '',
+    locale,
+    protections,
+    interactionStyle,
+    activeDials,
+    maskProfanityActive,
+    insertUserMessage: false,
+    replaceMessageId: assistantMessageId,
+  })
+
+  let job: genQueue.Job
+  try {
+    job = genQueue.enqueue({ type: 'chat', userId: user.id, meta: { conversationId, assistantMessageId: newAssistantMessageId }, run })
+  } catch (err) {
+    if (err instanceof genQueue.QueueLimitError) {
+      return c.json({ error: 'You have too many requests in progress. Please wait for them to finish.' }, 429)
+    }
+    throw err
+  }
+
+  c.header('X-Accel-Buffering', 'no')
+  return streamSSE(c, async (stream) => {
+    await stream.writeSSE({
+      event: 'gen',
+      data: JSON.stringify({ genId: job.id, conversationId, assistantMessageId: newAssistantMessageId, replacesMessageId: assistantMessageId }),
     })
     await genQueue.subscribeAndTail(stream, job, 0)
   })
@@ -430,19 +467,26 @@ interface ChatRunParams {
   interactionStyle: import('@/lib/protections').InteractionStyle
   activeDials: ContentDials
   maskProfanityActive: boolean
+  /** false for /regenerate — the user turn already exists in the DB, don't re-insert it. */
+  insertUserMessage?: boolean
+  /** /regenerate only — the old assistant reply to remove once the new one lands. Left
+   *  alone on failure/cancellation, so a failed regenerate doesn't lose the prior answer. */
+  replaceMessageId?: string
 }
 
 function makeChatRun(p: ChatRunParams) {
   return async (ctx: JobRunContext): Promise<void> => {
     try {
-      // Fire-and-forget: user message doesn't need to be saved before streaming starts
-      db.insert(messages).values({
-        id: crypto.randomUUID(),
-        conversationId: p.convId,
-        role: 'user',
-        content: p.message,
-        createdAt: new Date(),
-      }).catch(() => {})
+      if (p.insertUserMessage !== false) {
+        // Fire-and-forget: user message doesn't need to be saved before streaming starts
+        db.insert(messages).values({
+          id: crypto.randomUUID(),
+          conversationId: p.convId,
+          role: 'user',
+          content: p.message,
+          createdAt: new Date(),
+        }).catch(() => {})
+      }
 
       const history: OllamaChatMessage[] = p.dbMessages.map((m) => ({
         role: m.role as 'user' | 'assistant' | 'system',
@@ -486,6 +530,8 @@ function makeChatRun(p: ChatRunParams) {
       // `done`. Preserve that.
       if (!result.completed) return
 
+      if (p.replaceMessageId) await db.delete(messages).where(eq(messages.id, p.replaceMessageId))
+
       const now = new Date()
       await db.insert(messages).values({
         id: p.assistantMessageId,
@@ -512,6 +558,81 @@ function makeChatRun(p: ChatRunParams) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Drop oldest messages (in place) until estimated token count fits the budget.
+ *  Keeps at least 4 messages (2 turns) regardless. Shared by /stream and /regenerate. */
+function trimHistory(dbMessages: Array<{ content: string }>, budget: number): void {
+  while (dbMessages.length > 4) {
+    const tokens = dbMessages.reduce((n, m) => n + Math.ceil(m.content.length / 4), 0)
+    if (tokens <= budget) break
+    dbMessages.shift()
+  }
+}
+
+/** Shared per-request setup for /stream and /regenerate: preferences, character/content
+ *  dials, model selection, and protections. Excludes turn-specific side effects (the
+ *  first-meeting relation write) since /regenerate always targets an existing relation. */
+async function resolveChatContext(userId: string, characterId: string | null): Promise<{
+  prefs: Record<string, unknown>
+  charRow: typeof characters.$inferSelect | null
+  characterSystemPrompt: string | null
+  model: string
+  options: Record<string, unknown>
+  activeDials: ContentDials
+  interactionStyle: import('@/lib/protections').InteractionStyle
+  maskProfanityActive: boolean
+  locale: import('@/routes/adminLocale').LocaleSettings
+  protections: import('@/lib/protections').UserProtections
+}> {
+  const [prefs, charRow, locale, protections, interactionStyle, userCeiling] = await Promise.all([
+    loadUserPrefs(userId),
+    characterId
+      ? db.select().from(characters).where(eq(characters.id, characterId)).limit(1).then((r) => r[0] ?? null)
+      : Promise.resolve(null),
+    getLocaleSettings(),
+    getProtections(userId),
+    getInteractionStyle(userId),
+    getUserCeiling(userId),
+  ])
+
+  // ── Resolve the active content dials ──────────────────────────────────────────
+  // The user's ceiling = their assigned content profile (optionally self-lowered).
+  // A character runs at its OWN authored config, but is CLAMPED to the user's ceiling
+  // per category — it can never exceed what the account permits (rather than being
+  // blocked outright).
+  const charContent = charRow ? parseCharacterContent(charRow.contentDials) : null
+  const activeDials: ContentDials = charContent ? clampDials(charContent.dials, userCeiling) : userCeiling
+  // Candor is delivery: from the character for a character chat, else the user's style.
+  const activeInteractionStyle = charContent ? { ...interactionStyle, candor: charContent.candor } : interactionStyle
+  const maskProfanityActive = activeDials.profanity === 'off'
+
+  let model = (prefs['chat_model'] as string | undefined) ?? await getModel()
+  // If the user has uncensored LLM blocked, fall back to the default model when
+  // their selected model is tagged uncensored in the catalog.
+  if (protections.blockUncensoredLlm && model) {
+    const catalogEntry = CATALOG.find((m) => m.id === model)
+    if (catalogEntry && (catalogEntry.role === 'uncensored_llm' || catalogEntry.tags?.includes('uncensored'))) {
+      model = await getModel()
+    }
+  }
+  const options: Record<string, unknown> = {
+    temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
+    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 8192,
+    // NOTE: num_kv_cache_type and flash_attn are load-time model parameters, not
+    // per-inference parameters. Setting them here would let Ollama trigger a full
+    // model reload on any options mismatch. They belong only in warmupModel().
+  }
+  // num_predict is a ceiling, not a target — the model stops at natural completion or
+  // the cap, whichever comes first. A high default does not slow down short answers.
+  options['num_predict'] = (prefs['max_tokens'] as number | undefined) ?? 4096
+  if (prefs['seed']) options['seed'] = prefs['seed']
+
+  const characterSystemPrompt = charRow
+    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle: charRow.replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig })
+    : null
+
+  return { prefs, charRow, characterSystemPrompt, model, options, activeDials, interactionStyle: activeInteractionStyle, maskProfanityActive, locale, protections }
+}
 
 /**
  * Ask the LLM to produce a short title for a brand-new conversation.

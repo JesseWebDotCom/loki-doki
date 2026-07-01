@@ -53,6 +53,7 @@ interface ChatContextValue {
   input: string
   setInput: (v: string) => void
   submit: (characterId?: string, textOverride?: string) => void
+  regenerateMessage: (assistantMessageId: string) => void
   stop: () => void
 
   /** Documents attached to the next message (extracted text, sent + persisted on submit). */
@@ -596,6 +597,99 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     )
   }, [input, isGenerating, conversationId, getContextBlock, attachedDocs])
 
+  // Re-run the turn that produced `assistantMessageId` in place — same streaming/token
+  // buffering pattern as submit() (see its comments), but no new user bubble and no
+  // conversation-preview/title update. The server replaces the old reply only once the
+  // new one completes, so a failed regenerate leaves the prior answer intact on reload.
+  const regenerateMessage = useCallback((assistantMessageId: string) => {
+    if (isGenerating || !conversationId) return
+    setMessages((prev) => prev.map((m) =>
+      m.id === assistantMessageId ? { id: m.id, role: 'assistant', content: '' } : m))
+    setIsGenerating(true)
+    setQueuePosition(null)
+
+    const controller = new AbortController()
+    abortRef.current = controller
+    const currentConvId = conversationId
+
+    streamRegenerate(
+      { conversationId: currentConvId, assistantMessageId },
+      controller.signal,
+      {
+        onGen: ({ genId, assistantMessageId: newId }) => {
+          setMessages((prev) => prev.map((m) => m.id === assistantMessageId ? { ...m, id: newId } : m))
+          pendingGenRef.current = { genId, convId: currentConvId, assistantMsgId: newId, lastSeq: 0 }
+          savePendingGen(currentConvId, { genId, assistantMessageId: newId, lastSeq: 0 })
+        },
+        onQueue: (position) => setQueuePosition(position > 0 ? position : null),
+        onSeq: (seq) => {
+          if (pendingGenRef.current) {
+            pendingGenRef.current.lastSeq = seq
+            const pg = pendingGenRef.current
+            savePendingGen(pg.convId, { genId: pg.genId, assistantMessageId: pg.assistantMsgId, lastSeq: seq })
+          }
+        },
+        onRouting: (toolId) => {
+          const label = routingLabelFor(toolId)
+          if (!label) return
+          const msgId = pendingGenRef.current?.assistantMsgId ?? assistantMessageId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, routingLabel: label } : m))
+        },
+        onToken: (token) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? assistantMessageId
+          if (tokenBufRef.current?.msgId === msgId) {
+            tokenBufRef.current.text += token
+          } else {
+            tokenBufRef.current = { text: token, msgId }
+          }
+          if (tokenRafRef.current === null) {
+            tokenRafRef.current = requestAnimationFrame(() => {
+              tokenRafRef.current = null
+              const buf = tokenBufRef.current
+              if (!buf) return
+              tokenBufRef.current = null
+              setMessages((prev) => prev.map((m) => m.id === buf.msgId ? { ...m, content: m.content + buf.text } : m))
+            })
+          }
+        },
+        onBlock: (block) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? assistantMessageId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, blocks: [...(m.blocks ?? []), block] } : m))
+        },
+        onSources: (sources) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? assistantMessageId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, sources } : m))
+        },
+        onDirective: (directive) => applyDirectiveRef.current(directive),
+        onDone: () => {
+          if (tokenRafRef.current !== null) {
+            cancelAnimationFrame(tokenRafRef.current)
+            tokenRafRef.current = null
+          }
+          const doneBuf = tokenBufRef.current
+          if (doneBuf) {
+            tokenBufRef.current = null
+            setMessages((prev) => prev.map((m) => m.id === doneBuf.msgId ? { ...m, content: m.content + doneBuf.text } : m))
+          }
+          setIsGenerating(false)
+          setQueuePosition(null)
+          abortRef.current = null
+          if (pendingGenRef.current) clearPendingGen(pendingGenRef.current.convId)
+          pendingGenRef.current = null
+        },
+        onError: (err) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? assistantMessageId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, content: m.content || `_(Error: ${err})_` } : m))
+          setIsGenerating(false)
+          setQueuePosition(null)
+          abortRef.current = null
+          if (pendingGenRef.current) clearPendingGen(pendingGenRef.current.convId)
+          pendingGenRef.current = null
+        },
+      },
+    )
+  }, [isGenerating, conversationId])
+
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
@@ -625,7 +719,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   return (
     <ChatContext.Provider value={{
-      messages, isGenerating, queuePosition, input, setInput, submit, stop,
+      messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, stop,
       attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
       queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
       conversationId, conversations,
@@ -741,6 +835,67 @@ async function streamChat(
 ) {
   try {
     const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      credentials: 'include',
+      signal,
+    })
+    if (!res.ok) { onError(`HTTP ${res.status}`); return }
+    const reader = res.body?.getReader()
+    if (!reader) { onError('No response body'); return }
+
+    await consumeSSEStream(reader, (eventName, data, id) => {
+      if (id !== null) {
+        const seq = parseInt(id, 10)
+        if (!isNaN(seq)) onSeq(seq)
+      }
+      if (eventName === 'gen') {
+        try { onGen(JSON.parse(data) as { genId: string; conversationId?: string; assistantMessageId: string }) } catch { /* malformed */ }
+      } else if (eventName === 'queue') {
+        try { const q = JSON.parse(data) as { position: number }; onQueue(q.position) } catch { /* malformed */ }
+      } else if (eventName === 'routing') {
+        try { const r = JSON.parse(data) as { tool: string }; if (r.tool) onRouting(r.tool) } catch { /* malformed */ }
+      } else if (eventName === 'token') {
+        onToken(data)
+      } else if (eventName === 'block') {
+        try { onBlock(JSON.parse(data) as Block) } catch { /* malformed */ }
+      } else if (eventName === 'sources') {
+        try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
+      } else if (eventName === 'directive') {
+        try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
+      } else if (eventName === 'done') {
+        try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
+        return true
+      } else if (eventName === 'error') {
+        onError(data); return true
+      } else if (eventName === 'cancelled') {
+        onDone({}); return true
+      }
+      return false
+    })
+
+    onDone({})
+  } catch (err) {
+    if ((err as Error).name !== 'AbortError') {
+      onError((err as Error).message ?? 'Stream failed')
+    } else {
+      onDone({})
+    }
+  }
+}
+
+/** Re-run the turn behind an existing assistant reply (POST). Same SSE event shape as
+ *  streamChat, so it reuses StreamCallbacks — the `gen` event just carries a fresh
+ *  assistantMessageId (the client swaps the local id to match) instead of a new one
+ *  plus a conversationId. */
+async function streamRegenerate(
+  body: { conversationId: string; assistantMessageId: string },
+  signal: AbortSignal,
+  { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
+) {
+  try {
+    const res = await fetch('/api/chat/regenerate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
