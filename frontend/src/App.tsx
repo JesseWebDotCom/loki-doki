@@ -39,6 +39,7 @@ import { MusicBrowsePage } from '@/pages/music/MusicBrowsePage'
 import { MusicArtistPage } from '@/pages/music/MusicArtistPage'
 import { MusicAlbumPage } from '@/pages/music/MusicAlbumPage'
 import { MusicLibraryPage } from '@/pages/music/MusicLibraryPage'
+import { MusicPlaylistPage } from '@/pages/music/MusicPlaylistPage'
 import { NowPlayingPage } from '@/pages/music/NowPlayingPage'
 import { MusicGeneratePage, MusicRemixPage } from '@/pages/music/MusicCreatePages'
 import { TimePage } from '@/pages/TimePage'
@@ -290,6 +291,7 @@ export default function App() {
                   <Route path="generate" element={<MusicGeneratePage />} />
                   <Route path="remix" element={<MusicRemixPage />} />
                   <Route path="library" element={<MusicLibraryPage />} />
+                  <Route path="playlist/:id" element={<MusicPlaylistPage />} />
                 </Route>
                 <Route path="/video" element={<VideoPage />} />
                 <Route path="/read/:sourceId" element={<ReaderPage />} />

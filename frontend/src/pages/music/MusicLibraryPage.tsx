@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Loader2, Sparkles, Pencil, Check, X } from 'lucide-react'
@@ -19,6 +19,7 @@ import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { StationCard } from '@/components/music/StationCard'
 import { SongDownloadButton } from '@/components/music/SongDownloadButton'
 import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
+import { AddToPlaylistButton } from '@/components/music/AddToPlaylistButton'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import {
   getFavorites, getHistory, listPlaylists, createPlaylist,
@@ -134,7 +135,13 @@ function FavoritesTab() {
             {f.kind === 'song' ? <SongThumb videoId={f.refId} /> : <Heart className="size-4 shrink-0 fill-current text-brand" />}
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{f.title ?? f.refId}</p>{f.artist && <p className="truncate text-xs text-muted-foreground">{f.artist}</p>}</div>
           </button>
-          {f.kind === 'song' && <><OpenInYoutubeButton videoId={f.refId} title={f.title ?? ''} /><SongDownloadButton videoId={f.refId} title={f.title ?? ''} /></>}
+          {f.kind === 'song' && (
+            <>
+              <AddToPlaylistButton song={{ videoId: f.refId, title: f.title ?? '', artist: f.artist ?? undefined }} />
+              <OpenInYoutubeButton videoId={f.refId} title={f.title ?? ''} />
+              <SongDownloadButton videoId={f.refId} title={f.title ?? ''} />
+            </>
+          )}
         </div>
       ))}
     </div>
@@ -142,6 +149,7 @@ function FavoritesTab() {
 }
 
 function PlaylistsTab() {
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['music-playlists'], queryFn: listPlaylists })
   const [creating, setCreating] = useState(false)
@@ -170,7 +178,7 @@ function PlaylistsTab() {
       {!all.length ? <Empty icon={ListMusic} text="Create a playlist to collect your favorite tracks." /> : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {all.map(p => (
-            <Card key={p.id} variant="interactive" className="p-3">
+            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/music/playlist/${p.id}`)}>
               <div className="mb-2 flex aspect-square items-center justify-center rounded-lg bg-gradient-to-br from-brand/30 to-brand/10"><ListMusic className="size-8 text-brand" /></div>
               <p className="truncate text-sm font-semibold">{p.name}</p>
               <p className="text-xs text-muted-foreground">{p.trackCount} track{p.trackCount === 1 ? '' : 's'}{p.ownerName ? ` · by ${p.ownerName}` : ''}</p>
@@ -198,6 +206,7 @@ function HistoryTab() {
             <SongThumb videoId={h.videoId} />
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{h.title}</p>{h.artist && <p className="truncate text-xs text-muted-foreground">{h.artist}</p>}</div>
           </button>
+          <AddToPlaylistButton song={{ videoId: h.videoId, title: h.title, artist: h.artist ?? undefined }} />
           <OpenInYoutubeButton videoId={h.videoId} title={h.title} />
           <SongDownloadButton videoId={h.videoId} title={h.title} />
         </div>
@@ -274,6 +283,7 @@ function OfflineTab() {
                     </div>
                   </div>
                 )}
+                {t.status === 'ready' && <AddToPlaylistButton song={{ videoId: t.videoId, title: t.title }} />}
                 <OpenInYoutubeButton videoId={t.videoId} title={t.title} />
                 <button onClick={() => del(t.videoId)} aria-label="Remove download"
                   className="shrink-0 rounded-full p-2 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100">

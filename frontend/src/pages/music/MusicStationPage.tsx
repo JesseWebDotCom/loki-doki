@@ -13,6 +13,7 @@ import { SongDownloadButton } from '@/components/music/SongDownloadButton'
 import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
 import { SaveOfflineDialog } from '@/components/music/SaveOfflineDialog'
 import { StationEditorDialog } from '@/components/music/StationEditorDialog'
+import { AddToPlaylistButton } from '@/components/music/AddToPlaylistButton'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import {
@@ -210,6 +211,7 @@ export function MusicStationPage() {
                         : failed ? <span className="shrink-0 text-[11px] font-medium text-destructive">failed</span>
                           : <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />}
                     </button>
+                    <AddToPlaylistButton song={{ videoId: t.videoId, title: t.title, artist: t.artist ?? undefined }} />
                     <OpenInYoutubeButton videoId={t.videoId} title={t.title} />
                   </div>
                 )
@@ -237,6 +239,7 @@ export function MusicStationPage() {
                     </div>
                     <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{t.title}</p>{t.artist && <p className="truncate text-xs text-muted-foreground">{t.artist}</p>}</div>
                   </button>
+                  <AddToPlaylistButton song={{ videoId: t.videoId, title: t.title, artist: t.artist ?? undefined }} />
                   <OpenInYoutubeButton videoId={t.videoId} title={t.title} />
                   <SongDownloadButton videoId={t.videoId} title={t.title} />
                 </div>
