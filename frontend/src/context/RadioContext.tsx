@@ -63,6 +63,23 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     }
   }, [state.currentTrack, state.station])
 
+  // Id for the current play session (see PodcastPlaybackContext for the full rationale) —
+  // freshly minted whenever radio goes active→playing for a NEW station/track combo, i.e.
+  // starting a station, a song changing within it, or resuming after a stop. Radio doesn't
+  // have an explicit "play" call site like podcast/YouTube (the engine drives track changes
+  // internally), so this is derived reactively instead of minted at a call site.
+  const sessionIdRef = useRef('')
+  const wasActiveRef = useRef(false)
+  const lastKeyRef = useRef('')
+  useEffect(() => {
+    const key = `${state.station?.id ?? ''}|${state.currentTrack?.videoId ?? ''}`
+    const justActivated = state.active && !wasActiveRef.current
+    const keyChanged = state.active && key !== lastKeyRef.current
+    if (justActivated || keyChanged) sessionIdRef.current = crypto.randomUUID()
+    wasActiveRef.current = state.active
+    lastKeyRef.current = key
+  }, [state.active, state.station?.id, state.currentTrack?.videoId])
+
   // Report now-playing to the server so the controller surface + screen devices reflect the
   // active station, play/pause, and progress. Fires immediately on track/pause/station
   // changes and every ~5 s while playing (the positionSec bucket) to advance the progress.
@@ -73,6 +90,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     void fetch('/api/pod/now-playing', {
       method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        source: 'radio',
+        sessionId: sessionIdRef.current,
         stationId: state.station?.id ?? null,
         videoId: state.currentTrack?.videoId ?? null,
         title: state.currentTrack?.title ?? '',
@@ -84,6 +103,21 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       }),
     }).catch(() => {})
   }, [state.currentTrack, state.paused, state.station, state.active, Math.floor(state.positionSec / 5)])
+
+  // Tell the device to drop/hide its media bar when THIS tab's radio stops — otherwise the
+  // last reported snapshot just sits there until its 5-minute staleness timeout. Only fires on
+  // a true was-active→inactive transition (never on initial mount), so a fresh tab loading
+  // inactive doesn't wipe out a station another tab is legitimately still playing.
+  const wasActive = useRef(false)
+  useEffect(() => {
+    if (state.active) { wasActive.current = true; return }
+    if (!wasActive.current) return
+    wasActive.current = false
+    void fetch('/api/pod/now-playing/clear', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'radio', sessionId: sessionIdRef.current }),
+    }).catch(() => {})
+  }, [state.active])
 
   const e = engineRef.current
   const value = useMemo<RadioCtx>(() => ({

@@ -11,10 +11,16 @@ import { toast } from '@/lib/toast'
 // settings; admin groups override them. Saving a group deploys to its online devices
 // immediately (and an offline device pulls its group's settings when it reconnects).
 
-export interface DeviceSettings { dimEnabled: boolean; dimPercent: number; dimAfterS: number; responseLength: string; showReplyText: boolean; wakeThreshold: number | null }
+export interface DeviceSettings {
+  dimEnabled: boolean; dimPercent: number; dimAfterS: number; responseLength: string; showReplyText: boolean; wakeThreshold: number | null
+  nightDimEnabled: boolean; nightDimPercent: number
+}
 export interface DeviceGroup { id: string; name: string; isDefault: boolean; settings: Partial<DeviceSettings>; createdAt: number }
 
-const DEFAULTS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true, wakeThreshold: null }
+const DEFAULTS: DeviceSettings = {
+  dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true, wakeThreshold: null,
+  nightDimEnabled: false, nightDimPercent: 15,
+}
 
 const RESPONSE_OPTIONS: { value: string; label: string }[] = [
   { value: 'inherit', label: 'Use companion’s setting' },
@@ -132,18 +138,21 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
   const [responseLength, setResponseLength] = useState(eff.responseLength)
   const [showReplyText, setShowReplyText] = useState(eff.showReplyText ?? true)
   const [wakeThreshold, setWakeThreshold] = useState<number | null>(eff.wakeThreshold ?? null)
+  const [nightDimEnabled, setNightDimEnabled] = useState(eff.nightDimEnabled)
+  const [nightDimPercent, setNightDimPercent] = useState(eff.nightDimPercent)
   const [busy, setBusy] = useState(false)
 
   const dirty = name !== group.name || dimEnabled !== eff.dimEnabled || dimPercent !== eff.dimPercent
     || dimAfterS !== eff.dimAfterS || responseLength !== eff.responseLength || showReplyText !== (eff.showReplyText ?? true)
     || wakeThreshold !== (eff.wakeThreshold ?? null)
+    || nightDimEnabled !== eff.nightDimEnabled || nightDimPercent !== eff.nightDimPercent
 
   async function save() {
     setBusy(true)
     try {
       const r = await fetch(`/api/pod/groups/${group.id}`, {
         ...opts, method: 'PUT', headers: J,
-        body: JSON.stringify({ name, settings: { dimEnabled, dimPercent, dimAfterS, responseLength, showReplyText, wakeThreshold } }),
+        body: JSON.stringify({ name, settings: { dimEnabled, dimPercent, dimAfterS, responseLength, showReplyText, wakeThreshold, nightDimEnabled, nightDimPercent } }),
       })
       if (!r.ok) throw new Error()
       const { deploy } = (await r.json()) as { deploy?: { online: number; total: number } }
@@ -250,6 +259,29 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
               <span className="text-xs text-muted-foreground">sec</span>
             </div>
           </label>
+        </div>
+      </div>
+
+      {/* Night dim — a TIME-of-day trigger (local sunset→sunrise), independent of idle dim
+          above. Substitute for "dim when dark": no light sensor / camera can't see (MIPI-CSI). */}
+      <div className="space-y-2.5 rounded-xl bg-muted/40 p-3">
+        <div className="flex items-center gap-2">
+          <Moon className="size-4 text-indigo-500" />
+          <span className="text-sm font-medium">Dim after sunset</span>
+          <Switch className="ml-auto" checked={nightDimEnabled} onCheckedChange={setNightDimEnabled} />
+        </div>
+        <div className={`transition-opacity ${nightDimEnabled ? '' : 'pointer-events-none opacity-40'}`}>
+          <label className="space-y-1">
+            <span className="text-xs text-muted-foreground">Night brightness</span>
+            <div className="flex items-center gap-1">
+              <Input type="number" min={0} max={100} value={nightDimPercent}
+                onChange={(e) => setNightDimPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} className="h-8 w-24" />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+          </label>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Based on each device owner's saved location — devices without a location set are unaffected.
+          </p>
         </div>
       </div>
 

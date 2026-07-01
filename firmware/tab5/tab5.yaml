@@ -864,6 +864,60 @@ lvgl:
               - button: { x: 512,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 2);' ] } }
               - button: { x: 768,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 3);' ] } }
               - button: { x: 1024, y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 4);' ] } }
+        # NATIVE analog clock (deck_index == 2): a plain circular track + 3 hand lines. All
+        # widgets are created ONCE here; only the hand endpoints are recomputed (in the
+        # existing 1s clock interval below), so showing this view costs nothing extra when
+        # it isn't the active deck. Hidden by default; revealed only by the swipe handler.
+        - obj:
+            id: analog_clock
+            x: 0
+            y: 0
+            width: 1280
+            height: 720
+            hidden: true
+            bg_color: 0x0B1020
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            radius: 0
+            scrollbar_mode: "OFF"
+            scrollable: false
+            widgets:
+              - obj:
+                  id: analog_clock_face
+                  align: CENTER
+                  width: 520
+                  height: 520
+                  radius: 260
+                  bg_opa: TRANSP
+                  border_width: 6
+                  border_color: 0xA9C0E8
+                  border_opa: 60%
+                  pad_all: 0
+                  scrollbar_mode: "OFF"
+                  scrollable: false
+                  clickable: false
+              - line:
+                  id: hand_hour
+                  x: 0
+                  y: 0
+                  points:
+                    - [640, 360]
+                    - [640, 360]
+              - line:
+                  id: hand_min
+                  x: 0
+                  y: 0
+                  points:
+                    - [640, 360]
+                    - [640, 360]
+              - line:
+                  id: hand_sec
+                  x: 0
+                  y: 0
+                  points:
+                    - [640, 360]
+                    - [640, 360]
         # MAIN-CONTENT reply panel: when a reply is delivered we clear the content band
         # (over the clock/weather image) and show the text here — the top status row and
         # the bottom controls stay visible the whole time. Driven by the reply_text sensor.
@@ -1416,7 +1470,7 @@ interval:
           // server-rendered surface blitted into ambient_img on top of the (hidden) dash.
           // Fully native now (dashboard AND controller) → no server frames are used. Keep
           // the "Server unreachable" banner hidden and bail.
-          if (id(lvgl_mode)) {
+          if (id(lvgl_mode) && id(content_is_display)) {
             lv_obj_add_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
             return;
           }
@@ -1425,8 +1479,9 @@ interval:
           // Fresh staleness timer each time we ENTER the controller view, so the normal
           // server-render spin-up doesn't immediately trip the "unreachable" banner.
           static bool prev_cv = false;
-          if (id(controller_view) && !prev_cv) last_frame_ms = millis();
-          prev_cv = id(controller_view);
+          bool in_ctrl = (id(deck_index) == 1);
+          if (in_ctrl && !prev_cv) last_frame_ms = millis();
+          prev_cv = in_ctrl;
           if (id(cam)->has_new_frame()) {
             int w = id(cam)->frame_w();
             int h = id(cam)->frame_h();
@@ -1444,7 +1499,7 @@ interval:
             lv_obj_invalidate(id(ambient_img));
             // First controller frame is up → swap away from the native dashboard and arm the
             // touch grid (deferred from the swipe so there's no blank gap during the spin-up).
-            if (id(controller_view)) {
+            if (id(deck_index) == 1) {
               lv_obj_add_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
               lv_obj_clear_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);
             }
@@ -1479,7 +1534,7 @@ interval:
           // Staleness watchdog: the server pushes layout frames continuously, so a gap
           // means it's offline. Once we've seen ≥1 frame, no frame for 6 s → show the
           // offline banner (it hides again the instant frames resume, above).
-          if (id(controller_view) && revealed && last_frame_ms != 0 &&
+          if (id(deck_index) == 1 && revealed && last_frame_ms != 0 &&
               (uint32_t) (millis() - last_frame_ms) > 10000) {
             lv_obj_clear_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
           }
@@ -1537,7 +1592,7 @@ interval:
               // Sink the touched tile immediately; it becomes the ACTIVE (selected) tile and
               // releases the previously-active one. A swipe cancels this (below), so it stays
               // depressed while the media loads and until another tile is tapped.
-              if (id(controller_view) && p.y < 480) {
+              if (id(deck_index) == 1 && p.y < 480) {
                 touch_cell = (p.y / 240) * 16 + (p.x / 256);
                 prev_active = active_cell;
                 if (active_cell >= 0 && active_cell != touch_cell)
@@ -1569,19 +1624,25 @@ interval:
           int dx = lx - sx, dy = ly - sy;
           int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
           if (adx < 120 || adx < ady * 2) return;   // decisive HORIZONTAL swipe only
-          // Swipe LEFT → NATIVE controller grid; swipe RIGHT → back to the native dashboard.
-          // Both are on-device LVGL now (no server-rendered frames), so the mic/sound/player
-          // band on page_clock persists across both.
-          if (dx < 0 && !id(controller_view)) {
-            id(controller_view) = true;
+          // Swipe LEFT → next deck (dashboard → controller → analog clock → dashboard…);
+          // swipe RIGHT → previous deck. All three are on-device LVGL now (no server-rendered
+          // frames), so the mic/sound/player band on page_clock persists across all of them.
+          if (dx < 0) {
+            id(deck_index) = (id(deck_index) + 1) % 3;
+          } else {
+            id(deck_index) = (id(deck_index) + 2) % 3;   // -1 mod 3
+          }
+          lv_obj_add_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ctrl_native), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(analog_clock), LV_OBJ_FLAG_HIDDEN);
+          if (id(deck_index) == 0) {
+            lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
+          } else if (id(deck_index) == 1) {
             lv_obj_clear_flag(id(ctrl_native), LV_OBJ_FLAG_HIDDEN);   // native grid visuals
             lv_obj_clear_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);    // invisible input layer on top
-            lv_obj_add_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);       // hide the dashboard
-          } else if (dx > 0 && id(controller_view)) {
-            id(controller_view) = false;
-            lv_obj_add_flag(id(ctrl_native), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_clear_flag(id(analog_clock), LV_OBJ_FLAG_HIDDEN);
           }
 
   # ── Native LVGL dashboard: reveal it once, then tick the clock from on-board SNTP ──
@@ -1609,8 +1670,8 @@ interval:
           bool tiles = id(satellite)->has_tiles();
           bool loaded = id(satellite)->atlas_loaded();
           if (id(satellite)->atlas_wanted() && !loaded) id(satellite)->request_atlas_refetch();
-          ESP_LOGI("state", "ctrl=%d atlas[tiles=%d loaded=%d] media_bar=%d media_playing=%d",
-                   (int) id(controller_view), (int) tiles, (int) loaded,
+          ESP_LOGI("state", "deck=%d atlas[tiles=%d loaded=%d] media_bar=%d media_playing=%d",
+                   (int) id(deck_index), (int) tiles, (int) loaded,
                    (int) !lv_obj_has_flag(id(media_bar), LV_OBJ_FLAG_HIDDEN),
                    (int) id(media_playing));
   - interval: 1s
@@ -1655,6 +1716,17 @@ interval:
             st[24]=id(img_spr_24)->get_lv_image_dsc(); st[25]=id(img_spr_25)->get_lv_image_dsc();
             st[26]=id(img_spr_26)->get_lv_image_dsc(); st[27]=id(img_spr_27)->get_lv_image_dsc();
             srand(millis());   // vary the random character mix from boot to boot
+            // Analog clock hands — style ONCE (never recreated); the 1s interval below only
+            // moves their endpoints. Hour = thick/short, minute = medium, second = thin/red.
+            lv_obj_set_style_line_width(id(hand_hour)->obj, 10, 0);
+            lv_obj_set_style_line_color(id(hand_hour)->obj, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_line_rounded(id(hand_hour)->obj, true, 0);
+            lv_obj_set_style_line_width(id(hand_min)->obj, 7, 0);
+            lv_obj_set_style_line_color(id(hand_min)->obj, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_line_rounded(id(hand_min)->obj, true, 0);
+            lv_obj_set_style_line_width(id(hand_sec)->obj, 3, 0);
+            lv_obj_set_style_line_color(id(hand_sec)->obj, lv_color_hex(0xDC2626), 0);
+            lv_obj_set_style_line_rounded(id(hand_sec)->obj, true, 0);
           }
           // Reveal the dashboard ONLY once the on-board clock is real (SNTP synced) — until
           // then the loading screen stays up so the user never sees pre-sync tofu boxes or a
@@ -1702,6 +1774,25 @@ interval:
           char date[40];
           snprintf(date, sizeof(date), "%s %d", dow, t.day_of_month);
           lv_label_set_text(id(lv_date), date);
+          // Analog clock hands — only while that deck is actually showing (cheap: 3 endpoint
+          // recomputes, no widget creation; the lines were created once in the LVGL config).
+          if (id(deck_index) == 2) {
+            const float TAU = 6.2831853f;
+            const int cx = 640, cy = 360;
+            float sa = t.second / 60.0f * TAU;
+            float ma = (t.minute + t.second / 60.0f) / 60.0f * TAU;
+            float ha = ((t.hour % 12) + t.minute / 60.0f) / 12.0f * TAU;
+            static lv_point_precise_t hp[2], mp[2], sp[2];
+            hp[0] = {cx, cy};
+            hp[1] = {(lv_value_precise_t) (cx + sinf(ha) * 130), (lv_value_precise_t) (cy - cosf(ha) * 130)};
+            mp[0] = {cx, cy};
+            mp[1] = {(lv_value_precise_t) (cx + sinf(ma) * 190), (lv_value_precise_t) (cy - cosf(ma) * 190)};
+            sp[0] = {cx, cy};
+            sp[1] = {(lv_value_precise_t) (cx + sinf(sa) * 210), (lv_value_precise_t) (cy - cosf(sa) * 210)};
+            lv_line_set_points(id(hand_hour)->obj, hp, 2);
+            lv_line_set_points(id(hand_min)->obj, mp, 2);
+            lv_line_set_points(id(hand_sec)->obj, sp, 2);
+          }
           // Advance the media position locally between (infrequent) server pushes so the
           // seek bar moves smoothly. Skipped while the user is dragging the slider.
           if (id(media_playing) && id(media_dur_s) > 0 &&
@@ -1741,6 +1832,19 @@ text_sensor:
             } else {  // "normal" (or anything unknown) → ambient clock
               lv_screen_load(id(page_clock)->obj);
             }
+  # User-selected content view for the ambient display (mirrors devices.displayMode /
+  # getPodView() on the server: 'display'|'activity'|'status'|'sleeping'). A DIFFERENT
+  # concept from display_mode above (that's the hardware-test screen mode — camera-test/
+  # touch-test); this is which CONTENT the native dashboard shows. Cached into
+  # content_is_display so the ambient blit interval can react without another round-trip.
+  - platform: template
+    id: content_mode
+    on_value:
+      then:
+        - lambda: |-
+            const std::string &m = x;
+            ESP_LOGI("contentmode", "content mode → %s", m.c_str());
+            id(content_is_display) = (m.empty() || m == "display");
   - platform: template
     id: face_state
     on_value:
@@ -1819,8 +1923,11 @@ text_sensor:
             // NOTE: the dashboard + voice-control reveal is owned by the 1s interval, which
             // holds the loading screen until the on-board clock is real (SNTP synced) — so we
             // do NOT reveal here (that fired before the time was valid → tofu boxes at boot).
-            // TEST BUILD: never switch back to the JPEG path — the dashboard is forced on
-            // in the 1s interval and stays native regardless of what the server says.
+            // This DOES toggle both ways: the 1s interval only forces lvgl_mode=true ONCE at
+            // boot (native-by-default before the server has pushed anything) — after that,
+            // render_mode is authoritative. See also content_is_display (below), which lets
+            // the ambient blit interval keep skipping JPEG frames only while BOTH lvgl_mode is
+            // on AND the user's selected content view is "display".
 
   # Live data feed (weather + photo state) for the native dashboard — a JSON string we
   # parse here to fill the weather card, pick the sky gradient, and (re)load the photo.
@@ -1922,11 +2029,12 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
-  # True while the controller (button-grid) view is showing instead of the ambient display.
-  - id: controller_view
-    type: bool
+  # Which page of the 3-way ambient/controller/analog-clock swipe carousel is showing:
+  # 0 = ambient dashboard (clock/weather), 1 = native controller grid, 2 = analog clock.
+  - id: deck_index
+    type: int
     restore_value: no
-    initial_value: 'false'
+    initial_value: '0'
   # True once the current touch has moved enough to be a SWIPE (not a tap) — the controller
   # grid buttons check it so a swipe doesn't also fire a button (accidental video playback).
   - id: g_swiping
@@ -1966,6 +2074,14 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  # Cached from content_mode's on_value (see the text_sensor below) — true when the user's
+  # selected content view is the ambient "display" (clock/weather) rather than
+  # activity/status/sleeping. Lets the ambient blit interval know it's safe to keep skipping
+  # the server JPEG frame while lvgl_mode is on.
+  - id: content_is_display
+    type: bool
+    restore_value: no
+    initial_value: 'true'
 
 # Reply-panel hide logic. hide_reply_now is the single clear path (panel + Dismiss button);
 # the two timers just call it after their delay.
@@ -2009,6 +2125,7 @@ lokidoki_satellite:
   speaker: tab5_speaker
   face_sensor: face_state
   mode_sensor: display_mode   # server-pushed screen mode (Admin → Devices → Testing)
+  content_sensor: content_mode  # user-selected content view (display/activity/status/sleeping)
   reply_sensor: reply_text    # companion's typed reply for text-only mode
   render_sensor: render_mode  # native-LVGL experiment: descriptor renderer ("lvgl"/"jpeg")
   data_sensor: display_data   # native-LVGL experiment: live weather + photo feed (JSON)

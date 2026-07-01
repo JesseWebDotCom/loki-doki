@@ -21,12 +21,19 @@ export function useBrowserSession() {
       void (async () => {
         try {
           const cmd = JSON.parse(e.data as string) as Record<string, unknown>
+          // Whether this command actually produced its effect — gates the ack below. A
+          // command that silently no-ops (e.g. a podcast tile whose fetch found nothing
+          // playable) must NOT ack success, or the device thinks it worked and never shows
+          // its "didn't fire" state — it just looks like nothing happened.
+          let handled = true
           switch (cmd.type) {
             case 'navigate':
               if (typeof cmd.path === 'string') navigate(cmd.path)
+              else handled = false
               break
             case 'open_url':
               if (typeof cmd.url === 'string') window.open(cmd.url, '_blank', 'noopener')
+              else handled = false
               break
             case 'app_action': {
               const payload = (cmd.payload ?? {}) as Record<string, unknown>
@@ -36,6 +43,7 @@ export function useBrowserSession() {
               else if (cmd.action === 'play_station' && typeof payload.stationId === 'string') {
                 const dj = await djStationById(payload.stationId)
                 if (dj) { radio.start(dj); navigate('/music/now-playing') }
+                else { handled = false; console.warn('[controller] play_station: station not found', payload.stationId) }
               }
               else if (cmd.action === 'play_podcast' && typeof payload.showId === 'string') {
                 // A controller podcast tile → play the show's newest READY episode.
@@ -43,7 +51,6 @@ export function useBrowserSession() {
                 const res = await fetch(`/api/podcasts/shows/${showId}/episodes`, { credentials: 'include' })
                   .then(r => r.json()).catch(() => null) as { episodes?: Array<{ id: string; title: string; status?: string; durationSec?: number }> } | null
                 const ep = res?.episodes?.find(e => e.status === 'ready')
-                console.log('[controller] play_podcast', { showId, episodes: res?.episodes?.length, ready: !!ep, ep })
                 if (ep) {
                   podcast.play({
                     episodeId: ep.id, showId, title: ep.title, durationSec: ep.durationSec ?? undefined,
@@ -51,8 +58,12 @@ export function useBrowserSession() {
                     coverUrl: `/api/podcasts/shows/${showId}/cover`,
                   })
                   navigate('/podcasts')
+                } else {
+                  handled = false
+                  console.warn('[controller] play_podcast: no ready episode', { showId, episodes: res?.episodes?.length })
                 }
               }
+              else handled = false
               break
             }
             case 'media_transport': {
@@ -61,9 +72,14 @@ export function useBrowserSession() {
               dispatchTransport(String(cmd.transport ?? ''), typeof cmd.position === 'number' ? cmd.position : undefined)
               break
             }
+            default:
+              handled = false
           }
-          // Confirm we actually handled it (the device's fire-and-verify follow-up).
-          if (typeof cmd.ackId === 'string') {
+          // Confirm we actually handled it (the device's fire-and-verify follow-up). If it
+          // didn't fire, withhold the ack — the server's pending-ack timeout then reports
+          // back to the device as a failure, so it can un-sink the tile / show "didn't work"
+          // instead of a false "success" that leaves nothing visibly happening.
+          if (handled && typeof cmd.ackId === 'string') {
             void fetch('/api/browser-session/ack', {
               method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ackId: cmd.ackId }),

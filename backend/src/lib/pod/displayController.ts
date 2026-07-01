@@ -64,7 +64,9 @@ export function getPodView(deviceId: string): DeviceDisplayMode {
   return viewModeCache.get(deviceId) ?? 'display'
 }
 
-/** Set the pod view in the in-memory cache AND persist to DB. */
+/** Set the pod view in the in-memory cache, persist to DB, and push it live to a native-LVGL
+ *  device's `content_mode` sensor (see wyoming.ts contentMode()) so the ambient blit gate
+ *  knows a JPEG content screen (activity/status/sleeping) is intentional right now. */
 export async function setPodView(deviceId: string, mode: DeviceDisplayMode): Promise<void> {
   viewModeCache.set(deviceId, mode)
   // Lazy import to avoid circular dep — db lives in @/db which imports nothing from lib/.
@@ -72,6 +74,8 @@ export async function setPodView(deviceId: string, mode: DeviceDisplayMode): Pro
   const { devices } = await import('@/db/schema')
   const { eq } = await import('drizzle-orm')
   await db.update(devices).set({ displayMode: mode }).where(eq(devices.id, deviceId))
+  const { setContentModeToDevice } = await import('@/lib/pod/registry')
+  setContentModeToDevice(deviceId, mode)
 }
 
 /** Seed the pod-view cache from the DB at boot (call once from startPodScheduler). */

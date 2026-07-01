@@ -25,6 +25,9 @@ export interface PodFireTarget {
   applyConfig(config: Record<string, unknown>): void
   /** Switch the device's screen mode (normal | camera-test | touch-test). */
   setDisplayMode(mode: string): void
+  /** Tell a native-LVGL device which CONTENT the ambient display should show
+   *  (display | activity | status | sleeping) — orthogonal to setDisplayMode above. */
+  setContentMode(mode: string): void
   /** Push display orientation (0|90|180|270) so LVGL rotates touch + native buttons. */
   applyOrientation(degrees: number): void
   /** Push the slot-based dashboard descriptor (layout + theme + sound map). */
@@ -125,6 +128,20 @@ export function setModeToDevice(deviceId: string, mode: string): boolean {
   for (const t of live) {
     if (t.deviceId === deviceId) {
       try { t.setDisplayMode(mode); reached = true } catch { /* dead socket; ignore */ }
+    }
+  }
+  return reached
+}
+
+/** Push the user-selected content view (display/activity/status/sleeping) to a device's
+ *  live session(s) — orthogonal to setModeToDevice above (that's the hardware-test screen
+ *  mode). Returns true if it reached an online socket (offline devices pull it on reconnect
+ *  via the normal (re)connect push in satelliteSession.ts). */
+export function setContentModeToDevice(deviceId: string, mode: string): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.setContentMode(mode); reached = true } catch { /* dead socket; ignore */ }
     }
   }
   return reached

@@ -9,18 +9,18 @@
 //
 // Mounted at /api/pod alongside routes/pod.ts (Hono merges same-prefix sub-apps).
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { eq, or, isNull } from 'drizzle-orm'
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 import { db } from '@/db'
-import { devices, deviceChimes, deviceSoundPacks, deviceLayoutTemplates, controllerLayoutTemplates, clockAlarms, users } from '@/db/schema'
+import { devices, deviceChimes, deviceSoundPacks, deviceLayoutTemplates, controllerLayoutTemplates, deviceScreens, clockAlarms, users } from '@/db/schema'
 import { layoutToDevice, soundToDevice, assetSyncToDevice, streamDeckToDevice } from '@/lib/pod/registry'
 import { pushDisplayData, pushDisplayDataForUser } from '@/lib/pod/displayData'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
-import { setNowPlaying, getNowPlaying, type NowPlaying } from '@/lib/pod/nowPlaying'
+import { setNowPlaying, getNowPlaying, clearNowPlaying, type NowPlaying, type NowPlayingSource } from '@/lib/pod/nowPlaying'
 import { getServerHost } from '@/lib/pod/firmware'
 import {
   AUDIO_DIR, DEFAULT_TEMPLATE_ID, safeId, validateWidgets, renderChimeToDisk,
@@ -28,6 +28,10 @@ import {
   type WidgetPlacement, type ThemeTokens, type SoundEventMap,
 } from '@/lib/pod/deviceStudio'
 import { renderChimeWav, type ChimeRecipe } from '@/lib/pod/audioSynth'
+import {
+  listDeck, listAvailableScreens, addScreen, removeScreen, reorderScreens, updateScreenParams,
+  setScreenEnabled, setDeckLocks, ScreenDeckLockedError, type ScreenKind,
+} from '@/lib/pod/screenDeck'
 import { logger } from '@/lib/logger'
 
 const studio = new Hono<AppEnv>()
@@ -304,17 +308,25 @@ studio.get('/controller-layout', requireAuth, async (c) => {
   return c.json({ pages: payload.pages, theme })
 })
 
-// Now-playing: the browser's radio player POSTs its state here; the controller surface
-// (and the device, rendered in a separate tab) GETs it to show the active station,
-// play/pause state, and progress.
+const NOW_PLAYING_SOURCES = ['radio', 'youtube', 'podcast'] as const
+
+// Now-playing: the browser's radio/YouTube/podcast player POSTs its state here; the
+// controller surface (and the device, rendered in a separate tab) GETs it to show the
+// active station, play/pause state, and progress.
 studio.post('/now-playing', requireAuth, async (c) => {
   const user = c.get('user')
   const b = (await c.req.json().catch(() => ({}))) as Partial<NowPlaying>
   // Ignore EMPTY reports (no title/video/station) — a background/idle tab firing one of
   // these would otherwise clobber a valid now-playing set by the tab that's actually
-  // playing, which is what made the cover vanish a moment after it appeared.
+  // playing, which is what made the cover vanish a moment after it appeared. Likewise a
+  // report with no recognised source/sessionId can't be safely stored — clearNowPlaying
+  // below relies on both to know which exact session owns the current snapshot.
   if (!b.title && !b.videoId && !b.stationId) return c.json({ ok: true, ignored: true })
+  if (!NOW_PLAYING_SOURCES.includes(b.source as NowPlayingSource)) return c.json({ ok: true, ignored: true })
+  if (typeof b.sessionId !== 'string' || !b.sessionId) return c.json({ ok: true, ignored: true })
   setNowPlaying(user.id, {
+    source: b.source as NowPlayingSource,
+    sessionId: b.sessionId,
     stationId: typeof b.stationId === 'string' ? b.stationId : null,
     videoId: typeof b.videoId === 'string' ? b.videoId : null,
     title: typeof b.title === 'string' ? b.title : '',
@@ -325,6 +337,21 @@ studio.post('/now-playing', requireAuth, async (c) => {
     playing: !!b.playing,
   })
   // Push to the user's native-LVGL devices so their player bar reflects it immediately.
+  void pushDisplayDataForUser(user.id)
+  return c.json({ ok: true })
+})
+
+// A source announcing it fully stopped (✕ closed, or lost audio focus with nothing queued
+// behind it) — lets the device's media bar clear/hide instead of going stale until the 5min
+// snapshot timeout. Guarded server-side by source+session ownership (see clearNowPlaying) so
+// a stop that lands late (after a NEW session — even from the same source — has already
+// taken over) can't wipe out state that's since moved on.
+studio.post('/now-playing/clear', requireAuth, async (c) => {
+  const user = c.get('user')
+  const b = (await c.req.json().catch(() => ({}))) as { source?: string; sessionId?: string }
+  if (!NOW_PLAYING_SOURCES.includes(b.source as NowPlayingSource)) return c.json({ ok: true, ignored: true })
+  if (typeof b.sessionId !== 'string' || !b.sessionId) return c.json({ ok: true, ignored: true })
+  clearNowPlaying(user.id, b.source as NowPlayingSource, b.sessionId)
   void pushDisplayDataForUser(user.id)
   return c.json({ ok: true })
 })
@@ -428,6 +455,136 @@ studio.post('/devices/:id/controller-layout', requireAdmin, async (c) => {
     logger.warn(`[controller-studio] push failed for device ${id}: ${(e as Error).message}`)
   }
   return c.json({ ok: true, online })
+})
+
+// ── Unified screen deck ──────────────────────────────────────────────────────────
+// Shared between Admin → Devices and the new Settings → Devices page: BOTH surfaces call
+// these same endpoints for the SAME device_screens rows (no separate per-user store). The
+// admin route (`/devices/:id/screens` under requireAdmin) is never lock-gated; the owner
+// route (`/my/devices/:id/screens` under requireAuth) is ownership + lock checked server-side
+// (a locked owner cannot bypass the lock by calling the API directly).
+
+/** Re-push whichever legacy slots the deck's screenDeck.syncLegacyFields() just updated —
+ *  reuses the exact same push helpers the old /layout and /controller-layout routes use, so
+ *  a deck edit takes effect live exactly like editing those did before. */
+async function pushDeckToDevice(deviceId: string): Promise<void> {
+  await pushToDevice(deviceId)
+  try {
+    const [dev] = await db.select().from(devices).where(eq(devices.id, deviceId))
+    if (!dev) return
+    const cfg = await resolveControllerDescriptor(deviceId, dev.userId)
+    streamDeckToDevice(deviceId, cfg)
+  } catch (e) {
+    logger.warn(`[screen-deck] controller push failed for device ${deviceId}: ${(e as Error).message}`)
+  }
+}
+
+async function resolveDeckActor(c: Context<AppEnv>, deviceId: string, asAdmin: boolean): Promise<{ ok: true } | { ok: false; status: 403 | 404 }> {
+  if (asAdmin) return { ok: true }
+  const user = c.get('user')
+  const [dev] = await db.select({ userId: devices.userId }).from(devices).where(eq(devices.id, deviceId))
+  if (!dev) return { ok: false, status: 404 }
+  if (dev.userId !== user.id) return { ok: false, status: 403 }
+  return { ok: true }
+}
+
+function screenDeckRoutes(asAdmin: boolean) {
+  const mw = asAdmin ? requireAdmin : requireAuth
+
+  studio.get(asAdmin ? '/devices/:id/screens' : '/my/devices/:id/screens', mw, async (c) => {
+    const deviceId = c.req.param('id')
+    const gate = await resolveDeckActor(c, deviceId, asAdmin)
+    if (!gate.ok) return c.json({ error: 'not found' }, gate.status)
+    return c.json(await listDeck(deviceId))
+  })
+
+  studio.post(asAdmin ? '/devices/:id/screens' : '/my/devices/:id/screens', mw, async (c) => {
+    const deviceId = c.req.param('id')
+    const gate = await resolveDeckActor(c, deviceId, asAdmin)
+    if (!gate.ok) return c.json({ error: 'not found' }, gate.status)
+    const b = (await c.req.json().catch(() => ({}))) as { screenId?: string; kind?: ScreenKind; params?: Record<string, unknown> }
+    if (!b.screenId || !b.kind) return c.json({ error: 'screenId and kind are required' }, 400)
+    try {
+      const id = await addScreen(deviceId, { screenId: b.screenId, kind: b.kind, params: b.params }, { asAdmin })
+      await pushDeckToDevice(deviceId)
+      return c.json({ id })
+    } catch (e) {
+      if (e instanceof ScreenDeckLockedError) return c.json({ error: e.message }, 403)
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  studio.put(asAdmin ? '/devices/:id/screens/reorder' : '/my/devices/:id/screens/reorder', mw, async (c) => {
+    const deviceId = c.req.param('id')
+    const gate = await resolveDeckActor(c, deviceId, asAdmin)
+    if (!gate.ok) return c.json({ error: 'not found' }, gate.status)
+    const b = (await c.req.json().catch(() => ({}))) as { order?: string[] }
+    if (!Array.isArray(b.order)) return c.json({ error: 'order must be an array of screen instance ids' }, 400)
+    try {
+      await reorderScreens(deviceId, b.order, { asAdmin })
+      await pushDeckToDevice(deviceId)
+      return c.json({ ok: true })
+    } catch (e) {
+      if (e instanceof ScreenDeckLockedError) return c.json({ error: e.message }, 403)
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  studio.patch(asAdmin ? '/screens/:instanceId' : '/my/screens/:instanceId', mw, async (c) => {
+    const instanceId = c.req.param('instanceId')
+    const b = (await c.req.json().catch(() => ({}))) as { params?: Record<string, unknown>; enabled?: boolean }
+    try {
+      let ok = true
+      if (b.params !== undefined) ok = await updateScreenParams(instanceId, b.params, { asAdmin })
+      if (ok && b.enabled !== undefined) ok = await setScreenEnabled(instanceId, b.enabled, { asAdmin })
+      if (!ok) return c.json({ error: 'not found' }, 404)
+      const [row] = await db.select({ deviceId: deviceScreens.deviceId }).from(deviceScreens).where(eq(deviceScreens.id, instanceId))
+      // Ownership check for the owner-facing route (admin route skips this).
+      if (!asAdmin && row) {
+        const gate = await resolveDeckActor(c, row.deviceId, false)
+        if (!gate.ok) return c.json({ error: 'not found' }, gate.status)
+      }
+      if (row) await pushDeckToDevice(row.deviceId)
+      return c.json({ ok: true })
+    } catch (e) {
+      if (e instanceof ScreenDeckLockedError) return c.json({ error: e.message }, 403)
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  studio.delete(asAdmin ? '/screens/:instanceId' : '/my/screens/:instanceId', mw, async (c) => {
+    const instanceId = c.req.param('instanceId')
+    const [row] = await db.select({ deviceId: deviceScreens.deviceId }).from(deviceScreens).where(eq(deviceScreens.id, instanceId))
+    if (!asAdmin && row) {
+      const gate = await resolveDeckActor(c, row.deviceId, false)
+      if (!gate.ok) return c.json({ error: 'not found' }, gate.status)
+    }
+    try {
+      const ok = await removeScreen(instanceId, { asAdmin })
+      if (!ok) return c.json({ error: 'not found' }, 404)
+      if (row) await pushDeckToDevice(row.deviceId)
+      return c.json({ ok: true })
+    } catch (e) {
+      if (e instanceof ScreenDeckLockedError) return c.json({ error: e.message }, 403)
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+}
+screenDeckRoutes(true)   // admin: /devices/:id/screens ...        (never lock-gated)
+screenDeckRoutes(false)  // owner: /my/devices/:id/screens ...     (ownership + lock checked)
+
+// Catalog of everything that can be added to a deck (display templates + controller
+// templates + the new singleton screen kinds) — shared by both editors' "add a screen" UI.
+studio.get('/screens/available', requireAuth, async (c) => c.json(await listAvailableScreens()))
+
+// Admin-only: lock the owner out of selecting and/or configuring their own device's screens.
+studio.put('/devices/:id/screen-locks', requireAdmin, async (c) => {
+  const deviceId = c.req.param('id')
+  const [dev] = await db.select({ id: devices.id }).from(devices).where(eq(devices.id, deviceId))
+  if (!dev) return c.json({ error: 'device not found' }, 404)
+  const b = (await c.req.json().catch(() => ({}))) as { lockScreenSelection?: boolean; lockScreenConfig?: boolean }
+  await setDeckLocks(deviceId, b)
+  return c.json({ ok: true })
 })
 
 // ── Centralised alarms (server-owned; targets devices, picks a device tone) ─────────

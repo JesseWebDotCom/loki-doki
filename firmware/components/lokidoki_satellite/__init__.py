@@ -26,6 +26,7 @@ CONF_SPEAKER = "speaker"
 CONF_STATUS_LIGHT = "status_light"
 CONF_FACE_SENSOR = "face_sensor"
 CONF_MODE_SENSOR = "mode_sensor"
+CONF_CONTENT_SENSOR = "content_sensor"
 CONF_REPLY_SENSOR = "reply_sensor"
 CONF_RENDER_SENSOR = "render_sensor"
 CONF_DATA_SENSOR = "data_sensor"
@@ -44,6 +45,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FACE_SENSOR): cv.use_id(text_sensor.TextSensor),
         # Optional text sensor that mirrors the server-pushed screen mode (Testing tab).
         cv.Optional(CONF_MODE_SENSOR): cv.use_id(text_sensor.TextSensor),
+        # Optional text sensor for the user-selected content view (display/activity/status/sleeping).
+        cv.Optional(CONF_CONTENT_SENSOR): cv.use_id(text_sensor.TextSensor),
         # Optional text sensor carrying the companion's typed reply (text-only mode).
         cv.Optional(CONF_REPLY_SENSOR): cv.use_id(text_sensor.TextSensor),
         # Optional (native-LVGL experiment) text sensor for the assigned render mode.
@@ -80,6 +83,10 @@ async def to_code(config):
     if CONF_MODE_SENSOR in config:
         mode = await cg.get_variable(config[CONF_MODE_SENSOR])
         cg.add(var.set_mode_sensor(mode))
+
+    if CONF_CONTENT_SENSOR in config:
+        content = await cg.get_variable(config[CONF_CONTENT_SENSOR])
+        cg.add(var.set_content_sensor(content))
 
     if CONF_REPLY_SENSOR in config:
         reply = await cg.get_variable(config[CONF_REPLY_SENSOR])

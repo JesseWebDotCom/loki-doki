@@ -9,7 +9,7 @@ import { Hono } from 'hono'
 import { streamSSE, stream } from 'hono/streaming'
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { logger } from '@/lib/logger'
-import { buildControllerAtlas, resolveLocalArt, renderPodcastCoverForShow } from '@/lib/pod/controllerAtlas'
+import { buildControllerAtlas, resolveLocalArt, renderPodcastCoverForShow, toDeviceJpeg } from '@/lib/pod/controllerAtlas'
 import type { AppEnv } from '@/types'
 import {
   createDevice, listDevices, deleteDevice, updateDevice, refreshPairingCode, redeemPairingCode, claimDevice,
@@ -181,15 +181,19 @@ pod.get('/cover/:hwid', async (c) => {
   if (pm) {
     const b = await renderPodcastCoverForShow(pm[1])
     return b
-      ? new Response(new Uint8Array(b), { status: 200, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } })
+      ? new Response(new Uint8Array(b), { status: 200, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' } })
       : c.body(null, 404)
   }
-  // Station icons are auth-gated local files — read them off disk directly.
+  // Station icons are auth-gated local files — read them off disk directly, then re-encode
+  // to JPEG (the uploaded file could be PNG/webp/whatever; the device only decodes JPEG).
   const local = await resolveLocalArt(url)
   if (local) {
-    return new Response(new Uint8Array(local), {
-      status: 200, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' },
-    })
+    try {
+      const jpeg = await toDeviceJpeg(local)
+      return new Response(new Uint8Array(jpeg), {
+        status: 200, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
+      })
+    } catch { /* undecodable → fall through to the generic fetch/404 path below */ }
   }
   // Cover URLs usually point at our AUTH-GATED image proxies (/api/youtube/img?u=…,
   // /api/img?url=…). A server-side fetch has no auth cookie → 401, so unwrap the real

@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { acquireAudio, registerMediaStop } from '@/lib/mediaCoordinator'
 
 /** A video handed off to the docked mini-player when you navigate away mid-watch. */
@@ -46,6 +46,10 @@ interface YoutubePlaybackCtx {
   close: () => void
   /** Clear the dock WITHOUT side effects — used when the watch page re-adopts the video. */
   clearDock: () => void
+  /** Id of the current play session (see PodcastPlaybackContext for the full rationale) —
+   *  read by YoutubeMiniBar when reporting/clearing now-playing state. A ref, not state:
+   *  it's read at report-time, not rendered, so it doesn't need to trigger re-renders. */
+  sessionId: RefObject<string>
 }
 
 const Ctx = createContext<YoutubePlaybackCtx | null>(null)
@@ -56,10 +60,16 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const [startSec, setStartSec] = useState(0)
   const [positionSec, setPositionSec] = useState(0)
   const [expandRequest, setExpandRequest] = useState(0)
+  // Id for the current play session — freshly minted whenever the docked video changes
+  // (dock/playExpanded/next/prev), sent with now-playing reports and the stop/clear signal.
+  // See nowPlaying.ts for why: it's what lets the device re-show a dismissed bar on a fresh
+  // play and keeps a lagging clear from wiping out a session that's since moved on.
+  const sessionIdRef = useRef('')
 
   const next = useCallback(() => {
     setIndex(i => {
       if (i + 1 >= queue.length) return i
+      sessionIdRef.current = crypto.randomUUID()
       setStartSec(0); setPositionSec(0)
       return i + 1
     })
@@ -68,6 +78,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const prev = useCallback(() => {
     setIndex(i => {
       if (i <= 0) return i
+      sessionIdRef.current = crypto.randomUUID()
       setStartSec(0); setPositionSec(0)
       return i - 1
     })
@@ -81,6 +92,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
 
   const dock = useCallback((q: YtMiniTrack[], i: number, start: number) => {
     acquireAudio('youtube')
+    sessionIdRef.current = crypto.randomUUID()
     setQueue(q)
     setIndex(Math.max(0, Math.min(i, q.length - 1)))
     setStartSec(start)
@@ -89,6 +101,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
 
   const playExpanded = useCallback((t: YtMiniTrack) => {
     acquireAudio('youtube')
+    sessionIdRef.current = crypto.randomUUID()
     setQueue([t])
     setIndex(0)
     setStartSec(0)
@@ -101,6 +114,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
     track, startSec, positionSec,
     hasNext: index + 1 < queue.length, hasPrev: index > 0,
     dock, playExpanded, expandRequest, next, prev, reportPosition, close, clearDock,
+    sessionId: sessionIdRef,
   }), [track, startSec, positionSec, index, queue.length, dock, playExpanded, expandRequest, next, prev, reportPosition, close, clearDock])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

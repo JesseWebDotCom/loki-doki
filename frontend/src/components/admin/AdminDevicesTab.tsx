@@ -189,14 +189,6 @@ const MODES = [
 const MODE_LABEL: Record<string, string> = { normal: 'Normal', 'camera-test': 'Camera test', 'touch-test': 'Touch test', 'stream-deck': 'Controller' }
 const SCREEN_KINDS = ['tablet', 'show']
 
-const POD_VIEWS = [
-  { id: 'display',  label: 'Ambient',  desc: 'Clock & weather',  icon: '🌤' },
-  { id: 'activity', label: 'Activity', desc: 'Now playing',       icon: '🎵' },
-  { id: 'status',   label: 'Status',   desc: 'BUSY-bar mode',     icon: '🟢' },
-  { id: 'sleeping', label: 'Sleep',    desc: 'Dim + ambient',     icon: '🌙' },
-] as const
-const POD_VIEW_LABELS: Record<string, string> = Object.fromEntries(POD_VIEWS.map((v) => [v.id, v.label]))
-
 // ── Main export ─────────────────────────────────────────────────────────────────
 // `view` comes from the admin URL (/admin/devices/:view) so the breadcrumb and the
 // left sidebar stay in sync — overview | layouts | sounds | settings.
@@ -520,14 +512,11 @@ function DeviceDetailPage({
   const [mode, setMode] = useState('normal')
   const [modeBusy, setModeBusy] = useState(false)
 
-  // Pod display view (what the device shows: ambient/activity/status/sleeping)
-  const [podView, setPodView] = useState<string>(device.podView ?? 'display')
-  const [podViewBusy, setPodViewBusy] = useState(false)
-
-  // Display layout template
-  const [templates, setTemplates] = useState<TemplateRow[]>([])
-  const [layoutTemplateId, setLayoutTemplateId] = useState(device.layoutTemplateId ?? '')
-  const [layoutSaving, setLayoutSaving] = useState(false)
+  // Screen-deck locks (admin-only toggles gating the owner's Settings → Devices editor).
+  const [locks, setLocks] = useState<DeckLocks>({
+    lockScreenSelection: device.lockScreenSelection ?? false,
+    lockScreenConfig: device.lockScreenConfig ?? false,
+  })
 
   // Test sound + re-issue pairing
   const [testing, setTesting] = useState(false)
@@ -540,11 +529,11 @@ function DeviceDetailPage({
     setCharacterId(device.characterId ?? '')
     setWakeWord(device.wakeWord ?? '')
     setGroupId(device.groupId ?? 'default')
-    setLayoutTemplateId(device.layoutTemplateId ?? '')
     setOrientation(device.orientation ?? 0)
+    setLocks({ lockScreenSelection: device.lockScreenSelection ?? false, lockScreenConfig: device.lockScreenConfig ?? false })
   }, [device.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch groups, mode, and templates on mount.
+  // Fetch groups + mode on mount.
   useEffect(() => {
     fetch('/api/pod/groups', opts)
       .then((r) => (r.ok ? r.json() : []))
@@ -557,11 +546,6 @@ function DeviceDetailPage({
         .then((d) => setMode(d?.mode ?? 'normal'))
         .catch(() => setMode('normal'))
     }
-
-    fetch('/api/pod/studio/templates', opts)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((t) => setTemplates(Array.isArray(t) ? t : []))
-      .catch(() => setTemplates([]))
   }, [device.id, isScreen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const dirty =
@@ -634,33 +618,6 @@ function DeviceDetailPage({
       const d = (await r.json()) as { online?: boolean }
       toast.success(d.online ? `Switched to ${MODE_LABEL[next]}` : `${MODE_LABEL[next]} set — applies when the device reconnects`)
     } catch { setMode(prev); toast.error("Couldn't switch mode") } finally { setModeBusy(false) }
-  }
-
-  async function changePodView(next: string) {
-    if (next === podView || podViewBusy) return
-    const prev = podView
-    setPodView(next)
-    setPodViewBusy(true)
-    try {
-      const r = await fetch(`/api/pod/devices/${device.id}/pod-view`, { ...opts, method: 'POST', headers: J, body: JSON.stringify({ view: next }) })
-      if (!r.ok) throw new Error()
-      toast.success(`Display view set to ${POD_VIEW_LABELS[next] ?? next}`)
-      onChanged()
-    } catch { setPodView(prev); toast.error("Couldn't change display view") } finally { setPodViewBusy(false) }
-  }
-
-  async function saveLayout() {
-    setLayoutSaving(true)
-    try {
-      const r = await fetch(`/api/pod/devices/${device.id}/layout`, {
-        ...opts, method: 'PUT', headers: J,
-        body: JSON.stringify({ templateId: layoutTemplateId || null }),
-      })
-      if (!r.ok) throw new Error()
-      const d = (await r.json()) as { online?: boolean }
-      toast.success(d.online ? 'Layout applied to device' : 'Layout saved — will apply when device is online')
-      onChanged()
-    } catch { toast.error("Couldn't save layout") } finally { setLayoutSaving(false) }
   }
 
   async function testSound() {
@@ -1043,15 +1000,18 @@ function ControllerLayoutsPlaceholder() {
           <LayoutGrid className="size-5 text-white" />
         </div>
         <div className="flex-1">
-          <h3 className="text-sm font-semibold">Controller layouts</h3>
-          <p className="text-sm text-muted-foreground">Button grid templates for controller mode. Assign them to screen devices from the device detail page.</p>
+          <h3 className="text-sm font-semibold">Controller moved into each device's Screen deck</h3>
+          <p className="text-sm text-muted-foreground">
+            The controller (button grid) is now just one screen kind, alongside clock, weather, and status —
+            per-device, ordered, and swipeable like everything else.
+          </p>
         </div>
       </div>
       <div className="rounded-2xl border border-dashed border-border/60 bg-background/40 px-6 py-10 text-center">
         <LayoutGrid className="mx-auto mb-2 size-8 text-muted-foreground/40" />
-        <p className="text-sm font-medium text-muted-foreground">Controller layout editor coming soon</p>
+        <p className="text-sm font-medium text-muted-foreground">Open Devices → pick a device → Display tab</p>
         <p className="mt-1 text-xs text-muted-foreground/70">
-          You can assign the built-in default controller layout to a screen device now from the device detail page.
+          Add, remove, reorder, and configure the controller screen (including button overrides) from its Screen deck there.
         </p>
       </div>
     </section>

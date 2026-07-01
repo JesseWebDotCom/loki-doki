@@ -37,6 +37,7 @@ import {
   faceState,
   deviceConfig,
   displayMode,
+  contentMode,
   displayOrientation,
   layout as layoutEvent,
   displayData as displayDataEvent,
@@ -53,7 +54,7 @@ import {
 } from '@/lib/pod/wyoming'
 import { effectiveSettings } from '@/lib/pod/deviceSettings'
 import { getDeviceMode } from '@/lib/pod/displayMode'
-import { setDeviceView } from '@/lib/pod/displayController'
+import { setDeviceView, getPodView } from '@/lib/pod/displayController'
 import { resolveDeviceDescriptor } from '@/lib/pod/deviceStudio'
 import { pushDisplayData } from '@/lib/pod/displayData'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
@@ -308,6 +309,14 @@ export class SatelliteSession implements PodFireTarget {
   setDisplayMode(mode: string): void {
     if (this.closed) return
     this.send(displayMode(mode))
+  }
+
+  /** Tell a native-LVGL device which CONTENT the ambient display should show — orthogonal
+   *  to setDisplayMode above. Pushed live (displayController.setPodView) and re-sent on
+   *  (re)connect so an offline device restores it when it returns. */
+  setContentMode(mode: string): void {
+    if (this.closed) return
+    this.send(contentMode(mode))
   }
 
   /** Push display orientation so LVGL rotates touch coords + native buttons to match
@@ -695,6 +704,8 @@ export class SatelliteSession implements PodFireTarget {
     // Restore this device's screen mode (normal/camera-test/touch-test) — an offline
     // device that was put in a test mode picks it back up the instant it reconnects.
     this.setDisplayMode(getDeviceMode(device.id))
+    // Restore the content view (display/activity/status/sleeping) the same way.
+    this.setContentMode(getPodView(device.id))
     // Push display orientation (LVGL rotation for touch + native buttons) — sent on every
     // reconnect so the device stays in sync even after power-cycling.
     this.applyOrientation(device.orientation ?? 0)

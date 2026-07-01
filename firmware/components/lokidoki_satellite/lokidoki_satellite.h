@@ -38,6 +38,11 @@ class LokiDokiSatellite : public Component {
   // "touch-test") so a screen device can switch LVGL pages from the admin Testing
   // tab. Screenless pods leave this unset.
   void set_mode_sensor(text_sensor::TextSensor *s) { this->mode_sensor_ = s; }
+  // Optional: mirrors the user-selected content view for a screen Pod's ambient display
+  // ("display"/"activity"/"status"/"sleeping" — see devices.displayMode / getPodView() on
+  // the server). A DIFFERENT concept from mode_sensor_ above (that's the hardware-test
+  // screen mode); this is content selection. Screenless pods leave this unset.
+  void set_content_sensor(text_sensor::TextSensor *s) { this->content_sensor_ = s; }
   // Optional: carries the companion's typed reply (shown on screen in text-only mode).
   void set_reply_sensor(text_sensor::TextSensor *s) { this->reply_sensor_ = s; }
   // Optional (NATIVE LVGL experiment): publishes the assigned template's render mode
@@ -205,6 +210,8 @@ class LokiDokiSatellite : public Component {
   text_sensor::TextSensor *reply_sensor_{nullptr}; // companion's typed reply (text mode)
   bool voice_reply_{true};                         // true = speak reply; false = type it
   std::string published_mode_;  // last value pushed to mode_sensor_ (de-dupe)
+  text_sensor::TextSensor *content_sensor_{nullptr};  // user-selected content view (display/activity/status/sleeping)
+  std::string published_content_;  // last value pushed to content_sensor_ (de-dupe)
   text_sensor::TextSensor *render_sensor_{nullptr}; // native-LVGL render mode ("lvgl"/"jpeg")
   std::string published_render_;                    // last render mode pushed (de-dupe)
   text_sensor::TextSensor *data_sensor_{nullptr};   // native-LVGL live data feed (JSON)

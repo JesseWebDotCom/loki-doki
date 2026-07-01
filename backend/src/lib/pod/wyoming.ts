@@ -156,6 +156,18 @@ export function displayMode(mode: string): WyomingEvent {
 }
 
 /**
+ * Content-view extension (Wyoming `user-event`): tells a native-LVGL screen Pod which
+ * CONTENT the ambient display should show ('display'|'activity'|'status'|'sleeping' —
+ * mirrors devices.displayMode / getPodView()). A DIFFERENT axis from displayMode() above
+ * (that's the hardware-test screen mode — camera-test/touch-test). Lets the firmware's
+ * frame-blit gate know it's safe to render a JPEG content screen even while otherwise
+ * running native (see content_is_display in tab5.yaml).
+ */
+export function contentMode(mode: string): WyomingEvent {
+  return { type: 'user-event', data: { name: 'display.content', mode } }
+}
+
+/**
  * Loki Doki orientation extension (Wyoming `user-event`): tells the device's LVGL
  * driver to call lv_disp_set_rotation(disp, …) so touch coordinates and native
  * buttons rotate along with the server-rendered JPEG. Degrees: 0 | 90 | 180 | 270.

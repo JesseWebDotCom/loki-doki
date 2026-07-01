@@ -2,7 +2,18 @@
 // controller surface so a screen device (rendered in a separate headless tab that can't see
 // the user's player) can show the active station, play/pause state, and progress.
 
+export type NowPlayingSource = 'radio' | 'youtube' | 'podcast'
+
 export interface NowPlaying {
+  source: NowPlayingSource
+  /** Client-minted id for THIS play session — a new value every time playback starts fresh
+   *  (including skipping to the next track), reused for every report until it stops. Lets
+   *  the device re-show a dismissed bar on a genuine new play (even a replayed track, where
+   *  title/videoId alone wouldn't change), and — critically — lets a stop/clear request only
+   *  take effect if it's still clearing the session it thinks it is. A source-only guard isn't
+   *  enough: closing podcast A and immediately starting podcast B is still "podcast", so a
+   *  slow-arriving clear for A could otherwise wipe out B's now-playing entry after the fact. */
+  sessionId: string
   stationId: string | null
   videoId: string | null   // when a single track/video is playing (not a station)
   title: string
@@ -26,6 +37,15 @@ export function getNowPlaying(userId: string): NowPlaying | null {
   if (!np) return null
   if (Date.now() - np.updatedAt > STALE_MS) { store.delete(userId); return null }
   return np
+}
+
+/** A source announcing it has fully stopped (the ✕ / close, or losing audio focus with
+ *  nothing queued behind it). Only clears if the snapshot is STILL this exact session — if
+ *  a newer session (same source or a different one) has since taken over, the clear is a
+ *  no-op instead of wiping out state that's since moved on. */
+export function clearNowPlaying(userId: string, source: NowPlayingSource, sessionId: string): void {
+  const cur = store.get(userId)
+  if (cur && cur.source === source && cur.sessionId === sessionId) store.delete(userId)
 }
 
 // ── Plex activity slot ────────────────────────────────────────────────────────────

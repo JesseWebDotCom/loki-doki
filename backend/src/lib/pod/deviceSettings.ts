@@ -35,9 +35,18 @@ export interface DeviceSettings {
    *  calibrated value (from train_wakeword.py FA/hr calibration). Raise for noisy rooms
    *  where music/TV triggers false wakes; lower if the phrase stops being detected. */
   wakeThreshold: number | null
+  /** Auto-dim after local sunset (reverts at sunrise) — a TIME-of-day trigger, independent
+   *  of idle-dim above. Substitute for "dim when dark": the Tab5 camera can't see (MIPI-CSI,
+   *  no ESPHome capture platform) and the board has no ambient-light sensor. See nightMode.ts. */
+  nightDimEnabled: boolean
+  /** Brightness percent (0–100) applied while it's night, on top of dimEnabled's own idle dim. */
+  nightDimPercent: number
 }
 
-export const DEFAULT_SETTINGS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true, wakeThreshold: null }
+export const DEFAULT_SETTINGS: DeviceSettings = {
+  dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true, wakeThreshold: null,
+  nightDimEnabled: false, nightDimPercent: 15,
+}
 
 const DEFAULT_GROUP_ID = 'default'
 
@@ -53,6 +62,8 @@ export function sanitizeSettings(p: Record<string, unknown>): Partial<DeviceSett
   if (p.wakeThreshold === null) out.wakeThreshold = null
   else if (typeof p.wakeThreshold === 'number' && Number.isFinite(p.wakeThreshold))
     out.wakeThreshold = Math.max(0.1, Math.min(0.99, p.wakeThreshold))
+  if (typeof p.nightDimEnabled === 'boolean') out.nightDimEnabled = p.nightDimEnabled
+  if (typeof p.nightDimPercent === 'number') out.nightDimPercent = Math.max(0, Math.min(100, Math.round(p.nightDimPercent)))
   return out
 }
 

@@ -39,7 +39,10 @@ async function podcastCoverTile(seedId: string, title: string): Promise<Buffer> 
       layers.push({ input: await sharp(emoji).resize(sz, sz, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer(), gravity: 'center' })
     } catch { /* glyph unrenderable → gradient only */ }
   }
-  return sharp(bg).composite(layers).png().toBuffer()
+  // JPEG: this tile is also served standalone as the device's now-playing cover art
+  // (renderPodcastCoverForShow → /api/pod/cover/:hwid), and the firmware's online_image
+  // slot for that art is hardcoded to a JPEG decoder — PNG bytes there just fail silently.
+  return sharp(bg).composite(layers).jpeg({ quality: 85 }).toBuffer()
 }
 
 // The app's station gradients, by accent slug (mirrors frontend stationColors.ts).
@@ -78,7 +81,9 @@ export async function renderPodcastCoverForShow(showId: string): Promise<Buffer 
   if (!sh) return null
   if (sh.cover) {
     const raw = await readFile(await resolveUserPath(sh.cover)).catch(() => null)
-    if (raw) { try { return await sharp(raw).resize(240, 240, { fit: 'cover' }).png().toBuffer() } catch { /* fall through */ } }
+    // JPEG, not PNG — same reason as podcastCoverTile below: this is served straight to the
+    // device's now-playing cover slot, whose decoder only understands JPEG.
+    if (raw) { try { return await sharp(raw).resize(240, 240, { fit: 'cover' }).jpeg({ quality: 85 }).toBuffer() } catch { /* fall through */ } }
   }
   return podcastCoverTile(showId, sh.name ?? '')
 }
@@ -104,6 +109,12 @@ export async function resolveLocalArt(url: string): Promise<Buffer | null> {
     return readFile(await resolveUserPath(row.p)).catch(() => null)
   }
   return null
+}
+
+/** Re-encode arbitrary art bytes (uploaded PNG/webp/whatever) to JPEG for the device's
+ *  now-playing cover slot — its online_image decoder is hardcoded to JPEG only. */
+export async function toDeviceJpeg(raw: Buffer): Promise<Buffer> {
+  return sharp(raw).jpeg({ quality: 85 }).toBuffer()
 }
 
 // Keep in lock-step with the firmware (rebuild_stream_deck_ui_): default 5×3 grid →

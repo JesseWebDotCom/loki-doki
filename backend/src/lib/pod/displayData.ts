@@ -46,8 +46,8 @@ export interface DisplayDataPayload {
   media: DeviceMedia | null   // the user's current playback (for the native player bar)
 }
 
-/** A stable id for the *track* (not its progress), so the device only treats a genuinely
- *  new track as new (re-showing a dismissed player). */
+/** Fold an arbitrary id into a small stable uint32 — the firmware reads `rev` into a plain
+ *  `int`, so this keeps it well within range regardless of what's hashed. */
 function trackRev(id: string): number {
   let h = 0
   for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0
@@ -60,9 +60,10 @@ const WEATHER_TTL_MS = 10 * 60 * 1000
 const weatherCache = new Map<string, { at: number; snap: WeatherSnapshot }>()
 
 // The `user.location` preference (set by the web app's location picker).
-interface UserLocationPref { lat?: number; lng?: number; displayName?: string }
+export interface UserLocationPref { lat?: number; lng?: number; displayName?: string }
 
-async function userLocation(userId: string): Promise<UserLocationPref | null> {
+/** Exported for reuse by nightMode.ts (sunset needs the same per-user lat/lng). */
+export async function userLocation(userId: string): Promise<UserLocationPref | null> {
   const [row] = await db.select({ value: userPreferences.value }).from(userPreferences)
     .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, 'user.location')))
   if (!row?.value) return null
@@ -85,6 +86,18 @@ async function weatherForLocation(loc: UserLocationPref): Promise<WeatherSnapsho
     logger.warn(`[pod] weather fetch failed for "${key}": ${(e as Error).message}`)
     return hit?.snap ?? null   // serve a stale value over nothing
   }
+}
+
+/** Non-blocking variant for latency-sensitive pushes (a fresh play should show up on the
+ *  device instantly, not wait on a cold open-meteo round trip). Serves whatever's cached —
+ *  even past its TTL — and kicks a background refresh; never awaits the network itself.
+ *  The 30s connected-device refresher (below) converges on fresh weather shortly after. */
+function weatherForLocationFast(loc: UserLocationPref): WeatherSnapshot | null {
+  const key = (loc.displayName || `${loc.lat},${loc.lng}`).trim().toLowerCase()
+  if (!key) return null
+  const hit = weatherCache.get(key)
+  if (!hit || Date.now() - hit.at >= WEATHER_TTL_MS) void weatherForLocation(loc).catch(() => {})
+  return hit?.snap ?? null
 }
 
 /** The family-photo URL configured for a device (by hwid), or null. Used by the image
@@ -112,15 +125,17 @@ function parseOverrides(s: string | null | undefined): LayoutOverrides {
   try { return s ? (JSON.parse(s) as LayoutOverrides) : {} } catch { return {} }
 }
 
-/** Build the `display.data` payload for a device (its user's weather + photo state). */
-export async function buildDisplayData(deviceId: string): Promise<DisplayDataPayload | null> {
+/** Build the `display.data` payload for a device (its user's weather + photo state).
+ *  `fast: true` never blocks on a cold weather fetch — used for now-playing-triggered
+ *  pushes, where the media update needs to land instantly and weather can lag a beat. */
+export async function buildDisplayData(deviceId: string, opts?: { fast?: boolean }): Promise<DisplayDataPayload | null> {
   const [dev] = await db.select().from(devices).where(eq(devices.id, deviceId))
   if (!dev) return null
   const photoUrl = parseOverrides(dev.layoutOverrides).photoUrl?.trim() || ''
   let weather: DisplayDataPayload['weather'] = null
   const loc = await userLocation(dev.userId)
   if (loc) {
-    const snap = await weatherForLocation(loc)
+    const snap = opts?.fast ? weatherForLocationFast(loc) : await weatherForLocation(loc)
     if (snap) {
       weather = {
         location: snap.location, temp: snap.temp, high: snap.high, low: snap.low,
@@ -137,19 +152,23 @@ export async function buildDisplayData(deviceId: string): Promise<DisplayDataPay
     duration: Math.round(np.durationSec),
     canSeek: np.durationSec > 0,
     cover: !!np.cover?.trim(),
-    rev: trackRev(np.videoId || np.stationId || np.title),
+    // sessionId is a fresh id per play session (see nowPlaying.ts), so replaying the same
+    // track after a device-side dismiss still un-hides the bar — a pure track-identity hash
+    // would stay hidden forever for a repeated title/videoId.
+    rev: trackRev(np.sessionId),
   } : null
   return { weather, photo: !!photoUrl, photo_rev: photoUrl ? revOf(photoUrl) : 0, media }
 }
 
 /** Push the live data feed to every connected LVGL device owned by a user (used when the
- *  user's media playback changes, so their device player updates immediately). */
+ *  user's media playback changes, so their device player updates immediately). Always
+ *  `fast` — a play/pause/track-change should land on-screen without waiting on weather. */
 export async function pushDisplayDataForUser(userId: string): Promise<void> {
   const ids = connectedDeviceIds()
   if (!ids.size) return
   const rows = await db.select({ id: devices.id, tpl: devices.layoutTemplateId, uid: devices.userId }).from(devices)
   for (const r of rows) {
-    if (r.uid === userId && ids.has(r.id) && isLvglDevice(r.tpl)) await pushDisplayData(r.id)
+    if (r.uid === userId && ids.has(r.id) && isLvglDevice(r.tpl)) await pushDisplayData(r.id, { fast: true })
   }
 }
 
@@ -160,9 +179,9 @@ function isLvglDevice(layoutTemplateId: string | null): boolean {
 
 /** Push the live data feed to a device (no-op if it isn't connected). Safe to call
  *  for any device — only LVGL devices act on it, but it's cheap and harmless either way. */
-export async function pushDisplayData(deviceId: string): Promise<void> {
+export async function pushDisplayData(deviceId: string, opts?: { fast?: boolean }): Promise<void> {
   try {
-    const payload = await buildDisplayData(deviceId)
+    const payload = await buildDisplayData(deviceId, opts)
     if (payload) dataToDevice(deviceId, payload as unknown as Record<string, unknown>)
   } catch (e) {
     logger.warn(`[pod] pushDisplayData failed: ${(e as Error).message}`)

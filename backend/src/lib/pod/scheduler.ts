@@ -19,6 +19,7 @@ import { ensureBuiltins, resolveAlarmToneUrl } from '@/lib/pod/deviceStudio'
 import { startDisplayDataRefresher } from '@/lib/pod/displayData'
 import { seedPodViews } from '@/lib/pod/displayController'
 import { ensureBuiltinScreens, seedDeviceDecks } from '@/lib/pod/screenDeck'
+import { startNightMode } from '@/lib/pod/nightMode'
 import { startPlexNowWatchingPoller } from '@/lib/plex/nowWatching'
 import { timedStatusExpiry, clearUserStatus, setUserAlert } from '@/lib/pod/presence'
 import { startHAAlerts } from '@/lib/pod/haAlerts'
@@ -55,6 +56,8 @@ export function startPodScheduler(): void {
   void startPlexNowWatchingPoller()
   // Subscribe to HA entity state changes → doorbell/motion/lock/smoke alerts on screen Pods.
   startHAAlerts()
+  // Auto-dim screens after local sunset (per-device opt-in, see nightMode.ts).
+  startNightMode()
   setInterval(() => { void runSchedulerTick() }, TICK_MS)
   logger.info('[pod] scheduler started (alarms/timers → connected Pods)')
 }

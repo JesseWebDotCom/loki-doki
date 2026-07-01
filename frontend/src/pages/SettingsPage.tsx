@@ -1,6 +1,10 @@
+import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Bell, Home, Info, LayoutGrid, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
-import { PanelLayout, type PanelSection } from '@/components/shared/PanelLayout'
+import { Bell, Cpu, Home, Info, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
+import type { PanelSection } from '@/components/shared/PanelLayout'
+import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
+import { SettingsHeader } from '@/components/settings/SettingsHeader'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { SettingsProfileTab } from '@/components/settings/SettingsProfileTab'
 import { SettingsToolsTab } from '@/components/settings/SettingsToolsTab'
 import { SettingsAppearanceTab } from '@/components/settings/SettingsAppearanceTab'
@@ -9,7 +13,7 @@ import { SettingsAboutTab } from '@/components/settings/SettingsAboutTab'
 import { SettingsPrivacyTab } from '@/components/settings/SettingsPrivacyTab'
 import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab'
 import { SettingsPlexTab } from '@/components/settings/SettingsPlexTab'
-import { SettingsStreamDeckTab } from '@/components/settings/SettingsStreamDeckTab'
+import { SettingsDevicesTab } from '@/components/settings/SettingsDevicesTab'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 const SECTIONS: PanelSection[] = [
@@ -20,7 +24,7 @@ const SECTIONS: PanelSection[] = [
   { id: 'appearance',    label: 'Appearance',      icon: Palette    },
   { id: 'content',       label: 'Content',         icon: SlidersHorizontal },
   { id: 'notifications', label: 'Notifications',   icon: Bell       },
-  { id: 'stream-deck',   label: 'Controller',      icon: LayoutGrid },
+  { id: 'devices',       label: 'Devices',         icon: Cpu        },
   { id: 'about',         label: 'About',           icon: Info       },
 ]
 
@@ -30,21 +34,49 @@ export function SettingsPage() {
   const sectionLabel = SECTIONS.find((s) => s.id === section)?.label ?? section
   usePublishUIContext({ label: 'Settings', description: `User is in the Settings panel, "${sectionLabel}" tab.` })
 
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('settings.sidebarCollapsed') === '1')
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((c) => { const next = !c; localStorage.setItem('settings.sidebarCollapsed', next ? '1' : '0'); return next })
+  }, [])
+
+  const go = useCallback((id: string) => {
+    navigate(`/settings/${id}`, { replace: true })
+    setMobileNavOpen(false)
+  }, [navigate])
+
   return (
-    <PanelLayout
-      sections={SECTIONS}
-      activeSection={section}
-      onSection={id => navigate(`/settings/${id}`, { replace: true })}
-    >
-      {section === 'profile'       && <SettingsProfileTab />}
-      {section === 'home'          && <SettingsHomeTab />}
-      {section === 'tools'         && <SettingsToolsTab />}
-      {section === 'plex'          && <SettingsPlexTab />}
-      {section === 'appearance'    && <SettingsAppearanceTab />}
-      {section === 'content'       && <SettingsPrivacyTab />}
-      {section === 'notifications' && <SettingsNotificationsTab />}
-      {section === 'stream-deck'   && <SettingsStreamDeckTab />}
-      {section === 'about'         && <SettingsAboutTab />}
-    </PanelLayout>
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      {/* Desktop sidebar (collapsible icon rail) */}
+      <SettingsSidebar
+        className="hidden md:flex"
+        sections={SECTIONS} activeSection={section} onNavigate={go}
+        collapsed={collapsed} onToggleCollapse={toggleCollapsed}
+      />
+
+      {/* Mobile nav drawer */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-64 p-0">
+          <SheetTitle className="sr-only">Settings navigation</SheetTitle>
+          <SettingsSidebar className="h-full w-full border-r-0" sections={SECTIONS} activeSection={section} onNavigate={go} />
+        </SheetContent>
+      </Sheet>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <SettingsHeader sectionLabel={sectionLabel} onOpenMobileNav={() => setMobileNavOpen(true)} onNavigate={go} />
+
+        <div className="flex-1 overflow-y-auto">
+          {section === 'profile'       && <SettingsProfileTab />}
+          {section === 'home'          && <SettingsHomeTab />}
+          {section === 'tools'         && <SettingsToolsTab />}
+          {section === 'plex'          && <SettingsPlexTab />}
+          {section === 'appearance'    && <SettingsAppearanceTab />}
+          {section === 'content'       && <SettingsPrivacyTab />}
+          {section === 'notifications' && <SettingsNotificationsTab />}
+          {section === 'devices'       && <SettingsDevicesTab />}
+          {section === 'about'         && <SettingsAboutTab />}
+        </div>
+      </div>
+    </div>
   )
 }

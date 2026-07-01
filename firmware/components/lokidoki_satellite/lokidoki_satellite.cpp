@@ -508,6 +508,15 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       this->mode_sensor_->publish_state(mode);
       ESP_LOGI(TAG, "display mode → %s", mode.c_str());
     }
+    // Content mode — the user-selected ambient-display content, pushed as a `display.content`
+    // event (mirrors display.mode's shape but a DIFFERENT, orthogonal concept — see
+    // set_content_sensor() in the header).
+    if (this->content_sensor_ != nullptr && !mode.empty() && mode != this->published_content_ &&
+        name == "display.content") {
+      this->published_content_ = mode;
+      this->content_sensor_->publish_state(mode);
+      ESP_LOGI(TAG, "content mode → %s", mode.c_str());
+    }
     // TODO(tab5-slot-ui): the server now also pushes these user-events (see
     // plans/hardware-devices/tab5-slot-ui.md for the full payloads):
     //   name == "layout"      → place/size/theme the 3×3 widgets + cache the sound map

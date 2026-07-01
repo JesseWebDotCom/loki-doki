@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { logger } from '@/lib/logger'
 import { pushToBrowserSession, trackCommandAck, type BrowserCommand } from '@/lib/pod/browserSession'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
+import { getGlobalConnection } from '@/lib/homeAssistant'
+import { callService } from '@/lib/homeAssistant/client'
 
 // Executes a controller-mode button press for the new controller-layout
 // system. The device only knows which (page, row, col) was tapped; we re-resolve the
@@ -16,6 +18,7 @@ type ControllerAction =
   | { type: 'app_action'; action: string; payload?: Record<string, unknown> }
   | { type: 'play_station'; stationId: string }
   | { type: 'page_jump'; pageId: string }
+  | { type: 'ha_toggle'; entityId: string }
   | { type: 'none' }
   | Record<string, unknown>
 
@@ -75,7 +78,27 @@ export async function handleButtonPress(
   }
   const page = payload.pages.find((p) => p.id === pageId) ?? payload.pages[0]
   const button = page?.buttons.find((b) => b.row === row && b.col === col)
-  const cmd = button ? toBrowserCommand(button.action as ControllerAction) : null
+  const action = button?.action as ControllerAction | undefined
+
+  // Home Assistant toggle: dispatched directly server-side (a wall-mounted button should
+  // work even with no browser tab open) — NOT routed through the browser-session path below.
+  if (action && (action as { type?: string }).type === 'ha_toggle') {
+    const entityId = (action as { entityId?: string }).entityId
+    if (!entityId) { onResult?.(false, 'no_action'); return }
+    try {
+      const conn = await getGlobalConnection()
+      if (!conn) { onResult?.(false, 'no_action'); return }
+      const domain = entityId.split('.')[0] || 'homeassistant'
+      const result = await callService(conn, domain, 'toggle', { entity_id: entityId })
+      onResult?.(result.ok, result.ok ? undefined : 'no_action')
+    } catch (e) {
+      logger.warn(`[controller] ha_toggle failed for ${entityId}: ${(e as Error).message}`)
+      onResult?.(false, 'no_action')
+    }
+    return
+  }
+
+  const cmd = action ? toBrowserCommand(action) : null
   if (!cmd) { onResult?.(false, 'no_action'); return }
 
   const ackId = randomUUID()

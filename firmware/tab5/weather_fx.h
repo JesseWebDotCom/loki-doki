@@ -351,6 +351,34 @@ inline void sway(lv_obj_t *o, bool xaxis, int a, int b, uint32_t dur, uint32_t d
   lv_anim_start(&an);
 }
 
+// Like sway(x-axis), but mirrors the sprite horizontally whenever it turns around, so it
+// visibly faces the direction it's walking instead of sliding sideways. Art is assumed to
+// face RIGHT by default (scale_x +256 = normal, -256 = mirrored) — flip the signs below if
+// a given sprite sheet faces the other way. user_data stores the last x sample so the exec
+// callback can tell which way the current tick is moving.
+inline void walk_sway(lv_obj_t *o, int a, int b, uint32_t dur, uint32_t delay) {
+  lv_obj_set_style_transform_pivot_x(o, lv_pct(50), 0);
+  lv_obj_set_style_transform_pivot_y(o, lv_pct(50), 0);
+  lv_obj_set_user_data(o, (void *) (intptr_t) a);
+  lv_anim_t an; lv_anim_init(&an);
+  lv_anim_set_var(&an, o);
+  lv_anim_set_values(&an, a, b);
+  lv_anim_set_duration(&an, dur);
+  lv_anim_set_playback_duration(&an, dur);
+  lv_anim_set_delay(&an, delay);
+  lv_anim_set_repeat_count(&an, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_exec_cb(&an, [](void *v, int32_t x) {
+    lv_obj_t *obj = (lv_obj_t *) v;
+    intptr_t last = (intptr_t) lv_obj_get_user_data(obj);
+    if (x != last) {
+      lv_obj_set_style_transform_scale_x(obj, x < (int32_t) last ? -256 : 256, 0);
+      lv_obj_set_user_data(obj, (void *) (intptr_t) x);
+    }
+    lv_obj_set_x(obj, x);
+  });
+  lv_anim_start(&an);
+}
+
 // Floating pollen / dust motes: tiny soft specks drifting and wandering (clear-day ambience).
 inline void pollen(lv_obj_t *layer, int n) {
   for (int i = 0; i < n; i++) {
@@ -772,7 +800,9 @@ inline void landscape(lv_obj_t *layer, int code, bool day) {
     lv_obj_set_style_image_recolor(t, lv_color_hex(p.tree), 0);
     lv_obj_set_pos(t, x, 548 + drop - hgt + 2);
   }
-  // Cows grazing on the NEAR ridge (in front of everything, bigger).
+  // Cows grazing on the NEAR ridge (in front of everything, bigger). They take a few slow
+  // steps left/right as they graze, mirroring to face whichever way they're currently
+  // walking (walk_sway), plus a quick head-bob.
   int cows = rnd(1, 2);
   for (int i = 0; i < cows; i++) {
     int cx2 = rnd(360, 900), cd = cx2 - 820, cdrop = cd * cd / 2700;
@@ -781,6 +811,8 @@ inline void landscape(lv_obj_t *layer, int code, bool day) {
     lv_obj_set_pos(cw, cx2, cyy);
     dusk(cw);
     sway(cw, false, cyy, cyy + 3, rnd(2600, 3800), rnd(0, 1500));  // gentle graze bob
+    int stride = rnd(18, 34);
+    walk_sway(cw, cx2 - stride, cx2 + stride, rnd(9000, 14000), rnd(0, 4000));  // slow graze walk
   }
 }
 

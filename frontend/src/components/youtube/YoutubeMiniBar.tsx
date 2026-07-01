@@ -230,7 +230,7 @@ export function YoutubeMiniBar() {
       void fetch('/api/pod/now-playing', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoId: track.videoId, title: track.title, artist: track.author ?? null,
+          source: 'youtube', sessionId: pb.sessionId.current, videoId: track.videoId, title: track.title, artist: track.author ?? null,
           cover: track.thumbnail ?? (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg` : ''),
           positionSec: Math.round(s?.t ?? 0), durationSec: Math.round(s?.d ?? 0),
           playing: s?.playing ?? false,
@@ -241,6 +241,21 @@ export function YoutubeMiniBar() {
     const iv = setInterval(report, 5000)
     return () => clearInterval(iv)
   }, [track, playing])
+
+  // Tell the device to drop/hide its media bar when THIS tab's video stops — otherwise the
+  // last reported snapshot just sits there until its 5-minute staleness timeout. Only fires on
+  // a true had-track→no-track transition (never on initial mount), so a fresh tab loading with
+  // no track doesn't wipe out a video another tab is legitimately still playing.
+  const hadTrack = useRef(false)
+  useEffect(() => {
+    if (track) { hadTrack.current = true; return }
+    if (!hadTrack.current) return
+    hadTrack.current = false
+    void fetch('/api/pod/now-playing/clear', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'youtube', sessionId: pb.sessionId.current }),
+    }).catch(() => {})
+  }, [track])
 
   const winH = Math.round(winW * 9 / 16)
   const toggleExpand = () => { if (isLocalAudio || isStream) return; if (expanded) { setExpanded(false); setWin(null) } else setExpanded(true) }
