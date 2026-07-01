@@ -92,7 +92,15 @@ export async function runPodcastGenerateJob(
     let episodeBeats: EpisodeBeat[] = []
     try {
       cast = show.castJson ? JSON.parse(show.castJson) as ShowCast : null
-      if (!cast?.members?.length) cast = await generateCast(showConfig, hostInfos)
+      if (!cast?.members?.length) {
+        cast = await generateCast(showConfig, hostInfos)
+      } else if (cast.members.every(m => !m.voice)) {
+        // One-time upgrade: casts built before on-air voices existed get personas
+        // regenerated, keeping each host's accumulated beat history.
+        const history = new Map(cast.members.map(m => [m.characterId, m.beatHistory ?? []]))
+        cast = await generateCast(showConfig, hostInfos)
+        for (const m of cast.members) m.beatHistory = history.get(m.characterId) ?? []
+      }
       episodeBeats = await advanceBeats(cast, showConfig.style)
       recordBeats(cast, episodeBeats)
       await db.update(podcastShows).set({ castJson: JSON.stringify(cast) }).where(eq(podcastShows.id, showId))
@@ -110,7 +118,7 @@ export async function runPodcastGenerateJob(
         // recordBeats already appended this episode's beat, so prior beats are everything
         // but the last entry — hand over the last two so the others can recall/tease.
         const recent = (m?.beatHistory ?? []).slice(0, -1).slice(-2)
-        return { id: h.id, name: h.name, role: m?.role ?? '', background: m?.background ?? '', hobbies: m?.hobbies ?? [], beat: beatById.get(h.id)?.beat ?? '', recent }
+        return { id: h.id, name: h.name, role: m?.role ?? '', background: m?.background ?? '', voice: m?.voice ?? '', hobbies: m?.hobbies ?? [], beat: beatById.get(h.id)?.beat ?? '', recent }
       }),
       away: episodeBeats.filter(b => b.away && !speakingHosts.some(h => h.id === b.characterId)).map(b => ({ name: b.name, beat: b.beat })),
     } : undefined

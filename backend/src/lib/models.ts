@@ -20,6 +20,16 @@ export async function getModel(): Promise<string> {
   return (await getSetting('model')) ?? process.env.MODEL ?? 'llama3.1:8b'
 }
 
+// Long-form scriptwriting model (podcast episodes). The main chat model may be an
+// abliterated/uncensored variant — great for unrestricted chat, but abliteration degrades
+// instruction-following and coherence, which long scripted dialogue is very sensitive to.
+// Admins can point scriptwriting at a stock instruct model in Admin → Podcasts; unset,
+// it follows the main model.
+export async function getScriptModel(): Promise<string> {
+  const configured = (await getSetting('podcast.script_model'))?.trim()
+  return configured || await getModel()
+}
+
 // Cached router model — read once, re-read only on explicit invalidation.
 // router_llm_model almost never changes (only via admin UI), so caching is safe.
 let _routerModelCache: { value: string | null } | null = null

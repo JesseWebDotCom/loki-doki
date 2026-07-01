@@ -7,8 +7,9 @@ import { eq, and, or, desc, inArray } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import { resolveUserPath, userPath, toRelativePath } from '@/lib/storage/paths'
 import { ensureStingerSoundfont } from '@/lib/download'
-import { ollamaChat } from '@/llm/ollama'
+import { ollamaChat, ollamaList } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { cleanAutoTitle, cleanAutoText } from '@/lib/cleanTitle'
 import { createReadStream, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
@@ -803,6 +804,26 @@ podcastsRoute.post('/suggestions/:id/accept', async (c) => {
 
   const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, showId))
   return c.json({ show })
+})
+
+// ── Admin: script model ─────────────────────────────────────────────────────
+// Which Ollama model writes episode scripts. Unset = follow the main chat model.
+
+podcastsRoute.get('/admin/settings', async (c) => {
+  const user = c.get('user')
+  if (user.role !== 'admin') return c.json({ error: 'Admin only' }, 403)
+  const scriptModel = ((await getAppSetting('podcast.script_model')) as string | null) ?? ''
+  let installedModels: string[] = []
+  try { installedModels = (await ollamaList()).map(m => m.name) } catch { /* Ollama unreachable — selector degrades to free text */ }
+  return c.json({ scriptModel, installedModels })
+})
+
+podcastsRoute.put('/admin/settings', async (c) => {
+  const user = c.get('user')
+  if (user.role !== 'admin') return c.json({ error: 'Admin only' }, 403)
+  const body = await c.req.json() as { scriptModel?: string | null }
+  await setAppSetting('podcast.script_model', String(body.scriptModel ?? '').trim())
+  return c.json({ ok: true })
 })
 
 podcastsRoute.post('/suggestions/:id/dismiss', async (c) => {

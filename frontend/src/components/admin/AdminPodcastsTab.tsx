@@ -1,8 +1,9 @@
-// Admin tab for podcast management: shared shows overview and default host config.
+// Admin tab for podcast management: shared shows overview, script model, and default host config.
 
 import { useEffect, useState } from 'react'
-import { Mic, Users, Radio } from 'lucide-react'
+import { Mic, Users, Radio, Sparkles } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { toast } from '@/lib/toast'
 
 interface SharedShow {
   id: string
@@ -15,14 +16,38 @@ interface SharedShow {
 export function AdminPodcastsTab() {
   const [shows, setShows] = useState<SharedShow[]>([])
   const [loading, setLoading] = useState(true)
+  const [scriptModel, setScriptModel] = useState('')
+  const [installedModels, setInstalledModels] = useState<string[]>([])
 
   async function load() {
     const r = await fetch('/api/podcasts/shows', { credentials: 'include' })
     const d = await r.json() as { shows: SharedShow[] }
     setShows(d.shows ?? [])
+    try {
+      const s = await fetch('/api/podcasts/admin/settings', { credentials: 'include' })
+      if (s.ok) {
+        const sd = await s.json() as { scriptModel: string; installedModels: string[] }
+        setScriptModel(sd.scriptModel ?? '')
+        setInstalledModels(sd.installedModels ?? [])
+      }
+    } catch { /* settings section degrades to hidden */ }
   }
 
   useEffect(() => { load().finally(() => setLoading(false)) }, [])
+
+  async function saveScriptModel(value: string) {
+    setScriptModel(value)
+    try {
+      const r = await fetch('/api/podcasts/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ scriptModel: value }),
+      })
+      if (!r.ok) throw new Error()
+      toast.success('Script model saved')
+    } catch { toast.error('Could not save script model') }
+  }
 
   const shared = shows.filter(s => s.visibility === 'shared')
   const all = shows
@@ -51,6 +76,30 @@ export function AdminPodcastsTab() {
             <p className="text-2xl font-bold mt-1">{loading ? '—' : s.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Script model */}
+      <div className="rounded-lg border border-border/60 bg-card p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Script model</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Which model writes episode scripts. Long scripted dialogue is sensitive to model quality —
+          if the main chat model is an uncensored variant, a stock instruct model usually sounds
+          noticeably more natural here.
+        </p>
+        <select
+          className="ld-input w-full max-w-sm"
+          value={scriptModel}
+          onChange={(e) => void saveScriptModel(e.target.value)}
+        >
+          <option value="">Follow main chat model</option>
+          {installedModels.map(m => <option key={m} value={m}>{m}</option>)}
+          {scriptModel && !installedModels.includes(scriptModel) && (
+            <option value={scriptModel}>{scriptModel} (not installed)</option>
+          )}
+        </select>
       </div>
 
       {/* Shared shows list */}

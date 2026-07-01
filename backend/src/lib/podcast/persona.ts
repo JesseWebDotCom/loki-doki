@@ -28,7 +28,7 @@ const personasApply = (show: ShowConfig, hostCount: number): boolean =>
 function emptyCast(show: ShowConfig, hosts: HostInfo[]): ShowCast {
   return {
     topic: topicOf(show),
-    members: hosts.map(h => ({ characterId: h.id, name: h.name, role: '', background: '', hobbies: [], beatHistory: [] })),
+    members: hosts.map(h => ({ characterId: h.id, name: h.name, role: '', background: '', voice: '', hobbies: [], beatHistory: [] })),
   }
 }
 
@@ -52,9 +52,12 @@ export async function generateCast(show: ShowConfig, hosts: HostInfo[]): Promise
         'keeps things grounded. Give each a distinct angle — do NOT make them all experts. '
       : 'There is a single host: make them an experienced, opinionated voice with real hands-on background in the ' +
         'topic, able to give informed takes. ') +
-    'Also give each host two short personal hobbies (for color, in or out of the topic). Keep each background to ' +
+    'Also give each host two short personal hobbies (for color, in or out of the topic), and a "voice": one short ' +
+    'phrase describing how they sound ON AIR, derived from their base personality — keep any signature quirks (a ' +
+    'catchphrase, an energy level), but drop any assistant/companion framing; they are a broadcaster talking to an ' +
+    'audience, not a helper talking to one person. Keep each background to ' +
     'ONE vivid sentence. Return ONLY a JSON array, one object per host, in the SAME order as listed: ' +
-    '[{"characterId":"<id>","role":"<short role label>","background":"<one sentence>","hobbies":["<a>","<b>"]}].'
+    '[{"characterId":"<id>","role":"<short role label>","background":"<one sentence>","voice":"<short phrase>","hobbies":["<a>","<b>"]}].'
 
   try {
     const model = await getFastModel()
@@ -77,6 +80,7 @@ export async function generateCast(show: ShowConfig, hosts: HostInfo[]): Promise
           name: h.name,
           role: str(p.role),
           background: str(p.background),
+          voice: str(p.voice),
           hobbies: Array.isArray(p.hobbies) ? p.hobbies.filter(x => typeof x === 'string').map(x => (x as string).trim()).slice(0, 3) : [],
           beatHistory: [],
         }

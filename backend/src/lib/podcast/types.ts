@@ -47,6 +47,9 @@ export interface CastMember {
   role: string
   /** One vivid sentence of topic-relevant background. Empty when not applicable. */
   background: string
+  /** How they sound on air ("dry and deadpan", "peppy and quick, says 'beep!'"). Derived
+   *  from the character's companion personality — quirks kept, 1:1-chat framing dropped. */
+  voice: string
   hobbies: string[]
   /** Rolling history of past per-episode personal beats (oldest→newest), capped. */
   beatHistory: string[]
@@ -74,6 +77,8 @@ export interface CastBrief {
     name: string
     role: string
     background: string
+    /** On-air speaking style (see CastMember.voice). */
+    voice: string
     hobbies: string[]
     /** This episode's personal beat. */
     beat: string
