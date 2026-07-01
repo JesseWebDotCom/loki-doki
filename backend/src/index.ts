@@ -45,6 +45,7 @@ import { adminBookmarks } from '@/routes/adminBookmarks'
 import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
+import { briefing } from '@/routes/briefing'
 import { maps } from '@/routes/maps'
 import { adminMaps } from '@/routes/adminMaps'
 import { proxy } from '@/routes/proxy'
@@ -373,6 +374,7 @@ app.route('/api/reader', bookmarks)
 app.route('/api/search', searchRouter)
 app.route('/api/app-features', appFeatures)
 app.route('/api/admin/briefing', adminBriefing)
+app.route('/api/briefing', briefing)
 app.route('/api/maps', maps)
 app.route('/api/admin/maps', adminMaps)
 app.route('/api/proxy', proxy)

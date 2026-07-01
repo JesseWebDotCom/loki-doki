@@ -1,6 +1,6 @@
 import {
   Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Headphones, Laugh, ListVideo, Music,
-  Newspaper, PlaySquare, Radio, Trophy, Tv, type LucideIcon,
+  Newspaper, PlaySquare, Radio, Sunrise, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -60,6 +60,13 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     icon: CalendarDays, color: "#f59e0b",
     gradient: "linear-gradient(135deg,#4a1a1a,#7c3a1a)",
     allowWide: true, toolId: "onthisday",
+  },
+  {
+    id: "morning-briefing", title: "Morning Briefing",
+    description: "Weather, top story, scores & today in history",
+    icon: Sunrise, color: "#f59e0b",
+    gradient: "linear-gradient(135deg,#78350f,#f59e0b)",
+    allowWide: true, supportsRowMode: true,
   },
   {
     id: "jokes", title: "Joke of the Day",

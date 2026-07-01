@@ -3,8 +3,8 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Activity, Bookmark, CalendarDays, CirclePlay, Gauge, Heart, Headphones, Laugh, LayoutGrid,
-  ListVideo, Loader2, Music, Newspaper, Pencil, Play, PlaySquare, Plus, RotateCw, Trophy, Tv,
+  Activity, Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Laugh, LayoutGrid,
+  ListVideo, Loader2, Music, Newspaper, Pencil, Play, PlaySquare, Plus, RotateCw, Sunrise, Trophy, Tv,
   Upload, X, type LucideIcon,
 } from "lucide-react";
 import type { VideoItem } from "@/lib/youtube/types";
@@ -765,6 +765,107 @@ function WidgetOnThisDay() {
   );
 }
 
+interface BriefingItem { title: string; detail?: string; url?: string }
+interface BriefingPayload {
+  date: string;
+  weather?: string;
+  localNews: BriefingItem[];
+  worldNews: BriefingItem[];
+  sports: BriefingItem[];
+  onThisDay: BriefingItem[];
+}
+
+function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const [payload, setPayload] = useState<BriefingPayload | null>(null);
+  const [warming, setWarming] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/briefing", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { payload: BriefingPayload | null; warming: boolean } | null) => {
+        setPayload(d?.payload ?? null);
+        setWarming(d?.warming ?? false);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const topStory = payload?.localNews[0] ?? payload?.worldNews[0];
+  const topScore = payload?.sports[0];
+  const otd = payload?.onThisDay[0];
+  const empty = !loading && !payload;
+
+  const header = (
+    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-amber-400">
+      <Sunrise className="size-3" />
+      <span>Morning Briefing</span>
+    </div>
+  );
+
+  if (displayMode === 'row') {
+    const cards: { label: string; icon: LucideIcon; text: string; url?: string }[] = [];
+    if (payload?.weather) cards.push({ label: 'Weather', icon: CloudSun, text: payload.weather });
+    if (topStory) cards.push({ label: 'Top Story', icon: Newspaper, text: topStory.title, url: topStory.url });
+    if (topScore) cards.push({ label: 'Scores', icon: Trophy, text: topScore.title });
+    if (otd) cards.push({ label: 'On This Day', icon: CalendarDays, text: otd.title });
+
+    return (
+      <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+        {header}
+        {(loading || warming) && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+        {empty && <p className="text-[12px] text-muted-foreground/60">No briefing available yet.</p>}
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {cards.map((c, i) => {
+            const Icon = c.icon;
+            const inner = (
+              <div className="group shrink-0 w-[180px] flex flex-col gap-1.5 rounded-lg bg-muted/40 p-2.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/60">
+                  <Icon className="size-3" /><span>{c.label}</span>
+                </div>
+                <p className="line-clamp-3 text-[11px] font-medium leading-snug text-foreground/85">{c.text}</p>
+              </div>
+            );
+            return c.url
+              ? <a key={i} href={c.url} target="_blank" rel="noopener noreferrer">{inner}</a>
+              : <div key={i}>{inner}</div>;
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      {header}
+      {(loading || warming) && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {empty && <p className="text-[12px] text-muted-foreground/60">No briefing available yet.</p>}
+      {payload && (
+        <div className="space-y-1.5 flex-1">
+          {payload.weather && (
+            <div className="flex items-center gap-1.5 text-[12px] text-foreground/75">
+              <CloudSun className="size-3.5 shrink-0 text-sky-400" /><span className="truncate">{payload.weather}</span>
+            </div>
+          )}
+          {topStory && (
+            <p className="line-clamp-2 text-[12px] leading-snug text-foreground/70">{topStory.title}</p>
+          )}
+          {topScore && (
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+              <Trophy className="size-3 shrink-0 text-emerald-400" /><span className="truncate">{topScore.title}</span>
+            </div>
+          )}
+          {otd && (
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
+              <CalendarDays className="size-3 shrink-0 text-amber-400" /><span className="truncate">{otd.title}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Standard YouTube thumbnail for a video id, routed through the same-origin cache.
 const ytThumb = (videoId: string) => ytImageProxy(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`);
 
@@ -1396,6 +1497,7 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'jokes':              () => <WidgetJokes />,
   'sports':             () => <WidgetSports />,
   'on-this-day':        () => <WidgetOnThisDay />,
+  'morning-briefing':   (m) => <WidgetBriefing displayMode={m} />,
   'yt-subs':            (m) => <WidgetYoutubeSubs displayMode={m} />,
   'music':              () => <WidgetMusic />,
   'bookmarks-recent':   (m) => <WidgetBookmarksRecent displayMode={m} />,
