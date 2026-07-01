@@ -139,6 +139,50 @@ export async function advanceBeats(cast: ShowCast, style: string): Promise<Episo
   }
 }
 
+/**
+ * Generate a per-video "angle" for each host — a one-sentence description of how their
+ * standing role plays out for THIS specific content. Prevents the "tech expert being
+ * overly technical about a lifestyle video" mismatch. Built from the episode content
+ * summary (premise + beats) and each host's existing role. Best-effort: returns [] on
+ * any failure so the script generator proceeds without it.
+ */
+export async function generateEpisodeAngles(
+  members: { id: string; name: string; role: string; background: string }[],
+  contentSummary: string,
+): Promise<{ id: string; angle: string }[]> {
+  if (!members.length || !contentSummary.trim()) return []
+
+  const SYSTEM =
+    'Given podcast hosts\' standing roles and this episode\'s specific content, write one ' +
+    'short sentence per host describing their natural ANGLE for THIS episode. ' +
+    'The angle should emerge from the content itself: if the content plays to a host\'s ' +
+    'background, lean into that expertise; if it\'s outside their wheelhouse, make them ' +
+    'the curious outsider. Keep it concrete — describe HOW they engage, not just that they do. ' +
+    'Return ONLY JSON: [{"id":"<characterId>","angle":"<one sentence>"}]'
+
+  const roster = members.map(m =>
+    `- ${m.name} (id: ${m.id}) — standing role: ${m.role || 'co-host'}${m.background ? `. Background: ${m.background}` : ''}`,
+  ).join('\n')
+
+  try {
+    const model = await getFastModel()
+    const resp = await ollamaChat(model, [
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: `Hosts:\n${roster}\n\nThis episode's content:\n${contentSummary.slice(0, 2000)}` },
+    ], undefined, { temperature: 0.8, num_predict: 300 }, undefined, 30_000)
+
+    const arr = (resp.message?.content ?? '').match(/\[[\s\S]*\]/)?.[0]
+    if (!arr) return []
+    const parsed = JSON.parse(arr) as Record<string, unknown>[]
+    return parsed
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+      .map(p => ({ id: String(p.id ?? '').trim(), angle: String(p.angle ?? '').trim() }))
+      .filter(p => p.id && p.angle)
+  } catch {
+    return []
+  }
+}
+
 /** Append this episode's beats to each host's rolling history (capped), in place. */
 export function recordBeats(cast: ShowCast, beats: EpisodeBeat[]): void {
   for (const b of beats) {

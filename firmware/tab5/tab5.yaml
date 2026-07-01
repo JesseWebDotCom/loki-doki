@@ -74,6 +74,7 @@ esphome:
           id(satellite)->set_stream_deck_page(id(ctrl_native));
           id(satellite)->set_sd_fonts((void *) id(font_sd_icon), (void *) id(font_sd_label));
           id(satellite)->set_sd_atlas((void *) (esphome::image::Image *) id(ctrl_atlas));
+          id(satellite)->set_status_widgets((void *) id(no_session_banner), (void *) id(media_bar));
 
 esp32:
   variant: esp32p4
@@ -1104,6 +1105,28 @@ lvgl:
                   text: "Server unreachable"
                   text_font: font_footer
                   text_color: 0x1A1205
+        # Shown in the player area when a controller action can't fire because no web-app tab
+        # is connected — instead of opening a blank mini-player. Auto-hides after a few seconds.
+        - obj:
+            id: no_session_banner
+            align: BOTTOM_MID
+            x: 0
+            y: -52
+            width: 560
+            height: 92
+            radius: 20
+            bg_color: 0x1C2A46
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x3B4A6B
+            pad_all: 0
+            hidden: true
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "No app session — open the app to play"
+                  text_font: font_sd_label
+                  text_color: 0xE6ECFA
 
         # ── Native media player bar (driven by display.data `media`; shows on BOTH the
         # dashboard and controller since it's a page_clock sibling). Transport taps send
@@ -1821,12 +1844,20 @@ text_sensor:
                 lv_label_set_text(id(lv_wx_temp), buf);
                 if (!text.empty()) text[0] = (char) toupper(text[0]);
                 lv_label_set_text(id(lv_wx_cond), text.c_str());
-                // Per-condition gradient background (day/night), animated effect, then
-                // seasonal/temperature ambience (petals/leaves/fireflies/heat-shimmer).
-                wxfx::set_bg(id(bg_img), wxfx::gradient_key(code, day));
-                wxfx::apply_weather_fx(id(lv_wx_fx), code, day);
+                // Rebuild the SCENE (gradient bg + landscape/sky fx + seasonal particles) ONLY
+                // when the condition actually changes — NOT on every data push (the 30s
+                // refresher would otherwise re-randomize the land + reset the sky animations
+                // every 30s). Labels above/below still update every push.
+                static int last_code = -999, last_day = -1, last_month = -1;
                 { ESPTime nt = id(tab5_time)->now();
-                  wxfx::apply_seasonal(id(lv_wx_fx), code, day, nt.is_valid() ? nt.month : 6, temp); }
+                  int mon = nt.is_valid() ? nt.month : 6;
+                  if (code != last_code || (int) day != last_day || mon != last_month) {
+                    last_code = code; last_day = (int) day; last_month = mon;
+                    wxfx::set_bg(id(bg_img), wxfx::gradient_key(code, day));
+                    wxfx::apply_weather_fx(id(lv_wx_fx), code, day);
+                    wxfx::apply_seasonal(id(lv_wx_fx), code, day, mon, temp);
+                  }
+                }
                 snprintf(buf, sizeof(buf), "H %d°   L %d°", hi, lo);
                 lv_label_set_text(id(lv_wx_hilo), buf);
                 lv_label_set_text(id(lv_wx_loc), loc.c_str());

@@ -118,6 +118,9 @@ class LokiDokiSatellite : public Component {
   void set_sd_fonts(void *icon, void *text) { this->sd_icon_font_ = icon; this->sd_text_font_ = text; }
   // The controller thumbnail atlas (an image::Image* as void*, already base-adjusted in YAML).
   void set_sd_atlas(void *img) { this->sd_atlas_ = img; }
+  // The "no app session" banner + the media player bar (lv_obj_t* as void*), so a failed
+  // controller action shows a message instead of a blank player.
+  void set_status_widgets(void *ns_banner, void *media_bar) { this->sd_ns_banner_ = ns_banner; this->sd_media_bar_ = media_bar; }
   // Set by rebuild when the grid changed → YAML polls this to (re)fetch the atlas URL.
   bool take_atlas_dirty() { bool d = this->sd_atlas_dirty_; this->sd_atlas_dirty_ = false; return d; }
   // Called from the atlas online_image's on_download_finished: reveal + refresh the tiles.
@@ -264,6 +267,8 @@ class LokiDokiSatellite : public Component {
   void *sd_icon_font_{nullptr};    // font::Font* (as void*) for the native grid tiles
   void *sd_text_font_{nullptr};
   void *sd_atlas_{nullptr};        // image::Image* (as void*) — the thumbnail atlas
+  void *sd_ns_banner_{nullptr};    // lv_obj_t* "no app session" banner
+  void *sd_media_bar_{nullptr};    // lv_obj_t* media player bar
   bool sd_atlas_dirty_{false};     // rebuild happened → YAML should refetch the atlas
   int sd_atlas_retries_{0};        // bounded refetch attempts after a failed download
   bool sd_atlas_loaded_{false};    // true once tiles are revealed (cleared on rebuild)

@@ -69,6 +69,20 @@ async function gradientGlyphTile(colors: [string, string, string], glyphKey: str
   return sharp(Buffer.from(svg)).png().toBuffer()
 }
 
+/** A square podcast cover for a show: its uploaded art if present, else the app's ShowCover
+ *  fallback (palette gradient + OpenMoji glyph). Used by the device's /cover route so a
+ *  now-playing podcast shows real art on the player bar. */
+export async function renderPodcastCoverForShow(showId: string): Promise<Buffer | null> {
+  const [sh] = await db.select({ cover: podcastShows.coverRelPath, name: podcastShows.name })
+    .from(podcastShows).where(eq(podcastShows.id, showId))
+  if (!sh) return null
+  if (sh.cover) {
+    const raw = await readFile(await resolveUserPath(sh.cover)).catch(() => null)
+    if (raw) { try { return await sharp(raw).resize(240, 240, { fit: 'cover' }).png().toBuffer() } catch { /* fall through */ } }
+  }
+  return podcastCoverTile(showId, sh.name ?? '')
+}
+
 /** Station tile: the app's accent-gradient + name/category watermark look. */
 function stationArtTile(accent: string | null, name: string, category: string | null): Promise<Buffer> {
   return gradientGlyphTile(STATION_GRADIENT[accent ?? 'violet'] ?? STATION_GRADIENT.violet!, stationGlyphKey(name, category))

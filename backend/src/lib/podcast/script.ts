@@ -5,6 +5,9 @@
 import { getModel } from '@/lib/models'
 import { ollamaChat } from '@/llm/ollama'
 import type { ShowConfig, ScriptTurn, SegmentContent, CastBrief } from './types'
+import { generateEpisodeOutline, formatOutlineBlock } from './outline'
+import { applyDisfluencyPass } from './disfluency'
+import { generateEpisodeAngles } from './persona'
 
 // Per-style direction plus an explicit total word target. LLMs hit a word count far
 // more reliably than a "minutes" hint, and the target is what keeps episodes from
@@ -45,6 +48,21 @@ export async function generateScript(
   const targetWords = style.targetWords
   const targetMinutes = Math.max(2, Math.round(targetWords / 165))
 
+  const contentSummary = segments
+    .filter(s => s.items.length > 0)
+    .map(s => `## ${s.label}\n${s.items.map(i => `- ${i}`).join('\n')}`)
+    .join('\n\n')
+
+  // Outline + angles are independent — run in parallel to avoid adding two serial round-trips
+  // before the main (large) model call which already needs its own VRAM load headroom.
+  const [outline, episodeAngles] = await Promise.all([
+    generateEpisodeOutline(contentSummary).catch(() => null),
+    cast?.members?.length
+      ? generateEpisodeAngles(cast.members, contentSummary).catch(() => [])
+      : Promise.resolve([]),
+  ])
+  const angleById = new Map(episodeAngles.map(a => [a.id, a.angle]))
+
   // Fold each host's show persona (role/background/hobbies) into their description.
   const personaById = new Map((cast?.members ?? []).map(m => [m.id, m]))
   const hostDescriptions = hostInfos.map(h => {
@@ -53,6 +71,8 @@ export async function generateScript(
     if (m?.role) line += ` — ${m.role}`
     line += `. Personality: ${h.personality}`
     if (m?.background) line += ` Background: ${m.background}`
+    const angle = angleById.get(h.id) ?? m?.episodeAngle
+    if (angle) line += ` Angle this episode: ${angle}`
     if (m?.hobbies.length) line += ` Hobbies: ${m.hobbies.join(', ')}.`
     return line
   }).join('\n')
@@ -67,13 +87,10 @@ export async function generateScript(
     ? `\nWHAT'S NEW WITH THE HOSTS THIS EPISODE — these hosts KNOW each other, but keep this VERY LIGHT: AT MOST TWO short personal moments in the ENTIRE episode (e.g. a brief check-in near the top and, at most, one callback or tease later) — not in every exchange, and never a back-and-forth that runs more than a couple of lines. When it does happen they talk TO each other: ask how things are going, react, gently tease, and CALL BACK to each other's earlier moments (the "[earlier: …]" notes — e.g. "Wait, didn't you say you were starting a garden?"). It should feel like friends who've done this show a while. Everything else stays on the material; all personal chatter combined must stay well under ~10% of the episode.\n${beatLines}${awayLines ? `\nAway this episode (do NOT write any lines for them; one brief mention or tease at most):\n${awayLines}` : ''}\n`
     : ''
 
-  const contentSummary = segments
-    .filter(s => s.items.length > 0)
-    .map(s => `## ${s.label}\n${s.items.map(i => `- ${i}`).join('\n')}`)
-    .join('\n\n')
-
   const isMultiHost = hostInfos.length > 1
   const hostList = hostInfos.map(h => h.name).join(', ')
+
+  const outlineBlock = outline ? `\n${formatOutlineBlock(outline)}\n` : ''
 
   const systemPrompt = `You are a podcast script writer. Write a podcast episode script for "${show.name}".
 ${show.description ? `Show description: ${show.description}` : ''}
@@ -86,7 +103,7 @@ PERSPECTIVE — READ CAREFULLY: The hosts are third-party commentators discussin
 NAME THE CREATOR: The material says who made it (a channel/creator name). Use that ACTUAL name naturally and often, the way real commentators do — e.g. "The thing I love about Jakkuh is they…", "MrWhosTheBoss always seems to…", "what's interesting about how they did this…". Don't fall back to a flat "the creator" every time; weave the real name in throughout, especially when opening the episode and when transitioning between the major beats.
 
 STRUCTURE — IMPORTANT: Each piece of source material comes with an overall premise and an ordered list of its major beats. Build the episode to FOLLOW that arc and stay on the BIG PICTURE. Open by setting up what it's actually about at a high level, so a listener with zero prior context immediately understands it; then move through the major beats IN ORDER (e.g. overview → it arrives / first impressions → testing → improvements → final thoughts), bringing in specific details only to illustrate each major part. Do NOT open on or dwell in small isolated details (a stray part, a passing remark) before the big picture is established, and do not get lost in minutiae — always keep the through-line of the overall story.
-
+${outlineBlock}
 LENGTH: This is a full ${targetMinutes}-minute episode. Write roughly ${targetWords} words of spoken dialogue in total — this is a firm target, not a maximum. Work through ALL of the material below thoroughly; spend real time on each item rather than rushing. Do not wrap up or sign off until you have covered everything and hit the length.
 
 Hosts:
@@ -96,13 +113,28 @@ ${castSection}
 Format your output as a JSON array of turns, each with "host" (the character id, exactly as listed above) and "text" (what they say).
 ${isMultiHost
   ? `Hosts: ${hostList}. Write a real back-and-forth conversation, NOT alternating monologues:
+- Each line of dialogue should be no more than 100 characters (roughly 5-8 seconds of audio). Long explanations must be broken into multiple shorter turns with reactions between them.
 - Keep individual turns short (1 to 3 sentences) so they volley quickly — but write MANY turns to reach the length target.
-- Use natural interjections and confirmations: "Yeah", "Right", "Oh totally", "Wait, what?", "No way", "Exactly", "Hmm", "Hold on".
+- Use natural interjections: "Yeah", "Right", "Oh totally", "Wait, what?", "No way", "Hmm", "Hold on", "Huh".
+- AVOID these LLM defaults — they kill naturalness instantly: "Absolutely!", "Exactly!", "Certainly!", "That's a great point", "Great question", "Fascinating", "As you mentioned". Use "yeah", "right", "oh totally", "wait" instead.
 - Hosts react to and build on each other, ask each other questions, and push back or disagree sometimes.
 - Occasionally one host cuts in or finishes the other's thought: trail off the first turn with "..." and have the other jump in.
 - Vary who leads; write the occasional laugh or aside as words (e.g. "ha", "okay okay").
 - Make ideas land: use the occasional analogy ("it's basically like…") and rhetorical question to set up a point.
-- Bridge between beats with quick recaps ("so they've got it running, but then…") so the through-line stays clear.`
+- Bridge between beats with quick recaps ("so they've got it running, but then…") so the through-line stays clear.
+
+EXAMPLE — natural dialogue vs. scripted (write like the natural version):
+BAD (scripted — do not write like this):
+  Host A: Can you explain how that works?
+  Host B: Certainly! That's a great question. Essentially, what happens is the system processes each input sequentially and then generates a corresponding output based on the trained parameters.
+  Host A: That's fascinating. So what you're saying is it learns from examples?
+
+GOOD (natural — write like this):
+  Host A: So wait — it just... figures it out on its own?
+  Host B: Yeah, sort of. It sees enough examples and then—
+  Host A: Right, right.
+  Host B: —it starts picking up on patterns. Like, you don't program the rules explicitly.
+  Host A: Huh. That's kind of wild when you think about it.`
   : `Single host: ${hostInfos[0]?.name ?? 'Host'}. Warm and direct, like talking to one person. Develop each point fully, use the occasional analogy to make a point land, and recap briefly when moving between the major beats.`}
 Do not include stage directions, sound effects, or speaker names inside the text — only spoken words. Do not role-play or act out scenes; speak only as podcast hosts commenting on the material from the outside.
 Return ONLY the JSON array, no other text.`
@@ -115,12 +147,17 @@ Return ONLY the JSON array, no other text.`
 
   const model = await getModel()
   const genOpts = { temperature: 0.8, num_ctx: SCRIPT_NUM_CTX, num_predict: 4096 }
+  // Podcast generation involves many sequential LLM calls (main gen + up to 7 expansions +
+  // critique + sign-off). Pre-generation calls (outline, angles, gap detection) use the fast
+  // model, which may have evicted the main model from VRAM. Give each main-model call 5 min
+  // so a cold VRAM load doesn't trigger the default 120s timeout.
+  const SCRIPT_TIMEOUT_MS = 5 * 60_000
   let raw = ''
   try {
     const resp = await ollamaChat(model, [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: `${openingInstruction}\n\n${userPrompt}` },
-    ], undefined, genOpts)
+    ], undefined, genOpts, undefined, SCRIPT_TIMEOUT_MS)
     raw = resp.message?.content ?? ''
   } catch (err) {
     throw new Error(`LLM script generation failed: ${err}`)
@@ -144,12 +181,58 @@ Return ONLY the JSON array, no other text.`
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt },
         { role: 'user', content: `The conversation so far ends with:\n${tail.slice(-4000)}\n\nIt's still too short — it needs about ${remaining} more words to reach a full ${targetMinutes}-minute episode. Continue the SAME conversation naturally from where it left off: go deeper on the material, add reactions, tangents, examples, and follow-up questions. Begin with a host DIFFERENT from whoever spoke last above, and make it seamless — do NOT greet again, do NOT re-introduce the show, and never use meta phrases like "where we left off", "welcome back", or "after the break". Do NOT repeat anything already said and do NOT wrap up or sign off yet. Return ONLY a JSON array of the additional turns to append (same {"host","text"} format).` },
-      ], undefined, genOpts)
+      ], undefined, genOpts, undefined, SCRIPT_TIMEOUT_MS)
       const extra = parseTurns(resp.message?.content ?? '', hostInfos, false)
       if (extra.length) turns = [...turns, ...extra]
     } catch { break /* best-effort: keep what we have */ }
     // Diminishing returns — a pass that barely added anything won't be rescued by another.
     if (countWords(turns) - before < 60) break
+  }
+
+  // Critique pass — rewrite the opening (first 20 turns) to fix the most common AI-script
+  // problems: formal affirmations, monologue chunks, missing backchannels, and flat openers.
+  // Runs on the fully-expanded body so the editor has the whole episode for context.
+  // Best-effort: any parse failure keeps the originals.
+  if (turns.length > 4 && isMultiHost) {
+    try {
+      const OPENER_COUNT = Math.min(20, turns.length)
+      const openingTurns = turns.slice(0, OPENER_COUNT)
+      const openingText = openingTurns
+        .map(t => `${hostInfos.find(h => h.id === t.host)?.name ?? t.host}: ${t.text}`)
+        .join('\n')
+      const hookLine = outline?.hook ? `\nThe intended opening hook was: "${outline.hook}"\n` : ''
+      const critiqueResp = await ollamaChat(model, [
+        {
+          role: 'system',
+          content:
+            'You are an award-winning podcast script editor. An AI-generated script has been handed to you. ' +
+            'Your job is to rewrite the FIRST portion so it sounds like two real people talking — not an AI reciting bullet points.\n\n' +
+            'MUST FIX:\n' +
+            '- Remove any turn containing "Great question", "That\'s a fascinating point", "Let me explain", ' +
+            '"As you mentioned", "Certainly", "Absolutely", "Exactly" — replace with a direct reaction or follow-on\n' +
+            '- Break any turn longer than 3 sentences into two shorter turns with an interjection between them\n' +
+            '- Add 2-3 backchannel responses: a standalone "Yeah.", "Right.", "Hmm.", "Oh wow." where one host ' +
+            'is explaining and the other would naturally react mid-explanation\n' +
+            '- If the opening does not match the intended hook, revise it to open with that hook naturally\n\n' +
+            'DO NOT:\n' +
+            '- Change factual content about the source material\n' +
+            '- Restructure the overall order\n' +
+            '- Re-introduce the show or re-greet listeners\n' +
+            '- Add "um" or "uh" — handled separately\n\n' +
+            `Hosts: ${hostList} (use their names in the JSON "host" field exactly as shown)\n` +
+            'Return ONLY a JSON array of the improved turns in {"host","text"} format.',
+        },
+        {
+          role: 'user',
+          content: `${hookLine}Opening turns to improve:\n${openingText}`,
+        },
+      ], undefined, { temperature: 0.7, num_ctx: SCRIPT_NUM_CTX, num_predict: 2000 }, undefined, SCRIPT_TIMEOUT_MS)
+
+      const improved = parseTurns(critiqueResp.message?.content ?? '', hostInfos, false)
+      if (improved.length >= OPENER_COUNT) {
+        turns = [...improved, ...turns.slice(OPENER_COUNT)]
+      }
+    } catch { /* best-effort: keep originals */ }
   }
 
   // Sign-off. The expansion passes forbid wrapping up (so the episode doesn't end early),
@@ -162,10 +245,17 @@ Return ONLY the JSON array, no other text.`
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt },
         { role: 'user', content: `The conversation so far ends with:\n${tail.slice(-3000)}\n\nNow write ONLY the CLOSING of this episode of "${show.name}" — a short, natural sign-off of about 3 to 6 quick turns: briefly land a final takeaway on what was discussed, then ${isMultiHost ? 'the hosts' : 'the host'} thank the listener for listening and tease coming back next time, in character. Wrap it up cleanly and do NOT introduce new material. Return ONLY a JSON array of the closing turns to append (same {"host","text"} format).` },
-      ], undefined, genOpts)
+      ], undefined, genOpts, undefined, SCRIPT_TIMEOUT_MS)
       const closing = parseTurns(resp.message?.content ?? '', hostInfos, false)
       if (closing.length) turns = [...turns, ...closing]
     } catch { /* best-effort: a missing sign-off beats failing the episode */ }
+  }
+
+  // Disfluency pass — adds natural spoken-word imperfections as a dedicated final step.
+  // Separate from generation because asking one model to write coherent content AND add
+  // imperfections simultaneously produces uniform um-spam or nothing. Skips sign-off turns.
+  if (isMultiHost && turns.length > 6) {
+    turns = await applyDisfluencyPass(turns, hostInfos).catch(() => turns)
   }
 
   return turns

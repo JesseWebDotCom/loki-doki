@@ -103,13 +103,14 @@ export async function ollamaChat(
   tools?: OllamaTool[],
   options?: Record<string, unknown>,
   format?: unknown,
+  timeoutMs?: number,
 ): Promise<OllamaChatChunk> {
   // Centralized text safety floor — covers every non-vision generative call here.
   messages = applyTextFloor(messages)
   const res = await fetch(`${ollamaUrl()}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(OLLAMA_CHAT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs ?? OLLAMA_CHAT_TIMEOUT_MS),
     // think: false — Gemma 4 and other thinking models spend hidden tokens on reasoning
     // before emitting visible content. With num_predict capped those tokens get consumed
     // before any content appears, producing silent/empty responses. Disable it globally.

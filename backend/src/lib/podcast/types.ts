@@ -77,6 +77,8 @@ export interface CastBrief {
     beat: string
     /** A couple of earlier-episode beats, so the others can recall/tease/follow up. */
     recent: string[]
+    /** Per-video angle: how this host's role plays out for THIS specific content. */
+    episodeAngle?: string
   }[]
   away: { name: string; beat: string }[]
 }

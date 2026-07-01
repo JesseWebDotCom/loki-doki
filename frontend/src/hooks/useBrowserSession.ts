@@ -43,6 +43,7 @@ export function useBrowserSession() {
                 const res = await fetch(`/api/podcasts/shows/${showId}/episodes`, { credentials: 'include' })
                   .then(r => r.json()).catch(() => null) as { episodes?: Array<{ id: string; title: string; status?: string; durationSec?: number }> } | null
                 const ep = res?.episodes?.find(e => e.status === 'ready')
+                console.log('[controller] play_podcast', { showId, episodes: res?.episodes?.length, ready: !!ep, ep })
                 if (ep) {
                   podcast.play({
                     episodeId: ep.id, showId, title: ep.title, durationSec: ep.durationSec ?? undefined,

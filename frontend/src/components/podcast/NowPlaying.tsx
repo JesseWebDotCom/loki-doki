@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Play, Pause, RotateCcw, RotateCw, Moon, GripVertical, X } from 'lucide-react'
+import { Play, Pause, RotateCcw, RotateCw, Moon, GripVertical, X, Download } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
@@ -123,13 +123,42 @@ export function NowPlaying() {
         {tab === 'transcript' && (
           detail == null ? <p className="px-2 py-6 text-center text-sm text-muted-foreground/60">Loading…</p>
           : detail.transcript.length > 0 ? (
-            <div className="space-y-3">
-              {detail.transcript.map((t, i) => (
-                <div key={i}>
-                  <p className="text-xs font-semibold text-brand">{t.speaker}</p>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{t.text}</p>
-                </div>
-              ))}
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{detail.transcript.length} turns</span>
+                <button
+                  onClick={() => {
+                    const header = [
+                      'PODCAST TRANSCRIPT',
+                      `Show: ${track.showName}`,
+                      `Episode: ${track.title}`,
+                      detail.generatedAt ? `Date: ${fmtDate(detail.generatedAt)}` : '',
+                    ].filter(Boolean).join('\n')
+                    const body = detail.transcript.map(t => `${t.speaker.toUpperCase()}\n${t.text}`).join('\n\n')
+                    const text = `${header}\n\n${'─'.repeat(40)}\n\n${body}`
+                    const blob = new Blob([text], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `${track.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-transcript.txt`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  title="Download transcript"
+                >
+                  <Download className="size-3.5" />
+                  Download
+                </button>
+              </div>
+              <div className="space-y-3">
+                {detail.transcript.map((t, i) => (
+                  <div key={i}>
+                    <p className="text-xs font-semibold text-brand">{t.speaker}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{t.text}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : <p className="px-2 py-6 text-center text-sm text-muted-foreground/60">No transcript available.</p>
         )}

@@ -6,9 +6,103 @@ import { eq, inArray, desc } from 'drizzle-orm'
 import { getTranscriptText } from '@/lib/youtube/transcript'
 import { summarizeVideo } from '../videoBrief'
 import type { ShowSegment, SegmentContent } from '../types'
+import { getFastModel } from '@/lib/models'
+import { ollamaChat } from '@/llm/ollama'
+import { wikipediaSearch } from '@/lib/wikipediaSearch'
 
 /** Total transcript budget across all selected videos, to keep the script prompt bounded. */
 const TRANSCRIPT_BUDGET = 12_000
+
+// ── Gap enrichment ─────────────────────────────────────────────────────────────────────
+// Runs after summarizeVideo() to give hosts informed context about the creator and any
+// terms/concepts in the brief that a general audience wouldn't know. The biggest gap in
+// a raw transcript-to-podcast pipeline: hosts get a summary of words but no knowledge
+// of WHO made it or WHY certain things matter.
+
+interface KnowledgeGap { term: string; question: string; priority: number }
+
+const GAP_SYSTEM =
+  'You identify terms and references in a content brief that a general podcast audience ' +
+  'would not recognize without explanation. For each, write the SPECIFIC question that ' +
+  'would fill the gap (not a keyword restatement — a real question like "What is X and ' +
+  'why does it matter in this context?"). Focus on: unexplained acronyms, named people or ' +
+  'organizations without context, products/standards/concepts assumed as known, technical ' +
+  'jargon. Ignore obvious everyday words. Return ONLY JSON: ' +
+  '[{"term":"<term>","question":"<specific question>","priority":1-3}] ' +
+  '(3=most critical to understanding; 1=nice-to-know). Return [] if nothing needs clarification.'
+
+async function detectGaps(briefText: string): Promise<KnowledgeGap[]> {
+  try {
+    const model = await getFastModel()
+    // Tight timeout: gap detection is best-effort enrichment. If Ollama is busy (e.g.
+    // with generateCast/advanceBeats), skip it rather than queuing and delaying the main
+    // script generation call which needs its own cold-model-load headroom.
+    const resp = await ollamaChat(model, [
+      { role: 'system', content: GAP_SYSTEM },
+      { role: 'user', content: `Content brief:\n${briefText.slice(0, 3000)}` },
+    ], undefined, { temperature: 0.3, num_predict: 400 }, undefined, 15_000)
+    const arr = (resp.message?.content ?? '').match(/\[[\s\S]*\]/)?.[0]
+    if (!arr) return []
+    const parsed = JSON.parse(arr) as Record<string, unknown>[]
+    return parsed
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+      .map(p => ({
+        term: String(p.term ?? '').trim(),
+        question: String(p.question ?? '').trim(),
+        priority: typeof p.priority === 'number' ? p.priority : 1,
+      }))
+      .filter(p => p.term && p.question)
+  } catch { return [] }
+}
+
+/**
+ * Build a "Background context" block to append to the content item so the script model's
+ * hosts can discuss the video as informed commentators rather than people who only read
+ * a summary. Runs two enrichments in parallel: creator context + gap-identified terms.
+ * Best-effort — returns '' on total failure.
+ */
+async function buildEnrichmentBlock(
+  title: string,
+  author: string | undefined,
+  brief: { premise: string; beats: string[] },
+): Promise<string> {
+  const briefText = [brief.premise, ...brief.beats.slice(0, 5)].join('\n')
+
+  // Run creator lookup + gap detection in parallel
+  const [creatorResults, gaps] = await Promise.all([
+    author ? wikipediaSearch(`${author} YouTube channel`, 1, 5000).catch(() => []) : Promise.resolve([]),
+    detectGaps(briefText),
+  ])
+
+  // Deduplicate gaps by term (case-insensitive) and keep priority 2+ first
+  const seen = new Set<string>()
+  const topGaps = gaps
+    .sort((a, b) => b.priority - a.priority)
+    .filter(g => { const k = g.term.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
+    .slice(0, 4)
+
+  // Run Wikipedia lookups for all gaps in parallel
+  const gapResults = await Promise.all(
+    topGaps.map(g =>
+      wikipediaSearch(`${g.term} ${g.question}`, 1, 4000)
+        .then(r => ({ term: g.term, snippet: r[0]?.snippet ?? '' }))
+        .catch(() => ({ term: g.term, snippet: '' })),
+    ),
+  )
+
+  const blocks: string[] = []
+
+  if (creatorResults[0]?.snippet) {
+    blocks.push(`About ${author} (the creator): ${creatorResults[0].snippet.slice(0, 200)}`)
+  }
+
+  for (const { term, snippet } of gapResults) {
+    if (snippet) blocks.push(`${term}: ${snippet.slice(0, 150)}`)
+  }
+
+  if (!blocks.length) return ''
+  return `\nBackground context (for hosts' informed commentary — weave this in naturally):\n${blocks.map(b => `- ${b}`).join('\n')}`
+}
 
 interface VideoRef { videoId: string; title?: string; author?: string }
 
@@ -44,7 +138,8 @@ async function youtubeAdapter(
         const arc = brief.beats.length
           ? `\nHow it unfolds, in order — build the discussion around this arc (set up the overview first, then walk each major part):\n${brief.beats.map(b => `- ${b}`).join('\n')}`
           : ''
-        items.push(`${heading}\nWhat the video is about (overall): ${brief.premise}${arc}`)
+        const enrichment = await buildEnrichmentBlock(v.title ?? v.videoId, v.author, brief).catch(() => '')
+        items.push(`${heading}\nWhat the video is about (overall): ${brief.premise}${arc}${enrichment}`)
       } else {
         // Summarizer unavailable — fall back to a labeled transcript excerpt (their words,
         // discuss in third person).

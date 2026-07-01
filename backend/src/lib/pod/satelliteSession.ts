@@ -149,8 +149,8 @@ export class SatelliteSession implements PodFireTarget {
           const brRow = Number(d.row), brCol = Number(d.col)
           // Fire the action AND follow up: report back whether it actually landed so the
           // device can un-sink a tile whose action was dropped or never acked.
-          void handleButtonPress(this._deviceId, String(d.page_id), brRow, brCol, this.userId, (ok) => {
-            if (!this.closed) this.send({ type: 'user-event', data: { name: 'button_result', row: brRow, col: brCol, ok } })
+          void handleButtonPress(this._deviceId, String(d.page_id), brRow, brCol, this.userId, (ok, reason) => {
+            if (!this.closed) this.send({ type: 'user-event', data: { name: 'button_result', row: brRow, col: brCol, ok, reason: reason ?? '' } })
           })
         } else if (d && d.name === 'view' && this._deviceId && typeof d.view === 'string') {
           // Device swiped between the ambient display and the button-grid controller; the

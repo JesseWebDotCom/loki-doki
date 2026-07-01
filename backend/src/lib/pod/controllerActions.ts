@@ -61,27 +61,27 @@ export async function handleButtonPress(
   row: number,
   col: number,
   userId: string,
-  // Follow-up: called with whether the action ACTUALLY fired (delivered + app-acked, or a
-  // drop/timeout). The device uses it to un-sink a tile whose action never landed.
-  onResult?: (ok: boolean) => void,
+  // Follow-up: called with whether the action ACTUALLY fired, and WHY not. The device uses
+  // it to un-sink a tile and surface "no session" instead of a blank player.
+  onResult?: (ok: boolean, reason?: 'no_session' | 'timeout' | 'no_action') => void,
 ): Promise<void> {
   let payload
   try {
     payload = await resolveControllerDescriptor(deviceId, userId)
   } catch (e) {
     logger.warn(`[controller] resolve failed for button press: ${(e as Error).message}`)
-    onResult?.(false)
+    onResult?.(false, 'no_action')
     return
   }
   const page = payload.pages.find((p) => p.id === pageId) ?? payload.pages[0]
   const button = page?.buttons.find((b) => b.row === row && b.col === col)
   const cmd = button ? toBrowserCommand(button.action as ControllerAction) : null
-  if (!cmd) { onResult?.(false); return }
+  if (!cmd) { onResult?.(false, 'no_action'); return }
 
   const ackId = randomUUID()
   cmd.ackId = ackId
   const delivered = pushToBrowserSession(userId, cmd)
   logger.info(`[controller] button press page=${pageId} (${row},${col}) → ${cmd.type}${cmd.action ? '/' + cmd.action : ''} delivered=${delivered} user=${userId}`)
-  if (!delivered) { onResult?.(false); return }   // no live tab → definitely didn't fire
-  if (onResult) trackCommandAck(ackId, onResult)  // else wait for the app's ack (or timeout)
+  if (!delivered) { onResult?.(false, 'no_session'); return }   // no live tab → nothing to drive
+  if (onResult) trackCommandAck(ackId, (ok) => onResult(ok, ok ? undefined : 'timeout'))
 }

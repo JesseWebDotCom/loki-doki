@@ -420,11 +420,12 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     return;
   }
   if (type == "user-event") {
-    std::string name, state, token, mode, reply;
+    std::string name, state, token, mode, reply, br_reason;
     bool dim_enabled = false, br_ok = false;
     int dim_percent = 30, dim_after_s = 60, degrees = -1, br_row = -1, br_col = -1;
     json::parse_json(data_json, [&](JsonObject root) -> bool {
       name = root["name"].as<std::string>();
+      br_reason = root["reason"].as<std::string>();
       state = root["state"].as<std::string>();
       token = root["token"].as<std::string>();
       mode = root["mode"].as<std::string>();  // "" when absent (face.state/auth events)
@@ -442,10 +443,24 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       // Companion's typed reply — surface it to the LVGL panel via the text sensor.
       if (this->reply_sensor_ != nullptr) this->reply_sensor_->publish_state(reply);
     } else if (name == "button_result") {
-      // Server's follow-up: did the tapped controller action ACTUALLY fire? If not (web app
-      // gone / errored / dropped), pop the tile back up so it never falsely reads "selected".
-      ESP_LOGI(TAG, "[stream-deck] button_result (%d,%d) ok=%d", br_row, br_col, (int) br_ok);
+      // Server's follow-up: did the tapped controller action ACTUALLY fire? If not, pop the
+      // tile back up so it never falsely reads "selected".
+      ESP_LOGI(TAG, "[stream-deck] button_result (%d,%d) ok=%d reason=%s", br_row, br_col, (int) br_ok, br_reason.c_str());
       if (!br_ok && br_row >= 0 && br_col >= 0) this->set_cell_pressed(br_row, br_col, false);
+      if (!br_ok && br_reason == "no_session") {
+        // No web-app tab connected → show a message in the player area, NOT a blank player.
+        if (this->sd_media_bar_) lv_obj_add_flag((lv_obj_t *) this->sd_media_bar_, LV_OBJ_FLAG_HIDDEN);
+        if (this->sd_ns_banner_) {
+          lv_obj_t *b = (lv_obj_t *) this->sd_ns_banner_;
+          lv_obj_clear_flag(b, LV_OBJ_FLAG_HIDDEN);
+          lv_obj_move_foreground(b);
+          lv_timer_t *t = lv_timer_create([](lv_timer_t *tm) {
+            lv_obj_add_flag((lv_obj_t *) lv_timer_get_user_data(tm), LV_OBJ_FLAG_HIDDEN);
+            lv_timer_delete(tm);
+          }, 3800, b);
+          lv_timer_set_repeat_count(t, 1);
+        }
+      }
     } else if (name == "face.state") {
       this->face_ = state;
       this->update_led_();

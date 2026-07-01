@@ -9,7 +9,7 @@ import { Hono } from 'hono'
 import { streamSSE, stream } from 'hono/streaming'
 import { requireAdmin } from '@/middleware/auth'
 import { logger } from '@/lib/logger'
-import { buildControllerAtlas, resolveLocalArt } from '@/lib/pod/controllerAtlas'
+import { buildControllerAtlas, resolveLocalArt, renderPodcastCoverForShow } from '@/lib/pod/controllerAtlas'
 import type { AppEnv } from '@/types'
 import {
   createDevice, listDevices, deleteDevice, updateDevice, refreshPairingCode, redeemPairingCode, claimDevice,
@@ -174,7 +174,16 @@ pod.get('/cover/:hwid', async (c) => {
   if (!dev) return c.body(null, 404)
   let url = getNowPlaying(dev.userId)?.cover?.trim()
   if (!url) return c.body(null, 404)
-  // Station icons + podcast covers are auth-gated local files — read them off disk directly.
+  // Podcast cover → the show's uploaded art OR its generated ShowCover fallback (so a
+  // now-playing podcast always shows art on the player bar, matching the app).
+  const pm = url.match(/\/api\/podcasts\/shows\/([^/?]+)\/cover/)
+  if (pm) {
+    const b = await renderPodcastCoverForShow(pm[1])
+    return b
+      ? new Response(new Uint8Array(b), { status: 200, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } })
+      : c.body(null, 404)
+  }
+  // Station icons are auth-gated local files — read them off disk directly.
   const local = await resolveLocalArt(url)
   if (local) {
     return new Response(new Uint8Array(local), {
