@@ -443,19 +443,21 @@ inline void satellite(lv_obj_t *layer, uint32_t delay, uint32_t period) {
 inline void ufo_abduct(lv_obj_t *layer, uint32_t delay, uint32_t period) {
   lv_obj_t *grp = lv_obj_create(layer);
   lv_obj_remove_style_all(grp);
-  lv_obj_set_size(grp, 150, 320);
+  lv_obj_set_size(grp, 150, 490);                     // tall: saucer up top → beam to the ground
   lv_obj_remove_flag(grp, (lv_obj_flag_t) (LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
-  lv_obj_t *beam = spr(grp, 23, 210);                 // tractor beam under the saucer
-  lv_obj_set_style_image_opa(beam, LV_OPA_60, 0);
-  lv_obj_set_pos(beam, 28, 44);
-  twinkle(beam, 120, 200);                            // beam shimmer
-  lv_obj_t *u = spr(grp, 1, 176);                     // saucer on top
+  // Tapered light cone at 100% (no scaling cost): from just under the saucer down to the
+  // ground. beam.png is 108×440 → spans the full drop; it fans out + fades toward the base.
+  lv_obj_t *beam = spr(grp, 23, 256);
+  lv_obj_set_style_image_opa(beam, LV_OPA_50, 0);
+  lv_obj_set_pos(beam, 19, 34);
+  twinkle(beam, 150, 210);                            // gentle beam shimmer
+  lv_obj_t *u = spr(grp, 1, 176);                     // saucer on top of the beam
   lv_obj_set_pos(u, 38, 0);
-  lv_obj_t *c = spr(grp, 20, 150);                    // cow, bobbing up the beam
-  int cy = 214; lv_obj_set_pos(c, 52, cy);
-  sway(c, false, cy - 40, cy + 6, 1700, 0);
+  lv_obj_t *c = spr(grp, 20, 150);                    // cow lifting off the ground up the beam
+  int cy = 402; lv_obj_set_pos(c, 52, cy);
+  sway(c, false, cy - 46, cy + 8, 1900, 0);
   uint32_t dur = rnd(17000, 23000);                   // slow, majestic pass
-  cross(grp, 130, dur, delay, period - dur, 0);
+  cross(grp, 100, dur, delay, period - dur, 0);       // top at y100 → base ~y590 (the ground)
 }
 
 // COMET (night): a bright head + tail streaking down across the sky, now and then.

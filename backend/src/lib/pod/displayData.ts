@@ -171,7 +171,10 @@ export async function pushDisplayData(deviceId: string): Promise<void> {
 
 // ── Slow refresher: re-push weather to every connected LVGL device ────────────────
 let timer: ReturnType<typeof setInterval> | null = null
-const REFRESH_MS = 10 * 60 * 1000
+// 30s (not 10min): a device that missed a now-playing push — so its media bar is wrongly
+// hidden, or its weather is stale — self-heals within one cycle. Weather is cached, so this
+// is cheap. (The now-playing itself is only re-pushed here; the atlas self-heals device-side.)
+const REFRESH_MS = 30 * 1000
 
 export function startDisplayDataRefresher(): void {
   if (timer) return

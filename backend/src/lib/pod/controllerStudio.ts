@@ -6,7 +6,7 @@
 
 import { eq, or, isNull, isNotNull, and, desc, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { devices, controllerLayoutTemplates, ytSubscriptions, ytVideos, musicStations, musicHistory } from '@/db/schema'
+import { devices, controllerLayoutTemplates, ytSubscriptions, ytVideos, musicStations, musicHistory, podcastShows, podcastEpisodes } from '@/db/schema'
 import { logger } from '@/lib/logger'
 import type { StreamDeckConfigPayload } from '@/lib/pod/wyoming'
 
@@ -92,7 +92,22 @@ function tile(id: string, row: number, col: number, icon: string, label: string,
 async function defaultDashboardPage(userId: string): Promise<Page[]> {
   const buttons: Button[] = []
   try {
-    // 3 MOST-PLAYED stations (by history), padded with recent ones if fewer than 3.
+    // Podcast shows (owned or shared) that have at least one READY, playable episode. Each
+    // becomes a tile that opens the show to play; up to 2 share row 0 with the stations.
+    const shows = await db
+      .selectDistinct({ id: podcastShows.id, name: podcastShows.name, cover: podcastShows.coverRelPath })
+      .from(podcastShows)
+      .innerJoin(podcastEpisodes, eq(podcastEpisodes.showId, podcastShows.id))
+      .where(and(
+        or(eq(podcastShows.ownerUserId, userId), eq(podcastShows.visibility, 'shared')),
+        eq(podcastEpisodes.status, 'ready'),
+        isNotNull(podcastEpisodes.audioRelPath),
+      ))
+      .limit(2)
+    const nPod = Math.min(shows.length, 2)
+    const nStations = 5 - nPod   // stations fill the rest of row 0
+
+    // MOST-PLAYED stations (by history), padded with recent ones.
     const played = await db
       .select({ stationId: musicHistory.stationId, n: sql<number>`count(*)` })
       .from(musicHistory)
@@ -109,8 +124,8 @@ async function defaultDashboardPage(userId: string): Promise<Page[]> {
     const byId = new Map(recent.map((s) => [s.id, s]))
     const ordered = [...ids.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s), ...recent]
     const seen = new Set<string>()
-    const stations = ordered.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))).slice(0, 4)
-    for (let i = 0; i < 4; i++) {
+    const stations = ordered.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))).slice(0, nStations)
+    for (let i = 0; i < nStations; i++) {
       const st = stations[i]
       if (st) {
         // Stations render with the app's StationArt look (accent gradient + thematic
@@ -128,6 +143,14 @@ async function defaultDashboardPage(userId: string): Promise<Page[]> {
       }
     }
 
+    // Podcast tiles fill the right end of row 0 — tap opens the show to play its episodes.
+    for (let i = 0; i < nPod; i++) {
+      const sh = shows[i]
+      buttons.push(tile(`podcast-${sh.id}`, 0, nStations + i, '🎙', trunc(sh.name), '#4c1d95',
+        { type: 'app_action', action: 'play_podcast', payload: { showId: sh.id, showName: sh.name } },
+        sh.cover ? `/api/podcasts/shows/${sh.id}/cover` : undefined))
+    }
+
     // 4 newest videos from the user's SUBSCRIPTIONS (the subscription feed), with real
     // titles + thumbnails.
     const vids = await db
@@ -140,8 +163,9 @@ async function defaultDashboardPage(userId: string): Promise<Page[]> {
       const v = vids[i]
       if (v) {
         // Open the video in the YouTube watch page (which plays it) — NOT the music radio.
+        // mqdefault is 16:9 with NO baked-in letterbox bars (hqdefault is 4:3 WITH bars).
         buttons.push(tile(`yt-${v.videoId}`, 1, i, '▶', trunc(v.title || 'YouTube'), '#7f1d1d',
-          { type: 'navigate', app: 'youtube', videoId: v.videoId }, v.thumb || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`))
+          { type: 'navigate', app: 'youtube', videoId: v.videoId }, `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`))
       } else {
         buttons.push(tile(`yt-empty-${i}`, 1, i, '▶', 'YouTube', '#7f1d1d', { type: 'navigate', app: 'youtube' }))
       }
@@ -150,9 +174,7 @@ async function defaultDashboardPage(userId: string): Promise<Page[]> {
     logger.warn(`[controller] default dashboard resolve failed: ${(e as Error).message}`)
   }
 
-  // Transport is handled by the device's native player bar now — no playback tiles. The
-  // last row-0 slot becomes a Podcasts shortcut.
-  buttons.push(tile('podcasts', 0, 4, '🎙', 'Podcasts', '#4c1d95', { type: 'navigate', app: 'podcasts' }))
+  // Transport is handled by the device's native player bar — no playback tiles here.
   return [{ id: 'dashboard', name: 'Dashboard', gridRows: 3, gridCols: 5, sortOrder: 0, buttons }]
 }
 

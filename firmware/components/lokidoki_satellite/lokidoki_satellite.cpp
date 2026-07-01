@@ -7,6 +7,7 @@
 #include "esphome/components/network/util.h"
 #ifdef USE_LVGL
 #include "esphome/components/font/font.h"   // real YAML fonts for the native stream-deck grid
+#include "esphome/components/image/image.h" // the controller thumbnail atlas (image::Image)
 #endif
 
 #include <algorithm>
@@ -724,6 +725,7 @@ struct SdBtnCtx {
   LokiDokiSatellite *self;
   std::string page_id;
   int row, col;
+  lv_obj_t *cell;   // the tile, so an external press (touch-grid) can sink it
 };
 
 static void sd_btn_event_cb(lv_event_t *e) {
@@ -732,6 +734,17 @@ static void sd_btn_event_cb(lv_event_t *e) {
   if (ctx) ctx->self->send_button_press_(ctx->page_id, ctx->row, ctx->col);
 }
 }  // namespace
+
+void LokiDokiSatellite::set_cell_pressed(int row, int col, bool pressed) {
+  for (void *p : this->sd_btn_ctxs_) {
+    auto *ctx = static_cast<SdBtnCtx *>(p);
+    if (ctx->row == row && ctx->col == col && ctx->cell) {
+      if (pressed) lv_obj_add_state(ctx->cell, LV_STATE_PRESSED);
+      else lv_obj_remove_state(ctx->cell, LV_STATE_PRESSED);
+      return;
+    }
+  }
+}
 
 void LokiDokiSatellite::handle_stream_deck_config_(const std::string &data_json) {
   // Parse pages array from the Wyoming data JSON.
@@ -784,6 +797,37 @@ void LokiDokiSatellite::handle_stream_deck_config_(const std::string &data_json)
   this->sd_needs_rebuild_ = true;
 }
 
+void LokiDokiSatellite::on_atlas_ready() {
+  lv_image_dsc_t *dsc = this->sd_atlas_
+    ? static_cast<image::Image *>(this->sd_atlas_)->get_lv_image_dsc() : nullptr;
+  const int ATLAS_TH = 180;   // poster tile height (matches server ATLAS.TILE_H)
+  if (this->sd_tiles_pending_ && dsc && dsc->header.w > 0) {
+    // FIRST real atlas → build each cell's poster tile NOW (the descriptor has real w/h, so
+    // lv_image caches the correct size). Created after the sheen/label, so move behind them.
+    this->sd_tiles_pending_ = false;
+    for (void *p : this->sd_btn_ctxs_) {
+      auto *ctx = static_cast<SdBtnCtx *>(p);
+      if (!ctx->cell) continue;
+      lv_obj_t *img = lv_image_create(ctx->cell);
+      lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
+      lv_image_set_src(img, dsc);
+      lv_obj_set_size(img, this->sd_cell_w_, ATLAS_TH);
+      lv_obj_align(img, LV_ALIGN_TOP_LEFT, 0, 0);
+      lv_image_set_inner_align(img, LV_IMAGE_ALIGN_TILE);   // clips to the widget + honours offset
+      lv_image_set_offset_x(img, -ctx->col * this->sd_cell_w_);
+      lv_image_set_offset_y(img, -ctx->row * ATLAS_TH);
+      lv_obj_move_to_index(img, 0);   // behind the glass sheen + label
+      this->sd_tile_imgs_.push_back(img);
+    }
+  } else {
+    // Re-fetch: online_image refilled its buffer in place → just repaint the existing tiles.
+    for (void *p : this->sd_tile_imgs_) lv_obj_invalidate(static_cast<lv_obj_t *>(p));
+  }
+  this->sd_atlas_loaded_ = true;
+  ESP_LOGI(TAG, "[stream-deck] atlas ready → %d tiles (%dx%d)", (int) this->sd_tile_imgs_.size(),
+           dsc ? (int) dsc->header.w : 0, dsc ? (int) dsc->header.h : 0);
+}
+
 void LokiDokiSatellite::rebuild_stream_deck_ui_() {
   lv_obj_t *page = static_cast<lv_obj_t *>(this->sd_page_);
   if (!page) return;
@@ -791,6 +835,7 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
   // Free previous button context objects.
   for (void *p : this->sd_btn_ctxs_) delete static_cast<SdBtnCtx *>(p);
   this->sd_btn_ctxs_.clear();
+  this->sd_tile_imgs_.clear();   // the tile images are children of `page` → cleaned below
 
   // Remove all previous children from the page.
   lv_obj_clean(page);
@@ -817,6 +862,15 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
     return (ch((c >> 16) & 0xff) << 16) | (ch((c >> 8) & 0xff) << 8) | ch(c & 0xff);
   };
 
+  // Thumbnail atlas: the tile images are created in on_atlas_ready() — NOT here — because at
+  // rebuild time the atlas hasn't downloaded, so its descriptor is 0×0 and lv_image would
+  // cache that empty size and draw nothing forever. Ask YAML to (re)fetch for this grid.
+  this->sd_atlas_dirty_ = true;
+  this->sd_atlas_retries_ = 0;
+  this->sd_atlas_loaded_ = false;
+  this->sd_tiles_pending_ = true;
+  this->sd_cell_w_ = cell_w;
+
   for (const SdButton &btn : p.buttons) {
     if (btn.row < 0 || btn.row >= drawn_rows || btn.col < 0 || btn.col >= p.grid_cols) continue;
 
@@ -831,24 +885,38 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
     lv_obj_set_style_bg_grad_color(cell, lv_color_hex(shade(btn.bg_color, 68)), 0);
     lv_obj_set_style_bg_grad_dir(cell, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(cell, 16, 0);
-    lv_obj_set_style_border_width(cell, 1, 0);
-    lv_obj_set_style_border_color(cell, lv_color_hex(shade(btn.bg_color, 165)), 0);
-    lv_obj_set_style_border_opa(cell, 140, 0);
+    lv_obj_set_style_radius(cell, 18, 0);
+    lv_obj_set_style_clip_corner(cell, true, 0);   // clip the rectangular poster to the radius
+    // Crisp bright top-edge bevel so the tile reads as RAISED on the near-black surface
+    // (a dark drop shadow is invisible there — a light rim does the work instead).
+    lv_obj_set_style_border_width(cell, 2, 0);
+    lv_obj_set_style_border_color(cell, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(cell, 70, 0);
     lv_obj_set_style_pad_all(cell, 0, 0);
-    // Raised: soft drop shadow beneath the tile.
-    lv_obj_set_style_shadow_width(cell, 14, 0);
-    lv_obj_set_style_shadow_color(cell, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(cell, 95, 0);
-    lv_obj_set_style_shadow_ofs_y(cell, 6, 0);
-    // Depressed on press: sink down, collapse the shadow, darken the fill.
-    lv_obj_set_style_translate_y(cell, 4, LV_STATE_PRESSED);
-    lv_obj_set_style_shadow_width(cell, 3, LV_STATE_PRESSED);
-    lv_obj_set_style_shadow_ofs_y(cell, 1, LV_STATE_PRESSED);
-    lv_obj_set_style_bg_color(cell, lv_color_hex(shade(btn.bg_color, 82)), LV_STATE_PRESSED);
-    lv_obj_set_style_bg_grad_color(cell, lv_color_hex(shade(btn.bg_color, 50)), LV_STATE_PRESSED);
+    // Floating look: a soft LIGHT glow halo (visible on dark, unlike a black shadow).
+    lv_obj_set_style_shadow_width(cell, 16, 0);
+    lv_obj_set_style_shadow_color(cell, lv_color_hex(0x9db4e8), 0);
+    lv_obj_set_style_shadow_opa(cell, 45, 0);
+    lv_obj_set_style_shadow_ofs_y(cell, 2, 0);
+    // Depressed on press: physically SINK + shrink the tile (scale about its centre) and
+    // light a bright rim — a clear push-in. Driven via set_cell_pressed() from the touch-grid.
+    lv_obj_set_style_transform_pivot_x(cell, cell_w / 2, 0);
+    lv_obj_set_style_transform_pivot_y(cell, cell_h / 2, 0);
+    lv_obj_set_style_translate_y(cell, 20, LV_STATE_PRESSED);          // sink deep
+    lv_obj_set_style_transform_scale(cell, 208, LV_STATE_PRESSED);     // 208/256 ≈ 81% → really pushed in
+    lv_obj_set_style_shadow_width(cell, 0, LV_STATE_PRESSED);          // halo gone → flat to the surface
+    lv_obj_set_style_shadow_ofs_y(cell, 0, LV_STATE_PRESSED);
+    lv_obj_set_style_opa(cell, 235, LV_STATE_PRESSED);                 // recede slightly into shadow
+    lv_obj_set_style_border_color(cell, lv_color_hex(0xFFFFFF), LV_STATE_PRESSED);
+    lv_obj_set_style_border_opa(cell, 255, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(cell, 5, LV_STATE_PRESSED);          // bright inset rim
+    lv_obj_set_style_bg_color(cell, lv_color_hex(shade(btn.bg_color, 70)), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_grad_color(cell, lv_color_hex(shade(btn.bg_color, 40)), LV_STATE_PRESSED);
     lv_obj_add_flag(cell, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+
+    // (The artwork tile is created later, in on_atlas_ready, once the atlas descriptor is
+    // real — then moved BEHIND the sheen + label. See the note where atlas fetch is armed.)
 
     // Glass sheen: a white highlight over the top, fading to transparent (LVGL 9 grad opa).
     lv_obj_t *sheen = lv_obj_create(cell);
@@ -860,7 +928,7 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
     lv_obj_set_style_bg_grad_color(sheen, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_bg_grad_dir(sheen, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(sheen, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_main_opa(sheen, 75, 0);   // bright at the very top
+    lv_obj_set_style_bg_main_opa(sheen, 95, 0);   // bright glossy highlight at the very top
     lv_obj_set_style_bg_grad_opa(sheen, 0, 0);    // → fully transparent at the band bottom
     lv_obj_set_style_border_width(sheen, 0, 0);
     lv_obj_set_style_radius(sheen, 15, 0);
@@ -880,7 +948,7 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
     }
 
     // Attach click event with per-button context.
-    auto *ctx = new SdBtnCtx{this, p.id, btn.row, btn.col};
+    auto *ctx = new SdBtnCtx{this, p.id, btn.row, btn.col, cell};
     this->sd_btn_ctxs_.push_back(ctx);
     lv_obj_add_event_cb(cell, sd_btn_event_cb, LV_EVENT_CLICKED, ctx);
   }

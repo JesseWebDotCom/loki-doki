@@ -37,9 +37,10 @@ export function registerBrowserSession(userId: string, send: (cmd: BrowserComman
 export function pushToBrowserSession(userId: string, cmd: BrowserCommand): void {
   const set = sessions.get(userId)
   if (!set || set.size === 0) {
-    logger.info(`[browser-session] no active sessions for userId=${userId}`)
+    logger.info(`[browser-session] DROP ${cmd.type} — no active tab for userId=${userId} (is the web app open + connected?)`)
     return
   }
+  logger.info(`[browser-session] → ${cmd.type}${cmd.action ? '/' + cmd.action : ''} to ${set.size} tab(s) userId=${userId}`)
   const recent = Array.from(set).pop()
   if (recent) { try { recent(cmd) } catch { /* tab closed mid-push */ } }
 }

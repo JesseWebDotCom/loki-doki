@@ -8,6 +8,8 @@
 import { Hono } from 'hono'
 import { streamSSE, stream } from 'hono/streaming'
 import { requireAdmin } from '@/middleware/auth'
+import { logger } from '@/lib/logger'
+import { buildControllerAtlas } from '@/lib/pod/controllerAtlas'
 import type { AppEnv } from '@/types'
 import {
   createDevice, listDevices, deleteDevice, updateDevice, refreshPairingCode, redeemPairingCode, claimDevice,
@@ -143,6 +145,23 @@ pod.get('/image/:hwid', async (c) => {
     })
   } catch {
     return c.body(null, 404)
+  }
+})
+
+// Controller thumbnail ATLAS: every button's artwork composited into one grid image so the
+// native stream-deck device fetches it ONCE and shows each cell its tile (offset + clip).
+pod.get('/controller-atlas/:hwid', async (c) => {
+  const raw = c.req.param('hwid').replace(/\.(jpe?g|png|webp)$/i, '')
+  const dev = await deviceByHwid(raw)
+  if (!dev) return c.body(null, 404)
+  try {
+    const atlas = await buildControllerAtlas(dev.id, dev.userId, new URL(c.req.url).origin)
+    c.header('Content-Type', 'image/jpeg')
+    c.header('Cache-Control', 'no-store')
+    return c.body(atlas)
+  } catch (e) {
+    logger.warn(`[pod] controller atlas failed: ${(e as Error).message}`)
+    return c.body(null, 500)
   }
 })
 

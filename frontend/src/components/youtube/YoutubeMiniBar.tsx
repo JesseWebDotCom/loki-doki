@@ -4,7 +4,7 @@ import { Play, Pause, Maximize2, X, Loader2, SkipBack, SkipForward } from 'lucid
 import { cn } from '@/lib/cn'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { useRadio } from '@/context/RadioContext'
-import { registerTransport } from '@/lib/mediaCoordinator'
+import { registerTransport, acquireAudio } from '@/lib/mediaCoordinator'
 import { RadioMiniBar } from '@/components/music/RadioMiniBar'
 import { fileUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { proxyImg } from '@/lib/img'
@@ -206,13 +206,20 @@ export function YoutubeMiniBar() {
   // can drive it via the media coordinator. Registered once; calls the latest closures.
   const ctrlRef = useRef({ togglePlay, seekTo, skipPrev, skipNext, close: onClose })
   ctrlRef.current = { togglePlay, seekTo, skipPrev, skipNext, close: onClose }
-  useEffect(() => registerTransport('youtube', {
-    toggle: () => ctrlRef.current.togglePlay(),
-    next: () => ctrlRef.current.skipNext(),
-    prev: () => ctrlRef.current.skipPrev(),
-    seek: (sec) => ctrlRef.current.seekTo(sec),
-    stop: () => ctrlRef.current.close(),
-  }), [])
+  // Re-register on every dock/undock transition, NOT just once: the watch page overwrites
+  // AND deletes transports['youtube'] on unmount, so a one-time registration is gone after
+  // the first watch-page visit. Keying on !!track restores it the moment a video docks.
+  // Also mark youtube as the active audio source so a remote toggle routes here.
+  useEffect(() => {
+    if (track) acquireAudio('youtube')
+    return registerTransport('youtube', {
+      toggle: () => ctrlRef.current.togglePlay(),
+      next: () => ctrlRef.current.skipNext(),
+      prev: () => ctrlRef.current.skipPrev(),
+      seek: (sec) => ctrlRef.current.seekTo(sec),
+      stop: () => ctrlRef.current.close(),
+    })
+  }, [!!track]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Report YouTube now-playing to the shared snapshot so device player bars reflect it.
   const readRef = useRef(read); readRef.current = read

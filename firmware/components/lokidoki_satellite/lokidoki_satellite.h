@@ -116,6 +116,23 @@ class LokiDokiSatellite : public Component {
   // this header free of the font include (cast back in the .cpp). Without these the grid
   // would fall back to the tiny built-in LVGL font.
   void set_sd_fonts(void *icon, void *text) { this->sd_icon_font_ = icon; this->sd_text_font_ = text; }
+  // The controller thumbnail atlas (an image::Image* as void*, already base-adjusted in YAML).
+  void set_sd_atlas(void *img) { this->sd_atlas_ = img; }
+  // Set by rebuild when the grid changed → YAML polls this to (re)fetch the atlas URL.
+  bool take_atlas_dirty() { bool d = this->sd_atlas_dirty_; this->sd_atlas_dirty_ = false; return d; }
+  // Called from the atlas online_image's on_download_finished: reveal + refresh the tiles.
+  void on_atlas_ready();
+  // Drive a native grid cell's PRESSED state from the invisible touch-grid button over it,
+  // so the tile physically sinks/illuminates on touch (the touch-grid steals the real press).
+  void set_cell_pressed(int row, int col, bool pressed);
+  // Called from on_error: re-arm a fetch (bounded) so a transient download/decode failure
+  // recovers without waiting for a reconnect.
+  void atlas_retry() { if (this->sd_atlas_retries_ < 6) { this->sd_atlas_retries_++; this->sd_atlas_dirty_ = true; } }
+  // Self-heal: true once tiles are showing; a watchdog interval re-fetches if it's false.
+  bool atlas_loaded() const { return this->sd_atlas_loaded_; }
+  bool has_tiles() const { return !this->sd_tile_imgs_.empty(); }
+  bool atlas_wanted() const { return this->sd_tiles_pending_; }   // grid built, awaiting atlas
+  void request_atlas_refetch() { this->sd_atlas_retries_ = 0; this->sd_atlas_dirty_ = true; }
 
   // The stable hardware id (Wi-Fi MAC) this device announced + the server stored it by —
   // used by the native LVGL dashboard to build its per-device image URL so it matches
@@ -246,6 +263,12 @@ class LokiDokiSatellite : public Component {
   void *sd_page_{nullptr};
   void *sd_icon_font_{nullptr};    // font::Font* (as void*) for the native grid tiles
   void *sd_text_font_{nullptr};
+  void *sd_atlas_{nullptr};        // image::Image* (as void*) — the thumbnail atlas
+  bool sd_atlas_dirty_{false};     // rebuild happened → YAML should refetch the atlas
+  int sd_atlas_retries_{0};        // bounded refetch attempts after a failed download
+  bool sd_atlas_loaded_{false};    // true once tiles are revealed (cleared on rebuild)
+  bool sd_tiles_pending_{false};   // grid rebuilt → create tile images when the atlas arrives
+  int sd_cell_w_{244};             // last grid's cell width (for tile offset math)
   bool sd_needs_rebuild_{false};   // defer LVGL work to loop() (main task = LVGL safe)
 
   struct SdButton {
@@ -265,6 +288,7 @@ class LokiDokiSatellite : public Component {
   std::vector<SdPage> sd_pages_;
   int sd_active_page_{0};
   std::vector<void *> sd_btn_ctxs_;  // heap-allocated SdBtnCtx*, freed on rebuild
+  std::vector<void *> sd_tile_imgs_; // lv_obj_t* atlas-tile images, revealed on atlas ready
 };
 
 }  // namespace lokidoki_satellite

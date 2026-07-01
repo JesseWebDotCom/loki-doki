@@ -73,6 +73,7 @@ esphome:
       - lambda: |-
           id(satellite)->set_stream_deck_page(id(ctrl_native));
           id(satellite)->set_sd_fonts((void *) id(font_sd_icon), (void *) id(font_sd_label));
+          id(satellite)->set_sd_atlas((void *) (esphome::image::Image *) id(ctrl_atlas));
 
 esp32:
   variant: esp32p4
@@ -377,7 +378,10 @@ font:
   - file: "gfonts://Roboto@medium"
     id: font_sd_label
     size: 28
-    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 !@#$%^&*()-_=+[]{}|;:',.<>?/\\"
+    # …  = the truncation ellipsis (server sends U+2026); GF_Latin_Core covers accented
+    # station/video names so neither renders as a missing-glyph box.
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 !@#$%^&*()-_=+[]{}|;:',.<>?/\\…"
+    glyphsets: [GF_Latin_Core]
   - file: "gfonts://Roboto@medium"
     id: font_sd_icon
     size: 52
@@ -388,7 +392,7 @@ font:
   - file: "gfonts://Roboto@medium"
     id: font_clock_lvgl
     size: 200
-    glyphs: "0123456789:"
+    glyphs: "0123456789:- "   # '-' + space so the "--:--" placeholder isn't tofu boxes pre-SNTP
   # Weather temperature — degree glyph included so "72°" renders.
   - file: "gfonts://Roboto@medium"
     id: font_temp_lvgl
@@ -533,8 +537,8 @@ hw_jpeg:
 # into the player bar's cover slot. A SHORT timeout means a stalled fetch (the esp-hosted
 # inbound-TCP hazard) just falls back to the placeholder instead of hanging.
 http_request:
-  timeout: 4s
-  watchdog_timeout: 12s
+  timeout: 10s          # the controller atlas can take a few s to composite server-side
+  watchdog_timeout: 15s
 
 online_image:
   - id: cover_online
@@ -553,8 +557,28 @@ online_image:
           lv_obj_clear_flag(id(media_cover_img), LV_OBJ_FLAG_HIDDEN);  // show the art
     on_error:
       - lambda: |-
-          lv_obj_clear_flag(id(media_cover_note), LV_OBJ_FLAG_HIDDEN); // fall back to the note
-          lv_obj_add_flag(id(media_cover_img), LV_OBJ_FLAG_HIDDEN);
+          // Likely lost the shared HTTP client to the atlas download — schedule a delayed
+          // retry (bounded) before giving up to the placeholder note.
+          if (id(cover_retries) < 5) {
+            id(cover_retries) += 1;
+            id(cover_retry_at) = millis() + 1200;
+          } else {
+            lv_obj_clear_flag(id(media_cover_note), LV_OBJ_FLAG_HIDDEN); // give up → note
+            lv_obj_add_flag(id(media_cover_img), LV_OBJ_FLAG_HIDDEN);
+          }
+  # Controller thumbnail atlas: 5×2 POSTER tiles of 244×180 = 1220×360, composited server-side
+  # (the label sits in a strip below each poster). The grid shows each cell its tile (offset).
+  - id: ctrl_atlas
+    url: "http://${lokidoki_host}:${lokidoki_http_port}/api/pod/controller-atlas/init.jpg"
+    format: JPEG
+    type: RGB565
+    resize: 1220x360
+    on_download_finished:
+      - lambda: 'id(satellite)->on_atlas_ready();'
+    on_error:
+      - lambda: |-
+          ESP_LOGW("atlas", "controller atlas download failed → retrying");
+          id(satellite)->atlas_retry();
 
 # ── Ambient dashboard (LVGL) ──────────────────────────────────────────────────
 # Google-Hub style: when idle the screen shows a big clock; conversation states
@@ -829,16 +853,16 @@ lvgl:
             scrollable: false   # so a drag over the grid becomes a swipe gesture, not a scroll
             hidden: true
             widgets:
-              - button: { x: 0,    y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 0);' ] } }
-              - button: { x: 256,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 1);' ] } }
-              - button: { x: 512,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 2);' ] } }
-              - button: { x: 768,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 3);' ] } }
-              - button: { x: 1024, y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 4);' ] } }
-              - button: { x: 0,    y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 0);' ] } }
-              - button: { x: 256,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 1);' ] } }
-              - button: { x: 512,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 2);' ] } }
-              - button: { x: 768,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 3);' ] } }
-              - button: { x: 1024, y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, radius: 16, pressed: { bg_color: 0xFFFFFF, bg_opa: 22% }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 4);' ] } }
+              - button: { x: 0,    y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 0);' ] } }
+              - button: { x: 256,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 1);' ] } }
+              - button: { x: 512,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 2);' ] } }
+              - button: { x: 768,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 3);' ] } }
+              - button: { x: 1024, y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 0, 4);' ] } }
+              - button: { x: 0,    y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 0);' ] } }
+              - button: { x: 256,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 1);' ] } }
+              - button: { x: 512,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 2);' ] } }
+              - button: { x: 768,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 3);' ] } }
+              - button: { x: 1024, y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_press: { then: [ lambda: 'id(g_swiping) = false;' ] }, on_click: { then: [ lambda: 'if (!id(g_swiping)) id(satellite)->send_button_press_("dashboard", 1, 4);' ] } }
         # MAIN-CONTENT reply panel: when a reply is delivered we clear the content band
         # (over the clock/weather image) and show the text here — the top status row and
         # the bottom controls stay visible the whole time. Driven by the reply_text sensor.
@@ -1480,16 +1504,41 @@ interval:
           // flick on this panel). Track press → release and measure the horizontal delta.
           static bool down = false;
           static int sx = 0, sy = 0, lx = 0, ly = 0;
+          static int active_cell = -1;   // the SELECTED tile — stays depressed until another tap
+          static int touch_cell = -1;    // tile under the finger this stroke
+          static int prev_active = -1;   // active before this stroke (restored if it's a swipe)
           if (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
             lv_point_t p; lv_indev_get_point(indev, &p);
-            if (!down) { down = true; sx = p.x; sy = p.y; id(g_swiping) = false; }
+            if (!down) {
+              down = true; sx = p.x; sy = p.y; id(g_swiping) = false;
+              // Sink the touched tile immediately; it becomes the ACTIVE (selected) tile and
+              // releases the previously-active one. A swipe cancels this (below), so it stays
+              // depressed while the media loads and until another tile is tapped.
+              if (id(controller_view) && p.y < 480) {
+                touch_cell = (p.y / 240) * 16 + (p.x / 256);
+                prev_active = active_cell;
+                if (active_cell >= 0 && active_cell != touch_cell)
+                  id(satellite)->set_cell_pressed(active_cell / 16, active_cell % 16, false);
+                id(satellite)->set_cell_pressed(touch_cell / 16, touch_cell % 16, true);
+                active_cell = touch_cell;
+              }
+            }
             lx = p.x; ly = p.y;
             int mv = lx - sx; if (mv < 0) mv = -mv;
-            if (mv > 55) id(g_swiping) = true;   // moved → treat as a swipe, suppress button taps
+            if (mv > 55) {
+              id(g_swiping) = true;   // moved → a swipe, not a tap: cancel + restore prev active
+              if (touch_cell >= 0) {
+                if (touch_cell != prev_active) id(satellite)->set_cell_pressed(touch_cell / 16, touch_cell % 16, false);
+                active_cell = prev_active;
+                if (prev_active >= 0) id(satellite)->set_cell_pressed(prev_active / 16, prev_active % 16, true);
+                touch_cell = -1;
+              }
+            }
             return;
           }
           if (!down) return;
           down = false;
+          touch_cell = -1;   // tap confirmed → the pressed tile STAYS depressed as the active item
           // A screen swipe must START in the upper BACKGROUND area — not on the bottom
           // control strip (media player + mic/speaker), so those stay put and keep working
           // while only the background swaps between dashboard and controller.
@@ -1517,17 +1566,42 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          // Reveal the native dashboard once LVGL is up (independent of the server — no JPEG).
+          // Delayed cover retry FIRST (it lost the shared HTTP client to the atlas) — but not
+          // in the same tick we (re)fetch the atlas, so they don't collide again.
+          if (id(cover_retry_at) != 0 && millis() >= id(cover_retry_at)) {
+            id(cover_retry_at) = 0;
+            id(cover_online)->update();
+          } else if (id(satellite)->take_atlas_dirty()) {
+            // (Re)fetch the controller thumbnail atlas whenever the native grid was rebuilt.
+            std::string u = std::string("http://${lokidoki_host}:${lokidoki_http_port}/api/pod/controller-atlas/")
+                          + id(satellite)->hwid() + ".jpg";
+            id(ctrl_atlas)->set_url(u.c_str());
+            id(ctrl_atlas)->update();
+          }
+  # Self-heal + state telemetry: if the grid built its tiles but the atlas never loaded (a
+  # failed fetch/decode), refetch it; and log the actual surface state so it's verifiable.
+  - interval: 10s
+    then:
+      - lambda: |-
+          bool tiles = id(satellite)->has_tiles();
+          bool loaded = id(satellite)->atlas_loaded();
+          if (id(satellite)->atlas_wanted() && !loaded) id(satellite)->request_atlas_refetch();
+          ESP_LOGI("state", "ctrl=%d atlas[tiles=%d loaded=%d] media_bar=%d media_playing=%d",
+                   (int) id(controller_view), (int) tiles, (int) loaded,
+                   (int) !lv_obj_has_flag(id(media_bar), LV_OBJ_FLAG_HIDDEN),
+                   (int) id(media_playing));
+  - interval: 1s
+    then:
+      - lambda: |-
+          // One-time SETUP once LVGL is up (register image tables etc.) — but do NOT reveal
+          // the dashboard yet: keep the loading screen up until the clock is real.
           static bool inited = false;
+          static bool revealed = false;
+          static uint32_t setup_at = 0;
           if (!inited) {
             inited = true;
+            setup_at = millis();
             id(lvgl_mode) = true;
-            lv_obj_add_flag(id(boot_logo_img), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(lbl_brand), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(lbl_connecting), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
             // Register the 16 gradient strips + make the background TILE them full-screen.
             const lv_image_dsc_t **bt = wxfx::bg_table();
             bt[0]=id(img_bg_0)->get_lv_image_dsc();   bt[1]=id(img_bg_1)->get_lv_image_dsc();
@@ -1558,6 +1632,35 @@ interval:
             st[24]=id(img_spr_24)->get_lv_image_dsc(); st[25]=id(img_spr_25)->get_lv_image_dsc();
             st[26]=id(img_spr_26)->get_lv_image_dsc(); st[27]=id(img_spr_27)->get_lv_image_dsc();
             srand(millis());   // vary the random character mix from boot to boot
+          }
+          // Reveal the dashboard ONLY once the on-board clock is real (SNTP synced) — until
+          // then the loading screen stays up so the user never sees pre-sync tofu boxes or a
+          // half-laid-out clock. 20s hard fallback so a device with no time still comes up.
+          if (!revealed && (id(tab5_time)->now().is_valid() || (millis() - setup_at) > 20000)) {
+            revealed = true;
+            ESP_LOGI("boot", "dashboard revealed at %ums (clock_valid=%d)",
+                     (unsigned) millis(), (int) id(tab5_time)->now().is_valid());
+            lv_obj_add_flag(id(boot_logo_img), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lbl_brand), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(lbl_connecting), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
+            // Reveal the voice controls together with the dashboard + reflect mute state.
+            lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
+            bool micMuted = id(satellite)->is_mic_muted();
+            lv_label_set_text(id(lbl_wake), micMuted ? "Muted" : "Listening");
+            lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(micMuted ? 0x4B5563 : 0x7C3AED), 0);
+            if (micMuted) { lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+            else { lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+            bool audMuted = id(satellite)->is_audio_muted();
+            lv_label_set_text(id(lbl_voice), audMuted ? "Sound off" : "Sound on");
+            lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(audMuted ? 0x4B5563 : 0x2563EB), 0);
+            if (audMuted) { lv_obj_add_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
+            else { lv_obj_clear_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
           }
           // Tick the clock + date locally every second (no server round-trip).
           if (lv_screen_active() != id(page_clock)->obj) return;
@@ -1690,32 +1793,9 @@ text_sensor:
         - lambda: |-
             const bool lvgl = (x == "lvgl");
             id(lvgl_mode) = lvgl;
-            if (lvgl) {
-              // Native dashboard: drop the connecting splash + the server blit, show the
-              // native dashboard, and reveal the voice controls (no server frame arrives
-              // to trigger the normal first-frame reveal in lvgl mode).
-              lv_obj_add_flag(id(boot_logo_img), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(lbl_brand), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(lbl_connecting), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(offline_banner), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(lvgl_dash), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
-              // Reflect the persisted mic/audio mute state on the controls.
-              bool micMuted = id(satellite)->is_mic_muted();
-              lv_label_set_text(id(lbl_wake), micMuted ? "Muted" : "Listening");
-              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(micMuted ? 0x4B5563 : 0x7C3AED), 0);
-              if (micMuted) { lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
-              else { lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
-              bool audMuted = id(satellite)->is_audio_muted();
-              lv_label_set_text(id(lbl_voice), audMuted ? "Sound off" : "Sound on");
-              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(audMuted ? 0x4B5563 : 0x2563EB), 0);
-              if (audMuted) { lv_obj_add_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
-              else { lv_obj_clear_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
-            }
+            // NOTE: the dashboard + voice-control reveal is owned by the 1s interval, which
+            // holds the loading screen until the on-board clock is real (SNTP synced) — so we
+            // do NOT reveal here (that fired before the time was valid → tofu boxes at boot).
             // TEST BUILD: never switch back to the JPEG path — the dashboard is forced on
             // in the 1s interval and stays native regardless of what the server says.
 
@@ -1780,6 +1860,7 @@ text_sensor:
                   std::string u = std::string("http://${lokidoki_host}:${lokidoki_http_port}/api/pod/cover/")
                                 + id(satellite)->hwid() + ".jpg?rev=" + std::to_string(mrev);
                   id(cover_online)->set_url(u.c_str());
+                  id(cover_retries) = 0; id(cover_retry_at) = 0;   // fresh track → fresh retry budget
                   id(cover_online)->update();
                 }
                 if (!id(media_dismissed)) lv_obj_clear_flag(id(media_bar), LV_OBJ_FLAG_HIDDEN);
@@ -1838,6 +1919,16 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  # Cover art shares the ONE http_request client with the controller atlas; a big atlas
+  # download can starve the cover fetch. These drive a bounded, delayed cover retry.
+  - id: cover_retry_at
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: cover_retries
+    type: int
+    restore_value: no
+    initial_value: '0'
   # NATIVE LVGL experiment: true when the assigned template's renderer is 'lvgl' — the
   # device draws the dashboard itself (lvgl_dash) and ignores the server JPEG blit.
   - id: lvgl_mode

@@ -12,7 +12,6 @@ import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib
 import { enqueueVideoSave } from '@/lib/youtube/automation'
 import { getEffectiveCap, getUserPreference } from '@/lib/youtube/quality'
 import { generateDjSegment, lookupFacts } from '@/routes/musicRadio'
-import { generateStationArt } from '@/lib/music/stationArt'
 import { generateTuningMessages, FALLBACK_TUNING_MESSAGES } from '@/lib/music/tuningMessages'
 import { BUILTIN_TUNING_MESSAGES } from '@/lib/music/builtinTuning'
 import { accentForSeed } from '@/lib/music/accents'
@@ -494,10 +493,8 @@ export async function createStationRecord(input: NewStationInput): Promise<Stati
           logger.debug(`[stationCreate] cover image download failed: ${String(err)}`)
         }
       }
-      if (!iconPath) {
-        const art = await generateStationArt(id, name, description, accent)
-        iconPath = art.iconPath; bannerPath = art.bannerPath
-      }
+      // No generated SVG placeholder anymore — a station with no real photo art keeps a null
+      // iconPath and renders via the live StationArt look (accent gradient + watermark).
       if (iconPath) {
         await db.update(musicStations)
           .set({ iconPath, bannerPath, updatedAt: new Date() })
@@ -605,18 +602,6 @@ musicStations_route.post('/:id/clone', async (c) => {
     bannerPath: row.bannerPath,
   })
   return c.json({ station: serialize(created, user.id) })
-})
-
-// ── Regenerate art (owner only) ──────────────────────────────────────────────────
-musicStations_route.post('/:id/regenerate-art', async (c) => {
-  const user = c.get('user')
-  const id = c.req.param('id')
-  const [row] = await db.select().from(musicStations).where(eq(musicStations.id, id))
-  if (!row) return c.json({ error: 'not found' }, 404)
-  if (row.userId !== user.id) return c.json({ error: 'not your station' }, 403)
-  const art = await generateStationArt(id, row.name, row.description, row.accent)
-  await db.update(musicStations).set({ iconPath: art.iconPath, bannerPath: art.bannerPath, updatedAt: new Date() }).where(eq(musicStations.id, id))
-  return c.json({ iconUrl: art.iconPath ? `/api/music/stations/${id}/art/icon` : null, bannerUrl: art.bannerPath ? `/api/music/stations/${id}/art/banner` : null })
 })
 
 // ── Serve station art ────────────────────────────────────────────────────────────

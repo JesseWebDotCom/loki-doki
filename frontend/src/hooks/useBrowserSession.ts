@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
+import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { djStationById } from '@/lib/music/catalogApi'
 import { dispatchTransport } from '@/lib/mediaCoordinator'
 
@@ -11,6 +12,7 @@ import { dispatchTransport } from '@/lib/mediaCoordinator'
 export function useBrowserSession() {
   const navigate = useNavigate()
   const radio = useRadio()
+  const podcast = usePodcastPlayback()
 
   useEffect(() => {
     const es = new EventSource('/api/browser-session', { withCredentials: true })
@@ -34,6 +36,21 @@ export function useBrowserSession() {
               else if (cmd.action === 'play_station' && typeof payload.stationId === 'string') {
                 const dj = await djStationById(payload.stationId)
                 if (dj) { radio.start(dj); navigate('/music/now-playing') }
+              }
+              else if (cmd.action === 'play_podcast' && typeof payload.showId === 'string') {
+                // A controller podcast tile → play the show's newest READY episode.
+                const showId = payload.showId
+                const res = await fetch(`/api/podcasts/shows/${showId}/episodes`, { credentials: 'include' })
+                  .then(r => r.json()).catch(() => null) as { episodes?: Array<{ id: string; title: string; status?: string; durationSec?: number }> } | null
+                const ep = res?.episodes?.find(e => e.status === 'ready')
+                if (ep) {
+                  podcast.play({
+                    episodeId: ep.id, showId, title: ep.title, durationSec: ep.durationSec ?? undefined,
+                    showName: typeof payload.showName === 'string' ? payload.showName : 'Podcast',
+                    coverUrl: `/api/podcasts/shows/${showId}/cover`,
+                  })
+                  navigate('/podcasts')
+                }
               }
               break
             }
