@@ -1186,6 +1186,8 @@ export function runMigrations() {
   addColumn('podcast_shows', 'cast_json', 'TEXT')
   // Auto-generate an episode when the source subscription gets a new video (off by default).
   addColumn('podcast_shows', 'auto_generate', 'INTEGER NOT NULL DEFAULT 0')
+  // Target episode length in minutes (null = use style default: ~7–12 min depending on style).
+  addColumn('podcast_shows', 'target_minutes', 'INTEGER')
   // segments_json was added to podcast_suggestions after its initial inline CREATE; back-fill
   // for DBs created before this column existed (the suggestions route reads/writes it).
   addColumn('podcast_suggestions', 'segments_json', `TEXT NOT NULL DEFAULT '[]'`)

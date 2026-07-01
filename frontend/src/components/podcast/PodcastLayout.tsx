@@ -1,5 +1,5 @@
 import { createContext, useContext, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useMatch } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
@@ -24,6 +24,9 @@ export function PodcastLayout() {
   const { track } = usePodcastPlayback()
   const [editing, setEditing] = useState<Show | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
+  // Show detail page owns its own two-column layout (episode list + transcript),
+  // so the global NowPlaying panel would create a third column — hide it there.
+  const onShowDetail = !!useMatch('/podcasts/show/:id')
 
   usePublishUIContext({ label: 'Podcasts', description: 'User is browsing the Podcasts app.' })
 
@@ -41,8 +44,8 @@ export function PodcastLayout() {
           <Outlet />
         </div>
 
-        {/* Now Playing panel — appears once something is loaded */}
-        {track && (
+        {/* Now Playing panel — hidden on show detail page which owns its own transcript column */}
+        {track && !onShowDetail && (
           <aside className="hidden w-[340px] shrink-0 border-l border-border/40 xl:block">
             <div className="sticky top-0 h-screen">
               <NowPlaying />

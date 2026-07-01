@@ -73,10 +73,16 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
 
   const pendingStart = useRef(0)
   const lastSaved = useRef(0)
+  // Id for the current play session — freshly minted on every playTrackAt (play/playQueue/
+  // next/prev alike), sent with now-playing reports and the stop/clear signal. See
+  // nowPlaying.ts for why: it's what lets the device re-show a dismissed bar on a fresh
+  // play and keeps a lagging clear from wiping out a session that's since moved on.
+  const sessionIdRef = useRef('')
 
   // ── Core transport ───────────────────────────────────────────────────────────
   const playTrackAt = useCallback((newTrack: PodcastTrack, startSec: number) => {
     acquireAudio('podcast')   // stop radio/YouTube — podcasts are a first-class audio source
+    sessionIdRef.current = crypto.randomUUID()
     pendingStart.current = startSec
     setTrack(newTrack)
     setPositionSec(startSec)
@@ -199,18 +205,19 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
 
   // ── Mini-player integration: podcasts behave like radio/YouTube ─────────────────
   // Expose transport so a device player bar (via useBrowserSession → dispatchTransport) can
-  // drive it, and stop when another source acquires audio.
-  const ctrlRef = useRef({ toggle, next, prev, seek, pause })
-  ctrlRef.current = { toggle, next, prev, seek, pause }
+  // drive it, and fully evict (not just pause) when another source acquires audio — only
+  // one source's mini bar should ever be docked at a time, matching radio/YouTube.
+  const ctrlRef = useRef({ toggle, next, prev, seek, close })
+  ctrlRef.current = { toggle, next, prev, seek, close }
   useEffect(() => {
     const unT = registerTransport('podcast', {
       toggle: () => ctrlRef.current.toggle(),
       next: () => ctrlRef.current.next(),
       prev: () => ctrlRef.current.prev(),
       seek: (s) => ctrlRef.current.seek(s),
-      stop: () => ctrlRef.current.pause(),
+      stop: () => ctrlRef.current.close(),
     })
-    const unS = registerMediaStop('podcast', () => ctrlRef.current.pause())
+    const unS = registerMediaStop('podcast', () => ctrlRef.current.close())
     return () => { unT(); unS() }
   }, [])
 
@@ -223,7 +230,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
       void fetch('/api/pod/now-playing', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: track.title, artist: track.showName, cover: track.coverUrl ?? '',
+          source: 'podcast', sessionId: sessionIdRef.current, title: track.title, artist: track.showName, cover: track.coverUrl ?? '',
           positionSec: Math.round(npRef.current.positionSec), durationSec: Math.round(npRef.current.duration),
           playing,
         }),
@@ -233,6 +240,21 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     const iv = setInterval(report, 4000)
     return () => clearInterval(iv)
   }, [track?.episodeId, track?.title, track?.showName, track?.coverUrl, playing]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tell the device to drop/hide its media bar when THIS tab's podcast stops — otherwise the
+  // last reported snapshot just sits there until its 5-minute staleness timeout. Only fires on
+  // a true had-track→no-track transition (never on initial mount), so a fresh tab loading with
+  // no track doesn't wipe out a podcast another tab is legitimately still playing.
+  const hadTrack = useRef(false)
+  useEffect(() => {
+    if (track) { hadTrack.current = true; return }
+    if (!hadTrack.current) return
+    hadTrack.current = false
+    void fetch('/api/pod/now-playing/clear', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'podcast', sessionId: sessionIdRef.current }),
+    }).catch(() => {})
+  }, [track])
 
   const value = useMemo<PodcastPlaybackCtx>(() => ({
     track, playing, positionSec, duration, rate, autoplay, queue, queueIndex, audioRef,

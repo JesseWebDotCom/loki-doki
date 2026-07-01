@@ -20,6 +20,7 @@ export interface Show {
   source: 'user' | 'suggested' | 'app'
   sourceRef?: string | null
   autoGenerate?: boolean
+  targetMinutes?: number | null
   ownerName: string
   isOwn: boolean
   createdAt: string | number
@@ -40,8 +41,15 @@ export interface Episode {
   watchState?: { positionSec: number; completed: boolean } | null
 }
 
+export interface EpisodeSource {
+  sourceType: 'youtube' | 'tvshow' | 'movie'
+  sourceId: string
+  title: string | null
+}
+
 export interface EpisodeDetail extends Episode {
   transcript: { speaker: string; text: string }[]
+  sources: EpisodeSource[]
 }
 
 export interface Suggestion {
@@ -97,6 +105,7 @@ export interface ShowInput {
   visibility?: 'personal' | 'shared'
   sourceRef?: string
   autoGenerate?: boolean
+  targetMinutes?: number | null
 }
 
 export async function createShow(input: ShowInput): Promise<Show> {

@@ -1134,6 +1134,8 @@ export const podcastShows = sqliteTable('podcast_shows', {
   // When true, the feed poller auto-generates a new episode whenever a fresh video lands
   // for the subscription matching this show's sourceRef. Off by default; opt-in per show.
   autoGenerate: integer('auto_generate', { mode: 'boolean' }).notNull().default(false),
+  // Target episode length in minutes (null = use style default). Stored as integer; 165 words/min.
+  targetMinutes: integer('target_minutes'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ ownerIdx: index('podcast_shows_owner_idx').on(t.ownerUserId) }))
 

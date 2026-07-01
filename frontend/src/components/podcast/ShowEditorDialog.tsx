@@ -33,6 +33,13 @@ export interface YoutubeShowSource {
   sourceDescription?: string
 }
 
+// Spoken-word minutes per style (165 words/min). Mirrors STYLE_INSTRUCTIONS in script.ts.
+const STYLE_DEFAULT_MINUTES: Record<PodcastStyle, number> = {
+  recap: 7, 'in-depth': 12, roundtable: 11, interview: 11, briefing: 6, story: 9,
+}
+const MIN_EP_MINUTES = 3
+const MAX_EP_MINUTES = 30
+
 const STYLES: { id: PodcastStyle; label: string; icon: LucideIcon }[] = [
   { id: 'recap', label: 'Recap', icon: RefreshCw },
   { id: 'in-depth', label: 'In-Depth', icon: BookOpen },
@@ -102,6 +109,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
   const [visibility, setVisibility] = useState<'personal' | 'shared'>('personal')
   const [coverBlob, setCoverBlob] = useState<Blob | null>(null)
   const [stinger, setStinger] = useState<StingerSelection | null>(null)
+  const [targetMinutes, setTargetMinutes] = useState<number | null>(null)
   const [genningDesc, setGenningDesc] = useState(false)
   const [batch, setBatch] = useState(getBatchSize())
   const [saving, setSaving] = useState(false)
@@ -144,6 +152,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
     setSegments(initial?.segments?.length ? initial.segments : [{ type: youtube ? 'youtube' : 'news' }])
     setHosts(initial?.hosts ?? [])
     setVisibility(initial?.visibility ?? 'personal')
+    setTargetMinutes(initial?.targetMinutes ?? null)
     setCoverBlob(null)
     setStinger(null)
     setBatch(getBatchSize())
@@ -220,7 +229,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
     try {
       // Auto-write the description from the selection when the user left it blank.
       const finalDesc = description.trim() || await generateDescription()
-      const input = { name: name.trim(), description: finalDesc || null, style, segments, hosts, visibility, sourceRef: ytCreate ? youtube!.sourceRef : undefined }
+      const input = { name: name.trim(), description: finalDesc || null, style, segments, hosts, visibility, sourceRef: ytCreate ? youtube!.sourceRef : undefined, targetMinutes }
       const show = initial?.id
         ? (await updateShow(initial.id, input), { id: initial.id } as Show)
         : await createShow(input)
@@ -306,6 +315,35 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
                   )
                 })}
               </div>
+            </Field>
+
+            <Field label="Episode Length">
+              {(() => {
+                const styleDefault = STYLE_DEFAULT_MINUTES[style] ?? 7
+                const display = targetMinutes ?? styleDefault
+                const isCustom = targetMinutes !== null
+                return (
+                  <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold tabular-nums">{display} min</span>
+                      {isCustom ? (
+                        <button type="button" onClick={() => setTargetMinutes(null)}
+                          className="mt-0.5 text-left text-xs text-muted-foreground hover:text-foreground">
+                          Reset to style default ({styleDefault} min)
+                        </button>
+                      ) : (
+                        <span className="mt-0.5 text-xs text-muted-foreground">Style default</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <StepBtn icon={Minus} disabled={display <= MIN_EP_MINUTES}
+                        onClick={() => setTargetMinutes(Math.max(MIN_EP_MINUTES, display - 1))} />
+                      <StepBtn icon={Plus} disabled={display >= MAX_EP_MINUTES}
+                        onClick={() => setTargetMinutes(Math.min(MAX_EP_MINUTES, display + 1))} />
+                    </div>
+                  </div>
+                )
+              })()}
             </Field>
 
             {ytCreate && ytMulti && (

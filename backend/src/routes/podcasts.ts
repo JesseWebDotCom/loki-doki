@@ -59,6 +59,7 @@ async function loadVisibleShows(user: Actor) {
     source: podcastShows.source,
     sourceRef: podcastShows.sourceRef,
     autoGenerate: podcastShows.autoGenerate,
+    targetMinutes: podcastShows.targetMinutes,
     createdAt: podcastShows.createdAt,
   }).from(podcastShows)
     // Push the visibility filter into SQL (indexed on owner_user_id) instead of scanning
@@ -188,6 +189,7 @@ podcastsRoute.post('/shows', async (c) => {
     visibility: body.visibility ?? 'personal',
     source: 'user',
     sourceRef,
+    targetMinutes: (body as { targetMinutes?: number | null }).targetMinutes ?? null,
     createdAt: new Date(),
   })
 
@@ -203,6 +205,7 @@ podcastsRoute.put('/shows/:id', async (c) => {
     hosts?: unknown[]; segments?: unknown[]
     visibility?: 'personal' | 'shared'
     autoGenerate?: boolean
+    targetMinutes?: number | null
   }>()
 
   const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, showId))
@@ -217,6 +220,7 @@ podcastsRoute.put('/shows/:id', async (c) => {
     ...(body.segments !== undefined && { segmentsJson: JSON.stringify(body.segments) }),
     ...(body.visibility !== undefined && { visibility: body.visibility }),
     ...(typeof body.autoGenerate === 'boolean' && { autoGenerate: body.autoGenerate }),
+    ...('targetMinutes' in body && { targetMinutes: body.targetMinutes ?? null }),
   }).where(eq(podcastShows.id, showId))
 
   return c.json({ ok: true })
@@ -462,12 +466,18 @@ podcastsRoute.get('/episodes/:id', async (c) => {
   const [watch] = await db.select().from(podcastWatchState)
     .where(and(eq(podcastWatchState.userId, user.id), eq(podcastWatchState.episodeId, episodeId)))
 
+  const sources = await db
+    .select({ sourceType: podcastEpisodeSources.sourceType, sourceId: podcastEpisodeSources.sourceId, title: podcastEpisodeSources.title })
+    .from(podcastEpisodeSources)
+    .where(eq(podcastEpisodeSources.episodeId, episodeId))
+
   return c.json({
     episode: {
       ...episode,
       chapters: safeParse(episode.chaptersJson, [] as unknown[]),
       transcript,
       watchState: watch ?? null,
+      sources,
     },
   })
 })

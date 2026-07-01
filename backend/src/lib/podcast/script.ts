@@ -45,7 +45,10 @@ export async function generateScript(
   cast?: CastBrief,
 ): Promise<ScriptTurn[]> {
   const style = STYLE_INSTRUCTIONS[show.style] ?? STYLE_INSTRUCTIONS['recap']!
-  const targetWords = style.targetWords
+  // Per-show override takes precedence; fall back to the style default.
+  const targetWords = show.targetMinutes != null
+    ? Math.round(Math.max(2, show.targetMinutes) * 165)
+    : style.targetWords
   const targetMinutes = Math.max(2, Math.round(targetWords / 165))
 
   const contentSummary = segments

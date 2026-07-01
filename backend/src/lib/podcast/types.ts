@@ -30,6 +30,8 @@ export interface ShowConfig {
   segments: ShowSegment[]
   stinger?: StingerConfig
   ownerUserId: string
+  // Overrides the style-default word count when set. 165 spoken words per minute.
+  targetMinutes?: number | null
 }
 
 export interface ScriptTurn {

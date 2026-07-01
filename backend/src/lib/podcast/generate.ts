@@ -45,6 +45,7 @@ export async function runPodcastGenerateJob(
       segments: JSON.parse(show.segmentsJson) as ShowConfig['segments'],
       stinger: show.stingerJson ? JSON.parse(show.stingerJson) : undefined,
       ownerUserId: show.ownerUserId,
+      targetMinutes: show.targetMinutes,
     }
 
     if (signal.aborted) throw new Error('Aborted')
