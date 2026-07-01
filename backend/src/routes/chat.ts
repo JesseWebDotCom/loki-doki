@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { eq, desc, and, gt, sql } from 'drizzle-orm'
+import { eq, desc, and, gt, inArray, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { userCharacters, conversations, messages, chatDocuments, chatDocumentEdits } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
@@ -483,6 +483,134 @@ chat.post('/regenerate', requireAuth, async (c) => {
     await stream.writeSSE({
       event: 'gen',
       data: JSON.stringify({ genId: job.id, conversationId, assistantMessageId: newAssistantMessageId, replacesMessageId: assistantMessageId }),
+    })
+    await genQueue.subscribeAndTail(stream, job, 0)
+  })
+})
+
+// ── Edit-and-resubmit endpoint ────────────────────────────────────────────────
+// Rewrites a past USER message and re-runs the turn from there: everything after
+// the edited message is removed (linear history, no branching — the removed tail
+// answered a question that no longer exists), then a fresh reply streams with the
+// same SSE protocol as /stream.
+
+chat.post('/edit', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { conversationId, userMessageId, newText } = (await c.req.json().catch(() => ({}))) as {
+    conversationId?: string
+    userMessageId?: string
+    newText?: string
+  }
+  if (!conversationId || !userMessageId) {
+    return c.json({ error: 'conversationId and userMessageId are required' }, 400)
+  }
+  if (typeof newText !== 'string' || newText.trim().length === 0) {
+    return c.json({ error: 'newText is required' }, 400)
+  }
+  if (newText.length > 16_000) {
+    return c.json({ error: 'message too long (max 16000 characters)' }, 400)
+  }
+
+  const [conv] = await db
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      characterId: conversations.characterId,
+      summaryThrough: conversations.summaryThrough,
+    })
+    .from(conversations)
+    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)))
+    .limit(1)
+  if (!conv) return c.json({ error: 'conversation not found' }, 404)
+
+  const all = await db
+    .select({ id: messages.id, role: messages.role, content: messages.content, toolNote: messages.toolNote, createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(messages.createdAt)
+  const targetIdx = all.findIndex((m) => m.id === userMessageId && m.role === 'user')
+  if (targetIdx < 0) return c.json({ error: 'could not find the message to edit' }, 404)
+  const target = all[targetIdx]!
+
+  if (genQueue.findActiveByMeta('conversationId', conversationId)) {
+    return c.json({ error: 'A reply is already being generated in this conversation. Wait for it to finish (or stop it) first.' }, 429)
+  }
+
+  const characterId = conv.characterId
+  const [{ prefs, characterSystemPrompt, model, options, activeDials, interactionStyle, maskProfanityActive, locale, protections }, editRelation] =
+    await Promise.all([
+      resolveTurnContext(user.id, characterId),
+      characterId
+        ? db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
+            .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, characterId)))
+            .limit(1).then(r => r[0] ?? null)
+        : Promise.resolve(null),
+    ])
+
+  // Commit the edit: rewrite the user message, drop everything after it. The
+  // rolling summary is invalidated if it covered any of the removed/edited span
+  // (it would keep "remembering" turns that no longer happened).
+  await db.update(messages).set({ content: newText.trim() }).where(eq(messages.id, userMessageId))
+  const removedIds = all.slice(targetIdx + 1).map((m) => m.id)
+  if (removedIds.length > 0) {
+    await db.delete(messages).where(inArray(messages.id, removedIds))
+  }
+  if (conv.summaryThrough && conv.summaryThrough.getTime() >= target.createdAt.getTime()) {
+    await db.update(conversations)
+      .set({ summary: null, summaryThrough: null })
+      .where(eq(conversations.id, conversationId))
+  }
+
+  const dbMessages = all.slice(0, targetIdx).map((m) => ({
+    role: m.role,
+    content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
+  }))
+  trimHistory(dbMessages, 800)
+
+  const newAssistantMessageId = crypto.randomUUID()
+  const run = makeChatRun({
+    userId: user.id,
+    userRole: user.role,
+    userDisplayName: user.nickname?.trim() || user.firstName?.trim() || null,
+    model,
+    options,
+    message: newText.trim(),
+    characterId,
+    characterSystemPrompt,
+    uiContext: null,
+    clientLat: null,
+    clientLng: null,
+    convId: conversationId,
+    convTitle: conv.title ?? '',
+    dbMessages,
+    prefs,
+    firstMetAt: characterId ? (editRelation?.createdAt ?? null) : undefined,
+    assistantMessageId: newAssistantMessageId,
+    cookieHeader: c.req.header('cookie') ?? '',
+    locale,
+    protections,
+    interactionStyle,
+    activeDials,
+    maskProfanityActive,
+    // The edited user message already exists (we just rewrote it in place).
+    insertUserMessage: false,
+  })
+
+  let job: genQueue.Job
+  try {
+    job = genQueue.enqueue({ type: 'chat', userId: user.id, meta: { conversationId, assistantMessageId: newAssistantMessageId }, run })
+  } catch (err) {
+    if (err instanceof genQueue.QueueLimitError) {
+      return c.json({ error: 'You have too many requests in progress. Please wait for them to finish.' }, 429)
+    }
+    throw err
+  }
+
+  c.header('X-Accel-Buffering', 'no')
+  return streamSSE(c, async (stream) => {
+    await stream.writeSSE({
+      event: 'gen',
+      data: JSON.stringify({ genId: job.id, conversationId, assistantMessageId: newAssistantMessageId }),
     })
     await genQueue.subscribeAndTail(stream, job, 0)
   })

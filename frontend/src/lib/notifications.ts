@@ -1,4 +1,4 @@
-import { Bell, Camera, CheckCircle2, Download, HardDrive } from 'lucide-react'
+import { Bell, Camera, CheckCircle2, Download, HardDrive, MessageCircleHeart } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AppNotification } from '@/hooks/useNotifications'
 
@@ -11,6 +11,7 @@ export function notifIcon(type: NotifType): LucideIcon {
     case 'install_complete':  return CheckCircle2
     case 'download_complete': return HardDrive
     case 'frigate_event':     return Camera
+    case 'companion_checkin': return MessageCircleHeart
     default:                  return Bell
   }
 }
@@ -26,6 +27,8 @@ export function notifLabel(n: AppNotification): string {
         return `${p.toolName ?? 'Tool'} was installed`
       case 'download_complete':
         return `${p.name ?? 'File'} download complete`
+      case 'companion_checkin':
+        return p.characterName ? `${p.characterName}: ${p.message ?? 'checked in'}` : (p.message ?? 'Your companion checked in')
       default:
         return p.message ?? 'System notification'
     }
@@ -63,4 +66,5 @@ export const NOTIF_CATEGORIES: NotifCategory[] = [
   { key: 'downloads', label: 'Downloads finished',     description: 'Maps, models, and other downloads completing', types: ['download_complete'],                  Icon: HardDrive    },
   { key: 'installs',  label: 'App install updates',    description: 'Install requests and completed installs',      types: ['install_request', 'install_complete'], Icon: CheckCircle2 },
   { key: 'system',    label: 'System messages',        description: 'Page-change alerts and general notices',       types: ['system'],                             Icon: Bell         },
+  { key: 'companion', label: 'Companion check-ins',    description: 'Your companion occasionally asks about things you shared — at most once a day', types: ['companion_checkin'], Icon: MessageCircleHeart },
 ]

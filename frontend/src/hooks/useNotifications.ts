@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export interface AppNotification {
   id: string;
   userId: string | null;
-  type: "install_request" | "install_complete" | "download_complete" | "system" | "frigate_event";
+  type: "install_request" | "install_complete" | "download_complete" | "system" | "frigate_event" | "companion_checkin";
   payload: string; // JSON string
   readAt: number | null;
   createdAt: number;

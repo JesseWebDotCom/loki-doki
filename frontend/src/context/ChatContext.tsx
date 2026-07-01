@@ -54,6 +54,8 @@ interface ChatContextValue {
   setInput: (v: string) => void
   submit: (characterId?: string, textOverride?: string) => void
   regenerateMessage: (assistantMessageId: string) => void
+  /** Rewrite a past user message and re-run the turn — everything after it is replaced. */
+  editMessage: (userMessageId: string, newText: string) => void
   stop: () => void
 
   /** Documents attached to the next message (extracted text, sent + persisted on submit). */
@@ -612,7 +614,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     abortRef.current = controller
     const currentConvId = conversationId
 
-    streamRegenerate(
+    streamTurnRerun(
+      '/api/chat/regenerate',
       { conversationId: currentConvId, assistantMessageId },
       controller.signal,
       {
@@ -690,6 +693,110 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     )
   }, [isGenerating, conversationId])
 
+  // Edit-and-resubmit: rewrite a user message in place, drop everything after it
+  // (linear history — the old replies answered a question that no longer exists),
+  // and stream a fresh reply. Same streaming/token pattern as regenerate.
+  const editMessage = useCallback((userMessageId: string, newText: string) => {
+    const text = newText.trim()
+    if (!text || isGenerating || !conversationId) return
+
+    const placeholderId = crypto.randomUUID()
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === userMessageId)
+      if (idx < 0) return prev
+      return [
+        ...prev.slice(0, idx),
+        { ...prev[idx]!, content: text },
+        { id: placeholderId, role: 'assistant' as const, content: '' },
+      ]
+    })
+    setIsGenerating(true)
+    setQueuePosition(null)
+
+    const controller = new AbortController()
+    abortRef.current = controller
+    const currentConvId = conversationId
+
+    streamTurnRerun(
+      '/api/chat/edit',
+      { conversationId: currentConvId, userMessageId, newText: text },
+      controller.signal,
+      {
+        onGen: ({ genId, assistantMessageId: newId }) => {
+          setMessages((prev) => prev.map((m) => m.id === placeholderId ? { ...m, id: newId } : m))
+          pendingGenRef.current = { genId, convId: currentConvId, assistantMsgId: newId, lastSeq: 0 }
+          savePendingGen(currentConvId, { genId, assistantMessageId: newId, lastSeq: 0 })
+        },
+        onQueue: (position) => setQueuePosition(position > 0 ? position : null),
+        onSeq: (seq) => {
+          if (pendingGenRef.current) {
+            pendingGenRef.current.lastSeq = seq
+            const pg = pendingGenRef.current
+            savePendingGen(pg.convId, { genId: pg.genId, assistantMessageId: pg.assistantMsgId, lastSeq: seq })
+          }
+        },
+        onRouting: (toolId) => {
+          const label = routingLabelFor(toolId)
+          if (!label) return
+          const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, routingLabel: label } : m))
+        },
+        onToken: (token) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
+          if (tokenBufRef.current?.msgId === msgId) {
+            tokenBufRef.current.text += token
+          } else {
+            tokenBufRef.current = { text: token, msgId }
+          }
+          if (tokenRafRef.current === null) {
+            tokenRafRef.current = requestAnimationFrame(() => {
+              tokenRafRef.current = null
+              const buf = tokenBufRef.current
+              if (!buf) return
+              tokenBufRef.current = null
+              setMessages((prev) => prev.map((m) => m.id === buf.msgId ? { ...m, content: m.content + buf.text } : m))
+            })
+          }
+        },
+        onBlock: (block) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, blocks: [...(m.blocks ?? []), block] } : m))
+        },
+        onSources: (sources) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, sources } : m))
+        },
+        onDirective: (directive) => applyDirectiveRef.current(directive),
+        onDone: () => {
+          if (tokenRafRef.current !== null) {
+            cancelAnimationFrame(tokenRafRef.current)
+            tokenRafRef.current = null
+          }
+          const doneBuf = tokenBufRef.current
+          if (doneBuf) {
+            tokenBufRef.current = null
+            setMessages((prev) => prev.map((m) => m.id === doneBuf.msgId ? { ...m, content: m.content + doneBuf.text } : m))
+          }
+          setIsGenerating(false)
+          setQueuePosition(null)
+          abortRef.current = null
+          if (pendingGenRef.current) clearPendingGen(pendingGenRef.current.convId)
+          pendingGenRef.current = null
+          setConversations((prev) => prev.map((c) => c.id === currentConvId ? { ...c, preview: text, updatedAt: new Date() } : c))
+        },
+        onError: (err) => {
+          const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
+          setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, content: m.content || `_(Error: ${err})_` } : m))
+          setIsGenerating(false)
+          setQueuePosition(null)
+          abortRef.current = null
+          if (pendingGenRef.current) clearPendingGen(pendingGenRef.current.convId)
+          pendingGenRef.current = null
+        },
+      },
+    )
+  }, [isGenerating, conversationId])
+
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
@@ -722,7 +829,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // re-render even when nothing they read actually changed. Deps mirror the object
   // literal exactly, so this recomputes precisely when something in it does.
   const value = useMemo(() => ({
-    messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, stop,
+    messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, editMessage, stop,
     attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
     queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
     conversationId, conversations,
@@ -730,7 +837,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     projects, currentProject, setCurrentProject,
     createProject, updateProject, deleteProject, refreshProjects,
   }), [
-    messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, stop,
+    messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, editMessage, stop,
     attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
     queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
     conversationId, conversations,
@@ -966,12 +1073,12 @@ async function streamChat(
   }
 }
 
-/** Re-run the turn behind an existing assistant reply (POST). Same SSE event shape as
- *  streamChat, so it reuses StreamCallbacks — the `gen` event just carries a fresh
- *  assistantMessageId (the client swaps the local id to match) instead of a new one
- *  plus a conversationId. */
-async function streamRegenerate(
-  body: { conversationId: string; assistantMessageId: string },
+/** POST a turn-rerun request — /regenerate or /edit — with the same SSE event
+ *  shape as streamChat. The `gen` event carries a fresh assistantMessageId (the
+ *  client swaps the local id to match). */
+async function streamTurnRerun(
+  url: string,
+  body: Record<string, unknown>,
   signal: AbortSignal,
   { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
 ) {
@@ -1023,7 +1130,7 @@ async function streamRegenerate(
   }
 
   try {
-    const res = await fetch('/api/chat/regenerate', {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

@@ -5,6 +5,7 @@ import { serveStatic, createBunWebSocket } from 'hono/bun'
 import { runMigrations, db } from '@/db'
 import { logger } from '@/lib/logger'
 import { startMemorySweep } from '@/memory/sweep'
+import { startCompanionCheckins } from '@/lib/companionProactive'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { startBriefingRefresh } from '@/lib/briefing/refresh'
 import { pruneExpiredSessions } from '@/lib/session'
@@ -153,6 +154,7 @@ void (async () => {
 })()
 startMemorySweep()
 startBriefingRefresh()
+startCompanionCheckins()
 // Prune expired session rows at boot and hourly so the sessions table doesn't grow
 // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
 void pruneExpiredSessions().catch(() => {})

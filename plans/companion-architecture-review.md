@@ -6,8 +6,12 @@
 > backlog — raw-text persistence with mask-on-read (A15), judge-before-delete (R10),
 > tool-status labels + capped-reply flag (C4), and the parsed-vector cache (S8). Tool
 > notes in history replace the need for most of C1's bounded tool loop; multi-intent
-> Tier-2 calls are in. Remaining ideas deliberately deferred: message editing/branching
-> (C5) and companion-initiated conversation (H8) — both need product design first.
+> Tier-2 calls are in. The two remaining ideas are now also built: message
+> edit-and-resubmit (C5 — linear history: editing a user message replaces everything
+> after it; POST /api/chat/edit) and companion-initiated check-ins (H8 — at most one
+> per user per day, triggered only by fresh open-thread memories, delivered via the
+> notification system with a mute category; lib/companionProactive.ts). Nothing from
+> the review remains unimplemented.
 
 **Date:** 2026-07-01
 **Scope:** companion chat pipeline, personality/prompting, message routing, and memory — reviewed for speed, reliability, accuracy, completeness, and humanistic quality.

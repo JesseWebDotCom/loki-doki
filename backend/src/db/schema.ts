@@ -891,7 +891,7 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event'] }).notNull(),
+  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   readAt: integer('read_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),

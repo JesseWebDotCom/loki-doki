@@ -11,13 +11,17 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, isGenerating = false, className }: MessageListProps) {
-  const { conversationId, regenerateMessage } = useChatContext();
-  // Stable reference passed to every ChatMessage — see the O(n²) memoization contract
-  // in agents.md. regenerateMessage itself is a useCallback in ChatContext, so this
-  // wrapper's identity only changes when that does, not on every render/token.
+  const { conversationId, regenerateMessage, editMessage } = useChatContext();
+  // Stable references passed to every ChatMessage — see the O(n²) memoization contract
+  // in agents.md. Both are useCallbacks in ChatContext, so these wrappers' identities
+  // only change when those do, not on every render/token.
   const handleRegenerate = React.useCallback(
     (messageId: string) => regenerateMessage(messageId),
     [regenerateMessage],
+  );
+  const handleEdit = React.useCallback(
+    (messageId: string, newText: string) => editMessage(messageId, newText),
+    [editMessage],
   );
   const bottomRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -110,6 +114,7 @@ export function MessageList({ messages, isGenerating = false, className }: Messa
                   isLast={i === messages.length - 1}
                   isGenerating={isGenerating}
                   onRegenerate={handleRegenerate}
+                  onEdit={handleEdit}
                 />
               ))}
               {isGenerating && messages.at(-1)?.role === "user" && <TypingIndicator />}
