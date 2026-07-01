@@ -152,10 +152,10 @@ export function ControllerDisplay({ page, interactive = false, deviceId = '' }: 
           />
         )
       })}
-      {/* Now-playing + progress, bottom-centre. On the device the native status pill
-          (Listening/Thinking/Speaking) sits here and covers it when a turn is active —
-          so this is only visible while idle, which is the intent. */}
-      {np.title && <NowPlayingBar np={np} />}
+      {/* Now-playing + progress, bottom-centre. Only in the INTERACTIVE (web) surface —
+          the DEVICE draws its own native player bar over this render, so rendering one here
+          too would double it up. */}
+      {interactive && np.title && <NowPlayingBar np={np} />}
       {/* Current time, under the now-playing bar. */}
       <CurrentTime />
     </div>

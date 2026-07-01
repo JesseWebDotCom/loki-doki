@@ -24,8 +24,9 @@ inline int rnd(int lo, int hi) { return lo + (rand() % (hi - lo + 1)); }
 //   0 balloon,1 ufo,2 kite,3 airplane(level),4 bird(up),5 satellite,6 petal,7 leaf,
 //   8 bird(down),9 airplane(full bank A),10 airplane(full bank B),
 //   11 airplane(half bank A),12 airplane(half bank B),13 cloud,14 pine,
-//   15 sunglasses,16 jacket,17 umbrella,18 scarf,19 tee (apparel icons).
-inline const lv_image_dsc_t **sprite_table() { static const lv_image_dsc_t *t[20] = {}; return t; }
+//   15 sunglasses,16 jacket,17 umbrella,18 scarf,19 tee (apparel icons),
+//   20 cow,21 comet,22 blimp,23 tractor-beam,24 tractor,25 barn,26 helicopter,27 house.
+inline const lv_image_dsc_t **sprite_table() { static const lv_image_dsc_t *t[28] = {}; return t; }
 
 // Suggested-wear icons for the conditions (mirrors the web app's apparelFor): fills up to
 // three image slots and hides the rest. umbrella for wet, scarf for snow, jacket when cold,
@@ -158,7 +159,7 @@ inline void lightning(lv_obj_t *layer) {
 inline void clouds(lv_obj_t *layer, int n, lv_opa_t opa, bool day) {
   for (int i = 0; i < n; i++) {
     int depth = rnd(0, 100);                              // 0 = far (faint/slow), 100 = near
-    int scale = 165 + depth * 20 / 10;                   // ~165 (far) .. ~365 (near) — big, soft
+    int scale = 150 + depth * 14 / 10;                   // ~150 (far) .. ~290 (near) — softer + cheaper
     lv_opa_t o = (lv_opa_t) (40 + depth * (opa - 40) / 100);   // far faint, near → ceiling
     lv_obj_t *c = spr(layer, 13, scale);
     lv_obj_set_style_image_opa(c, o, 0);
@@ -222,9 +223,11 @@ inline void star_layer(lv_obj_t *layer, int n, int sz, uint32_t color, lv_opa_t 
 // Stars are STATIC (drawn once = free); only a few twinkle. Drifting every star tanked the
 // frame rate (too many scattered moving regions), so depth comes from the layers, not motion.
 inline void stars(lv_obj_t *layer) {
-  star_layer(layer, 80, 2, 0xCFE0FF, LV_OPA_40, 0, false);       // far — faint dust
-  star_layer(layer, 34, 3, 0xE6EEFF, LV_OPA_70, 0, true);        // mid — some twinkle
-  star_layer(layer, 12, 5, 0xFFFFFF, LV_OPA_COVER, 0, true);     // near — bright, twinkle
+  // Kept modest: each star is an object that gets re-composited whenever a cloud drifts
+  // over it, so a big field made night/overcast scenes crawl. ~half the previous count.
+  star_layer(layer, 30, 2, 0xCFE0FF, LV_OPA_40, 0, false);       // far — faint dust
+  star_layer(layer, 14, 3, 0xE6EEFF, LV_OPA_70, 0, true);        // mid — some twinkle
+  star_layer(layer, 6, 5, 0xFFFFFF, LV_OPA_COVER, 0, true);      // near — bright, twinkle
 }
 
 // Shooting stars: bright diagonal streaks that occasionally dart across the night sky.
@@ -270,8 +273,11 @@ inline void shooting_stars(lv_obj_t *layer, int n) {
 // ── Character motion helpers (paths aren't just straight left→right) ────────────────
 // Cross the screen in a RANDOM direction, reappearing after a gap, with an optional gentle
 // vertical WAVE so the path curves. `wave` = peak vertical wander in px (0 = dead straight).
-inline void cross(lv_obj_t *o, int y, uint32_t dur, uint32_t delay, uint32_t gap, int wave) {
-  bool ltr = (rnd(0, 1) == 0);
+// Slide an object across the screen (repeating). `dir`: 0 = random, 1 = left→right,
+// 2 = right→left. Directional sprites (heli, blimp, tractor…) must pin a direction so they
+// don't fly/drive backwards; symmetric ones (balloon, kite, UFO) can stay random.
+inline void cross_dir(lv_obj_t *o, int y, uint32_t dur, uint32_t delay, uint32_t gap, int wave, int dir) {
+  bool ltr = (dir == 1) ? true : (dir == 2) ? false : (rnd(0, 1) == 0);
   lv_obj_set_y(o, y);
   lv_anim_t a; lv_anim_init(&a);
   lv_anim_set_var(&a, o);
@@ -292,6 +298,9 @@ inline void cross(lv_obj_t *o, int y, uint32_t dur, uint32_t delay, uint32_t gap
     lv_anim_set_exec_cb(&w, [](void *v, int32_t ty) { lv_obj_set_style_translate_y((lv_obj_t *) v, ty, 0); });
     lv_anim_start(&w);
   }
+}
+inline void cross(lv_obj_t *o, int y, uint32_t dur, uint32_t delay, uint32_t gap, int wave) {
+  cross_dir(o, y, dur, delay, gap, wave, 0);   // random direction (for symmetric sprites)
 }
 
 // Elliptical ORBIT — x and y oscillate a quarter-period apart, tracing a loop. Makes a
@@ -321,7 +330,9 @@ inline void orbit(lv_obj_t *o, int cx, int cy, int rx, int ry, uint32_t period) 
 
 // Characters take (delay, period): first appearance after `delay`, then once per `period`.
 // The pickers stagger several so only ONE is on screen at a time, ~once a minute.
+inline void ufo_abduct(lv_obj_t *layer, uint32_t delay, uint32_t period);   // fwd (cow set-piece)
 inline void ufo(lv_obj_t *layer, uint32_t delay, uint32_t period) {
+  if (rnd(0, 2) == 0) { ufo_abduct(layer, delay, period); return; }   // 1 in 3 → beam up a cow 🐄🛸
   uint32_t dur = rnd(15000, 19000);                      // medium, a touch faster than the satellite
   cross(spr(layer, 1, 162), 320, dur, delay, period - dur, rnd(24, 40));
 }
@@ -427,19 +438,84 @@ inline void satellite(lv_obj_t *layer, uint32_t delay, uint32_t period) {
   lv_anim_start(&d);
 }
 
+// UFO ABDUCTION: a saucer cruises slowly with a tractor beam, a cow bobbing up in it as
+// if being reeled in. The whole rig is ONE group so it crosses (and repeats) as a unit.
+inline void ufo_abduct(lv_obj_t *layer, uint32_t delay, uint32_t period) {
+  lv_obj_t *grp = lv_obj_create(layer);
+  lv_obj_remove_style_all(grp);
+  lv_obj_set_size(grp, 150, 320);
+  lv_obj_remove_flag(grp, (lv_obj_flag_t) (LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+  lv_obj_t *beam = spr(grp, 23, 210);                 // tractor beam under the saucer
+  lv_obj_set_style_image_opa(beam, LV_OPA_60, 0);
+  lv_obj_set_pos(beam, 28, 44);
+  twinkle(beam, 120, 200);                            // beam shimmer
+  lv_obj_t *u = spr(grp, 1, 176);                     // saucer on top
+  lv_obj_set_pos(u, 38, 0);
+  lv_obj_t *c = spr(grp, 20, 150);                    // cow, bobbing up the beam
+  int cy = 214; lv_obj_set_pos(c, 52, cy);
+  sway(c, false, cy - 40, cy + 6, 1700, 0);
+  uint32_t dur = rnd(17000, 23000);                   // slow, majestic pass
+  cross(grp, 130, dur, delay, period - dur, 0);
+}
+
+// COMET (night): a bright head + tail streaking down across the sky, now and then.
+inline void comet(lv_obj_t *layer, uint32_t delay, uint32_t period) {
+  lv_obj_t *c = spr(layer, 21, rnd(150, 210));
+  int y0 = rnd(20, 110);
+  uint32_t dur = rnd(2400, 3400), gap = period - dur;   // fast streak, then gone for the period
+  lv_obj_set_pos(c, 1360, y0);
+  lv_anim_t a; lv_anim_init(&a); lv_anim_set_var(&a, c);
+  lv_anim_set_values(&a, 1360, -240); lv_anim_set_duration(&a, dur); lv_anim_set_delay(&a, delay);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE); lv_anim_set_repeat_delay(&a, gap);
+  lv_anim_set_exec_cb(&a, [](void *v, int32_t x) { lv_obj_set_x((lv_obj_t *) v, x); });
+  lv_anim_start(&a);
+  lv_anim_t d; lv_anim_init(&d); lv_anim_set_var(&d, c);
+  lv_anim_set_values(&d, y0, y0 + 240); lv_anim_set_duration(&d, dur); lv_anim_set_delay(&d, delay);
+  lv_anim_set_repeat_count(&d, LV_ANIM_REPEAT_INFINITE); lv_anim_set_repeat_delay(&d, gap);
+  lv_anim_set_exec_cb(&d, [](void *v, int32_t y) { lv_obj_set_y((lv_obj_t *) v, y); });
+  lv_anim_start(&d);
+}
+
+// BLIMP (day): a stately airship drifting across, even slower than the balloon.
+inline void blimp(lv_obj_t *layer, uint32_t delay, uint32_t period) {
+  uint32_t dur = rnd(44000, 56000);
+  cross_dir(spr(layer, 22, 150), 300, dur, delay, period - dur, 5, 2);   // faces LEFT → right→left
+}
+
+// HELICOPTER (night): crosses with a BLINKING red beacon on its belly.
+inline void helicopter(lv_obj_t *layer, uint32_t delay, uint32_t period) {
+  lv_obj_t *grp = lv_obj_create(layer);
+  lv_obj_remove_style_all(grp);
+  lv_obj_set_size(grp, 100, 44);
+  lv_obj_remove_flag(grp, (lv_obj_flag_t) (LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+  spr(grp, 26, 150);                                    // heli body (top-left of the group)
+  lv_obj_t *beacon = chip(grp, 6, 6, 0xFF3524, LV_OPA_COVER, LV_RADIUS_CIRCLE);
+  lv_obj_set_pos(beacon, 22, 34);                       // belly light
+  lv_anim_t bl; lv_anim_init(&bl); lv_anim_set_var(&bl, beacon);   // 1 Hz-ish blink
+  lv_anim_set_values(&bl, 255, 0);
+  lv_anim_set_duration(&bl, 260); lv_anim_set_playback_duration(&bl, 520);
+  lv_anim_set_repeat_count(&bl, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_exec_cb(&bl, [](void *v, int32_t o) { lv_obj_set_style_bg_opa((lv_obj_t *) v, (lv_opa_t) o, 0); });
+  lv_anim_start(&bl);
+  uint32_t dur = rnd(9000, 13000);
+  cross_dir(grp, 250, dur, delay, period - dur, 5, 2);   // faces LEFT → fly right→left
+}
+
 // ONE character on screen at a time, ~one per minute, cycling the cast in a RANDOM order
 // (so it stays varied without ever being busy).
 inline void day_characters(lv_obj_t *layer) {
-  const uint32_t SLOT = 60000, PERIOD = 4 * SLOT;     // 4 chars → each every 4 min, 1/min
-  void (*fns[4])(lv_obj_t *, uint32_t, uint32_t) = {balloon, birds, airplane, kite};
+  const uint32_t SLOT = 60000, PERIOD = 5 * SLOT;     // 5 acts → each every 5 min, 1/min
+  void (*fns[5])(lv_obj_t *, uint32_t, uint32_t) = {balloon, birds, airplane, kite, blimp};
+  int order[5] = {0, 1, 2, 3, 4};
+  for (int i = 4; i > 0; i--) { int j = rnd(0, i); int t = order[i]; order[i] = order[j]; order[j] = t; }
+  for (int i = 0; i < 5; i++) fns[order[i]](layer, (uint32_t) i * SLOT, PERIOD);
+}
+inline void night_characters(lv_obj_t *layer) {
+  const uint32_t SLOT = 60000, PERIOD = 4 * SLOT;     // ufo(/abduction) + satellite + comet + heli
+  void (*fns[4])(lv_obj_t *, uint32_t, uint32_t) = {ufo, satellite, comet, helicopter};
   int order[4] = {0, 1, 2, 3};
   for (int i = 3; i > 0; i--) { int j = rnd(0, i); int t = order[i]; order[i] = order[j]; order[j] = t; }
   for (int i = 0; i < 4; i++) fns[order[i]](layer, (uint32_t) i * SLOT, PERIOD);
-}
-inline void night_characters(lv_obj_t *layer) {
-  const uint32_t SLOT = 60000, PERIOD = 2 * SLOT;     // ufo + satellite, 1/min
-  if (rnd(0, 1)) { ufo(layer, 0, PERIOD); satellite(layer, SLOT, PERIOD); }
-  else { satellite(layer, 0, PERIOD); ufo(layer, SLOT, PERIOD); }
 }
 
 // ── Seasonal / temperature ambience (added on top of the weather effect) ────────────
@@ -654,19 +730,55 @@ inline HillPal hill_palette(int code, bool day) {
 // Build the terrain (drawn first, under the weather particles).
 inline void landscape(lv_obj_t *layer, int code, bool day) {
   HillPal p = hill_palette(code, day);
-  hill(layer, 2200, 470, 498, p.back);    // back ridge (hazier, higher crest)
-  hill(layer, 2700, 820, 548, p.front);   // front ridge (darker, lower, offset)
-  // A small cluster of pines following the front-ridge dome (cx 820, crest 548, r≈1350).
+  const uint32_t NT = 0x141D33; const lv_opa_t NO = LV_OPA_70;
+  auto dusk = [&](lv_obj_t *o) {
+    if (!day) { lv_obj_set_style_image_recolor_opa(o, NO, 0); lv_obj_set_style_image_recolor(o, lv_color_hex(NT), 0); }
+  };
+
+  hill(layer, 2200, 470, 498, p.back);      // BACK ridge (hazier, higher crest)
+
+  // ── FAR field — drawn BEFORE the front ridge so the near hill OCCLUDES it (real depth):
+  // a distant home on the far crest, and a tractor that crosses the back ridge and slips
+  // BEHIND the front hill mid-screen instead of driving over it. Small + hazy = distance.
+  {
+    bool left = rnd(0, 1);
+    int hx = left ? rnd(150, 330) : rnd(1000, 1140);
+    int hd = hx - 470, hdrop = hd * hd / 2100;
+    bool isBarn = rnd(0, 1);
+    lv_obj_t *hm = spr(layer, isBarn ? 25 : 27, 104);             // smaller = further away
+    int hh = (isBarn ? 86 : 70) * 104 / 256;
+    lv_obj_set_pos(hm, hx, 498 + hdrop - hh + 4);
+    if (day) lv_obj_set_style_image_opa(hm, 230, 0);             // atmospheric haze
+    dusk(hm);
+  }
+  if (rnd(0, 1) == 0) {                       // tractor on the far ridge — a slow crawl; the
+    lv_obj_t *tr = spr(layer, 24, 118);       // front hill hides it as it passes behind
+    lv_obj_set_y(tr, 556);                    // low enough that the front dome covers it mid-screen
+    dusk(tr);
+    anim_x(tr, -150, 1400, rnd(110000, 155000), rnd(4000, 22000));  // ~2-2.5 min to cross
+  }
+
+  hill(layer, 2700, 820, 548, p.front);     // FRONT ridge — covers whatever far-field it overlaps
+
+  // Pines on the NEAR ridge (front dome: cx820, crest548, r≈1350).
   int n = rnd(3, 5);
   for (int i = 0; i < n; i++) {
-    int sc = rnd(120, 210);
-    int hgt = 96 * sc / 256;
-    int x = rnd(540, 880);
+    int sc = rnd(120, 210), hgt = 96 * sc / 256, x = rnd(540, 880);
     int dx = x - 820, drop = dx * dx / 2700;
     lv_obj_t *t = spr(layer, 14, sc);
     lv_obj_set_style_image_recolor_opa(t, LV_OPA_COVER, 0);
     lv_obj_set_style_image_recolor(t, lv_color_hex(p.tree), 0);
     lv_obj_set_pos(t, x, 548 + drop - hgt + 2);
+  }
+  // Cows grazing on the NEAR ridge (in front of everything, bigger).
+  int cows = rnd(1, 2);
+  for (int i = 0; i < cows; i++) {
+    int cx2 = rnd(360, 900), cd = cx2 - 820, cdrop = cd * cd / 2700;
+    int cyy = 548 + cdrop - (48 * 132 / 256) + 2;
+    lv_obj_t *cw = spr(layer, 20, 132);
+    lv_obj_set_pos(cw, cx2, cyy);
+    dusk(cw);
+    sway(cw, false, cyy, cyy + 3, rnd(2600, 3800), rnd(0, 1500));  // gentle graze bob
   }
 }
 
@@ -696,12 +808,12 @@ inline void apply_weather_fx(lv_obj_t *layer, int code, bool day) {
     if (day) sun_scene(layer);
     else { stars(layer); shooting_stars(layer, 2); place_moon(layer); }
   } else if (code <= 3) {                // partly cloudy / overcast
-    if (!day) stars(layer);              // stars peek through at night
+    if (!day && code < 3) stars(layer);  // stars peek through PARTLY cloud at night; overcast hides them
     if (code == 2 && day) {              // partly cloudy DAY: sun with a few clouds drifting in front
       place_sun(layer, 130);
       sun_clouds(layer, true);
     } else {                             // overcast (or night) — broader cover, no sun
-      clouds(layer, code == 3 ? 5 : 3, day ? 172 : 150, day);
+      clouds(layer, code == 3 ? 3 : 2, day ? 172 : 150, day);
     }
   } else if (code <= 48) {               // fog / haze
     fog(layer);

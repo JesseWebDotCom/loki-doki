@@ -59,6 +59,7 @@ import { pushDisplayData } from '@/lib/pod/displayData'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { handleAlarmAction } from '@/lib/pod/scheduler'
 import { handleButtonPress } from '@/lib/pod/controllerActions'
+import { pushToBrowserSession } from '@/lib/pod/browserSession'
 
 type Send = (ev: WyomingEvent) => void
 
@@ -150,6 +151,17 @@ export class SatelliteSession implements PodFireTarget {
           // Device swiped between the ambient display and the button-grid controller; the
           // render/stream loop will start sending the matching server-rendered view.
           setDeviceView(this._deviceId, d.view === 'controller' ? 'controller' : 'display')
+        } else if (d && d.name === 'media' && this.userId && typeof d.action === 'string') {
+          // The device's native player bar — forward the transport command to the user's
+          // browser session, which actually drives the YouTube/radio engine.
+          const valid = ['play', 'pause', 'toggle', 'next', 'prev', 'seek', 'stop'] as const
+          const t = String(d.action) as typeof valid[number]
+          if ((valid as readonly string[]).includes(t)) {
+            pushToBrowserSession(this.userId, {
+              type: 'media_transport', transport: t,
+              position: typeof d.position === 'number' ? d.position : undefined,
+            })
+          }
         } else if (d && d.name === 'reply_mode' && typeof d.mode === 'string') {
           // Device toggled voice ↔ text reply (the bottom-right control). Text mode →
           // we type the reply on its screen instead of speaking it.

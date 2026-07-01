@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { RadioEngine, initialRadioState, type RadioState } from '@/lib/music/radioEngine'
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory } from '@/lib/music/catalogApi'
-import { acquireAudio, registerMediaStop } from '@/lib/mediaCoordinator'
+import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
 
 /** Persistent AI Radio engine — lives above the router so a station keeps playing
  *  (and stays controllable from the mini-player) as you move around the app. */
@@ -45,7 +45,12 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unregister = registerMediaStop('radio', () => engineRef.current?.stop())
-    return () => { unregister(); engineRef.current?.destroy() }
+    const e = engineRef.current
+    const unTransport = registerTransport('radio', {
+      toggle: () => e?.togglePause(), next: () => e?.skip(),
+      prev: () => e?.seek(0), seek: (sec) => e?.seek(sec), stop: () => e?.stop(),
+    })
+    return () => { unregister(); unTransport(); engineRef.current?.destroy() }
   }, [])
 
   // Log each newly-playing song to history (powers Continue Listening + recently played).

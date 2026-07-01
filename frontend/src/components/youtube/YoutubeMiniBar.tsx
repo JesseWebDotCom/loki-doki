@@ -4,6 +4,7 @@ import { Play, Pause, Maximize2, X, Loader2, SkipBack, SkipForward } from 'lucid
 import { cn } from '@/lib/cn'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { useRadio } from '@/context/RadioContext'
+import { registerTransport } from '@/lib/mediaCoordinator'
 import { RadioMiniBar } from '@/components/music/RadioMiniBar'
 import { fileUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { proxyImg } from '@/lib/img'
@@ -200,6 +201,39 @@ export function YoutubeMiniBar() {
 
   const skipNext = () => { if (pb.hasNext) pb.next() }
   const skipPrev = () => { const s = read(); if (s && s.t > 3) seekTo(0); else if (pb.hasPrev) pb.prev(); else seekTo(0) }
+
+  // Expose this engine's transport so a remote (Tab5 native player → useBrowserSession)
+  // can drive it via the media coordinator. Registered once; calls the latest closures.
+  const ctrlRef = useRef({ togglePlay, seekTo, skipPrev, skipNext, close: onClose })
+  ctrlRef.current = { togglePlay, seekTo, skipPrev, skipNext, close: onClose }
+  useEffect(() => registerTransport('youtube', {
+    toggle: () => ctrlRef.current.togglePlay(),
+    next: () => ctrlRef.current.skipNext(),
+    prev: () => ctrlRef.current.skipPrev(),
+    seek: (sec) => ctrlRef.current.seekTo(sec),
+    stop: () => ctrlRef.current.close(),
+  }), [])
+
+  // Report YouTube now-playing to the shared snapshot so device player bars reflect it.
+  const readRef = useRef(read); readRef.current = read
+  useEffect(() => {
+    if (!track) return
+    const report = () => {
+      const s = readRef.current()
+      void fetch('/api/pod/now-playing', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId: track.videoId, title: track.title, artist: track.author ?? null,
+          cover: track.thumbnail ?? (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg` : ''),
+          positionSec: Math.round(s?.t ?? 0), durationSec: Math.round(s?.d ?? 0),
+          playing: s?.playing ?? false,
+        }),
+      }).catch(() => {})
+    }
+    report()
+    const iv = setInterval(report, 5000)
+    return () => clearInterval(iv)
+  }, [track, playing])
 
   const winH = Math.round(winW * 9 / 16)
   const toggleExpand = () => { if (isLocalAudio || isStream) return; if (expanded) { setExpanded(false); setWin(null) } else setExpanded(true) }

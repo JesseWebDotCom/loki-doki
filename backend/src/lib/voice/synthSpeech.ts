@@ -7,24 +7,26 @@ import { voiceServerLocalUrl } from '@/lib/voiceServer'
 import { segmentSentences } from '@/lib/voice/sentenceSegmenter'
 import { wavToInt16, pcmToWav } from '@/lib/voice/pcm'
 
-const SENTENCE_GAP_SEC = 0.34   // breath between sentences
+const SENTENCE_GAP_SEC = 0.34   // breath between sentences (default / long-form narration)
 const DASH_GAP_SEC = 0.20       // shorter beat at an em/en dash
 
 interface SpeechChunk { text: string; gapSec: number }
 
 // Split into speakable chunks, recording the pause to insert AFTER each. Sentences come from the
 // shared segmenter (so abbreviations / decimals don't trigger false breaks); each sentence is then
-// split on em/en dashes — and hyphens used as dashes (spaced or doubled), which leaves intra-word
-// hyphens like "hip-hop" / "T-Pain" intact. The final chunk gets no trailing gap.
-function planChunks(text: string): SpeechChunk[] {
+// optionally split on em/en dashes — and hyphens used as dashes (spaced or doubled), which leaves
+// intra-word hyphens like "hip-hop" / "T-Pain" intact. The final chunk gets no trailing gap.
+function planChunks(text: string, sentenceGapSec: number, splitDashes: boolean): SpeechChunk[] {
   const chunks: SpeechChunk[] = []
   const sentences = segmentSentences(text)
   sentences.forEach((sentence, si) => {
-    const parts = sentence.split(/\s*[—–]\s*|\s+-{1,2}\s+/).map((p) => p.trim()).filter(Boolean)
+    const isLastSentence = si === sentences.length - 1
+    const parts = splitDashes
+      ? sentence.split(/\s*[—–]\s*|\s+-{1,2}\s+/).map((p) => p.trim()).filter(Boolean)
+      : [sentence]
     parts.forEach((part, pi) => {
       const isLastPart = pi === parts.length - 1
-      const isLastSentence = si === sentences.length - 1
-      const gapSec = isLastPart ? (isLastSentence ? 0 : SENTENCE_GAP_SEC) : DASH_GAP_SEC
+      const gapSec = isLastPart ? (isLastSentence ? 0 : sentenceGapSec) : DASH_GAP_SEC
       chunks.push({ text: part, gapSec })
     })
   })
@@ -33,9 +35,11 @@ function planChunks(text: string): SpeechChunk[] {
 
 export async function synthesizeWithPauses(
   text: string,
-  opts: { voice: string; speed?: number; signal?: AbortSignal },
+  opts: { voice: string; speed?: number; signal?: AbortSignal; sentenceGapSec?: number; splitDashes?: boolean },
 ): Promise<Buffer | null> {
-  const chunks = planChunks(text)
+  const sentenceGapSec = opts.sentenceGapSec ?? SENTENCE_GAP_SEC
+  const splitDashes = opts.splitDashes ?? true
+  const chunks = planChunks(text, sentenceGapSec, splitDashes)
   if (!chunks.length) return null
 
   const base = voiceServerLocalUrl()

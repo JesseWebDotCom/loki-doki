@@ -25,6 +25,7 @@ import {
 import { captureDeviceFrame, deviceByHwid, setDeviceOrientation } from '@/lib/pod/displayRenderer'
 import { rendererForTemplateId, DEFAULT_TEMPLATE_ID } from '@/lib/pod/deviceStudio'
 import { resolveDevicePhotoUrl } from '@/lib/pod/displayData'
+import { getNowPlaying } from '@/lib/pod/nowPlaying'
 import { deviceDisplayMode, setDeviceCamera, setDeviceAuto, fetchCameraFrame } from '@/lib/pod/displayController'
 import { latestLivingRoomFrame } from '@/lib/pod/cameraStream'
 import { startFfmpegTest, startFfmpegSource, startUrlTest, stopTest, isTestActive } from '@/lib/pod/cameraTest'
@@ -139,6 +140,36 @@ pod.get('/image/:hwid', async (c) => {
     return new Response(new Uint8Array(buf), {
       status: 200,
       headers: { 'Content-Type': ct, 'Cache-Control': 'no-store' },
+    })
+  } catch {
+    return c.body(null, 404)
+  }
+})
+
+// The current now-playing COVER art for a device's user, proxied for the device's native
+// media-player bar (the device can't reach the remote art host directly). 404 when nothing
+// is playing → the device keeps its placeholder. LAN-trust like /image (keyed by hwid).
+pod.get('/cover/:hwid', async (c) => {
+  const raw = c.req.param('hwid').replace(/\.(jpe?g|png|webp)$/i, '')
+  const dev = await deviceByHwid(raw)
+  if (!dev) return c.body(null, 404)
+  let url = getNowPlaying(dev.userId)?.cover?.trim()
+  if (!url) return c.body(null, 404)
+  // Cover URLs usually point at our AUTH-GATED image proxies (/api/youtube/img?u=…,
+  // /api/img?url=…). A server-side fetch has no auth cookie → 401, so unwrap the real
+  // target from the ?u=/?url= query and fetch it directly. Otherwise make it absolute.
+  try {
+    const inner = new URL(url, 'http://x').searchParams.get('u') || new URL(url, 'http://x').searchParams.get('url')
+    if (inner && /^https?:\/\//i.test(inner)) url = inner
+  } catch { /* not a parseable url */ }
+  if (url.startsWith('/')) url = new URL(c.req.url).origin + url
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(6000) })
+    if (!r.ok) return c.body(null, 404)
+    const buf = Buffer.from(await r.arrayBuffer())
+    return new Response(new Uint8Array(buf), {
+      status: 200,
+      headers: { 'Content-Type': r.headers.get('content-type') ?? 'image/jpeg', 'Cache-Control': 'no-store' },
     })
   } catch {
     return c.body(null, 404)

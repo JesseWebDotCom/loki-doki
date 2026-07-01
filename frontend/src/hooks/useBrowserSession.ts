@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { djStationById } from '@/lib/music/catalogApi'
+import { dispatchTransport } from '@/lib/mediaCoordinator'
 
 // Receives commands pushed from a controller device (a Tab5 button press → server →
 // here) and acts on them in THIS browser session: navigate, open a URL, or drive the
@@ -34,6 +35,12 @@ export function useBrowserSession() {
                 const dj = await djStationById(payload.stationId)
                 if (dj) { radio.start(dj); navigate('/music/now-playing') }
               }
+              break
+            }
+            case 'media_transport': {
+              // Transport from a device's native player bar → drive whichever engine is
+              // active (radio or youtube), routed through the media coordinator.
+              dispatchTransport(String(cmd.transport ?? ''), typeof cmd.position === 'number' ? cmd.position : undefined)
               break
             }
           }

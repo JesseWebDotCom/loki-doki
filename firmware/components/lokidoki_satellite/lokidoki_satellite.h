@@ -112,6 +112,10 @@ class LokiDokiSatellite : public Component {
   // Stream Deck controller mode. Called from the YAML on_boot lambda to hand us
   // the blank LVGL page we dynamically populate with button cells.
   void set_stream_deck_page(void *page_obj) { this->sd_page_ = page_obj; }
+  // The real YAML fonts (font::Font*) for the native grid tiles, passed as void* to keep
+  // this header free of the font include (cast back in the .cpp). Without these the grid
+  // would fall back to the tiny built-in LVGL font.
+  void set_sd_fonts(void *icon, void *text) { this->sd_icon_font_ = icon; this->sd_text_font_ = text; }
 
   // The stable hardware id (Wi-Fi MAC) this device announced + the server stored it by —
   // used by the native LVGL dashboard to build its per-device image URL so it matches
@@ -123,6 +127,14 @@ class LokiDokiSatellite : public Component {
   // streams the matching server-rendered frame. Sent on a swipe (see tab5.yaml).
   void set_view(const std::string &view) {
     this->send_event_("user-event", std::string("{\"name\":\"view\",\"view\":\"") + view + "\"}", nullptr, 0);
+  }
+
+  // A transport command from the native player bar (play/pause/toggle/next/prev/seek).
+  // The server forwards it to the user's browser session, which drives the real engine.
+  void send_media_command(const std::string &action, int position) {
+    char buf[96];
+    snprintf(buf, sizeof(buf), "{\"name\":\"media\",\"action\":\"%s\",\"position\":%d}", action.c_str(), position);
+    this->send_event_("user-event", std::string(buf), nullptr, 0);
   }
 
  protected:
@@ -232,6 +244,8 @@ class LokiDokiSatellite : public Component {
   // sd_pages_ holds the last config from the server; sd_btn_ctxs_ holds the
   // heap-allocated per-button callback data (freed + re-built on each config push).
   void *sd_page_{nullptr};
+  void *sd_icon_font_{nullptr};    // font::Font* (as void*) for the native grid tiles
+  void *sd_text_font_{nullptr};
   bool sd_needs_rebuild_{false};   // defer LVGL work to loop() (main task = LVGL safe)
 
   struct SdButton {

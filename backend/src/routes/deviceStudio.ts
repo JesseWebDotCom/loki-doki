@@ -18,7 +18,7 @@ import type { AppEnv } from '@/types'
 import { db } from '@/db'
 import { devices, deviceChimes, deviceSoundPacks, deviceLayoutTemplates, controllerLayoutTemplates, clockAlarms, users } from '@/db/schema'
 import { layoutToDevice, soundToDevice, assetSyncToDevice, streamDeckToDevice } from '@/lib/pod/registry'
-import { pushDisplayData } from '@/lib/pod/displayData'
+import { pushDisplayData, pushDisplayDataForUser } from '@/lib/pod/displayData'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { setNowPlaying, getNowPlaying, type NowPlaying } from '@/lib/pod/nowPlaying'
 import { getServerHost } from '@/lib/pod/firmware'
@@ -310,6 +310,10 @@ studio.get('/controller-layout', requireAuth, async (c) => {
 studio.post('/now-playing', requireAuth, async (c) => {
   const user = c.get('user')
   const b = (await c.req.json().catch(() => ({}))) as Partial<NowPlaying>
+  // Ignore EMPTY reports (no title/video/station) — a background/idle tab firing one of
+  // these would otherwise clobber a valid now-playing set by the tab that's actually
+  // playing, which is what made the cover vanish a moment after it appeared.
+  if (!b.title && !b.videoId && !b.stationId) return c.json({ ok: true, ignored: true })
   setNowPlaying(user.id, {
     stationId: typeof b.stationId === 'string' ? b.stationId : null,
     videoId: typeof b.videoId === 'string' ? b.videoId : null,
@@ -320,6 +324,8 @@ studio.post('/now-playing', requireAuth, async (c) => {
     durationSec: Number(b.durationSec) || 0,
     playing: !!b.playing,
   })
+  // Push to the user's native-LVGL devices so their player bar reflects it immediately.
+  void pushDisplayDataForUser(user.id)
   return c.json({ ok: true })
 })
 

@@ -17,6 +17,7 @@ import { isTestActive, isManualSource, latestTestFrame, startPublicCameraSource,
 import { anyDeviceInCameraMode, getDeviceMode } from '@/lib/pod/displayMode'
 import { deviceByHwid, captureDeviceFrame } from '@/lib/pod/displayRenderer'
 import { rendererForTemplateId, DEFAULT_TEMPLATE_ID } from '@/lib/pod/deviceStudio'
+import { deviceView } from '@/lib/pod/displayController'
 import { logger } from '@/lib/logger'
 
 // Min gap between ambient layout frames per device (normal mode). The loop renders the
@@ -230,10 +231,12 @@ export function startCameraUdp(): void {
           const dev = await deviceByHwid(v.mac)
           if (!dev) continue
           if (getDeviceMode(dev.id) === 'camera-test') continue // camera sender owns this device
-          // Native-LVGL devices draw their own dashboard — don't render/stream server pixels
-          // to them at all (this is what makes the LVGL experiment a TRUE native perf test,
-          // and it frees the headless-Chromium tab + UDP bandwidth).
-          if (rendererForTemplateId(dev.layoutTemplateId ?? DEFAULT_TEMPLATE_ID) === 'lvgl') continue
+          // Native-LVGL devices draw their own dashboard, so we don't render/stream the
+          // DISPLAY view to them (frees the headless-Chromium tab + UDP bandwidth). But the
+          // CONTROLLER (stream deck) is still a server-rendered surface, so when the device
+          // is swiped into controller view we DO render + stream it.
+          if (rendererForTemplateId(dev.layoutTemplateId ?? DEFAULT_TEMPLATE_ID) === 'lvgl'
+              && deviceView(dev.id) !== 'controller') continue
           const frame = await captureDeviceFrame(dev.id, dev.userId)
           if (frame) await sendFrame(frame, v)
         } catch { /* a bad render shouldn't kill the loop */ }

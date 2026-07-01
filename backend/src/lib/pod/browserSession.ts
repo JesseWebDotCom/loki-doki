@@ -1,12 +1,15 @@
 import { logger } from '@/lib/logger'
 
 export interface BrowserCommand {
-  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump'
+  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump' | 'media_transport'
   path?: string
   url?: string
   action?: string
   payload?: Record<string, unknown>
   pageId?: string
+  // media_transport: a play/pause/next/prev/seek from the device's native player.
+  transport?: 'play' | 'pause' | 'toggle' | 'next' | 'prev' | 'seek' | 'stop'
+  position?: number   // seconds, for transport === 'seek'
 }
 
 // userId → Set of active SSE response writers

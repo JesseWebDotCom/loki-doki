@@ -5,6 +5,7 @@ import { requireAuth } from '@/middleware/auth'
 import { ollamaChat } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
 import { synthesizeWithPauses } from '@/lib/voice/synthSpeech'
+import { applyPronunciations } from '@/lib/voice/pronunciation'
 import { appDefaultVoice } from '@/lib/voice/config'
 import { wikipediaSearch } from '@/lib/wikipediaSearch'
 import { innertubeSearch, SEARCH_FILTERS } from '@/lib/youtube/innertube'
@@ -215,15 +216,19 @@ export async function generateDjSegment(opts: DjSegmentOpts): Promise<{ text: st
     case 'outro':
       djPrompt = `Sign off the ${genre} set in one short line. ${stationLine}Mention that was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that last track'}. Max 18 words.`
       break
-    default: // transition
-      djPrompt = `Between songs on a ${genre} station. ${stationLine}In one tight line, name that ${trackName ? `was "${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'track'}${nextTrackName ? ` and tease what's up next: "${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}` : ''}. ${aside} Max 24 words.`
+    default: { // transition — order: name previous → aside → tease next
+      const prevLabel = trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that track'
+      const nextLabel = nextTrackName ? `"${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}` : null
+      const nextLine = nextLabel ? ` Then tease what's coming up next: ${nextLabel}.` : ''
+      djPrompt = `Between songs on a ${genre} station. ${stationLine}Name that ${prevLabel} just played. ${aside}${nextLine} One or two punchy sentences, in that order. Max 28 words.`
+    }
   }
 
   const model = await getModel()
   const chat = await ollamaChat(model, [
     { role: 'system', content: 'You are a fast-talking, charismatic radio DJ. Output ONLY the words you speak aloud — no stage directions, asterisks, or labels. Be brief: one or two short sentences, never more. Tight, energetic, conversational.' },
     { role: 'user', content: djPrompt },
-  ], [], { temperature: 0.9, num_predict: 70 })
+  ], [], { temperature: 0.9, num_predict: 120 })
 
   // Clean up: strip stray markdown asterisks and any quotes the model wrapped the whole
   // line in, so the caption and the TTS read naturally.
@@ -238,12 +243,20 @@ export async function generateDjSegment(opts: DjSegmentOpts): Promise<{ text: st
   const [engine, voiceId] = voice.includes(':') ? voice.split(':', 2) as [string, string] : ['kokoro', voice]
   if (engine !== 'kokoro') return { text, wav: null } // non-Kokoro: caller uses Web Speech API
 
+  // Apply pronunciation pack substitutions (e.g. AC/DC → A C D C) before synthesis so
+  // the caption keeps the correct spelling while Kokoro gets the phonetic version.
+  const spokenText = await applyPronunciations(text)
+
   // Synthesize chunk-by-chunk with silence spliced between sentences and dashes, so the DJ
   // phrases the line instead of rattling it off in one breath.
-  const wav = await synthesizeWithPauses(text, {
+  // No dash splitting — let Kokoro handle intra-sentence prosody naturally.
+  // Short sentence gap (0.12 s) so multi-sentence DJ lines flow instead of stutter.
+  const wav = await synthesizeWithPauses(spokenText, {
     voice: voiceId,
-    speed: 1.3,
+    speed: 1.2,
     signal: AbortSignal.timeout(30_000),
+    sentenceGapSec: 0.12,
+    splitDashes: false,
   })
   return { text, wav: wav ?? null }
 }

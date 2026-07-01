@@ -74,7 +74,10 @@ const FIRMWARE_MODELS: Record<string, FirmwareModel> = {
     'tab5/spr/airplane_a.png', 'tab5/spr/airplane_b.png',
     'tab5/spr/airplane_a2.png', 'tab5/spr/airplane_b2.png', 'tab5/spr/cloud.png',
     'tab5/spr/pine.png', 'tab5/spr/wear_sun.png', 'tab5/spr/wear_jacket.png',
-    'tab5/spr/wear_umbrella.png', 'tab5/spr/wear_scarf.png', 'tab5/spr/wear_tee.png'] },
+    'tab5/spr/wear_umbrella.png', 'tab5/spr/wear_scarf.png', 'tab5/spr/wear_tee.png',
+    'tab5/spr/cow.png', 'tab5/spr/comet.png', 'tab5/spr/blimp.png', 'tab5/spr/beam.png',
+    'tab5/spr/tractor.png', 'tab5/spr/barn.png', 'tab5/spr/helicopter.png',
+    'tab5/spr/house.png'] },
 }
 
 const DEFAULT_MODEL = 'atom-echo'

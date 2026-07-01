@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Music, Sparkles, Shuffle, ListMusic, Play, Pause, Download, Trash2, Loader2,
-  RefreshCw, Upload, Pencil, Check, Save, X, Radio, Video,
+  RefreshCw, Upload, Pencil, Check, Save, X, Radio, Video, Settings,
 } from 'lucide-react'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageShell } from '@/components/shared/PageShell'
@@ -617,8 +617,17 @@ export function MusicPage() {
   return (
     <PageShell gradient={GRADIENT} GhostIcon={Music}>
       <div className="mx-auto w-full max-w-5xl flex-1 px-4 pt-5 pb-8 sm:px-6">
-        {/* Tab nav */}
-        <AppTabBar tabs={NAV} value={tab} onChange={switchTab} className="mb-6" />
+        {/* Tab nav + settings */}
+        <div className="mb-6 flex items-center gap-2">
+          <AppTabBar tabs={NAV} value={tab} onChange={switchTab} className="flex-1" />
+          <Link
+            to="/admin/companions/voice"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            title="Music settings"
+          >
+            <Settings className="size-4" />
+          </Link>
+        </div>
 
         {subtitle && <p className="-mt-2 mb-4 text-sm text-muted-foreground">{subtitle}</p>}
 

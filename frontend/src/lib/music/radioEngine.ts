@@ -85,6 +85,37 @@ interface PreparedDj { text: string | null; blobUrl: string | null }
 const TAIL = 3          // seconds before a song's end at which we start the transition
 const INTRO_BED = 0.22  // level a song plays at while it's the backing bed (DJ talks over it)
 const FADE = 1300       // generic ramp length (ms)
+// First real lyric this close to the start means the DJ speaks FIRST, then the song begins clean.
+const IMMEDIATE_LYRICS_THRESHOLD = 4   // seconds
+
+// ── Lyric-timing helpers ─────────────────────────────────────────────────────
+interface LyricLine { sec: number; text: string }
+
+// Single-syllable filler lines that don't count as "real" vocals (yeah, ooh, la la, etc.)
+const FILLER_RE = /^[^a-z]*(?:yeah+|ooh+|ah+|uh+|oh+|mm+|hm+|hey|la+|na+|ba+|woo+|whoa+)[^a-z]*$/i
+function isFillerLine(text: string): boolean {
+  const t = text.trim()
+  if (!t || t.length < 3) return true
+  if (FILLER_RE.test(t)) return true
+  // "na na na", "la la la" — all words ≤ 3 chars
+  const words = t.toLowerCase().replace(/[^a-z\s]/g, '').trim().split(/\s+/)
+  return words.length > 0 && words.every(w => w.length <= 3)
+}
+
+/** Return the timestamp (sec) of the first non-filler lyric for a track, or null if unavailable. */
+async function fetchFirstRealLyricSec(track: QueuedTrack): Promise<number | null> {
+  if (!track.title) return null
+  try {
+    const q = new URLSearchParams()
+    if (track.author) q.set('artist', track.author)
+    q.set('title', track.title)
+    const res = await fetch(`/api/music/info/lyrics?${q}`, { credentials: 'include' })
+    if (!res.ok) return null
+    const { synced } = await res.json() as { synced?: LyricLine[] | null }
+    if (!synced?.length) return null
+    return synced.find(l => !isFillerLine(l.text))?.sec ?? null
+  } catch { return null }
+}
 
 // Strip the promo noise YouTube titles are littered with — "(Official Video)", "[OFFICIAL
 // VIDEO] [HD]", "| Official Music Video", "(Lyrics)", "(Remastered 2011)", "(4K)", etc. — for
@@ -476,7 +507,12 @@ export class RadioEngine {
   // Transition: same shape as the intro. The INCOMING song comes in at bed level as the backing
   // track, the outgoing one fades out, the DJ talks over the bed, then the incoming song swells to
   // full. Guarantees there's always music under the DJ between songs.
-  private async transition(runId: number, fromDeck: number, toDeck: number, dj: PreparedDj, display: Partial<RadioState>, quick = false) {
+  //
+  // firstRealLyricSec: timestamp of the first non-filler lyric in the incoming track (or null).
+  //   • null / >= IMMEDIATE_LYRICS_THRESHOLD → normal bed path; swell is timed to the lyric.
+  //   • < IMMEDIATE_LYRICS_THRESHOLD → DJ-first: outgoing song fades under the DJ, then the
+  //     incoming song starts clean from the top so the vocal enters at full volume.
+  private async transition(runId: number, fromDeck: number, toDeck: number, dj: PreparedDj, display: Partial<RadioState>, quick = false, firstRealLyricSec: number | null = null) {
     this.set({ djText: dj.text })
 
     // QUICK path (manual skip): no DJ, no bed — a fast crossfade straight to the next song at full
@@ -494,7 +530,33 @@ export class RadioEngine {
       return
     }
 
-    // Bring the incoming song in at bed level; fade the outgoing one out under it.
+    // IMMEDIATE LYRICS path: the next track's vocals start within a few seconds of the beginning, so
+    // there's no safe instrumental gap to talk over. Fade the outgoing song under the DJ, then start
+    // the incoming track from position 0 at full volume once the DJ finishes — no bleed-in bed.
+    if (firstRealLyricSec !== null && firstRealLyricSec <= IMMEDIATE_LYRICS_THRESHOLD) {
+      // Fade the outgoing song while the DJ speaks; the incoming deck stays silent (pre-buffered).
+      this.ramp(this.deckKey(fromDeck), 0, 1200)
+      setTimeout(() => { if (!this.stale(runId)) { try { this.deckEl(fromDeck).pause() } catch { /* noop */ } } }, 1300)
+
+      await new Promise(r => setTimeout(r, 400))   // give the fade a moment to start
+      if (this.stale(runId)) return
+
+      this.deck = toDeck
+      this.set({ ...display, djSpeaking: true, skipping: false })
+      await this.speak(dj)
+      if (this.stale(runId)) return
+
+      // Start the incoming track now — it was pre-buffered at 0 so play() is instant.
+      await this.playDeck(toDeck)
+      if (this.stale(runId)) return
+      const el = this.deckEl(toDeck)
+      this.lastPosSec = 0
+      this.set({ positionSec: 0, durationSec: Number.isFinite(el.duration) ? el.duration : 0 })
+      this.ramp(this.deckKey(toDeck), 1, 600)
+      return
+    }
+
+    // NORMAL BED path: bring the incoming song in at bed level; fade the outgoing one out under it.
     await this.playDeck(toDeck)
     if (this.stale(runId)) return
     this.ramp(this.deckKey(toDeck), INTRO_BED, 900)
@@ -514,9 +576,17 @@ export class RadioEngine {
     this.lastPosSec = Math.floor(el.currentTime)
     this.set({ ...display, positionSec: el.currentTime, durationSec: Number.isFinite(el.duration) ? el.duration : 0, djSpeaking: true, skipping: false })
 
-    // DJ talks over the bedding song, then it fades up to full.
+    // DJ talks over the bedding song.
     await this.speak(dj)
     if (this.stale(runId)) return
+
+    // If we know when the first vocal line hits, hold the bed until just before it so the swell
+    // lands right as the song kicks in vocally. Skip the wait if the DJ already ran past that point.
+    if (firstRealLyricSec !== null) {
+      const remaining = firstRealLyricSec - el.currentTime - FADE / 1000
+      if (remaining > 0.2) await new Promise(r => setTimeout(r, remaining * 1000))
+      if (this.stale(runId)) return
+    }
     this.ramp(this.deckKey(toDeck), 1, FADE)
   }
 
@@ -562,16 +632,39 @@ export class RadioEngine {
       : Promise.resolve([])
 
     if (!silentIntro && this.effectiveDjMode() !== 'silent') {
-      // Classic radio intro: the song comes in at bed level as its own backing track, the DJ talks
-      // over it, then it swells to full — same shape as the between-song transitions. (Fast now that
-      // stream resolve is ~0.2s, so the bed stretch is just the brief DJ-gen, not a long quiet wait.)
-      this.ramp(this.deckKey(0), INTRO_BED, 900)
+      // Peek at lyrics first (fast) so we know whether to go bed-first or DJ-first. Adds ~200ms
+      // of latency only on the very first song of a station — invisible against DJ gen time.
+      const firstRealLyricSec = await fetchFirstRealLyricSec(head[0]!)
+      if (this.stale(runId)) return
+
+      const immediateStart = firstRealLyricSec !== null && firstRealLyricSec <= IMMEDIATE_LYRICS_THRESHOLD
+
+      // Only ramp to bed if there's a safe instrumental gap to talk over.
+      if (!immediateStart) this.ramp(this.deckKey(0), INTRO_BED, 900)
+
       const intro = await this.prepareDj({ station, track: head[0]!, position: 'intro' })
       if (this.stale(runId)) return
+      const deck0El = this.deckEl(0)
+
       this.set({ djText: intro.text, djSpeaking: true })
-      await this.speak(intro)                       // DJ talks over the bed
+      await this.speak(intro)
       if (this.stale(runId)) return
-      this.ramp(this.deckKey(0), 1, FADE)           // swell the song up to full
+
+      if (immediateStart) {
+        // No intro gap — song was buffering silently while the DJ spoke. Seek back to 0 so the
+        // vocals enter from the very beginning (not mid-phrase after the silent buffering window).
+        deck0El.currentTime = 0
+        this.ramp(this.deckKey(0), 1, 600)
+      } else {
+        // Timed swell: hold the bed until just before the first real lyric so the full-volume
+        // moment lands with the vocal. If the DJ already ran past that point, swell immediately.
+        if (firstRealLyricSec !== null) {
+          const remaining = firstRealLyricSec - deck0El.currentTime - FADE / 1000
+          if (remaining > 0.2) await new Promise(r => setTimeout(r, remaining * 1000))
+          if (this.stale(runId)) return
+        }
+        this.ramp(this.deckKey(0), 1, FADE)
+      }
       this.set({ djSpeaking: false, djText: null })
     } else {
       this.ramp(this.deckKey(0), 1, 900)            // no DJ → straight to full
@@ -600,10 +693,12 @@ export class RadioEngine {
 
       const otherDeck = this.deck === 0 ? 1 : 0
       let preparedNext: Promise<PreparedDj> | null = null
+      let lyricsFetch: Promise<number | null> | null = null
       if (next) {
         if (!this.offline) prewarmStream(next.videoId, 'audio')   // prewarm is a network call
         this.cueSrc(otherDeck, next.videoId)   // pre-buffer so the hand-off is instant
         preparedNext = this.prepareDj({ station, track: cur, next, position: 'transition', sayStation: Math.random() < 0.34 })
+        lyricsFetch = fetchFirstRealLyricSec(next)   // parallel — resolves long before the song ends
       }
 
       const reason = await this.waitTail(runId, this.deck)
@@ -615,12 +710,15 @@ export class RadioEngine {
         // prepared DJ segment (and free its audio) instead of waiting on / playing it.
         const quick = reason === 'skip'
         if (quick) { void preparedNext?.then(d => { if (d.blobUrl) URL.revokeObjectURL(d.blobUrl) }) }
-        const dj = quick ? { text: null, blobUrl: null } : await (preparedNext ?? Promise.resolve({ text: null, blobUrl: null }))
+        const [dj, firstRealLyricSec] = await Promise.all([
+          quick ? Promise.resolve({ text: null, blobUrl: null }) : (preparedNext ?? Promise.resolve({ text: null, blobUrl: null })),
+          quick ? Promise.resolve(null) : (lyricsFetch ?? Promise.resolve(null)),
+        ])
         if (this.stale(runId)) return
         // The display flip (currentTrack/index/nextTrack) happens INSIDE transition() the moment
         // the incoming song starts under the DJ — so the page's hero/lyrics/info update as the DJ
         // introduces it, not after the DJ finishes. transition() also swaps this.deck.
-        await this.transition(runId, this.deck, otherDeck, dj, { index: i + 1, currentTrack: next, nextTrack: songs[i + 2] ?? null }, quick)
+        await this.transition(runId, this.deck, otherDeck, dj, { index: i + 1, currentTrack: next, nextTrack: songs[i + 2] ?? null }, quick, quick ? null : firstRealLyricSec)
         this.set({ djSpeaking: false, djText: null })
       } else {
         this.set({ phase: 'outro' })

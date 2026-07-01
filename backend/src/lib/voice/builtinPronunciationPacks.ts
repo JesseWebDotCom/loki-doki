@@ -132,7 +132,8 @@ export const BUILTIN_PRONUNCIATION_PACKS: PackSeed[] = [
       { term: 'Motörhead',    replacement: 'motor-hed' },
       { term: 'Sivan',        replacement: 'sy-van' },
       // Music terminology
-      { term: 'AC/DC',  replacement: 'AC DC' },
+      { term: 'AC/DC',  replacement: 'A C D C' },
+      { term: 'ACDC',   replacement: 'A C D C' },
       { term: 'R&B',    replacement: 'R and B' },
       { term: 'EDM',    replacement: 'E D M' },
       { term: 'feat.',  replacement: 'featuring' },

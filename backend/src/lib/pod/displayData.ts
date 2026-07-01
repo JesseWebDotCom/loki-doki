@@ -15,6 +15,20 @@ import { weatherSnapshot, type WeatherSnapshot } from '@/lib/briefing/sources/we
 import { dataToDevice, connectedDeviceIds } from '@/lib/pod/registry'
 import { rendererForTemplateId, DEFAULT_TEMPLATE_ID } from '@/lib/pod/deviceStudio'
 import { deviceByHwid } from '@/lib/pod/displayRenderer'
+import { getNowPlaying } from '@/lib/pod/nowPlaying'
+
+// The media shape the device's native player bar consumes. `rev` only changes on a NEW
+// track (so the device can re-show a dismissed bar), not on every position update.
+export interface DeviceMedia {
+  title: string
+  artist: string
+  isPlaying: boolean
+  position: number
+  duration: number
+  canSeek: boolean
+  cover: boolean       // art available → the device fetches it from /api/pod/cover/:hwid
+  rev: number
+}
 
 export interface DisplayDataPayload {
   weather: {
@@ -29,6 +43,15 @@ export interface DisplayDataPayload {
   } | null
   photo: boolean       // a family photo is configured for this device → device fetches it
   photo_rev: number    // changes when the configured photo changes (cache-bust)
+  media: DeviceMedia | null   // the user's current playback (for the native player bar)
+}
+
+/** A stable id for the *track* (not its progress), so the device only treats a genuinely
+ *  new track as new (re-showing a dismissed player). */
+function trackRev(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0
+  return h >>> 0
 }
 
 // Per-location weather cache (open-meteo is slow + rate-limited; the dashboard only
@@ -105,7 +128,29 @@ export async function buildDisplayData(deviceId: string): Promise<DisplayDataPay
       }
     }
   }
-  return { weather, photo: !!photoUrl, photo_rev: photoUrl ? revOf(photoUrl) : 0 }
+  const np = getNowPlaying(dev.userId)
+  const media: DeviceMedia | null = np ? {
+    title: np.title,
+    artist: np.artist ?? '',
+    isPlaying: np.playing,
+    position: Math.round(np.positionSec),
+    duration: Math.round(np.durationSec),
+    canSeek: np.durationSec > 0,
+    cover: !!np.cover?.trim(),
+    rev: trackRev(np.videoId || np.stationId || np.title),
+  } : null
+  return { weather, photo: !!photoUrl, photo_rev: photoUrl ? revOf(photoUrl) : 0, media }
+}
+
+/** Push the live data feed to every connected LVGL device owned by a user (used when the
+ *  user's media playback changes, so their device player updates immediately). */
+export async function pushDisplayDataForUser(userId: string): Promise<void> {
+  const ids = connectedDeviceIds()
+  if (!ids.size) return
+  const rows = await db.select({ id: devices.id, tpl: devices.layoutTemplateId, uid: devices.userId }).from(devices)
+  for (const r of rows) {
+    if (r.uid === userId && ids.has(r.id) && isLvglDevice(r.tpl)) await pushDisplayData(r.id)
+  }
 }
 
 /** True when this device is currently assigned a native-LVGL template. */
