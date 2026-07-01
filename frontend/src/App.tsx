@@ -111,6 +111,7 @@ const MusicStationsPage = lazy(() => import('@/pages/music/MusicStationsPage').t
 const MusicStationPage = lazy(() => import('@/pages/music/MusicStationPage').then((m) => ({ default: m.MusicStationPage })))
 const MusicWatchStationPage = lazy(() => import('@/pages/music/MusicWatchStationPage').then((m) => ({ default: m.MusicWatchStationPage })))
 const MusicBrowsePage = lazy(() => import('@/pages/music/MusicBrowsePage').then((m) => ({ default: m.MusicBrowsePage })))
+const NowPlayingPage = lazy(() => import('@/pages/music/NowPlayingPage').then((m) => ({ default: m.NowPlayingPage })))
 const MusicArtistPage = lazy(() => import('@/pages/music/MusicArtistPage').then((m) => ({ default: m.MusicArtistPage })))
 const MusicAlbumPage = lazy(() => import('@/pages/music/MusicAlbumPage').then((m) => ({ default: m.MusicAlbumPage })))
 const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').then((m) => ({ default: m.MusicLibraryPage })))
