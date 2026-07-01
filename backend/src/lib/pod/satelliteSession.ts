@@ -64,6 +64,7 @@ type Send = (ev: WyomingEvent) => void
 
 export class SatelliteSession implements PodFireTarget {
   private send: Send
+  private destroySocket?: () => void
   private stt: SttSession | null = null
   private inRate = 16000
   private state: FaceState = 'idle'
@@ -96,8 +97,9 @@ export class SatelliteSession implements PodFireTarget {
   private diagN = 0
   private diagRms = 0
 
-  constructor(send: Send) {
+  constructor(send: Send, destroySocket?: () => void) {
     this.send = send
+    this.destroySocket = destroySocket
     this.setState('idle')
   }
 
@@ -204,6 +206,13 @@ export class SatelliteSession implements PodFireTarget {
     this.stt?.close()
     this.stt = null
     if (this.wake) { this.wake.onDetect = null; this.wake = null }
+    // Tears down the underlying TCP socket. A no-op for a natural disconnect (the socket
+    // is already gone by the time gateway.ts's own close/error handler calls this) but
+    // load-bearing for evictForDevice(): without it, a stale prior session's socket stays
+    // open server-side — nothing else ever tells the OS to close it — so a flaky device
+    // that reconnects every few seconds accumulates half-open sockets until the kernel
+    // eventually times each one out.
+    try { this.destroySocket?.() } catch { /* already gone */ }
   }
 
   /**

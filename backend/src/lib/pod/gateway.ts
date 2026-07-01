@@ -77,16 +77,22 @@ const SOCKET_HANDLERS = {
     // backlog exceeds MAX_QUEUE_BYTES, in which case the connection itself is stalled
     // (not just slow) and we drop it rather than let memory grow without bound.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    st.session = new SatelliteSession((ev) => {
-      const frame = encodeEvent(ev)
-      if (st.outBytes + frame.byteLength > MAX_QUEUE_BYTES) {
-        logger.warn(`[pod] outbound queue exceeded ${MAX_QUEUE_BYTES} bytes — dropping stalled connection`)
-        try { (socket as any).end() } catch { /* already gone */ }
-        return
-      }
-      st.out.push(frame); st.outBytes += frame.byteLength
-      flushSocket(socket as any, st)
-    })
+    st.session = new SatelliteSession(
+      (ev) => {
+        const frame = encodeEvent(ev)
+        if (st.outBytes + frame.byteLength > MAX_QUEUE_BYTES) {
+          logger.warn(`[pod] outbound queue exceeded ${MAX_QUEUE_BYTES} bytes — dropping stalled connection`)
+          try { (socket as any).end() } catch { /* already gone */ }
+          return
+        }
+        st.out.push(frame); st.outBytes += frame.byteLength
+        flushSocket(socket as any, st)
+      },
+      // Forceful close (not the graceful .end()) — a stale session is being evicted
+      // because a NEW connection just authenticated as the same device, so there's no
+      // reason to wait out a FIN/ACK with a peer that may be dead or flaky anyway.
+      () => { try { (socket as any).terminate() } catch { /* already gone */ } },
+    )
     conns.set(socket, st)
     registerPod(st.session) // make it reachable by the scheduler / push producers
     connCount++

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Message } from '@/components/chat/ChatMessage'
 import type { Block } from '@/components/chat/blocks/BlockRenderer'
@@ -717,16 +717,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setQueuePosition(null)
   }, [])
 
+  // Every sibling context/route re-render otherwise hands consumers a brand-new object
+  // (same values, new reference), forcing all ~15 useChatContext() consumers to
+  // re-render even when nothing they read actually changed. Deps mirror the object
+  // literal exactly, so this recomputes precisely when something in it does.
+  const value = useMemo(() => ({
+    messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, stop,
+    attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
+    queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
+    conversationId, conversations,
+    loadConversation, newConversation, deleteConversation, pinConversation, refreshConversations,
+    projects, currentProject, setCurrentProject,
+    createProject, updateProject, deleteProject, refreshProjects,
+  }), [
+    messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, stop,
+    attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
+    queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
+    conversationId, conversations,
+    loadConversation, newConversation, deleteConversation, pinConversation, refreshConversations,
+    projects, currentProject, setCurrentProject,
+    createProject, updateProject, deleteProject, refreshProjects,
+  ])
+
   return (
-    <ChatContext.Provider value={{
-      messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, stop,
-      attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
-      queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
-      conversationId, conversations,
-      loadConversation, newConversation, deleteConversation, pinConversation, refreshConversations,
-      projects, currentProject, setCurrentProject,
-      createProject, updateProject, deleteProject, refreshProjects,
-    }}>
+    <ChatContext.Provider value={value}>
       {children}
     </ChatContext.Provider>
   )

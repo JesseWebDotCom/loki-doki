@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
@@ -28,20 +28,6 @@ import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
 import { WeatherPage } from '@/pages/WeatherPage'
-import { MapsPage } from '@/pages/MapsPage'
-import { ImagingPage } from '@/pages/ImagingPage'
-import { MusicLayout } from '@/components/music/MusicLayout'
-import { MusicHomePage } from '@/pages/music/MusicHomePage'
-import { MusicStationsPage } from '@/pages/music/MusicStationsPage'
-import { MusicStationPage } from '@/pages/music/MusicStationPage'
-import { MusicWatchStationPage } from '@/pages/music/MusicWatchStationPage'
-import { MusicBrowsePage } from '@/pages/music/MusicBrowsePage'
-import { MusicArtistPage } from '@/pages/music/MusicArtistPage'
-import { MusicAlbumPage } from '@/pages/music/MusicAlbumPage'
-import { MusicLibraryPage } from '@/pages/music/MusicLibraryPage'
-import { MusicPlaylistPage } from '@/pages/music/MusicPlaylistPage'
-import { NowPlayingPage } from '@/pages/music/NowPlayingPage'
-import { MusicGeneratePage, MusicRemixPage } from '@/pages/music/MusicCreatePages'
 import { TimePage } from '@/pages/TimePage'
 import { ChatLayout } from '@/components/chat/ChatLayout'
 import { ConversationView } from '@/components/chat/ConversationView'
@@ -49,7 +35,6 @@ import { ProjectPage } from '@/components/chat/ProjectPage'
 import { ChatsBrowsePage } from '@/components/chat/ChatsBrowsePage'
 import { ProjectsBrowsePage } from '@/components/chat/ProjectsBrowsePage'
 import { SettingsPage } from '@/pages/SettingsPage'
-import { AdminPage } from '@/pages/AdminPage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { CategoryPage } from '@/pages/CategoryPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
@@ -84,15 +69,6 @@ import { SpeedTestPage } from '@/pages/SpeedTestPage'
 import { CamerasPage } from '@/pages/CamerasPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
-import { YoutubeLayout } from '@/components/youtube/YoutubeLayout'
-import { YoutubeHomePage } from '@/pages/youtube/YoutubeHomePage'
-import { YoutubeLibraryPage } from '@/pages/youtube/YoutubeLibraryPage'
-import { YoutubeChannelPage } from '@/pages/youtube/YoutubeChannelPage'
-import { YoutubeSubscriptionsPage } from '@/pages/youtube/YoutubeSubscriptionsPage'
-import { YoutubeShortsPage } from '@/pages/youtube/YoutubeShortsPage'
-import { YoutubePlaylistPage } from '@/pages/youtube/YoutubePlaylistPage'
-import { WatchPage } from '@/pages/youtube/WatchPage'
-import { YoutubeSettingsPage } from '@/pages/youtube/YoutubeSettingsPage'
 import { PodcastLayout } from '@/components/podcast/PodcastLayout'
 import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
 import { PodcastBrowsePage } from '@/pages/podcast/PodcastBrowsePage'
@@ -119,6 +95,38 @@ import { StoreCategoriesPage } from '@/pages/store/StoreCategoriesPage'
 import { StoreCategoryPage } from '@/pages/store/StoreCategoryPage'
 import { StoreAppDetailPage } from '@/pages/store/StoreAppDetailPage'
 import { StoreInstalledPage } from '@/pages/store/StoreInstalledPage'
+
+// Lazy-loaded: each of these pulls in a heavy leaf dependency (MapLibre/pmtiles, the full
+// admin panel, image-gen UI, InnerTube/player, or the music engine) that most sessions
+// never touch. Splitting them out of the main chunk means Home/Chat — what basically every
+// session opens first — doesn't pay for code it won't run. See agents.md App Header
+// Contract for why routes, not individual widgets, are the split boundary.
+const MapsPage = lazy(() => import('@/pages/MapsPage').then((m) => ({ default: m.MapsPage })))
+const ImagingPage = lazy(() => import('@/pages/ImagingPage').then((m) => ({ default: m.ImagingPage })))
+const AdminPage = lazy(() => import('@/pages/AdminPage').then((m) => ({ default: m.AdminPage })))
+
+const MusicLayout = lazy(() => import('@/components/music/MusicLayout').then((m) => ({ default: m.MusicLayout })))
+const MusicHomePage = lazy(() => import('@/pages/music/MusicHomePage').then((m) => ({ default: m.MusicHomePage })))
+const MusicStationsPage = lazy(() => import('@/pages/music/MusicStationsPage').then((m) => ({ default: m.MusicStationsPage })))
+const MusicStationPage = lazy(() => import('@/pages/music/MusicStationPage').then((m) => ({ default: m.MusicStationPage })))
+const MusicWatchStationPage = lazy(() => import('@/pages/music/MusicWatchStationPage').then((m) => ({ default: m.MusicWatchStationPage })))
+const MusicBrowsePage = lazy(() => import('@/pages/music/MusicBrowsePage').then((m) => ({ default: m.MusicBrowsePage })))
+const MusicArtistPage = lazy(() => import('@/pages/music/MusicArtistPage').then((m) => ({ default: m.MusicArtistPage })))
+const MusicAlbumPage = lazy(() => import('@/pages/music/MusicAlbumPage').then((m) => ({ default: m.MusicAlbumPage })))
+const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').then((m) => ({ default: m.MusicLibraryPage })))
+const MusicPlaylistPage = lazy(() => import('@/pages/music/MusicPlaylistPage').then((m) => ({ default: m.MusicPlaylistPage })))
+const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicGeneratePage })))
+const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
+
+const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
+const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
+const YoutubeLibraryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLibraryPage })))
+const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage').then((m) => ({ default: m.YoutubeChannelPage })))
+const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
+const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
+const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPage').then((m) => ({ default: m.YoutubePlaylistPage })))
+const WatchPage = lazy(() => import('@/pages/youtube/WatchPage').then((m) => ({ default: m.WatchPage })))
+const YoutubeSettingsPage = lazy(() => import('@/pages/youtube/YoutubeSettingsPage').then((m) => ({ default: m.YoutubeSettingsPage })))
 
 function AppLoading() {
   return (
@@ -257,6 +265,7 @@ export default function App() {
           <TimeAlarmProvider>
           <FrigateAnnounceProvider>
           <ChatProvider>
+          <Suspense fallback={<AppLoading />}>
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
             <Route path="/setup" element={<SetupGuard />} />
@@ -404,6 +413,7 @@ export default function App() {
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
           </ChatProvider>
           </FrigateAnnounceProvider>
           <AlarmRingDialog />
