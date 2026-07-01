@@ -761,10 +761,38 @@ const ROUTING_LABELS: Record<string, string> = {
   search:        '🔎 Searching the web',
   image_gen:     '🎨 Generating an image',
   video_gen:     '🎬 Generating a video',
+  weather:       '🌤️ Checking the weather',
+  news:          '📰 Fetching the news',
+  localNews:     '📰 Checking local news',
+  localEvents:   '📅 Finding local events',
+  recipes:       '🍳 Finding recipes',
+  youtube:       '📺 Searching videos',
+  play_music:    '🎵 Starting playback',
+  homeAssistant: '🏠 Talking to your home',
+  tvshows:       '📺 Looking up the show',
+  sports:        '🏟️ Checking scores',
+  maps:          '🗺️ Getting directions',
+  contentRating: '🛡️ Checking content ratings',
+  plex:          '🎞️ Checking Plex',
+  remember:      '🧠 Saving that',
+  forget:        '🧠 Updating memory',
+}
+
+// Fallback for tools without a curated label — every tool now shows SOMETHING
+// instead of generic typing dots (34 of 38 tools used to be unlabeled).
+function prettyToolName(toolId: string): string {
+  return toolId
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
 }
 
 function routingLabelFor(toolId: string): string | null {
-  return ROUTING_LABELS[toolId] ?? null
+  // Status suffixes from the offline / tool_error SSE events (previously dead
+  // protocol surface — emitted by the backend but never rendered).
+  if (toolId.endsWith(':offline')) return `⚠️ ${prettyToolName(toolId.slice(0, -8))} is offline`
+  if (toolId.endsWith(':error')) return `⚠️ ${prettyToolName(toolId.slice(0, -6))} hit a snag`
+  return ROUTING_LABELS[toolId] ?? `⚙️ Using ${prettyToolName(toolId)}`
 }
 
 interface StreamCallbacks {
@@ -883,6 +911,10 @@ async function streamChat(
       try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
     } else if (eventName === 'directive') {
       try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
+    } else if (eventName === 'offline') {
+      try { const o = JSON.parse(data) as { tool: string }; if (o.tool) onRouting(`${o.tool}:offline`) } catch { /* malformed */ }
+    } else if (eventName === 'tool_error') {
+      try { const t = JSON.parse(data) as { tool: string }; if (t.tool) onRouting(`${t.tool}:error`) } catch { /* malformed */ }
     } else if (eventName === 'done') {
       terminal = true
       try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
@@ -972,6 +1004,10 @@ async function streamRegenerate(
       try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
     } else if (eventName === 'directive') {
       try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
+    } else if (eventName === 'offline') {
+      try { const o = JSON.parse(data) as { tool: string }; if (o.tool) onRouting(`${o.tool}:offline`) } catch { /* malformed */ }
+    } else if (eventName === 'tool_error') {
+      try { const t = JSON.parse(data) as { tool: string }; if (t.tool) onRouting(`${t.tool}:error`) } catch { /* malformed */ }
     } else if (eventName === 'done') {
       terminal = true
       try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }

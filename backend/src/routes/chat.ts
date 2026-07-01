@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { eq, desc, and, sql } from 'drizzle-orm'
+import { eq, desc, and, gt, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { userCharacters, conversations, messages, chatDocuments, chatDocumentEdits } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
@@ -9,6 +9,9 @@ import { ollamaChat } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
+import { maskProfanity } from '@/lib/protections'
+import { triggerJudgeForConversation } from '@/memory/sweep'
+import { chunkAndEmbedDocument } from '@/lib/docChunks'
 import type { ContentDials } from '@/lib/contentPolicy'
 import { runCompanionTurn, resolveTurnContext } from '@/lib/companionTurn'
 import * as genQueue from '@/lib/genQueue'
@@ -117,16 +120,53 @@ chat.get('/conversations/:id', requireAuth, async (c) => {
     .where(eq(messages.conversationId, id))
     .orderBy(messages.createdAt)
 
-  return c.json({ ...conv, messages: msgs })
+  // Messages are persisted RAW (masking them in the DB fed `****` back into LLM
+  // history and hid the real words from the memory judge). Masking is a READ-time
+  // presentation concern, driven by the user's CURRENT dials — raising the dial
+  // later unmasks old replies.
+  const { maskProfanityActive } = await resolveTurnContext(user.id, conv.characterId ?? null)
+  const outMsgs = maskProfanityActive
+    ? msgs.map((m) => (m.role === 'assistant' ? { ...m, content: maskProfanity(m.content) } : m))
+    : msgs
+
+  return c.json({ ...conv, messages: outMsgs })
 })
 
 chat.delete('/conversations/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
+  // Deleting inside the sweep's 5-10 min idle window used to cascade-delete the
+  // messages before the judge ever saw them — facts from that session were lost.
+  // Snapshot the unprocessed span first and judge it after the delete (detached).
+  const [conv] = await db
+    .select({ userId: conversations.userId, memoryProcessedThrough: conversations.memoryProcessedThrough })
+    .from(conversations)
+    .where(and(eq(conversations.id, id), eq(conversations.userId, user.id)))
+    .limit(1)
+  if (!conv) return c.json({ ok: true })
+
+  const processedThrough = conv.memoryProcessedThrough?.getTime() ?? 0
+  const unprocessed = await db
+    .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, id),
+        processedThrough > 0 ? gt(messages.createdAt, new Date(processedThrough)) : undefined,
+      ),
+    )
+    .orderBy(messages.createdAt)
+    .limit(60)
+
   await db
     .delete(conversations)
     .where(and(eq(conversations.id, id), eq(conversations.userId, user.id)))
+
+  if (unprocessed.length >= 2) {
+    triggerJudgeForConversation(id, user.id, null, unprocessed.map((m) => ({ role: m.role, content: m.content })))
+      .catch(() => {})
+  }
 
   return c.json({ ok: true })
 })
@@ -202,15 +242,16 @@ chat.post('/stream', requireAuth, async (c) => {
   let convId = incomingConvId ?? null
   let convTitle = ''
 
+  let convSummary: string | null = null
   if (convId) {
     // Verify ownership
     const [existing] = await db
-      .select({ title: conversations.title })
+      .select({ title: conversations.title, summary: conversations.summary })
       .from(conversations)
       .where(and(eq(conversations.id, convId), eq(conversations.userId, user.id)))
       .limit(1)
     if (!existing) convId = null  // reset if not found/owned
-    else convTitle = existing.title ?? ''
+    else { convTitle = existing.title ?? ''; convSummary = existing.summary }
   }
 
   if (!convId) {
@@ -242,7 +283,12 @@ chat.post('/stream', requireAuth, async (c) => {
         text: String(a.text).slice(0, 20_000),
         createdAt: now,
       }))
-    if (rows.length) await db.insert(chatDocuments).values(rows).catch(() => {})
+    if (rows.length) {
+      await db.insert(chatDocuments).values(rows).catch(() => {})
+      // Chunk + embed detached so questions against oversized documents retrieve
+      // the relevant parts instead of hitting the head-truncation cliff.
+      for (const row of rows) void chunkAndEmbedDocument(row)
+    }
   }
 
   // Load recent messages then trim to a token budget so prefill stays fast.
@@ -264,7 +310,9 @@ chat.post('/stream', requireAuth, async (c) => {
     content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
   }))
 
-  trimHistory(dbMessages, TOKEN_HISTORY_BUDGET)
+  const droppedFromWindow = trimHistory(dbMessages, TOKEN_HISTORY_BUDGET)
+  // The summary only earns its prompt tokens once the live window is incomplete.
+  const historyIncomplete = droppedFromWindow > 0 || dbRows.length >= 40
 
   // Serialize turns per conversation: a second submit while one is generating
   // would snapshot history without the in-flight reply and interleave answers.
@@ -299,6 +347,10 @@ chat.post('/stream', requireAuth, async (c) => {
     // null = first meeting (relation row is being created right now); the
     // relationship-stage line in the system prompt derives from this.
     firstMetAt: characterId ? (existingRelation?.createdAt ?? null) : undefined,
+    conversationSummary: historyIncomplete ? convSummary : null,
+    // Refresh the rolling summary after this turn when the conversation is long
+    // enough for the window to be (or soon be) incomplete.
+    maybeSummarize: dbRows.length >= 16,
     assistantMessageId,
     cookieHeader: c.req.header('cookie') ?? '',
     locale,
@@ -489,6 +541,10 @@ interface ChatRunParams {
   prefs: Record<string, unknown>
   /** When the user first met this character (null = first meeting; undefined = not resolved). */
   firstMetAt?: Date | null
+  /** Rolling summary of content older than the trimmed window (null = don't inject). */
+  conversationSummary?: string | null
+  /** Refresh the rolling summary (detached) after this turn completes. */
+  maybeSummarize?: boolean
   assistantMessageId: string
   cookieHeader: string
   locale: import('@/routes/adminLocale').LocaleSettings
@@ -545,6 +601,7 @@ function makeChatRun(p: ChatRunParams) {
           history,
           prefs: p.prefs,
           firstMetAt: p.firstMetAt,
+          conversationSummary: p.conversationSummary ?? null,
           cookieHeader: p.cookieHeader,
           locale: p.locale,
           interactionStyle: p.interactionStyle,
@@ -595,6 +652,8 @@ function makeChatRun(p: ChatRunParams) {
         role: 'assistant',
         content: result.text,
         toolNote: result.toolNote ?? null,
+        // A reply that hit the num_predict cap is a form of truncation too.
+        truncated: result.capped ?? false,
         createdAt: now,
       })
       await db
@@ -612,6 +671,9 @@ function makeChatRun(p: ChatRunParams) {
           .then((fastModel) => generateConversationTitle(fastModel, p.message, p.convId))
           .catch(() => {})
       }
+      if (p.maybeSummarize) {
+        refreshConversationSummary(p.convId).catch((err) => logger.warn(`[chat] summary refresh failed: ${err}`))
+      }
 
       // Memory extraction is handled out-of-band by the background sweep.
     } catch (err) {
@@ -625,13 +687,17 @@ function makeChatRun(p: ChatRunParams) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Drop oldest messages (in place) until estimated token count fits the budget.
- *  Keeps at least 4 messages (2 turns) regardless. Shared by /stream and /regenerate. */
-function trimHistory(dbMessages: Array<{ content: string }>, budget: number): void {
+ *  Keeps at least 4 messages (2 turns) regardless. Returns how many were dropped.
+ *  Shared by /stream and /regenerate. */
+function trimHistory(dbMessages: Array<{ content: string }>, budget: number): number {
+  let dropped = 0
   while (dbMessages.length > 4) {
     const tokens = dbMessages.reduce((n, m) => n + Math.ceil(m.content.length / 4), 0)
     if (tokens <= budget) break
     dbMessages.shift()
+    dropped++
   }
+  return dropped
 }
 
 /**
@@ -660,6 +726,69 @@ async function generateConversationTitle(model: string, message: string, convId:
   } catch {
     return ''
   }
+}
+
+// ── Rolling conversation summary ──────────────────────────────────────────────
+// Keeps a compact running summary of everything OLDER than the live history
+// window, refreshed detached on the fast model after turns in long conversations.
+// Injected into the system prompt once trimming starts dropping messages, so the
+// companion stops flatly forgetting what was said 10+ turns ago.
+const SUMMARY_MIN_MESSAGES = 16   // don't bother below this
+const SUMMARY_TAIL_KEEP = 6       // the live window covers the newest turns
+const SUMMARY_STALE_AFTER = 8     // refresh once this many new messages accumulated
+
+async function refreshConversationSummary(convId: string): Promise<void> {
+  const [conv] = await db
+    .select({ summary: conversations.summary, summaryThrough: conversations.summaryThrough })
+    .from(conversations)
+    .where(eq(conversations.id, convId))
+    .limit(1)
+  if (!conv) return
+
+  const rows = await db
+    .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.conversationId, convId))
+    .orderBy(messages.createdAt)
+  if (rows.length < SUMMARY_MIN_MESSAGES) return
+
+  const throughMs = conv.summaryThrough?.getTime() ?? 0
+  // Summarize up to (but not including) the newest turns — the live window has those.
+  const head = rows.slice(0, rows.length - SUMMARY_TAIL_KEEP)
+  const fresh = head.filter((m) => m.createdAt.getTime() > throughMs)
+  if (fresh.length === 0) return
+  if (conv.summary && fresh.length < SUMMARY_STALE_AFTER) return // fresh enough
+
+  const span = fresh.slice(0, 80)
+  const spanText = span
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 600)}`)
+    .join('\n')
+
+  const fastModel = await getFastModel()
+  const res = await ollamaChat(
+    fastModel,
+    [
+      {
+        role: 'system',
+        content: 'You maintain a running summary of a conversation. Merge the existing summary with the new messages into ONE updated summary: at most 150 words, plain prose, keeping every important fact, decision, name, and open question. Reply with ONLY the summary.',
+      },
+      {
+        role: 'user',
+        content: `Existing summary:\n${conv.summary ?? '(none yet)'}\n\nNew messages:\n${spanText}`,
+      },
+    ],
+    undefined,
+    { temperature: 0.2, num_predict: 250 },
+    undefined,
+    30_000,
+  )
+  const summary = res.message.content?.trim()
+  if (!summary) return
+
+  await db
+    .update(conversations)
+    .set({ summary: summary.slice(0, 2000), summaryThrough: span[span.length - 1]!.createdAt })
+    .where(eq(conversations.id, convId))
 }
 
 function truncateTitle(text: string, maxLen = 50): string {

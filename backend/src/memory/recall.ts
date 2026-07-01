@@ -21,7 +21,7 @@
  *   Recalled memory ids get a background uses++ / lastUsedAt=now update (fire-and-forget).
  */
 
-import { embed, cosineSimilarity } from '@/llm/embed'
+import { embed, cosineSimilarity, cachedVector } from '@/llm/embed'
 import { db } from '@/db'
 import { memories, entities, memoryEpisodes } from '@/db/schema'
 import { and, eq, isNull, or, inArray, desc, gte, sql, count } from 'drizzle-orm'
@@ -66,6 +66,10 @@ interface ScoredMemory {
 function memoryScopeWhere(userId: string, characterId: string | null) {
   return or(
     and(eq(memories.userId, userId), isNull(memories.characterId)),
+    // Household scope (userId null, characterId null): facts every family member
+    // shares — the dog's name, the wifi, the address. Written by the judge when
+    // a fact is tagged household.
+    and(isNull(memories.userId), isNull(memories.characterId)),
     characterId
       ? and(eq(memories.userId, userId), eq(memories.characterId, characterId))
       : undefined,
@@ -229,12 +233,9 @@ export async function recallMemories(
     if (entityMemoryIds.has(row.id)) continue // already in entity pass
     if (!row.embedding) continue
 
-    let cosine = 0
-    try {
-      cosine = cosineSimilarity(promptEmbedding, JSON.parse(row.embedding) as number[])
-    } catch {
-      continue
-    }
+    const vec = cachedVector(`${row.id}:${row.updatedAt?.getTime() ?? 0}`, row.embedding)
+    if (!vec) continue
+    const cosine = cosineSimilarity(promptEmbedding, vec)
 
     // Non-pinned memories must be semantically relevant to the prompt to be
     // considered at all. Pinned rows bypass this (they're always included below).

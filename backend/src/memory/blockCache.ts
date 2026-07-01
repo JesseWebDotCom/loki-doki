@@ -91,3 +91,9 @@ export function invalidateMemoryBlocksForUser(userId: string): void {
     if (entry.userId === userId) cache.delete(key)
   }
 }
+
+/** Drop EVERY cached block — call when the HOUSEHOLD scope changes (those facts
+ *  appear in every user's recall). */
+export function invalidateAllMemoryBlocks(): void {
+  cache.clear()
+}

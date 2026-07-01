@@ -13,6 +13,32 @@ export async function embedForRouter(text: string): Promise<number[]> {
   return ollamaEmbed(ROUTER_EMBED_MODEL, text)
 }
 
+// ── Parsed-vector cache ───────────────────────────────────────────────────────
+// Embeddings are stored as JSON text (~15 KB of "0.0123," per row); recall and the
+// judge used to JSON.parse up to 150 of them on every cache-miss turn. Parse once
+// per (row id, version) and reuse the Float64 result. Bounded — a full clear at
+// the cap is simpler and safer than LRU bookkeeping at this scale.
+const _vecCache = new Map<string, number[]>()
+const VEC_CACHE_MAX = 4000
+
+/**
+ * Parse a stored embedding once and cache it. `key` must change when the row's
+ * embedding changes — use `${rowId}:${updatedAtMs}`. Returns null on bad JSON.
+ */
+export function cachedVector(key: string, json: string): number[] | null {
+  const hit = _vecCache.get(key)
+  if (hit) return hit
+  try {
+    const vec = JSON.parse(json) as number[]
+    if (!Array.isArray(vec) || vec.length === 0) return null
+    if (_vecCache.size >= VEC_CACHE_MAX) _vecCache.clear()
+    _vecCache.set(key, vec)
+    return vec
+  } catch {
+    return null
+  }
+}
+
 export function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0
   let magA = 0

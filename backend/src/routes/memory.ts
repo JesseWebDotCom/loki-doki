@@ -10,13 +10,14 @@ import { and, eq, or, isNull, desc } from 'drizzle-orm'
 import { db } from '@/db'
 import { memories } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
-import { invalidateMemoryBlocksForUser } from '@/memory/blockCache'
+import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from '@/memory/blockCache'
 import type { AppEnv } from '@/types'
 
 const memory = new Hono<AppEnv>()
 
-// All active memories about the requesting user: shared-brain rows
-// (characterId null — every companion sees these) and per-character rows.
+// All active memories visible to the requesting user: their own rows (shared
+// brain + per-character) plus HOUSEHOLD rows (userId null, characterId null),
+// which every family member shares and may manage.
 memory.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const rows = await db
@@ -28,15 +29,32 @@ memory.get('/', requireAuth, async (c) => {
       tier: memories.tier,
       importance: memories.importance,
       pinned: memories.pinned,
+      userId: memories.userId,
       characterId: memories.characterId,
       createdAt: memories.createdAt,
       updatedAt: memories.updatedAt,
     })
     .from(memories)
-    .where(and(eq(memories.userId, user.id), eq(memories.status, 'active')))
+    .where(
+      and(
+        or(
+          eq(memories.userId, user.id),
+          and(isNull(memories.userId), isNull(memories.characterId)),
+        ),
+        eq(memories.status, 'active'),
+      ),
+    )
     .orderBy(desc(memories.pinned), desc(memories.importance), desc(memories.updatedAt))
-  return c.json(rows)
+  return c.json(rows.map(({ userId, ...r }) => ({ ...r, household: userId === null })))
 })
+
+// Rows this user may manage: their own, or household (family trust model).
+function manageableWhere(userId: string) {
+  return or(
+    eq(memories.userId, userId),
+    and(isNull(memories.userId), isNull(memories.characterId)),
+  )
+}
 
 // Pin/unpin or correct the text of one of the user's own memories.
 memory.patch('/:id', requireAuth, async (c) => {
@@ -60,11 +78,12 @@ memory.patch('/:id', requireAuth, async (c) => {
   const result = await db
     .update(memories)
     .set(update)
-    .where(and(eq(memories.id, id), eq(memories.userId, user.id)))
+    .where(and(eq(memories.id, id), manageableWhere(user.id)))
     .returning({ id: memories.id })
   if (result.length === 0) return c.json({ error: 'not found' }, 404)
 
-  invalidateMemoryBlocksForUser(user.id)
+  // The row may be household-scoped (visible to everyone) — bust all blocks.
+  invalidateAllMemoryBlocks()
   return c.json({ ok: true })
 })
 
@@ -75,26 +94,32 @@ memory.delete('/:id', requireAuth, async (c) => {
   const result = await db
     .update(memories)
     .set({ status: 'superseded', updatedAt: new Date() })
-    .where(and(eq(memories.id, id), eq(memories.userId, user.id), eq(memories.status, 'active')))
+    .where(and(eq(memories.id, id), manageableWhere(user.id), eq(memories.status, 'active')))
     .returning({ id: memories.id })
   if (result.length === 0) return c.json({ error: 'not found' }, 404)
 
-  invalidateMemoryBlocksForUser(user.id)
+  // The row may be household-scoped (visible to everyone) — bust all blocks.
+  invalidateAllMemoryBlocks()
   return c.json({ ok: true })
 })
 
-// Forget everything in one scope: 'shared' (all-companion brain) or a characterId.
+// Forget everything in one scope: 'shared' (this user's all-companion brain),
+// 'household' (the family-shared scope), or a characterId.
 memory.delete('/', requireAuth, async (c) => {
   const user = c.get('user')
   const scope = c.req.query('scope') ?? 'shared'
-  const scopeWhere = scope === 'shared' ? isNull(memories.characterId) : eq(memories.characterId, scope)
+  const scopeWhere = scope === 'household'
+    ? and(isNull(memories.userId), isNull(memories.characterId))
+    : scope === 'shared'
+      ? and(eq(memories.userId, user.id), isNull(memories.characterId))
+      : and(eq(memories.userId, user.id), eq(memories.characterId, scope))
   const result = await db
     .update(memories)
     .set({ status: 'superseded', updatedAt: new Date() })
-    .where(and(eq(memories.userId, user.id), eq(memories.status, 'active'), or(scopeWhere)))
+    .where(and(eq(memories.status, 'active'), scopeWhere))
     .returning({ id: memories.id })
 
-  invalidateMemoryBlocksForUser(user.id)
+  invalidateAllMemoryBlocks()
   return c.json({ ok: true, forgotten: result.length })
 })
 

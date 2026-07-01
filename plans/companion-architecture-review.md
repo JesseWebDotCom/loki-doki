@@ -1,10 +1,13 @@
 # Companion System — Architecture Review & Improvement Design
 
-> **Implementation status (2026-07-01):** Phases 0–4 are implemented in the working tree
-> (uncommitted). Not yet built: household-shared facts (Phase 4.3 "household scope"),
-> in-conversation rolling summary + RAG doc chunking (Phase 4.4), and the P2 backlog
-> (Appendix A "Unscheduled"). Tool notes in history replace the need for most of C1's
-> bounded tool loop; multi-intent Tier-2 calls are in.
+> **Implementation status (2026-07-01):** FULLY IMPLEMENTED. Phases 0–4 landed in
+> `feat(companion): architecture overhaul`; the follow-up commit adds household-shared
+> facts (4.3), the rolling in-conversation summary + RAG doc chunking (4.4), and the P2
+> backlog — raw-text persistence with mask-on-read (A15), judge-before-delete (R10),
+> tool-status labels + capped-reply flag (C4), and the parsed-vector cache (S8). Tool
+> notes in history replace the need for most of C1's bounded tool loop; multi-intent
+> Tier-2 calls are in. Remaining ideas deliberately deferred: message editing/branching
+> (C5) and companion-initiated conversation (H8) — both need product design first.
 
 **Date:** 2026-07-01
 **Scope:** companion chat pipeline, personality/prompting, message routing, and memory — reviewed for speed, reliability, accuracy, completeness, and humanistic quality.

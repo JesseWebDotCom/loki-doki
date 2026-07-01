@@ -18,6 +18,8 @@ interface MemoryRow {
   importance: number
   pinned: boolean
   characterId: string | null
+  /** Family-shared scope — visible to (and manageable by) everyone in the home. */
+  household: boolean
   createdAt: string
   updatedAt: string | null
 }
@@ -53,8 +55,9 @@ export function SettingsMemoryTab() {
 
   useEffect(() => { void load() }, [load])
 
-  const shared = useMemo(() => (rows ?? []).filter((r) => !r.characterId), [rows])
-  const perCharacter = useMemo(() => (rows ?? []).filter((r) => r.characterId), [rows])
+  const shared = useMemo(() => (rows ?? []).filter((r) => !r.characterId && !r.household), [rows])
+  const household = useMemo(() => (rows ?? []).filter((r) => r.household), [rows])
+  const perCharacter = useMemo(() => (rows ?? []).filter((r) => r.characterId && !r.household), [rows])
 
   const remove = async (row: MemoryRow) => {
     const res = await fetch(`/api/memory/${row.id}`, { method: 'DELETE', credentials: 'include' })
@@ -174,6 +177,16 @@ export function SettingsMemoryTab() {
           </div>
         )}
       </section>
+
+      {household.length > 0 && (
+        <section>
+          <p className="mb-1 text-sm font-medium">Household</p>
+          <p className="mb-4 text-xs text-muted-foreground">
+            Shared facts about the home — the dog's name, the wifi, the address. Every family member's companions know these, and anyone in the household can edit them.
+          </p>
+          <ul className="space-y-2">{household.map(renderRow)}</ul>
+        </section>
+      )}
 
       {perCharacter.length > 0 && (
         <section>

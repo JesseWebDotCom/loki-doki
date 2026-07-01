@@ -7,7 +7,7 @@ import { requireAuth } from '@/middleware/auth'
 import { ensureDefaultCompanions } from '@/lib/defaultCompanions'
 import { getModel, getVisionModel } from '@/lib/models'
 import { companionsAllowed } from '@/lib/consent'
-import { invalidateMemoryBlocksForUser } from '@/memory/blockCache'
+import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from '@/memory/blockCache'
 import { invalidateEntityCache } from '@/memory/recall'
 import { runJudge, relinkEntityIds } from '@/memory/judge'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
@@ -46,12 +46,13 @@ function scheduleCompanionJudge(
     pendingJudge.delete(memKey)
     try {
       const model = await resolveModel()
-      await runJudge('companion', userId, null, turns, model)
+      const judgeResult = await runJudge('companion', userId, null, turns, model)
       await relinkEntityIds(userId, null)
       // Newly-distilled facts must surface next turn — on EVERY surface, since
-      // they land in the shared brain.
+      // they land in the shared brain (household facts: everyone's cache).
       invalidateEntityCache(userId)
-      invalidateMemoryBlocksForUser(userId)
+      if (judgeResult.householdTouched) invalidateAllMemoryBlocks()
+      else invalidateMemoryBlocksForUser(userId)
     } catch { /* background best-effort */ }
   }
 

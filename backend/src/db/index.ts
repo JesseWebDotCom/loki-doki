@@ -1710,6 +1710,26 @@ export function runMigrations() {
   // turns so follow-ups see what the tools actually returned.
   addColumn('messages', 'tool_note', 'TEXT')
 
+  // Rolling in-conversation summary (covers messages older than the live window).
+  addColumn('conversations', 'summary', 'TEXT')
+  addColumn('conversations', 'summary_through', 'INTEGER')
+
+  // Embedded chunks of oversized attached documents (RAG retrieval instead of
+  // hard truncation at the stuffing budget).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS chat_document_chunks (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES chat_documents(id) ON DELETE CASCADE,
+      conversation_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      idx INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      embedding TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_document_chunks_conv ON chat_document_chunks(conversation_id);
+  `)
+
   // Generic read-through lookup cache (property/people scrapers and future tools).
   // data holds the JSON result ("null" = cached negative); expires_at is epoch ms.
   sqlite.exec(`

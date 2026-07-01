@@ -38,6 +38,7 @@ import type { ContentDials } from '@/lib/contentPolicy'
 import { activeSkillsBlock } from '@/lib/skills/resolver'
 import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
+import { retrieveDocChunks, DOC_STUFF_BUDGET } from '@/lib/docChunks'
 import { getModel, getFastModel } from '@/lib/models'
 import { CATALOG } from '@/lib/catalog'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
@@ -67,6 +68,9 @@ export interface CompanionTurnParams {
   convId: string
   /** Prior turns (already token-trimmed by the caller). */
   history: OllamaChatMessage[]
+  /** Rolling summary of conversation content OLDER than `history` — injected when
+   *  the caller's history window dropped messages. */
+  conversationSummary?: string | null
   /**
    * When the user first met this character (userCharacters.createdAt).
    * `null` = genuinely first meeting; `undefined` = unknown (caller didn't fetch) —
@@ -108,8 +112,11 @@ export interface CompanionTurnHandlers {
 }
 
 export interface CompanionTurnResult {
-  /** Final reply text (profanity-masked when masking is active). On an incomplete
-   *  turn this holds the PARTIAL text streamed so far — callers may persist it. */
+  /** Final reply text — RAW (unmasked), even when profanity masking is active.
+   *  Persist this and mask at READ time: persisting masked text used to feed
+   *  `****` back into LLM history, teaching the model to self-censor (and hiding
+   *  the real words from the memory judge). The live token stream stays masked.
+   *  On an incomplete turn this holds the PARTIAL text streamed so far. */
   text: string
   /** The tool that handled the turn, if any. */
   toolId: string | null
@@ -117,6 +124,8 @@ export interface CompanionTurnResult {
   viaDirectReply: boolean
   /** False when the turn was cancelled or errored mid-stream. */
   completed: boolean
+  /** True when the reply hit the num_predict token cap (done_reason=length). */
+  capped?: boolean
   /** Set when the stream failed mid-generation (completed=false, text=partial). */
   error?: string
   /** Compact record of what the tool(s) returned this turn. Persisted alongside
@@ -421,7 +430,7 @@ export async function runCompanionTurn(
           h.onToken(safeReply)
           if (result.directive) emitEvent('directive', JSON.stringify(result.directive))
           _lap(`direct-reply-done(${tool.id})`)
-          return { text: safeReply, toolId: tool.id, viaDirectReply: true, completed: true, toolNote: `${tool.name}: ${result.directReply.trim()}`.slice(0, 600) }
+          return { text: reply, toolId: tool.id, viaDirectReply: true, completed: true, toolNote: `${tool.name}: ${result.directReply.trim()}`.slice(0, 600) }
         }
 
         // A client-side action (e.g. start mini-player playback) with an LLM
@@ -579,27 +588,48 @@ export async function runCompanionTurn(
   }
   if (memoryBlock) systemParts.push(memoryBlock)
   if (briefingBlock) systemParts.push(briefingBlock)
+  // Older conversation content the trimmed history window no longer carries.
+  if (p.conversationSummary) {
+    systemParts.push(`## Earlier in this conversation\n${p.conversationSummary}`)
+  }
   if (p.uiContext) systemParts.push(p.uiContext)
   // User-authored skills active for this user (prefetched in the parallel batch).
   if (skillsBlock) systemParts.push(skillsBlock)
 
-  // Documents the user attached to this conversation — stuffed (budgeted) so the
-  // companion can answer questions about them. Prefetched in the parallel batch.
+  // Documents the user attached to this conversation. Small enough → stuffed
+  // whole. Oversized → top-k RELEVANT chunks retrieved per question (embedded
+  // detached at attach time), falling back to head-truncation only while the
+  // chunks are still being built.
   if (docs.length > 0) {
-    const BUDGET = 8000
-    const parts: string[] = []
-    let len = 0
-    for (const d of docs) {
-      const slice = d.text.slice(0, Math.max(0, BUDGET - len))
-      if (!slice) break
-      parts.push(`### ${d.filename}\n${slice}${slice.length < d.text.length ? '\n…(truncated)' : ''}`)
-      len += slice.length
-      if (len >= BUDGET) break
+    const totalLen = docs.reduce((n, d) => n + d.text.length, 0)
+    let docsBlock: string | null = null
+
+    if (totalLen > DOC_STUFF_BUDGET) {
+      const excerpts = await retrieveDocChunks(p.convId, p.message, 6).catch(() => [])
+      if (excerpts.length > 0) {
+        docsBlock =
+          '## Attached documents (relevant excerpts)\nThe user attached documents too large to include whole. ' +
+          'These are the excerpts most relevant to their message — answer from them, cite the filename, and say so if the answer may live in a part not shown.\n\n' +
+          excerpts.map((e) => `### ${e.filename} (part ${e.idx + 1})\n${e.text}`).join('\n\n')
+        _lap('doc-retrieval-done')
+      }
     }
-    systemParts.push(
-      '## Attached documents\nThe user attached these documents to this conversation. ' +
-      'Use them to answer questions; quote or cite the filename when relevant.\n\n' + parts.join('\n\n'),
-    )
+
+    if (!docsBlock) {
+      const parts: string[] = []
+      let len = 0
+      for (const d of docs) {
+        const slice = d.text.slice(0, Math.max(0, DOC_STUFF_BUDGET - len))
+        if (!slice) break
+        parts.push(`### ${d.filename}\n${slice}${slice.length < d.text.length ? '\n…(truncated)' : ''}`)
+        len += slice.length
+        if (len >= DOC_STUFF_BUDGET) break
+      }
+      docsBlock =
+        '## Attached documents\nThe user attached these documents to this conversation. ' +
+        'Use them to answer questions; quote or cite the filename when relevant.\n\n' + parts.join('\n\n')
+    }
+    systemParts.push(docsBlock)
   }
   // Tone (language/depth/candor). Content policy is handled by buildContentPrompt
   // above; the legacy protection fragment is now folded into the content dials.
@@ -633,6 +663,7 @@ export async function runCompanionTurn(
   let fullResponse = ''
   let firstToken = true
   let completed = false
+  let capped = false
   let streamError: string | null = null
   const profanityBuf = p.maskProfanityActive ? new ProfanityStreamBuffer() : null
 
@@ -666,6 +697,9 @@ export async function runCompanionTurn(
         const totalMs = chunk.total_duration ? Math.round(chunk.total_duration / 1e6) : '?'
         _lap(`llm-done prompt_eval=${pe} gen=${ec} load=${loadMs}ms prefill=${peMs}ms total=${totalMs}ms`)
         completed = true
+        // Reply hit num_predict — mark it so the caller can flag the message
+        // (previously done_reason was silently ignored).
+        if (chunk.done_reason === 'length') capped = true
       }
     }
   } catch (err) {
@@ -673,15 +707,12 @@ export async function runCompanionTurn(
     logger.error(`[companion-turn] stream failed after ${fullResponse.length} chars: ${streamError}`)
   }
 
-  const text = p.maskProfanityActive
-    ? (await import('@/lib/protections')).maskProfanity(fullResponse)
-    : fullResponse
-
   return {
-    text,
+    text: fullResponse, // RAW — callers persist raw and mask at read time
     toolId: tool?.id ?? null,
     viaDirectReply: false,
     completed,
+    capped,
     ...(streamError && { error: streamError }),
     ...(toolNotes.length > 0 && { toolNote: toolNotes.join(' | ').slice(0, 800) }),
   }

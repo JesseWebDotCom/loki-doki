@@ -13,7 +13,7 @@
  */
 
 import { structuredCall } from '@/llm/structured'
-import { embed, cosineSimilarity } from '@/llm/embed'
+import { embed, cosineSimilarity, cachedVector } from '@/llm/embed'
 import { db } from '@/db'
 import { memories, entities } from '@/db/schema'
 import { and, eq, isNull } from 'drizzle-orm'
@@ -41,6 +41,7 @@ interface ExtractedFact {
   importance: number    // 1–10
   entityName: string | null   // name of entity this fact is about, if any
   sourceQuote?: string | null // verbatim user phrase the fact came from (provenance)
+  scope?: 'user' | 'household' // household = shared with everyone in the home
 }
 
 interface DedupeDecision {
@@ -58,6 +59,9 @@ export interface JudgeResult {
   /** True when Phase-1 extraction failed — the span was NOT processed and the
    *  caller must not advance its cursor past these messages. */
   failed: boolean
+  /** True when any HOUSEHOLD-scope row was added/updated/superseded — callers
+   *  must invalidate EVERY user's cached memory block, not just this user's. */
+  householdTouched: boolean
 }
 
 // ─── Phase 1 prompt: extract from conversation ────────────────────────────────
@@ -78,6 +82,10 @@ CRITICAL — DISCARD these, do NOT extract:
 - Anything the user asked about as a passing question with no personal relevance
 - Meta-statements about the user's relationship to real-time/transient data — "the user knows the current date", "the user is unsure about the date", "the user asked about the weather". The current date/time/weather/prices are not facts about the user, and neither is whether they currently know them.
 - Trivially-true or contentless observations ("the user said hi", "the user is chatting", "the user wants help")
+
+SCOPE — each fact carries a "scope":
+- "user" (default): a fact about THIS person specifically.
+- "household": a shared fact about the home everyone in the family should know — the wifi network name, the dog's name, where the spare key lives, the trash pickup day, the address. If a new family member would need to be told it, it's household.
 
 PERSIST these:
 - Stable facts about the user's identity, life, relationships, preferences
@@ -111,8 +119,9 @@ Return ONLY a JSON object in this exact shape (empty arrays if nothing to extrac
     { "name": "Artie", "kind": "person", "aliases": ["artie", "brother", "art"], "importance": 8 }
   ],
   "facts": [
-    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null, "sourceQuote": "I forgot to charge my car" },
-    { "text": "Artie loves horror movies", "category": "preference", "tier": "durable", "importance": 7, "entityName": "Artie", "sourceQuote": "My brother Artie loves horror movies" }
+    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null, "sourceQuote": "I forgot to charge my car", "scope": "user" },
+    { "text": "Artie loves horror movies", "category": "preference", "tier": "durable", "importance": 7, "entityName": "Artie", "sourceQuote": "My brother Artie loves horror movies", "scope": "user" },
+    { "text": "the family dog is named Biscuit", "category": "fact", "tier": "durable", "importance": 7, "entityName": null, "sourceQuote": "Biscuit chewed the couch again", "scope": "household" }
   ]
 }`
 
@@ -179,6 +188,7 @@ export async function runJudge(
     factsSuperseded: 0,
     factsNoChange: 0,
     failed: false,
+    householdTouched: false,
   }
 
   if (messages.length === 0) return result
@@ -297,22 +307,36 @@ export async function runJudge(
   // Keep the in-memory list fresh as we add rows within this batch
   const liveMemories = [...existingMemories]
 
+  // Household facts live in the (userId=null, characterId=null) scope — shared by
+  // EVERYONE in the home ("the dog's name is Biscuit" shouldn't be re-learned per
+  // family member). Loaded lazily, only when the extractor tagged any.
+  const hasHousehold = extracted.facts.some((f) => f.scope === 'household')
+  const householdLive = hasHousehold
+    ? [...await db
+        .select()
+        .from(memories)
+        .where(and(isNull(memories.userId), isNull(memories.characterId), eq(memories.status, 'active')))]
+    : []
+
   for (const fact of extracted.facts) {
     if (!fact.text?.trim()) continue
+
+    // Household facts read/write the shared home scope; entity links stay
+    // user-scoped, so household rows carry none.
+    const isHousehold = fact.scope === 'household'
+    const live = isHousehold ? householdLive : liveMemories
 
     const factEmbedding = await embed(fact.text)
 
     // Find semantically similar existing memories (wide net — LLM makes the final
     // call). Sorted by similarity so the 5 CLOSEST are shown — the old unsorted
     // slice could show 5 above-threshold rows while the true duplicate sat 6th.
-    const similar = liveMemories
+    const similar = live
       .map((m) => {
         if (!m.embedding) return null
-        try {
-          return { m, cos: cosineSimilarity(factEmbedding, JSON.parse(m.embedding) as number[]) }
-        } catch {
-          return null
-        }
+        const vec = cachedVector(`${m.id}:${m.updatedAt?.getTime() ?? 0}`, m.embedding)
+        if (!vec) return null
+        return { m, cos: cosineSimilarity(factEmbedding, vec) }
       })
       .filter((x): x is { m: (typeof liveMemories)[number]; cos: number } => x !== null && x.cos > 0.5)
       .sort((a, b) => b.cos - a.cos)
@@ -352,7 +376,7 @@ export async function runJudge(
       // must never demote a durable memory to episodic (exposing it to decay) or
       // lower its importance, and an existing entity link survives a fact whose
       // entityName the extractor didn't repeat.
-      const existingRow = liveMemories.find((m) => m.id === decision.id)
+      const existingRow = live.find((m) => m.id === decision.id)
       const keptTier = existingRow?.tier === 'durable' ? 'durable' : tier
       const keptImportance = Math.max(importance, existingRow?.importance ?? 0)
       const keptEntityId = entityId ?? existingRow?.entityId ?? null
@@ -369,15 +393,16 @@ export async function runJudge(
         })
         .where(eq(memories.id, decision.id))
       // Refresh in live list
-      const idx = liveMemories.findIndex((m) => m.id === decision.id)
+      const idx = live.findIndex((m) => m.id === decision.id)
       if (idx !== -1) {
-        liveMemories[idx] = {
-          ...liveMemories[idx]!,
+        live[idx] = {
+          ...live[idx]!,
           text: decision.text,
           embedding: JSON.stringify(updatedEmbedding),
         }
       }
       result.factsUpdated++
+      if (isHousehold) result.householdTouched = true
     } else {
       // ADD — or DELETE, which supersedes the old row and then STORES the new fact.
       // (DELETE used to drop the new fact on the floor: "I moved to Boston" would
@@ -389,9 +414,10 @@ export async function runJudge(
           .set({ status: 'superseded', updatedAt: now })
           .where(eq(memories.id, decision.id))
         // Remove from live list so subsequent facts in this batch don't match it
-        const idx = liveMemories.findIndex((m) => m.id === decision.id)
-        if (idx !== -1) liveMemories.splice(idx, 1)
+        const idx = live.findIndex((m) => m.id === decision.id)
+        if (idx !== -1) live.splice(idx, 1)
         result.factsSuperseded++
+        if (isHousehold) result.householdTouched = true
       }
       const newId = crypto.randomUUID()
       const isDurable = tier === 'durable'
@@ -400,9 +426,9 @@ export async function runJudge(
         : null
       await db.insert(memories).values({
         id: newId,
-        userId: userId || null,
-        characterId: characterId || null,
-        entityId,
+        userId: isHousehold ? null : (userId || null),
+        characterId: isHousehold ? null : (characterId || null),
+        entityId: isHousehold ? null : entityId,
         text: fact.text,
         sourceText,
         category: fact.category,
@@ -416,11 +442,11 @@ export async function runJudge(
         createdAt: now,
         updatedAt: now,
       })
-      liveMemories.push({
+      live.push({
         id: newId,
-        userId: userId || null,
-        characterId: characterId || null,
-        entityId,
+        userId: isHousehold ? null : (userId || null),
+        characterId: isHousehold ? null : (characterId || null),
+        entityId: isHousehold ? null : entityId,
         text: fact.text,
         sourceText,
         category: fact.category,
@@ -435,6 +461,7 @@ export async function runJudge(
         updatedAt: now,
       })
       result.factsAdded++
+      if (isHousehold) result.householdTouched = true
     }
   }
 

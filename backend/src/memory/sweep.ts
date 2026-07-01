@@ -23,7 +23,7 @@ import { runJudge, relinkEntityIds } from './judge'
 import { runMaintenance } from './maintenance'
 import { runMemoryAudit } from './audit'
 import { generateEpisode } from './episode'
-import { invalidateMemoryBlocksForUser } from './blockCache'
+import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from './blockCache'
 import { invalidateEntityCache } from './recall'
 import { getModel } from '@/lib/models'
 import { logger } from '@/lib/logger'
@@ -182,7 +182,9 @@ async function doJudgeSweep(): Promise<void> {
       // only the overlay invalidated, so chat conversations ran stale up to 30 min.
       if (judgeResult.factsAdded > 0 || judgeResult.factsUpdated > 0 || judgeResult.factsSuperseded > 0 || judgeResult.entitiesUpserted > 0) {
         invalidateEntityCache(conv.userId)
-        invalidateMemoryBlocksForUser(conv.userId)
+        // Household facts appear in EVERYONE's recall — bust all blocks.
+        if (judgeResult.householdTouched) invalidateAllMemoryBlocks()
+        else invalidateMemoryBlocksForUser(conv.userId)
       }
 
       // Advance the cursor to the latest processed message timestamp
@@ -261,7 +263,9 @@ export function startMemorySweep(): { stop: () => void } {
 }
 
 /**
- * Trigger the judge immediately for a specific conversation (e.g. on explicit close).
+ * Trigger the judge immediately for a specific conversation — used when a
+ * conversation is DELETED before the idle sweep saw its tail (the messages are
+ * already gone from the DB; the caller passes a snapshot).
  * Fire-and-forget — callers should not await this in the request path.
  */
 export async function triggerJudgeForConversation(
@@ -276,8 +280,12 @@ export async function triggerJudgeForConversation(
     // the conversation was with. See doJudgeSweep for rationale.
     const judgeResult = await runJudge(convId, userId, null, allMessages, model)
     await relinkEntityIds(userId, null)
+    invalidateEntityCache(userId)
+    if (judgeResult.householdTouched) invalidateAllMemoryBlocks()
+    else invalidateMemoryBlocksForUser(userId)
 
     const now = new Date()
+    // No-op when the conversation row was already deleted — harmless.
     await db.update(conversations).set({ memoryProcessedThrough: now }).where(eq(conversations.id, convId))
 
     logger.info(

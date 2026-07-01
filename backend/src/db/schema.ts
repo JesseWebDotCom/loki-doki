@@ -315,6 +315,12 @@ export const conversations = sqliteTable('conversations', {
   // Tracks up to which message timestamp the memory judge has processed this conversation.
   // Null = never processed. The idle sweep only runs the judge on messages newer than this.
   memoryProcessedThrough: integer('memory_processed_through', { mode: 'timestamp' }),
+  // Rolling summary of everything older than the live history window (refreshed
+  // detached on the fast model). Injected as "Earlier in this conversation" once
+  // trimming starts dropping messages — the 800-token clamp used to mean the
+  // model simply forgot turn 10 by turn 20.
+  summary: text('summary'),
+  summaryThrough: integer('summary_through', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 })
@@ -1574,6 +1580,21 @@ export const chatDocuments = sqliteTable('chat_documents', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   filename: text('filename').notNull(),
   text: text('text').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Embedded chunks of OVERSIZED attached documents (built detached at attach time).
+// Documents beyond the prompt-stuffing budget used to be hard-truncated at 8k
+// chars — questions about page 5 hit thin air. Retrieval picks the top-k relevant
+// chunks per question instead.
+export const chatDocumentChunks = sqliteTable('chat_document_chunks', {
+  id: text('id').primaryKey(),
+  documentId: text('document_id').notNull().references(() => chatDocuments.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id').notNull(),
+  filename: text('filename').notNull(),
+  idx: integer('idx').notNull(),
+  text: text('text').notNull(),
+  embedding: text('embedding'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
