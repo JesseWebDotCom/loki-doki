@@ -10,7 +10,7 @@ import { getModel } from '@/lib/models'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
 import { ensureDefaultCompanions } from '@/lib/defaultCompanions'
 import { toCompanionPayload } from '@/routes/companions'
-import { serializeCharacterContent } from '@/lib/contentPolicy'
+import { serializeCharacterContent, parseCharacterContent, buildContentPrompt } from '@/lib/contentPolicy'
 import type { AppEnv } from '@/types'
 
 const adminCompanions = new Hono<AppEnv>()
@@ -24,6 +24,7 @@ interface CompanionInput {
   name?: string
   personalityPrompt?: string
   backstory?: string | null
+  personaExamples?: string[] | null
   phoneticName?: string | null
   replyStyle?: 'brief' | 'balanced' | 'detailed' | 'auto'
   voiceId?: string | null
@@ -69,6 +70,7 @@ adminCompanions.post('/', requireAdmin, async (c) => {
     slug: slugify(body.name),
     personalityPrompt: body.personalityPrompt?.trim() || 'You are a friendly companion.',
     backstory: body.backstory ?? null,
+    personaExamples: Array.isArray(body.personaExamples) && body.personaExamples.length ? JSON.stringify(body.personaExamples.filter((l) => typeof l === 'string' && l.trim())) : null,
     phoneticName: body.phoneticName ?? null,
     replyStyle: body.replyStyle ?? 'balanced',
     voiceId: body.voiceId ?? null,
@@ -102,6 +104,11 @@ adminCompanions.patch('/:id', requireAdmin, async (c) => {
   if (body.name !== undefined) update['name'] = body.name.trim()
   if (body.personalityPrompt !== undefined) update['personalityPrompt'] = body.personalityPrompt
   if (body.backstory !== undefined) update['backstory'] = body.backstory
+  if (body.personaExamples !== undefined) {
+    update['personaExamples'] = Array.isArray(body.personaExamples) && body.personaExamples.length
+      ? JSON.stringify(body.personaExamples.filter((l) => typeof l === 'string' && l.trim()))
+      : null
+  }
   if (body.phoneticName !== undefined) update['phoneticName'] = body.phoneticName
   if (body.replyStyle !== undefined) update['replyStyle'] = body.replyStyle
   if (body.voiceId !== undefined) update['voiceId'] = body.voiceId
@@ -188,17 +195,37 @@ adminCompanions.put('/:id/grants/:userId', requireAdmin, async (c) => {
 
 // ── Live tester — streams an Ollama reply for an UNSAVED draft persona ───────────
 // Sandbox: nothing is persisted. Used by the studio Test tab.
+// The prompt mirrors the PRODUCTION assembly (content policy → persona with
+// appearance/examples → date/time tail) — the old stripped-down preview meant
+// admins tuned a persona that wasn't what shipped.
 adminCompanions.post('/test', requireAdmin, async (c) => {
   const body = (await c.req.json()) as {
     personalityPrompt: string
     replyStyle?: 'brief' | 'balanced' | 'detailed' | 'auto'
+    style?: string | null
+    avatarConfig?: Record<string, unknown> | null
+    content?: Record<string, unknown> | null
+    personaExamples?: string[] | null
     message: string
     history?: Array<{ role: 'user' | 'assistant'; content: string }>
   }
 
   const model = await getModel()
-  const persona = buildCompanionPrompt({ personalityPrompt: body.personalityPrompt, replyStyle: body.replyStyle })
-  const sys = ['Be concise. This is a companion preview.', persona].filter(Boolean).join('\n\n')
+  const persona = buildCompanionPrompt({
+    personalityPrompt: body.personalityPrompt,
+    replyStyle: body.replyStyle,
+    style: body.style ?? null,
+    avatarConfig: body.avatarConfig ? JSON.stringify(body.avatarConfig) : null,
+    personaExamples: Array.isArray(body.personaExamples) && body.personaExamples.length ? JSON.stringify(body.personaExamples) : null,
+  })
+  const charContent = parseCharacterContent(body.content ? serializeCharacterContent(body.content, body.content['candor']) : null)
+  const now = new Date()
+  const dateLine = `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}, and the current time is ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`
+  const sys = [
+    buildContentPrompt(charContent.dials),
+    persona,
+    dateLine,
+  ].filter(Boolean).join('\n\n')
 
   const messages: OllamaChatMessage[] = [
     { role: 'system', content: sys },

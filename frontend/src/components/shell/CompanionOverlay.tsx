@@ -376,7 +376,7 @@ export function CompanionOverlay() {
   // (hands-free always speaks its replies so the loop can advance on playback end).
   // Only the owning tab speaks; a non-owner stays silent even if it generated text.
   const voiceMode = (voiceOn || handsFreeOn) && !!voiceCharacter && isVoiceOwner
-  useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode })
+  useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode, expressiveness: voiceCharacter?.expressiveness })
   // Losing ownership mid-utterance (user switched to another tab) cuts the audio
   // here so the handoff is clean and the new owner is the only one talking.
   useEffect(() => { if (!isVoiceOwner) stopSpeech() }, [isVoiceOwner])

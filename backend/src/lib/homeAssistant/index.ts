@@ -7,7 +7,10 @@ import { ensureConnected, getStore, type CatalogEntity, type HAStore } from './s
 import { callService, describeError, normalizeConnection, type HAConnection } from './client'
 import { deterministicResolve, scopeCandidates, type ResolvedPlan, type HAAction } from './resolve'
 import { getGrants, filterByGrants } from './permissions'
-import { ctxKey, getContext, setContext, isFollowUp, followUpResolve } from './context'
+import {
+  ctxKey, getContext, setContext, isFollowUp, followUpResolve,
+  getPendingAction, setPendingAction, clearPendingAction, isAffirmative, isNegative,
+} from './context'
 
 export { normalizeConnection }
 export { ensureConnected, getStore } from './sync'
@@ -72,8 +75,25 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
 
   const entities = [...store.entities.values()]
 
+  // 0) Pending security confirmation ("Unlock the front door — yes?" → "yes").
+  // Executes the parked plan on an affirmative, cancels on a negative; anything
+  // else (the user changed subject) clears the pending action and resolves normally.
+  const pendKey = p.conversationId ? ctxKey(p.userId, p.conversationId) : null
+  let confirmedPlan: ResolvedPlan | null = null
+  if (pendKey) {
+    const pending = getPendingAction(pendKey)
+    if (pending) {
+      clearPendingAction(pendKey)
+      if (isAffirmative(p.message)) {
+        confirmedPlan = pending
+      } else if (isNegative(p.message)) {
+        return { ok: true, reply: 'Okay — cancelled.' }
+      }
+    }
+  }
+
   // 1) Deterministic resolution (instant, no LLM).
-  let plan = deterministicResolve(p.message, entities, store.areas)
+  let plan = confirmedPlan ?? deterministicResolve(p.message, entities, store.areas)
 
   // 1b) Follow-up correction ("I meant 20", "turn those off") — apply to the device
   // the user just acted on in this conversation.
@@ -111,6 +131,17 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
   }
   plan.targets = allowed
 
+  // 3b) Security confirmation gate: unlocking, or opening a garage/gate/entry
+  // cover, must be explicitly confirmed — a fuzzy Tier-1 match must never actuate
+  // physical security on the first utterance. The plan is parked (60s TTL) and the
+  // affirmative reply re-enters through step 0 above.
+  if (!confirmedPlan && pendKey && plan.intent === 'control' && isSecuritySensitive(plan)) {
+    setPendingAction(pendKey, plan)
+    const what = plan.action === 'unlock' ? `unlock ${describeTargets(plan)}` : `open ${describeTargets(plan)}`
+    logger.info(`[HA] security action parked for confirmation: ${plan.action} targets=${plan.targets.length}`)
+    return { ok: true, reply: `Just to confirm — ${what}? Say yes to go ahead.`, data: { intent: 'confirm', action: plan.action } }
+  }
+
   // 4) Execute.
   try {
     if (plan.intent === 'query') {
@@ -139,6 +170,19 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
     logger.warn(`[HA] execute failed: ${d.message}`)
     return { ok: false, offline: d.offline, reply: d.message }
   }
+}
+
+// A plan that actuates physical security: any unlock, or opening a cover that
+// looks like an entry point (garage, gate, door). Opening blinds/shades/curtains
+// stays instant — confirming those would be pure annoyance.
+const ENTRY_COVER_RE = /\b(garage|gate|front|back|side|entry|door)\b/i
+function isSecuritySensitive(plan: ResolvedPlan): boolean {
+  if (plan.action === 'unlock') return true
+  if (plan.action === 'open') {
+    return plan.targets.some(t =>
+      t.domain === 'cover' && (ENTRY_COVER_RE.test(t.name) || ENTRY_COVER_RE.test(t.areaName ?? '')))
+  }
+  return false
 }
 
 // ── LLM fallback ──────────────────────────────────────────────────────────────

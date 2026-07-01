@@ -6,6 +6,7 @@ export interface CompanionRecord {
   slug: string
   personalityPrompt: string
   backstory: string | null
+  personaExamples?: string[]
   phoneticName: string | null
   replyStyle: 'brief' | 'balanced' | 'detailed' | 'auto'
   voiceId: string | null
@@ -13,6 +14,8 @@ export interface CompanionRecord {
   wakeWordModelId: string | null
   wakeWordPhrase: string | null
   speechRate: number | null
+  /** 0–1 prosody swing (admin studio slider); null = default. */
+  expressiveness: number | null
   renderer: string
   style: string | null
   seed: string | null

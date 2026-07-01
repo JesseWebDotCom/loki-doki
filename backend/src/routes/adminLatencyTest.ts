@@ -243,8 +243,9 @@ adminLatencyTest.get('/stream', requireAdmin, async (c) => {
           return formatMemoriesForPrompt(recalled, user.id, recentConv?.characterId ?? null, embedding)
         }).catch(() => null)
 
-        const embedding = await embeddingPromise
-        await routePrompt(testMessage, [], model, embedding ?? undefined)
+        // (The old 4-arg call passed a precomputed embedding routePrompt never
+        // accepted — silently discarded; the router embeds with its OWN model.)
+        await routePrompt(testMessage, [], model)
         const memoryBlock = await memoryPromise
 
         const _now = new Date()

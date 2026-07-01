@@ -51,8 +51,10 @@ export function useCompanionVoice(opts: {
   streaming: boolean
   characterId: string | null | undefined
   voiceOn: boolean
+  /** Character's 0–1 prosody swing (DB `expressiveness`); null/undefined = default. */
+  expressiveness?: number | null
 }) {
-  const { text, streaming, characterId, voiceOn } = opts
+  const { text, streaming, characterId, voiceOn, expressiveness } = opts
   const consumed = useRef(0)
   const prevText = useRef('')
   const prevStreaming = useRef(false)
@@ -109,7 +111,7 @@ export function useCompanionVoice(opts: {
       const chunk = stripEmotes(raw)
       if (chunk) {
         // Derive prosody from the RAW chunk (emotes intact) before they're stripped.
-        const p = prosodyForChunk(raw)
+        const p = prosodyForChunk(raw, expressiveness)
         if (p.rateScale !== 1 || p.gain !== 1) replyTone.current = p
         const tone = (p.rateScale !== 1 || p.gain !== 1) ? p : (replyTone.current ?? p)
         if (import.meta.env.DEV) console.log(`[PROSODY] rate=${tone.rateScale.toFixed(2)} gain=${tone.gain.toFixed(2)} «${chunk.slice(0, 45)}»`)
@@ -118,7 +120,7 @@ export function useCompanionVoice(opts: {
       localConsumed += end
     }
     consumed.current += localConsumed
-  }, [text, voiceOn, characterId])
+  }, [text, voiceOn, characterId, expressiveness])
 
   // Flush the trailing fragment (no terminator) when generation ends.
   useEffect(() => {
@@ -127,12 +129,12 @@ export function useCompanionVoice(opts: {
     const rawRest = text.slice(consumed.current)
     const rest = stripEmotes(rawRest)
     if (rest) {
-      const p = prosodyForChunk(rawRest)
+      const p = prosodyForChunk(rawRest, expressiveness)
       if (p.rateScale !== 1 || p.gain !== 1) replyTone.current = p
       const tone = (p.rateScale !== 1 || p.gain !== 1) ? p : (replyTone.current ?? p)
       if (import.meta.env.DEV) console.log(`[PROSODY] rate=${tone.rateScale.toFixed(2)} gain=${tone.gain.toFixed(2)} «${rest.slice(0, 45)}»`)
       void enqueueSpeech({ text: rest, characterId, rateScale: tone.rateScale, gain: tone.gain })
       consumed.current = text.length
     }
-  }, [streaming, text, voiceOn, characterId])
+  }, [streaming, text, voiceOn, characterId, expressiveness])
 }

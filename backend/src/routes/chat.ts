@@ -2,24 +2,18 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { characters, userCharacters, conversations, messages, memories, chatDocuments, chatDocumentEdits } from '@/db/schema'
+import { userCharacters, conversations, messages, chatDocuments, chatDocumentEdits } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { extractText } from '@/lib/rag/ingest'
 import { ollamaChat } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
-import { buildCompanionPrompt } from '@/lib/companionPrompt'
-import { getModel } from '@/lib/models'
-import { CATALOG } from '@/lib/catalog'
-import { getProtections, getInteractionStyle } from '@/lib/protections'
+import { getFastModel } from '@/lib/models'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
-import { getLocaleSettings } from '@/routes/adminLocale'
-import {
-  getUserCeiling, clampDials, parseCharacterContent,
-} from '@/lib/contentPolicy'
 import type { ContentDials } from '@/lib/contentPolicy'
-import { runCompanionTurn, loadUserPrefs } from '@/lib/companionTurn'
+import { runCompanionTurn, resolveTurnContext } from '@/lib/companionTurn'
 import * as genQueue from '@/lib/genQueue'
 import type { JobRunContext } from '@/lib/genQueue'
+import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
 const chat = new Hono<AppEnv>()
@@ -161,7 +155,7 @@ chat.patch('/conversations/:id', requireAuth, async (c) => {
 chat.post('/stream', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, attachments } = (await c.req.json()) as {
+  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, clientTz, attachments } = (await c.req.json()) as {
     message: string
     conversationId?: string
     characterId?: string
@@ -169,6 +163,7 @@ chat.post('/stream', requireAuth, async (c) => {
     projectId?: string
     clientLat?: number | null
     clientLng?: number | null
+    clientTz?: string | null
     attachments?: { filename: string; text: string }[]
   }
 
@@ -181,7 +176,7 @@ chat.post('/stream', requireAuth, async (c) => {
   }
 
   const [ctx, existingRelation] = await Promise.all([
-    resolveChatContext(user.id, characterId ?? null),
+    resolveTurnContext(user.id, characterId ?? null),
     characterId
       ? db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
           .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, characterId)))
@@ -255,15 +250,27 @@ chat.post('/stream', requireAuth, async (c) => {
   // Budget: 800 tokens ≈ 3–6 turns. Keeps cold-prefill time reasonable on 12B models
   // (~3s at actual observed rates vs ~6s at 1500 tokens). Long-term context handled by memory.
   const TOKEN_HISTORY_BUDGET = 800
-  const dbMessages = await db
-    .select({ role: messages.role, content: messages.content })
+  const dbRows = await db
+    .select({ role: messages.role, content: messages.content, toolNote: messages.toolNote })
     .from(messages)
     .where(eq(messages.conversationId, convId))
     .orderBy(desc(messages.createdAt))
     .limit(40)
-  dbMessages.reverse()
+  dbRows.reverse()
+  // Fold each reply's tool note back in so follow-ups ("tell me more") elaborate
+  // on the actual tool data instead of re-searching or deflecting.
+  const dbMessages = dbRows.map((m) => ({
+    role: m.role,
+    content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
+  }))
 
   trimHistory(dbMessages, TOKEN_HISTORY_BUDGET)
+
+  // Serialize turns per conversation: a second submit while one is generating
+  // would snapshot history without the in-flight reply and interleave answers.
+  if (genQueue.findActiveByMeta('conversationId', convId)) {
+    return c.json({ error: 'A reply is already being generated in this conversation. Wait for it to finish (or stop it) first.' }, 429)
+  }
 
   // Generate server-side assistantMessageId so the frontend can correlate across reconnects
   const assistantMessageId = crypto.randomUUID()
@@ -284,10 +291,14 @@ chat.post('/stream', requireAuth, async (c) => {
     uiContext: uiContext ?? null,
     clientLat: clientLat ?? null,
     clientLng: clientLng ?? null,
+    clientTz: clientTz ?? null,
     convId: finalConvId,
     convTitle: finalConvTitle,
     dbMessages,
     prefs,
+    // null = first meeting (relation row is being created right now); the
+    // relationship-stage line in the system prompt derives from this.
+    firstMetAt: characterId ? (existingRelation?.createdAt ?? null) : undefined,
     assistantMessageId,
     cookieHeader: c.req.header('cookie') ?? '',
     locale,
@@ -345,7 +356,7 @@ chat.post('/regenerate', requireAuth, async (c) => {
 
   // Full turn order to find the user message this reply answered.
   const all = await db
-    .select({ id: messages.id, role: messages.role, content: messages.content })
+    .select({ id: messages.id, role: messages.role, content: messages.content, toolNote: messages.toolNote })
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(messages.createdAt)
@@ -355,11 +366,25 @@ chat.post('/regenerate', requireAuth, async (c) => {
     return c.json({ error: 'could not find the turn to regenerate' }, 404)
   }
 
-  const characterId = conv.characterId
-  const { prefs, characterSystemPrompt, model, options, activeDials, interactionStyle, maskProfanityActive, locale, protections } =
-    await resolveChatContext(user.id, characterId)
+  if (genQueue.findActiveByMeta('conversationId', conversationId)) {
+    return c.json({ error: 'A reply is already being generated in this conversation. Wait for it to finish (or stop it) first.' }, 429)
+  }
 
-  const dbMessages = all.slice(0, targetIdx - 1).map((m) => ({ role: m.role, content: m.content }))
+  const characterId = conv.characterId
+  const [{ prefs, characterSystemPrompt, model, options, activeDials, interactionStyle, maskProfanityActive, locale, protections }, regenRelation] =
+    await Promise.all([
+      resolveTurnContext(user.id, characterId),
+      characterId
+        ? db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
+            .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, characterId)))
+            .limit(1).then(r => r[0] ?? null)
+        : Promise.resolve(null),
+    ])
+
+  const dbMessages = all.slice(0, targetIdx - 1).map((m) => ({
+    role: m.role,
+    content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
+  }))
   trimHistory(dbMessages, 800)
 
   const newAssistantMessageId = crypto.randomUUID()
@@ -379,6 +404,7 @@ chat.post('/regenerate', requireAuth, async (c) => {
     convTitle: conv.title ?? '',
     dbMessages,
     prefs,
+    firstMetAt: characterId ? (regenRelation?.createdAt ?? null) : undefined,
     assistantMessageId: newAssistantMessageId,
     cookieHeader: c.req.header('cookie') ?? '',
     locale,
@@ -456,10 +482,13 @@ interface ChatRunParams {
   uiContext: string | null
   clientLat: number | null
   clientLng: number | null
+  clientTz?: string | null
   convId: string
   convTitle: string
   dbMessages: Array<{ role: string; content: string }>
   prefs: Record<string, unknown>
+  /** When the user first met this character (null = first meeting; undefined = not resolved). */
+  firstMetAt?: Date | null
   assistantMessageId: string
   cookieHeader: string
   locale: import('@/routes/adminLocale').LocaleSettings
@@ -478,14 +507,15 @@ function makeChatRun(p: ChatRunParams) {
   return async (ctx: JobRunContext): Promise<void> => {
     try {
       if (p.insertUserMessage !== false) {
-        // Fire-and-forget: user message doesn't need to be saved before streaming starts
-        db.insert(messages).values({
+        // Awaited: ~1ms on SQLite, and a silently-failed insert would lose the
+        // user's turn from history while the reply still persisted against it.
+        await db.insert(messages).values({
           id: crypto.randomUUID(),
           conversationId: p.convId,
           role: 'user',
           content: p.message,
           createdAt: new Date(),
-        }).catch(() => {})
+        })
       }
 
       const history: OllamaChatMessage[] = p.dbMessages.map((m) => ({
@@ -510,9 +540,11 @@ function makeChatRun(p: ChatRunParams) {
           uiContext: p.uiContext,
           clientLat: p.clientLat,
           clientLng: p.clientLng,
+          clientTz: p.clientTz ?? null,
           convId: p.convId,
           history,
           prefs: p.prefs,
+          firstMetAt: p.firstMetAt,
           cookieHeader: p.cookieHeader,
           locale: p.locale,
           interactionStyle: p.interactionStyle,
@@ -526,9 +558,33 @@ function makeChatRun(p: ChatRunParams) {
         },
       )
 
-      // Cancelled mid-stream: original behavior persisted nothing and emitted no
-      // `done`. Preserve that.
-      if (!result.completed) return
+      // Cancelled or errored mid-stream: persist the PARTIAL text (marked
+      // truncated) so it survives a reload instead of silently vanishing.
+      // Regenerates are the exception — the old reply is still in place, and
+      // adding a partial second answer would duplicate the turn.
+      if (!result.completed) {
+        if (result.text.trim() && !p.replaceMessageId) {
+          const now = new Date()
+          await db.insert(messages).values({
+            id: p.assistantMessageId,
+            conversationId: p.convId,
+            role: 'assistant',
+            content: result.text,
+            truncated: true,
+            createdAt: now,
+          }).catch(() => {})
+          await db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, p.convId)).catch(() => {})
+        }
+        if (result.error) {
+          logger.error(`[chat] stream error conv=${p.convId}: ${result.error}`)
+          ctx.emit('error', 'The reply was interrupted. The partial response has been saved.')
+        } else {
+          // Explicit user cancel — settle the client with a done variant so the
+          // partial text stays on screen and survives reload.
+          ctx.emit('done', JSON.stringify({ model: p.model, conversationId: p.convId, title: p.convTitle, truncated: true }))
+        }
+        return
+      }
 
       if (p.replaceMessageId) await db.delete(messages).where(eq(messages.id, p.replaceMessageId))
 
@@ -538,6 +594,7 @@ function makeChatRun(p: ChatRunParams) {
         conversationId: p.convId,
         role: 'assistant',
         content: result.text,
+        toolNote: result.toolNote ?? null,
         createdAt: now,
       })
       await db
@@ -545,14 +602,22 @@ function makeChatRun(p: ChatRunParams) {
         .set({ updatedAt: now })
         .where(eq(conversations.id, p.convId))
 
-      const finalTitle = p.dbMessages.length === 0
-        ? (await generateConversationTitle(p.model, p.message, p.convId)) || p.convTitle
-        : p.convTitle
-      ctx.emit('done', JSON.stringify({ model: p.model, conversationId: p.convId, title: finalTitle }))
+      // First turn: emit `done` immediately with the provisional title and generate
+      // the real one DETACHED on the fast model — title generation used to hold the
+      // UI in "generating" through an entire extra LLM call. The conversations list
+      // picks the final title up from the DB on its next refresh.
+      ctx.emit('done', JSON.stringify({ model: p.model, conversationId: p.convId, title: p.convTitle }))
+      if (p.dbMessages.length === 0) {
+        getFastModel()
+          .then((fastModel) => generateConversationTitle(fastModel, p.message, p.convId))
+          .catch(() => {})
+      }
 
       // Memory extraction is handled out-of-band by the background sweep.
     } catch (err) {
-      ctx.emit('error', String(err))
+      // Never leak internal error text into a chat bubble.
+      logger.error(`[chat] turn failed conv=${p.convId}: ${err}`)
+      ctx.emit('error', 'Something went wrong generating a reply. Please try again.')
     }
   }
 }
@@ -567,71 +632,6 @@ function trimHistory(dbMessages: Array<{ content: string }>, budget: number): vo
     if (tokens <= budget) break
     dbMessages.shift()
   }
-}
-
-/** Shared per-request setup for /stream and /regenerate: preferences, character/content
- *  dials, model selection, and protections. Excludes turn-specific side effects (the
- *  first-meeting relation write) since /regenerate always targets an existing relation. */
-async function resolveChatContext(userId: string, characterId: string | null): Promise<{
-  prefs: Record<string, unknown>
-  charRow: typeof characters.$inferSelect | null
-  characterSystemPrompt: string | null
-  model: string
-  options: Record<string, unknown>
-  activeDials: ContentDials
-  interactionStyle: import('@/lib/protections').InteractionStyle
-  maskProfanityActive: boolean
-  locale: import('@/routes/adminLocale').LocaleSettings
-  protections: import('@/lib/protections').UserProtections
-}> {
-  const [prefs, charRow, locale, protections, interactionStyle, userCeiling] = await Promise.all([
-    loadUserPrefs(userId),
-    characterId
-      ? db.select().from(characters).where(eq(characters.id, characterId)).limit(1).then((r) => r[0] ?? null)
-      : Promise.resolve(null),
-    getLocaleSettings(),
-    getProtections(userId),
-    getInteractionStyle(userId),
-    getUserCeiling(userId),
-  ])
-
-  // ── Resolve the active content dials ──────────────────────────────────────────
-  // The user's ceiling = their assigned content profile (optionally self-lowered).
-  // A character runs at its OWN authored config, but is CLAMPED to the user's ceiling
-  // per category — it can never exceed what the account permits (rather than being
-  // blocked outright).
-  const charContent = charRow ? parseCharacterContent(charRow.contentDials) : null
-  const activeDials: ContentDials = charContent ? clampDials(charContent.dials, userCeiling) : userCeiling
-  // Candor is delivery: from the character for a character chat, else the user's style.
-  const activeInteractionStyle = charContent ? { ...interactionStyle, candor: charContent.candor } : interactionStyle
-  const maskProfanityActive = activeDials.profanity === 'off'
-
-  let model = (prefs['chat_model'] as string | undefined) ?? await getModel()
-  // If the user has uncensored LLM blocked, fall back to the default model when
-  // their selected model is tagged uncensored in the catalog.
-  if (protections.blockUncensoredLlm && model) {
-    const catalogEntry = CATALOG.find((m) => m.id === model)
-    if (catalogEntry && (catalogEntry.role === 'uncensored_llm' || catalogEntry.tags?.includes('uncensored'))) {
-      model = await getModel()
-    }
-  }
-  const options: Record<string, unknown> = {
-    temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
-    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 8192,
-    // NOTE: num_kv_cache_type and flash_attn are load-time model parameters, not
-    // per-inference parameters. Setting them here would let Ollama trigger a full
-    // model reload on any options mismatch. They belong only in warmupModel().
-  }
-  // num_predict is a ceiling, not a target — the model stops at natural completion or
-  // the cap, whichever comes first. A high default does not slow down short answers.
-  options['num_predict'] = (prefs['max_tokens'] as number | undefined) ?? 4096
-  if (prefs['seed']) options['seed'] = prefs['seed']
-
-  const characterSystemPrompt = charRow
-    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle: charRow.replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig })
-    : null
-
-  return { prefs, charRow, characterSystemPrompt, model, options, activeDials, interactionStyle: activeInteractionStyle, maskProfanityActive, locale, protections }
 }
 
 /**

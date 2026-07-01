@@ -71,6 +71,29 @@ const TEST_CASES: RouterTestCase[] = [
   { id: 'convo-thanks',      category: 'conversational', prompt: "thanks!",                           expectedTools: [] },
   { id: 'convo-opinion',     category: 'conversational', prompt: "that's really interesting",         expectedTools: [] },
   { id: 'convo-chatty',      category: 'conversational', prompt: "you're pretty smart",               expectedTools: [] },
+
+  // ── Misfire regressions — self/social questions must NOT be web-searched ───
+  // (these exact phrasings used to hit the SEARCH_INTENT fast path)
+  { id: 'misfire-feel',      category: 'misfire', prompt: "how do you feel today?",                   expectedTools: [] },
+  { id: 'misfire-who-are',   category: 'misfire', prompt: "who are you?",                             expectedTools: [] },
+  { id: 'misfire-wrong',     category: 'misfire', prompt: "what is wrong with you",                   expectedTools: [] },
+  // Reactions must stay conversational even with a question mark.
+  { id: 'misfire-really',    category: 'misfire', prompt: "really?",                                  expectedTools: [] },
+  { id: 'misfire-noway',     category: 'misfire', prompt: "no way!",                                  expectedTools: [] },
+  // "can you check the weather" used to be hijacked into a search-only Tier 2.
+  { id: 'misfire-checkwx',   category: 'misfire', prompt: "can you check the weather?",               expectedTools: ['weather'] },
+
+  // ── Smart home ──────────────────────────────────────────────────────────────
+  { id: 'ha-lights-off',     category: 'homeAssistant', prompt: "turn off the living room lights",    expectedTools: ['homeAssistant'] },
+  { id: 'ha-dim',            category: 'homeAssistant', prompt: "dim the bedroom to 30%",             expectedTools: ['homeAssistant'] },
+
+  // ── Playback vs browse confusables ──────────────────────────────────────────
+  { id: 'play-artist',       category: 'play_music', prompt: "play some led zeppelin",                expectedTools: ['play_music'] },
+  { id: 'play-station',      category: 'play_music', prompt: "put on a jazz station",                 expectedTools: ['play_music'] },
+
+  // ── Explicit memory control ─────────────────────────────────────────────────
+  { id: 'mem-remember',      category: 'memory', prompt: "remember that I park in garage spot 14",    expectedTools: ['remember'] },
+  { id: 'mem-forget',        category: 'memory', prompt: "forget what I said about my old job",       expectedTools: ['forget'] },
 ]
 
 const adminRouterBenchmark = new Hono<AppEnv>()
@@ -103,13 +126,17 @@ adminRouterBenchmark.get('/stream', requireAdmin, async (c) => {
         actualTool = result.tool?.id ?? null
         actualArgs = (result.args as Record<string, unknown>) ?? {}
 
-        // Infer tier from latency: T0/T1 are sub-30ms, T2 goes through an LLM
-        if (durationMs < 30) {
-          tier = actualTool === null ? 'T0' : 'T1'
-        } else {
+        // Honest tier attribution from the router's own path label (the old
+        // wall-clock heuristic — <30ms ⇒ T1 — mislabeled under load).
+        const path = result.path ?? ''
+        if (path.startsWith('tier2')) {
           tier = 'T2'
           t2Count++
           t2TotalMs += durationMs
+        } else if (actualTool !== null || path === 'denied-tool') {
+          tier = 'T1'
+        } else {
+          tier = 'T0'
         }
 
         // Tool correctness:

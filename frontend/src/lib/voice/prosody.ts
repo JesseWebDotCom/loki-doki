@@ -23,9 +23,9 @@ export interface ChunkProsody {
 
 export const NEUTRAL_PROSODY: ChunkProsody = { rateScale: 1, gain: 1 };
 
-// Global swing limit. 1.0 = use the raw targets below as-is. Lower = subtler.
-// Phase 4 replaces this with a per-character `expressiveness` (0–1) from the DB.
-const EXPRESSIVENESS = 1.0;
+// Default swing limit when the character has no `expressiveness` set.
+// 1.0 = use the raw targets below as-is. Lower = subtler.
+const DEFAULT_EXPRESSIVENESS = 1.0;
 
 // ── Sentiment lexicons (sets the base tone of a chunk) ───────────────────────
 // Upbeat/excited → faster + louder.
@@ -62,9 +62,13 @@ const PROSODY_ENABLED = true;
 /**
  * Derive prosody for a raw chunk. Sentiment sets the base; punctuation and
  * emphasis modulate it; emotes (if any) boost. Call BEFORE stripEmotes().
+ *
+ * `expressiveness` is the character's 0–1 swing setting from the DB (the admin
+ * studio slider); null/undefined falls back to the default.
  */
-export function prosodyForChunk(rawChunk: string): ChunkProsody {
+export function prosodyForChunk(rawChunk: string, expressiveness?: number | null): ChunkProsody {
   if (!PROSODY_ENABLED) return NEUTRAL_PROSODY;
+  const swing = clamp(expressiveness ?? DEFAULT_EXPRESSIVENESS, 0, 1);
   const t = rawChunk;
   let rate = 1;
   let gain = 1;
@@ -98,8 +102,8 @@ export function prosodyForChunk(rawChunk: string): ChunkProsody {
   }
 
   // 4) Scale toward neutral by expressiveness, then clamp to safe ranges.
-  const scaledRate = 1 + (rate - 1) * EXPRESSIVENESS;
-  const scaledGain = 1 + (gain - 1) * EXPRESSIVENESS;
+  const scaledRate = 1 + (rate - 1) * swing;
+  const scaledGain = 1 + (gain - 1) * swing;
   return {
     rateScale: clamp(scaledRate, 0.8, 1.25),
     gain: clamp(scaledGain, 0.6, 1.15),

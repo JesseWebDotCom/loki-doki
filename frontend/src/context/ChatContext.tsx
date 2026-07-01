@@ -469,7 +469,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const currentProjectId = currentProjectRef.current?.id ?? undefined
 
     streamChat(
-      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, attachments: sendAttachments.length ? sendAttachments : undefined },
+      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, clientTz: getClientTz(), attachments: sendAttachments.length ? sendAttachments : undefined },
       controller.signal,
       {
         onGen: ({ genId, conversationId: serverConvId, assistantMessageId }) => {
@@ -841,12 +841,62 @@ async function consumeSSEStream(
   }
 }
 
+/** The browser's IANA timezone — lets the backend greet at the USER's 8am, not the server's. */
+function getClientTz(): string | null {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone ?? null } catch { return null }
+}
+
 /** Start a new chat generation (POST). */
 async function streamChat(
-  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; attachments?: { filename: string; text: string }[] },
+  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; clientTz?: string | null; attachments?: { filename: string; text: string }[] },
   signal: AbortSignal,
   { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
 ) {
+  // Track terminal state + reconnect cursor across the primary read and the
+  // one-shot resume below. A stream that closes WITHOUT a done/error event (backend
+  // restart, proxy drop) used to be reported as success — clearing the reconnect
+  // cursor and leaving a silently truncated reply.
+  let terminal = false
+  let genId: string | null = null
+  let lastSeq = 0
+
+  const handle = (eventName: string, data: string, id: string | null): boolean => {
+    if (id !== null) {
+      const seq = parseInt(id, 10)
+      if (!isNaN(seq)) { lastSeq = Math.max(lastSeq, seq); onSeq(seq) }
+    }
+    if (eventName === 'gen') {
+      try {
+        const g = JSON.parse(data) as { genId: string; conversationId?: string; assistantMessageId: string }
+        genId = g.genId
+        onGen(g)
+      } catch { /* malformed */ }
+    } else if (eventName === 'queue') {
+      try { const q = JSON.parse(data) as { position: number }; onQueue(q.position) } catch { /* malformed */ }
+    } else if (eventName === 'routing') {
+      try { const r = JSON.parse(data) as { tool: string }; if (r.tool) onRouting(r.tool) } catch { /* malformed */ }
+    } else if (eventName === 'token') {
+      onToken(data)
+    } else if (eventName === 'block') {
+      try { onBlock(JSON.parse(data) as Block) } catch { /* malformed */ }
+    } else if (eventName === 'sources') {
+      try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
+    } else if (eventName === 'directive') {
+      try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
+    } else if (eventName === 'done') {
+      terminal = true
+      try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
+      return true
+    } else if (eventName === 'error') {
+      terminal = true
+      onError(data); return true
+    } else if (eventName === 'cancelled') {
+      terminal = true
+      onDone({}); return true
+    }
+    return false
+  }
+
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -859,38 +909,23 @@ async function streamChat(
     const reader = res.body?.getReader()
     if (!reader) { onError('No response body'); return }
 
-    await consumeSSEStream(reader, (eventName, data, id) => {
-      if (id !== null) {
-        const seq = parseInt(id, 10)
-        if (!isNaN(seq)) onSeq(seq)
-      }
-      if (eventName === 'gen') {
-        try { onGen(JSON.parse(data) as { genId: string; conversationId?: string; assistantMessageId: string }) } catch { /* malformed */ }
-      } else if (eventName === 'queue') {
-        try { const q = JSON.parse(data) as { position: number }; onQueue(q.position) } catch { /* malformed */ }
-      } else if (eventName === 'routing') {
-        try { const r = JSON.parse(data) as { tool: string }; if (r.tool) onRouting(r.tool) } catch { /* malformed */ }
-      } else if (eventName === 'token') {
-        onToken(data)
-      } else if (eventName === 'block') {
-        try { onBlock(JSON.parse(data) as Block) } catch { /* malformed */ }
-      } else if (eventName === 'sources') {
-        try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
-      } else if (eventName === 'directive') {
-        try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
-      } else if (eventName === 'done') {
-        try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
-        return true
-      } else if (eventName === 'error') {
-        onError(data); return true
-      } else if (eventName === 'cancelled') {
-        onDone({}); return true
-      }
-      return false
-    })
+    await consumeSSEStream(reader, handle)
+    if (terminal) return
 
-    onDone({})
+    // Dropped mid-generation — the job is decoupled from the connection and is
+    // likely still running. Re-attach once from the last seen cursor.
+    if (genId) {
+      try {
+        const res2 = await fetch(`/api/chat/stream/${genId}?since=${lastSeq + 1}`, { credentials: 'include', signal })
+        if (res2.ok && res2.body) {
+          await consumeSSEStream(res2.body.getReader(), handle)
+          if (terminal) return
+        }
+      } catch { /* fall through to the error below */ }
+    }
+    onError('Connection lost mid-reply.')
   } catch (err) {
+    if (terminal) return
     if ((err as Error).name !== 'AbortError') {
       onError((err as Error).message ?? 'Stream failed')
     } else {
@@ -908,6 +943,49 @@ async function streamRegenerate(
   signal: AbortSignal,
   { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
 ) {
+  // Same close-without-done handling as streamChat: track terminal state + cursor
+  // and re-attach once if the connection drops mid-generation.
+  let terminal = false
+  let genId: string | null = null
+  let lastSeq = 0
+
+  const handle = (eventName: string, data: string, id: string | null): boolean => {
+    if (id !== null) {
+      const seq = parseInt(id, 10)
+      if (!isNaN(seq)) { lastSeq = Math.max(lastSeq, seq); onSeq(seq) }
+    }
+    if (eventName === 'gen') {
+      try {
+        const g = JSON.parse(data) as { genId: string; conversationId?: string; assistantMessageId: string }
+        genId = g.genId
+        onGen(g)
+      } catch { /* malformed */ }
+    } else if (eventName === 'queue') {
+      try { const q = JSON.parse(data) as { position: number }; onQueue(q.position) } catch { /* malformed */ }
+    } else if (eventName === 'routing') {
+      try { const r = JSON.parse(data) as { tool: string }; if (r.tool) onRouting(r.tool) } catch { /* malformed */ }
+    } else if (eventName === 'token') {
+      onToken(data)
+    } else if (eventName === 'block') {
+      try { onBlock(JSON.parse(data) as Block) } catch { /* malformed */ }
+    } else if (eventName === 'sources') {
+      try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
+    } else if (eventName === 'directive') {
+      try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
+    } else if (eventName === 'done') {
+      terminal = true
+      try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
+      return true
+    } else if (eventName === 'error') {
+      terminal = true
+      onError(data); return true
+    } else if (eventName === 'cancelled') {
+      terminal = true
+      onDone({}); return true
+    }
+    return false
+  }
+
   try {
     const res = await fetch('/api/chat/regenerate', {
       method: 'POST',
@@ -920,38 +998,21 @@ async function streamRegenerate(
     const reader = res.body?.getReader()
     if (!reader) { onError('No response body'); return }
 
-    await consumeSSEStream(reader, (eventName, data, id) => {
-      if (id !== null) {
-        const seq = parseInt(id, 10)
-        if (!isNaN(seq)) onSeq(seq)
-      }
-      if (eventName === 'gen') {
-        try { onGen(JSON.parse(data) as { genId: string; conversationId?: string; assistantMessageId: string }) } catch { /* malformed */ }
-      } else if (eventName === 'queue') {
-        try { const q = JSON.parse(data) as { position: number }; onQueue(q.position) } catch { /* malformed */ }
-      } else if (eventName === 'routing') {
-        try { const r = JSON.parse(data) as { tool: string }; if (r.tool) onRouting(r.tool) } catch { /* malformed */ }
-      } else if (eventName === 'token') {
-        onToken(data)
-      } else if (eventName === 'block') {
-        try { onBlock(JSON.parse(data) as Block) } catch { /* malformed */ }
-      } else if (eventName === 'sources') {
-        try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
-      } else if (eventName === 'directive') {
-        try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
-      } else if (eventName === 'done') {
-        try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
-        return true
-      } else if (eventName === 'error') {
-        onError(data); return true
-      } else if (eventName === 'cancelled') {
-        onDone({}); return true
-      }
-      return false
-    })
+    await consumeSSEStream(reader, handle)
+    if (terminal) return
 
-    onDone({})
+    if (genId) {
+      try {
+        const res2 = await fetch(`/api/chat/stream/${genId}?since=${lastSeq + 1}`, { credentials: 'include', signal })
+        if (res2.ok && res2.body) {
+          await consumeSSEStream(res2.body.getReader(), handle)
+          if (terminal) return
+        }
+      } catch { /* fall through to the error below */ }
+    }
+    onError('Connection lost mid-reply.')
   } catch (err) {
+    if (terminal) return
     if ((err as Error).name !== 'AbortError') {
       onError((err as Error).message ?? 'Stream failed')
     } else {

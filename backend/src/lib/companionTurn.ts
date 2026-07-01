@@ -15,23 +15,32 @@
 
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { userPreferences, chatDocuments } from '@/db/schema'
+import { userPreferences, chatDocuments, characters } from '@/db/schema'
 import { routePrompt } from '@/llm/router'
-import { ollamaChatStream } from '@/llm/ollama'
+import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
 import { buildBlock, extractSources } from '@/lib/blockBuilder'
-import { recallMemories, formatMemoriesForPrompt } from '@/memory/recall'
+import { recallMemories, formatMemoriesForPrompt, matchPromptEntities } from '@/memory/recall'
 import { getCachedMemoryBlock, setCachedMemoryBlock } from '@/memory/blockCache'
 import { embed } from '@/llm/embed'
-import { buildInteractionFragment, ProfanityStreamBuffer } from '@/lib/protections'
-import { resolveToolConfig, isToolAllowed } from '@/lib/toolConfig'
+import { buildInteractionFragment, ProfanityStreamBuffer, getProtections, getInteractionStyle } from '@/lib/protections'
+import { resolveToolConfig, getAllowedToolIds } from '@/lib/toolConfig'
 import { toolRegistry } from '@/tools'
-import { isFollowUp as isHAFollowUp, hasRecentContext as hasRecentHAContext } from '@/lib/homeAssistant/context'
+import {
+  isFollowUp as isHAFollowUp, hasRecentContext as hasRecentHAContext,
+  hasPendingAction as hasPendingHAAction, isConfirmationReply as isHAConfirmationReply,
+} from '@/lib/homeAssistant/context'
 import { isOffline } from '@/lib/connectivity'
-import { buildLocalePrompt } from '@/routes/adminLocale'
-import { buildContentPrompt } from '@/lib/contentPolicy'
+import { friendshipLine } from '@/lib/friendshipMemory'
+import { buildLocalePrompt, getLocaleSettings } from '@/routes/adminLocale'
+import { buildContentPrompt, getUserCeiling, clampDials, parseCharacterContent, characterGate } from '@/lib/contentPolicy'
 import type { ContentDials } from '@/lib/contentPolicy'
 import { activeSkillsBlock } from '@/lib/skills/resolver'
+import { getCachedBriefing } from '@/lib/briefing/cache'
+import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
+import { getModel, getFastModel } from '@/lib/models'
+import { CATALOG } from '@/lib/catalog'
+import { buildCompanionPrompt } from '@/lib/companionPrompt'
 import { logger } from '@/lib/logger'
 
 // Structured side-channel events (mirror the chat route's SSE taxonomy). Data is
@@ -51,10 +60,19 @@ export interface CompanionTurnParams {
   uiContext: string | null
   clientLat: number | null
   clientLng: number | null
+  /** IANA timezone from the client (e.g. "America/New_York"). Null → server-local
+   *  (right for Pods on the home LAN; wrong for a remote phone, so send it). */
+  clientTz?: string | null
   /** Used as the per-conversation memory-cache key and the tool `_conversationId`. */
   convId: string
   /** Prior turns (already token-trimmed by the caller). */
   history: OllamaChatMessage[]
+  /**
+   * When the user first met this character (userCharacters.createdAt).
+   * `null` = genuinely first meeting; `undefined` = unknown (caller didn't fetch) —
+   * the relationship line is skipped rather than wrongly claiming a first meeting.
+   */
+  firstMetAt?: Date | null
   prefs: Record<string, unknown>
   /** Forwarded to the detect-location side effect; '' is fine for headless callers. */
   cookieHeader: string
@@ -62,6 +80,22 @@ export interface CompanionTurnParams {
   interactionStyle: import('@/lib/protections').InteractionStyle
   activeDials: ContentDials
   maskProfanityActive: boolean
+  // ── Surface options — how the three callers (chat / overlay / pod) differ ──
+  /** Which surface this turn serves. Affects logging only; section toggles below. */
+  surface?: 'chat' | 'overlay' | 'pod'
+  /** Extra harness line placed right before the persona (e.g. the overlay's
+   *  "chatting casually in a little floating bar" framing). */
+  harnessLine?: string | null
+  /** Ambient world/local briefing block (default true — synchronous cache read). */
+  includeBriefing?: boolean
+  /** User-authored prompt skills (default true). */
+  includeSkills?: boolean
+  /** Attached-document block + doc-routing override (default true; overlay/pod
+   *  have synthetic conversation ids with no documents — skip the query). */
+  includeDocs?: boolean
+  /** Base64 images for a vision turn — attached to the user message. The caller
+   *  is responsible for passing a vision-capable model. */
+  images?: string[]
 }
 
 export interface CompanionTurnHandlers {
@@ -74,14 +108,22 @@ export interface CompanionTurnHandlers {
 }
 
 export interface CompanionTurnResult {
-  /** Final reply text to persist (profanity-masked when masking is active). */
+  /** Final reply text (profanity-masked when masking is active). On an incomplete
+   *  turn this holds the PARTIAL text streamed so far — callers may persist it. */
   text: string
   /** The tool that handled the turn, if any. */
   toolId: string | null
   /** True when a tool returned a finished reply and the LLM was skipped. */
   viaDirectReply: boolean
-  /** False when the turn was cancelled mid-stream (caller should not persist). */
+  /** False when the turn was cancelled or errored mid-stream. */
   completed: boolean
+  /** Set when the stream failed mid-generation (completed=false, text=partial). */
+  error?: string
+  /** Compact record of what the tool(s) returned this turn. Persisted alongside
+   *  the assistant message and fed back into future turns' history, so
+   *  follow-ups ("tell me more") can elaborate on the actual data instead of
+   *  re-searching or deflecting. */
+  toolNote?: string
 }
 
 /** Read a user's preferences into a plain object (shared by chat route + Pod). */
@@ -112,6 +154,55 @@ const WEAK_DOC_VERB_RE = /\b(explain|analy[sz]e|review|recap|describe|translate|
 const DEMONSTRATIVE_RE = /\b(this|that|it|these|those|above)\b/i
 const WHAT_IS_THIS_RE  = /\bwhat(?:'s| is| are| does| was| were)\b.*\b(this|that|it)\b/i
 
+// ── Persona-flavored directReply ──────────────────────────────────────────────
+// directReply confirmations ("Turned off the office lights.") are the
+// highest-frequency voice interactions and used to have ZERO personality — every
+// character sounded identical. A strictly-budgeted rewrite on the dedicated fast
+// model puts the character's voice on them; any timeout, failure, or fact drift
+// falls back to the canned text, so the snappy path can never be broken by this.
+const DIRECT_REPLY_FLAVOR_BUDGET_MS = 450
+
+async function personaFlavorReply(canned: string, p: CompanionTurnParams): Promise<string | null> {
+  try {
+    const fastModel = await getFastModel()
+    // Only attempt on a dedicated (resident, small) fast model — rewriting on the
+    // main chat model would trade away the snappy path's whole latency win.
+    if (fastModel === p.model) return null
+    // First paragraph of the persona = core identity; the full prompt is overkill
+    // (and slow to prefill) for a one-line rewrite.
+    const personaCore = p.characterSystemPrompt!.split('\n\n')[0] ?? ''
+    if (!personaCore.trim()) return null
+    const res = await ollamaChat(
+      fastModel,
+      [
+        { role: 'system', content: `${personaCore}\n\nRewrite the system confirmation the user sends as yourself — ONE short spoken sentence. Keep every fact (device names, times, numbers) exactly as given. No emojis, no quotes, no extra commentary.` },
+        { role: 'user', content: canned },
+      ],
+      undefined,
+      { temperature: 0.6, num_predict: 40 },
+      undefined,
+      DIRECT_REPLY_FLAVOR_BUDGET_MS,
+    )
+    const out = res.message.content?.trim().replace(/^["']|["']$/g, '')
+    if (!out || out.length < 3 || out.length > 200) return null
+    // Fact guard: every number in the canned text must survive the rewrite
+    // ("set to 20%" must not become "set to 30%").
+    const nums = canned.match(/\d+/g) ?? []
+    if (!nums.every((n) => out.includes(n))) return null
+    return out
+  } catch {
+    return null // timeout or failure → canned text
+  }
+}
+
+// A tool ran successfully but returned no findings — e.g. web search with an empty
+// `results` array. Triggers the "found nothing, don't make it up" instruction.
+function isEmptyResult(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false
+  const d = data as { results?: unknown }
+  return Array.isArray(d.results) && d.results.length === 0
+}
+
 /** Does this message look like it's about / acting on the conversation's attached document? */
 function refersToAttachedDocument(msg: string): boolean {
   if (DOC_NOUN_RE.test(msg)) return true
@@ -139,32 +230,62 @@ export async function runCompanionTurn(
   }
 
   const history = p.history
+  const includeSkills = p.includeSkills ?? true
+  const includeDocs = p.includeDocs ?? true
+  const includeBriefing = p.includeBriefing ?? true
 
-  // ── Memory block (cached per conversation) ────────────────────────────────
+  // Allowed tools must be known BEFORE routing so denied tools never occupy
+  // candidate slots or silently swallow a turn. Two fast indexed queries. The
+  // entity pass runs alongside — it's the memory cache's staleness check.
+  const [allowedToolIds, promptEntityIds] = await Promise.all([
+    getAllowedToolIds(p.userId),
+    matchPromptEntities(p.message, p.userId, p.characterId).catch(() => new Set<string>()),
+  ])
+
+  // ── Memory block (cached per conversation; entity-aware staleness) ─────────
   let memoryBlock: string | null = null
-  const cachedMem = getCachedMemoryBlock(p.convId)
+  const cachedMem = getCachedMemoryBlock(p.convId, promptEntityIds)
   if (cachedMem) {
     memoryBlock = cachedMem.memoryBlock
     _lap('memory-done(cached)')
   }
 
-  // ── Routing + memory in parallel ──────────────────────────────────────────
-  const [routeResult, computedMemory] = await Promise.all([
-    routePrompt(p.message, history, p.model),
+  // ── Routing + memory + per-turn reads, all in parallel ────────────────────
+  // Everything the rest of the turn needs from the DB is fetched here in one
+  // round: routing, memory recall, offline mode, the skills block, and attached
+  // documents (used for BOTH the doc-routing override and the prompt block —
+  // this used to be two separate sequential queries).
+  const [routeResult, computedMemory, offlineMode, skillsBlock, docs] = await Promise.all([
+    // Pass the chat num_ctx so a same-model Tier-2 call doesn't force an Ollama
+    // runner re-init (context-size mismatch reloads the model).
+    routePrompt(p.message, history, p.model, {
+      numCtx: p.options['num_ctx'] as number | undefined,
+      allowedToolIds,
+    }),
     cachedMem
       ? Promise.resolve(null as string | null)
       : embed(p.message)
           .then(async (embedding) => {
             _lap('embed-done')
-            const recalled = await recallMemories(p.message, p.userId, p.characterId, embedding)
+            const recalled = await recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds)
             return formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding)
           })
           .catch(() => null as string | null),
+    isOffline(p.userId).catch(() => false),
+    includeSkills
+      ? activeSkillsBlock(p.userId).catch((e) => { logger.warn(`[skills] active-skills block failed: ${e}`); return null })
+      : Promise.resolve(null),
+    includeDocs
+      ? db.select({ filename: chatDocuments.filename, text: chatDocuments.text })
+          .from(chatDocuments)
+          .where(eq(chatDocuments.conversationId, p.convId))
+          .catch(() => [] as { filename: string; text: string }[])
+      : Promise.resolve([] as { filename: string; text: string }[]),
   ])
 
   if (!cachedMem) {
     memoryBlock = computedMemory
-    setCachedMemoryBlock(p.convId, memoryBlock)
+    setCachedMemoryBlock(p.convId, memoryBlock, { entityIds: promptEntityIds, userId: p.userId })
     _lap('memory-done(computed)')
   }
 
@@ -174,7 +295,11 @@ export async function runCompanionTurn(
   // Home Assistant follow-ups ("I meant 20", "turn those off") carry no device
   // keywords, so the router can't catch them. If we just ran an HA command in
   // this conversation, treat an adjustment-shaped message as a follow-up to it.
-  if ((!tool || tool.id !== 'homeAssistant') && isHAFollowUp(p.message) && hasRecentHAContext(p.userId, p.convId)) {
+  // Same for yes/no replies to a pending security confirmation ("Unlock the front
+  // door — yes?"), which the router would otherwise treat as chitchat.
+  const haFollowUp = isHAFollowUp(p.message) && hasRecentHAContext(p.userId, p.convId)
+  const haConfirmReply = isHAConfirmationReply(p.message) && hasPendingHAAction(p.userId, p.convId)
+  if ((!tool || tool.id !== 'homeAssistant') && (haFollowUp || haConfirmReply) && allowedToolIds.has('homeAssistant')) {
     const haTool = toolRegistry.find((t) => t.id === 'homeAssistant')
     if (haTool) { tool = haTool; args = { text: p.message } }
   }
@@ -185,59 +310,80 @@ export async function runCompanionTurn(
   // to web search, and the companion ends up describing the search payload instead of
   // ever reading the actual file. Gated on a document existing, so a doc-shaped phrase
   // in a normal chat (no attachment) still routes normally.
-  if ((!tool || tool.id !== 'document_edit') && refersToAttachedDocument(p.message)) {
-    const hasDoc = await db
-      .select({ id: chatDocuments.id })
-      .from(chatDocuments)
-      .where(eq(chatDocuments.conversationId, p.convId))
-      .limit(1)
-    if (hasDoc.length > 0) {
-      const docTool = toolRegistry.find((t) => t.id === 'document_edit')
-      if (docTool) { tool = docTool; args = { instruction: p.message } }
-    }
-  }
-
-  if (tool && !await isToolAllowed(tool.id, p.userId)) {
-    tool = null
-    args = {}
+  if ((!tool || tool.id !== 'document_edit') && docs.length > 0 && refersToAttachedDocument(p.message) && allowedToolIds.has('document_edit')) {
+    const docTool = toolRegistry.find((t) => t.id === 'document_edit')
+    if (docTool) { tool = docTool; args = { instruction: p.message } }
   }
 
   const hasClientCoords = typeof p.clientLat === 'number' && typeof p.clientLng === 'number'
   let ollamaMessages: OllamaChatMessage[] = [...history, { role: 'user', content: p.message }]
 
+  // Multi-intent turns ("turn off the lights and play some jazz"): the extra
+  // calls run serially after the primary, each folding its result into the turn.
+  const extraCalls = (routeResult.extraCalls ?? []).filter(
+    (c) => allowedToolIds.has(c.tool.id) && (c.tool.offline || !offlineMode),
+  )
+  // Compact per-tool notes, persisted with the reply so follow-up turns still see
+  // what the tools actually returned (history otherwise only keeps raw text).
+  const toolNotes: string[] = []
+  const noteFor = (name: string, data: unknown): string =>
+    `${name} → ${JSON.stringify(data ?? null).slice(0, 600)}`
+
+  // Shared tool-config assembly (identical for primary and extra calls).
+  const buildToolConfig = async (toolId: string): Promise<Record<string, unknown>> => {
+    const cfg = await resolveToolConfig(toolId, p.userId)
+    cfg['_userId'] = p.userId
+    cfg['_isAdmin'] = p.userRole === 'admin'
+    cfg['_rawMessage'] = p.message
+    cfg['_conversationId'] = p.convId
+    cfg['_temperature_unit'] = p.locale.temperature
+    cfg['_measurement'] = p.locale.measurement
+    cfg['_currency'] = p.locale.currency
+    const userLocation = p.prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
+    if (userLocation?.displayName && !cfg['default_location']) {
+      cfg['default_location'] = userLocation.displayName
+    }
+    if (userLocation?.lat !== undefined) {
+      cfg['_lat'] = userLocation.lat
+      cfg['_lng'] = userLocation.lng
+    } else if (hasClientCoords) {
+      cfg['_lat'] = p.clientLat
+      cfg['_lng'] = p.clientLng
+    }
+    return cfg
+  }
+
+  // The best route was a tool this user is denied — say so instead of silently
+  // answering a live question (e.g. weather) from stale model memory.
+  if (!tool && routeResult.deniedToolId) {
+    const deniedName = toolRegistry.find((t) => t.id === routeResult.deniedToolId)?.name ?? routeResult.deniedToolId
+    ollamaMessages = [
+      ...history,
+      { role: 'user', content: `${p.message}\n\n[system]: The "${deniedName}" tool that would normally handle this is disabled for this account, so you have no live data. Answer from your own knowledge only if you safely can, and briefly mention the tool is disabled (an admin can enable it under Settings → Tools).` },
+    ]
+  }
+
   if (tool) {
     emitEvent('routing', JSON.stringify({ tool: tool.id }))
 
-    if (!tool.offline && await isOffline(p.userId)) {
+    if (!tool.offline && offlineMode) {
       emitEvent('offline', JSON.stringify({ tool: tool.id }))
       ollamaMessages = [
         ...history,
         { role: 'user', content: `${p.message}\n\n[${tool.name}]: Offline mode is enabled — this tool requires internet. Let the user know and suggest they enable online mode in Settings → Tools.` },
       ]
     } else {
-      const toolConfig = await resolveToolConfig(tool.id, p.userId)
+      const toolConfig = await buildToolConfig(tool.id)
 
-      toolConfig['_userId'] = p.userId
-      toolConfig['_isAdmin'] = p.userRole === 'admin'
-      toolConfig['_rawMessage'] = p.message
-      toolConfig['_conversationId'] = p.convId
-      toolConfig['_temperature_unit'] = p.locale.temperature
-      toolConfig['_measurement'] = p.locale.measurement
-      toolConfig['_currency'] = p.locale.currency
-
-      const userLocation = p.prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
-      if (userLocation?.displayName && !toolConfig['default_location']) {
-        toolConfig['default_location'] = userLocation.displayName
+      // A tool that THROWS (vs. returning {success:false}) must not kill the turn —
+      // fold it into the same failure-acknowledgement path as a returned error.
+      let result: import('@/tools').ToolResult
+      try {
+        result = await tool.execute(args, toolConfig)
+      } catch (err) {
+        logger.warn(`[companion-turn] tool ${tool.id} threw: ${err}`)
+        result = { success: false, error: String(err) }
       }
-      if (userLocation?.lat !== undefined) {
-        toolConfig['_lat'] = userLocation.lat
-        toolConfig['_lng'] = userLocation.lng
-      } else if (hasClientCoords) {
-        toolConfig['_lat'] = p.clientLat
-        toolConfig['_lng'] = p.clientLng
-      }
-
-      const result = await tool.execute(args, toolConfig)
       _lap(`tool-execute-done(${tool.id})`)
 
       if (result.offline) {
@@ -249,10 +395,6 @@ export async function runCompanionTurn(
       } else if (result.success) {
         emitEvent('tool_data', JSON.stringify({ tool: tool.id, data: result.data }))
 
-        // A client-side action (e.g. start mini-player playback). Emitted before
-        // the directReply/LLM path so the player starts as the reply lands.
-        if (result.directive) emitEvent('directive', JSON.stringify(result.directive))
-
         const block = buildBlock(tool.id, result.data)
         if (block) emitEvent('block', JSON.stringify(block))
 
@@ -262,15 +404,50 @@ export async function runCompanionTurn(
         // ── Snappy path ────────────────────────────────────────────────────
         // When a tool returns a finished, speakable reply (e.g. Home Assistant's
         // own action confirmation), emit it directly and skip LLM synthesis.
-        if (typeof result.directReply === 'string' && result.directReply.trim()) {
-          const reply = result.directReply.trim()
+        // The spoken ack goes out BEFORE the directive so on voice surfaces TTS
+        // gets a head start before the player launches. A multi-intent turn
+        // (extra calls pending) folds the ack into the synthesis pass instead so
+        // one reply covers everything.
+        if (typeof result.directReply === 'string' && result.directReply.trim() && extraCalls.length === 0) {
+          let reply = result.directReply.trim()
+          // Character surfaces get the ack in the character's voice (budgeted;
+          // falls back to the canned text on any slip).
+          if (p.characterSystemPrompt) {
+            reply = (await personaFlavorReply(reply, p)) ?? reply
+          }
           const safeReply = p.maskProfanityActive
             ? (await import('@/lib/protections')).maskProfanity(reply)
             : reply
           h.onToken(safeReply)
+          if (result.directive) emitEvent('directive', JSON.stringify(result.directive))
           _lap(`direct-reply-done(${tool.id})`)
-          return { text: safeReply, toolId: tool.id, viaDirectReply: true, completed: true }
+          return { text: safeReply, toolId: tool.id, viaDirectReply: true, completed: true, toolNote: `${tool.name}: ${result.directReply.trim()}`.slice(0, 600) }
         }
+
+        // A client-side action (e.g. start mini-player playback) with an LLM
+        // synthesis pass — emit the directive now so the player starts as the
+        // reply streams in.
+        if (result.directive) emitEvent('directive', JSON.stringify(result.directive))
+
+        // The tool ran fine but found nothing (e.g. a web search on a garbled or
+        // misheard name). Without an explicit signal the model treats the empty
+        // payload as license to answer from memory and confidently deny the subject
+        // exists ("never heard of him"). Mirrors toolTurn.ts's voice-path guard.
+        if (isEmptyResult(result.data)) {
+          ollamaMessages = [
+            ...history,
+            { role: 'user', content: `${p.message}\n\n[${tool.name}]: No results found. Do NOT claim the subject doesn't exist or that you've never heard of it — the name may be misspelled or misheard from speech. Briefly say you couldn't find anything on it, and if it closely resembles someone or something well-known, ask if that's who they meant.` },
+          ]
+          toolNotes.push(`${tool.name} → no results`)
+        } else if (typeof result.directReply === 'string' && result.directReply.trim()) {
+          // Multi-intent turn: the tool already acted; its ack becomes part of the
+          // single synthesized reply.
+          ollamaMessages = [
+            ...history,
+            { role: 'user', content: `${p.message}\n\n[${tool.name}]: ${result.directReply.trim()} (already done — acknowledge it naturally as part of your reply)` },
+          ]
+          toolNotes.push(`${tool.name}: ${result.directReply.trim()}`.slice(0, 300))
+        } else {
 
         const sourceList = sources.length > 0
           ? `\n\nSources:\n${sources.map((s, i) => `[${i + 1}] ${s.title} — ${s.url}`).join('\n')}\n\nWhen referencing a specific source above, cite it inline as [1], [2], etc.`
@@ -286,6 +463,8 @@ export async function runCompanionTurn(
           ...history,
           { role: 'user', content: toolTurnContent },
         ]
+        toolNotes.push(noteFor(tool.name, result.data))
+        }
       } else {
         emitEvent('tool_error', JSON.stringify({ tool: tool.id, error: result.error }))
         ollamaMessages = [
@@ -296,10 +475,66 @@ export async function runCompanionTurn(
     }
   }
 
-  // Build system prompt — keep stable across turns for Ollama KV cache reuse.
+  // ── Extra calls (multi-intent) ─────────────────────────────────────────────
+  // Each remaining call from the router executes serially and appends its result
+  // to the same user turn, so one synthesized reply covers the whole compound
+  // command. Failures fold in like primary failures; the turn never dies here.
+  for (const call of extraCalls) {
+    emitEvent('routing', JSON.stringify({ tool: call.tool.id }))
+    let extraResult: import('@/tools').ToolResult
+    try {
+      extraResult = await call.tool.execute(call.args, await buildToolConfig(call.tool.id))
+    } catch (err) {
+      logger.warn(`[companion-turn] extra tool ${call.tool.id} threw: ${err}`)
+      extraResult = { success: false, error: String(err) }
+    }
+    _lap(`tool-execute-done(${call.tool.id},extra)`)
+
+    let fold: string
+    if (extraResult.offline) {
+      fold = `[${call.tool.name}]: offline or unavailable right now — mention it briefly.`
+    } else if (extraResult.success) {
+      emitEvent('tool_data', JSON.stringify({ tool: call.tool.id, data: extraResult.data }))
+      if (extraResult.directive) emitEvent('directive', JSON.stringify(extraResult.directive))
+      if (typeof extraResult.directReply === 'string' && extraResult.directReply.trim()) {
+        fold = `[${call.tool.name}]: ${extraResult.directReply.trim()} (already done — acknowledge it naturally)`
+        toolNotes.push(`${call.tool.name}: ${extraResult.directReply.trim()}`.slice(0, 300))
+      } else if (typeof extraResult.synthesisHint === 'string' && extraResult.synthesisHint.trim()) {
+        fold = extraResult.synthesisHint.trim()
+        toolNotes.push(noteFor(call.tool.name, extraResult.data))
+      } else {
+        fold = `[${call.tool.name} data]: ${JSON.stringify(extraResult.data)}`
+        toolNotes.push(noteFor(call.tool.name, extraResult.data))
+      }
+    } else {
+      emitEvent('tool_error', JSON.stringify({ tool: call.tool.id, error: extraResult.error }))
+      fold = `[${call.tool.name} error]: ${extraResult.error ?? 'Tool call failed'}. Acknowledge briefly.`
+    }
+
+    const lastMsg = ollamaMessages[ollamaMessages.length - 1]
+    if (lastMsg?.role === 'user') lastMsg.content += `\n\n${fold}`
+  }
+
+  // Build system prompt — ordered STABLE → VOLATILE for Ollama KV-cache reuse.
+  // The minute-precision time string used to sit near the front (position 2) and
+  // bust the KV cache every minute, forcing a full re-prefill of the heavy
+  // persona/memory/docs prefix. It now goes LAST (same fix as routes/companions.ts).
   const _now = new Date()
-  const _date = _now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-  const _time = _now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  // Prefer the CLIENT's timezone — "good morning" at the user's 8am, not the
+  // server's. Falls back to server-local (the family's tz on a home server).
+  let _tz: string | undefined
+  if (p.clientTz) {
+    try { _now.toLocaleTimeString('en-US', { timeZone: p.clientTz }); _tz = p.clientTz } catch { /* invalid tz — server-local */ }
+  }
+  const _date = _now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: _tz })
+  const _time = _now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: _tz })
+  const _hour = parseInt(_now.toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: _tz }), 10)
+  const _partOfDay =
+    _hour < 5 ? 'the middle of the night' :
+    _hour < 9 ? 'early morning' :
+    _hour < 12 ? 'morning' :
+    _hour < 17 ? 'the afternoon' :
+    _hour < 21 ? 'the evening' : 'late night'
   const _storedLoc = p.prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
   let _loc: string | null = _storedLoc?.displayName ?? null
 
@@ -314,57 +549,80 @@ export async function runCompanionTurn(
 
   const _localeBlock = buildLocalePrompt(p.locale)
 
-  const systemParts: string[] = []
-  systemParts.push(await buildContentPrompt(p.activeDials))
-  systemParts.push(
-    [
-      `Today is ${_date}, and the current time is ${_time}.`,
-      p.userDisplayName ? `You are speaking with ${p.userDisplayName}.` : null,
-      _loc ? `They are located in ${_loc}.` : null,
-    ].filter(Boolean).join(' '),
-    _localeBlock,
-  )
-  if (p.characterSystemPrompt) systemParts.push(p.characterSystemPrompt)
-  if (memoryBlock) systemParts.push(memoryBlock)
-  if (p.uiContext) systemParts.push(p.uiContext)
-  // User-authored skills active for this user (best-effort; never breaks a turn).
-  try {
-    const skillsBlock = await activeSkillsBlock(p.userId)
-    if (skillsBlock) systemParts.push(skillsBlock)
-  } catch (e) {
-    logger.warn(`[skills] active-skills block failed: ${e}`)
+  // Ambient world/local briefing: a SYNCHRONOUS warm-cache read (never blocks the
+  // turn) that keeps the companion world-aware on every surface. The block only
+  // changes every ~cadence, so the prompt prefix stays KV-stable.
+  let briefingBlock: string | null = null
+  if (includeBriefing && !offlineMode) {
+    const briefingKey = _storedLoc?.displayName ?? DEFAULT_BRIEFING_KEY
+    briefingBlock = getCachedBriefing(briefingKey)?.block || null
+    ensureBriefingWarm(
+      briefingKey,
+      _storedLoc?.displayName ? { displayName: _storedLoc.displayName, lat: _storedLoc.lat, lng: _storedLoc.lng } : null,
+      p.userId,
+    )
   }
 
-  // Documents the user attached to this conversation — stuffed (budgeted) so the
-  // companion can answer questions about them. Best-effort; never breaks a turn.
-  try {
-    const docs = await db
-      .select({ filename: chatDocuments.filename, text: chatDocuments.text })
-      .from(chatDocuments)
-      .where(eq(chatDocuments.conversationId, p.convId))
-    if (docs.length > 0) {
-      const BUDGET = 8000
-      const parts: string[] = []
-      let len = 0
-      for (const d of docs) {
-        const slice = d.text.slice(0, Math.max(0, BUDGET - len))
-        if (!slice) break
-        parts.push(`### ${d.filename}\n${slice}${slice.length < d.text.length ? '\n…(truncated)' : ''}`)
-        len += slice.length
-        if (len >= BUDGET) break
-      }
-      systemParts.push(
-        '## Attached documents\nThe user attached these documents to this conversation. ' +
-        'Use them to answer questions; quote or cite the filename when relevant.\n\n' + parts.join('\n\n'),
-      )
+  const systemParts: string[] = []
+  systemParts.push(buildContentPrompt(p.activeDials))
+  systemParts.push(_localeBlock)
+  if (p.harnessLine) systemParts.push(p.harnessLine)
+  if (p.characterSystemPrompt) {
+    systemParts.push(p.characterSystemPrompt)
+    // Relationship-stage line ("You've known each other for 3 months") — stable at
+    // day granularity, so KV-safe here next to the persona. Skipped when the caller
+    // couldn't resolve the relation (undefined), so it never falsely claims a first meeting.
+    if (p.characterId && p.firstMetAt !== undefined) {
+      const fl = friendshipLine(p.firstMetAt)
+      if (fl) systemParts.push(fl)
     }
-  } catch (e) {
-    logger.warn(`[chat-docs] attachment block failed: ${e}`)
+  }
+  if (memoryBlock) systemParts.push(memoryBlock)
+  if (briefingBlock) systemParts.push(briefingBlock)
+  if (p.uiContext) systemParts.push(p.uiContext)
+  // User-authored skills active for this user (prefetched in the parallel batch).
+  if (skillsBlock) systemParts.push(skillsBlock)
+
+  // Documents the user attached to this conversation — stuffed (budgeted) so the
+  // companion can answer questions about them. Prefetched in the parallel batch.
+  if (docs.length > 0) {
+    const BUDGET = 8000
+    const parts: string[] = []
+    let len = 0
+    for (const d of docs) {
+      const slice = d.text.slice(0, Math.max(0, BUDGET - len))
+      if (!slice) break
+      parts.push(`### ${d.filename}\n${slice}${slice.length < d.text.length ? '\n…(truncated)' : ''}`)
+      len += slice.length
+      if (len >= BUDGET) break
+    }
+    systemParts.push(
+      '## Attached documents\nThe user attached these documents to this conversation. ' +
+      'Use them to answer questions; quote or cite the filename when relevant.\n\n' + parts.join('\n\n'),
+    )
   }
   // Tone (language/depth/candor). Content policy is handled by buildContentPrompt
   // above; the legacy protection fragment is now folded into the content dials.
   const _interactionFragment = buildInteractionFragment(p.interactionStyle)
   if (_interactionFragment) systemParts.push(_interactionFragment)
+
+  // Volatile date/time/location goes LAST so the heavy stable prefix above stays
+  // KV-cached across turns (the time string changes every minute).
+  systemParts.push(
+    [
+      `Today is ${_date}, and the current time is ${_time}.`,
+      `It's ${_partOfDay} for them — match that energy.`,
+      p.userDisplayName ? `You are speaking with ${p.userDisplayName}.` : null,
+      _loc ? `They are located in ${_loc}.` : null,
+    ].filter(Boolean).join(' '),
+  )
+
+  // Vision: attach images to the final user turn (whatever fold — tool data,
+  // offline notice, plain message — it ended up carrying).
+  if (p.images && p.images.length > 0) {
+    const lastMsg = ollamaMessages[ollamaMessages.length - 1]
+    if (lastMsg?.role === 'user') lastMsg.images = p.images
+  }
 
   if (systemParts.length > 0) {
     ollamaMessages = [{ role: 'system', content: systemParts.join('\n\n') }, ...ollamaMessages]
@@ -375,41 +633,167 @@ export async function runCompanionTurn(
   let fullResponse = ''
   let firstToken = true
   let completed = false
+  let streamError: string | null = null
   const profanityBuf = p.maskProfanityActive ? new ProfanityStreamBuffer() : null
 
-  for await (const chunk of ollamaChatStream(p.model, ollamaMessages, p.options)) {
-    // Respect explicit cancel signals
-    if (h.signal.aborted) break
+  // A mid-stream failure must not discard the partial reply — capture the error
+  // and return the text streamed so far so the caller can persist/surface it.
+  try {
+    for await (const chunk of ollamaChatStream(p.model, ollamaMessages, p.options)) {
+      // Respect explicit cancel signals
+      if (h.signal.aborted) break
 
-    if (chunk.message.content) {
-      if (firstToken) { _lap('first-token'); firstToken = false }
-      const raw = chunk.message.content
-      fullResponse += raw
-      const emitted = profanityBuf ? profanityBuf.flush(raw) : raw
-      if (emitted) h.onToken(emitted)
-    }
-    if (chunk.done) {
-      // Drain any partial word left in the profanity buffer
-      if (profanityBuf) {
-        const tail = profanityBuf.drain()
-        if (tail) h.onToken(tail)
+      if (chunk.message.content) {
+        if (firstToken) { _lap('first-token'); firstToken = false }
+        const raw = chunk.message.content
+        fullResponse += raw
+        const emitted = profanityBuf ? profanityBuf.flush(raw) : raw
+        if (emitted) h.onToken(emitted)
       }
+      if (chunk.done) {
+        // Drain any partial word left in the profanity buffer
+        if (profanityBuf) {
+          const tail = profanityBuf.drain()
+          if (tail) h.onToken(tail)
+        }
 
-      const pe = chunk.prompt_eval_count ?? '?'
-      const ec = chunk.eval_count ?? '?'
-      const loadMs = chunk.load_duration ? Math.round(chunk.load_duration / 1e6) : 0
-      const peMs = chunk.prompt_eval_duration === undefined ? '?' :
-                   chunk.prompt_eval_duration === 0 ? '0(cached)' :
-                   Math.round(chunk.prompt_eval_duration / 1e6)
-      const totalMs = chunk.total_duration ? Math.round(chunk.total_duration / 1e6) : '?'
-      _lap(`llm-done prompt_eval=${pe} gen=${ec} load=${loadMs}ms prefill=${peMs}ms total=${totalMs}ms`)
-      completed = true
+        const pe = chunk.prompt_eval_count ?? '?'
+        const ec = chunk.eval_count ?? '?'
+        const loadMs = chunk.load_duration ? Math.round(chunk.load_duration / 1e6) : 0
+        const peMs = chunk.prompt_eval_duration === undefined ? '?' :
+                     chunk.prompt_eval_duration === 0 ? '0(cached)' :
+                     Math.round(chunk.prompt_eval_duration / 1e6)
+        const totalMs = chunk.total_duration ? Math.round(chunk.total_duration / 1e6) : '?'
+        _lap(`llm-done prompt_eval=${pe} gen=${ec} load=${loadMs}ms prefill=${peMs}ms total=${totalMs}ms`)
+        completed = true
+      }
     }
+  } catch (err) {
+    streamError = String(err)
+    logger.error(`[companion-turn] stream failed after ${fullResponse.length} chars: ${streamError}`)
   }
 
   const text = p.maskProfanityActive
     ? (await import('@/lib/protections')).maskProfanity(fullResponse)
     : fullResponse
 
-  return { text, toolId: tool?.id ?? null, viaDirectReply: false, completed }
+  return {
+    text,
+    toolId: tool?.id ?? null,
+    viaDirectReply: false,
+    completed,
+    ...(streamError && { error: streamError }),
+    ...(toolNotes.length > 0 && { toolNote: toolNotes.join(' | ').slice(0, 800) }),
+  }
+}
+
+// ── Shared per-user/character context resolution ─────────────────────────────
+// One resolver for all three surfaces (chat route, companion overlay, Pods):
+// preferences, character row + persona, content-dial clamping, model selection,
+// protections. Previously each surface duplicated this and they drifted.
+
+export interface TurnContext {
+  prefs: Record<string, unknown>
+  charRow: typeof characters.$inferSelect | null
+  characterSystemPrompt: string | null
+  model: string
+  options: Record<string, unknown>
+  activeDials: ContentDials
+  interactionStyle: import('@/lib/protections').InteractionStyle
+  maskProfanityActive: boolean
+  locale: import('@/routes/adminLocale').LocaleSettings
+  protections: import('@/lib/protections').UserProtections
+}
+
+// Near-static per-user context barely changes turn to turn — a short TTL dedupes
+// the ~7-query burst across rapid turns (voice especially) without meaningful
+// staleness: admin/profile changes apply within TTL_MS.
+const _turnCtxCache = new Map<string, { ctx: TurnContext; expiresAt: number }>()
+const TURN_CTX_TTL_MS = 15_000
+
+export function invalidateTurnContext(userId?: string): void {
+  if (!userId) { _turnCtxCache.clear(); return }
+  for (const key of _turnCtxCache.keys()) {
+    if (key.startsWith(`${userId}:`)) _turnCtxCache.delete(key)
+  }
+}
+
+export async function resolveTurnContext(
+  userId: string,
+  characterId: string | null,
+  opts?: {
+    /** Device-group reply-length override ('inherit'/unset → the character's own). */
+    replyStyleOverride?: string | null
+  },
+): Promise<TurnContext> {
+  const cacheKey = `${userId}:${characterId ?? ''}:${opts?.replyStyleOverride ?? ''}`
+  const cached = _turnCtxCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.ctx
+
+  const [prefs, charRow, locale, protections, interactionStyle, userCeiling] = await Promise.all([
+    loadUserPrefs(userId),
+    characterId
+      ? db.select().from(characters).where(eq(characters.id, characterId)).limit(1).then((r) => r[0] ?? null)
+      : Promise.resolve(null),
+    getLocaleSettings(),
+    getProtections(userId),
+    getInteractionStyle(userId),
+    getUserCeiling(userId),
+  ])
+
+  // ── Resolve the active content dials ──────────────────────────────────────
+  // The user's ceiling = their assigned content profile (optionally self-lowered).
+  // A character runs at its OWN authored config, but is CLAMPED to the user's ceiling
+  // per category — it can never exceed what the account permits (rather than being
+  // blocked outright).
+  const charContent = charRow ? parseCharacterContent(charRow.contentDials) : null
+  const activeDials: ContentDials = charContent ? clampDials(charContent.dials, userCeiling) : userCeiling
+  // Candor is delivery: from the character for a character chat, else the user's style.
+  const activeInteractionStyle = charContent ? { ...interactionStyle, candor: charContent.candor } : interactionStyle
+  const maskProfanityActive = activeDials.profanity === 'off'
+
+  let model = (prefs['chat_model'] as string | undefined) ?? await getModel()
+  // If the user has uncensored LLM blocked, fall back to the default model when
+  // their selected model is tagged uncensored in the catalog.
+  if (protections.blockUncensoredLlm && model) {
+    const catalogEntry = CATALOG.find((m) => m.id === model)
+    if (catalogEntry && (catalogEntry.role === 'uncensored_llm' || catalogEntry.tags?.includes('uncensored'))) {
+      model = await getModel()
+    }
+  }
+  const options: Record<string, unknown> = {
+    temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
+    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 8192,
+    // NOTE: num_kv_cache_type and flash_attn are load-time model parameters, not
+    // per-inference parameters. Setting them here would let Ollama trigger a full
+    // model reload on any options mismatch. They belong only in warmupModel().
+  }
+  // num_predict is a ceiling, not a target — the model stops at natural completion or
+  // the cap, whichever comes first. A high default does not slow down short answers.
+  options['num_predict'] = (prefs['max_tokens'] as number | undefined) ?? 4096
+  if (prefs['seed']) options['seed'] = prefs['seed']
+
+  const replyStyle = opts?.replyStyleOverride && opts.replyStyleOverride !== 'inherit'
+    ? opts.replyStyleOverride as 'brief' | 'balanced' | 'detailed' | 'auto'
+    : charRow?.replyStyle
+  let characterSystemPrompt = charRow
+    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig, personaExamples: charRow.personaExamples })
+    : null
+
+  // Persona ↔ clamped-dials reconciliation: when the user's profile clamps a
+  // character below its authored content level, the persona text ("teasing banter,
+  // a little romantic spark") and the policy block would otherwise contradict —
+  // producing flirt-then-refuse whiplash or dial bleed-through. One explicit line
+  // resolves the tension in the persona's own voice.
+  if (characterSystemPrompt && charContent) {
+    const gate = characterGate(charContent.dials, userCeiling)
+    if (gate.blockedBy.length > 0) {
+      const clampedList = gate.blockedBy.map((b) => b.dial).join(', ')
+      characterSystemPrompt += `\n\nRight now, this account's settings limit what you can express in: ${clampedList}. This is not a change to who you are — express your full personality warmly WITHIN those limits, never tease toward or hint at content you can't deliver, and never mention these limits unless the user asks directly.`
+    }
+  }
+
+  const ctx: TurnContext = { prefs, charRow, characterSystemPrompt, model, options, activeDials, interactionStyle: activeInteractionStyle, maskProfanityActive, locale, protections }
+  _turnCtxCache.set(cacheKey, { ctx, expiresAt: Date.now() + TURN_CTX_TTL_MS })
+  return ctx
 }

@@ -8,20 +8,11 @@
 // concern, so the Pod uses a stable synthetic conversation id (per device+user)
 // purely so the memory-block cache and tool `_conversationId` have a key.
 
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { characters, userCharacters, users } from '@/db/schema'
-import { getModel } from '@/lib/models'
-import { CATALOG } from '@/lib/catalog'
-import { buildCompanionPrompt } from '@/lib/companionPrompt'
-import { getProtections, getInteractionStyle } from '@/lib/protections'
-import { getLocaleSettings } from '@/routes/adminLocale'
-import {
-  getUserCeiling, clampDials, parseCharacterContent,
-} from '@/lib/contentPolicy'
-import type { ContentDials } from '@/lib/contentPolicy'
+import { userCharacters, users } from '@/db/schema'
 import type { OllamaChatMessage } from '@/llm/ollama'
-import { runCompanionTurn, loadUserPrefs, type CompanionTurnParams } from '@/lib/companionTurn'
+import { runCompanionTurn, resolveTurnContext, type CompanionTurnParams } from '@/lib/companionTurn'
 
 export interface PodBrainOptions {
   /** The device's bound user (from the `devices` table — phase: device identity). */
@@ -70,79 +61,51 @@ async function buildTurnParams(
   opts: PodBrainOptions,
 ): Promise<CompanionTurnParams | null> {
   const characterId = opts.characterId ?? null
-  const [user, prefs, charRow, locale, protections, interactionStyle, userCeiling] = await Promise.all([
+  const [user, ctx, relation] = await Promise.all([
     db.select().from(users).where(eq(users.id, opts.userId)).limit(1).then((r) => r[0] ?? null),
-    loadUserPrefs(opts.userId),
+    // The SAME context resolver as the chat route and the overlay — prefs,
+    // character persona (with the device-group reply-style override), dial
+    // clamping, model selection.
+    resolveTurnContext(opts.userId, characterId, { replyStyleOverride: opts.replyStyleOverride }),
     characterId
-      ? db.select().from(characters).where(eq(characters.id, characterId)).limit(1).then((r) => r[0] ?? null)
+      ? db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
+          .where(and(eq(userCharacters.userId, opts.userId), eq(userCharacters.characterId, characterId)))
+          .limit(1).then((r) => r[0] ?? null)
       : Promise.resolve(null),
-    getLocaleSettings(),
-    getProtections(opts.userId),
-    getInteractionStyle(opts.userId),
-    getUserCeiling(opts.userId),
   ])
   if (!user) return null
 
-  // Content dials: the user's profile ceiling; a character runs its own config
-  // CLAMPED to that ceiling (same rule as the chat route).
-  const charContent = charRow ? parseCharacterContent(charRow.contentDials) : null
-  const activeDials: ContentDials = charContent ? clampDials(charContent.dials, userCeiling) : userCeiling
-  const activeInteractionStyle = charContent
-    ? { ...interactionStyle, candor: charContent.candor }
-    : interactionStyle
-  const maskProfanityActive = activeDials.profanity === 'off'
-
   // Record the relationship so the companion's first-met memory etc. behave like
   // the chat route (best-effort; persistence is not the Pod's concern).
-  if (characterId && charRow) {
+  if (characterId && ctx.charRow) {
     db.insert(userCharacters)
       .values({ id: crypto.randomUUID(), userId: opts.userId, characterId, createdAt: new Date() })
       .onConflictDoNothing()
       .catch(() => {})
   }
 
-  let model = (prefs['chat_model'] as string | undefined) ?? await getModel()
-  if (protections.blockUncensoredLlm && model) {
-    const catalogEntry = CATALOG.find((m) => m.id === model)
-    if (catalogEntry && (catalogEntry.role === 'uncensored_llm' || catalogEntry.tags?.includes('uncensored'))) {
-      model = await getModel()
-    }
-  }
-  const options: Record<string, unknown> = {
-    temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
-    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 8192,
-    num_predict: (prefs['max_tokens'] as number | undefined) ?? 4096,
-  }
-  if (prefs['seed']) options['seed'] = prefs['seed']
-
-  // A device-group setting (e.g. "brief") overrides the character's own reply style;
-  // 'inherit' / unset leaves the character's choice alone.
-  const replyStyle = opts.replyStyleOverride && opts.replyStyleOverride !== 'inherit'
-    ? opts.replyStyleOverride
-    : charRow?.replyStyle
-  const characterSystemPrompt = charRow
-    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig })
-    : null
-
   return {
     userId: opts.userId,
     userRole: user.role,
     userDisplayName: user.nickname?.trim() || user.firstName?.trim() || null,
-    model,
-    options,
+    model: ctx.model,
+    options: ctx.options,
     message,
     characterId,
-    characterSystemPrompt,
+    characterSystemPrompt: ctx.characterSystemPrompt,
     uiContext: null,
     clientLat: null,
     clientLng: null,
     convId: opts.convId,
     history: opts.history ?? [],
-    prefs,
+    prefs: ctx.prefs,
+    firstMetAt: characterId ? (relation?.createdAt ?? null) : undefined,
     cookieHeader: '',
-    locale,
-    interactionStyle: activeInteractionStyle,
-    activeDials,
-    maskProfanityActive,
+    locale: ctx.locale,
+    interactionStyle: ctx.interactionStyle,
+    activeDials: ctx.activeDials,
+    maskProfanityActive: ctx.maskProfanityActive,
+    surface: 'pod',
+    includeDocs: false, // synthetic conversation id — no attached documents
   }
 }

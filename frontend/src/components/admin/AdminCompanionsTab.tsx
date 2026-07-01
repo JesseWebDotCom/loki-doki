@@ -24,6 +24,7 @@ interface AdminCompanion {
   name: string
   personalityPrompt: string
   backstory: string | null
+  personaExamples: string[]
   phoneticName: string | null
   replyStyle: 'brief' | 'balanced' | 'detailed' | 'auto'
   voiceId: string | null
@@ -45,7 +46,7 @@ interface AdminCompanion {
 type Draft = Omit<AdminCompanion, 'id'> & { id: string | null }
 
 const BLANK: Draft = {
-  id: null, name: '', personalityPrompt: '', backstory: '', phoneticName: '',
+  id: null, name: '', personalityPrompt: '', backstory: '', personaExamples: [], phoneticName: '',
   replyStyle: 'balanced', voiceId: '', ttsVoice: '', wakeWordModelId: '', wakeWordPhrase: '', speechRate: null, expressiveness: null, renderer: 'dicebear',
   style: 'avataaars', seed: randomSeed(), avatarConfig: {}, category: 'everyday', isActive: true, published: true,
   content: { ...MIN_DIALS, candor: 'balanced' },
@@ -140,7 +141,7 @@ function StudioControls({ ctl }: { ctl: PreviewControls }) {
 }
 
 // ── Live tester (streams a reply from the unsaved draft persona) ─────────────────
-function StudioTester({ persona, replyStyle, onSpeaking }: { persona: string; replyStyle: string; onSpeaking: (v: { speaking: boolean; thinking: boolean }) => void }) {
+function StudioTester({ draft, onSpeaking }: { draft: Draft; onSpeaking: (v: { speaking: boolean; thinking: boolean }) => void }) {
   const [log, setLog] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -160,7 +161,18 @@ function StudioTester({ persona, replyStyle, onSpeaking }: { persona: string; re
     try {
       const res = await fetch('/api/admin/companions/test', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personalityPrompt: persona, replyStyle, message: text, history }),
+        // Send the full draft so the sandbox prompt matches production assembly
+        // (content policy + appearance + example lines), not a stripped preview.
+        body: JSON.stringify({
+          personalityPrompt: draft.personalityPrompt,
+          replyStyle: draft.replyStyle,
+          style: draft.style,
+          avatarConfig: draft.avatarConfig,
+          content: draft.content,
+          personaExamples: draft.personaExamples.filter((l) => l.trim()),
+          message: text,
+          history,
+        }),
         signal: controller.signal,
       })
       const reader = res.body?.getReader()
@@ -188,7 +200,7 @@ function StudioTester({ persona, replyStyle, onSpeaking }: { persona: string; re
       }
     } catch { /* aborted or failed */ }
     finally { setBusy(false); onSpeaking({ speaking: false, thinking: false }); abortRef.current = null }
-  }, [input, busy, log, persona, replyStyle, onSpeaking])
+  }, [input, busy, log, draft, onSpeaking])
 
   return (
     <div className="flex flex-col rounded-xl border border-border bg-card">
@@ -352,7 +364,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
   useEffect(() => { setDraft(null) }, [view])
 
   const selectDraft = (c: AdminCompanion) => {
-    setDraft({ ...c, backstory: c.backstory ?? '', phoneticName: c.phoneticName ?? '', voiceId: c.voiceId ?? '', ttsVoice: c.ttsVoice ?? '', wakeWordModelId: c.wakeWordModelId ?? '', wakeWordPhrase: c.wakeWordPhrase ?? '', content: c.content ?? { ...MIN_DIALS, candor: 'balanced' } })
+    setDraft({ ...c, backstory: c.backstory ?? '', personaExamples: c.personaExamples ?? [], phoneticName: c.phoneticName ?? '', voiceId: c.voiceId ?? '', ttsVoice: c.ttsVoice ?? '', wakeWordModelId: c.wakeWordModelId ?? '', wakeWordPhrase: c.wakeWordPhrase ?? '', content: c.content ?? { ...MIN_DIALS, candor: 'balanced' } })
     baselineWakeRef.current = (c.wakeWordPhrase ?? '').trim()
     setTab('identity')
   }
@@ -409,6 +421,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
     const phraseChanged = newPhrase !== baselineWakeRef.current
     const body = {
       name: draft.name, personalityPrompt: draft.personalityPrompt, backstory: draft.backstory || null,
+      personaExamples: draft.personaExamples.filter((l) => l.trim()).length ? draft.personaExamples.filter((l) => l.trim()) : null,
       phoneticName: draft.phoneticName || null, replyStyle: draft.replyStyle, voiceId: draft.voiceId || null,
       ttsVoice: draft.ttsVoice || null,
       wakeWordModelId: phraseChanged ? null : (draft.wakeWordModelId || null),
@@ -568,6 +581,15 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                   <Field label="Persona / system prompt">
                     <textarea value={draft.personalityPrompt} onChange={(e) => set('personalityPrompt', e.target.value)} rows={6} className="ld-input resize-y" placeholder="You are Loki, a warm and witty companion who…" />
                   </Field>
+                  <Field label="Example lines (one per line — few-shot voice samples; the biggest lever for voice fidelity)">
+                    <textarea
+                      value={draft.personaExamples.join('\n')}
+                      onChange={(e) => set('personaExamples', e.target.value.split('\n'))}
+                      rows={3}
+                      className="ld-input resize-y"
+                      placeholder={'Ooh, okay okay okay — I have SO many thoughts about this.\nHonestly? Skip the movie, the book wrecked me in the best way.'}
+                    />
+                  </Field>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Reply style">
                       <select value={draft.replyStyle} onChange={(e) => set('replyStyle', e.target.value as Draft['replyStyle'])} className="ld-input">
@@ -696,7 +718,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
               {tab === 'test' && (
                 <div className="space-y-3">
                   <StudioControls ctl={ctl} />
-                  <StudioTester persona={draft.personalityPrompt} replyStyle={draft.replyStyle} onSpeaking={setPreview} />
+                  <StudioTester draft={draft} onSpeaking={setPreview} />
                 </div>
               )}
 

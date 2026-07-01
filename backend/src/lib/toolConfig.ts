@@ -30,6 +30,31 @@ export async function resolveToolConfig(toolId: string, userId: string): Promise
   return config
 }
 
+// The full set of tool ids this user may run — the batched form of isToolAllowed,
+// computed in 2 queries (plus the Plex config probe) so it can be resolved BEFORE
+// routing. Routing filters candidates against this set, so denied tools never
+// occupy Tier-1/Tier-2 candidate slots and never silently swallow a turn.
+export async function getAllowedToolIds(userId: string): Promise<Set<string>> {
+  const [enabledRows, permRows] = await Promise.all([
+    db.select({ toolId: toolGlobalConfig.toolId, value: toolGlobalConfig.value })
+      .from(toolGlobalConfig)
+      .where(eq(toolGlobalConfig.key, '__enabled')),
+    db.select({ toolId: toolUserPermissions.toolId, state: toolUserPermissions.state })
+      .from(toolUserPermissions)
+      .where(eq(toolUserPermissions.userId, userId)),
+  ])
+
+  const allowed = new Set(toolRegistry.map((t) => t.id))
+  for (const row of enabledRows) {
+    try { if (JSON.parse(row.value) === false) allowed.delete(row.toolId) } catch { /* ignore */ }
+  }
+  for (const row of permRows) {
+    if (row.state === 'deny') allowed.delete(row.toolId)
+  }
+  if (allowed.has('plex') && !(await isPlexConfigured())) allowed.delete('plex')
+  return allowed
+}
+
 // Returns false if the tool is globally disabled OR the user is explicitly denied.
 // Default (no records) = allowed.
 export async function isToolAllowed(toolId: string, userId: string): Promise<boolean> {

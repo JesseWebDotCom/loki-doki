@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Bell, Cpu, Home, Info, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
+import { Bell, Brain, Cpu, Home, Info, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
 import type { PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
 import { SettingsHeader } from '@/components/settings/SettingsHeader'
@@ -14,6 +14,7 @@ import { SettingsPrivacyTab } from '@/components/settings/SettingsPrivacyTab'
 import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab'
 import { SettingsPlexTab } from '@/components/settings/SettingsPlexTab'
 import { SettingsDevicesTab } from '@/components/settings/SettingsDevicesTab'
+import { SettingsMemoryTab } from '@/components/settings/SettingsMemoryTab'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 const SECTIONS: PanelSection[] = [
@@ -23,6 +24,7 @@ const SECTIONS: PanelSection[] = [
   { id: 'plex',          label: 'Plex',            icon: MonitorPlay },
   { id: 'appearance',    label: 'Appearance',      icon: Palette    },
   { id: 'content',       label: 'Content',         icon: SlidersHorizontal },
+  { id: 'memory',        label: 'Memory',          icon: Brain      },
   { id: 'notifications', label: 'Notifications',   icon: Bell       },
   { id: 'devices',       label: 'Devices',         icon: Cpu        },
   { id: 'about',         label: 'About',           icon: Info       },
@@ -72,6 +74,7 @@ export function SettingsPage() {
           {section === 'plex'          && <SettingsPlexTab />}
           {section === 'appearance'    && <SettingsAppearanceTab />}
           {section === 'content'       && <SettingsPrivacyTab />}
+          {section === 'memory'        && <SettingsMemoryTab />}
           {section === 'notifications' && <SettingsNotificationsTab />}
           {section === 'devices'       && <SettingsDevicesTab />}
           {section === 'about'         && <SettingsAboutTab />}

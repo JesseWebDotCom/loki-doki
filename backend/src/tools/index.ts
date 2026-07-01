@@ -129,6 +129,7 @@ import { plexTool } from './plex'
 import { setStatusTool } from './setStatus'
 import { sleepTool } from './sleep'
 import { displayAlertTool } from './displayAlert'
+import { rememberTool, forgetTool } from './memory'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -171,4 +172,6 @@ export const toolRegistry: Tool[] = [
   setStatusTool,
   sleepTool,
   displayAlertTool,
+  rememberTool,
+  forgetTool,
 ]

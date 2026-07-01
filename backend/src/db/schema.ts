@@ -42,6 +42,9 @@ export const characters = sqliteTable('characters', {
   slug: text('slug').notNull().unique(),
   personalityPrompt: text('personality_prompt').notNull(),
   backstory: text('backstory'),
+  // JSON string[] of 2–3 short example lines in the character's voice — few-shot
+  // voice samples are the biggest lever for small-model persona fidelity.
+  personaExamples: text('persona_examples'),
   voiceId: text('voice_id'),
   avatarRef: text('avatar_ref'),
   // ── Avatar rigging (DiceBear) ──
@@ -321,6 +324,12 @@ export const messages = sqliteTable('messages', {
   conversationId: text('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
   role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
   content: text('content').notNull(),
+  // Reply was cut off (user cancel or mid-stream failure) — content is partial.
+  truncated: integer('truncated', { mode: 'boolean' }).notNull().default(false),
+  // Compact record of tool results behind this reply ("Web Search → {…}"). Folded
+  // into LLM history on later turns so follow-ups elaborate on real data instead
+  // of re-searching; never rendered in the UI.
+  toolNote: text('tool_note'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
@@ -354,8 +363,10 @@ export const memories = sqliteTable('memories', {
   entityId: text('entity_id'),
   text: text('text').notNull(),
   sourceText: text('source_text'),
+  // 'state' = ongoing multi-day situation ("stressed about a deadline") — powers
+  // caring follow-ups and hard-expires after ~a week (see memory/maintenance.ts).
   category: text('category', {
-    enum: ['person', 'place', 'thing', 'preference', 'identity', 'event', 'project', 'goal', 'relationship', 'fact'],
+    enum: ['person', 'place', 'thing', 'preference', 'identity', 'event', 'project', 'goal', 'relationship', 'fact', 'state'],
   }).notNull().default('fact'),
   // durable = identity/relationship/person/preference — never pruned
   // episodic = event/goal/project/thing/place/fact   — subject to decay & archival

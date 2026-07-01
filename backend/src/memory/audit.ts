@@ -44,6 +44,27 @@ interface AuditDecision {
   discard: string[]
 }
 
+/** Run the AUDIT_PROMPT over a candidate list and return the flagged ids. */
+async function flagJunk(model: string, candidates: { id: string; text: string }[]): Promise<string[]> {
+  const flagged: string[] = []
+  for (let i = 0; i < candidates.length; i += AUDIT_CHUNK) {
+    const chunk = candidates.slice(i, i + AUDIT_CHUNK)
+    const list = chunk.map((m) => `[${m.id}] ${m.text}`).join('\n')
+    const prompt = AUDIT_PROMPT.replace('{list}', list)
+
+    try {
+      const decision = await structuredCall<AuditDecision>(model, prompt)
+      const ids = Array.isArray(decision?.discard) ? decision.discard : []
+      // Only accept ids we actually sent — guards against the model inventing ids
+      const valid = new Set(chunk.map((m) => m.id))
+      for (const id of ids) if (valid.has(id)) flagged.push(id)
+    } catch {
+      // best-effort: a failed chunk just means nothing pruned this round
+    }
+  }
+  return flagged
+}
+
 export async function runMemoryAudit(model: string): Promise<number> {
   // Candidate junk lives in the episodic tier at low importance. Prefer the
   // least-recently-used rows so genuinely-used memories aren't re-audited forever.
@@ -61,35 +82,47 @@ export async function runMemoryAudit(model: string): Promise<number> {
     .orderBy(asc(memories.lastUsedAt), asc(memories.createdAt))
     .limit(AUDIT_BATCH_LIMIT)
 
-  if (candidates.length === 0) return 0
+  const toDiscard = candidates.length > 0 ? await flagJunk(model, candidates) : []
 
-  const toDiscard: string[] = []
-
-  for (let i = 0; i < candidates.length; i += AUDIT_CHUNK) {
-    const chunk = candidates.slice(i, i + AUDIT_CHUNK)
-    const list = chunk.map((m) => `[${m.id}] ${m.text}`).join('\n')
-    const prompt = AUDIT_PROMPT.replace('{list}', list)
-
-    try {
-      const decision = await structuredCall<AuditDecision>(model, prompt)
-      const ids = Array.isArray(decision?.discard) ? decision.discard : []
-      // Only accept ids we actually sent — guards against the model inventing ids
-      const valid = new Set(chunk.map((m) => m.id))
-      for (const id of ids) if (valid.has(id)) toDiscard.push(id)
-    } catch {
-      // best-effort: a failed chunk just means nothing pruned this round
-    }
+  if (toDiscard.length > 0) {
+    // Soft-delete (supersede) rather than hard-delete — consistent with the judge's
+    // bi-temporal pattern; nothing is ever truly lost.
+    await db
+      .update(memories)
+      .set({ status: 'superseded', updatedAt: new Date() })
+      .where(inArray(memories.id, toDiscard))
+    logger.info(`[memory:audit] superseded ${toDiscard.length} junk memories`)
   }
 
-  if (toDiscard.length === 0) return 0
+  // ── Durable-tier pass ─────────────────────────────────────────────────────
+  // The judge model picks each fact's tier, so junk occasionally lands marked
+  // durable — where maintenance never decays it and the episodic-only audit never
+  // saw it. Mis-tiered durable junk is IMMORTAL and, because recall's 150-row
+  // candidate window is importance-ordered, it slowly starves episodic memories
+  // out of recall. This pass is even more conservative: flagged durable rows are
+  // DEMOTED to episodic (letting normal decay handle them), never superseded.
+  const durableCandidates = await db
+    .select({ id: memories.id, text: memories.text })
+    .from(memories)
+    .where(
+      and(
+        eq(memories.status, 'active'),
+        eq(memories.tier, 'durable'),
+        eq(memories.pinned, false),
+        lte(memories.importance, AUDIT_IMPORTANCE_MAX + 1),
+      ),
+    )
+    .orderBy(asc(memories.lastUsedAt), asc(memories.createdAt))
+    .limit(AUDIT_BATCH_LIMIT)
 
-  // Soft-delete (supersede) rather than hard-delete — consistent with the judge's
-  // bi-temporal pattern; nothing is ever truly lost.
-  await db
-    .update(memories)
-    .set({ status: 'superseded', updatedAt: new Date() })
-    .where(inArray(memories.id, toDiscard))
+  const toDemote = durableCandidates.length > 0 ? await flagJunk(model, durableCandidates) : []
+  if (toDemote.length > 0) {
+    await db
+      .update(memories)
+      .set({ tier: 'episodic', updatedAt: new Date() })
+      .where(inArray(memories.id, toDemote))
+    logger.info(`[memory:audit] demoted ${toDemote.length} mis-tiered durable memories to episodic`)
+  }
 
-  logger.info(`[memory:audit] superseded ${toDiscard.length} junk memories`)
-  return toDiscard.length
+  return toDiscard.length + toDemote.length
 }

@@ -106,26 +106,32 @@ export function warmupModel(): Promise<void> {
 async function _doWarmup(): Promise<void> {
   const model = await getModel()
 
-  // Pre-warm with the stable system prompt prefix that every real chat message will share.
-  // The date is the longest-lived stable prefix (~24h). Memory and character prompts vary
-  // per user/conversation so they can't be pre-warmed centrally; the date prefix alone
-  // eliminates a significant chunk of the cold-prefill work.
-  const dateStr = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-  })
-  // IMPORTANT: this system prompt must be identical to the prefix built in chat.ts
-  // so llama.cpp's KV cache already holds these tokens when the first real turn arrives.
+  // Pre-warm with the stable system prompt PREFIX that real chat turns share.
+  // runCompanionTurn's prompt now begins with the content-policy block (see
+  // buildContentPrompt), so warm with the DEFAULT profile's block — any user on the
+  // default profile (with no character dial overrides) gets a KV-cache hit on that
+  // whole prefix for their first turn. Memory/character sections vary per user and
+  // can't be pre-warmed centrally. The old warmup primed a "Today is …" prefix the
+  // real prompt no longer starts with, so turn 1 always paid full cold prefill.
+  let warmupSystem = ''
+  try {
+    const { buildContentPrompt, getProfile, getDefaultProfileSlug } = await import('@/lib/contentPolicy')
+    const profile = await getProfile(await getDefaultProfileSlug())
+    if (profile) warmupSystem = buildContentPrompt(profile.dials)
+  } catch { /* fall back to a bare warmup below */ }
   const warmupMessages = [
-    { role: 'system' as const, content: `Today is ${dateStr}. Be concise — 1 to 3 sentences unless the user asks for more detail.` },
+    ...(warmupSystem ? [{ role: 'system' as const, content: warmupSystem }] : []),
     { role: 'user' as const, content: 'hi' },
   ]
 
   const routerModel = await getRouterModel()
 
   // Load LLM + embed models + router LLM in parallel so first Tier 2 call never cold-loads.
+  // num_ctx matches the chat default (8192) — a mismatched warmup context would
+  // itself force a runner re-init on the first real turn.
   const [, , routerEmbedOk] = await Promise.allSettled([
     ollamaChat(model, warmupMessages, [], {
-      temperature: 0, num_predict: 1, num_ctx: 4096,
+      temperature: 0, num_predict: 1, num_ctx: 8192,
     })
       .then(() => logger.info(`[warmup] ${model} ready`))
       .catch(() => {}),

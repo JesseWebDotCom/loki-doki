@@ -347,6 +347,14 @@ export function findByMeta(key: string, value: unknown): Job | undefined {
   return undefined
 }
 
+/** Find a QUEUED or RUNNING job by metadata — used to serialize per-conversation turns. */
+export function findActiveByMeta(key: string, value: unknown): Job | undefined {
+  for (const job of jobs.values()) {
+    if (job.meta[key] === value && (job.status === 'queued' || job.status === 'running')) return job
+  }
+  return undefined
+}
+
 /** Cancel a job. Only the owning user can cancel. Returns false if not found/forbidden. */
 export function cancel(jobId: string, userId: string): boolean {
   const job = jobs.get(jobId)

@@ -10,6 +10,8 @@ export interface CompanionPromptParts {
   /** Avatar style + raw avatarConfig JSON — used to make the character appearance-aware. */
   style?: string | null
   avatarConfig?: string | null
+  /** Raw JSON string[] of example lines in the character's voice (few-shot). */
+  personaExamples?: string | null
 }
 
 const REPLY_STYLE_FRAGMENT: Record<string, string> = {
@@ -30,8 +32,26 @@ const VOICE_RULE =
   'You are speaking out loud, like a person on a phone call. Talk only in the first person, as yourself. ' +
   'Do not narrate your own actions or write stage directions, and do not use XML/HTML tags, asterisks, parentheses, or ALL-CAPS — just say what you would naturally say.'
 
+// Few-shot voice samples — the single biggest lever for small-model voice
+// fidelity. Rendered as reference lines, with an explicit no-verbatim rule so the
+// model doesn't parrot them back.
+function exampleLinesBlock(rawJson: string | null | undefined): string | null {
+  if (!rawJson) return null
+  try {
+    const lines = (JSON.parse(rawJson) as unknown[])
+      .filter((l): l is string => typeof l === 'string' && l.trim().length > 0)
+      .slice(0, 4)
+    if (lines.length === 0) return null
+    return 'How you sound — real lines in your voice (match this style and energy; never repeat these verbatim):\n' +
+      lines.map((l) => `- "${l.trim()}"`).join('\n')
+  } catch {
+    return null
+  }
+}
+
 export function buildCompanionPrompt(parts: CompanionPromptParts): string {
   const fragment = REPLY_STYLE_FRAGMENT[parts.replyStyle ?? 'balanced'] ?? ''
   const appearance = describeAppearance(parts.style, parts.avatarConfig)
-  return [parts.personalityPrompt?.trim(), appearance, VOICE_RULE, fragment].filter(Boolean).join('\n\n')
+  const examples = exampleLinesBlock(parts.personaExamples)
+  return [parts.personalityPrompt?.trim(), examples, appearance, VOICE_RULE, fragment].filter(Boolean).join('\n\n')
 }

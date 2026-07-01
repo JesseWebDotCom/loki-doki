@@ -23,6 +23,8 @@ import { runJudge, relinkEntityIds } from './judge'
 import { runMaintenance } from './maintenance'
 import { runMemoryAudit } from './audit'
 import { generateEpisode } from './episode'
+import { invalidateMemoryBlocksForUser } from './blockCache'
+import { invalidateEntityCache } from './recall'
 import { getModel } from '@/lib/models'
 import { logger } from '@/lib/logger'
 
@@ -35,14 +37,24 @@ const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1_000   // run maintenance every 1 hr
 // Max messages to feed the judge per run (keeps the prompt bounded)
 const MAX_JUDGE_MESSAGES = 60
 
-// Generate an episode summary when a conversation reaches this many messages
-const EPISODE_MESSAGE_THRESHOLD = 20
+// Generate an episode summary when the just-judged SPAN has at least this many
+// messages. The old rule ("conversation total ≥ 20") re-summarized the FIRST 60
+// messages of a long conversation on every sweep — N near-identical episodes of
+// its opening, while content past message 60 was never summarized.
+const EPISODE_SPAN_THRESHOLD = 12
 
 // ─── Judge sweep ──────────────────────────────────────────────────────────────
 
 // Overlap guard: if a sweep runs longer than JUDGE_INTERVAL_MS the next tick
 // would re-enter and double-process the same conversations. Skip while busy.
 let sweeping = false
+
+// Consecutive judge (Phase-1 extraction) failures per conversation. A failed run
+// does NOT advance memoryProcessedThrough (the span would be silently lost), but a
+// poisoned conversation must not wedge the sweep forever — after this many
+// consecutive failures the cursor advances anyway and the span is abandoned.
+const MAX_JUDGE_RETRIES = 3
+const judgeFailures = new Map<string, number>()
 
 // Yield the event loop back to the HTTP server. bun:sqlite is synchronous and runs on
 // the main thread, so a sweep that loops over many conversations back-to-back monopolises
@@ -148,8 +160,30 @@ async function doJudgeSweep(): Promise<void> {
         model,
       )
 
+      // Extraction failed — leave the cursor where it is so the span is retried
+      // next sweep, up to the retry budget (then abandon it so one poisoned
+      // conversation can't wedge the sweep forever).
+      if (judgeResult.failed) {
+        const fails = (judgeFailures.get(conv.id) ?? 0) + 1
+        if (fails < MAX_JUDGE_RETRIES) {
+          judgeFailures.set(conv.id, fails)
+          logger.warn(`[memory:sweep] judge extraction failed for conv=${conv.id} (attempt ${fails}/${MAX_JUDGE_RETRIES}) — will retry next sweep`)
+          continue
+        }
+        logger.error(`[memory:sweep] judge extraction failed ${fails}x for conv=${conv.id} — abandoning span`)
+      }
+      judgeFailures.delete(conv.id)
+
       // Link any facts that reference entities created in this batch (shared scope)
       await relinkEntityIds(conv.userId, null)
+
+      // Newly-written facts must surface in ONGOING conversations too — drop every
+      // cached memory block (and the entity-pass cache) for this user. Previously
+      // only the overlay invalidated, so chat conversations ran stale up to 30 min.
+      if (judgeResult.factsAdded > 0 || judgeResult.factsUpdated > 0 || judgeResult.factsSuperseded > 0 || judgeResult.entitiesUpserted > 0) {
+        invalidateEntityCache(conv.userId)
+        invalidateMemoryBlocksForUser(conv.userId)
+      }
 
       // Advance the cursor to the latest processed message timestamp
       const newestMsgTime = unprocessedRows[unprocessedRows.length - 1]!.createdAt
@@ -159,22 +193,11 @@ async function doJudgeSweep(): Promise<void> {
         .set({ memoryProcessedThrough: newestMsgTime })
         .where(eq(conversations.id, conv.id))
 
-      // Episode generation: if the conversation has crossed the threshold and doesn't
-      // have a recent episode, generate one
-      const [msgCount] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(messages)
-        .where(eq(messages.conversationId, conv.id))
-
-      if ((msgCount?.count ?? 0) >= EPISODE_MESSAGE_THRESHOLD) {
-        const allMsgs = await db
-          .select({ role: messages.role, content: messages.content })
-          .from(messages)
-          .where(eq(messages.conversationId, conv.id))
-          .orderBy(messages.createdAt)
-          .limit(MAX_JUDGE_MESSAGES)
-
-        generateEpisode(conv.id, conv.userId, conv.characterId ?? null, allMsgs, model).catch(() => {})
+      // Episode generation: summarize the SPAN that was just judged. The cursor
+      // advance above guarantees each span is summarized at most once, and spans
+      // past message 60 get their own episodes as the conversation grows.
+      if (unprocessedRows.length >= EPISODE_SPAN_THRESHOLD) {
+        generateEpisode(conv.id, conv.userId, conv.characterId ?? null, msgList, model).catch(() => {})
       }
 
       if (judgeResult.factsAdded > 0 || judgeResult.entitiesUpserted > 0) {

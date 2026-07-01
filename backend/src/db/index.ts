@@ -1699,6 +1699,17 @@ export function runMigrations() {
   addColumn('clock_alarms', 'tone_id', 'TEXT')
   addColumn('clock_alarms', 'targets', 'TEXT')
 
+  // Partial-reply persistence: replies cut off by cancel or a mid-stream failure
+  // are saved with truncated=1 instead of being discarded.
+  addColumn('messages', 'truncated', 'INTEGER NOT NULL DEFAULT 0')
+
+  // Structured persona: JSON string[] of example lines in the character's voice.
+  addColumn('characters', 'persona_examples', 'TEXT')
+
+  // Tool-result note behind an assistant reply — folded into LLM history on later
+  // turns so follow-ups see what the tools actually returned.
+  addColumn('messages', 'tool_note', 'TEXT')
+
   // Generic read-through lookup cache (property/people scrapers and future tools).
   // data holds the JSON result ("null" = cached negative); expires_at is epoch ms.
   sqlite.exec(`

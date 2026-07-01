@@ -113,6 +113,27 @@ function moodForSpan(span: string): Mood | null {
   return null;
 }
 
+// ── Plain-sentence sentiment → mood ──────────────────────────────────────────
+// VOICE_RULE explicitly bans the XML/asterisk emotes above, so with a compliant
+// model the tag path never fires and the avatar's whole emotional range was
+// unreachable. This lexicon reads the PROSE itself (same approach prosody already
+// uses for rate/gain) — conservative patterns tuned for sentences, not action
+// spans ("I think we should…" must NOT trigger the think face).
+const SENTENCE_MOODS: Array<[RegExp, Mood]> = [
+  [/\b(?:haha+|hehe+|lo+l|lmao|that'?s (?:hilarious|so funny)|cracking me up|i can'?t stop laughing)\b/i, "laugh"],
+  [/\b(?:omg|oh wow|whoa|no way|that'?s (?:incredible|unbelievable|wild|insane)|i can'?t believe)\b/i, "surprised"],
+  [/\b(?:i love (?:it|this|that)|aww+|so sweet|how lovely|adorable)\b/i, "love"],
+  [/\b(?:ya+y|woohoo|that'?s (?:awesome|fantastic|wonderful|great news)|so (?:happy|excited) for you|congrats|congratulations)\b/i, "happy"],
+  [/\b(?:oh no|i'?m so sorry|sorry to hear|sadly|unfortunately|heartbreaking|that'?s (?:tough|rough|hard|awful|terrible)|condolences|so sad)\b/i, "sad"],
+  [/\b(?:ugh+|so frustrating|infuriating|grr+)\b/i, "angry"],
+  [/\b(?:hmm+|let me think|that'?s a (?:good|tough|tricky) (?:question|one))\b/i, "think"],
+];
+
+export function moodForSentence(sentence: string): Mood | null {
+  for (const [re, mood] of SENTENCE_MOODS) if (re.test(sentence)) return mood;
+  return null;
+}
+
 // Extract moods from <action>...</action> XML tags (primary) and *action* fallback.
 // Returns the moods plus the end offset of the last complete tag so callers can
 // advance a streaming cursor and not re-fire on partially-streamed tags.

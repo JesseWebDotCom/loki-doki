@@ -20,6 +20,7 @@ import { system } from '@/routes/system'
 import { logs } from '@/routes/logs'
 import { tools } from '@/routes/tools'
 import { adminMemory } from '@/routes/adminMemory'
+import { memory } from '@/routes/memory'
 import { adminLatencyTest } from '@/routes/adminLatencyTest'
 import { adminChatBenchmark } from '@/routes/adminChatBenchmark'
 import { adminRouterBenchmark } from '@/routes/adminRouterBenchmark'
@@ -344,6 +345,7 @@ app.route('/api/system', system)
 app.route('/api/logs', logs)
 app.route('/api/tools', tools)
 app.route('/api/admin/memory', adminMemory)
+app.route('/api/memory', memory)
 app.route('/api/admin/latency-test', adminLatencyTest)
 app.route('/api/admin/chat-benchmark', adminChatBenchmark)
 app.route('/api/admin/router-benchmark', adminRouterBenchmark)

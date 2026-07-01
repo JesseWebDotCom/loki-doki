@@ -47,12 +47,24 @@ const QUESTION_RE = /^(?:who|what|what'?s|whats|whatre|whens?|where'?s|where|whi
 // Tier 2 round trip just because QUESTION_RE matched ("how are you", "what's up").
 const SOCIAL_QUESTION_RE = /^(?:how (?:are|r|have) (?:you|u|ya|been)|how'?s it going|how'?s your|what'?s up|whats up|what are you (?:up to|doing)|are you (?:ok|okay|there|sure|free|busy))\b/i
 
+// Questions directed AT the companion itself ("who are you?", "how do you feel?",
+// "what is wrong with you") — these must never take the literal search-intent fast
+// path (which would web-search the companion's own identity/feelings). Excludes
+// knowledge-seeking verbs ("what do you know about X", "have you heard of X") so
+// genuine lookups still fast-path. Only guards the fast path — the embedding tiers
+// and Tier 2 can still choose search for ambiguous cases.
+const SELF_DIRECTED_RE = /^(?:so\s+|hey\s+|and\s+)?(?:who|what|how|why)\b[^,.!?]{0,50}\byou\b(?!\s+(?:know|heard|seen|watched|read|find|found|look|looked|search|tell|think|check|recommend|suggest))/i
+
 // Follow-up lookup commands whose SUBJECT lives in the prior turns, not the
 // command itself ("why don't you look it up", "google it", "search that",
 // "fact-check it"). These must NOT use the literal-passthrough fast path — that
 // would search the command text. They route to a history-aware Tier 2 so the
 // query is reconstructed from conversation context.
-const CONTEXTUAL_LOOKUP_RE = /\b(?:look\s+(?:it|that|this|him|her|them|those|these)\s+up|google\s+(?:it|that|this|him|her|them)|search\s+(?:it|that|this)|find\s+(?:it|that|this)\s+out|look\s+into\s+(?:it|that|this)|fact[-\s]?check\s+(?:it|that|this)|verify\s+(?:it|that|this)|can\s+you\s+(?:look|check|verify|confirm))\b/i
+// NOTE: the "can you …" alternative REQUIRES a contextual object (it/that/this).
+// A bare `can you (look|check|verify|confirm)` used to hijack "can you check the
+// weather?" / "can you check if the garage is closed?" into a search-only Tier 2
+// where the weather/HA tools were unreachable.
+const CONTEXTUAL_LOOKUP_RE = /\b(?:look\s+(?:it|that|this|him|her|them|those|these)\s+up|google\s+(?:it|that|this|him|her|them)|search\s+(?:it|that|this)|find\s+(?:it|that|this)\s+out|look\s+into\s+(?:it|that|this)|fact[-\s]?check\s+(?:it|that|this)|verify\s+(?:it|that|this)|can\s+you\s+(?:(?:go\s+)?look\s+(?:it|that|this)\s+up|(?:double[-\s]?)?check\s+(?:it|that|this)|verify\s+(?:it|that|this)|confirm\s+(?:it|that|this)))\b/i
 
 // Continuation / elaboration follow-ups ("tell me more", "go on", "what else")
 // whose SUBJECT lives in the PRIOR turns, not this message. A bare "tell me more"
@@ -85,37 +97,55 @@ const REACTION_RE = new RegExp(`^(?:${REACTION_UNIT}[\\s,!.?]*){1,2}$`, 'i')
 // so factual questions that score low on embeddings still reach the search tool.
 const TIER2_TOP_N = 5
 
+// Tier-1 requires this much separation between the top two scores. Anything closer
+// is ambiguous (known confusable clusters: tvshows/search/whereToWatch,
+// youtube/play_music) and escalates to Tier 2 with both as candidates.
+const TIER1_MARGIN = 0.05
+
 // Trivial greetings/acks that are unambiguously non-tool. Saves a Tier 2 LLM call.
 const GREETING_RE = /^(hi|hello|hey|thanks|thank you|ok|okay|sure|lol|haha|cool|nice|great|awesome|got it|sounds good|perfect|bye|goodbye|see ya|yes|no|yep|nope|yup)[\s!.?]*$/i
 const TIER2_HISTORY_LIMIT = 10
 
-const TIER2_SYSTEM = `You are a routing assistant. Call the right tool for the user's message — even when phrased naturally or implicitly, not as an explicit command.
+// Per-tool routing rules, keyed by TOOL ID. The Tier-2 system prompt is assembled
+// from the rules of the actual candidates only — the old static prompt always
+// advertised 18 tools even when just 1–6 schemas were callable, steering the model
+// toward naming non-candidates and wasting ~200–400 prefill tokens per route.
+const TIER2_RULES: Record<string, string> = {
+  search: 'search: questions about any specific title, person, show, movie, product, event, or general knowledge topic — including "have you seen X?", "what is X?", "who is X?", "tell me about X?", "do you know about X?" — prefer search over answering from memory.',
+  tvshows: 'tvshows: questions about a specific TV show (cast, network, seasons, status, ratings). Use when the user asks about a show by name or says "have you seen [show name]?".',
+  weather: 'weather: weather conditions, temperature, forecast, or what to wear.',
+  calculator: 'calculator: any arithmetic, math estimate, or percentage. "How much would..." counts.',
+  dictionary: 'dictionary: what a word means, its definition, pronunciation, or etymology.',
+  news: 'news: current events, headlines, or what is happening in the world right now.',
+  recipes: 'recipes: cooking questions, recipe requests, or "what can I make with X?".',
+  youtube: 'youtube: requests to FIND or SEARCH for a video, or "show me how to X" — browsing, not immediate playback. Do NOT use for "play X" (use play_music).',
+  play_music: 'play_music: requests to PLAY or PUT ON something now — a specific song, music video, movie/show trailer, theme song, an artist, a genre/mood, or a radio station. "play X", "put on X", "start an X station", "play the X trailer", "play the X music video". Prefer this over youtube whenever the user says play/put on.',
+  unit_conversion: 'unit_conversion: converting between units of measurement.',
+  jokes: 'jokes: requests for a joke, humor, or to cheer the user up.',
+  datetime: 'datetime: read-only date/time questions: current date, time, day of week, days until/since an event, or timezone queries. NOT for creating alarms or timers (use alarms_timers).',
+  time: 'alarms_timers: set, change, cancel, or list the user\'s alarms and timers, or start/stop a countdown. "set an alarm for 7am", "wake me at 6:30", "set a timer for 10 minutes", "start a 5 minute timer", "cancel my timer", "delete my alarm", "turn off my alarm". Use this (not datetime) whenever the user wants to create or manage an alarm or timer.',
+  image_gen: 'image_gen: any request to create, generate, draw, paint, sketch, illustrate, or show an image. "draw me a cat", "make an image of X", "create a picture of X", "show me what X looks like", "paint X".',
+  contentRating: 'contentRating: whether a movie, show, book, game, or app is appropriate for kids/a certain age, or what objectionable content (violence, sex, language, drugs/smoking) it has. "is X ok for my kid", "is X appropriate for a 7 year old", "does X have a lot of violence/swearing", "parent guide for X". Prefer this over search and tvshows for child-suitability or content-concern questions.',
+  sports: 'sports: live scores, results, or who is playing today in any league (MLB, World Cup, NFL, NBA, NHL, MLS). "what\'s the score", "who won", "is there a game on".',
+  localNews: 'localNews: hyperlocal news for the user\'s own town. "what\'s going on in town", "local news near me".',
+  localEvents: 'localEvents: local events, festivals, parades, or things to do near the user. "anything happening this weekend", "events near me".',
+  onthisday: 'onthisday: historical events or notable birthdays for a calendar date. "what happened on this day", "celebrity birthdays today".',
+  homeAssistant: 'homeAssistant: commands to control a smart home — lights, switches, fans, locks, thermostats, scenes, covers/garage doors. "turn off the living room lights", "dim the bedroom", "lock the front door", "set the thermostat to 70", "is the garage open". Pass the user\'s full command verbatim as the text argument.',
+}
 
-Tool selection rules:
-- search: questions about any specific title, person, show, movie, product, event, or general knowledge topic — including "have you seen X?", "what is X?", "who is X?", "tell me about X?", "do you know about X?" — prefer search over answering from memory.
-- tvshows: questions about a specific TV show (cast, network, seasons, status, ratings). Use when the user asks about a show by name or says "have you seen [show name]?".
-- weather: weather conditions, temperature, forecast, or what to wear.
-- calculator: any arithmetic, math estimate, or percentage. "How much would..." counts.
-- dictionary: what a word means, its definition, pronunciation, or etymology.
-- news: current events, headlines, or what is happening in the world right now.
-- recipes: cooking questions, recipe requests, or "what can I make with X?".
-- youtube: requests to FIND or SEARCH for a video, or "show me how to X" — browsing, not immediate playback. Do NOT use for "play X" (use play_music).
-- play_music: requests to PLAY or PUT ON something now — a specific song, music video, movie/show trailer, theme song, an artist, a genre/mood, or a radio station. "play X", "put on X", "start an X station", "play the X trailer", "play the X music video". Prefer this over youtube whenever the user says play/put on.
-- unit_conversion: converting between units of measurement.
-- jokes: requests for a joke, humor, or to cheer the user up.
-- datetime: read-only date/time questions: current date, time, day of week, days until/since an event, or timezone queries. NOT for creating alarms or timers (use alarms_timers).
-- alarms_timers: set, change, cancel, or list the user's alarms and timers, or start/stop a countdown. "set an alarm for 7am", "wake me at 6:30", "set a timer for 10 minutes", "start a 5 minute timer", "cancel my timer", "delete my alarm", "turn off my alarm". Use this (not datetime) whenever the user wants to create or manage an alarm or timer.
-- image_gen: any request to create, generate, draw, paint, sketch, illustrate, or show an image. "draw me a cat", "make an image of X", "create a picture of X", "show me what X looks like", "paint X".
-- contentRating: whether a movie, show, book, game, or app is appropriate for kids/a certain age, or what objectionable content (violence, sex, language, drugs/smoking) it has. "is X ok for my kid", "is X appropriate for a 7 year old", "does X have a lot of violence/swearing", "parent guide for X". Prefer this over search and tvshows for child-suitability or content-concern questions.
-- sports: live scores, results, or who is playing today in any league (MLB, World Cup, NFL, NBA, NHL, MLS). "what's the score", "who won", "is there a game on".
-- localNews: hyperlocal news for the user's own town. "what's going on in town", "local news near me".
-- localEvents: local events, festivals, parades, or things to do near the user. "anything happening this weekend", "events near me".
-- onthisday: historical events or notable birthdays for a calendar date. "what happened on this day", "celebrity birthdays today".
-- homeAssistant: commands to control a smart home — lights, switches, fans, locks, thermostats, scenes, covers/garage doors. "turn off the living room lights", "dim the bedroom", "lock the front door", "set the thermostat to 70", "is the garage open". Pass the user's full command verbatim as the text argument.
-
-Conversational messages (greetings, opinions, "thanks", chitchat with no factual need) → respond with empty content, no tool call.
-
-Extract all tool arguments from the full conversation context, including prior messages.`.trim()
+function tier2System(candidates: Tool[]): string {
+  const rules = candidates
+    .map((t) => TIER2_RULES[t.id])
+    .filter(Boolean)
+    .map((r) => `- ${r}`)
+    .join('\n')
+  return [
+    `You are a routing assistant. Call the right tool for the user's message — even when phrased naturally or implicitly, not as an explicit command.`,
+    rules ? `Tool selection rules:\n${rules}` : null,
+    `Conversational messages (greetings, opinions, "thanks", chitchat with no factual need) → respond with empty content, no tool call.`,
+    `Extract all tool arguments from the full conversation context, including prior messages.`,
+  ].filter(Boolean).join('\n\n')
+}
 
 interface RouteEntry {
   toolId: string
@@ -189,15 +219,41 @@ async function ensureRouter(): Promise<void> {
 //
 // Uses all-minilm for embeddings — intentionally separate from the nomic embedding
 // used for memory recall. nomic's compressed similarity space prevents clean thresholding.
+export interface RouteResult {
+  tool: Tool | null
+  args: unknown
+  /** Set when the best route was a tool this user is denied — the caller can
+   *  tell the user instead of silently answering from model memory. */
+  deniedToolId?: string
+  /** Which routing path produced this decision (fast-path label / tier1 / tier2 /
+   *  conversational) — consumed by the admin benchmarks for honest tier
+   *  attribution (they used to infer tier from wall-clock time). */
+  path?: string
+  /** Additional tool calls from a multi-intent Tier-2 turn ("lights off and play
+   *  jazz"), executed serially after the primary. Bounded at 2. */
+  extraCalls?: { tool: Tool; args: unknown }[]
+}
+
 export async function routePrompt(
   prompt: string,
   history: OllamaChatMessage[] = [],
   model?: string,
-): Promise<{ tool: Tool | null; args: unknown }> {
+  routeOpts?: {
+    /** The caller's chat num_ctx — matched by a same-model Tier-2 call so Ollama
+     *  never reloads the runner over a context-size mismatch. */
+    numCtx?: number
+    /** Tools this user may run (from getAllowedToolIds). Denied tools are excluded
+     *  from every fast path and candidate list; undefined = no filtering. */
+    allowedToolIds?: Set<string>
+  },
+): Promise<RouteResult> {
+  const chatNumCtx = routeOpts?.numCtx
+  const allowedToolIds = routeOpts?.allowedToolIds
+  const isAllowed = (t: Tool) => !allowedToolIds || allowedToolIds.has(t.id)
   // Repopulate the index if a hot-reload wiped it (no-op once warm).
   if (routeIndex.length === 0) {
     try { await ensureRouter() } catch { /* embed model not ready — degrade below */ }
-    if (routeIndex.length === 0) return { tool: null, args: {} }
+    if (routeIndex.length === 0) return { tool: null, args: {}, path: 'no-index' }
   }
 
   const excerpt = prompt.slice(0, 60).replace(/\n/g, ' ')
@@ -205,7 +261,7 @@ export async function routePrompt(
   // Fast path: trivial greetings/acks — skip Tier 2 LLM call entirely.
   if (GREETING_RE.test(prompt.trim())) {
     logger.info(`[ROUTER] path=greeting msg="${excerpt}"`)
-    return { tool: null, args: {} }
+    return { tool: null, args: {}, path: 'greeting' }
   }
 
   // Fast path: emotional reactions / backchannels ("wow", "no way", "really?") —
@@ -213,7 +269,7 @@ export async function routePrompt(
   // "?"-ending reaction escalate to a search.
   if (REACTION_RE.test(prompt.trim())) {
     logger.info(`[ROUTER] path=reaction msg="${excerpt}"`)
-    return { tool: null, args: {} }
+    return { tool: null, args: {}, path: 'reaction' }
   }
 
   // Fast path: a contextual lookup command ("look it up", "google it"). The thing
@@ -221,14 +277,14 @@ export async function routePrompt(
   // only) that rebuilds the query from context — never a literal passthrough.
   if (CONTEXTUAL_LOOKUP_RE.test(prompt)) {
     const searchTool = toolRegistry.find((t) => t.id === 'search')
-    if (searchTool) {
+    if (searchTool && isAllowed(searchTool)) {
       if (model) {
         logger.info(`[ROUTER] path=contextual-lookup→tier2 msg="${excerpt}"`)
-        return tier2Call(model, prompt, history, [searchTool])
+        return tier2Call(model, prompt, history, [searchTool], chatNumCtx)
       }
       // No router model available — degrade to literal passthrough (best effort).
       logger.info(`[ROUTER] path=contextual-lookup-passthrough msg="${excerpt}"`)
-      return { tool: searchTool, args: searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {} }
+      return { tool: searchTool, args: searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {}, path: 'contextual-lookup-passthrough' }
     }
   }
 
@@ -239,9 +295,9 @@ export async function routePrompt(
   // conversational reply.
   if (CONTINUATION_RE.test(prompt.trim()) && model && history.length > 0) {
     const searchTool = toolRegistry.find((t) => t.id === 'search')
-    if (searchTool) {
+    if (searchTool && isAllowed(searchTool)) {
       logger.info(`[ROUTER] path=continuation→tier2 msg="${excerpt}"`)
-      return tier2Call(model, prompt, history, [searchTool])
+      return tier2Call(model, prompt, history, [searchTool], chatNumCtx)
     }
   }
 
@@ -249,9 +305,9 @@ export async function routePrompt(
   // The tool itself classifies song vs. video vs. station, so passthrough is enough.
   if (PLAY_INTENT_RE.test(prompt) && !NOT_MEDIA_PLAY_RE.test(prompt)) {
     const playTool = toolRegistry.find((t) => t.id === 'play_music')
-    if (playTool) {
+    if (playTool && isAllowed(playTool)) {
       logger.info(`[ROUTER] path=play-intent msg="${excerpt}"`)
-      return { tool: playTool, args: playTool.passMessage ? { [playTool.passMessage]: prompt } : {} }
+      return { tool: playTool, args: playTool.passMessage ? { [playTool.passMessage]: prompt } : {}, path: 'play-intent' }
     }
   }
 
@@ -261,21 +317,24 @@ export async function routePrompt(
   const MAPS_DIRECTIONS_RE = /\b(?:how (?:do i|can i) (?:get|go|drive|walk) (?:to|from)|get (?:me )?directions? to|navigate to)\b/i
   if (MAPS_DIRECTIONS_RE.test(prompt)) {
     const mapsTool = toolRegistry.find((t) => t.id === 'maps')
-    if (mapsTool && model) {
+    if (mapsTool && model && isAllowed(mapsTool)) {
       logger.info(`[ROUTER] path=maps-directions msg="${excerpt}"`)
-      return tier2Call(model, prompt, history, [mapsTool])
+      return tier2Call(model, prompt, history, [mapsTool], chatNumCtx)
     }
   }
 
   // Fast path: regex beats embeddings for information-seeking patterns.
   // "what is X / who is X / tell me about X" are unambiguously search queries.
   // No score check needed — the regex itself is the gate. Skips the embed call too.
-  if (SEARCH_INTENT_RE.test(prompt)) {
+  // Social ("how are you") and self-directed ("who are you?", "how do you feel?")
+  // questions are excluded — those fall through to the embedding tiers instead of
+  // being literally web-searched.
+  if (SEARCH_INTENT_RE.test(prompt) && !SOCIAL_QUESTION_RE.test(prompt.trim()) && !SELF_DIRECTED_RE.test(prompt.trim())) {
     const searchTool = toolRegistry.find(t => t.id === 'search')
-    if (searchTool) {
+    if (searchTool && isAllowed(searchTool)) {
       const args = searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {}
       logger.info(`[ROUTER] path=search-intent msg="${excerpt}"`)
-      return { tool: searchTool, args }
+      return { tool: searchTool, args, path: 'search-intent' }
     }
   }
 
@@ -283,11 +342,13 @@ export async function routePrompt(
   try {
     promptEmbedding = await embedForRouter(prompt)
   } catch {
-    return { tool: null, args: {} }
+    return { tool: null, args: {}, path: 'embed-failed' }
   }
 
-  // Score every tool, track per-tool max for top-N selection
+  // Score every tool, track per-tool max for top-N selection. Denied tools are
+  // scored (to detect "the best route was denied") but excluded from candidates.
   const toolScores: { tool: Tool; score: number }[] = []
+  let deniedBest: { tool: Tool; score: number } | null = null
 
   for (const entry of routeIndex) {
     const tool = toolRegistry.find((t) => t.id === entry.toolId)
@@ -296,6 +357,10 @@ export async function routePrompt(
     for (const exampleEmbedding of entry.embeddings) {
       const score = cosineSimilarity(promptEmbedding, exampleEmbedding)
       if (score > toolBest) toolBest = score
+    }
+    if (!isAllowed(tool)) {
+      if (!deniedBest || toolBest > deniedBest.score) deniedBest = { tool, score: toolBest }
+      continue
     }
     toolScores.push({ tool, score: toolBest })
   }
@@ -308,25 +373,42 @@ export async function routePrompt(
 
   const top3log = toolScores.slice(0, 3).map((e) => `${e.tool.id}=${e.score.toFixed(3)}`).join(' ')
 
+  // The user's denied tool would have won confidently — surface that instead of
+  // silently answering from model memory (e.g. a weather question with weather off).
+  const deniedWouldWin = deniedBest && deniedBest.score >= SIMILARITY_THRESHOLD && deniedBest.score > bestScore
+  if (deniedWouldWin) {
+    logger.info(`[ROUTER] path=denied-tool tool=${deniedBest!.tool.id} score=${deniedBest!.score.toFixed(3)} msg="${excerpt}"`)
+    return { tool: null, args: {}, deniedToolId: deniedBest!.tool.id, path: 'denied-tool' }
+  }
+
   // ── Tier 1: confident match ─────────────────────────────────────────────────
   if (bestScore >= SIMILARITY_THRESHOLD && bestTool) {
+    // Margin gate: two tools scoring within a hair of each other (e.g. tvshows vs
+    // search at 0.66/0.65) is a coin flip, not confidence — let Tier 2 adjudicate
+    // with BOTH as candidates instead of blindly passing through the winner.
+    const second = toolScores[1]
+    if (model && second && second.score >= SIMILARITY_THRESHOLD && bestScore - second.score < TIER1_MARGIN) {
+      logger.info(`[ROUTER] path=tier2-margin(${bestTool.id},${second.tool.id}) score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
+      return tier2Call(model, prompt, history, [bestTool, second.tool], chatNumCtx)
+    }
+
     if (bestTool.passMessage !== undefined) {
       // passthrough tool — no LLM call needed for arg extraction
       logger.info(`[ROUTER] path=tier1-passthrough score=${bestScore.toFixed(3)} tool=${bestTool.id} top3=[${top3log}] msg="${excerpt}"`)
       const args = bestTool.passMessage === null
         ? {}
         : { [bestTool.passMessage]: prompt }
-      return { tool: bestTool, args }
+      return { tool: bestTool, args, path: 'tier1-passthrough' }
     }
 
     if (!model) {
       logger.info(`[ROUTER] path=tier1-no-model score=${bestScore.toFixed(3)} tool=${bestTool.id} top3=[${top3log}] msg="${excerpt}"`)
-      return { tool: bestTool, args: {} }
+      return { tool: bestTool, args: {}, path: 'tier1-no-model' }
     }
 
     // Confident non-passthrough tool — narrowed Tier 2 for arg extraction only (1 tool)
     logger.info(`[ROUTER] path=tier2-narrowed(${bestTool.id}) score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
-    return tier2Call(model, prompt, history, [bestTool])
+    return tier2Call(model, prompt, history, [bestTool], chatNumCtx)
   }
 
   // ── Tier 0: low confidence ──────────────────────────────────────────────────
@@ -340,7 +422,7 @@ export async function routePrompt(
     const isQuestion = QUESTION_RE.test(trimmed) && !SOCIAL_QUESTION_RE.test(trimmed)
     if (!(isQuestion && model)) {
       logger.info(`[ROUTER] path=conversational score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
-      return { tool: null, args: {} }
+      return { tool: null, args: {}, path: 'conversational' }
     }
     logger.info(`[ROUTER] path=tier2-question score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
   }
@@ -348,28 +430,33 @@ export async function routePrompt(
   // ── Tier 2: LLM decides — search always included so factual questions never fall through ──
   if (!model) {
     logger.info(`[ROUTER] path=tier2-no-model score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
-    return { tool: null, args: {} }
+    return { tool: null, args: {}, path: 'tier2-no-model' }
   }
 
   const topByScore = toolScores.slice(0, TIER2_TOP_N).map((e) => e.tool)
   const searchTool = toolRegistry.find((t) => t.id === 'search')
-  const candidates = searchTool && !topByScore.some((t) => t.id === 'search')
+  const candidates = searchTool && isAllowed(searchTool) && !topByScore.some((t) => t.id === 'search')
     ? [searchTool, ...topByScore]
     : topByScore
   logger.info(`[ROUTER] path=tier2(${candidates.map((t) => t.id).join(',')}) score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
-  return tier2Call(model, prompt, history, candidates)
+  return tier2Call(model, prompt, history, candidates, chatNumCtx)
 }
+
+// Routing must never stall a turn: it fails open to plain conversation, so a wedged
+// router model should cost seconds, not the global 120s chat timeout of pre-stream silence.
+const TIER2_TIMEOUT_MS = 10_000
 
 async function tier2Call(
   model: string,
   prompt: string,
   history: OllamaChatMessage[],
   candidates: Tool[],
-): Promise<{ tool: Tool | null; args: unknown }> {
+  chatNumCtx?: number,
+): Promise<RouteResult> {
   const t2Start = performance.now()
   try {
     const messages: OllamaChatMessage[] = [
-      { role: 'system', content: TIER2_SYSTEM },
+      { role: 'system', content: tier2System(candidates) },
       ...history.slice(-TIER2_HISTORY_LIMIT),
       { role: 'user', content: prompt },
     ]
@@ -377,37 +464,60 @@ async function tier2Call(
     // Use a dedicated router model if configured (DB setting or ROUTER_MODEL env var).
     // Falls back to the chat model if not set. When using a separate router model,
     // num_ctx doesn't need to match chat.ts (different model = separate KV cache).
+    // When SHARING the chat model, num_ctx must match the chat call exactly —
+    // Ollama re-initializes the runner on any context-size change, so a 4096-route
+    // followed by an 8192-chat forced two model reloads per message.
     const routerModel = (await getRouterModel()) ?? model
     const opts: Record<string, unknown> = { temperature: 0.1 }
-    if (routerModel === model) opts['num_ctx'] = 4096
+    if (routerModel === model) opts['num_ctx'] = chatNumCtx ?? 8192
 
     const response = await ollamaChat(
       routerModel,
       messages,
       candidates.map((t) => t.toolDefinition),
       opts,
+      undefined,
+      TIER2_TIMEOUT_MS,
     )
 
     const t2Ms = (performance.now() - t2Start).toFixed(0)
-    const toolCall = response.message.tool_calls?.[0]
-    if (!toolCall) {
+    const toolCalls = response.message.tool_calls ?? []
+    if (toolCalls.length === 0) {
       logger.info(`[ROUTER] tier2 result=no-tool-call ${t2Ms}ms`)
-      return { tool: null, args: {} }
+      return { tool: null, args: {}, path: 'tier2-no-call' }
     }
 
-    const matched = toolRegistry.find(
-      (t) => t.toolDefinition.function.name === toolCall.function.name,
-    )
-    if (!matched) {
-      logger.info(`[ROUTER] tier2 result=unknown-tool(${toolCall.function.name}) ${t2Ms}ms`)
-      return { tool: null, args: {} }
+    // Resolve against the CANDIDATE set only. The old full-registry match silently
+    // accepted any hallucinated-but-real tool name outside the shortlist — an
+    // undocumented, unmeasured escape hatch. Off-candidate picks are now logged
+    // distinctly and dropped (fail open to conversation).
+    // Multi-intent turns ("lights off and play jazz") used to half-execute
+    // silently — only tool_calls[0] was read. All matched calls are returned now
+    // (bounded at 3 total), executed serially by the caller.
+    const matchedCalls: { tool: Tool; args: unknown }[] = []
+    for (const tc of toolCalls.slice(0, 3)) {
+      const m = candidates.find((t) => t.toolDefinition.function.name === tc.function.name)
+      if (m) {
+        // Skip duplicate calls to the same tool — some models repeat themselves.
+        if (!matchedCalls.some((c) => c.tool.id === m.id)) {
+          matchedCalls.push({ tool: m, args: tc.function.arguments })
+        }
+      } else {
+        const inRegistry = toolRegistry.some((t) => t.toolDefinition.function.name === tc.function.name)
+        logger.info(`[ROUTER] tier2 result=${inRegistry ? 'off-candidate-tool' : 'unknown-tool'}(${tc.function.name}) ${t2Ms}ms`)
+      }
+    }
+    if (matchedCalls.length === 0) {
+      return { tool: null, args: {}, path: 'tier2-unmatched' }
     }
 
-    logger.info(`[ROUTER] tier2 result=tool(${matched.id}) ${t2Ms}ms model=${routerModel}`)
-    return { tool: matched, args: toolCall.function.arguments }
+    const primary = matchedCalls[0]!
+    const extraCalls = matchedCalls.slice(1)
+    logger.info(`[ROUTER] tier2 result=tool(${matchedCalls.map((c) => c.tool.id).join('+')}) ${t2Ms}ms model=${routerModel}`)
+    return { tool: primary.tool, args: primary.args, path: 'tier2', ...(extraCalls.length > 0 && { extraCalls }) }
   } catch {
     const t2Ms = (performance.now() - t2Start).toFixed(0)
     logger.info(`[ROUTER] tier2 result=error ${t2Ms}ms — falling back`)
-    return { tool: null, args: {} }
+    return { tool: null, args: {}, path: 'tier2-error' }
   }
 }

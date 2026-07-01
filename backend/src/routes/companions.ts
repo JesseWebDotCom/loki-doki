@@ -5,25 +5,15 @@ import { db } from '@/db'
 import { characters, characterUserGrants, userPreferences, userCharacters } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { ensureDefaultCompanions } from '@/lib/defaultCompanions'
-import { ollamaChatStream } from '@/llm/ollama'
-import type { OllamaChatMessage } from '@/llm/ollama'
-import { getModel, getFastModel, getVisionModel } from '@/lib/models'
-import { buildCompanionPrompt } from '@/lib/companionPrompt'
-import { runToolTurn } from '@/lib/toolTurn'
-import { isOffline } from '@/lib/connectivity'
+import { getModel, getVisionModel } from '@/lib/models'
 import { companionsAllowed } from '@/lib/consent'
-import { embed } from '@/llm/embed'
-import { recallMemories, formatMemoriesForPrompt } from '@/memory/recall'
-import { getCachedMemoryBlock, setCachedMemoryBlock, invalidateMemoryBlock } from '@/memory/blockCache'
+import { invalidateMemoryBlocksForUser } from '@/memory/blockCache'
+import { invalidateEntityCache } from '@/memory/recall'
 import { runJudge, relinkEntityIds } from '@/memory/judge'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
-import { getCachedBriefing } from '@/lib/briefing/cache'
-import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
-import {
-  getUserCeiling, clampDials,
-  parseCharacterContent, characterGate, buildContentPrompt,
-} from '@/lib/contentPolicy'
-import { buildInteractionFragment, ProfanityStreamBuffer, maskProfanity } from '@/lib/protections'
+import { getUserCeiling, parseCharacterContent, characterGate } from '@/lib/contentPolicy'
+import { runCompanionTurn, resolveTurnContext } from '@/lib/companionTurn'
+import * as genQueue from '@/lib/genQueue'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -31,6 +21,49 @@ const companions_ = new Hono<AppEnv>()
 
 const ACTIVE_PREF_KEY = 'companion.active_character_id'
 const FAVORITES_PREF_KEY = 'companion.favorites'
+
+// ── Debounced companion judge ─────────────────────────────────────────────────
+// The overlay used to re-judge an overlapping 10-message window after EVERY turn —
+// the same statements were re-extracted turn after turn (each costing an 8B call
+// plus dedup rounds) while contending with the next interactive turn's TTFT on a
+// single GPU. Turns now accumulate per user+character and the judge fires once the
+// user has gone quiet for JUDGE_IDLE_MS (or the buffer fills).
+const JUDGE_IDLE_MS = 2 * 60_000
+const JUDGE_MAX_TURNS = 20
+const pendingJudge = new Map<string, { turns: { role: string; content: string }[]; timer: ReturnType<typeof setTimeout> }>()
+
+function scheduleCompanionJudge(
+  memKey: string,
+  userId: string,
+  newTurns: { role: string; content: string }[],
+  resolveModel: () => Promise<string>,
+): void {
+  const existing = pendingJudge.get(memKey)
+  if (existing) clearTimeout(existing.timer)
+  const turns = [...(existing?.turns ?? []), ...newTurns].slice(-JUDGE_MAX_TURNS)
+
+  const fire = async () => {
+    pendingJudge.delete(memKey)
+    try {
+      const model = await resolveModel()
+      await runJudge('companion', userId, null, turns, model)
+      await relinkEntityIds(userId, null)
+      // Newly-distilled facts must surface next turn — on EVERY surface, since
+      // they land in the shared brain.
+      invalidateEntityCache(userId)
+      invalidateMemoryBlocksForUser(userId)
+    } catch { /* background best-effort */ }
+  }
+
+  const timer = setTimeout(() => { void fire() }, JUDGE_IDLE_MS)
+  pendingJudge.set(memKey, { turns, timer })
+  // A full buffer fires immediately — don't let a long rapid session outrun the window.
+  if (turns.length >= JUDGE_MAX_TURNS) {
+    clearTimeout(timer)
+    pendingJudge.delete(memKey)
+    void fire()
+  }
+}
 
 type CompanionRow = typeof characters.$inferSelect
 
@@ -46,6 +79,7 @@ export function toCompanionPayload(row: CompanionRow) {
     slug: row.slug,
     personalityPrompt: row.personalityPrompt,
     backstory: row.backstory,
+    personaExamples: (() => { try { return row.personaExamples ? JSON.parse(row.personaExamples) as string[] : [] } catch { return [] } })(),
     phoneticName: row.phoneticName,
     replyStyle: row.replyStyle,
     voiceId: row.voiceId,
@@ -171,6 +205,7 @@ companions_.post('/companion', requireAuth, async (c) => {
     message: string
     history?: Array<{ role: 'user' | 'assistant'; content: string }>
     uiContext?: string | null
+    clientTz?: string | null
     images?: string[] // base64-encoded images (no data: prefix) for vision queries
   }
 
@@ -186,203 +221,122 @@ companions_.post('/companion', requireAuth, async (c) => {
     if (grant?.state === 'off') return c.json({ error: 'Not found' }, 404)
   }
 
-  // ── Latency instrumentation ───────────────────────────────────────────────
-  // This is the voice/speech surface, so every ms here lands between "prompt sent"
-  // and "first word spoken". Mirrors chat.ts's [CHAT-TIMING].
-  const _t0 = performance.now()
-  const _lap = (label: string) => {
-    logger.info(`[COMPANION-TIMING] ${label} +${(performance.now() - _t0).toFixed(0)}ms`)
-  }
-
-  const persona = buildCompanionPrompt({ personalityPrompt: row.personalityPrompt, replyStyle: row.replyStyle, style: row.style, avatarConfig: row.avatarConfig })
   const hasImages = Array.isArray(body.images) && body.images.length > 0
-  // The fast model (granite ~3B) was chosen for latency, BUT it degenerates on
-  // emotional/complex prompts — it returns 1–3 word stubs ("I'm", "What's", "Oh no,
-  // that's") and stops, which is what looked like a "voice cutoff". The main chat
-  // model (8B) handles those fine (the chat surface, which uses it, works). Coherent
-  // replies beat fast garbage; keep_alive:-1 keeps it warm so only the first reply
-  // after a cold boot pays the load. Vision still needs the VLM.
-  const model = hasImages ? await getVisionModel() : await getModel()
   const charId = body.characterId
 
-  // Memory recall gates time-to-first-token (the block must be in the system
-  // prompt before generation starts). The companion is ephemeral so it has no
-  // conversation id — cache the block per user+character. Cache hits skip the
-  // embed + vector search entirely, so speech starts sooner on follow-up turns.
-  // The cache is invalidated after this turn's background extract runs (below),
-  // so newly-learned facts still surface promptly.
-  const memKey = `companion:${user.id}:${charId}`
-  const cachedMem = getCachedMemoryBlock(memKey)
-
-  // Route through the same tool pipeline as the main chat so voice/companion
-  // requests can use news, web search, weather, etc. — and, IN PARALLEL, recall
-  // long-term memory so the buddy knows the user. Running both at once means
-  // memory adds no wall-clock beyond the tool routing that was already there.
-  const history = (body.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content }))
-  const offlineMode = await isOffline(user.id)
-  const [{ userContent, directReply, toolId, directive }, computedMemory, prefsRows, existingRelation, userCeiling] = await Promise.all([
-    runToolTurn({ message: body.message, history, userId: user.id, userRole: user.role, model, offline: offlineMode }),
-    cachedMem
-      ? Promise.resolve(null as string | null)
-      : embed(body.message)
-          .then(async (embedding) => {
-            const recalled = await recallMemories(body.message, user.id, charId, embedding)
-            return formatMemoriesForPrompt(recalled, user.id, charId, embedding)
-          })
-          .catch(() => null as string | null),
-    db.select().from(userPreferences).where(eq(userPreferences.userId, user.id)),
+  // One brain: the overlay is now a thin caller of the SAME runCompanionTurn as the
+  // chat route and the Pods (routing, tools/directReply, briefing, memory, skills,
+  // locale, content dials, KV-safe prompt ordering, profanity masking). Only the
+  // surface concerns live here: consent/grants, vision-model swap, the ephemeral
+  // per-user+character memory key, and the post-turn judge (nothing is persisted,
+  // so the idle sweep never sees these turns).
+  const [ctx, existingRelation] = await Promise.all([
+    resolveTurnContext(user.id, charId),
     db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
-      .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, body.characterId)))
+      .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, charId)))
       .limit(1).then(r => r[0] ?? null),
-    getUserCeiling(user.id),
   ])
-  const memoryBlock = cachedMem ? cachedMem.memoryBlock : computedMemory
-  if (!cachedMem) setCachedMemoryBlock(memKey, memoryBlock)
-  _lap(`prep-done(mem=${cachedMem ? 'cached' : 'computed'})`)
+  // The main chat model (not the 3B fast model — it degenerates into 1–3 word stubs
+  // on emotional prompts, which looked like a "voice cutoff"). Vision needs the VLM.
+  const model = hasImages ? await getVisionModel() : ctx.model
 
   const now = new Date()
   db.insert(userCharacters)
-    .values({ id: crypto.randomUUID(), userId: user.id, characterId: body.characterId, createdAt: now })
+    .values({ id: crypto.randomUUID(), userId: user.id, characterId: charId, createdAt: now })
     .onConflictDoNothing().catch(() => {})
 
   const userDisplayName = user.nickname?.trim() || user.firstName?.trim() || null
   if (!existingRelation) {
-    writeFirstMetMemory(user.id, body.characterId, row.name, userDisplayName ?? 'the user', now).catch(() => {})
+    writeFirstMetMemory(user.id, charId, row.name, userDisplayName ?? 'the user', now).catch(() => {})
   }
 
-  const prefs = Object.fromEntries(prefsRows.map(r => [r.key, JSON.parse(r.value)]))
-  // ── Content policy ─────────────────────────────────────────────────────────
-  // A character runs at its own authored config, CLAMPED to the user's ceiling
-  // (their assigned profile) — it can never exceed what the account permits.
-  const activeDials = clampDials(parseCharacterContent(row.contentDials).dials, userCeiling)
-  const charContent = parseCharacterContent(row.contentDials)
-  const contentPrompt = buildContentPrompt(activeDials)
-  const candorFragment = buildInteractionFragment({ language: 'conversational', depth: 'balanced', candor: charContent.candor })
-  const maskProfanityActive = activeDials.profanity === 'off'
+  // Ephemeral surface — no conversation id; the memory-block cache and tool
+  // `_conversationId` key by user+character instead.
+  const memKey = `companion:${user.id}:${charId}`
+  const history = (body.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content }))
+  const cookieHeader = c.req.header('cookie') ?? ''
 
-  // Snappy path: a tool that returned a finished, speakable reply (alarm/timer
-  // confirmations, etc.) is emitted verbatim, with no LLM rephrasing, so it can't get
-  // truncated or reworded inconsistently. Mirrors the chat route's directReply path.
-  if (directReply) {
-    c.header('X-Accel-Buffering', 'no')
-    return streamSSE(c, async (stream) => {
-      // Emit the spoken ack FIRST so TTS has a head start before the video/audio
-      // launches. The directive fires immediately after — the tiny SSE round-trip
-      // gap (~frame) is enough for TTS to begin speaking before the player starts.
-      const text = maskProfanityActive ? maskProfanity(directReply) : directReply
-      await stream.writeSSE({ event: 'token', data: text })
-      if (directive) await stream.writeSSE({ event: 'directive', data: JSON.stringify(directive) })
-      await stream.writeSSE({ event: 'done', data: '{}' })
-    })
-  }
-  const storedLoc = prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
-  const locStr = storedLoc?.displayName ?? null
+  const run = async (jobCtx: genQueue.JobRunContext): Promise<void> => {
+    const result = await runCompanionTurn(
+      {
+        userId: user.id,
+        userRole: user.role,
+        userDisplayName,
+        model,
+        // Voice replies stay capped short — everything else follows the user's chat
+        // options (same num_ctx as chat = no Ollama runner thrash between surfaces).
+        options: { ...ctx.options, num_predict: 400 },
+        message: body.message,
+        characterId: charId,
+        characterSystemPrompt: ctx.characterSystemPrompt,
+        uiContext: body.uiContext ?? null,
+        clientLat: null,
+        clientLng: null,
+        clientTz: body.clientTz ?? null,
+        convId: memKey,
+        history,
+        prefs: ctx.prefs,
+        firstMetAt: existingRelation?.createdAt ?? null,
+        cookieHeader,
+        locale: ctx.locale,
+        interactionStyle: ctx.interactionStyle,
+        activeDials: ctx.activeDials,
+        maskProfanityActive: ctx.maskProfanityActive,
+        surface: 'overlay',
+        harnessLine: `You are the user's companion, chatting casually in a little floating bar. Keep replies short and conversational.`,
+        includeDocs: false, // ephemeral surface has no attached documents
+        images: hasImages ? body.images : undefined,
+      },
+      {
+        onToken: (t) => jobCtx.emit('token', t),
+        onEvent: (type, data) => jobCtx.emit(type, data),
+        signal: jobCtx.signal,
+      },
+    )
 
-  // Ambient world/local context: a SYNCHRONOUS warm-cache read (no await/fetch) so it
-  // never touches the [COMPANION-TIMING] budget. The block only changes every ~cadence,
-  // keeping the system-prompt prefix stable for Ollama KV-cache reuse. Closing the date
-  // gap too — the companion (unlike main chat) previously never knew today's date.
-  const date = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-  // Time, not just date: "what time is it" otherwise had no answer in context and the
-  // companion would deflect ("I'm not a clock"). Server-local clock — on a home server
-  // that's the family's timezone. Minute precision is fine for spoken answers.
-  const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  const briefingKey = locStr ?? DEFAULT_BRIEFING_KEY
-  const briefingBlock = offlineMode ? null : (getCachedBriefing(briefingKey)?.block || null)
-  if (!offlineMode) {
-    ensureBriefingWarm(briefingKey, locStr ? { displayName: locStr, lat: storedLoc?.lat, lng: storedLoc?.lng } : null, user.id)
-  }
+    // Learn from this turn — debounced so the judge runs once when the user goes
+    // quiet (not after every single turn), over only the NEW turn pair (no
+    // overlapping-window re-extraction). The judge applies the full discard rules
+    // + entity/tier model and writes user facts to the SHARED brain
+    // (characterId=null) so every companion shares knowledge of the person.
+    // directReply turns carry no new user facts worth judging (canned confirmations).
+    if (result.completed && !result.viaDirectReply && result.text.trim()) {
+      scheduleCompanionJudge(
+        memKey,
+        user.id,
+        [{ role: 'user', content: body.message }, { role: 'assistant', content: result.text }],
+        () => hasImages ? getModel() : Promise.resolve(model),
+      )
+    }
 
-  // The first-met date lives in a durable "relationship" memory (writeFirstMetMemory)
-  // and surfaces via recall when relevant — it is deliberately NOT injected here, so
-  // the companion stops parroting "since we just met today" into every greeting.
-  const contextLine = [
-    `Today is ${date}, and the current time is ${time}.`,
-    userDisplayName ? `You are speaking with ${userDisplayName}.` : null,
-    locStr ? `They are located in ${locStr}.` : null,
-  ].filter(Boolean).join(' ')
-
-  const sys = [
-    contentPrompt,
-    `You are the user's companion, chatting casually in a little floating bar. Keep replies short and conversational.`,
-    persona,
-    candorFragment || null,
-    body.uiContext ?? null,
-    memoryBlock,
-    briefingBlock,
-    // Volatile date/time/location goes LAST: the minute-by-minute time string used
-    // to sit near the front of the prompt and bust Ollama's KV-cache every minute,
-    // forcing a full re-prefill of the large stable prefix above. Keeping it at the
-    // tail lets the heavy persona/policy/memory prefix stay cached across turns.
-    contextLine || null,
-  ].filter(Boolean).join('\n\n')
-
-  const userMessage: OllamaChatMessage = {
-    role: 'user',
-    content: userContent,
-    ...(hasImages && { images: body.images }),
+    if (result.error) {
+      logger.error(`[companion] stream error user=${user.id}: ${result.error}`)
+      jobCtx.emit('error', 'The reply was interrupted.')
+    } else {
+      jobCtx.emit('done', '{}')
+    }
   }
 
-  const messages: OllamaChatMessage[] = [
-    { role: 'system', content: sys },
-    ...history,
-    userMessage,
-  ]
+  // Through the shared generation queue: voice turns get the same concurrency
+  // limits, explicit cancellation (POST /api/chat/stream/:genId/cancel), and
+  // disconnect-tolerant replay as chat turns. Previously this route bypassed the
+  // queue entirely — unbounded concurrent voice generations, no cancel.
+  let job: genQueue.Job
+  try {
+    job = genQueue.enqueue({ type: 'chat', userId: user.id, meta: { companionKey: memKey }, run })
+  } catch (err) {
+    if (err instanceof genQueue.QueueLimitError) {
+      return c.json({ error: 'Too many requests in progress. Please wait a moment.' }, 429)
+    }
+    throw err
+  }
 
   c.header('X-Accel-Buffering', 'no')
-  _lap(`stream-start msgs=${messages.length}`)
-  logger.info(`[COMPANION-ROUTE] tool=${toolId ?? 'none'} offline=${offlineMode} msg="${body.message.slice(0, 60)}"`)
   return streamSSE(c, async (stream) => {
-    // Tell the client which tool (if any) handled this turn, so "is it looking things
-    // up or making them up?" is visible without digging in the backend log.
-    await stream.writeSSE({ event: 'routing', data: JSON.stringify({ tool: toolId ?? null, offline: offlineMode }) })
-    // A tool that wants the client to act (e.g. start playback) without a verbatim
-    // reply — emit its directive before the LLM reply streams.
-    if (directive) await stream.writeSSE({ event: 'directive', data: JSON.stringify(directive) })
-    let reply = ''
-    let firstToken = true
-    // Mask profanity in the emitted stream when the active profanity dial is off.
-    // `reply` stays raw — memory extraction works on the actual words, not stars.
-    const profanityBuf = maskProfanityActive ? new ProfanityStreamBuffer() : null
-    try {
-      for await (const chunk of ollamaChatStream(model, messages, { temperature: 0.7, num_ctx: 4096, num_predict: 400 })) {
-        if (chunk.message.content) {
-          if (firstToken) { _lap('first-token'); firstToken = false }
-          reply += chunk.message.content
-          const emitted = profanityBuf ? profanityBuf.flush(chunk.message.content) : chunk.message.content
-          if (emitted) await stream.writeSSE({ event: 'token', data: emitted })
-        }
-        if (chunk.done) {
-          if (profanityBuf) {
-            const tail = profanityBuf.drain()
-            if (tail) await stream.writeSSE({ event: 'token', data: tail })
-          }
-          _lap('llm-done'); await stream.writeSSE({ event: 'done', data: '{}' }); break
-        }
-      }
-    } catch (err) {
-      await stream.writeSSE({ event: 'error', data: String(err) })
-    }
-    // Learn from this turn — fire-and-forget AFTER the stream so it never blocks
-    // the reply. The companion persists no conversation, so the idle judge sweep
-    // never sees these turns; we run the SAME judge here directly on the recent
-    // window. The judge (not the old weak 6-message extractor) applies the full
-    // discard rules + entity/tier model, and writes user facts to the SHARED
-    // brain (characterId=null) so every companion shares knowledge of the person.
-    // Use raw body.message (not userContent, which carries appended tool JSON).
-    if (reply.trim()) {
-      const turns = [...history, { role: 'user', content: body.message }, { role: 'assistant', content: reply }]
-      void (async () => {
-        try {
-          const judgeModel = hasImages ? await getModel() : model
-          await runJudge('companion', user.id, null, turns.slice(-10), judgeModel)
-          await relinkEntityIds(user.id, null)
-          // Any newly-distilled facts must surface next turn — drop the cached
-          // block so it is recomputed once, then re-cached.
-          invalidateMemoryBlock(memKey)
-        } catch { /* background best-effort */ }
-      })()
-    }
+    // Lead with the gen id so the client can cancel server-side generation
+    // (aborting the fetch alone no longer stops the GPU — the job is decoupled).
+    await stream.writeSSE({ event: 'gen', data: JSON.stringify({ genId: job.id }) })
+    await genQueue.subscribeAndTail(stream, job, 0)
   })
 })
 

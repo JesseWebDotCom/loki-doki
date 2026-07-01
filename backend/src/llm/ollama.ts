@@ -306,14 +306,23 @@ export function ollamaChatStream(
   })
 
   return (async function* () {
-    while (true) {
-      while (queue.length === 0) {
-        await new Promise<void>((r) => { notify = r })
+    try {
+      while (true) {
+        while (queue.length === 0) {
+          await new Promise<void>((r) => { notify = r })
+        }
+        const item = queue.shift()!
+        if (item === null) return
+        if (item instanceof Error) throw item
+        yield item
       }
-      const item = queue.shift()!
-      if (item === null) return
-      if (item instanceof Error) throw item
-      yield item
+    } finally {
+      // Runs when the consumer breaks/returns early (cancel) as well as on normal
+      // completion. Destroying the socket drops the HTTP connection, which makes
+      // Ollama abort the in-flight generation — without this, "Stop" only stopped
+      // EMISSION while the GPU kept generating the full discarded reply.
+      clearTimeout(firstByteTimer)
+      sock.destroy()
     }
   })()
 }
@@ -368,14 +377,20 @@ function nodeHttpChatStream(
   req.end()
 
   return (async function* () {
-    while (true) {
-      while (queue.length === 0) {
-        await new Promise<void>((r) => { notify = r })
+    try {
+      while (true) {
+        while (queue.length === 0) {
+          await new Promise<void>((r) => { notify = r })
+        }
+        const item = queue.shift()!
+        if (item === null) return
+        if (item instanceof Error) throw item
+        yield item
       }
-      const item = queue.shift()!
-      if (item === null) return
-      if (item instanceof Error) throw item
-      yield item
+    } finally {
+      // Early consumer exit (cancel) aborts the upstream request so Ollama stops
+      // generating instead of finishing a discarded reply.
+      req.destroy()
     }
   })()
 }

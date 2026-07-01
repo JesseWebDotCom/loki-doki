@@ -22,7 +22,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 
 type MemoryCategory =
   | 'person' | 'place' | 'thing' | 'preference' | 'identity'
-  | 'event' | 'project' | 'goal' | 'relationship' | 'fact'
+  | 'event' | 'project' | 'goal' | 'relationship' | 'fact' | 'state'
 
 type MemoryTier = 'durable' | 'episodic'
 type MemoryAction = 'ADD' | 'UPDATE' | 'DELETE' | 'NO_CHANGE'
@@ -40,6 +40,7 @@ interface ExtractedFact {
   tier: MemoryTier
   importance: number    // 1–10
   entityName: string | null   // name of entity this fact is about, if any
+  sourceQuote?: string | null // verbatim user phrase the fact came from (provenance)
 }
 
 interface DedupeDecision {
@@ -54,6 +55,9 @@ export interface JudgeResult {
   factsUpdated: number
   factsSuperseded: number
   factsNoChange: number
+  /** True when Phase-1 extraction failed — the span was NOT processed and the
+   *  caller must not advance its cursor past these messages. */
+  failed: boolean
 }
 
 // ─── Phase 1 prompt: extract from conversation ────────────────────────────────
@@ -62,9 +66,13 @@ const EXTRACT_PROMPT = `You are a long-term memory manager for a personal AI. Re
 1. Named entities personally relevant to the user (people, places, things they own/care about).
 2. Durable facts worth remembering long-term.
 
+SOURCE RULE — extract ONLY facts the User asserted or explicitly confirmed. Assistant statements are context, never a source: if the assistant guessed something about the user ("since you're a teacher…") and the user didn't confirm it, do NOT store it.
+
+TIME RULE — the conversation date is given at the top. Resolve relative time into absolute terms in the fact text: "I'm getting married next month" on 2026-07-01 → "user is getting married in August 2026". Never store a bare "next week"/"yesterday" — those rot.
+
 CRITICAL — DISCARD these, do NOT extract:
 - Questions the user asked or information they looked up (one-off curiosity)
-- Temporary states, moods, feelings ("I'm tired", "I'm excited today")
+- One-moment moods and feelings ("I'm tired", "I'm excited today", "I'm hungry")
 - Tasks, to-dos, or things to do later
 - Facts about the world that don't reveal anything about the user
 - Anything the user asked about as a passing question with no personal relevance
@@ -76,11 +84,12 @@ PERSIST these:
 - People, places, or things personally important to them
 - Long-running projects, goals, or aspirations
 - Corrections or updates to previously stated facts
+- Ongoing multi-day situations ("stressed about a work deadline", "recovering from knee surgery", "training for a marathon") → category "state" — these power caring follow-ups ("feeling better?") and auto-expire after about a week, so persist the situation, not the moment
 
-Category options: person, place, thing, preference, identity, event, project, goal, relationship, fact
+Category options: person, place, thing, preference, identity, event, project, goal, relationship, fact, state
 Tier:
 - "durable" = identity, relationship, person, preference — these facts should live forever
-- "episodic" = event, project, goal, thing, place, fact — subject to decay over time
+- "episodic" = event, project, goal, thing, place, fact, state — subject to decay over time
 Importance 1–10: identity/relationship=9–10, strong preference=7–8, project/goal=5–6, minor fact=3–4
 
 Examples of what to DISCARD vs PERSIST:
@@ -94,14 +103,16 @@ Examples of what to DISCARD vs PERSIST:
 - "I'm so stressed today" → DISCARD (temporary mood)
 - "I've been a vegetarian for 10 years" → PERSIST fact:"user is vegetarian" (identity)
 
+Each fact carries a "sourceQuote": the short verbatim phrase FROM THE USER that the fact came from (provenance — lets a human audit why the memory exists).
+
 Return ONLY a JSON object in this exact shape (empty arrays if nothing to extract):
 {
   "entities": [
     { "name": "Artie", "kind": "person", "aliases": ["artie", "brother", "art"], "importance": 8 }
   ],
   "facts": [
-    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null },
-    { "text": "Artie loves horror movies", "category": "preference", "tier": "durable", "importance": 7, "entityName": "Artie" }
+    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null, "sourceQuote": "I forgot to charge my car" },
+    { "text": "Artie loves horror movies", "category": "preference", "tier": "durable", "importance": 7, "entityName": "Artie", "sourceQuote": "My brother Artie loves horror movies" }
   ]
 }`
 
@@ -119,8 +130,10 @@ Respond with EXACTLY one JSON object — no other text:
 
 - ADD: genuinely new information not captured in any existing memory
 - UPDATE: new memory refines or extends an existing one — provide merged text
-- DELETE: new memory directly contradicts/obsoletes an existing one
-- NO_CHANGE: already captured well enough`
+- DELETE: new memory REPLACES or invalidates an existing one (the fact changed — "I moved", "I sold the car", "I don't like it anymore"). The old memory is removed AND the new one is stored.
+- NO_CHANGE: already captured well enough
+
+Prefer UPDATE when the two can be merged into one accurate statement; use DELETE when the old statement is now simply false.`
 
 // ─── Scope helpers ────────────────────────────────────────────────────────────
 
@@ -144,6 +157,12 @@ function categoryToTier(category: MemoryCategory): MemoryTier {
   return durable.includes(category) ? 'durable' : 'episodic'
 }
 
+// Generic relationship/possession words that appear in MANY entities' alias lists
+// ("brother", "mom", "boss"). A match through one of these alone must never merge
+// two different people — "my brother Dave" used to merge into Artie's entity via
+// the shared "brother" alias, attributing Dave's facts to Artie.
+const GENERIC_ALIAS_RE = /^(?:brother|sister|mom|mother|dad|father|parents?|wife|husband|partner|spouse|boyfriend|girlfriend|fianc[eé]e?|boss|manager|friend|best friend|buddy|son|daughter|kids?|child|children|grandma|grandpa|grandmother|grandfather|aunt|uncle|cousin|niece|nephew|neighbou?r|coworker|co-worker|colleague|roommate|doctor|dentist|teacher|therapist|dog|cat|pet|work|job|school|office|home|house|car|truck)$/i
+
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 export async function runJudge(
@@ -159,12 +178,15 @@ export async function runJudge(
     factsUpdated: 0,
     factsSuperseded: 0,
     factsNoChange: 0,
+    failed: false,
   }
 
   if (messages.length === 0) return result
 
-  // Build conversation text for the judge (exclude system messages)
-  const conversationText = messages
+  // Build conversation text for the judge (exclude system messages). The date
+  // header powers the TIME RULE — relative time resolves to absolute in fact text.
+  const convDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  const conversationText = `(Conversation date: ${convDate})\n` + messages
     .filter((m) => m.role !== 'system')
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
     .join('\n')
@@ -181,6 +203,10 @@ export async function runJudge(
     if (!Array.isArray(extracted?.entities)) extracted = { entities: [], facts: [] }
     if (!Array.isArray(extracted?.facts)) extracted.facts = []
   } catch {
+    // Extraction failed (twice, incl. structuredCall's retry). Flag it so the sweep
+    // does NOT advance memoryProcessedThrough — otherwise these messages would be
+    // permanently skipped and their facts silently lost.
+    result.failed = true
     return result
   }
 
@@ -206,8 +232,14 @@ export async function runJudge(
 
   for (const e of extracted.entities) {
     const canonicalKey = e.name.toLowerCase()
+    // Merge on a direct name match, or on a NON-generic alias match. A generic
+    // relationship word ("brother") shared between two differently-named people
+    // creates a NEW entity instead of merging (see GENERIC_ALIAS_RE).
     const existingId = entityIdByName.get(canonicalKey)
-      ?? e.aliases.map((a) => entityIdByName.get(a.toLowerCase())).find(Boolean)
+      ?? e.aliases
+          .filter((a) => !GENERIC_ALIAS_RE.test(a.trim()))
+          .map((a) => entityIdByName.get(a.toLowerCase()))
+          .find(Boolean)
 
     const now = new Date()
     const allAliases = [...new Set([e.name.toLowerCase(), ...e.aliases.map((a) => a.toLowerCase())])]
@@ -270,17 +302,22 @@ export async function runJudge(
 
     const factEmbedding = await embed(fact.text)
 
-    // Find semantically similar existing memories (wide net — LLM makes the final call)
+    // Find semantically similar existing memories (wide net — LLM makes the final
+    // call). Sorted by similarity so the 5 CLOSEST are shown — the old unsorted
+    // slice could show 5 above-threshold rows while the true duplicate sat 6th.
     const similar = liveMemories
-      .filter((m) => {
-        if (!m.embedding) return false
+      .map((m) => {
+        if (!m.embedding) return null
         try {
-          return cosineSimilarity(factEmbedding, JSON.parse(m.embedding) as number[]) > 0.5
+          return { m, cos: cosineSimilarity(factEmbedding, JSON.parse(m.embedding) as number[]) }
         } catch {
-          return false
+          return null
         }
       })
+      .filter((x): x is { m: (typeof liveMemories)[number]; cos: number } => x !== null && x.cos > 0.5)
+      .sort((a, b) => b.cos - a.cos)
       .slice(0, 5)
+      .map((x) => x.m)
 
     let decision: DedupeDecision = { action: 'ADD', id: null, text: null }
 
@@ -310,26 +347,24 @@ export async function runJudge(
 
     if (decision.action === 'NO_CHANGE') {
       result.factsNoChange++
-    } else if (decision.action === 'DELETE' && decision.id) {
-      // Soft-delete: mark superseded rather than hard-deleting (Zep bi-temporal pattern)
-      await db
-        .update(memories)
-        .set({ status: 'superseded', updatedAt: now })
-        .where(eq(memories.id, decision.id))
-      // Remove from live list so subsequent facts in this batch don't match it
-      const idx = liveMemories.findIndex((m) => m.id === decision.id)
-      if (idx !== -1) liveMemories.splice(idx, 1)
-      result.factsSuperseded++
     } else if (decision.action === 'UPDATE' && decision.id && decision.text) {
+      // Preserve maxima from the existing row: a low-importance episodic refinement
+      // must never demote a durable memory to episodic (exposing it to decay) or
+      // lower its importance, and an existing entity link survives a fact whose
+      // entityName the extractor didn't repeat.
+      const existingRow = liveMemories.find((m) => m.id === decision.id)
+      const keptTier = existingRow?.tier === 'durable' ? 'durable' : tier
+      const keptImportance = Math.max(importance, existingRow?.importance ?? 0)
+      const keptEntityId = entityId ?? existingRow?.entityId ?? null
       const updatedEmbedding = await embed(decision.text)
       await db
         .update(memories)
         .set({
           text: decision.text,
           embedding: JSON.stringify(updatedEmbedding),
-          tier,
-          importance,
-          entityId,
+          tier: keptTier,
+          importance: keptImportance,
+          entityId: keptEntityId,
           updatedAt: now,
         })
         .where(eq(memories.id, decision.id))
@@ -343,16 +378,33 @@ export async function runJudge(
         }
       }
       result.factsUpdated++
-    } else if (decision.action === 'ADD') {
+    } else {
+      // ADD — or DELETE, which supersedes the old row and then STORES the new fact.
+      // (DELETE used to drop the new fact on the floor: "I moved to Boston" would
+      // supersede "lives in NYC" and store nothing. Replacement facts must survive.)
+      if (decision.action === 'DELETE' && decision.id) {
+        // Soft-delete: mark superseded rather than hard-deleting (Zep bi-temporal pattern)
+        await db
+          .update(memories)
+          .set({ status: 'superseded', updatedAt: now })
+          .where(eq(memories.id, decision.id))
+        // Remove from live list so subsequent facts in this batch don't match it
+        const idx = liveMemories.findIndex((m) => m.id === decision.id)
+        if (idx !== -1) liveMemories.splice(idx, 1)
+        result.factsSuperseded++
+      }
       const newId = crypto.randomUUID()
       const isDurable = tier === 'durable'
+      const sourceText = typeof fact.sourceQuote === 'string' && fact.sourceQuote.trim()
+        ? fact.sourceQuote.trim().slice(0, 500)
+        : null
       await db.insert(memories).values({
         id: newId,
         userId: userId || null,
         characterId: characterId || null,
         entityId,
         text: fact.text,
-        sourceText: null,
+        sourceText,
         category: fact.category,
         tier,
         status: 'active',
@@ -370,7 +422,7 @@ export async function runJudge(
         characterId: characterId || null,
         entityId,
         text: fact.text,
-        sourceText: null,
+        sourceText,
         category: fact.category,
         tier,
         status: 'active',
@@ -421,9 +473,13 @@ export async function relinkEntityIds(userId: string, characterId: string | null
     )
 
   for (const mem of unlinked) {
-    const lower = mem.text.toLowerCase()
     for (const [alias, entityId] of nameToId) {
-      if (lower.includes(alias)) {
+      // Whole-word matches only (substring matching linked alias "art" to any
+      // memory containing "artichoke"), skip 1–2 char aliases, and never link
+      // through a generic relationship word — those belong to many entities.
+      if (alias.length < 3 || GENERIC_ALIAS_RE.test(alias)) continue
+      const re = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+      if (re.test(mem.text)) {
         await db
           .update(memories)
           .set({ entityId, updatedAt: new Date() })

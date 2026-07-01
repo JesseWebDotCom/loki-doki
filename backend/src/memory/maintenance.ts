@@ -14,7 +14,7 @@
 
 import { db } from '@/db'
 import { memories, memoryEpisodes } from '@/db/schema'
-import { and, eq, isNull, desc, inArray } from 'drizzle-orm'
+import { and, eq, isNull, desc, inArray, lt, ne } from 'drizzle-orm'
 import { logger } from '@/lib/logger'
 
 // ─── Tuning constants ─────────────────────────────────────────────────────────
@@ -31,6 +31,16 @@ const EPISODIC_CAP_PER_SCOPE = 200
 
 // Max stored episodes per (userId, characterId) pair
 const EPISODE_CAP = 50
+
+// Hard-delete superseded/archived rows this long after their last update. They've
+// served their bi-temporal purpose by then, and each carries a ~15 KB JSON
+// embedding — without a purge the dead tiers grow forever.
+const PURGE_AFTER_DAYS = 90
+
+// "state" memories (ongoing situations — "stressed about a deadline") expire hard
+// after this many days. The judge's promise that states auto-expire lives here;
+// without it, "you sounded stressed" callbacks would rot into month-old concern.
+const STATE_EXPIRY_DAYS = 7
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 
@@ -67,10 +77,11 @@ export interface MaintenanceResult {
   scopesProcessed: number
   memoriesArchived: number
   episodesDeleted: number
+  memoriesPurged: number
 }
 
 export async function runMaintenance(): Promise<MaintenanceResult> {
-  const result: MaintenanceResult = { scopesProcessed: 0, memoriesArchived: 0, episodesDeleted: 0 }
+  const result: MaintenanceResult = { scopesProcessed: 0, memoriesArchived: 0, episodesDeleted: 0, memoriesPurged: 0 }
 
   // Discover all distinct scopes that have active episodic memories
   const scopeRows = await db
@@ -94,9 +105,35 @@ export async function runMaintenance(): Promise<MaintenanceResult> {
     result.episodesDeleted += episodesDeleted
   }
 
-  if (result.memoriesArchived > 0 || result.episodesDeleted > 0) {
+  // Hard-expire "state" memories past their week — the judge stores ongoing
+  // situations on the promise that they age out fast.
+  try {
+    const stateCutoff = new Date(Date.now() - STATE_EXPIRY_DAYS * 86_400_000)
+    const expired = await db
+      .update(memories)
+      .set({ status: 'archived', updatedAt: new Date() })
+      .where(and(eq(memories.status, 'active'), eq(memories.category, 'state'), lt(memories.createdAt, stateCutoff)))
+      .returning({ id: memories.id })
+    result.memoriesArchived += expired.length
+  } catch (err) {
+    logger.warn(`[memory:maintenance] state expiry failed: ${err}`)
+  }
+
+  // Purge long-dead rows (superseded/archived > PURGE_AFTER_DAYS ago).
+  try {
+    const cutoff = new Date(Date.now() - PURGE_AFTER_DAYS * 86_400_000)
+    const purged = await db
+      .delete(memories)
+      .where(and(ne(memories.status, 'active'), lt(memories.updatedAt, cutoff)))
+      .returning({ id: memories.id })
+    result.memoriesPurged = purged.length
+  } catch (err) {
+    logger.warn(`[memory:maintenance] purge failed: ${err}`)
+  }
+
+  if (result.memoriesArchived > 0 || result.episodesDeleted > 0 || result.memoriesPurged > 0) {
     logger.info(
-      `[memory:maintenance] scopes=${result.scopesProcessed} archived=${result.memoriesArchived} episodes_deleted=${result.episodesDeleted}`,
+      `[memory:maintenance] scopes=${result.scopesProcessed} archived=${result.memoriesArchived} episodes_deleted=${result.episodesDeleted} purged=${result.memoriesPurged}`,
     )
   }
 
