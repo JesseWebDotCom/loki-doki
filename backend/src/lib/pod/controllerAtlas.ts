@@ -76,7 +76,7 @@ function stationArtTile(accent: string | null, name: string, category: string | 
 
 // Station icons + podcast covers are served by AUTH-GATED routes, so a cookieless
 // server-side fetch 401s. Resolve them to the on-disk file and read it directly.
-async function resolveLocalArt(url: string): Promise<Buffer | null> {
+export async function resolveLocalArt(url: string): Promise<Buffer | null> {
   let m = url.match(/\/api\/music\/stations\/([^/?]+)\/art\/icon/)
   if (m) {
     const [row] = await db.select({ p: musicStations.iconPath }).from(musicStations).where(eq(musicStations.id, m[1]))

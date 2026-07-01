@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import { logger } from '@/lib/logger'
-import { pushToBrowserSession, type BrowserCommand } from '@/lib/pod/browserSession'
+import { pushToBrowserSession, trackCommandAck, type BrowserCommand } from '@/lib/pod/browserSession'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 
 // Executes a controller-mode button press for the new controller-layout
@@ -60,19 +61,27 @@ export async function handleButtonPress(
   row: number,
   col: number,
   userId: string,
+  // Follow-up: called with whether the action ACTUALLY fired (delivered + app-acked, or a
+  // drop/timeout). The device uses it to un-sink a tile whose action never landed.
+  onResult?: (ok: boolean) => void,
 ): Promise<void> {
   let payload
   try {
     payload = await resolveControllerDescriptor(deviceId, userId)
   } catch (e) {
     logger.warn(`[controller] resolve failed for button press: ${(e as Error).message}`)
+    onResult?.(false)
     return
   }
   const page = payload.pages.find((p) => p.id === pageId) ?? payload.pages[0]
   const button = page?.buttons.find((b) => b.row === row && b.col === col)
-  if (!button) return
+  const cmd = button ? toBrowserCommand(button.action as ControllerAction) : null
+  if (!cmd) { onResult?.(false); return }
 
-  const cmd = toBrowserCommand(button.action as ControllerAction)
-  logger.info(`[controller] button press page=${pageId} (${row},${col}) → ${cmd?.type ?? 'no-op'} user=${userId}`)
-  if (cmd) pushToBrowserSession(userId, cmd)
+  const ackId = randomUUID()
+  cmd.ackId = ackId
+  const delivered = pushToBrowserSession(userId, cmd)
+  logger.info(`[controller] button press page=${pageId} (${row},${col}) → ${cmd.type}${cmd.action ? '/' + cmd.action : ''} delivered=${delivered} user=${userId}`)
+  if (!delivered) { onResult?.(false); return }   // no live tab → definitely didn't fire
+  if (onResult) trackCommandAck(ackId, onResult)  // else wait for the app's ack (or timeout)
 }

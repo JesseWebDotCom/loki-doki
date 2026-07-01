@@ -10,6 +10,7 @@ export interface BrowserCommand {
   // media_transport: a play/pause/next/prev/seek from the device's native player.
   transport?: 'play' | 'pause' | 'toggle' | 'next' | 'prev' | 'seek' | 'stop'
   position?: number   // seconds, for transport === 'seek'
+  ackId?: string      // the app POSTs this back once it HANDLES the command (fire-and-verify)
 }
 
 // userId → Set of active SSE response writers
@@ -34,13 +35,34 @@ export function registerBrowserSession(userId: string, send: (cmd: BrowserComman
 /** Push a command to the MOST RECENT browser session for this user (the latest tab the
  *  user opened) — not every tab, so a controller tap drives one player, not all of them.
  *  (The Set preserves insertion order, so the last entry is the most recently connected.) */
-export function pushToBrowserSession(userId: string, cmd: BrowserCommand): void {
+export function pushToBrowserSession(userId: string, cmd: BrowserCommand): boolean {
   const set = sessions.get(userId)
   if (!set || set.size === 0) {
     logger.info(`[browser-session] DROP ${cmd.type} — no active tab for userId=${userId} (is the web app open + connected?)`)
-    return
+    return false
   }
   logger.info(`[browser-session] → ${cmd.type}${cmd.action ? '/' + cmd.action : ''} to ${set.size} tab(s) userId=${userId}`)
   const recent = Array.from(set).pop()
-  if (recent) { try { recent(cmd) } catch { /* tab closed mid-push */ } }
+  if (recent) { try { recent(cmd); return true } catch { return false } }
+  return false
+}
+
+// ── Command ACK: an action isn't "fired" just because it was delivered — the app POSTs an
+// ack once it actually HANDLES it. Callers track a pending ack; a timeout means it didn't fire.
+const pendingAcks = new Map<string, { onResult: (ok: boolean) => void; timer: ReturnType<typeof setTimeout> }>()
+
+export function trackCommandAck(ackId: string, onResult: (ok: boolean) => void, timeoutMs = 2500): void {
+  const prev = pendingAcks.get(ackId)
+  if (prev) clearTimeout(prev.timer)
+  const timer = setTimeout(() => { pendingAcks.delete(ackId); onResult(false) }, timeoutMs)
+  pendingAcks.set(ackId, { onResult, timer })
+}
+
+/** Called from the app's ack POST — the action was actually handled. */
+export function resolveCommandAck(ackId: string): void {
+  const p = pendingAcks.get(ackId)
+  if (!p) return
+  clearTimeout(p.timer)
+  pendingAcks.delete(ackId)
+  p.onResult(true)
 }

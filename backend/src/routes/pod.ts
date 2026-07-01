@@ -9,7 +9,7 @@ import { Hono } from 'hono'
 import { streamSSE, stream } from 'hono/streaming'
 import { requireAdmin } from '@/middleware/auth'
 import { logger } from '@/lib/logger'
-import { buildControllerAtlas } from '@/lib/pod/controllerAtlas'
+import { buildControllerAtlas, resolveLocalArt } from '@/lib/pod/controllerAtlas'
 import type { AppEnv } from '@/types'
 import {
   createDevice, listDevices, deleteDevice, updateDevice, refreshPairingCode, redeemPairingCode, claimDevice,
@@ -174,6 +174,13 @@ pod.get('/cover/:hwid', async (c) => {
   if (!dev) return c.body(null, 404)
   let url = getNowPlaying(dev.userId)?.cover?.trim()
   if (!url) return c.body(null, 404)
+  // Station icons + podcast covers are auth-gated local files — read them off disk directly.
+  const local = await resolveLocalArt(url)
+  if (local) {
+    return new Response(new Uint8Array(local), {
+      status: 200, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' },
+    })
+  }
   // Cover URLs usually point at our AUTH-GATED image proxies (/api/youtube/img?u=…,
   // /api/img?url=…). A server-side fetch has no auth cookie → 401, so unwrap the real
   // target from the ?u=/?url= query and fetch it directly. Otherwise make it absolute.

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
 
 export interface PodcastChapter { title: string; startSec: number }
 export interface TranscriptTurn { speaker: string; text: string }
@@ -75,6 +76,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
 
   // ── Core transport ───────────────────────────────────────────────────────────
   const playTrackAt = useCallback((newTrack: PodcastTrack, startSec: number) => {
+    acquireAudio('podcast')   // stop radio/YouTube — podcasts are a first-class audio source
     pendingStart.current = startSec
     setTrack(newTrack)
     setPositionSec(startSec)
@@ -194,6 +196,43 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
       el.removeEventListener('ended', onEnded)
     }
   }, [track?.episodeId, autoplay, queue, queueIndex, next]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Mini-player integration: podcasts behave like radio/YouTube ─────────────────
+  // Expose transport so a device player bar (via useBrowserSession → dispatchTransport) can
+  // drive it, and stop when another source acquires audio.
+  const ctrlRef = useRef({ toggle, next, prev, seek, pause })
+  ctrlRef.current = { toggle, next, prev, seek, pause }
+  useEffect(() => {
+    const unT = registerTransport('podcast', {
+      toggle: () => ctrlRef.current.toggle(),
+      next: () => ctrlRef.current.next(),
+      prev: () => ctrlRef.current.prev(),
+      seek: (s) => ctrlRef.current.seek(s),
+      stop: () => ctrlRef.current.pause(),
+    })
+    const unS = registerMediaStop('podcast', () => ctrlRef.current.pause())
+    return () => { unT(); unS() }
+  }, [])
+
+  // Report now-playing to the shared snapshot so device player bars reflect the podcast.
+  const npRef = useRef({ positionSec, duration })
+  npRef.current = { positionSec, duration }
+  useEffect(() => {
+    if (!track) return
+    const report = () => {
+      void fetch('/api/pod/now-playing', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: track.title, artist: track.showName, cover: track.coverUrl ?? '',
+          positionSec: Math.round(npRef.current.positionSec), durationSec: Math.round(npRef.current.duration),
+          playing,
+        }),
+      }).catch(() => {})
+    }
+    report()
+    const iv = setInterval(report, 4000)
+    return () => clearInterval(iv)
+  }, [track?.episodeId, track?.title, track?.showName, track?.coverUrl, playing]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = useMemo<PodcastPlaybackCtx>(() => ({
     track, playing, positionSec, duration, rate, autoplay, queue, queueIndex, audioRef,

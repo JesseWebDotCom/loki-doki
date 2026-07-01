@@ -421,8 +421,8 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
   }
   if (type == "user-event") {
     std::string name, state, token, mode, reply;
-    bool dim_enabled = false;
-    int dim_percent = 30, dim_after_s = 60, degrees = -1;
+    bool dim_enabled = false, br_ok = false;
+    int dim_percent = 30, dim_after_s = 60, degrees = -1, br_row = -1, br_col = -1;
     json::parse_json(data_json, [&](JsonObject root) -> bool {
       name = root["name"].as<std::string>();
       state = root["state"].as<std::string>();
@@ -433,11 +433,19 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       if (root["dimPercent"].is<int>()) dim_percent = root["dimPercent"].as<int>();
       if (root["dimAfterS"].is<int>()) dim_after_s = root["dimAfterS"].as<int>();
       if (root["degrees"].is<int>()) degrees = root["degrees"].as<int>();
+      if (root["row"].is<int>()) br_row = root["row"].as<int>();
+      if (root["col"].is<int>()) br_col = root["col"].as<int>();
+      if (root["ok"].is<bool>()) br_ok = root["ok"].as<bool>();
       return true;
     });
     if (name == "reply_text") {
       // Companion's typed reply — surface it to the LVGL panel via the text sensor.
       if (this->reply_sensor_ != nullptr) this->reply_sensor_->publish_state(reply);
+    } else if (name == "button_result") {
+      // Server's follow-up: did the tapped controller action ACTUALLY fire? If not (web app
+      // gone / errored / dropped), pop the tile back up so it never falsely reads "selected".
+      ESP_LOGI(TAG, "[stream-deck] button_result (%d,%d) ok=%d", br_row, br_col, (int) br_ok);
+      if (!br_ok && br_row >= 0 && br_col >= 0) this->set_cell_pressed(br_row, br_col, false);
     } else if (name == "face.state") {
       this->face_ = state;
       this->update_led_();
@@ -902,16 +910,15 @@ void LokiDokiSatellite::rebuild_stream_deck_ui_() {
     // light a bright rim — a clear push-in. Driven via set_cell_pressed() from the touch-grid.
     lv_obj_set_style_transform_pivot_x(cell, cell_w / 2, 0);
     lv_obj_set_style_transform_pivot_y(cell, cell_h / 2, 0);
-    lv_obj_set_style_translate_y(cell, 20, LV_STATE_PRESSED);          // sink deep
-    lv_obj_set_style_transform_scale(cell, 208, LV_STATE_PRESSED);     // 208/256 ≈ 81% → really pushed in
-    lv_obj_set_style_shadow_width(cell, 0, LV_STATE_PRESSED);          // halo gone → flat to the surface
-    lv_obj_set_style_shadow_ofs_y(cell, 0, LV_STATE_PRESSED);
-    lv_obj_set_style_opa(cell, 235, LV_STATE_PRESSED);                 // recede slightly into shadow
+    lv_obj_set_style_translate_y(cell, 8, LV_STATE_PRESSED);           // gentle sink
+    lv_obj_set_style_transform_scale(cell, 244, LV_STATE_PRESSED);     // 244/256 ≈ 95% → subtle
+    lv_obj_set_style_shadow_width(cell, 4, LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_ofs_y(cell, 1, LV_STATE_PRESSED);
     lv_obj_set_style_border_color(cell, lv_color_hex(0xFFFFFF), LV_STATE_PRESSED);
-    lv_obj_set_style_border_opa(cell, 255, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(cell, 5, LV_STATE_PRESSED);          // bright inset rim
-    lv_obj_set_style_bg_color(cell, lv_color_hex(shade(btn.bg_color, 70)), LV_STATE_PRESSED);
-    lv_obj_set_style_bg_grad_color(cell, lv_color_hex(shade(btn.bg_color, 40)), LV_STATE_PRESSED);
+    lv_obj_set_style_border_opa(cell, 210, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(cell, 3, LV_STATE_PRESSED);          // bright rim
+    lv_obj_set_style_bg_color(cell, lv_color_hex(shade(btn.bg_color, 80)), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_grad_color(cell, lv_color_hex(shade(btn.bg_color, 48)), LV_STATE_PRESSED);
     lv_obj_add_flag(cell, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
 

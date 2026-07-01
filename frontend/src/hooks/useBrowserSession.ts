@@ -61,6 +61,13 @@ export function useBrowserSession() {
               break
             }
           }
+          // Confirm we actually handled it (the device's fire-and-verify follow-up).
+          if (typeof cmd.ackId === 'string') {
+            void fetch('/api/browser-session/ack', {
+              method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ackId: cmd.ackId }),
+            }).catch(() => {})
+          }
         } catch { /* malformed */ }
       })()
     })
