@@ -1927,4 +1927,17 @@ export function runMigrations() {
   addColumn('devices', 'alarm_volume', 'REAL')
   addColumn('devices', 'sound_overrides', "TEXT NOT NULL DEFAULT '{}'")
   addColumn('devices', 'alarm_tone_id', 'TEXT')
+
+  // Web Push subscriptions (VAPID) — see schema.ts pushSubscriptions / lib/push.ts.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh_key TEXT NOT NULL,
+      auth_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
+  `)
 }

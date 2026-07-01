@@ -8,6 +8,7 @@ import { and, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/db'
 import { frigateEvents, notifications } from '@/db/schema'
 import { logger } from '@/lib/logger'
+import { sendPushToUsers, adminUserIds } from '@/lib/push'
 import { getFrigateConfig, normalizePlate, type AnnounceType, type FrigateConfig } from './config'
 
 // Frigate+ delivery-logo attribute labels (plus a few common North-American ones).
@@ -125,6 +126,13 @@ async function store(input: StoreInput): Promise<string> {
       }),
       createdAt: now,
     })
+
+    // Same audience as the in-app bell above (admins). A per-user opt-in can route this
+    // differently later without touching sendPushToUsers itself.
+    const message = input.notifyMessage ?? input.announceText ?? `${humanCamera(input.camera)}: ${input.label ?? 'activity detected'}`
+    void adminUserIds()
+      .then((ids) => sendPushToUsers(ids, { title: 'Camera alert', body: message, url: '/cameras' }))
+      .catch((err) => logger.warn(`[frigate] push notify failed: ${err}`))
   }
   return id
 }

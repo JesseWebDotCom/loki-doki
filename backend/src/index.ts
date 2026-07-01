@@ -46,6 +46,7 @@ import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
 import { briefing } from '@/routes/briefing'
+import { push } from '@/routes/push'
 import { maps } from '@/routes/maps'
 import { adminMaps } from '@/routes/adminMaps'
 import { proxy } from '@/routes/proxy'
@@ -375,6 +376,7 @@ app.route('/api/search', searchRouter)
 app.route('/api/app-features', appFeatures)
 app.route('/api/admin/briefing', adminBriefing)
 app.route('/api/briefing', briefing)
+app.route('/api/push', push)
 app.route('/api/maps', maps)
 app.route('/api/admin/maps', adminMaps)
 app.route('/api/proxy', proxy)

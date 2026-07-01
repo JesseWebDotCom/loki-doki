@@ -859,6 +859,18 @@ export const homeDeviceLinks = sqliteTable('home_device_links', {
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
+// Web Push subscriptions (VAPID). One row per browser/device a user has opted into push
+// on; a user can have several (phone + desktop). `endpoint` is unique per browser
+// subscription and doubles as the natural key for unsubscribe. See lib/push.ts.
+export const pushSubscriptions = sqliteTable('push_subscriptions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dhKey: text('p256dh_key').notNull(),
+  authKey: text('auth_key').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),

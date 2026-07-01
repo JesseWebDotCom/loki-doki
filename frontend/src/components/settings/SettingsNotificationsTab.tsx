@@ -1,13 +1,59 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCheck, Loader2, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/hooks/useNotifications'
 import { NOTIF_CATEGORIES, notifIcon, notifLabel, timeAgo } from '@/lib/notifications'
+import { getPushSubscription, pushSupported, subscribeToPush, unsubscribeFromPush } from '@/lib/push'
 
 const PREF_KEY = 'notifications.muted'
+
+function PushSection() {
+  const supported = pushSupported()
+  const [subscribed, setSubscribed] = useState(false)
+  const [checking, setChecking] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!supported) { setChecking(false); return }
+    getPushSubscription().then((s) => setSubscribed(!!s)).finally(() => setChecking(false))
+  }, [supported])
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true)
+    try {
+      if (enabled) { await subscribeToPush(); setSubscribed(true); toast.success('Push notifications enabled on this device') }
+      else { await unsubscribeFromPush(); setSubscribed(false); toast.success('Push notifications disabled on this device') }
+    } catch (e) {
+      toast.error((e as Error).message || 'Could not update push notifications')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section>
+      <p className="text-sm font-medium mb-1">Push Notifications</p>
+      <p className="text-xs text-muted-foreground mb-4">
+        Get camera alerts and other household notifications on this device, even when the app isn't open.
+      </p>
+      <div className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium">This device</p>
+          <p className="text-xs text-muted-foreground">
+            {!supported ? "Not supported in this browser" : checking ? 'Checking…' : subscribed ? 'Enabled' : 'Off'}
+          </p>
+        </div>
+        {checking || busy
+          ? <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          : <Switch checked={subscribed} disabled={!supported} onCheckedChange={(v) => void toggle(v)} />}
+      </div>
+    </section>
+  )
+}
 
 export function SettingsNotificationsTab() {
   const { user } = useAuth()
@@ -55,6 +101,8 @@ export function SettingsNotificationsTab() {
 
   return (
     <div className="p-4 space-y-8">
+      <PushSection />
+
       {/* Delivery preferences */}
       <section>
         <div className="flex items-center justify-between mb-1">
