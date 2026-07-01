@@ -1,7 +1,7 @@
 import { db } from '@/db'
 import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { ollamaChat, ollamaEmbed, ollamaList } from '@/llm/ollama'
+import { ollamaChat, ollamaEmbed, ollamaList, ollamaWarmModel } from '@/llm/ollama'
 import { EMBED_MODEL, ROUTER_EMBED_MODEL } from '@/llm/embed'
 import { initRouter } from '@/llm/router'
 import { logger } from '@/lib/logger'
@@ -54,6 +54,9 @@ export async function getFastModel(): Promise<string> {
       const installed = await ollamaList()
       if (installed.some((m) => m.name === candidate)) {
         _fastModelCache = { value: candidate }
+        // Load the fast model into VRAM immediately so it's ready before the first
+        // real call. Fire-and-forget — keep_alive: -1 keeps it there permanently.
+        ollamaWarmModel(candidate).catch(() => {})
         return candidate
       }
     } catch {

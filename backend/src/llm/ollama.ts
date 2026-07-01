@@ -84,6 +84,22 @@ export async function ollamaList(): Promise<OllamaModel[]> {
   return data.models
 }
 
+/**
+ * Load a model into Ollama's VRAM without running any prompt. Uses keep_alive: -1 so
+ * Ollama holds it loaded indefinitely (until the process exits or another model evicts it).
+ * Fire-and-forget safe — call without await to warm in the background.
+ */
+export async function ollamaWarmModel(model: string): Promise<void> {
+  try {
+    await fetch(`${ollamaUrl()}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(OLLAMA_FIRST_BYTE_MS),
+      body: JSON.stringify({ model, keep_alive: -1 }),
+    })
+  } catch { /* best-effort */ }
+}
+
 export async function ollamaEmbed(model: string, input: string): Promise<number[]> {
   const res = await fetch(`${ollamaUrl()}/api/embed`, {
     method: 'POST',
