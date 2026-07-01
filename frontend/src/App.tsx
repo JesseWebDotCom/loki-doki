@@ -81,6 +81,7 @@ import { VoiceMemosPage } from '@/pages/VoiceMemosPage'
 import { JokePage } from '@/pages/JokePage'
 import { UnitConverterPage } from '@/pages/UnitConverterPage'
 import { SpeedTestPage } from '@/pages/SpeedTestPage'
+import { CamerasPage } from '@/pages/CamerasPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
 import { YoutubeLayout } from '@/components/youtube/YoutubeLayout'
@@ -351,6 +352,7 @@ export default function App() {
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
                 <Route path="/speed-test" element={<SpeedTestPage />} />
+                <Route path="/cameras" element={<CamerasPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/time" element={<TimePage />} />

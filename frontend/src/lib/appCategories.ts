@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, BookOpen, Brain, CalendarDays, Clapperboard, Clock, CloudSun, Compass,
+  ArrowLeftRight, BookOpen, Brain, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Gamepad2, Gauge, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
   Search, Settings2, Smile, Sparkles, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
@@ -171,6 +171,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "bookmarks",      to: "/bookmarks",      label: "Bookmarks",      description: "Saved links, articles & offline archives", gradient: "linear-gradient(135deg,#14532d,#166534)", color: "#16a34a", icon: BookOpen,        feature: "bookmarks" },
       { id: "home-inventory", to: "/home-inventory", label: "Home Inventory", description: "Track devices & appliances",  gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Package,         feature: "home-inventory", toolId: "home_inventory" },
       { id: "home-assistant", to: "/home-assistant", label: "Home Assistant", description: "Control smart home devices",  gradient: "linear-gradient(135deg,#1c1917,#57534e)", color: "#78716c", icon: Home,            feature: "homeAssistant",  toolId: "homeAssistant" },
+      { id: "cameras",        to: "/cameras",        label: "Cameras",        description: "Recent camera activity & clips", gradient: "linear-gradient(135deg,#1c1917,#3f3f46)", color: "#a1a1aa", icon: Camera },
       { id: "unit-converter", to: "/unit-converter", label: "Unit Converter", description: "Convert length, weight, and more", gradient: "linear-gradient(135deg,#134e4a,#0d9488)", color: "#0d9488", icon: ArrowLeftRight },
       { id: "converter",      to: "/converter",      label: "File Converter", description: "Convert images, audio & video", gradient: "linear-gradient(135deg,#166534,#2563eb)", color: "#2563eb", icon: FileType },
       { id: "time",           to: "/time",           label: "Time",           description: "World clock, alarms & timers", gradient: "linear-gradient(135deg,#0f172a,#4338ca)", color: "#6366f1", icon: Clock, toolId: "time" },
