@@ -5,9 +5,11 @@ import { db } from '@/db'
 import { zimArchives } from '@/db/schema'
 import { ZIM_CATALOG } from '@/lib/zimCatalog'
 import { kiwixUrl, getKiwixState, getKiwixError, isKiwixInstalled, kiwixContentBase, kiwixContentRelPrefix } from '@/lib/kiwix'
+import { requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 
 const archives = new Hono<AppEnv>()
+archives.use('*', requireAuth)
 
 // ── Status ────────────────────────────────────────────────────────────────────
 

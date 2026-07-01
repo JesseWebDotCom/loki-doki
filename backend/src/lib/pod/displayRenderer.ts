@@ -57,12 +57,30 @@ function normHwid(s: string): string {
   return s.replace(/[^a-f0-9]/gi, '').toLowerCase()
 }
 
-export async function deviceByHwid(hwid: string): Promise<{ id: string; userId: string; layoutTemplateId: string | null } | null> {
+interface HwidEntry { id: string; userId: string; layoutTemplateId: string | null }
+
+// deviceByHwid() is polled a few times a second per device (the firmware's online_image
+// loop, plus the UDP ambient camera loop every 120ms) — a fresh full-table scan on every
+// call doesn't scale with device count. Cache normHwid → identity in memory; invalidated
+// by invalidateHwidCache() on any device write (see devices.ts).
+let hwidCache: Map<string, HwidEntry> | null = null
+
+export function invalidateHwidCache(): void {
+  hwidCache = null
+}
+
+async function loadHwidCache(): Promise<Map<string, HwidEntry>> {
+  const rows = await db.select({ id: devices.id, userId: devices.userId, hwid: devices.hwid, layoutTemplateId: devices.layoutTemplateId }).from(devices)
+  const map = new Map<string, HwidEntry>()
+  for (const r of rows) if (r.hwid) map.set(normHwid(r.hwid), { id: r.id, userId: r.userId, layoutTemplateId: r.layoutTemplateId })
+  return map
+}
+
+export async function deviceByHwid(hwid: string): Promise<HwidEntry | null> {
   const want = normHwid(hwid)
   if (!want) return null
-  const rows = await db.select({ id: devices.id, userId: devices.userId, hwid: devices.hwid, layoutTemplateId: devices.layoutTemplateId }).from(devices)
-  const match = rows.find((r) => r.hwid && normHwid(r.hwid) === want)
-  return match ? { id: match.id, userId: match.userId, layoutTemplateId: match.layoutTemplateId } : null
+  if (!hwidCache) hwidCache = await loadHwidCache()
+  return hwidCache.get(want) ?? null
 }
 
 // ── headless browser (shared, lazy) ───────────────────────────────────────────

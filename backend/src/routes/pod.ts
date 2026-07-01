@@ -291,8 +291,9 @@ pod.post('/devices/:id/mode', requireAdmin, async (c) => {
   return c.json({ ok: true, mode: body.mode, online })
 })
 
-// Live-tune UDP fragment pacing (no restart): POST { batch, pace }.
-pod.post('/camera-test/pacing', async (c) => {
+// Live-tune UDP fragment pacing (no restart): POST { batch, pace }. Admin-UI-only
+// control (not called by device firmware), so it's gated unlike the frame endpoints above.
+pod.post('/camera-test/pacing', requireAdmin, async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as { batch?: number; pace?: number }
   return c.json(setPacing(b.batch, b.pace))
 })
@@ -301,8 +302,10 @@ pod.post('/camera-test/pacing', async (c) => {
 // POST { mode: 'ffmpeg', fps?, w?, h?, q? }  → generated moving pattern at N fps
 // POST { mode: 'urls', urls: [..] }          → rotate through public MJPEG URLs
 // POST { mode: 'frigate' }                   → back to the living-room camera
-// LAN-trust like the other /camera-test endpoints so it can be driven without a session.
-pod.post('/camera-test/source', async (c) => {
+// Admin-UI-only control (drives an ffmpeg spawn + arbitrary URL fetch for the 'urls'
+// mode) — unlike /camera-test and /camera-test/stream (which the device firmware polls
+// directly and must stay LAN-trust), this is only ever called from Admin → Devices.
+pod.post('/camera-test/source', requireAdmin, async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as
     { mode?: string; fps?: number; w?: number; h?: number; q?: number; urls?: string[] }
   if (b.mode === 'ffmpeg') startFfmpegTest(b.fps ?? 30, b.w ?? 640, b.h ?? 360, b.q ?? 6)

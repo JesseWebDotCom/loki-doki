@@ -18,6 +18,16 @@ export interface WyomingEvent {
 
 const NEWLINE = 0x0a
 
+// The header line itself should always be a small JSON object; a run this long with
+// no newline is a corrupt or hostile stream, not a slow legitimate header.
+const MAX_HEADER_SEARCH_BYTES = 8 * 1024
+// data_length/payload_length are attacker-controlled (device-supplied). Without a
+// cap, a malformed or hostile frame can claim an arbitrarily large size and force the
+// decoder to buffer (and repeatedly reallocate/copy via concat()) unbounded bytes
+// before ever parsing a frame — an OOM/CPU vector. 4 MB is generous headroom over any
+// real frame (audio chunks are a few KB; JSON metadata is smaller still).
+const MAX_FRAME_BYTES = 4 * 1024 * 1024
+
 /** Serialize one event to its on-the-wire bytes. */
 export function encodeEvent(ev: WyomingEvent): Uint8Array {
   const enc = new TextEncoder()
@@ -51,7 +61,12 @@ export class WyomingDecoder {
 
     for (;;) {
       const nl = this.buf.indexOf(NEWLINE)
-      if (nl < 0) break // no complete header line yet
+      if (nl < 0) {
+        // No complete header line yet — but an unbounded run with no newline is a
+        // corrupt/hostile stream, not a legitimate wait. Resync instead of buffering it.
+        if (this.buf.length > MAX_HEADER_SEARCH_BYTES) this.buf = new Uint8Array(0)
+        break
+      }
 
       let header: { type: string; data_length?: number; payload_length?: number }
       try {
@@ -64,6 +79,12 @@ export class WyomingDecoder {
 
       const dataLen = header.data_length ?? 0
       const payloadLen = header.payload_length ?? 0
+      if (dataLen < 0 || payloadLen < 0 || dataLen + payloadLen > MAX_FRAME_BYTES) {
+        // Declared size is bogus or exceeds the sane ceiling — resync past this header
+        // rather than buffering however many bytes it claims are coming.
+        this.buf = this.buf.subarray(nl + 1)
+        continue
+      }
       const need = nl + 1 + dataLen + payloadLen
       if (this.buf.length < need) break // wait for the rest of the body
 

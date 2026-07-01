@@ -17,59 +17,14 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile, readdir, stat, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { isIP } from 'node:net'
-import { lookup } from 'node:dns/promises'
 import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
+import { safeFetch } from '@/lib/ssrfGuard'
 
 const CACHE_DIR = join(dataDir, 'image-cache')
 const FETCH_TIMEOUT_MS = 10_000
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024 // skip absurdly large responses (banners/posters are KBs)
 const MAX_CACHE_BYTES = 512 * 1024 * 1024 // 512 MB ceiling, swept down on boot + daily
-
-// ── SSRF guard ──────────────────────────────────────────────────────────────────
-// Block any IP that could reach the host's own network instead of the public internet.
-function isPrivateIp(ip: string): boolean {
-  const v = isIP(ip)
-  if (v === 4) {
-    const o = ip.split('.').map(Number)
-    if (o.length !== 4 || o.some((n) => Number.isNaN(n))) return true
-    const [a, b] = o as [number, number, number, number]
-    if (a === 0 || a === 10 || a === 127) return true // this-network, private, loopback
-    if (a === 172 && b >= 16 && b <= 31) return true // private
-    if (a === 192 && b === 168) return true // private
-    if (a === 169 && b === 254) return true // link-local (incl. 169.254.169.254 metadata)
-    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
-    if (a >= 224) return true // multicast / reserved
-    return false
-  }
-  if (v === 6) {
-    const lc = ip.toLowerCase()
-    if (lc === '::1' || lc === '::') return true // loopback / unspecified
-    if (lc.startsWith('fe80') || lc.startsWith('fc') || lc.startsWith('fd')) return true // link-local / ULA
-    // IPv4-mapped (::ffff:a.b.c.d) — re-check the embedded v4.
-    const mapped = lc.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-    if (mapped) return isPrivateIp(mapped[1]!)
-    return false
-  }
-  return true // not a parseable IP → refuse
-}
-
-// True only if the URL is http(s) and every resolved address is publicly routable.
-async function isSafePublicUrl(rawUrl: string): Promise<boolean> {
-  let u: URL
-  try { u = new URL(rawUrl) } catch { return false }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
-  const host = u.hostname
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false
-  if (isIP(host)) return !isPrivateIp(host)
-  try {
-    const addrs = await lookup(host, { all: true })
-    return addrs.length > 0 && addrs.every((a) => !isPrivateIp(a.address))
-  } catch {
-    return false
-  }
-}
 
 function hashUrl(url: string): string {
   return createHash('sha256').update(url).digest('hex')
@@ -108,18 +63,19 @@ export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buff
     } catch { return null }
   }
 
-  if (!(await isSafePublicUrl(rawUrl))) return null
-
   const markMissing = async () => {
     try { await mkdir(CACHE_DIR, { recursive: true }); await writeFile(missingPath, '') } catch {}
   }
 
   try {
-    const res = await fetch(rawUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'image/*' },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
+    // safeFetch re-validates the destination on every redirect hop (not just the
+    // initial URL), so a public URL that 302s to a LAN/metadata address is rejected —
+    // a plain fetch(..., { redirect: 'follow' }) would silently follow it.
+    const res = await safeFetch(
+      rawUrl,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'image/*' } },
+      { timeoutMs: FETCH_TIMEOUT_MS },
+    )
     if (!res.ok) { await markMissing(); return null }
     const contentType = (res.headers.get('content-type') ?? 'image/jpeg').split(';')[0]!.trim()
     if (!contentType.startsWith('image/')) { await markMissing(); return null }

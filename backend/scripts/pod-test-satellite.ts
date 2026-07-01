@@ -8,6 +8,10 @@
 //
 // The WAV should be mono PCM (any sample rate; 16 kHz mono is ideal for whisper).
 // Stereo/8-bit/float WAVs are normalized to mono int16 by wavToPcm.
+//
+// This harness doesn't pair/authenticate like a real Pod, so the SERVER must be
+// started with POD_DEFAULT_USER_ID=<a real user id> (and usually POD_WAKE_ENABLED=0)
+// for it to accept a turn from this connection — see ensureUser() in satelliteSession.ts.
 
 import { wavToPcm } from '@/lib/voice/pcm'
 import { encodeWav } from '@/lib/voice/sttSession'

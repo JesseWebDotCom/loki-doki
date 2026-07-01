@@ -16,8 +16,6 @@
 //     utterance (the Pod woke itself, or the test harness sends one clip).
 
 import { logger } from '@/lib/logger'
-import { db } from '@/db'
-import { users } from '@/db/schema'
 import { SttSession, encodeWav } from '@/lib/voice/sttSession'
 import { kokoroEngine } from '@/lib/voice/engines/kokoroEngine'
 import { parseVoiceId, segmentSentences, voiceConfig } from '@/lib/voice'
@@ -71,9 +69,6 @@ export class SatelliteSession implements PodFireTarget {
   private state: FaceState = 'idle'
   private turnAbort: AbortController | null = null
   private closed = false
-  // TODO(device identity): resolve the user + companion bound to this device via
-  // the `devices` table + auth handshake. Until that lands, fall back to
-  // POD_DEFAULT_USER_ID or the first user row so the loop works end-to-end.
   private userId: string | null = null
   private characterId: string | null = null
   private wakeWord: string | null = null
@@ -438,8 +433,22 @@ export class SatelliteSession implements PodFireTarget {
     }
   }
 
+  /** An unauthenticated socket must never reach handleTurn() (which would run the
+   *  companion pipeline — tools, Home Assistant control, personal memory — bound to
+   *  whichever user ensureUser() resolves). Gate capture itself, not just the turn,
+   *  so a rogue LAN client can't even burn STT resources by pretending to be a Pod.
+   *  POD_DEFAULT_USER_ID is an explicit admin-set dev/test opt-in (see ensureUser()),
+   *  not an automatic trust of "whichever device connects first". */
+  private isAuthorizedForCapture(): boolean {
+    return this._deviceId !== null || !!process.env.POD_DEFAULT_USER_ID
+  }
+
   /** Open an STT capture window (after a wake detection, or in push-to-talk mode). */
   private startCapture(): void {
+    if (!this.isAuthorizedForCapture()) {
+      logger.warn('[pod] dropping capture request from an unauthenticated connection')
+      return
+    }
     this.stt?.close()
     if (this.captureTimer) clearTimeout(this.captureTimer)
     this.stt = new SttSession(
@@ -735,12 +744,14 @@ export class SatelliteSession implements PodFireTarget {
   private async ensureUser(): Promise<string | null> {
     // Prefer the authenticated device's user (set in authenticate()).
     if (this.userId) return this.userId
-    // Dev fallback until a device pairs: POD_DEFAULT_USER_ID, else the first user.
+    // Dev/test opt-in only: an admin who explicitly sets POD_DEFAULT_USER_ID accepts
+    // turns from an unauthenticated connection (used by scripts/pod-test-satellite.ts).
+    // There is deliberately NO fallback to "the first user row" — that let any LAN
+    // client run the companion pipeline (tools, Home Assistant, personal memory) as
+    // whichever account happened to be created first, almost always the admin.
     const envUser = process.env.POD_DEFAULT_USER_ID
     if (envUser) { this.userId = envUser; return this.userId }
-    const [row] = await db.select({ id: users.id }).from(users).limit(1)
-    this.userId = row?.id ?? null
-    return this.userId
+    return null
   }
 
   private setState(state: FaceState): void {

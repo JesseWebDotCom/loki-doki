@@ -24,7 +24,15 @@ interface SocketState {
   // audio-stop frame on longer replies, corrupting the stream and breaking playback.
   // This is the Bun equivalent of Home Assistant's asyncio writer.write()+drain().
   out: Uint8Array[]
+  // Running total of out[]'s bytes (O(1) overflow check — see MAX_QUEUE_BYTES).
+  outBytes: number
 }
+
+// A device whose TCP connection stays open but stops reading (crashed mid-reply,
+// half-open Wi-Fi) would otherwise accumulate an unbounded backlog in `out` — a full
+// spoken reply's audio chunks, plus the 30s display refresher, plus alarms — until the
+// OS eventually resets the connection. 4 MB is generous headroom over one full reply.
+const MAX_QUEUE_BYTES = 4 * 1024 * 1024
 
 // Bun's socket.data typing is awkward across versions; keep per-connection state
 // in a WeakMap instead so this stays version-proof.
@@ -38,8 +46,8 @@ function flushSocket(socket: any, st: SocketState): void {
     const chunk = st.out[0]!
     let n = 0
     try { n = socket.write(chunk) } catch { return } // socket closing/closed
-    if (n >= chunk.byteLength) { st.out.shift(); continue }
-    if (n > 0) st.out[0] = chunk.subarray(n) // partial write — keep the rest at the front
+    if (n >= chunk.byteLength) { st.out.shift(); st.outBytes -= chunk.byteLength; continue }
+    if (n > 0) { st.out[0] = chunk.subarray(n); st.outBytes -= n } // partial write — keep the rest at the front
     return // socket buffer full; resume from drain()
   }
 }
@@ -63,11 +71,22 @@ export function gatewayStatus(): GatewayState & { connections: number } {
 // The socket behaviour, shared by every (re)bind.
 const SOCKET_HANDLERS = {
   open(socket: object) {
-    const st: SocketState = { decoder: new WyomingDecoder(), session: null as unknown as SatelliteSession, out: [] }
+    const st: SocketState = { decoder: new WyomingDecoder(), session: null as unknown as SatelliteSession, out: [], outBytes: 0 }
     // send() = queue the encoded frame, then flush what the socket will take.
-    // Backpressure is held in st.out and resumed on drain — never dropped.
+    // Backpressure is held in st.out and resumed on drain — never dropped, UNLESS the
+    // backlog exceeds MAX_QUEUE_BYTES, in which case the connection itself is stalled
+    // (not just slow) and we drop it rather than let memory grow without bound.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    st.session = new SatelliteSession((ev) => { st.out.push(encodeEvent(ev)); flushSocket(socket as any, st) })
+    st.session = new SatelliteSession((ev) => {
+      const frame = encodeEvent(ev)
+      if (st.outBytes + frame.byteLength > MAX_QUEUE_BYTES) {
+        logger.warn(`[pod] outbound queue exceeded ${MAX_QUEUE_BYTES} bytes — dropping stalled connection`)
+        try { (socket as any).end() } catch { /* already gone */ }
+        return
+      }
+      st.out.push(frame); st.outBytes += frame.byteLength
+      flushSocket(socket as any, st)
+    })
     conns.set(socket, st)
     registerPod(st.session) // make it reachable by the scheduler / push producers
     connCount++

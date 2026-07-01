@@ -11,6 +11,7 @@ import { randomBytes, createHash } from 'node:crypto'
 import { eq, and, gt } from 'drizzle-orm'
 import { db } from '@/db'
 import { devices } from '@/db/schema'
+import { invalidateHwidCache } from '@/lib/pod/displayRenderer'
 
 export type DeviceRow = typeof devices.$inferSelect
 
@@ -67,6 +68,7 @@ export async function createDevice(input: CreateDeviceInput): Promise<{ device: 
     createdAt: now,
   })
   const [device] = await db.select().from(devices).where(eq(devices.id, id)).limit(1)
+  invalidateHwidCache()
   return { device: device!, pairingCode }
 }
 
@@ -172,6 +174,7 @@ export async function claimDevice(input: ClaimDeviceInput): Promise<{ device: De
     })
   }
   const [device] = await db.select().from(devices).where(eq(devices.id, id)).limit(1)
+  invalidateHwidCache()
   return { device: device!, token }
 }
 
@@ -190,6 +193,7 @@ export async function listDevices(): Promise<DeviceRow[]> {
 
 export async function deleteDevice(id: string): Promise<void> {
   await db.delete(devices).where(eq(devices.id, id))
+  invalidateHwidCache()
 }
 
 export interface UpdateDeviceInput {
@@ -214,5 +218,6 @@ export async function updateDevice(id: string, input: UpdateDeviceInput): Promis
     return row ?? null
   }
   const [row] = await db.update(devices).set(patch).where(eq(devices.id, id)).returning()
+  invalidateHwidCache()
   return row ?? null
 }

@@ -233,14 +233,18 @@ function sanitizeHtml(html: string, opts: ExtractOpts): string {
     const kept: string[] = []
     for (const a of attrs.matchAll(/([a-zA-Z0-9:_-]+)\s*=\s*("([^"]*)"|'([^']*)')/g)) {
       const name = a[1].toLowerCase()
-      let value = a[3] ?? a[4] ?? ''
+      const raw = a[3] ?? a[4] ?? ''
       if (!allowed.has(name)) continue
+      // Decode entities BEFORE the scheme check — an attacker can smuggle any character
+      // of "javascript:" through a numeric entity (e.g. href="javascript&#58;alert(1)"),
+      // which the raw string wouldn't match but the browser decodes and executes on click.
+      let value = decodeEntities(raw)
       if ((name === 'href' || name === 'src') && /^\s*(javascript|data|vbscript):/i.test(value)) continue
       // Reader images → locally-archived copies when available.
       if (tag === 'img' && name === 'src' && opts.localizeImage) {
         value = opts.localizeImage(value) ?? value
       }
-      kept.push(`${name}="${value.replace(/"/g, '&quot;')}"`)
+      kept.push(`${name}="${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
     }
     return `<${tag}${kept.length ? ' ' + kept.join(' ') : ''}>`
   })
