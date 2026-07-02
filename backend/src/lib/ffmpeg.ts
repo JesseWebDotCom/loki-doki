@@ -6,12 +6,12 @@
 // downloads until a feature that needs ffmpeg (podcast export) actually runs.
 
 import { existsSync } from 'node:fs'
-import { mkdir, rm, readdir, chmod, copyFile, writeFile } from 'node:fs/promises'
+import { mkdir, rm, chmod, copyFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dataDir } from '@/lib/download'
-import { IS_WIN, extractZip } from '@/lib/platform'
+import { dataDir, downloadUrl } from '@/lib/download'
+import { IS_WIN, extractArchive, findFileInTree } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -53,23 +53,6 @@ async function works(bin: string): Promise<boolean> {
   try { await execFileAsync(bin, ['-version'], { timeout: 10_000 }); return true } catch { return false }
 }
 
-// Static builds nest the binary under a versioned folder (e.g. ffmpeg-*/bin/ffmpeg).
-// Walk the extracted tree to find it without depending on the exact layout.
-async function findBinary(dir: string): Promise<string | null> {
-  const stack = [dir]
-  while (stack.length) {
-    const d = stack.pop()!
-    let entries
-    try { entries = await readdir(d, { withFileTypes: true }) } catch { continue }
-    for (const e of entries) {
-      const p = join(d, e.name)
-      if (e.isDirectory()) stack.push(p)
-      else if (e.name === BIN_NAME) return p
-    }
-  }
-  return null
-}
-
 async function downloadManaged(): Promise<boolean> {
   const { url, kind } = release()
   const archive = join(BIN_DIR, kind === 'zip' ? 'ffmpeg-dl.zip' : 'ffmpeg-dl.tar.xz')
@@ -77,21 +60,19 @@ async function downloadManaged(): Promise<boolean> {
   try {
     await mkdir(BIN_DIR, { recursive: true })
     logger.info(`[ffmpeg] downloading static build from ${url}`)
-    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(300_000) })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const buf = new Uint8Array(await res.arrayBuffer())
-    if (buf.byteLength < 1_000_000) throw new Error(`suspiciously small download (${buf.byteLength} bytes)`)
-    await writeFile(archive, buf)
+    // Rolling "latest" URL — drop any stale complete archive; the shared downloader
+    // brings resume (.part) + retries + stall detection + size verification.
+    await rm(archive, { force: true })
+    await downloadUrl(url, archive, () => {}, undefined, { minBytes: 1_000_000 })
 
     await rm(extractDir, { recursive: true, force: true })
-    await mkdir(extractDir, { recursive: true })
-    if (kind === 'zip') extractZip(archive, extractDir, 180_000)
-    else await execFileAsync('tar', ['-xf', archive, '-C', extractDir], { timeout: 180_000 })  // tar handles .xz; bsdtar on Win10+ too
+    await extractArchive(archive, extractDir)
 
-    const found = await findBinary(extractDir)
+    const found = await findFileInTree(extractDir, BIN_NAME)
     if (!found) throw new Error('ffmpeg binary not found inside archive')
     await copyFile(found, MANAGED_PATH)
     if (!IS_WIN) await chmod(MANAGED_PATH, 0o755)
+    if (!(await works(MANAGED_PATH))) throw new Error('downloaded ffmpeg failed its -version smoke test')
 
     // Grab the sibling ffprobe too when the build ships one (BtbN does; evermeet doesn't)
     // so yt-dlp gets a complete toolset via --ffmpeg-location.

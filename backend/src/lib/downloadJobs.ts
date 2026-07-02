@@ -3,18 +3,22 @@
 // First-run hands the non-essential set (extra models, ZIMs, maps, components) here so
 // the app boots on essentials and finishes the rest in the background — surviving page
 // navigation and backend restarts. Scheduler rules (per product decision):
-//   • at most 1 "large" job running at once
+//   • at most 1 "large" job per domain, and at most 2 large overall — two different
+//     hosts (kiwix mirror set vs HuggingFace) don't share server-side throttling, so
+//     one large each genuinely overlaps; a third would just split the local link
 //   • at most 1 job per domain (host) at once
-//   • at most MAX_CONCURRENT jobs total
+//   • at most MAX_CONCURRENT network jobs total
+//   • map builds are CPU-bound (Planetiler/GraphHopper) and run in their own compute
+//     lane: they neither consume a network slot nor count against the large budget
 // Each job retries up to maxAttempts with exponential backoff; .part files mean retries
 // resume rather than restart.
 
 import { randomUUID } from 'node:crypto'
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, like, lte, or } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs } from '@/db/schema'
+import { downloadJobs, notifications } from '@/db/schema'
 import { CATALOG, ROLE_SETTINGS_KEY } from '@/lib/catalog'
 import { pullOllama, downloadHfFile, validateSafetensorsFile, dataDir, SDXL_VAE_DEST } from '@/lib/download'
 import type { DownloadProgress } from '@/lib/download'
@@ -248,7 +252,13 @@ async function tick(): Promise<void> {
     if (await isDownloadBlocked()) return  // offline mode — pause
     // Re-entrancy guard via tickScheduled; loop until no more can start.
     for (;;) {
-      if (running.size >= MAX_CONCURRENT) return
+      const runningList = [...running.values()]
+      // Map builds occupy a separate compute lane (CPU-bound Java, not bandwidth) —
+      // they don't consume a network slot, so an hours-long region build no longer
+      // blocks archive/model downloads.
+      const networkCount = runningList.filter((r) => r.type !== 'map').length
+      const mapRunning = runningList.some((r) => r.type === 'map')
+      if (networkCount >= MAX_CONCURRENT && mapRunning) return  // both lanes full
       const now = new Date()
       const candidates = await db.select().from(downloadJobs)
         .where(and(
@@ -256,15 +266,21 @@ async function tick(): Promise<void> {
           or(isNull(downloadJobs.nextEligibleAt), lte(downloadJobs.nextEligibleAt, now)),
         ))
         .orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
-      const largeRunning = [...running.values()].some((r) => r.sizeClass === 'large')
-      const domainsRunning = new Set([...running.values()].map((r) => r.domain))
+      const largeDomains = new Set(runningList.filter((r) => r.sizeClass === 'large' && r.type !== 'map').map((r) => r.domain))
+      const domainsRunning = new Set(runningList.map((r) => r.domain))
       const next = candidates.find((j) => {
         if (running.has(j.id)) return false
-        // At most one "large" download at a time, globally: a large archive is now internally
-        // parallel (aria2 saturates the link across mirrors), so running two would just split
-        // bandwidth and finish nothing sooner.
-        if (j.sizeClass === 'large' && largeRunning) return false
         if (!prereqMet(j)) return false
+        if (j.type === 'map') {
+          // Compute lane: one build at a time (the maps domain rule), independent of
+          // download slots. Its PBF download shares the lane — Geofabrik is its own host.
+          return !domainsRunning.has(j.domain)
+        }
+        if (networkCount >= MAX_CONCURRENT) return false
+        // Large downloads: one per domain, two overall. Different hosts don't share
+        // server-side throttling (kiwix mirrors vs HuggingFace), so a large archive and
+        // a large model genuinely overlap; a third split of the local link helps nothing.
+        if (j.sizeClass === 'large' && (largeDomains.has(j.domain) || largeDomains.size >= 2)) return false
         // Per-domain serialization, EXCEPT small archive jobs — they're quick, the kiwix restart
         // is coalesced across the batch, and letting them run alongside the one large archive
         // gives the user fast wins instead of waiting behind an 80 GB download.
@@ -355,6 +371,7 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
       } else {
         await db.update(downloadJobs).set({ status: 'failed', attempts, lastError: String(err), updatedAt: new Date() }).where(and(eq(downloadJobs.id, job.id), eq(downloadJobs.status, 'running')))
         logger.error(`[jobs] ✗ ${job.type}:${job.refId} — gave up after ${attempts} attempts: ${err}`)
+        await notifyJobExhausted(job, String(err))
         // Propagate terminal failure to the shared media asset + every waiting ref, so a second
         // user who attached to this job doesn't sit on 'pending' forever.
         if (job.type === 'yt-media') {
@@ -368,6 +385,33 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
     lastProgressAt.delete(job.id)
     stalledJobs.delete(job.id)
     void tick()  // fill the freed slot
+  }
+}
+
+// Surface a setup/library download that exhausted its retries as an admin notification —
+// previously these failed silently unless the user happened to open the download widget.
+// Deduped per job id: self-heal cycles a failed setup job back through 'failed' every
+// cooldown, and one alert is signal while one per cycle is spam. Best-effort throughout.
+async function notifyJobExhausted(job: typeof downloadJobs.$inferSelect, error: string): Promise<void> {
+  if (!SELF_HEAL_TYPES.includes(job.type as JobType)) return  // user-content jobs surface in their own UIs
+  try {
+    const existing = await db.select({ id: notifications.id }).from(notifications)
+      .where(and(eq(notifications.type, 'system'), like(notifications.payload, `%"jobId":"${job.id}"%`)))
+      .limit(1)
+    if (existing.length) return
+    await db.insert(notifications).values({
+      id: randomUUID(),
+      userId: null,  // admin-targeted
+      type: 'system',
+      payload: JSON.stringify({
+        title: `Download keeps failing: ${job.label}`,
+        body: `"${job.label}" failed ${job.maxAttempts} times (${error.slice(0, 160)}). It will keep retrying in the background — check your connection, or dismiss it from the download widget.`,
+        jobId: job.id,
+      }),
+      createdAt: new Date(),
+    })
+  } catch (e) {
+    logger.warn(`[jobs] failed-download notification not created: ${e}`)
   }
 }
 

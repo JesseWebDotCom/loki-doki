@@ -12,13 +12,13 @@
 // resumable fetch, so library downloads still work (just slower) on a host without aria2.
 
 import { existsSync } from 'node:fs'
-import { mkdir, rm, readdir, chmod, copyFile, writeFile } from 'node:fs/promises'
+import { mkdir, rm, copyFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spawn, execFile, exec } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dataDir } from '@/lib/download'
+import { dataDir, downloadUrl } from '@/lib/download'
 import type { DownloadProgress } from '@/lib/download'
-import { IS_WIN, extractZip } from '@/lib/platform'
+import { IS_WIN, extractZip, findFileInTree } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -39,36 +39,18 @@ async function works(bin: string): Promise<boolean> {
   try { await execFileAsync(bin, ['--version'], { timeout: 8_000 }); return true } catch { return false }
 }
 
-async function findFile(dir: string, name: string): Promise<string | null> {
-  const stack = [dir]
-  while (stack.length) {
-    const d = stack.pop()!
-    let entries
-    try { entries = await readdir(d, { withFileTypes: true }) } catch { continue }
-    for (const e of entries) {
-      const p = join(d, e.name)
-      if (e.isDirectory()) stack.push(p)
-      else if (e.name === name) return p
-    }
-  }
-  return null
-}
-
 async function downloadWindowsBuild(): Promise<boolean> {
   const archive = join(BIN_DIR, 'aria2-dl.zip')
   const extractDir = join(BIN_DIR, '_aria2_extract')
   try {
     await mkdir(BIN_DIR, { recursive: true })
     logger.info(`[aria2] downloading static build from ${ARIA2_WIN_URL}`)
-    const res = await fetch(ARIA2_WIN_URL, { redirect: 'follow', signal: AbortSignal.timeout(120_000) })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const buf = new Uint8Array(await res.arrayBuffer())
-    if (buf.byteLength < 500_000) throw new Error(`suspiciously small download (${buf.byteLength} bytes)`)
-    await writeFile(archive, buf)
+    // Shared downloader: resume (.part) + retries + stall detection + size verification.
+    await downloadUrl(ARIA2_WIN_URL, archive, () => {}, undefined, { minBytes: 500_000 })
     await rm(extractDir, { recursive: true, force: true })
     await mkdir(extractDir, { recursive: true })
     extractZip(archive, extractDir, 120_000)
-    const found = await findFile(extractDir, 'aria2c.exe')
+    const found = await findFileInTree(extractDir, 'aria2c.exe')
     if (!found) throw new Error('aria2c.exe not found inside archive')
     await copyFile(found, MANAGED_PATH)
     logger.info(`[aria2] installed managed binary → ${MANAGED_PATH}`)
@@ -169,24 +151,68 @@ export async function downloadZimWithAria2(
   const args = [
     '--metalink-file', meta4Path,
     '--dir', destDir,
-    '--continue=true',
-    '--max-connection-per-server=16',
-    '--split=16',
-    '--min-split-size=1M',
     '--max-tries=0',          // retry forever; the job-level stall watchdog bounds a dead mirror
-    '--retry-wait=10',
-    '--max-file-not-found=5',
-    '--connect-timeout=30',
-    '--timeout=60',
-    '--summary-interval=1',
-    '--console-log-level=warn',
-    '--auto-file-renaming=false',
-    '--allow-overwrite=true',
-    '--file-allocation=none',  // don't pre-allocate 80 GB up front (can stall on some filesystems)
+    ...COMMON_ARIA2_ARGS,
   ]
+  await runAria2(bin, args, destDir, totalBytes, onProgress, signal)
+}
 
+const COMMON_ARIA2_ARGS = [
+  '--continue=true',
+  '--max-connection-per-server=16',
+  '--split=16',
+  '--min-split-size=1M',
+  '--retry-wait=10',
+  '--max-file-not-found=5',
+  '--connect-timeout=30',
+  '--timeout=60',
+  '--summary-interval=1',
+  '--console-log-level=warn',
+  '--auto-file-renaming=false',
+  '--allow-overwrite=true',
+  '--file-allocation=none',  // don't pre-allocate 80 GB up front (can stall on some filesystems)
+]
+
+/**
+ * Segmented single-URL download — the same 16-way acceleration the ZIM path gets from
+ * metalinks, but for any Range-capable host (HuggingFace, GitHub releases, CivitAI).
+ * One server instead of many mirrors, so the win comes from parallel TCP flows beating
+ * per-connection throttling. Resumes via aria2's .aria2 control file next to `destPath`;
+ * the file is only complete once that control file is gone. When `sha256` is given,
+ * aria2 verifies it on completion (--checksum) and fails the download on mismatch.
+ */
+export async function downloadFileWithAria2(
+  bin: string,
+  url: string,
+  destPath: string,
+  totalBytes: number,
+  onProgress: (p: DownloadProgress) => void,
+  signal?: AbortSignal,
+  sha256?: string,
+): Promise<void> {
+  const destDir = join(destPath, '..')
+  await mkdir(destDir, { recursive: true })
+  const args = [
+    url,
+    '--dir', destDir,
+    '--out', destPath.split(/[\\/]/).pop()!,
+    '--max-tries=5',          // bounded — callers here have no job-level stall watchdog
+    ...COMMON_ARIA2_ARGS,
+  ]
+  if (sha256) args.push(`--checksum=sha-256=${sha256.toLowerCase()}`)
+  await runAria2(bin, args, destDir, totalBytes, onProgress, signal ?? new AbortController().signal)
+}
+
+function runAria2(
+  bin: string,
+  args: string[],
+  cwd: string,
+  totalBytes: number,
+  onProgress: (p: DownloadProgress) => void,
+  signal: AbortSignal,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: destDir, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
     const onAbort = () => { try { child.kill('SIGTERM') } catch { /* already dead */ } }
     signal.addEventListener('abort', onAbort, { once: true })
 

@@ -229,8 +229,12 @@ listHealthyArchivePaths()
   .catch(() => {})
 
 // Resume any background download jobs left pending/running from a prior session,
-// and start the scheduler that drains the queue (≤1 large, ≤1 per host, ≤4 total).
+// and start the scheduler that drains the queue (≤1 large per host / 2 large total,
+// ≤1 per host, ≤4 network jobs, plus a separate compute lane for map builds).
 void resumeDownloadJobs()
+// Pre-warm lazily-installed binary deps (ffmpeg, Chromium, Node runtime) in the
+// background so first use never stalls on a download — see lib/prewarm.ts.
+import('@/lib/prewarm').then((m) => m.scheduleBinaryPrewarm()).catch(() => {})
 startYoutubeFeedPoller()
 // Feeds: seed curated News as system feeds, kick an initial fetch, then poll on an interval.
 void seedSystemFeeds().then(() => refreshSystemFeeds()).catch(() => {})

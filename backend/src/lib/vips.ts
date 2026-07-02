@@ -12,12 +12,12 @@
 // (faster, plus AVIF/HEIC) when the host provides it.
 
 import { existsSync } from 'node:fs'
-import { mkdir, rm, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dataDir } from '@/lib/download'
-import { IS_WIN, extractZip } from '@/lib/platform'
+import { dataDir, downloadUrl } from '@/lib/download'
+import { IS_WIN, extractZip, findFileInTree } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -43,22 +43,6 @@ async function works(bin: string): Promise<boolean> {
   try { await execFileAsync(bin, ['--version'], { timeout: 10_000 }); return true } catch { return false }
 }
 
-// The Windows bundle nests vips.exe under vips-dev-*/bin/. Walk to find it.
-async function findBinary(dir: string): Promise<string | null> {
-  const stack = [dir]
-  while (stack.length) {
-    const d = stack.pop()!
-    let entries
-    try { entries = await readdir(d, { withFileTypes: true }) } catch { continue }
-    for (const e of entries) {
-      const p = join(d, e.name)
-      if (e.isDirectory()) stack.push(p)
-      else if (e.name === BIN_NAME) return p
-    }
-  }
-  return null
-}
-
 async function downloadManagedWindows(): Promise<boolean> {
   const archive = join(BIN_DIR, 'vips-dl.zip')
   // Keep the whole bundle — the .exe depends on its sibling DLLs, so we run it in place.
@@ -66,17 +50,14 @@ async function downloadManagedWindows(): Promise<boolean> {
   try {
     await mkdir(BIN_DIR, { recursive: true })
     logger.info(`[vips] downloading Windows build from ${WIN_BUILD_URL}`)
-    const res = await fetch(WIN_BUILD_URL, { redirect: 'follow', signal: AbortSignal.timeout(300_000) })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const buf = new Uint8Array(await res.arrayBuffer())
-    if (buf.byteLength < 1_000_000) throw new Error(`suspiciously small download (${buf.byteLength} bytes)`)
-    await writeFile(archive, buf)
+    // Shared downloader: resume (.part) + retries + stall detection + size verification.
+    await downloadUrl(WIN_BUILD_URL, archive, () => {}, undefined, { minBytes: 1_000_000 })
 
     await rm(installDir, { recursive: true, force: true })
     await mkdir(installDir, { recursive: true })
     extractZip(archive, installDir, 180_000)
 
-    const found = await findBinary(installDir)
+    const found = await findFileInTree(installDir, BIN_NAME)
     if (!found) throw new Error('vips.exe not found inside archive')
     if (await works(found)) {
       resolvedBin = found

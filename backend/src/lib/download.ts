@@ -1,6 +1,7 @@
-import { existsSync, statSync, chmodSync, createWriteStream, openSync, readSync, closeSync, unlinkSync } from 'node:fs'
+import { existsSync, statSync, chmodSync, createWriteStream, createReadStream, openSync, readSync, closeSync, unlinkSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, basename } from 'node:path'
+import { createHash } from 'node:crypto'
+import { dirname, join, resolve, basename, isAbsolute } from 'node:path'
 import { spawn, execSync } from 'node:child_process'
 import { CATALOG } from '@/lib/catalog'
 import type { HfSource, CatalogModel } from '@/lib/catalog'
@@ -84,42 +85,94 @@ export function validateSafetensorsFile(filePath: string): boolean {
 // Checks for a .part file and sends Range header to resume interrupted downloads.
 // Skips entirely if the destination file already exists.
 
+export interface DownloadUrlOptions {
+  /** Verify the completed file's SHA-256 (lowercase hex). Mismatch deletes the file and throws. */
+  expectedSha256?: string
+  /** Reject completed files smaller than this — catches error pages saved as binaries. */
+  minBytes?: number
+  /** Extra request headers (e.g. auth tokens). */
+  headers?: Record<string, string>
+}
+
+export function sha256OfFile(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(filePath)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex')))
+    stream.on('error', reject)
+  })
+}
+
+// Post-download integrity gate. `expectedTotal` comes from Content-Length (0 = server
+// didn't say); a size mismatch means a truncated/overlong body that TCP happily
+// delivered — without this it only surfaces later as a corrupt model/binary.
+// Any failure deletes the file so the retry starts clean instead of resuming garbage.
+async function verifyDownloadedFile(
+  destPath: string,
+  expectedTotal: number,
+  opts: DownloadUrlOptions | undefined,
+  onProgress: (p: DownloadProgress) => void,
+): Promise<void> {
+  const fail = (reason: string): never => {
+    try { unlinkSync(destPath) } catch { /* already gone */ }
+    throw new Error(`Download verification failed (${reason}): ${basename(destPath)} — the file was removed and will be re-downloaded`)
+  }
+  const size = statSync(destPath).size
+  if (expectedTotal > 0 && size !== expectedTotal) fail(`size ${size} != expected ${expectedTotal}`)
+  if (opts?.minBytes && size < opts.minBytes) fail(`only ${size} bytes`)
+  if (opts?.expectedSha256) {
+    onProgress({ completed: size, total: size, speedBps: 0, etaSeconds: 0, status: 'Verifying checksum…' })
+    const actual = await sha256OfFile(destPath)
+    if (actual !== opts.expectedSha256.toLowerCase()) fail(`sha256 ${actual.slice(0, 12)}… != expected ${opts.expectedSha256.slice(0, 12)}…`)
+  }
+}
+
 // Serializes downloads of the same destination so two concurrent callers (e.g. a
 // re-fired install effect or a retry) don't race on the shared `.part` file and
 // crash when one renames it to the final path before the other.
 const downloadLocks = new Map<string, Promise<unknown>>()
 
-async function downloadUrl(
+// Retry transient network errors with backoff. The .part file means each retry
+// resumes rather than restarting — so a 4 GB file interrupted at 3.9 GB costs
+// only the last few hundred MB on retry, not the whole download.
+// Lock-free inner loop: callers must already hold the downloadLocks entry.
+async function downloadUrlUnlocked(
   url: string,
   destRelative: string,
   onProgress: (p: DownloadProgress) => void,
   signal?: AbortSignal,
+  opts?: DownloadUrlOptions,
+): Promise<void> {
+  const MAX_ATTEMPTS = 6
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await _downloadUrlImpl(url, destRelative, onProgress, signal, opts)
+      return
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      if (attempt >= MAX_ATTEMPTS) throw err
+      const msg = String(err)
+      if (msg.includes('(404)') || msg.includes('(403)')) throw err  // auth / not-found → don't retry
+      const delaySec = Math.min(5 * 2 ** (attempt - 1), 60)
+      onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: delaySec, status: `Connection interrupted — resuming in ${delaySec}s… (${attempt}/${MAX_ATTEMPTS - 1})` })
+      await new Promise<void>((r) => setTimeout(r, delaySec * 1000))
+      if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
+    }
+  }
+}
+
+export async function downloadUrl(
+  url: string,
+  destRelative: string,
+  onProgress: (p: DownloadProgress) => void,
+  signal?: AbortSignal,
+  opts?: DownloadUrlOptions,
 ): Promise<void> {
   while (downloadLocks.has(destRelative)) {
     try { await downloadLocks.get(destRelative) } catch { /* ignore a prior attempt's failure; we re-check below */ }
   }
-  // Retry transient network errors with backoff. The .part file means each retry
-  // resumes rather than restarting — so a 4 GB file interrupted at 3.9 GB costs
-  // only the last few hundred MB on retry, not the whole download.
-  const MAX_ATTEMPTS = 6
-  const run = async () => {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await _downloadUrlImpl(url, destRelative, onProgress, signal)
-        return
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') throw err
-        if (attempt >= MAX_ATTEMPTS) throw err
-        const msg = String(err)
-        if (msg.includes('(404)') || msg.includes('(403)')) throw err  // auth / not-found → don't retry
-        const delaySec = Math.min(5 * 2 ** (attempt - 1), 60)
-        onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: delaySec, status: `Connection interrupted — resuming in ${delaySec}s… (${attempt}/${MAX_ATTEMPTS - 1})` })
-        await new Promise<void>((r) => setTimeout(r, delaySec * 1000))
-        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
-      }
-    }
-  }
-  const p = run()
+  const p = downloadUrlUnlocked(url, destRelative, onProgress, signal, opts)
   downloadLocks.set(destRelative, p)
   try { await p } finally { if (downloadLocks.get(destRelative) === p) downloadLocks.delete(destRelative) }
 }
@@ -137,8 +190,11 @@ async function _downloadUrlImpl(
   destRelative: string,
   onProgress: (p: DownloadProgress) => void,
   signal?: AbortSignal,
+  opts?: DownloadUrlOptions,
 ): Promise<void> {
-  const destPath = join(dataDir, destRelative)
+  // Accepts either a path relative to data/ (the common case) or an absolute path,
+  // so installers whose targets live elsewhere under data/ can share this machinery.
+  const destPath = isAbsolute(destRelative) ? destRelative : join(dataDir, destRelative)
   const partPath = destPath + '.part'
 
   await mkdir(dirname(destPath), { recursive: true })
@@ -154,7 +210,7 @@ async function _downloadUrlImpl(
   let resumeFrom = 0
   try { resumeFrom = statSync(partPath).size } catch { /* no partial */ }
 
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...opts?.headers }
   if (resumeFrom > 0) headers['Range'] = `bytes=${resumeFrom}-`
 
   const res = await fetch(url, { signal, headers })
@@ -162,6 +218,7 @@ async function _downloadUrlImpl(
   // 416 = the server says we already have everything
   if (res.status === 416) {
     try { await rename(partPath, destPath) } catch (e) { if (!existsSync(destPath)) throw e }
+    await verifyDownloadedFile(destPath, 0, opts, onProgress)
     throwIfCorruptSafetensors(destPath)
     return
   }
@@ -174,6 +231,10 @@ async function _downloadUrlImpl(
   const isPartial = res.status === 206
   const contentLength = parseInt(res.headers.get('content-length') ?? '0', 10)
   const total = isPartial ? resumeFrom + contentLength : contentLength
+  // Content-Length describes the WIRE bytes; fetch auto-decompresses, so when the
+  // server content-encoded the body (gzip/br — small text files, not model weights)
+  // the on-disk size legitimately differs and the size check must be skipped.
+  const wireEncoded = !!res.headers.get('content-encoding')
 
   const reader = res.body.getReader()
   const fileStream = createWriteStream(partPath, { flags: isPartial ? 'a' : 'w' })
@@ -205,6 +266,8 @@ async function _downloadUrlImpl(
       fileStream.end((err?: Error | null) => (err ? rej(err) : res())),
     )
     try { await rename(partPath, destPath) } catch (e) { if (!existsSync(destPath)) throw e }
+    // Only enforce the size check when the server declared a length for the raw bytes.
+    await verifyDownloadedFile(destPath, contentLength > 0 && !wireEncoded ? total : 0, opts, onProgress)
     throwIfCorruptSafetensors(destPath)
   } catch (err) {
     fileStream.destroy()
@@ -320,15 +383,96 @@ export async function pullOllama(
   }
 }
 
+// ── Large-file download with aria2 acceleration ───────────────────────────────
+// Files at/above this size get 16-segment parallel download via aria2 when available
+// (HuggingFace/GitHub/CivitAI all honor Range) — typically 3-5× faster than one TCP
+// flow against a throttling CDN. Falls back to the plain resumable stream when aria2
+// is missing or fails. An in-progress single-stream .part sticks with single-stream
+// so its bytes aren't thrown away; likewise an aria2 .aria2 control file resumes aria2.
+const ARIA2_MIN_BYTES = 1024 ** 3  // 1 GB
+
+export async function downloadLargeUrl(
+  url: string,
+  destRelative: string,
+  approxBytes: number,
+  onProgress: (p: DownloadProgress) => void,
+  signal?: AbortSignal,
+  opts?: DownloadUrlOptions,
+): Promise<void> {
+  const destPath = isAbsolute(destRelative) ? destRelative : join(dataDir, destRelative)
+  const ctrlPath = destPath + '.aria2'
+
+  // Serialize against other downloads of the same destination (same rule as downloadUrl).
+  while (downloadLocks.has(destRelative)) {
+    try { await downloadLocks.get(destRelative) } catch { /* prior attempt failed; re-check below */ }
+  }
+  const run = async () => {
+    // Complete already? An .aria2 control file next to the dest means aria2 was
+    // interrupted mid-write — the file LOOKS complete but isn't.
+    if (existsSync(destPath) && !existsSync(ctrlPath)) {
+      const size = statSync(destPath).size
+      onProgress({ completed: size, total: size, speedBps: 0, etaSeconds: 0 })
+      return
+    }
+
+    const wantAria2 = (approxBytes >= ARIA2_MIN_BYTES || existsSync(ctrlPath)) && !existsSync(destPath + '.part')
+    if (wantAria2) {
+      try {
+        const { ensureAria2, downloadFileWithAria2 } = await import('@/lib/aria2')
+        const bin = await ensureAria2()
+        if (bin) {
+          await downloadFileWithAria2(bin, url, destPath, approxBytes, onProgress, signal, opts?.expectedSha256)
+          // aria2 already verified the sha256 (--checksum); still enforce size floors.
+          await verifyDownloadedFile(destPath, 0, { ...opts, expectedSha256: undefined }, onProgress)
+          throwIfCorruptSafetensors(destPath)
+          return
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
+        // aria2 path failed — clear its partial state so the single-stream fallback
+        // doesn't mistake the incomplete file for a finished download.
+        try { unlinkSync(destPath) } catch { /* not created */ }
+        try { unlinkSync(ctrlPath) } catch { /* not created */ }
+        onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Accelerated download unavailable — using standard download…' })
+      }
+    }
+    // Unlocked variant — we already hold the downloadLocks entry for this dest.
+    await downloadUrlUnlocked(url, destRelative, onProgress, signal, opts)
+  }
+  const p = run()
+  downloadLocks.set(destRelative, p)
+  try { await p } finally { if (downloadLocks.get(destRelative) === p) downloadLocks.delete(destRelative) }
+}
+
 // ── HuggingFace file download ─────────────────────────────────────────────────
+
+// For LFS-stored files (every model weight), HuggingFace's resolve endpoint returns
+// the file's SHA-256 as `x-linked-etag` on the pre-redirect response — a free,
+// authoritative checksum. Non-LFS files return a git blob hash (40 hex) instead,
+// which we ignore. Best-effort: any failure just means no checksum verification.
+export async function hfFileSha256(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(15_000) })
+    const etag = res.headers.get('x-linked-etag') ?? res.headers.get('etag')
+    const m = etag?.match(/^(?:W\/)?"?([a-f0-9]{64})"?$/i)
+    return m?.[1] ? m[1].toLowerCase() : null
+  } catch {
+    return null
+  }
+}
 
 export async function downloadHfFile(
   hf: HfSource,
   onProgress: (p: DownloadProgress) => void,
   signal?: AbortSignal,
+  approxBytes?: number,
 ): Promise<void> {
   const url = `https://huggingface.co/${hf.repo}/resolve/main/${hf.file}`
-  await downloadUrl(url, hf.dest, onProgress, signal)
+  const destPath = join(dataDir, hf.dest)
+  // Skip the HEAD round-trip when the file is already on disk (downloadUrl no-ops).
+  const expectedSha256 = existsSync(destPath) ? undefined : (await hfFileSha256(url)) ?? undefined
+  await downloadLargeUrl(url, hf.dest, approxBytes ?? hf.approxBytes ?? 0, onProgress, signal, { expectedSha256 })
 }
 
 // ── sd.cpp (image generation runtime) ─────────────────────────────────────────
@@ -363,21 +507,26 @@ export function getFluxVaePath(): string | null {
 }
 
 async function getSdCppDownloadUrl(): Promise<string> {
+  // Walk recent releases, not just /latest: sd.cpp occasionally ships a release
+  // without the macOS asset (or renames it), and pinning on /latest alone made
+  // install fail outright until upstream fixed their release.
   const res = await fetch(
-    'https://api.github.com/repos/leejet/stable-diffusion.cpp/releases/latest',
+    'https://api.github.com/repos/leejet/stable-diffusion.cpp/releases?per_page=5',
     {
       headers: { 'User-Agent': 'loki-doki/1.0', Accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(10_000),
     },
   )
-  if (!res.ok) throw new Error(`GitHub API ${res.status} fetching sd.cpp release`)
-  const data = await res.json() as { assets: { name: string; browser_download_url: string }[] }
-  // macOS ARM64 Metal build: "sd-master-[hash]-bin-Darwin-...-arm64.zip" (or legacy "bin-osx-arm64.zip")
-  const asset = data.assets.find(
-    (a) => (a.name.includes('Darwin') || a.name.includes('osx')) && a.name.includes('arm64') && a.name.endsWith('.zip'),
-  )
-  if (!asset) throw new Error('No macOS ARM64 sd.cpp asset found in latest release')
-  return asset.browser_download_url
+  if (!res.ok) throw new Error(`GitHub API ${res.status} fetching sd.cpp releases`)
+  const releases = await res.json() as { assets: { name: string; browser_download_url: string }[] }[]
+  for (const release of releases) {
+    // macOS ARM64 Metal build: "sd-master-[hash]-bin-Darwin-...-arm64.zip" (or legacy "bin-osx-arm64.zip")
+    const asset = release.assets?.find(
+      (a) => (a.name.includes('Darwin') || a.name.includes('osx')) && a.name.includes('arm64') && a.name.endsWith('.zip'),
+    )
+    if (asset) return asset.browser_download_url
+  }
+  throw new Error('No macOS ARM64 sd.cpp asset found in the last 5 releases')
 }
 
 export async function downloadSdCppBinary(
@@ -1328,9 +1477,9 @@ export async function downloadComfyUIModel(
   signal?: AbortSignal,
 ): Promise<void> {
   if (model.url) {
-    await downloadUrl(model.url.downloadUrl, model.url.dest, onProgress, signal)
+    await downloadLargeUrl(model.url.downloadUrl, model.url.dest, model.approxBytes, onProgress, signal)
   } else if (model.hf) {
-    await downloadHfFile(model.hf, onProgress, signal)
+    await downloadHfFile(model.hf, onProgress, signal, model.approxBytes)
   } else if (model.hfFiles) {
     let accumulated = 0
     for (const hfFile of model.hfFiles) {

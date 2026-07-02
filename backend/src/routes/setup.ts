@@ -307,28 +307,27 @@ setup.post('/download', requireAuth, async (c) => {
     // wizard stays on its retry screen instead of admitting the user into a chatless
     // app. Embeddings/router failures self-heal via boot-repair, so they don't block.
     let essentialLlmFailed = false
+    // Set when the user cancels: lanes stop starting new items and finalization is skipped.
+    let cancelled = false
 
-    for (const model of toInstall) {
-      // Image-role models are downloaded and evented by the ComfyUI section below.
-      // Skip them here to avoid fake start→complete before the actual download.
-      if (IMAGE_ROLES.has(model.role)) continue
+    // Serialize SSE writes across the concurrent install lanes below so events are
+    // emitted whole and in call order regardless of which lane produced them.
+    let writeChain: Promise<void> = Promise.resolve()
+    const emit = (event: string, data: Record<string, unknown>): Promise<void> => {
+      const next = writeChain
+        .then(() => stream.writeSSE({ event, data: JSON.stringify(data) }))
+        .catch(() => { /* client gone — the abort handler tears down the downloads */ })
+      writeChain = next
+      return next
+    }
 
+    const installOneModel = async (model: (typeof CATALOG)[number]): Promise<void> => {
       const base = { id: model.id, role: model.role, label: model.label }
-
-      // Helper to emit progress events
-      const emitProgress = async (p: {
+      const emitProgress = (p: {
         completed: number; total: number; speedBps: number; etaSeconds: number; status?: string
-      }) => {
-        await stream.writeSSE({
-          event: 'progress',
-          data: JSON.stringify({ ...base, ...p }),
-        })
-      }
+      }) => { void emit('progress', { ...base, ...p }) }
 
-      await stream.writeSSE({
-        event: 'start',
-        data: JSON.stringify({ ...base, status: 'downloading' }),
-      })
+      await emit('start', { ...base, status: 'downloading' })
 
       console.log(`[models] pulling ${model.label} (${model.id})`)
       try {
@@ -337,7 +336,7 @@ setup.post('/download', requireAuth, async (c) => {
         } else if (model.backend === 'huggingface') {
           // Single-file models
           if (model.hf) {
-            await downloadHfFile(model.hf, emitProgress, ctrl.signal)
+            await downloadHfFile(model.hf, emitProgress, ctrl.signal, model.approxBytes)
           }
           // Multi-file models (voice) — download each file in sequence
           if (model.hfFiles) {
@@ -347,13 +346,7 @@ setup.post('/download', requireAuth, async (c) => {
               const fileBytes = hfFile.approxBytes ?? (hfFile.dest.includes('model.pth') ? model.approxBytes * 0.95 : 0)
               await downloadHfFile(
                 hfFile,
-                (p) => {
-                  void emitProgress({
-                    ...p,
-                    completed: totalAccum + p.completed,
-                    total: grandTotal,
-                  })
-                },
+                (p) => emitProgress({ ...p, completed: totalAccum + p.completed, total: grandTotal }),
                 ctrl.signal,
               )
               totalAccum += fileBytes
@@ -378,72 +371,78 @@ setup.post('/download', requireAuth, async (c) => {
         }
 
         console.log(`[models] ✓ ${model.label} complete`)
-        await stream.writeSSE({
-          event: 'complete',
-          data: JSON.stringify({ ...base, status: 'complete' }),
-        })
+        await emit('complete', { ...base, status: 'complete' })
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           console.log(`[models] cancelled during ${model.label}`)
-          await stream.writeSSE({
-            event: 'cancelled',
-            data: JSON.stringify({ ...base, status: 'cancelled' }),
-          })
-          return // Stop processing remaining models
+          cancelled = true
+          await emit('cancelled', { ...base, status: 'cancelled' })
+          return
         }
         console.error(`[models] ✗ ${model.label}:`, err)
         if (model.role === 'llm' || model.role === 'uncensored_llm') essentialLlmFailed = true
-        await stream.writeSSE({
-          event: 'error',
-          data: JSON.stringify({ ...base, status: 'error', error: String(err) }),
-        })
+        await emit('error', { ...base, status: 'error', error: String(err) })
         // Continue to next model on non-fatal error
       }
     }
 
-    // ── ComfyUI runtime (if any image gen models were selected) ──────────────
+    // Models grouped by host into lanes: Ollama-registry pulls and HuggingFace files
+    // download from different servers, so the lanes run CONCURRENTLY (each lane is
+    // sequential internally to keep per-host bandwidth undivided). Previously every
+    // item was strictly serial, making setup take the SUM of all downloads instead
+    // of the longest lane.
+    const nonImageModels = toInstall.filter((m) => !IMAGE_ROLES.has(m.role))
+    const modelLane = async (models: typeof CATALOG): Promise<void> => {
+      for (const m of models) {
+        if (cancelled) return
+        await installOneModel(m)
+      }
+    }
+
+    // ── ComfyUI lane (if any image gen models were selected) ─────────────────
     // Skipped entirely in essentialOnly mode — image stack is backgrounded.
-    if (hasImageModels) {
+    // Runs concurrently with the model lanes: the runtime setup is git+pip
+    // (CPU/pytorch.org), not a competitor for the model hosts' bandwidth.
+    const imageLane = async (): Promise<void> => {
+      if (!hasImageModels || cancelled) return
       const comfyBase = { id: 'comfyui-base', role: 'runtime', label: 'ComfyUI Runtime' }
       const nodesBase = { id: 'comfyui-nodes', role: 'runtime', label: 'Image Generation Extensions' }
       const hw     = detectHardware()
       const config = await resolveComfyUILaunchConfig(hw)
 
       if (!isComfyUIInstalled()) {
-        await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...comfyBase, status: 'downloading' }) })
+        await emit('start', { ...comfyBase, status: 'downloading' })
         try {
-          await setupComfyUIBase(config, async (p) => {
-            await stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...comfyBase, ...p }) })
-          }, ctrl.signal)
-          await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...comfyBase, status: 'complete' }) })
+          await setupComfyUIBase(config, (p) => { void emit('progress', { ...comfyBase, ...p }) }, ctrl.signal)
+          await emit('complete', { ...comfyBase, status: 'complete' })
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') {
-            await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...comfyBase, status: 'cancelled' }) })
+            cancelled = true
+            await emit('cancelled', { ...comfyBase, status: 'cancelled' })
             return
           }
           // Non-fatal: image generation is optional. Emit the error and skip the rest of
           // the image stack (guarded by isComfyUIInstalled() below), then fall through to
           // finalize first-run — never strand the user in the wizard over an optional runtime.
-          await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...comfyBase, status: 'error', error: String(err) }) })
+          await emit('error', { ...comfyBase, status: 'error', error: String(err) })
         }
 
         // Only install the custom nodes if the runtime actually came up.
-        if (isComfyUIInstalled()) {
-          await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...nodesBase, status: 'downloading' }) })
+        if (isComfyUIInstalled() && !cancelled) {
+          await emit('start', { ...nodesBase, status: 'downloading' })
           try {
-            await installComfyUINodes(async (p) => {
-              await stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...nodesBase, ...p }) })
-            }, ctrl.signal)
+            await installComfyUINodes((p) => { void emit('progress', { ...nodesBase, ...p }) }, ctrl.signal)
             await recordInstalled('comfyui-base')
             await recordInstalled('comfyui-nodes')
-            await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...nodesBase, status: 'complete' }) })
+            await emit('complete', { ...nodesBase, status: 'complete' })
           } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') {
-              await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...nodesBase, status: 'cancelled' }) })
+              cancelled = true
+              await emit('cancelled', { ...nodesBase, status: 'cancelled' })
               return
             }
             // Non-fatal — custom nodes can be repaired later
-            await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...nodesBase, status: 'error', error: String(err) }) })
+            await emit('error', { ...nodesBase, status: 'error', error: String(err) })
           }
         }
       }
@@ -451,110 +450,82 @@ setup.post('/download', requireAuth, async (c) => {
       // The remaining image assets (preview models, VAE, upscaler, face restore, model
       // files) and the runtime spawn all need a working ComfyUI. If the base failed above,
       // skip them so we don't emit a cascade of doomed downloads — setup finalizes regardless.
-      if (isComfyUIInstalled()) {
-        // TAESD preview models — small (~5 MB each), always needed for live previews
-        const taesdBase = { id: 'taesd', role: 'runtime', label: 'TAESD' }
-        await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...taesdBase, status: 'downloading' }) })
+      if (!isComfyUIInstalled() || cancelled) return
+
+      // Small helper: run one image-stack item with the standard event envelope.
+      // Returns false when the user cancelled (caller stops the lane).
+      const runItem = async (
+        base: { id: string; role: string; label: string },
+        work: (onP: (p: { completed: number; total: number; speedBps: number; etaSeconds: number; status?: string }) => void) => Promise<void>,
+        onOk?: () => Promise<void>,
+      ): Promise<boolean> => {
+        await emit('start', { ...base, status: 'downloading' })
         try {
-          await downloadTaesdModels((p) => {
-            stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...taesdBase, ...p, status: p.label }) }).catch(() => {})
-          }, ctrl.signal)
-          await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...taesdBase, status: 'complete' }) })
+          await work((p) => { void emit('progress', { ...base, ...p }) })
+          if (onOk) await onOk()
+          await emit('complete', { ...base, status: 'complete' })
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') {
-            await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...taesdBase, status: 'cancelled' }) })
-            return
+            cancelled = true
+            await emit('cancelled', { ...base, status: 'cancelled' })
+            return false
           }
-          // Non-fatal — latent2rgb previews still work without TAESD
-          await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...taesdBase, status: 'error', error: String(err) }) })
+          // Non-fatal — every image asset can be repaired later via Admin → Features
+          await emit('error', { ...base, status: 'error', error: String(err) })
         }
+        return true
+      }
 
-        // SDXL external VAE — fixes color fringing from baked-in v0.9 VAE weights
-        const sdxlVaeBase = { id: 'sdxl-vae', role: 'runtime', label: 'SDXL VAE (color fix)' }
-        await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...sdxlVaeBase, status: 'downloading' }) })
-        try {
-          await downloadSdxlVae((p) => {
-            stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...sdxlVaeBase, ...p }) }).catch(() => {})
-          }, ctrl.signal)
-          await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...sdxlVaeBase, status: 'complete' }) })
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') {
-            await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...sdxlVaeBase, status: 'cancelled' }) })
-            return
-          }
-          // Non-fatal — will fall back to embedded (flawed) VAE
-          await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...sdxlVaeBase, status: 'error', error: String(err) }) })
+      // TAESD preview models — small (~5 MB each), always needed for live previews
+      if (!(await runItem(
+        { id: 'taesd', role: 'runtime', label: 'TAESD' },
+        (onP) => downloadTaesdModels((p) => onP({ ...p, status: p.label }), ctrl.signal),
+      ))) return
+
+      // SDXL external VAE — fixes color fringing from baked-in v0.9 VAE weights
+      if (!(await runItem(
+        { id: 'sdxl-vae', role: 'runtime', label: 'SDXL VAE (color fix)' },
+        (onP) => downloadSdxlVae(onP, ctrl.signal),
+      ))) return
+
+      // ESRGAN upscaler — pixel-space hires fix, sharper than latent bislerp
+      if (!(await runItem(
+        { id: 'esrgan-upscaler', role: 'runtime', label: 'ESRGAN' },
+        (onP) => downloadEsrganModel(onP, ctrl.signal),
+        () => recordInstalled('esrgan'),
+      ))) return
+
+      // Face restoration helpers — only needed when face_id/face_embed models are selected
+      if (hasFaceModels) {
+        for (const fid of ['comfyui-facerestore', 'codeformer', 'gfpgan']) {
+          const comp = getInstallComponent(fid)
+          if (!comp) continue
+          if (comp.isInstalled()) { await recordInstalled(fid); continue }
+          if (!(await runItem(
+            { id: fid, role: 'component', label: comp.label },
+            (onP) => comp.repair(onP, ctrl.signal),
+            () => recordInstalled(fid),
+          ))) return
         }
+      }
 
-        // ESRGAN upscaler — pixel-space hires fix, sharper than latent bislerp
-        const esrganBase = { id: 'esrgan-upscaler', role: 'runtime', label: 'ESRGAN' }
-        await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...esrganBase, status: 'downloading' }) })
-        try {
-          await downloadEsrganModel((p) => {
-            stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...esrganBase, ...p }) }).catch(() => {})
-          }, ctrl.signal)
-          await recordInstalled('esrgan')
-          await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...esrganBase, status: 'complete' }) })
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') {
-            await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...esrganBase, status: 'cancelled' }) })
-            return
-          }
-          // Non-fatal — will fall back to latent bislerp
-          await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...esrganBase, status: 'error', error: String(err) }) })
-        }
-
-        // Face restoration helpers — only needed when face_id/face_embed models are selected
-        if (hasFaceModels) {
-          for (const fid of ['comfyui-facerestore', 'codeformer', 'gfpgan']) {
-            const comp = getInstallComponent(fid)
-            if (!comp) continue
-            if (comp.isInstalled()) { await recordInstalled(fid); continue }
-            const base = { id: fid, role: 'component', label: comp.label }
-            await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...base, status: 'downloading' }) })
-            try {
-              await comp.repair((p) => {
-                stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...base, ...p }) }).catch(() => {})
-              }, ctrl.signal)
-              await recordInstalled(fid)
-              await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...base, status: 'complete' }) })
-            } catch (err) {
-              if (err instanceof DOMException && err.name === 'AbortError') {
-                await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...base, status: 'cancelled' }) })
-                return
-              }
-              // Non-fatal — can be installed later via Admin → Features
-              await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...base, status: 'error', error: String(err) }) })
-            }
-          }
-        }
-
-        // Download selected image model files
-        const imageModels = selected.filter((m) => IMAGE_ROLES.has(m.role))
-        for (const model of imageModels) {
-          const base = { id: model.id, role: model.role, label: model.label }
-          await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...base, status: 'downloading' }) })
-          try {
-            await downloadComfyUIModel(model, async (p) => {
-              await stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...base, ...p }) })
-            }, ctrl.signal)
+      // Download selected image model files
+      const imageModels = selected.filter((m) => IMAGE_ROLES.has(m.role))
+      for (const model of imageModels) {
+        if (!(await runItem(
+          { id: model.id, role: model.role, label: model.label },
+          (onP) => downloadComfyUIModel(model, onP, ctrl.signal),
+          async () => {
             // Persist active model selection for this role
             const settingsKey = ROLE_SETTINGS_KEY[model.role]
             if (settingsKey) { await setAppSetting(settingsKey, model.id) }
             await recordInstalled(model.id)
-            await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...base, status: 'complete' }) })
-          } catch (err) {
-            if (err instanceof DOMException && err.name === 'AbortError') {
-              await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...base, status: 'cancelled' }) })
-              return
-            }
-            await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...base, status: 'error', error: String(err) }) })
-          }
-        }
-
-        // Spawn ComfyUI in the background — takes 30–120s to warm up
-        spawnComfyUI(config)
+          },
+        ))) return
       }
+
+      // Spawn ComfyUI in the background — takes 30–120s to warm up
+      spawnComfyUI(config)
     }
 
     // ── Optional capabilities chosen in the wizard ───────────────────────────
@@ -562,36 +533,52 @@ setup.post('/download', requireAuth, async (c) => {
     // registry so coverage matches Admin → Features. In essentialOnly mode, only
     // "base" components (those needed from first boot) install inline; everything
     // else is handed to the background job manager.
-    for (const cid of inlineComponentIds) {
-      const comp = getInstallComponent(cid)
-      if (!comp) continue
-      // Skip ComfyUI components — handled by the image-generation section above.
-      if (cid === 'comfyui-base' || cid === 'comfyui-nodes') continue
-      if (comp.isInstalled()) { await recordInstalled(cid); continue }
+    const componentLane = async (): Promise<void> => {
+      for (const cid of inlineComponentIds) {
+        if (cancelled) return
+        const comp = getInstallComponent(cid)
+        if (!comp) continue
+        // Skip ComfyUI components — handled by the image lane above.
+        if (cid === 'comfyui-base' || cid === 'comfyui-nodes') continue
+        if (comp.isInstalled()) { await recordInstalled(cid); continue }
 
-      const base = { id: cid, role: 'component', label: comp.label }
-      await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...base, status: 'downloading' }) })
-      try {
-        await comp.repair((p) => {
-          stream.writeSSE({ event: 'progress', data: JSON.stringify({ ...base, ...p }) }).catch(() => {})
-        }, ctrl.signal)
-        await recordInstalled(cid)
-        // Offline Library: spawn the ZIM server if archives were already installed.
-        if (cid === 'kiwix-tools') {
-          const rows = await db.select().from(zimArchivesTable)
-          const zimPaths = rows.map((r) => r.filePath).filter(Boolean) as string[]
-          if (zimPaths.length > 0) maybeSpawnKiwix(zimPaths).catch(() => {})
+        const base = { id: cid, role: 'component', label: comp.label }
+        await emit('start', { ...base, status: 'downloading' })
+        try {
+          await comp.repair((p) => { void emit('progress', { ...base, ...p }) }, ctrl.signal)
+          await recordInstalled(cid)
+          // Offline Library: spawn the ZIM server if archives were already installed.
+          if (cid === 'kiwix-tools') {
+            const rows = await db.select().from(zimArchivesTable)
+            const zimPaths = rows.map((r) => r.filePath).filter(Boolean) as string[]
+            if (zimPaths.length > 0) maybeSpawnKiwix(zimPaths).catch(() => {})
+          }
+          await emit('complete', { ...base, status: 'complete' })
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') {
+            cancelled = true
+            await emit('cancelled', { ...base, status: 'cancelled' })
+            return
+          }
+          // Non-fatal — any capability can be installed later from Admin → Features.
+          await emit('error', { ...base, status: 'error', error: String(err) })
         }
-        await stream.writeSSE({ event: 'complete', data: JSON.stringify({ ...base, status: 'complete' }) })
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          await stream.writeSSE({ event: 'cancelled', data: JSON.stringify({ ...base, status: 'cancelled' }) })
-          return
-        }
-        // Non-fatal — any capability can be installed later from Admin → Features.
-        await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...base, status: 'error', error: String(err) }) })
       }
     }
+
+    // ── Run all lanes concurrently ────────────────────────────────────────────
+    // Ollama-registry pulls ∥ HuggingFace files ∥ ComfyUI stack ∥ components.
+    // Each lane stays sequential internally; per-item errors are non-fatal inside
+    // their lane, and a user cancel flips `cancelled` + aborts in-flight work.
+    await Promise.all([
+      modelLane(nonImageModels.filter((m) => m.backend === 'ollama')),
+      modelLane(nonImageModels.filter((m) => m.backend !== 'ollama')),
+      imageLane(),
+      componentLane(),
+    ])
+    // Flush any queued SSE writes before finalizing.
+    await writeChain
+    if (cancelled) return
 
     // Hand the non-essential set to the background job manager so it finishes after boot.
     // Base components (tesseract) already installed inline above — exclude them here.

@@ -1,14 +1,14 @@
 import { join, basename } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, rm, readdir, copyFile, writeFile } from 'node:fs/promises'
+import { mkdir, rm, copyFile } from 'node:fs/promises'
 import { exec, execSync, execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { ChildProcess } from 'node:child_process'
 
 const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
-import { dataDir } from '@/lib/download'
-import { IS_WIN, extractZip } from '@/lib/platform'
+import { dataDir, downloadUrl } from '@/lib/download'
+import { IS_WIN, extractZip, findFileInTree } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 export const KIWIX_PORT   = 8090
@@ -157,11 +157,8 @@ async function installKiwixServeWindows(onStatus: (msg: string) => void, signal?
   try {
     await mkdir(BIN_DIR, { recursive: true })
     onStatus('Downloading kiwix-serve…')
-    const res = await fetch(url, { redirect: 'follow', signal: signal ?? AbortSignal.timeout(180_000) })
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`)
-    const buf = new Uint8Array(await res.arrayBuffer())
-    if (buf.byteLength < 1_000_000) throw new Error(`suspiciously small download (${buf.byteLength} bytes)`)
-    await writeFile(archive, buf)
+    // Shared downloader: resume (.part) + retries + stall detection + size verification.
+    await downloadUrl(url, archive, () => {}, signal, { minBytes: 1_000_000 })
 
     onStatus('Extracting kiwix-serve…')
     await rm(extractDir, { recursive: true, force: true })
@@ -169,8 +166,8 @@ async function installKiwixServeWindows(onStatus: (msg: string) => void, signal?
     extractZip(archive, extractDir, 120_000)
 
     // kiwix-tools static builds are self-contained executables — copy the two we use.
-    const serveSrc  = await findFile(extractDir, 'kiwix-serve.exe')
-    const manageSrc = await findFile(extractDir, 'kiwix-manage.exe')
+    const serveSrc  = await findFileInTree(extractDir, 'kiwix-serve.exe')
+    const manageSrc = await findFileInTree(extractDir, 'kiwix-manage.exe')
     if (!serveSrc)  throw new Error('kiwix-serve.exe not found in archive')
     await copyFile(serveSrc, KIWIX_SERVE_BIN)
     if (manageSrc) await copyFile(manageSrc, KIWIX_MANAGE_BIN)
@@ -181,21 +178,6 @@ async function installKiwixServeWindows(onStatus: (msg: string) => void, signal?
     await rm(archive, { force: true }).catch(() => {})
     await rm(extractDir, { recursive: true, force: true }).catch(() => {})
   }
-}
-
-async function findFile(dir: string, name: string): Promise<string | null> {
-  const stack = [dir]
-  while (stack.length) {
-    const d = stack.pop()!
-    let entries
-    try { entries = await readdir(d, { withFileTypes: true }) } catch { continue }
-    for (const e of entries) {
-      const p = join(d, e.name)
-      if (e.isDirectory()) stack.push(p)
-      else if (e.name === name) return p
-    }
-  }
-  return null
 }
 
 // ── Validate a ZIM without libzim (Windows): kiwix-manage opens it or it's bad ───

@@ -13,9 +13,10 @@
 
 import { Database } from 'bun:sqlite'
 import { spawn } from 'node:child_process'
-import { createReadStream, createWriteStream, existsSync } from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import parseOSM from 'osm-pbf-parser'
+import { downloadUrl } from '@/lib/download'
 import { getRegion } from '@/lib/maps/catalog'
 import {
   graphhopperJar, javaBin, mapsSourcesDir, planetilerJar,
@@ -50,35 +51,19 @@ function runJava(args: string[], onLine?: (line: string) => void, signal?: Abort
   })
 }
 
+// Region PBFs run to multiple GB — the shared downloader gives them retry with
+// backoff, .part resume, stall detection, and size verification instead of the
+// previous one-shot fetch that restarted from zero on any blip.
 async function downloadPbf(url: string, dest: string, onEvent: OnEvent, signal?: AbortSignal): Promise<void> {
-  const res = await fetch(url, { signal, redirect: 'follow' })
-  if (!res.ok || !res.body) throw new Error(`PBF download failed (${res.status})`)
-  await mkdir(require_dirname(dest), { recursive: true })
-  const tmp = `${dest}.part`
-  const out = createWriteStream(tmp)
-  const reader = res.body.getReader()
-  const total = parseInt(res.headers.get('content-length') ?? '0', 10)
-  let done = 0
   let lastPct = -1
-  while (true) {
-    if (signal?.aborted) { out.close(); throw new DOMException('Cancelled', 'AbortError') }
-    const { done: finished, value } = await reader.read()
-    if (finished) break
-    out.write(Buffer.from(value))
-    done += value.length
-    if (total > 0) {
-      const pct = Math.floor((done / total) * 100)
+  await downloadUrl(url, dest, (p) => {
+    if (p.total > 0) {
+      const pct = Math.floor((p.completed / p.total) * 100)
       if (pct !== lastPct) { lastPct = pct; onEvent({ phase: 'downloading', artifact: 'pbf', pct }) }
+    } else if (p.status) {
+      onEvent({ phase: 'downloading', artifact: 'pbf', msg: p.status })
     }
-  }
-  await new Promise<void>((resolve, reject) => out.end((err: unknown) => (err ? reject(err) : resolve())))
-  const { rename } = await import('node:fs/promises')
-  await rename(tmp, dest)
-}
-
-function require_dirname(p: string): string {
-  const i = p.lastIndexOf('/')
-  return i === -1 ? '.' : p.slice(0, i)
+  }, signal)
 }
 
 // Throttle high-frequency subprocess log lines to ~1 event/sec so the SSE

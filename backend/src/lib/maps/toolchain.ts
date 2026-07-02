@@ -8,12 +8,13 @@
 // Mirrors v2 lokidoki/bootstrap/maps_tools.py. Tools land under
 // data/maps/tools/. Everything is downloaded at runtime via the admin
 // Features → Maps install flow (same pattern as kiwix / voice / sd.cpp), never
-// bundled. Progress is reported as status strings (downloads are not resumable
-// here — they are one-shot fetch+extract).
+// bundled. Progress is reported as status strings; downloads go through the
+// shared resumable downloader (retry + .part resume + verification).
 
 import { spawn } from 'node:child_process'
 import { extractZip, killByCommandLine } from '@/lib/platform'
-import { createWriteStream, existsSync, rmSync, writeFileSync } from 'node:fs'
+import { downloadUrl } from '@/lib/download'
+import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { chmod, mkdir, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -62,30 +63,32 @@ function platformKey(): { jre: string; jreExt: string; pmtiles: string; pmtilesE
   }
 }
 
-async function fetchToFile(url: string, dest: string, onStatus: OnStatus, signal?: AbortSignal): Promise<void> {
-  onStatus(`Downloading ${url.split('/').pop()}…`)
-  const res = await fetch(url, { signal, redirect: 'follow' })
-  if (!res.ok || !res.body) throw new Error(`download failed (${res.status}): ${url}`)
-  await mkdir(join(dest, '..'), { recursive: true })
-  const tmp = `${dest}.part`
-  const out = createWriteStream(tmp)
-  const reader = res.body.getReader()
-  const total = parseInt(res.headers.get('content-length') ?? '0', 10)
-  let done = 0
+// Thin adapter over the shared resumable downloader (lib/download.ts): brings
+// retry with backoff, .part resume, stall detection, and size/checksum verification
+// to the toolchain downloads, which were previously one-shot fetches that a single
+// network blip forced back to byte zero.
+async function fetchToFile(url: string, dest: string, onStatus: OnStatus, signal?: AbortSignal, expectedSha256?: string): Promise<void> {
+  const name = url.split('/').pop()
+  onStatus(`Downloading ${name}…`)
   let lastPct = -1
-  while (true) {
-    if (signal?.aborted) { out.close(); throw new DOMException('Cancelled', 'AbortError') }
-    const { done: finished, value } = await reader.read()
-    if (finished) break
-    out.write(Buffer.from(value))
-    done += value.length
-    if (total > 0) {
-      const pct = Math.floor((done / total) * 100)
-      if (pct !== lastPct && pct % 5 === 0) { lastPct = pct; onStatus(`${url.split('/').pop()}: ${pct}%`) }
+  await downloadUrl(url, dest, (p) => {
+    if (p.status) { onStatus(`${name}: ${p.status}`); return }
+    if (p.total > 0) {
+      const pct = Math.floor((p.completed / p.total) * 100)
+      if (pct !== lastPct && pct % 5 === 0) { lastPct = pct; onStatus(`${name}: ${pct}%`) }
     }
-  }
-  await new Promise<void>((resolve, reject) => out.end((err: unknown) => (err ? reject(err) : resolve())))
-  await rename(tmp, dest)
+  }, signal, { expectedSha256 })
+}
+
+// Adoptium publishes `<asset>.sha256.txt` ("<hex>  <filename>") next to every JRE
+// asset. Best-effort: if unreachable, install proceeds unverified.
+async function adoptiumSha256(assetUrl: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(`${assetUrl}.sha256.txt`, { redirect: 'follow', signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) return undefined
+    const hex = (await res.text()).trim().split(/\s+/)[0]
+    return /^[a-f0-9]{64}$/i.test(hex ?? '') ? hex : undefined
+  } catch { return undefined }
 }
 
 function run(cmd: string, args: string[], cwd: string): Promise<void> {
@@ -450,7 +453,7 @@ export async function installMapsToolchain(onStatus: OnStatus, signal?: AbortSig
   if (!existsSync(javaBin())) {
     const jreUrl = `https://github.com/adoptium/temurin21-binaries/releases/download/${JRE_VERSION_ENC}/${plat.jre}`
     const jreArchive = join(mapsToolsDir, `jre.${plat.jreExt}`)
-    await fetchToFile(jreUrl, jreArchive, onStatus, signal)
+    await fetchToFile(jreUrl, jreArchive, onStatus, signal, await adoptiumSha256(jreUrl))
     onStatus('Extracting Java runtime…')
     const jreStage = join(mapsToolsDir, 'jre-stage')
     await rm(jreStage, { recursive: true, force: true }).catch(() => {})

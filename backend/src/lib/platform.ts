@@ -2,6 +2,8 @@
 // unix tools (unzip, pkill); Windows has neither, so these route to PowerShell.
 
 import { execSync, execFileSync } from 'node:child_process'
+import { readdir, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 
 export const IS_WIN = process.platform === 'win32'
 
@@ -22,6 +24,40 @@ export function extractZip(zipPath: string, destDir: string, timeoutMs = 120_000
   } else {
     execSync(`unzip -o "${zipPath}" -d "${destDir}"`, { timeout: timeoutMs })
   }
+}
+
+/**
+ * Extract any archive we download (.zip / .tar.gz / .tar.xz) by extension.
+ * tar ships on macOS, Linux, and Windows 10+ (bsdtar) and auto-detects compression.
+ */
+export async function extractArchive(archivePath: string, destDir: string, timeoutMs = 180_000): Promise<void> {
+  await mkdir(destDir, { recursive: true })
+  if (archivePath.endsWith('.zip')) {
+    extractZip(archivePath, destDir, timeoutMs)
+  } else {
+    execFileSync('tar', ['-xf', archivePath, '-C', destDir], { timeout: timeoutMs, stdio: 'ignore' })
+  }
+}
+
+/**
+ * Depth-first search for a file by exact name under `dir`. Archives nest binaries
+ * under versioned folders (`ffmpeg-<ver>/bin/ffmpeg`, `node-<ver>/bin/node`, …) —
+ * this finds them without hardcoding each layout. (A literal glob here — star then
+ * slash — would terminate this comment block and break the parse.)
+ */
+export async function findFileInTree(dir: string, name: string): Promise<string | null> {
+  const stack = [dir]
+  while (stack.length) {
+    const d = stack.pop()!
+    let entries
+    try { entries = await readdir(d, { withFileTypes: true }) } catch { continue }
+    for (const e of entries) {
+      const p = join(d, e.name)
+      if (e.isDirectory()) stack.push(p)
+      else if (e.name === name) return p
+    }
+  }
+  return null
 }
 
 /**

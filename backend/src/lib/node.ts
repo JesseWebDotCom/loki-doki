@@ -7,12 +7,12 @@
 // official standalone build. We don't bundle it. Lazy: only downloads when voice runs.
 
 import { existsSync } from 'node:fs'
-import { mkdir, rm, readdir, chmod, copyFile, writeFile } from 'node:fs/promises'
+import { mkdir, rm, chmod, copyFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dataDir } from '@/lib/download'
-import { IS_WIN, extractZip } from '@/lib/platform'
+import { dataDir, downloadUrl } from '@/lib/download'
+import { IS_WIN, extractArchive, findFileInTree } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -53,20 +53,16 @@ async function versionOf(bin: string): Promise<string | null> {
   try { const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 10_000 }); return stdout.trim() || null } catch { return null }
 }
 
-// The archive nests the binary (win: node-*/node.exe; unix: node-*/bin/node) — walk to it.
-async function findBinary(dir: string): Promise<string | null> {
-  const stack = [dir]
-  while (stack.length) {
-    const d = stack.pop()!
-    let entries
-    try { entries = await readdir(d, { withFileTypes: true }) } catch { continue }
-    for (const e of entries) {
-      const p = join(d, e.name)
-      if (e.isDirectory()) stack.push(p)
-      else if (e.name === BIN_NAME) return p
-    }
-  }
-  return null
+// nodejs.org publishes SHASUMS256.txt alongside every release — verify the archive
+// against it so a truncated/corrupted download can't become the voice runtime.
+// Best-effort: if the checksum list is unreachable, install proceeds unverified.
+async function officialSha256(fileName: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(`https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt`, { signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) return undefined
+    const line = (await res.text()).split('\n').find((l) => l.trim().endsWith(fileName))
+    return line?.trim().split(/\s+/)[0]
+  } catch { return undefined }
 }
 
 async function downloadManaged(): Promise<boolean> {
@@ -76,18 +72,14 @@ async function downloadManaged(): Promise<boolean> {
   try {
     await mkdir(BIN_DIR, { recursive: true })
     logger.info(`[node] downloading ${NODE_VERSION} from ${url}`)
-    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(300_000) })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const buf = new Uint8Array(await res.arrayBuffer())
-    if (buf.byteLength < 5_000_000) throw new Error(`suspiciously small download (${buf.byteLength} bytes)`)
-    await writeFile(archive, buf)
+    // Shared downloader: resume (.part) + retries + stall detection + checksum.
+    const expectedSha256 = await officialSha256(url.split('/').pop()!)
+    await downloadUrl(url, archive, () => {}, undefined, { minBytes: 5_000_000, expectedSha256 })
 
     await rm(extractDir, { recursive: true, force: true })
-    await mkdir(extractDir, { recursive: true })
-    if (kind === 'zip') extractZip(archive, extractDir, 180_000)
-    else await execFileAsync('tar', ['-xf', archive, '-C', extractDir], { timeout: 180_000 })  // handles .gz and .xz
+    await extractArchive(archive, extractDir)
 
-    const found = await findBinary(extractDir)
+    const found = await findFileInTree(extractDir, BIN_NAME)
     if (!found) throw new Error('node binary not found inside archive')
     await copyFile(found, MANAGED_PATH)
     if (!IS_WIN) await chmod(MANAGED_PATH, 0o755)

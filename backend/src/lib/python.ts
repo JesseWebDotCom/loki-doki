@@ -7,12 +7,12 @@
 // tree, so the managed copy is a directory. Lazy: only downloads when image gen installs.
 
 import { existsSync } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dataDir } from '@/lib/download'
-import { IS_WIN } from '@/lib/platform'
+import { dataDir, downloadUrl } from '@/lib/download'
+import { IS_WIN, extractArchive } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -78,6 +78,17 @@ async function discoverUrl(): Promise<string | null> {
   }
 }
 
+// python-build-standalone publishes a `<asset>.sha256` sidecar for every release
+// asset. Best-effort: if unreachable, install proceeds unverified.
+async function officialSha256(assetUrl: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(`${assetUrl}.sha256`, { redirect: 'follow', signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) return undefined
+    const hex = (await res.text()).trim().split(/\s+/)[0]
+    return /^[a-f0-9]{64}$/i.test(hex ?? '') ? hex : undefined
+  } catch { return undefined }
+}
+
 async function downloadManaged(): Promise<boolean> {
   const url = await discoverUrl()
   if (!url) return false
@@ -85,16 +96,15 @@ async function downloadManaged(): Promise<boolean> {
   try {
     await mkdir(BIN_DIR, { recursive: true })
     logger.info(`[python] downloading standalone build from ${url}`)
-    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(600_000) })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const buf = new Uint8Array(await res.arrayBuffer())
-    if (buf.byteLength < 5_000_000) throw new Error(`suspiciously small download (${buf.byteLength} bytes)`)
-    await writeFile(archive, buf)
+    // Rolling "latest" release — drop any stale leftover archive; the shared downloader
+    // brings resume (.part) + retries + stall detection + checksum verification.
+    await rm(archive, { force: true })
+    const expectedSha256 = await officialSha256(url)
+    await downloadUrl(url, archive, () => {}, undefined, { minBytes: 5_000_000, expectedSha256 })
 
     // Relocatable tree — extract the whole `python/` dir into the managed location.
     await rm(MANAGED_DIR, { recursive: true, force: true })
-    await mkdir(MANAGED_DIR, { recursive: true })
-    await execFileAsync('tar', ['-xf', archive, '-C', MANAGED_DIR], { timeout: 300_000 })  // bsdtar (Win10+/mac) + GNU tar handle .gz
+    await extractArchive(archive, MANAGED_DIR, 300_000)
 
     if (!existsSync(MANAGED_PY) || (await suitableMinor(MANAGED_PY)) === null) {
       throw new Error('python interpreter missing or unusable after extraction')
