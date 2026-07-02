@@ -11,7 +11,7 @@ import { isComfyUIInstalled, COMFYUI_DIR } from '@/lib/comfyui'
 import { isSearXNGInstalled } from '@/lib/searxng'
 import { isESPHomeInstalled } from '@/lib/esphome'
 import { isKiwixInstalled } from '@/lib/kiwix'
-import { isWakewordCoreInstalled, isWakewordTrainInstalled } from '@/lib/download'
+import { isWakewordCoreInstalled, isWakewordTrainInstalled, isSileroVadInstalled } from '@/lib/download'
 import { isVoiceServerInstalled } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled } from '@/lib/maps/toolchain'
 import { isEsrganInstalled, isCodeFormerInstalled, isGFPGANInstalled, isFaceRestoreNodeInstalled, isBiRefNetNodeInstalled } from '@/lib/download'
@@ -67,6 +67,13 @@ adminInstall.get('/', requireAdmin, (c) => {
       description: 'OpenWakeWord feature models + a default "Hey Jarvis" detector for hands-free activation',
       installed: isWakewordCoreInstalled(),
       approxBytes: 6_000_000,
+    },
+    {
+      id: 'silero-vad',
+      label: 'Silero Voice Detection',
+      description: 'Neural voice-activity model — cleaner end-of-speech detection and barge-in that ignores non-speech noise (typing, music, barks)',
+      installed: isSileroVadInstalled(),
+      approxBytes: 2_300_000,
     },
     {
       id: 'wakeword-train',

@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { HAIcon, MdiGlyph } from './HAIcon'
+import { AreaIcon } from './AreaIcon'
 import type { HAEntity } from './DeviceDetailDialog'
 
 // Mushroom-style entity cards rendered with the SAME icons Home Assistant uses
@@ -337,9 +338,11 @@ export interface DeviceCardProps {
   onAction: CardAction
   errorId: string | null
   favorite: boolean
+  /** Show the entity's area/room (the page groups by area, so it's off there). */
+  showArea?: boolean
 }
 
-export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favorite }: DeviceCardProps) {
+export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favorite, showArea }: DeviceCardProps) {
   const isOn = isEntityOn(entity)
   const unavail = isUnavailable(entity)
   const look = domainLook(entity)
@@ -367,6 +370,7 @@ export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favori
       onKeyDown={(e) => { if (unavail) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (binary) onToggle(entity, !isOn); else onOpen(entity) } }}
       className={cn(
         'group relative flex w-full cursor-pointer flex-col justify-center overflow-hidden rounded-2xl px-3 py-2.5 text-left transition-all duration-300 hover:-translate-y-px active:scale-[0.99]',
+        showArea && 'pb-6',
         cardActive ? look.cardOn : 'bg-white/[0.06] hover:bg-white/[0.09]',
         unavail && 'cursor-not-allowed opacity-30',
       )}
@@ -442,6 +446,14 @@ export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favori
       {!unavail && entity.domain === 'media_player' && <MediaStrip entity={entity} onAction={onAction} />}
       {!unavail && entity.domain === 'cover' && <CoverStrip entity={entity} onAction={onAction} />}
       {!unavail && entity.domain === 'lock' && <LockStrip entity={entity} onAction={onAction} />}
+
+      {/* Room label (same icon as the HA page's area headers), anchored bottom-right. */}
+      {showArea && entity.area && (
+        <span className="pointer-events-none absolute bottom-1.5 right-2.5 flex max-w-[60%] items-center gap-1 text-[10px] font-medium text-muted-foreground/55">
+          <AreaIcon name={entity.area} className="size-3 shrink-0" />
+          <span className="truncate">{entity.area}</span>
+        </span>
+      )}
 
       {/* Flowing energy line while the device is doing something */}
       {energized && (

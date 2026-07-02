@@ -7,6 +7,7 @@ import { DEFAULT_WAKE_WORD_MODEL_ID, loadInstalledWakewords, listWakeWordModels,
 import { SttCapture } from '@/lib/voice/stt-capture'
 import { transition, type HandsFreeState } from '@/lib/voice/handsfree-state-machine'
 import { getVoicePlayback, stopSpeech } from '@/lib/voice/voicePlaybackStore'
+import { getSileroVad, type SileroVadStream } from '@/lib/voice/silero-vad'
 
 // Hands-free conversation loop:
 //   idle → (wake word) → capturing → (whisper final) → submit → replying →
@@ -42,8 +43,16 @@ const WAKE_CAPTURE_TIMEOUT_MS = 7000
 // old 0.07 / 10-frame gate tripped on that echo and cut replies off after the
 // first word. Require a LOUDER, more SUSTAINED signal, and only arm barge-in
 // AFTER the echo-heavy TTS onset.
-const BARGE_IN_RMS_THRESHOLD = 0.10 // above AEC echo residual (~0.02), below clear speech
-const BARGE_IN_CONSEC_FRAMES = 12   // ~95 ms of sustained voiced energy
+//
+// With Silero VAD loaded the gate becomes energy AND speech-probability: Silero
+// rejects loud non-speech (barks, dish clatter, music), which lets the energy
+// floor drop to 0.04 so quiet/distant speech can interrupt. The floor can never
+// go near the echo residual though — the residual IS speech (the companion's
+// own voice), so Silero passes it and only the energy floor rejects it.
+const BARGE_IN_RMS_THRESHOLD = 0.10 // legacy energy-only gate (silero unavailable)
+const BARGE_IN_RMS_FLOOR_NEURAL = 0.04 // with silero: still 2-3x above AEC echo residual (~0.01-0.02)
+const BARGE_IN_PROB_THRESHOLD = 0.60 // silero chunk prob for "this is speech"
+const BARGE_IN_CONSEC_FRAMES = 12   // ~95 ms of sustained voiced energy (~3 silero chunks)
 const BARGE_IN_ARM_MS = 700         // ignore the first 700 ms of playback (onset echo)
 const PREROLL_SAMPLES = 4800        // ~300ms @ 16kHz — rolling pre-roll during the reply
                                     // (captures the onset of an interrupting word).
@@ -109,6 +118,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   const bargeInArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bargeInPeakRef = useRef(0)
   const bargeInLogRef = useRef(0)
+  // Silero speech gate for barge-in; null until loaded (or forever, if the
+  // model isn't installed) — the gate is energy-only until then.
+  const sileroRef = useRef<SileroVadStream | null>(null)
   const prerollRef = useRef<Float32Array[]>([])
   const prerollLenRef = useRef(0)
   const replySafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -239,6 +251,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
     if (micRef.current || engagingRef.current) return
     engagingRef.current = true
     setState('engaging')
+    // Kick off the barge-in speech gate load in parallel with everything else;
+    // non-blocking — the gate is energy-only until (unless) it resolves.
+    void getSileroVad().then((s) => { sileroRef.current = s })
     await loadInstalledWakewords(true)
 
     // A configured trained ONNX model always wins over a free-text phrase, so a
@@ -332,26 +347,38 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
             sttRef.current.sendFrame(samples)
           }
 
-          // Barge-in energy VAD — runs ONLY while TTS is playing so AEC
-          // residual (which clears after TTS ends) never trips it.
+          // Barge-in VAD — runs ONLY while TTS is playing so AEC residual
+          // (which clears after TTS ends) never trips it. Energy-only until
+          // Silero loads; then energy AND speech-probability (see constants).
           if (st === 'replying' && ttsMutedRef.current) {
             let sumSq = 0
             for (let i = 0; i < samples.length; i++) sumSq += samples[i]! * samples[i]!
             const rms = Math.sqrt(sumSq / Math.max(1, samples.length))
             if (rms > bargeInPeakRef.current) bargeInPeakRef.current = rms
+            // Feed the speech gate ONLY in this branch (plus the reset on
+            // playback start), so lastProb always reflects reply-time audio.
+            // Fire-and-forget: the stream serializes internally, and a chunk
+            // completes every ~4 of these ~128-sample frames — the gate below
+            // reads the held probability of the most recent completed chunk.
+            const silero = sileroRef.current && !sileroRef.current.failed ? sileroRef.current : null
+            if (silero) void silero.push(samples)
+            const hit = silero
+              ? rms >= BARGE_IN_RMS_FLOOR_NEURAL && silero.lastProb >= BARGE_IN_PROB_THRESHOLD
+              : rms >= BARGE_IN_RMS_THRESHOLD
+            const thr = silero ? BARGE_IN_RMS_FLOOR_NEURAL : BARGE_IN_RMS_THRESHOLD
             // Live monitor (~every 25 frames ≈ 0.2s): shows whether barge-in is armed
             // and the current mic RMS vs the fire threshold, so a "barge-in not working"
             // is diagnosable from the console — is it never arming, or is your voice
             // (after echo-cancellation) just never crossing the threshold?
             if ((bargeInLogRef.current = (bargeInLogRef.current + 1) % 25) === 0) {
-              console.info(`[barge-in] monitor armed=${bargeInArmedRef.current} rms=${rms.toFixed(3)} thr=${BARGE_IN_RMS_THRESHOLD} consec=${bargeInCountRef.current}`)
+              console.info(`[barge-in] monitor armed=${bargeInArmedRef.current} rms=${rms.toFixed(3)} thr=${thr} prob=${silero ? silero.lastProb.toFixed(2) : 'n/a'} consec=${bargeInCountRef.current}`)
             }
-            if (bargeInArmedRef.current && rms >= BARGE_IN_RMS_THRESHOLD) {
+            if (bargeInArmedRef.current && hit) {
               bargeInCountRef.current++
               if (bargeInCountRef.current >= BARGE_IN_CONSEC_FRAMES) {
                 bargeInCountRef.current = 0
                 bargeInFiredRef.current = true
-                console.info(`[barge-in] FIRED — interrupting (rms=${rms.toFixed(3)} ≥ ${BARGE_IN_RMS_THRESHOLD})`)
+                console.info(`[barge-in] FIRED — interrupting (rms=${rms.toFixed(3)} ≥ ${thr}, prob=${silero ? silero.lastProb.toFixed(2) : 'n/a'})`)
                 stopSpeech()
                 dispatch({ type: 'barge_in' })
                 openStt(true) // replay the pre-roll so the first interrupting word isn't lost
@@ -436,6 +463,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
       ttsMutedRef.current = true
       bargeInCountRef.current = 0
       bargeInPeakRef.current = 0
+      // Fresh RNN state per reply — lastProb can never be stale from a
+      // previous reply's audio.
+      sileroRef.current?.reset()
       // Audio is now playing → the reply works; cancel the dead-reply safety so it
       // can never abort a reply that's actively producing speech (the slow cold-start
       // first reply was being truncated by this at 20s).
@@ -452,7 +482,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
       }
     })
     const offEnd = pb.onPlaybackEnd(() => {
-      console.info(`[barge-in] reply ended — peak mic rms while speaking=${bargeInPeakRef.current.toFixed(3)} (fires at ≥${BARGE_IN_RMS_THRESHOLD} for ${BARGE_IN_CONSEC_FRAMES} frames)`)
+      console.info(`[barge-in] reply ended — peak mic rms while speaking=${bargeInPeakRef.current.toFixed(3)} (fires at ≥${sileroRef.current && !sileroRef.current.failed ? `${BARGE_IN_RMS_FLOOR_NEURAL} + prob ≥ ${BARGE_IN_PROB_THRESHOLD}` : BARGE_IN_RMS_THRESHOLD} for ${BARGE_IN_CONSEC_FRAMES} frames)`)
       // After barge-in the user is already speaking — skip the grace period
       // so the STT socket receives their frames immediately.
       const bargeInFired = bargeInFiredRef.current

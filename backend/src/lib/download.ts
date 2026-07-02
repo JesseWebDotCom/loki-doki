@@ -920,6 +920,34 @@ export async function downloadWakewordCore(
   }
 }
 
+// ── Silero VAD model ──────────────────────────────────────────────────────────
+// Small neural voice-activity detector (v5). Used by the backend STT session for
+// utterance endpointing and served to the browser (/api/voice/vad-model) for the
+// barge-in speech gate. Lives in data/voice/ — NOT wakewords/ — because the
+// /api/voice/wakewords discovery route would otherwise list it as a detector.
+const SILERO_VAD_URL =
+  'https://raw.githubusercontent.com/snakers4/silero-vad/v5.1.2/src/silero_vad/data/silero_vad.onnx'
+const SILERO_VAD_SHA256 = '2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f'
+export const SILERO_VAD_REL = 'voice/silero_vad.onnx'
+
+export function sileroVadPath(): string {
+  return join(dataDir, SILERO_VAD_REL)
+}
+
+export function isSileroVadInstalled(): boolean {
+  return existsSync(sileroVadPath())
+}
+
+export async function downloadSileroVad(
+  onProgress: (p: DownloadProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  await downloadUrl(SILERO_VAD_URL, SILERO_VAD_REL, onProgress, signal, {
+    expectedSha256: SILERO_VAD_SHA256,
+    minBytes: 1_500_000,
+  })
+}
+
 // ── Wakeword negative feature bank ────────────────────────────────────────────
 // openWakeWord's precomputed negative features (~11h of diverse real-world
 // audio as (N,16,96) embedding windows — the SAME format our trainer produces).
@@ -992,6 +1020,90 @@ export async function downloadWakewordRirPack(
   await writeFile(join(wakewordRirDir(), '.complete'), String(wavs.length))
 }
 
+// ── Wakeword real-noise pack (training + calibration) ─────────────────────────
+// MS-SNSD (Microsoft Scalable Noisy Speech Dataset), MIT-licensed real-world
+// recordings. The synthetic Kokoro-speech + procedural-noise bank used for
+// training and FA eval understates real false-accept risk — the actual FP
+// source is a room: TV, family conversation, kitchen/living-room noise. Split
+// into disjoint TRAIN and CALIB file sets (different recordings, same
+// categories) so the model actually learns to reject real ambient audio
+// (mixed into training negatives) while threshold calibration and the eval
+// harness measure against real audio the model never trained on — training on
+// and evaluating against the same files would silently inflate every number.
+// ~26 files, ~90 MB, one-time.
+const NOISE_PACK_BASE = 'https://raw.githubusercontent.com/microsoft/MS-SNSD/master/noise_train'
+const NOISE_PACK_TRAIN_FILES = [
+  'Babble_1.wav', 'Babble_2.wav', 'Babble_3.wav',
+  'NeighborSpeaking_1.wav', 'NeighborSpeaking_2.wav', 'NeighborSpeaking_3.wav',
+  'AirportAnnouncements_1.wav', 'AirportAnnouncements_2.wav',
+  'LivingRoom_1.wav', 'Kitchen_1.wav', 'Restaurant_1.wav', 'Office_1.wav', 'Traffic_1.wav',
+]
+const NOISE_PACK_CALIB_FILES = [
+  'Babble_4.wav', 'Babble_5.wav', 'Babble_6.wav',
+  'NeighborSpeaking_4.wav', 'NeighborSpeaking_5.wav', 'NeighborSpeaking_6.wav',
+  'AirportAnnouncements_3.wav', 'AirportAnnouncements_4.wav',
+  'Cafe_1.wav', 'CafeTeria_1.wav', 'Park_1.wav', 'Square_1.wav', 'Hallway_1.wav',
+]
+export const WAKEWORD_NOISE_DIR_REL = `${WAKEWORD_DIR_REL}/noise`
+const WAKEWORD_NOISE_TRAIN_REL = `${WAKEWORD_NOISE_DIR_REL}/train`
+const WAKEWORD_NOISE_CALIB_REL = `${WAKEWORD_NOISE_DIR_REL}/calib`
+
+export function wakewordNoiseTrainDir(): string {
+  return join(dataDir, WAKEWORD_NOISE_TRAIN_REL)
+}
+
+export function wakewordNoiseCalibDir(): string {
+  return join(dataDir, WAKEWORD_NOISE_CALIB_REL)
+}
+
+export function isWakewordNoisePackInstalled(): boolean {
+  return existsSync(join(wakewordNoiseTrainDir(), '.complete')) && existsSync(join(wakewordNoiseCalibDir(), '.complete'))
+}
+
+export async function downloadWakewordNoisePack(
+  onProgress: (p: DownloadProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (isWakewordNoisePackInstalled()) return
+  const all = [
+    ...NOISE_PACK_TRAIN_FILES.map((name) => ({ name, rel: WAKEWORD_NOISE_TRAIN_REL })),
+    ...NOISE_PACK_CALIB_FILES.map((name) => ({ name, rel: WAKEWORD_NOISE_CALIB_REL })),
+  ]
+  for (let i = 0; i < all.length; i++) {
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
+    const { name, rel } = all[i]!
+    await downloadUrl(
+      `${NOISE_PACK_BASE}/${name}`,
+      `${rel}/${name}`,
+      (p) => onProgress({ ...p, status: `Real noise samples ${i + 1}/${all.length}…` }),
+      signal,
+    )
+  }
+  // MIT license asks the copyright notice be preserved — no user-facing attribution
+  // needed, so a NOTICE file alongside the audio satisfies it.
+  const notice = 'Audio from MS-SNSD (MIT License)\nhttps://github.com/microsoft/MS-SNSD\n'
+  await writeFile(join(wakewordNoiseTrainDir(), 'NOTICE'), notice)
+  await writeFile(join(wakewordNoiseCalibDir(), 'NOTICE'), notice)
+  await writeFile(join(wakewordNoiseTrainDir(), '.complete'), String(NOISE_PACK_TRAIN_FILES.length))
+  await writeFile(join(wakewordNoiseCalibDir(), '.complete'), String(NOISE_PACK_CALIB_FILES.length))
+}
+
+let noisePackPromise: Promise<string> | null = null
+/** Resolve the noise pack base dir, downloading it on first use (mirrors ensureStingerSoundfont).
+ *  Best-effort: callers should tolerate rejection and fall back to synthetic-only audio. */
+export async function ensureWakewordNoisePack(): Promise<string> {
+  if (isWakewordNoisePackInstalled()) return wakewordNoiseTrainDir()
+  if (!noisePackPromise) {
+    noisePackPromise = (async () => {
+      await downloadWakewordNoisePack(() => {})
+      try { const { recordInstalled } = await import('@/lib/installRegistry'); await recordInstalled('wakeword-train-noise') }
+      catch { /* ledger is best-effort */ }
+      return wakewordNoiseTrainDir()
+    })().catch((e) => { noisePackPromise = null; throw e })
+  }
+  return noisePackPromise
+}
+
 // ── Wakeword training venv ────────────────────────────────────────────────────
 // Lightweight Python venv used only by train_wakeword.py.
 // Kept separate from the ComfyUI venv to avoid dependency conflicts.
@@ -1054,6 +1166,17 @@ export async function installWakewordTrainDeps(
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
     onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Room-impulse pack skipped (${err instanceof Error ? err.message.split('\n')[0] : String(err)}) — procedural reverb will be used` })
+  }
+
+  // Real-noise calibration pack, same best-effort treatment — absence just means
+  // threshold calibration falls back to the synthetic held-out negatives.
+  try {
+    await downloadWakewordNoisePack(onProgress, signal)
+    try { const { recordInstalled } = await import('@/lib/installRegistry'); await recordInstalled('wakeword-train-noise') }
+    catch { /* ledger is best-effort */ }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
+    onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Real-noise pack skipped (${err instanceof Error ? err.message.split('\n')[0] : String(err)}) — synthetic-only calibration will be used` })
   }
 }
 

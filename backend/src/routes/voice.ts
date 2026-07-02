@@ -5,7 +5,7 @@ import { join, basename } from 'node:path'
 import { db } from '@/db'
 import { wakeWordCatalog } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
-import { wakewordDir } from '@/lib/download'
+import { wakewordDir, sileroVadPath } from '@/lib/download'
 import { encodeWav } from '@/lib/voice/sttSession'
 import { transcribeWav } from '@/lib/whisper'
 import type { AppEnv } from '@/types'
@@ -38,6 +38,17 @@ voice.get('/wakeword/:file', requireAuth, async (c) => {
   if (!file.endsWith('.onnx')) return c.json({ error: 'not found' }, 404)
   const path = join(wakewordDir(), file)
   if (!existsSync(path)) return c.json({ error: 'not found' }, 404)
+  c.header('Content-Type', 'application/octet-stream')
+  c.header('Cache-Control', 'public, max-age=86400')
+  return c.body(await readFile(path))
+})
+
+// Serve the Silero VAD model to the browser (barge-in speech gate). It lives in
+// data/voice/, NOT wakewords/ — the /wakewords discovery list below would
+// otherwise offer it as a selectable wake-word detector.
+voice.get('/vad-model', requireAuth, async (c) => {
+  const path = sileroVadPath()
+  if (!existsSync(path)) return c.json({ error: 'not installed' }, 404)
   c.header('Content-Type', 'application/octet-stream')
   c.header('Cache-Control', 'public, max-age=86400')
   return c.body(await readFile(path))

@@ -1,6 +1,6 @@
 import {
-  Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Headphones, Home, Laugh, ListVideo, Music,
-  Newspaper, PlaySquare, Radio, Star, Sunrise, Trophy, Tv, type LucideIcon,
+  Bookmark, CalendarDays, CirclePlay, CloudSun, Globe, Headphones, Home, Laugh, ListVideo,
+  Music, Network, Newspaper, PlaySquare, Radio, Server, Star, Sunrise, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -139,9 +139,23 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     allowWide: true, toolId: "homeAssistant",
   },
   {
-    id: "speed-test", title: "Speed Test",
-    description: "Latest connection speed to your server",
-    icon: Gauge, color: "#06b6d4",
+    id: "speed-test-internet", title: "App → Internet",
+    description: "This device's real ISP speed via Cloudflare",
+    icon: Globe, color: "#06b6d4",
+    gradient: "linear-gradient(135deg,#0c2a52,#0891b2)",
+    allowWide: false,
+  },
+  {
+    id: "speed-test-server", title: "App → Server",
+    description: "Private throughput from this device to your server",
+    icon: Server, color: "#06b6d4",
+    gradient: "linear-gradient(135deg,#0c2a52,#0891b2)",
+    allowWide: false,
+  },
+  {
+    id: "speed-test-server-internet", title: "Server → Internet",
+    description: "Your server's own internet speed via Cloudflare",
+    icon: Network, color: "#06b6d4",
     gradient: "linear-gradient(135deg,#0c2a52,#0891b2)",
     allowWide: false,
   },
@@ -157,6 +171,7 @@ export const HOME_WIDGETS: WidgetMeta[] = [
 /** Legacy stored ids → current catalog ids (e.g. raw tool ids from old layouts). */
 const ALIASES: Record<string, string> = {
   onthisday: "on-this-day",
+  "speed-test": "speed-test-internet",
 };
 
 const BY_ID = new Map(HOME_WIDGETS.map(w => [w.id, w]));

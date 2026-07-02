@@ -256,6 +256,28 @@ def windows_from_embeddings(embeddings: np.ndarray, rms: np.ndarray, positive: b
     return X, y
 
 
+def score_real_negatives(calib_dir, mel_sess, emb_sess, mel_input_name, emb_input_name,
+                          mel_frames_per_chunk, scaler, clf) -> np.ndarray:
+    """Score every negative window in a directory of real WAVs (e.g. MS-SNSD) through
+    the trained detector, for real-audio threshold calibration (see --calib-dir).
+    Returns a flat array of positive-class probabilities, one per sliding window."""
+    from pathlib import Path as _P
+    files = sorted(_P(calib_dir).glob("*.wav"))
+    scored = []
+    for f in files:
+        try:
+            audio = load_audio(str(f))
+            embs, rms = extract_embeddings(audio, mel_sess, emb_sess, mel_input_name, emb_input_name, mel_frames_per_chunk)
+            X, _y = windows_from_embeddings(embs, rms, positive=False)
+            if not X:
+                continue
+            Xs = scaler.transform(np.array(X, dtype=np.float32))
+            scored.append(clf.predict_proba(Xs)[:, 1])
+        except Exception as e:
+            progress(f"  calib skip {f.name}: {e}")
+    return np.concatenate(scored) if scored else np.empty((0,), np.float32)
+
+
 # ---------------------------------------------------------------------------
 # Audio augmentation — the core of robust wake-word training. Convolving with
 # room impulse responses + mixing noise at random SNR + gain jitter teaches the
@@ -434,6 +456,9 @@ def main() -> None:
                     help="(experimental) keep the native neg-feature bank even in ortweb mode")
     ap.add_argument("--rir-dir", default=None,
                     help="directory of real room-impulse-response WAVs (MIT pack); procedural reverb if absent")
+    ap.add_argument("--calib-dir", default=None,
+                    help="directory of real negative WAVs (e.g. MS-SNSD) to calibrate the fire threshold against, "
+                         "instead of the synthetic held-out split")
     args = ap.parse_args()
 
     global _EMBEDDER
@@ -482,7 +507,7 @@ def main() -> None:
     rir_pool = load_rir_pool(args.rir_dir, SAMPLE_RATE)
     progress(f"Reverb augmentation: {len(rir_pool)} real room impulses"
              if rir_pool else "Reverb augmentation: procedural (real RIR pack not installed)")
-    AUG_POS, AUG_NEG = 12, 6
+    AUG_POS, AUG_NEG = 12, 12
 
     lead_pad = np.zeros(int(0.6 * SAMPLE_RATE), dtype=np.float32)   # 0.6 s lead-in
     tail_pad = np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32)   # 0.3 s trailing
@@ -562,7 +587,7 @@ def main() -> None:
     # duplicate each completion-aligned positive so many times the phrase signal
     # drowns and the detector collapses. 25:1 keeps a strong, boundary-tightening
     # negative set while the oversampled positives still shape the decision surface.
-    NEG_PER_POS = 25
+    NEG_PER_POS = 40
     rng_cap = np.random.default_rng(11)
     pos_i = np.where(y == 1)[0]; neg_i = np.where(y == 0)[0]
     if len(pos_i) and len(neg_i) > NEG_PER_POS * len(pos_i):
@@ -654,6 +679,39 @@ def main() -> None:
     clf.fit(Xb, yb)
     acc = float(clf.score(Xb, yb))
     progress(f"Training accuracy: {acc:.1%}")
+
+    # Real-audio threshold calibration (structural fix): synthetic held-out windows
+    # are a proxy ambient stream and understate real false-accept risk, which is why
+    # shipped thresholds measured 44-137 FA/hr on real speech/noise. When a directory
+    # of real negative audio is given, recalibrate the fire threshold against it —
+    # same shape as the synthetic calibration above, but a higher recall floor,
+    # since a threshold proven against real audio can afford to be pickier.
+    if args.calib_dir:
+        try:
+            progress(f"Calibrating threshold against real audio in {args.calib_dir}…")
+            real_neg = score_real_negatives(args.calib_dir, mel_sess, emb_sess, mel_input_name,
+                                             emb_input_name, mel_frames_per_chunk, scaler, clf)
+            pos_final = clf.predict_proba(X_scaled[y == 1])[:, 1]
+            if len(real_neg) and len(pos_final):
+                REAL_RECALL_FLOOR = 0.85
+                neg_hi = float(np.percentile(real_neg, 95))
+                pos_lo = float(np.percentile(pos_final, 10))
+                thr = max(neg_hi + 0.10, (neg_hi + pos_lo) / 2)
+                hours = len(real_neg) / 12.5 / 3600.0
+                sorted_desc = np.sort(real_neg)[::-1]
+                allowed = int(np.floor(TARGET_FAPH * hours))
+                thr_real = thr if allowed >= len(sorted_desc) else max(thr, float(sorted_desc[allowed]) + 1e-4)
+                if float(np.mean(pos_final >= thr_real)) < REAL_RECALL_FLOOR:
+                    thr_real = thr  # keep recall: accept a higher FA/hr than the target
+                threshold = round(min(0.85, max(0.3, thr_real)), 2)
+                measured = float(np.sum(real_neg >= threshold)) / hours if hours > 0 else 0.0
+                recall_real = float(np.mean(pos_final >= threshold))
+                progress(f"Real-audio calibration: threshold {threshold:.2f} (~{measured:.2f} false-accepts/hr over "
+                         f"{hours * 60:.0f} min real negatives, recall {recall_real:.0%})")
+            else:
+                progress("Real-audio calibration skipped (no windows extracted from --calib-dir)")
+        except Exception as e:
+            progress(f"Real-audio calibration skipped ({e}); keeping synthetic threshold {threshold:.2f}")
 
     # Fuse the StandardScaler into the first layer so the ONNX graph needs no
     # separate normalization:  z1 = (x - mean)/scale @ W0 + b0

@@ -11,18 +11,11 @@ import {
   ChevronRight,
   Loader2,
   WifiOff,
-  BedDouble,
-  ChefHat,
-  Tv2,
-  Monitor,
-  Car,
-  TreePine,
   DoorOpen,
-  UtensilsCrossed,
-  Waves,
   Settings,
   type LucideIcon,
 } from 'lucide-react'
+import { AreaIcon } from '@/components/homeassistant/AreaIcon'
 import { PageShell } from '@/components/shared/PageShell'
 import { Button } from '@/components/ui/button'
 import { DeviceDetailDialog, type HAEntity } from '@/components/homeassistant/DeviceDetailDialog'
@@ -186,23 +179,6 @@ function roomClimate(entities: HAEntity[]): { temp: number | null; humidity: num
     if (typeof t === 'number') return { temp: t, humidity: typeof h === 'number' ? h : null }
   }
   return { temp: null, humidity: null }
-}
-
-// ── Area icon ─────────────────────────────────────────────────────────────────
-
-function AreaIcon({ name, className }: { name: string; className?: string }) {
-  const n = name.toLowerCase()
-  let Icon = Home
-  if (/bed|master|sleep/.test(n)) Icon = BedDouble
-  else if (/bath|shower/.test(n)) Icon = Waves
-  else if (/kitchen|cook/.test(n)) Icon = ChefHat
-  else if (/living|lounge|family|den/.test(n)) Icon = Tv2
-  else if (/office|study|work/.test(n)) Icon = Monitor
-  else if (/garage/.test(n)) Icon = Car
-  else if (/garden|outdoor|yard|patio|deck|porch/.test(n)) Icon = TreePine
-  else if (/hall|entry|entrance|foyer|corridor/.test(n)) Icon = DoorOpen
-  else if (/dining|eat/.test(n)) Icon = UtensilsCrossed
-  return <Icon className={className} />
 }
 
 // ── Device grid (wide mushroom-style cards — see components/homeassistant) ────

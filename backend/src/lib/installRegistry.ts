@@ -27,6 +27,8 @@ import {
   installWakewordTrainDeps,
   isWakewordRirInstalled,
   downloadWakewordRirPack,
+  isSileroVadInstalled,
+  downloadSileroVad,
   isEsrganInstalled,
   downloadEsrganModel,
   isCodeFormerInstalled,
@@ -161,6 +163,14 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     id: 'wakeword-core', group: 'voice', label: 'OpenWakeWord',
     isInstalled: isWakewordCoreInstalled,
     repair: (onP, sig) => downloadWakewordCore(onP, sig),
+  },
+  {
+    // Neural VAD for STT endpointing + browser barge-in. Rides along with Voice
+    // (see the reconcile bridge in routes/system.ts); both consumers fall back
+    // to energy-only VAD while it's absent, so repair is never blocking.
+    id: 'silero-vad', group: 'voice', label: 'Silero Voice Detection',
+    isInstalled: isSileroVadInstalled,
+    repair: (onP, sig) => downloadSileroVad(onP, sig),
   },
   {
     id: 'wakeword-train', group: 'voice', label: 'onnxruntime + scikit-learn',

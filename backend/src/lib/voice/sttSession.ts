@@ -1,13 +1,20 @@
 // Server-side STT endpointing. Buffers f32le PCM frames from the browser mic,
-// runs a simple RMS VAD, and on end-of-speech (silence > timeout) POSTs the
-// utterance WAV to whisper.cpp. Emits the v2 wire dialect (ready/vad/partial/
-// final/no_speech) so the ported frontend works unchanged.
+// runs VAD, and on end-of-speech (silence > timeout) POSTs the utterance WAV to
+// whisper.cpp. Emits the v2 wire dialect (ready/vad/partial/final/no_speech) so
+// the ported frontend works unchanged.
+//
+// VAD is Silero (neural, via sileroVad.ts) gated by a cheap RMS pre-check, so
+// typing/music/fan noise never opens an utterance and steady noise can't grow
+// the buffer to the 30 s force-flush. Falls back to the original pure-RMS
+// thresholds when the model isn't installed yet (boot before background
+// download), the session isn't 16 kHz, or inference fails.
 //
 // whisper.cpp has no native streaming partials, so partials re-transcribe the
 // growing buffer at partial_interval_s. If that lags on a slow machine, the FSM
 // and captions still work on finals alone.
 
 import { transcribeWav } from '@/lib/whisper'
+import { getSileroStream, type SileroVadStream } from '@/lib/voice/sileroVad'
 
 export interface SttSessionConfig {
   sampleRate: number
@@ -16,8 +23,19 @@ export interface SttSessionConfig {
   hotwords: string
 }
 
+// Fallback energy thresholds (Silero unavailable).
 const VAD_ONSET_RMS = 0.02
 const VAD_OFFSET_RMS = 0.012 // hysteresis: lower bar to KEEP speaking
+// Silero decision thresholds, applied per completed 512-sample (32 ms) chunk.
+const SILERO_ONSET_PROB = 0.5 // chunk prob ≥ this while not speaking → voiced
+const SILERO_OFFSET_PROB = 0.35 // < this while speaking → unvoiced (hold in between)
+// Below this RMS while not speaking the room is silent: skip inference entirely
+// (a stale RNN state across the gap is fine — probs re-converge within a chunk).
+const PRE_GATE_RMS = 0.006
+// Pre-onset rolling window prepended to the utterance at onset. Silero decides
+// per 32 ms chunk and its onset probability ramps over a chunk or two, so
+// without this the first phoneme would be clipped from the WAV sent to whisper.
+const PREROLL_S = 0.32
 const MIN_SPEECH_SAMPLES_FRAC = 0.2 // ignore bursts shorter than 0.2s
 // Hard cap on buffered audio (~30s). Steady noise that never dips below the VAD
 // offset threshold would otherwise grow the f32 buffer without bound; force a
@@ -56,21 +74,74 @@ export class SttSession {
   private partialPromise: Promise<void> | null = null
   private finalizing = false
   private closed = false
+  private silero: SileroVadStream | null = null
+  private sileroVoiced = false
+  private preroll: Float32Array[] = []
+  private prerollLen = 0
+  // Serializes frame processing: Silero inference is async, but wire messages
+  // (vad/partial/final) must go out in frame-arrival order.
+  private chain: Promise<void> = Promise.resolve()
 
   constructor(cfg: SttSessionConfig, send: (msg: object) => void) {
     this.cfg = cfg
     this.send = send
+    // Silero runs at 16 kHz only (the hello default); other negotiated rates
+    // stay on the RMS path. Non-blocking: frames arriving before the session
+    // loads (or before the model is downloaded) use the RMS fallback.
+    if (cfg.sampleRate === 16_000) {
+      void getSileroStream().then((s) => {
+        if (!this.closed) this.silero = s
+      })
+    }
   }
 
   pushPcm(samples: Float32Array): void {
     if (this.closed || this.finalizing) return
+    this.chain = this.chain
+      .then(() => this.processFrame(samples))
+      .catch(() => {/* processFrame handles its own errors; never break the chain */})
+  }
+
+  private async processFrame(samples: Float32Array): Promise<void> {
+    // Re-check: these may have flipped while the frame sat in the queue.
+    if (this.closed || this.finalizing) return
     const rms = computeRms(samples)
-    const threshold = this.speaking ? VAD_OFFSET_RMS : VAD_ONSET_RMS
-    const voiced = rms >= threshold
+    let voiced: boolean
+    const silero = this.silero && !this.silero.failed ? this.silero : null
+
+    if (silero) {
+      if (!this.speaking && rms < PRE_GATE_RMS) {
+        // Room-silent fast path: no inference while nothing is happening.
+        this.sileroVoiced = false
+      } else {
+        for (const prob of await silero.push(samples)) {
+          if (prob >= SILERO_ONSET_PROB) this.sileroVoiced = true
+          else if (prob < SILERO_OFFSET_PROB) this.sileroVoiced = false
+          // In between: hold the previous decision (hysteresis).
+        }
+        // Frames that complete no 512-sample chunk keep the previous decision;
+        // silence accounting below stays per-sample regardless.
+      }
+      voiced = this.sileroVoiced
+    } else {
+      const threshold = this.speaking ? VAD_OFFSET_RMS : VAD_ONSET_RMS
+      voiced = rms >= threshold
+    }
 
     if (voiced) {
       if (!this.speaking) {
         this.speaking = true
+        // Prepend the pre-onset window so Silero's chunk-granular decision
+        // latency doesn't clip the first phoneme. (Silero path only — preroll
+        // is never buffered on the RMS fallback, keeping it identical to the
+        // original behavior. Note the min-speech check in finalize() now sees
+        // preroll + speech; isLikelySpeech() still guards the final text.)
+        for (const p of this.preroll) {
+          this.speech.push(p)
+          this.speechLen += p.length
+        }
+        this.preroll = []
+        this.prerollLen = 0
         this.send({ t: 'vad', speaking: true, rms })
       }
       this.silenceSamples = 0
@@ -89,6 +160,14 @@ export class SttSession {
       if (this.silenceSamples >= this.cfg.silenceTimeoutS * this.cfg.sampleRate) {
         void this.finalize()
       }
+    } else if (silero) {
+      // Not speaking: maintain the rolling pre-onset window.
+      this.preroll.push(samples.slice())
+      this.prerollLen += samples.length
+      const cap = PREROLL_S * this.cfg.sampleRate
+      while (this.prerollLen > cap && this.preroll.length > 1) {
+        this.prerollLen -= this.preroll.shift()!.length
+      }
     }
 
     // Force-finalize if the buffer has grown past the hard cap, regardless of
@@ -98,9 +177,14 @@ export class SttSession {
     }
   }
 
-  /** Client asked to flush (e.g. end of turn) — finalize whatever we have. */
+  /** Client asked to flush (e.g. end of turn) — finalize whatever we have.
+   *  Routed through the chain so a queued frame can't race it. */
   end(): void {
-    if (this.speaking) void this.finalize()
+    this.chain = this.chain
+      .then(() => {
+        if (!this.closed && this.speaking) void this.finalize()
+      })
+      .catch(() => {})
   }
 
   close(): void {
@@ -186,6 +270,11 @@ export class SttSession {
     this.silenceSamples = 0
     this.samplesSincePartial = 0
     this.finalizing = false
+    this.sileroVoiced = false
+    this.preroll = []
+    this.prerollLen = 0
+    // Fresh RNN state for the next utterance in this WS session.
+    this.silero?.reset()
   }
 }
 

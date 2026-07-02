@@ -9,12 +9,12 @@
 // The emit callback receives structured progress objects; the SSE route streams
 // them to the browser.
 
-import { mkdir, writeFile, rm, readdir, stat } from 'node:fs/promises'
+import { mkdir, writeFile, rm, readdir, stat, copyFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
-import { wakewordDir, wakewordTrainPython, isWakewordTrainInstalled, wakewordRirDir, isWakewordRirInstalled } from '@/lib/download'
+import { wakewordDir, wakewordTrainPython, isWakewordTrainInstalled, wakewordRirDir, isWakewordRirInstalled, ensureWakewordNoisePack, wakewordNoiseTrainDir, wakewordNoiseCalibDir, isWakewordNoisePackInstalled } from '@/lib/download'
 import { kokoroUrl } from '@/lib/voice/config'
 import { listKokoroVoices, type KokoroVoice } from '@/lib/voice/engines/kokoroEngine'
 import { ollamaUrl } from '@/llm/ollama'
@@ -35,7 +35,7 @@ const EMBED_SCRIPT = resolve(__dirname, '../../../scripts/wake_embed_ortweb.mjs'
 // (reverb/noise/gain) into many effective samples — voice diversity matters
 // more than raw count, so we keep many voices but few speeds.
 const N_POSITIVE_PER_VOICE = 6    // speed variations per voice (all SPEED_VARIANTS)
-const N_NEGATIVE_PHRASES   = 12   // unrelated phrases per voice
+const N_NEGATIVE_PHRASES   = 18   // unrelated phrases per voice
 const MAX_POS_VOICES       = 28   // use every available voice for phonetic diversity
 // Negative VOLUME is the top lever for a low false-accept rate, so cast a wider
 // net than positives — more voices × more phrases. The Python trainer caps the
@@ -116,6 +116,16 @@ const NEGATIVE_PHRASES = [
   'Yes please.',
   'Hey, what is up?',
   'Come over here.',
+  // Volume of the generic "hey <word>" SHAPE — not rhymes of any specific trained
+  // phrase (that targeted discrimination is genNearMissPhrases()'s job, kept in its
+  // own small bucket below; see that comment for why mixing the two hurts recall).
+  // The detector otherwise learns "hey + roughly two syllables" as the trigger
+  // rather than the actual phrase, so plain volume of ordinary "hey X" utterances
+  // — unrelated to any particular wake word — teaches it the onset alone isn't enough.
+  'Hey copy.', 'Hey pocket.', 'Hey lobby.', 'Hey monkey.', 'Hey cookie.', 'Hey pillow.',
+  'Hey ticket.', 'Hey blanket.', 'Hey window.', 'Hey mountain.', 'Hey picture.', 'Hey cabinet.',
+  'Hey party.', 'Hey plastic.', 'Hey history.', 'Hey mystery.', 'Hey chicken.', 'Hey bottle.',
+  'Hey table.', 'Hey rabbit.', 'Hey city.', 'Hey summer.', 'Hey morning.', 'Hey weekend.',
   // Other assistant triggers as negatives. Per openWakeWord guidance these must
   // be CLEARLY different — NOT similar-sounding rhymes (e.g. "hey rocky" for
   // "hey loki"), which measurably hurt accuracy. Robust discrimination comes
@@ -285,6 +295,33 @@ async function writeNoiseNegatives(negDir: string): Promise<number> {
   return count
 }
 
+// Real household ambient recordings (MS-SNSD: babble/crowd talk, neighbor speech,
+// PA announcements, kitchen/living-room/restaurant/office room tone) mixed
+// directly into training negatives. Calibrating only the FIRE THRESHOLD against
+// real audio without ever training the model on it just trades recall for
+// false-accepts (measured: FA fell ~45% but recall collapsed from 83% to 42%) —
+// the model itself has to see real ambient noise as negatives, not merely be
+// scored against it afterward. Uses the TRAIN split; the held-out CALIB split
+// (wakewordNoiseCalibDir, see --calib-dir below) is disjoint so eval never
+// scores audio the model trained on. Best-effort: absence just means no real
+// negatives this run.
+async function writeRealNoiseNegatives(negDir: string): Promise<number> {
+  try {
+    await ensureWakewordNoisePack()
+  } catch {
+    return 0
+  }
+  if (!isWakewordNoisePackInstalled()) return 0
+  let count = 0
+  const dir = wakewordNoiseTrainDir()
+  for (const name of await readdir(dir)) {
+    if (!name.endsWith('.wav')) continue
+    await copyFile(join(dir, name), join(negDir, `real_${name}`))
+    count++
+  }
+  return count
+}
+
 export interface TrainProgress {
   step: 'generating' | 'training' | 'done' | 'error'
   msg: string
@@ -421,10 +458,12 @@ export async function trainWakeword(
     // silently if the LLM is offline.
     const nearMiss = await genNearMissPhrases(phrase, signal)
     if (nearMiss.length) {
-      const nmVoices = voices.slice(0, 6)
+      // Full voice set, same rationale as CONTRASTIVE_TRIGGERS above — a near-miss
+      // heard in only a handful of voices lets the model partly key on timbre
+      // instead of the phonetic difference; every positive voice closes that gap.
       emit({ step: 'generating', msg: `Adding ${nearMiss.length} near-miss negatives ("${nearMiss.slice(0, 3).join('", "')}"…)…` })
       let nmi = 0
-      for (const voice of nmVoices) {
+      for (const voice of voices) {
         for (let mi = 0; mi < nearMiss.length; mi++) {
           await synthesize(nearMiss[mi]!, voice, 1.0, join(negDir, `nearmiss_${voice}_${String(mi).padStart(2, '0')}.wav`))
           nmi++
@@ -436,6 +475,9 @@ export async function trainWakeword(
     // Noise + silence negatives so the detector doesn't fire on ambient sound.
     const noiseCount = await writeNoiseNegatives(negDir)
     emit({ step: 'generating', msg: `Added ${noiseCount} noise/silence negatives`, pct: 50 })
+
+    const realNoiseCount = await writeRealNoiseNegatives(negDir)
+    if (realNoiseCount) emit({ step: 'generating', msg: `Added ${realNoiseCount} real-room negatives (MS-SNSD)`, pct: 50 })
 
     // ── Step 2: run Python training script ───────────────────────────────────
     emit({ step: 'training', msg: 'Training ONNX detector…', pct: 50 })
@@ -467,6 +509,9 @@ export async function trainWakeword(
     // Passed only when present on disk — the trainer falls back to procedural reverb
     // otherwise, and nothing is ever fetched from the network at train time.
     const rirArgs = isWakewordRirInstalled() ? ['--rir-dir', wakewordRirDir()] : []
+    // Threshold calibration against the HELD-OUT real-audio split (disjoint from the
+    // real negatives mixed into training above) — never the same files the model saw.
+    const calibArgs = isWakewordNoisePackInstalled() ? ['--calib-dir', wakewordNoiseCalibDir()] : []
     let calibratedThreshold: number | undefined
     let valAccuracy: number | undefined
     await new Promise<void>((resolve, reject) => {
@@ -481,6 +526,7 @@ export async function trainWakeword(
         '--node-bin',      process.execPath, // run the embed server under this Bun
         '--embed-script',  EMBED_SCRIPT,
         ...rirArgs,
+        ...calibArgs,
       ])
 
       signal?.addEventListener('abort', () => proc.kill())
