@@ -16,9 +16,10 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { and, asc, eq, inArray, isNull, like, lte, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lte, notInArray, or } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs, notifications } from '@/db/schema'
+import { downloadJobs } from '@/db/schema'
+import { emitNotification } from '@/lib/notify'
 import { CATALOG, ROLE_SETTINGS_KEY } from '@/lib/catalog'
 import { pullOllama, downloadHfFile, validateSafetensorsFile, dataDir, SDXL_VAE_DEST } from '@/lib/download'
 import type { DownloadProgress } from '@/lib/download'
@@ -39,12 +40,15 @@ const MAX_CONCURRENT = 4
 const BACKOFF_BASE_MS = 5_000
 const BACKOFF_MAX_MS = 5 * 60_000
 const PROGRESS_WRITE_MS = 1_000
-// A running byte-streaming download (model/archive) that reports no progress for this long is
-// considered hung. The watchdog aborts it so it requeues and resumes from its .part file instead
+// A running byte-streaming download (model/archive/yt-dlp) that reports no progress for this long
+// is considered hung. The watchdog aborts it so it requeues and resumes from its .part file instead
 // of sitting in 'running' forever (the cause of downloads "stuck at 39%" needing a manual retry).
-// Local CPU work (map builds) is intentionally excluded — its build phases are legitimately silent.
+// yt-media/yt-export report progress via parsed yt-dlp stdout lines through the same onProgress
+// path, so long videos keep resetting the timer; their silent post-processing (mp4 remux / audio
+// extract) finishes well inside the timeout. Local CPU work (map builds) is intentionally
+// excluded — its build phases are legitimately silent.
 const STALL_TIMEOUT_MS = 6 * 60_000
-const STALL_WATCHED_TYPES = new Set<JobType>(['model', 'archive'])
+const STALL_WATCHED_TYPES = new Set<JobType>(['model', 'archive', 'yt-media', 'yt-export'])
 // Failed setup/library jobs (runtimes, models, ZIM archives, maps) revive themselves once they've
 // sat in 'failed' for this long, so a transient mirror/network outage heals without the user ever
 // clicking "Retry now" — the queue self-heals. User-content jobs (podcasts, YouTube media,
@@ -402,25 +406,18 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
 // cooldown, and one alert is signal while one per cycle is spam. Best-effort throughout.
 async function notifyJobExhausted(job: typeof downloadJobs.$inferSelect, error: string): Promise<void> {
   if (!SELF_HEAL_TYPES.includes(job.type as JobType)) return  // user-content jobs surface in their own UIs
-  try {
-    const existing = await db.select({ id: notifications.id }).from(notifications)
-      .where(and(eq(notifications.type, 'system'), like(notifications.payload, `%"jobId":"${job.id}"%`)))
-      .limit(1)
-    if (existing.length) return
-    await db.insert(notifications).values({
-      id: randomUUID(),
-      userId: null,  // admin-targeted
-      type: 'system',
-      payload: JSON.stringify({
-        title: `Download keeps failing: ${job.label}`,
-        body: `"${job.label}" failed ${job.maxAttempts} times (${error.slice(0, 160)}). It will keep retrying in the background — check your connection, or dismiss it from the download widget.`,
-        jobId: job.id,
-      }),
-      createdAt: new Date(),
-    })
-  } catch (e) {
-    logger.warn(`[jobs] failed-download notification not created: ${e}`)
-  }
+  await emitNotification({
+    type: 'system',
+    userId: null, // admin-targeted
+    dedupeKey: `job:${job.id}`,
+    title: `Download keeps failing: ${job.label}`,
+    body: `"${job.label}" failed ${job.maxAttempts} times (${error.slice(0, 160)}). It will keep retrying in the background — check your connection, or dismiss it from the download widget.`,
+    payload: {
+      title: `Download keeps failing: ${job.label}`,
+      body: `"${job.label}" failed ${job.maxAttempts} times (${error.slice(0, 160)}). It will keep retrying in the background — check your connection, or dismiss it from the download widget.`,
+      jobId: job.id,
+    },
+  })
 }
 
 async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: DownloadProgress & { note?: string }) => void, signal: AbortSignal): Promise<void> {
@@ -700,6 +697,29 @@ export async function getImageRepairJob(): Promise<{ label: string; pct: number 
 
 // ── Boot resume + status + admin actions ─────────────────────────────────────────
 
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'] as const
+// Prune policy: terminal rows older than this are deleted at queue startup, but the newest
+// PRUNE_KEEP_NEWEST terminal rows always survive (so enqueue idempotency + recent history hold).
+const PRUNE_TERMINAL_AGE_MS = 30 * 24 * 60 * 60 * 1000
+const PRUNE_KEEP_NEWEST = 200
+
+/** Delete old terminal (completed/failed/cancelled) job rows so the table doesn't grow
+ *  unbounded from user-content jobs (yt saves, podcasts, bookmark archives). Keeps the
+ *  newest PRUNE_KEEP_NEWEST terminal rows regardless of age. Run at queue startup. */
+async function pruneTerminalJobs(): Promise<void> {
+  const cutoff = new Date(Date.now() - PRUNE_TERMINAL_AGE_MS)
+  const keep = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+    .where(inArray(downloadJobs.status, [...TERMINAL_STATUSES]))
+    .orderBy(desc(downloadJobs.updatedAt))
+    .limit(PRUNE_KEEP_NEWEST)
+  const conditions = [
+    inArray(downloadJobs.status, [...TERMINAL_STATUSES]),
+    lte(downloadJobs.updatedAt, cutoff),
+  ]
+  if (keep.length) conditions.push(notInArray(downloadJobs.id, keep.map((r) => r.id)))
+  await db.delete(downloadJobs).where(and(...conditions))
+}
+
 /** On boot, requeue anything that was mid-flight when the process stopped. */
 export async function resumeDownloadJobs(): Promise<void> {
   // Kill any orphaned map-build Java processes from the previous server instance.
@@ -712,6 +732,7 @@ export async function resumeDownloadJobs(): Promise<void> {
   }
 
   await db.update(downloadJobs).set({ status: 'pending', updatedAt: new Date() }).where(eq(downloadJobs.status, 'running'))
+  try { await pruneTerminalJobs() } catch (e) { logger.warn(`[jobs] terminal-row prune failed: ${e}`) }
   startDownloadScheduler()
 }
 
@@ -767,8 +788,24 @@ function summarize(rows: JobRow[]) {
   }
 }
 
+// How many terminal rows the status endpoint folds in. The widget shows terminal rows only as
+// aggregate counts ("X of Y ready" / pct), and during an active batch its completed rows are by
+// definition the most recently updated — so the newest 200 preserve the display while keeping
+// this polled endpoint from materializing the entire job history.
+const STATUS_TERMINAL_LIMIT = 200
+
 export async function getJobsStatus() {
-  const allRows = await db.select().from(downloadJobs).orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
+  // The endpoint only ever surfaces setup+content job types (user-content jobs report through
+  // their own UIs), so query just those: all non-terminal rows + the newest terminal rows.
+  const statusTypes = [...SETUP_JOB_TYPES, ...CONTENT_JOB_TYPES]
+  const activeRows = await db.select().from(downloadJobs)
+    .where(and(inArray(downloadJobs.type, statusTypes), notInArray(downloadJobs.status, [...TERMINAL_STATUSES])))
+  const terminalRows = await db.select().from(downloadJobs)
+    .where(and(inArray(downloadJobs.type, statusTypes), inArray(downloadJobs.status, [...TERMINAL_STATUSES])))
+    .orderBy(desc(downloadJobs.updatedAt))
+    .limit(STATUS_TERMINAL_LIMIT)
+  const allRows = [...activeRows, ...terminalRows]
+    .sort((a, b) => a.priority - b.priority || a.createdAt.getTime() - b.createdAt.getTime())
   const setupRows = allRows.filter((r) => SETUP_JOB_TYPES.has(r.type as JobType))
   const contentRows = allRows.filter((r) => CONTENT_JOB_TYPES.has(r.type as JobType))
 

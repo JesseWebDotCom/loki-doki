@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { dataDir } from '@/lib/download'
 import { ensureNode } from '@/lib/node'
+import { logger } from '@/lib/logger'
 
 // Manages the Bun voice-server sidecar (Kokoro TTS + Whisper STT). Mirrors the
 // kiwix sidecar pattern: spawn detached, poll /health, expose install detection.
@@ -95,9 +96,75 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null
 let proc: ChildProcess | null = null
 
 export function getVoiceServerState(): VoiceState { return state.current }
-function markReady() { state.current = 'ready'; state.error = ''; clearPoll() }
+function markReady() { state.current = 'ready'; state.error = ''; clearPoll(); startSupervision() }
 function markFailed(msg: string) { state.current = 'failed'; state.error = msg; clearPoll() }
 function clearPoll() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null } }
+
+// ── Post-ready supervision ───────────────────────────────────────────────────
+// The startup poll stops at markReady(); if the sidecar dies later (onnxruntime
+// crash, OOM) the state would stay 'ready' with nothing respawning it. A
+// low-frequency liveness re-probe catches that and restarts — capped so a
+// persistently-crashing sidecar can't respawn-loop forever.
+
+const SUPERVISE_INTERVAL_MS = 60_000
+const SUPERVISE_RETRY_MS    = 5_000       // quick re-probe before declaring death
+const RESTART_WINDOW_MS     = 10 * 60_000
+const RESTART_MAX           = 3
+
+let superviseTimer: ReturnType<typeof setTimeout> | null = null
+let superviseFailures = 0
+let restartTimes: number[] = []
+
+function stopSupervision(): void {
+  if (superviseTimer) { clearTimeout(superviseTimer); superviseTimer = null }
+  superviseFailures = 0
+}
+
+function startSupervision(): void {
+  if (superviseTimer) return  // already supervising this instance
+  superviseFailures = 0
+  async function tick(): Promise<void> {
+    if (state.current !== 'ready') { superviseTimer = null; return }
+    let ok = false
+    try {
+      const r = await fetch(`${voiceServerLocalUrl()}/health`, { signal: AbortSignal.timeout(3_000) })
+      ok = r.ok
+    } catch { /* down or wedged */ }
+    if (state.current !== 'ready') { superviseTimer = null; return }  // stopped while probing
+    if (ok) {
+      superviseFailures = 0
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+      return
+    }
+    superviseFailures++
+    if (superviseFailures < 2) {
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_RETRY_MS)
+      return
+    }
+    superviseTimer = null
+    handleCrash()
+  }
+  superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+}
+
+// Shared respawn path for the liveness probe and the child 'exit' accelerator.
+// Old restart timestamps age out of the window, so a sustained healthy period
+// naturally resets the cap.
+function handleCrash(): void {
+  stopSupervision()
+  const now = Date.now()
+  restartTimes = restartTimes.filter((t) => now - t < RESTART_WINDOW_MS)
+  if (restartTimes.length >= RESTART_MAX) {
+    markFailed(`voice-server crashed ${RESTART_MAX}+ times within 10 minutes — giving up`)
+    logger.error('[voice] voice-server keeps crashing — not respawning again (restart the backend to retry)')
+    return
+  }
+  restartTimes.push(now)
+  logger.warn('[voice] voice-server died — respawning')
+  state.current = 'idle'
+  state.error   = ''
+  void maybeSpawnVoiceServer()
+}
 
 export function spawnVoiceServer(): void {
   if (state.current === 'starting' || state.current === 'ready') return
@@ -115,6 +182,14 @@ export function spawnVoiceServer(): void {
       env: { ...process.env, VOICE_SERVER_PORT: String(VOICE_PORT), VOICE_CACHE_DIR: voiceModelsDir },
     })
     proc = child
+    // Crash accelerator while we still hold the handle (post hot-reload the sidecar is
+    // an adopted orphan and only the HTTP probe can catch a crash). stopVoiceServer
+    // nulls proc before the exit event fires, so intentional kills never respawn.
+    child.on('exit', () => {
+      if (proc !== child) return
+      proc = null
+      if (state.current === 'ready') handleCrash()
+    })
     child.unref()
     startHealthPoll()
   }).catch((err) => markFailed(`could not resolve Node runtime: ${err}`))
@@ -123,6 +198,7 @@ export function spawnVoiceServer(): void {
 /** Stop the voice-server sidecar on shutdown (it is spawned detached + unref'd). */
 export function stopVoiceServer(): void {
   clearPoll()
+  stopSupervision()  // intentional stop (shutdown) must never trigger a respawn
   if (proc) {
     try { proc.kill('SIGTERM') } catch { /* already gone */ }
     proc = null

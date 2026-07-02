@@ -31,6 +31,7 @@ import { db } from '@/db'
 import { devices, sessions } from '@/db/schema'
 import { ensureChromium } from '@/lib/bookmarks/render'
 import { generateSessionToken, hashSessionToken, sessionExpiresAt } from '@/lib/session'
+import { invalidateSessionCache } from '@/middleware/auth'
 import { deviceView, getPodView } from '@/lib/pod/displayController'
 import { logger } from '@/lib/logger'
 
@@ -202,7 +203,10 @@ async function evict(deviceId: string): Promise<void> {
   if (!d) return
   live.delete(deviceId)
   try { await d.ctx.close() } catch { /* ignore */ }
-  try { await db.delete(sessions).where(eq(sessions.tokenHash, hashSessionToken(d.token))) } catch { /* ignore */ }
+  try {
+    await db.delete(sessions).where(eq(sessions.tokenHash, hashSessionToken(d.token)))
+    invalidateSessionCache(d.token)
+  } catch { /* ignore */ }
 }
 
 // Avoid two concurrent first-frame requests both spinning up a page for the device.

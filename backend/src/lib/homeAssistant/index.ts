@@ -15,7 +15,7 @@ import {
 } from './context'
 
 export { normalizeConnection }
-export { ensureConnected, getStore } from './sync'
+export { ensureConnected, ensureConnectedSoft, getStore } from './sync'
 export type { HAConnection } from './client'
 export type { CatalogEntity, HAStore } from './sync'
 

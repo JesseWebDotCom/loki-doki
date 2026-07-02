@@ -6,7 +6,7 @@ import { users, sessions, profilePins } from '@/db/schema'
 import { hashSessionToken, issueSession } from '@/lib/session'
 import { verifyPin, lockoutDuration } from '@/lib/pin'
 import { getClientIp, pinThrottleCheck, pinThrottleFail, pinThrottleReset } from '@/lib/pinThrottle'
-import { requireAuth } from '@/middleware/auth'
+import { requireAuth, invalidateSessionCache } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 
 const auth = new Hono<AppEnv>()
@@ -125,6 +125,7 @@ auth.post('/logout', requireAuth, async (c) => {
   const token = getCookie(c, 'session')
   if (token) {
     await db.delete(sessions).where(eq(sessions.tokenHash, hashSessionToken(token)))
+    invalidateSessionCache(token)
   }
   deleteCookie(c, 'session', { path: '/' })
   return c.json({ success: true })

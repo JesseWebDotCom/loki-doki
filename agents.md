@@ -402,6 +402,12 @@ The shadcn `Card` now exports a `cardVariants` CVA export with four variants. Pr
 
 ---
 
+### `WidgetErrorBoundary` - `src/components/shared/WidgetErrorBoundary.tsx`
+
+Per-tile error boundary for dashboard-style widgets (used by the Home canvas around every widget renderer). Catches a render throw inside one widget and shows a compact muted card ("This widget hit an error") with a Retry (remount) button, instead of letting the error bubble to the app-wide `ErrorBoundary` and blank the page. Wrap once at the lowest common render point of each tile.
+
+---
+
 ### `ConfirmDialog` - `src/components/shared/ConfirmDialog.tsx`
 
 Reusable confirmation modal. Use this for every destructive action (delete, reset, etc.) - do not build inline confirmation UI.

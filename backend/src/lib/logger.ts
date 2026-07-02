@@ -24,14 +24,6 @@ const ringSink = new Writable({
 const isDev = process.env.NODE_ENV === 'development'
 
 function makeLogger(): pino.Logger {
-  if (isDev) {
-    const pretty = pino.transport({
-      target: 'pino-pretty',
-      options: { colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
-    })
-    return pino({ level: 'debug' }, pino.multistream([pretty, ringSink]))
-  }
-
   const logDir = join(dataDir, 'logs')
   mkdirSync(logDir, { recursive: true })
 
@@ -43,7 +35,17 @@ function makeLogger(): pino.Logger {
   } catch { /* file doesn't exist yet */ }
 
   const fileSink = pino.destination({ dest: logFile, sync: false })
-  return pino({ level: 'info' }, pino.multistream([fileSink, ringSink]))
+  const streams: pino.StreamEntry[] = [{ stream: fileSink }, { stream: ringSink }]
+
+  if (isDev) {
+    const pretty = pino.transport({
+      target: 'pino-pretty',
+      options: { colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
+    })
+    streams.push({ stream: pretty })
+  }
+
+  return pino({ level: isDev ? 'debug' : 'info' }, pino.multistream(streams))
 }
 
 export const logger = makeLogger()

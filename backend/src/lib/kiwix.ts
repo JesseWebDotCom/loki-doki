@@ -201,14 +201,91 @@ export type KiwixState = 'idle' | 'starting' | 'ready' | 'failed'
 const state = { current: 'idle' as KiwixState, error: '' }
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 let kiwixProc: ChildProcess | null = null
+// Archive list from the last spawn, so post-ready supervision can respawn with the
+// same books (also captured when we adopt an already-running server after hot-reload).
+let lastZimPaths: string[] = []
 
 export function getKiwixState(): KiwixState { return state.current }
 export function getKiwixError(): string      { return state.error }
 export function kiwixUrl(): string           { return `http://127.0.0.1:${KIWIX_PORT}` }
 
-function markReady()              { state.current = 'ready'; state.error = ''; clearPoll() }
+function markReady()              { state.current = 'ready'; state.error = ''; clearPoll(); startSupervision() }
 function markFailed(msg: string)  { state.current = 'failed'; state.error = msg; clearPoll() }
 function clearPoll()              { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null } }
+
+// ── Post-ready supervision ────────────────────────────────────────────────────
+// The startup poll stops at markReady(); if the server dies later (OOM, crash) the
+// state would stay 'ready' forever. A low-frequency liveness re-probe catches that
+// and respawns — capped so a persistently-crashing server can't loop forever.
+
+const SUPERVISE_INTERVAL_MS = 60_000
+const SUPERVISE_RETRY_MS    = 5_000       // quick re-probe before declaring death
+const RESTART_WINDOW_MS     = 10 * 60_000
+const RESTART_MAX           = 3
+
+let superviseTimer: ReturnType<typeof setTimeout> | null = null
+let superviseFailures = 0
+let restartTimes: number[] = []
+
+function stopSupervision(): void {
+  if (superviseTimer) { clearTimeout(superviseTimer); superviseTimer = null }
+  superviseFailures = 0
+}
+
+function startSupervision(): void {
+  if (superviseTimer) return  // already supervising this instance
+  superviseFailures = 0
+  const tick = async (): Promise<void> => {
+    if (state.current !== 'ready') { superviseTimer = null; return }
+    let ok = false
+    try {
+      const r = await fetch(`${kiwixUrl()}/catalog/v2/entries`, { signal: AbortSignal.timeout(3_000) })
+      ok = r.ok
+    } catch { /* down or wedged */ }
+    if (state.current !== 'ready') { superviseTimer = null; return }  // stopped while probing
+    if (ok) {
+      superviseFailures = 0
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+      return
+    }
+    superviseFailures++
+    if (superviseFailures < 2) {
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_RETRY_MS)
+      return
+    }
+    superviseTimer = null
+    handleCrash()
+  }
+  superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+}
+
+// Shared respawn path for both the liveness probe and the child 'exit' accelerator.
+// Old restart timestamps age out of the window, so a sustained healthy period
+// naturally resets the cap.
+function handleCrash(): void {
+  stopSupervision()
+  const now = Date.now()
+  restartTimes = restartTimes.filter((t) => now - t < RESTART_WINDOW_MS)
+  if (restartTimes.length >= RESTART_MAX) {
+    markFailed(`ZIM server crashed ${RESTART_MAX}+ times within 10 minutes — giving up`)
+    logger.error('[kiwix] ZIM server keeps crashing — not respawning again (restart the backend to retry)')
+    return
+  }
+  restartTimes.push(now)
+  logger.warn('[kiwix] ZIM server died — respawning')
+  void restartKiwix(lastZimPaths)
+}
+
+// Accelerator when we still hold the child handle (post hot-reload the server is an
+// adopted orphan and only the HTTP probe can catch a crash). stopKiwix nulls kiwixProc
+// synchronously before the exit event fires, so intentional kills never respawn.
+function watchProc(child: ChildProcess): void {
+  child.on('exit', () => {
+    if (kiwixProc !== child) return
+    kiwixProc = null
+    if (state.current === 'ready') handleCrash()
+  })
+}
 
 // ── Spawn ─────────────────────────────────────────────────────────────────────
 
@@ -218,6 +295,7 @@ export function spawnKiwix(zimPaths: string[]): void {
 
   const validZims = zimPaths.filter(existsSync)
   if (validZims.length === 0) return
+  lastZimPaths = validZims
 
   if (IS_WIN) {
     // Mark starting synchronously; library build + spawn are async.
@@ -233,6 +311,7 @@ export function spawnKiwix(zimPaths: string[]): void {
     stdio: 'ignore',
   })
   kiwixProc = child
+  watchProc(child)
   child.unref()
 
   state.current = 'starting'
@@ -256,6 +335,7 @@ async function spawnKiwixServe(validZims: string[]): Promise<void> {
     stdio: 'ignore',
   })
   kiwixProc = child
+  watchProc(child)
   child.unref()
   startHealthPoll()
 }
@@ -294,6 +374,7 @@ async function doRestartKiwix(zimPaths: string[]): Promise<void> {
 }
 
 export async function stopKiwix(): Promise<void> {
+  stopSupervision()  // intentional stop (shutdown/restart) must never trigger a respawn
   if (kiwixProc) {
     try { kiwixProc.kill('SIGTERM') } catch { /* already dead */ }
     kiwixProc = null
@@ -337,7 +418,7 @@ export async function maybeSpawnKiwix(zimPaths: string[]): Promise<void> {
 
   try {
     const r = await fetch(`${kiwixUrl()}/catalog/v2/entries`, { signal: AbortSignal.timeout(2_000) })
-    if (r.ok) { markReady(); return }
+    if (r.ok) { lastZimPaths = valid; markReady(); return }  // adopted after hot-reload — remember paths for respawn
   } catch { /* not running */ }
 
   spawnKiwix(valid)

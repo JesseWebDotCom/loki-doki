@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/context/AuthContext'
+import { useUserPreferences, patchUserPreferencesCache } from '@/hooks/useUserPreferences'
 
 export interface UserLocation {
   city: string
@@ -24,22 +26,29 @@ export interface UseUserLocationResult {
 
 export function useUserLocation(): UseUserLocationResult {
   const { user } = useAuth()
-  const [location, setLocation] = useState<UserLocation | null>(null)
-  const [status, setStatus] = useState<LocationStatus>('loading')
+  const queryClient = useQueryClient()
+  // Location derives from the shared preferences query (one fetch app-wide)
+  // instead of a per-mount fetch — this hook is mounted several times at once.
+  const prefsQuery = useUserPreferences()
+  // Local overlay for in-flight detect/search; 'loading'/'ready' come from the query.
+  const [action, setAction] = useState<'idle' | 'detecting' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const location = (prefsQuery.data?.['user.location'] as UserLocation | undefined) ?? null
+  const status: LocationStatus =
+    action === 'detecting' ? 'detecting'
+    : action === 'error' ? 'error'
+    : prefsQuery.data !== undefined || prefsQuery.isError ? 'ready'
+    : 'loading'
+
+  const setStatus = useCallback((s: 'detecting' | 'error' | 'ready') => {
+    setAction(s === 'ready' ? 'idle' : s)
+  }, [])
+
+  const setLocation = useCallback((loc: UserLocation | null) => {
     if (!user?.id) return
-    fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
-      .then(r => r.ok ? (r.json() as Promise<Record<string, unknown>>) : Promise.resolve(null))
-      .then(prefs => {
-        if (prefs?.['user.location']) {
-          setLocation(prefs['user.location'] as UserLocation)
-        }
-        setStatus('ready')
-      })
-      .catch(() => setStatus('ready'))
-  }, [user?.id])
+    patchUserPreferencesCache(queryClient, user.id, { 'user.location': loc })
+  }, [queryClient, user?.id])
 
   const save = useCallback(async (loc: UserLocation) => {
     if (!user?.id) return
@@ -50,7 +59,7 @@ export function useUserLocation(): UseUserLocationResult {
       body: JSON.stringify({ 'user.location': loc }),
     })
     setLocation(loc)
-  }, [user?.id])
+  }, [user?.id, setLocation])
 
   const detect = useCallback(async () => {
     if (!user?.id) return
@@ -185,7 +194,7 @@ export function useUserLocation(): UseUserLocationResult {
       body: JSON.stringify({ 'user.location': null }),
     })
     setLocation(null)
-  }, [user?.id])
+  }, [user?.id, setLocation])
 
   return { location, status, error, detect, setManual, clear }
 }

@@ -1,3 +1,5 @@
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
@@ -17,7 +19,7 @@ import { users } from '@/routes/users'
 import { chat } from '@/routes/chat'
 import { models } from '@/routes/models'
 import { tts } from '@/routes/tts'
-import { system } from '@/routes/system'
+import { system, startBootSequence } from '@/routes/system'
 import { logs } from '@/routes/logs'
 import { tools } from '@/routes/tools'
 import { adminMemory } from '@/routes/adminMemory'
@@ -36,6 +38,7 @@ import { archives } from '@/routes/archives'
 import { adminArchives } from '@/routes/adminArchives'
 import { jobs as downloadJobsRoute } from '@/routes/jobs'
 import { resumeDownloadJobs, scanAndRepairCorruptImageModels } from '@/lib/downloadJobs'
+import { dataDir } from '@/lib/download'
 import { companions } from '@/routes/companions'
 import { adminCompanions } from '@/routes/adminCompanions'
 import { adminVoice } from '@/routes/adminVoice'
@@ -49,6 +52,8 @@ import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
 import { briefing } from '@/routes/briefing'
 import { push } from '@/routes/push'
+import { notifyChannels } from '@/routes/notifyChannels'
+import { adminNotify } from '@/routes/adminNotify'
 import { maps } from '@/routes/maps'
 import { adminMaps } from '@/routes/adminMaps'
 import { proxy } from '@/routes/proxy'
@@ -143,142 +148,181 @@ import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/tool
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
 
-runMigrations()
-// Seed the remote-engine override cache so ollamaUrl() resolves correctly from boot.
-void loadRemoteEngine()
-// One-time grandfather: installs that finished setup BEFORE the offline-content welcome
-// wizard existed already chose their library/maps in the old flow, so mark it seen for
-// them. Brand-new installs boot here before setup completes (first_run_complete=false),
-// so the flag stays unset and the wizard shows once after their first real boot.
-void (async () => {
-  if ((await getAppSetting('welcome_flag_migrated')) === true) return
-  if ((await getAppSetting('first_run_complete')) === true) await setAppSetting('welcome_complete', true)
-  await setAppSetting('welcome_flag_migrated', true)
-})()
-startMemorySweep()
-startBriefingRefresh()
-startCompanionCheckins()
-// Prune expired session rows at boot and hourly so the sessions table doesn't grow
-// unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
-void pruneExpiredSessions().catch(() => {})
-setInterval(() => { void pruneExpiredSessions().catch(() => {}) }, 60 * 60 * 1000)
-// Sweep orphaned wake-word training temp dirs (~25 MB each) left by hard-killed
-// trainings (SIGKILL / run.sh / crash) — their per-run cleanup never got to run.
-void cleanupStaleTrainingTmp().then((n) => { if (n) logger.info(`[wake] cleaned ${n} stale training temp dir(s)`) }).catch(() => {})
-// Warm the model into VRAM at startup — but only once setup has picked one. On a fresh
-// install no model is selected yet, so a warmup would fire a doomed request at an Ollama
-// that may not even be running. setup.ts calls warmupModel() itself once the user chooses.
-void (async () => { if ((await getAppSetting('first_run_complete')) === true) warmupModel() })()
-void startHomeAssistantSync()
-// Seed built-in content profiles + backfill user assignments (idempotent).
-void seedContentProfiles().catch((e) => logger.warn(`[content] profile seed failed: ${e}`))
-// Seed built-in pronunciation packs so TTS rules apply from first boot, not only
-// after an admin visits the packs tab.
-void reconcileBuiltinPronunciationPacks().catch((e) => logger.warn(`[voice] pronunciation pack seed failed: ${e}`))
-// Seed the app default voice once so the admin UI shows a real voice instead of
-// "Not set". The resolver already falls back to kokoro:af_heart at runtime, but
-// persisting it makes the default explicit and editable. Idempotent.
-void (async () => {
-  if (!(await getAppSetting('voice.app_default_voice'))) {
-    await setAppSetting('voice.app_default_voice', 'kokoro:af_heart')
+// ── Boot side effects (once per PROCESS, not per hot-reload) ──────────────────
+// `bun --hot` re-evaluates this module on every dev edit but does NOT clear the
+// previous graph's timers, sockets, or subprocesses. Unguarded, every edit stacks
+// another full boot — duplicate pollers, Ollama warmups, HA registry syncs, process
+// handlers (observed: 27 boots in one process = periodic multi-second stalls).
+// globalThis survives reloads, so it carries the "already booted" flag. Trade-off:
+// changes to anything inside this block need a manual server restart to apply.
+const bootFlags = globalThis as typeof globalThis & { __appBooted?: boolean }
+const firstBoot = !bootFlags.__appBooted
+bootFlags.__appBooted = true
+
+if (firstBoot) {
+  runMigrations()
+  // Seed the remote-engine override cache so ollamaUrl() resolves correctly from boot.
+  void loadRemoteEngine()
+  // One-time grandfather: installs that finished setup BEFORE the offline-content welcome
+  // wizard existed already chose their library/maps in the old flow, so mark it seen for
+  // them. Brand-new installs boot here before setup completes (first_run_complete=false),
+  // so the flag stays unset and the wizard shows once after their first real boot.
+  void (async () => {
+    if ((await getAppSetting('welcome_flag_migrated')) === true) return
+    if ((await getAppSetting('first_run_complete')) === true) await setAppSetting('welcome_complete', true)
+    await setAppSetting('welcome_flag_migrated', true)
+  })()
+  startMemorySweep()
+  startBriefingRefresh()
+  startCompanionCheckins()
+  // Prune expired session rows at boot and hourly so the sessions table doesn't grow
+  // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
+  void pruneExpiredSessions().catch(() => {})
+  setInterval(() => { void pruneExpiredSessions().catch(() => {}) }, 60 * 60 * 1000)
+  // Sweep orphaned wake-word training temp dirs (~25 MB each) left by hard-killed
+  // trainings (SIGKILL / run.sh / crash) — their per-run cleanup never got to run.
+  void cleanupStaleTrainingTmp().then((n) => { if (n) logger.info(`[wake] cleaned ${n} stale training temp dir(s)`) }).catch(() => {})
+  // Warm the model into VRAM at startup — but only once setup has picked one. On a fresh
+  // install no model is selected yet, so a warmup would fire a doomed request at an Ollama
+  // that may not even be running. setup.ts calls warmupModel() itself once the user chooses.
+  void (async () => { if ((await getAppSetting('first_run_complete')) === true) warmupModel() })()
+  // Run the boot/verify sequence at startup instead of waiting for the first FRESH
+  // page load to hit /api/system/boot — otherwise a restart with only already-open
+  // tabs leaves /api/system/ready at 503 indefinitely (boot-gated UI stuck).
+  // Fresh installs skip: setup owns installs until first_run_complete, and the
+  // wizard's own /boot request starts the sequence at the right moment.
+  void (async () => { if ((await getAppSetting('first_run_complete')) === true) startBootSequence() })()
+  void startHomeAssistantSync()
+  // Seed built-in content profiles + backfill user assignments (idempotent).
+  void seedContentProfiles().catch((e) => logger.warn(`[content] profile seed failed: ${e}`))
+  // Seed built-in pronunciation packs so TTS rules apply from first boot, not only
+  // after an admin visits the packs tab.
+  void reconcileBuiltinPronunciationPacks().catch((e) => logger.warn(`[voice] pronunciation pack seed failed: ${e}`))
+  // Seed the app default voice once so the admin UI shows a real voice instead of
+  // "Not set". The resolver already falls back to kokoro:af_heart at runtime, but
+  // persisting it makes the default explicit and editable. Idempotent.
+  void (async () => {
+    if (!(await getAppSetting('voice.app_default_voice'))) {
+      await setAppSetting('voice.app_default_voice', 'kokoro:af_heart')
+    }
+  })().catch((e) => logger.warn(`[voice] default-voice seed failed: ${e}`))
+  // Connect to the (remote) Frigate broker if configured — drives camera event
+  // notifications + companion announcements. No-op until an admin sets it up.
+  void startFrigateMqtt()
+  // Scan image model .safetensors files for corruption before spawning ComfyUI — a
+  // corrupt checkpoint causes an inscrutable generation error rather than a clear
+  // install failure. Deletes bad files and re-queues them so the repair is automatic.
+  scanAndRepairCorruptImageModels()
+    .then(repaired => {
+      if (repaired.length) logger.warn(`[image] quarantined ${repaired.length} corrupt model file(s) at boot: ${repaired.join(', ')}`)
+      maybeSpawnComfyUI()
+    })
+    .catch(() => { maybeSpawnComfyUI() })
+  maybeSpawnVoiceServer()
+  // Web-search metasearch sidecar: start fast with the current checkout, then (when a
+  // weekly check is due) pull the latest SearXNG so its engine adapters stay current —
+  // a stale checkout silently rots as upstream sites change. Both calls no-op if it
+  // isn't installed. The update self-gates on a persisted timestamp + restarts only when
+  // the checkout actually moved; a daily timer catches long-running instances.
+  maybeSpawnSearXNG()
+  void maybeUpdateSearXNG()
+  setInterval(() => void maybeUpdateSearXNG(), 24 * 60 * 60 * 1000)
+  // Pod gateway: a Wyoming-protocol TCP listener that ESP32 satellites (and the
+  // scripts/pod-test-satellite.ts harness) connect to. Reuses STT/TTS/LLM brains.
+  // See plans/hardware-devices/pod-wyoming-architecture.md. Disable: POD_GATEWAY_ENABLED=0.
+  startPodGateway()
+  // Server-side scheduler: fires alarms/timers to a user's connected Pods over the
+  // persistent gateway socket (additive to the browser Time app's own firing).
+  startPodScheduler()
+  // UDP camera frame streamer for screen Pods (bypasses the esp-hosted TCP-inbound
+  // stall, #184) — see lib/pod/cameraUdp.ts.
+  import('@/lib/pod/cameraUdp').then((m) => m.startCameraUdp()).catch(() => {})
+  // Build the zoomed-out world basemap in the background if the maps toolchain is
+  // installed but the overview hasn't been built yet (one-time, then cached).
+  void maybeBuildWorldOverview()
+  // Generate the country/state/label GeoJSON overlays if missing (e.g. upgraded
+  // from a version that predates this step, or the PMTiles built without them).
+  void maybeBuildWorldGeoJSON()
+  
+  // Spawn kiwix-serve for installed ZIM archives — but quarantine any corrupt ones FIRST
+  // (a single bad ZIM crashes the whole server natively), so we only ever start with files
+  // known to open. Bad ones are deleted + re-queued for download.
+  listHealthyArchivePaths()
+    .then(({ valid, quarantined }) => {
+      if (quarantined.length) logger.warn(`[archives] quarantined ${quarantined.length} corrupt archive(s) at boot: ${quarantined.join(', ')}`)
+      if (valid.length > 0) maybeSpawnKiwix(valid)
+    })
+    .catch(() => {})
+  
+  // Resume any background download jobs left pending/running from a prior session,
+  // and start the scheduler that drains the queue (≤1 large per host / 2 large total,
+  // ≤1 per host, ≤4 network jobs, plus a separate compute lane for map builds).
+  void resumeDownloadJobs()
+  // Pre-warm lazily-installed binary deps (ffmpeg, Chromium, Node runtime) in the
+  // background so first use never stalls on a download — see lib/prewarm.ts.
+  import('@/lib/prewarm').then((m) => m.scheduleBinaryPrewarm()).catch(() => {})
+  startYoutubeFeedPoller()
+  // Notification delivery layer: deferred/digest flush + daily reports (lib/notify),
+  // and the Telegram two-way bridge long-poll loop (lib/telegram).
+  import('@/lib/notify/scheduler').then((m) => m.startNotifyScheduler()).catch(() => {})
+  import('@/lib/telegram/poller').then((m) => m.startTelegramPoller()).catch(() => {})
+  // Feeds: seed curated News as system feeds, kick an initial fetch, then poll on an interval.
+  void seedSystemFeeds().then(() => refreshSystemFeeds()).catch(() => {})
+  startFeedPoller()
+  // Real podcast subscriptions: refresh RSS shows for new episodes (+ auto-download pass).
+  startPodcastFeedPoller()
+  // Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
+  // that window between polls (bursts / extended downtime) is invisible to the poller forever.
+  // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
+  startYoutubeReconcile()
+  void backfillAllThumbnails().catch(() => {})
+  // One-time: decode HTML entities in titles stored before ingestion-side decoding.
+  void backfillYoutubeTitleEntities().catch(() => {})
+  // Disk cache for YouTube artwork: evict non-subscribed images 24h after fetch, and
+  // conditionally re-validate subscribed channel art every 24h. Runs ~30s after boot too.
+  startImageCacheMaintenance()
+  // Content blob store: periodically reclaim unreferenced shared media blobs, and fold any
+  // pre-dedup per-user offline library into the shared store (idempotent; ~off the hot path so
+  // boot/serving isn't blocked on hashing a large library). Both best-effort.
+  import('@/lib/content/store').then((m) => m.startContentGc()).catch(() => {})
+  setTimeout(() => { void import('@/lib/youtube/migrateOffline').then((m) => m.migrateLegacyOfflineLibrary()) }, 15_000)
+  // Bound the Shows/Movies media-image disk cache: sweep oldest art when over the ceiling.
+  // Guarded so a sweep that outruns its interval can't overlap itself, and a throwing
+  // sweep is logged instead of silently never evicting again.
+  const guardedSweep = (label: string, fn: () => Promise<unknown>) => {
+    let running = false
+    return async () => {
+      if (running) return
+      running = true
+      try { await fn() } catch (e) { logger.warn(`[cache-sweep] ${label} failed: ${e}`) } finally { running = false }
+    }
   }
-})().catch((e) => logger.warn(`[voice] default-voice seed failed: ${e}`))
-// Connect to the (remote) Frigate broker if configured — drives camera event
-// notifications + companion announcements. No-op until an admin sets it up.
-void startFrigateMqtt()
-// Scan image model .safetensors files for corruption before spawning ComfyUI — a
-// corrupt checkpoint causes an inscrutable generation error rather than a clear
-// install failure. Deletes bad files and re-queues them so the repair is automatic.
-scanAndRepairCorruptImageModels()
-  .then(repaired => {
-    if (repaired.length) logger.warn(`[image] quarantined ${repaired.length} corrupt model file(s) at boot: ${repaired.join(', ')}`)
-    maybeSpawnComfyUI()
-  })
-  .catch(() => { maybeSpawnComfyUI() })
-maybeSpawnVoiceServer()
-// Web-search metasearch sidecar: start fast with the current checkout, then (when a
-// weekly check is due) pull the latest SearXNG so its engine adapters stay current —
-// a stale checkout silently rots as upstream sites change. Both calls no-op if it
-// isn't installed. The update self-gates on a persisted timestamp + restarts only when
-// the checkout actually moved; a daily timer catches long-running instances.
-maybeSpawnSearXNG()
-void maybeUpdateSearXNG()
-setInterval(() => void maybeUpdateSearXNG(), 24 * 60 * 60 * 1000)
-// Pod gateway: a Wyoming-protocol TCP listener that ESP32 satellites (and the
-// scripts/pod-test-satellite.ts harness) connect to. Reuses STT/TTS/LLM brains.
-// See plans/hardware-devices/pod-wyoming-architecture.md. Disable: POD_GATEWAY_ENABLED=0.
-startPodGateway()
-// Server-side scheduler: fires alarms/timers to a user's connected Pods over the
-// persistent gateway socket (additive to the browser Time app's own firing).
-startPodScheduler()
-// UDP camera frame streamer for screen Pods (bypasses the esp-hosted TCP-inbound
-// stall, #184) — see lib/pod/cameraUdp.ts.
-import('@/lib/pod/cameraUdp').then((m) => m.startCameraUdp()).catch(() => {})
-// Build the zoomed-out world basemap in the background if the maps toolchain is
-// installed but the overview hasn't been built yet (one-time, then cached).
-void maybeBuildWorldOverview()
-// Generate the country/state/label GeoJSON overlays if missing (e.g. upgraded
-// from a version that predates this step, or the PMTiles built without them).
-void maybeBuildWorldGeoJSON()
-
-// Spawn kiwix-serve for installed ZIM archives — but quarantine any corrupt ones FIRST
-// (a single bad ZIM crashes the whole server natively), so we only ever start with files
-// known to open. Bad ones are deleted + re-queued for download.
-listHealthyArchivePaths()
-  .then(({ valid, quarantined }) => {
-    if (quarantined.length) logger.warn(`[archives] quarantined ${quarantined.length} corrupt archive(s) at boot: ${quarantined.join(', ')}`)
-    if (valid.length > 0) maybeSpawnKiwix(valid)
-  })
-  .catch(() => {})
-
-// Resume any background download jobs left pending/running from a prior session,
-// and start the scheduler that drains the queue (≤1 large per host / 2 large total,
-// ≤1 per host, ≤4 network jobs, plus a separate compute lane for map builds).
-void resumeDownloadJobs()
-// Pre-warm lazily-installed binary deps (ffmpeg, Chromium, Node runtime) in the
-// background so first use never stalls on a download — see lib/prewarm.ts.
-import('@/lib/prewarm').then((m) => m.scheduleBinaryPrewarm()).catch(() => {})
-startYoutubeFeedPoller()
-// Feeds: seed curated News as system feeds, kick an initial fetch, then poll on an interval.
-void seedSystemFeeds().then(() => refreshSystemFeeds()).catch(() => {})
-startFeedPoller()
-// Real podcast subscriptions: refresh RSS shows for new episodes (+ auto-download pass).
-startPodcastFeedPoller()
-// Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
-// that window between polls (bursts / extended downtime) is invisible to the poller forever.
-// This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
-startYoutubeReconcile()
-void backfillAllThumbnails().catch(() => {})
-// One-time: decode HTML entities in titles stored before ingestion-side decoding.
-void backfillYoutubeTitleEntities().catch(() => {})
-// Disk cache for YouTube artwork: evict non-subscribed images 24h after fetch, and
-// conditionally re-validate subscribed channel art every 24h. Runs ~30s after boot too.
-startImageCacheMaintenance()
-// Content blob store: periodically reclaim unreferenced shared media blobs, and fold any
-// pre-dedup per-user offline library into the shared store (idempotent; ~off the hot path so
-// boot/serving isn't blocked on hashing a large library). Both best-effort.
-import('@/lib/content/store').then((m) => m.startContentGc()).catch(() => {})
-setTimeout(() => { void import('@/lib/youtube/migrateOffline').then((m) => m.migrateLegacyOfflineLibrary()) }, 15_000)
-// Bound the Shows/Movies media-image disk cache: sweep oldest art when over the ceiling.
-setTimeout(() => void mediaImageCacheSweep(), 60_000)
-setInterval(() => void mediaImageCacheSweep(), 24 * 60 * 60 * 1000)
-// Bound the app-wide /api/img proxy cache (news/article/misc remote images).
-setTimeout(() => void imageCacheSweep(), 90_000)
-setInterval(() => void imageCacheSweep(), 24 * 60 * 60 * 1000)
-// Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
-// the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
-startYtdlpAutoUpdate()
-
-// Plex: mirror the linked user's media watchlist with their Plex account Watchlist every
-// 15 min (two-way, tombstone-aware). No-op until a Plex server+token is configured.
-import('@/lib/plex/sync').then((m) => m.startPlexWatchlistSync()).catch(() => {})
-
-// Bookmarks capture engine: resolve (and if needed download) a headless Chromium ahead of the
-// first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
-import('@/lib/bookmarks/render').then((m) => m.ensureChromium()).catch(() => {})
-// Bookmarks auto-update: periodically re-archive items the user marked for monitoring, and alert
-// on content changes. Rides the download queue, so it's bounded the same way archiving is.
-import('@/lib/bookmarks/autoUpdate').then((m) => m.startBookmarkAutoUpdatePoller()).catch(() => {})
+  const mediaSweep = guardedSweep('media-image', mediaImageCacheSweep)
+  const imgSweep   = guardedSweep('img-proxy', imageCacheSweep)
+  setTimeout(() => void mediaSweep(), 60_000)
+  setInterval(() => void mediaSweep(), 24 * 60 * 60 * 1000)
+  // Bound the app-wide /api/img proxy cache (news/article/misc remote images).
+  setTimeout(() => void imgSweep(), 90_000)
+  setInterval(() => void imgSweep(), 24 * 60 * 60 * 1000)
+  // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
+  // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
+  startYtdlpAutoUpdate()
+  
+  // Plex: mirror the linked user's media watchlist with their Plex account Watchlist every
+  // 15 min (two-way, tombstone-aware). No-op until a Plex server+token is configured.
+  import('@/lib/plex/sync').then((m) => m.startPlexWatchlistSync()).catch(() => {})
+  
+  // Bookmarks capture engine: resolve (and if needed download) a headless Chromium ahead of the
+  // first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
+  import('@/lib/bookmarks/render').then((m) => m.ensureChromium()).catch(() => {})
+  // Bookmarks auto-update: periodically re-archive items the user marked for monitoring, and alert
+  // on content changes. Rides the download queue, so it's bounded the same way archiving is.
+  import('@/lib/bookmarks/autoUpdate').then((m) => m.startBookmarkAutoUpdatePoller()).catch(() => {})
+} else {
+  // Hot reload: module-level caches reset with the new graph even though the old
+  // timers/sockets keep running. Re-seed the cheap ones the request path depends on.
+  void loadRemoteEngine()
+}
 
 // Unload Ollama models on shutdown so they don't linger in VRAM between sessions.
 async function unloadOllamaModels() {
@@ -318,6 +362,23 @@ async function shutdown() {
 
 process.on('SIGINT', () => void shutdown())
 process.on('SIGTERM', () => void shutdown())
+
+// Last-resort crash telemetry: an uncaught throw from a timer/poller or a floating
+// promise otherwise kills the process with the reason only on the (scrolled-away)
+// terminal — app.log must record what took the server down. Rejections are logged but
+// survivable; uncaughtException state is undefined, so log synchronously and exit.
+process.on('unhandledRejection', (reason) => {
+  logger.error({ err: reason instanceof Error ? reason : new Error(String(reason)) }, '[process] unhandled promise rejection')
+})
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, '[process] uncaught exception — exiting')
+  // logger's file sink is async and may not flush before exit; append the line sync.
+  try {
+    appendFileSync(join(dataDir, 'logs', 'app.log'),
+      JSON.stringify({ level: 60, time: Date.now(), msg: `[process] uncaught exception: ${err?.stack ?? err}` }) + '\n')
+  } catch { /* best-effort */ }
+  process.exit(1)
+})
 
 const app = new Hono()
 
@@ -403,6 +464,8 @@ app.route('/api/consent', consent)
 app.route('/api/admin/locale', adminLocale)
 app.route('/api/admin/speedtest', adminSpeedtest)
 app.route('/api/notifications', notificationsRoute)
+app.route('/api/notify', notifyChannels)
+app.route('/api/admin/notify', adminNotify)
 app.route('/api/app-store', appStore)
 app.route('/api/home-layout', homeLayout)
 app.route('/api/admin/connectivity', adminConnectivity)

@@ -3,7 +3,11 @@ import { streamSSE } from 'hono/streaming'
 import { existsSync } from 'node:fs'
 import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { execSync, spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+import { logger } from '@/lib/logger'
 import { getModel, getWarmupPromise } from '@/lib/models'
 import { seedHardwareDefaults, detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import {
@@ -149,6 +153,16 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
     if (rir && hasTraining && !rir.isInstalled() && !bgComponentIds.includes(rir.id)) {
       bgComponentIds.push(rir.id)
     }
+
+    // Same bridge for the Silero VAD model: it ships alongside Voice but was
+    // added later, so installs that predate it never "chose" it. If voice is
+    // present, heal the VAD model too (STT + barge-in run energy-only until
+    // the ~2 MB download lands; the next STT session picks it up live).
+    const vad = getInstallComponent('silero-vad')
+    const hasVoice = ledgerSet.has('voice-core') || isVoiceServerInstalled()
+    if (vad && hasVoice && !vad.isInstalled() && !bgComponentIds.includes(vad.id)) {
+      bgComponentIds.push(vad.id)
+    }
   } catch { /* ledger unreadable — skip */ }
 
   if (bgModelIds.length || bgComponentIds.length) {
@@ -260,7 +274,7 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
 
     step(broadcast, { key: 'llm', label: `Checking ${model}`, status: 'running' })
     try {
-      const tagsRes = await fetch(`${ollamaUrl()}/api/tags`)
+      const tagsRes = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(10_000) })
       const { models } = await tagsRes.json() as { models: { name: string }[] }
       const prefix = model.split(':')[0] ?? model
       const available = models.some(
@@ -277,11 +291,23 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
         }
       } else {
         // warmupModel() in index.ts is already loading the model into VRAM in parallel.
-        // Await that shared promise instead of firing a duplicate generate request.
+        // Await that shared promise instead of firing a duplicate generate request —
+        // but BOUNDED: when Ollama is busy (training/eval fleets, model churn) the
+        // warmup can take many minutes, and an unbounded await here holds boot.done
+        // (and therefore /api/system/ready) hostage the whole time. Warmup keeps
+        // finishing in the background either way.
         step(broadcast, { key: 'llm', label: `Loading ${model} into memory`, status: 'running' })
         try {
-          await (getWarmupPromise() ?? Promise.resolve())
-          step(broadcast, { key: 'llm', label: `${model} ready`, status: 'ok', detail: 'Resident in memory' })
+          const timedOut = Symbol('warmup-timeout')
+          const winner = await Promise.race([
+            (getWarmupPromise() ?? Promise.resolve()),
+            new Promise((r) => setTimeout(() => r(timedOut), 90_000)),
+          ])
+          if (winner === timedOut) {
+            step(broadcast, { key: 'llm', label: `${model} still loading`, status: 'warn', detail: 'Continuing in background' })
+          } else {
+            step(broadcast, { key: 'llm', label: `${model} ready`, status: 'ok', detail: 'Resident in memory' })
+          }
         } catch {
           step(broadcast, { key: 'llm', label: `${model} warm-up timed out`, status: 'warn', detail: 'Will load on first request' })
         }
@@ -362,11 +388,13 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   if (!comfyAlive && comfyInstalled) {
     let venvCompatible = true
     try {
-      const minor = execSync(
-        `"${venvPython()}" -c "import sys; print(sys.version_info.minor)"`,
+      // execFile (async), not execSync: a sync probe freezes the whole event loop
+      // for up to its 5 s timeout while boot runs, stalling every other request.
+      const { stdout } = await execFileAsync(
+        venvPython(), ['-c', 'import sys; print(sys.version_info.minor)'],
         { encoding: 'utf8', timeout: 5_000 },
-      ).trim()
-      if (parseInt(minor, 10) < 10) venvCompatible = false
+      )
+      if (parseInt(stdout.trim(), 10) < 10) venvCompatible = false
     } catch { /* assume compatible */ }
 
     if (!venvCompatible) {
@@ -510,25 +538,34 @@ system.get('/boot', async (c) => {
     })
 
     // Kick off the boot sequence once — subsequent clients just subscribe above
-    if (!boot.started) {
-      boot.started = true
-      runBoot(broadcastBoot)
-        .catch(console.error)
-        .finally(() => {
-          boot.done = true
-          boot.subscribers.clear()
-          // SDXL fp16-fix VAE and ESRGAN upscaler — quality improvements (~400 MB
-          // total), not blockers. Deferred until after boot completes so they
-          // cannot affect the boot sequence in any way.
-          if (isComfyUIInstalled()) {
-            if (!isSdxlVaeInstalled()) setTimeout(() => downloadSdxlVae(() => {}).catch(() => {}), 500)
-            if (!isEsrganInstalled()) setTimeout(() => downloadEsrganModel(() => {}).catch(() => {}), 1_000)
-          }
-        })
-    }
+    startBootSequence()
 
     await settled
   })
 })
+
+/**
+ * Start the boot/verify sequence (idempotent). Called from index.ts at server
+ * startup so a backend restart becomes ready on its own — previously boot only
+ * ran when a FRESH page load hit /boot, so already-open tabs left the server at
+ * /ready=503 indefinitely (admin + boot-gated UI stuck on spinners).
+ */
+export function startBootSequence(): void {
+  if (boot.started) return
+  boot.started = true
+  runBoot(broadcastBoot)
+    .catch((e) => logger.error(`[boot] sequence failed: ${e}`))
+    .finally(() => {
+      boot.done = true
+      boot.subscribers.clear()
+      // SDXL fp16-fix VAE and ESRGAN upscaler — quality improvements (~400 MB
+      // total), not blockers. Deferred until after boot completes so they
+      // cannot affect the boot sequence in any way.
+      if (isComfyUIInstalled()) {
+        if (!isSdxlVaeInstalled()) setTimeout(() => downloadSdxlVae(() => {}).catch(() => {}), 500)
+        if (!isEsrganInstalled()) setTimeout(() => downloadEsrganModel(() => {}).catch(() => {}), 1_000)
+      }
+    })
+}
 
 export { system }

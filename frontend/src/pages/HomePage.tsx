@@ -4,11 +4,13 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import {
   Activity, Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Home, Laugh, LayoutGrid,
-  Lightbulb, ListVideo, Loader2, Lock, LockOpen, Minus, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
-  Power, RotateCw, ShieldCheck, Star, Sunrise, Thermometer, Trophy, Tv, Upload, Volume2, Wind, X, type LucideIcon,
+  Lightbulb, ListVideo, Loader2, LockOpen, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
+  Power, RotateCw, ShieldCheck, Star, Sunrise, Trophy, Tv, Upload, Volume2, X, type LucideIcon,
 } from "lucide-react";
 import type { VideoItem } from "@/lib/youtube/types";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DeviceCard, type CardAction } from "@/components/homeassistant/DeviceCard";
+import type { HAEntity } from "@/components/homeassistant/DeviceDetailDialog";
 import {
   DndContext,
   DragOverlay,
@@ -49,8 +51,12 @@ import { usePodcastPlayback } from "@/context/PodcastPlaybackContext";
 import { useYoutubePlayback } from "@/context/YoutubePlaybackContext";
 import type { BookmarkItem } from "@/lib/bookmarks/api";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
+import { useAppFeatures } from "@/hooks/useAppFeatures";
+import { useInstalledArchives } from "@/hooks/useInstalledArchives";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { WidgetErrorBoundary } from "@/components/shared/WidgetErrorBoundary";
 import {
-  DEFAULT_THRESHOLDS, RATING_META, fmtMbps, fmtMs, loadLastResult, loadMode, loadThresholds,
+  DEFAULT_THRESHOLDS, RATING_META, fmtMbps, fmtMs, loadLastResults, loadThresholds,
   rateSpeed, runSpeedTest, saveLastResult, type SpeedMode, type SpeedPhase, type SpeedResult,
   type SpeedThresholds,
 } from "@/lib/speedtest";
@@ -65,13 +71,6 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 
 interface OtdItem   { title: string }
 interface GameItem  { title: string }
-
-interface ToolMeta {
-  id: string
-  name: string
-  enabled: boolean
-  offline?: boolean
-}
 
 // ── Compact weather widget (header) ──────────────────────────────────────────
 
@@ -1309,23 +1308,28 @@ function WidgetUnavailable() {
   );
 }
 
-function WidgetSpeedTest() {
+const SPEED_PATH_LABEL: Record<SpeedMode, string> = {
+  internet: 'App → Internet',
+  server: 'App → Server',
+  'server-internet': 'Server → Internet',
+};
+
+function WidgetSpeedTest({ mode }: { mode: SpeedMode }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [thresholds, setThresholds] = useState<SpeedThresholds>(DEFAULT_THRESHOLDS);
-  const [mode, setMode] = useState<SpeedMode>('internet');
   const [result, setResult] = useState<SpeedResult | null>(null);
   const [phase, setPhase] = useState<SpeedPhase>('idle');
   const [live, setLive] = useState(0);
   const running = phase !== 'idle' && phase !== 'done';
   const runningRef = useRef(false);
+  const hasUpload = mode !== 'server-internet';
 
   useEffect(() => {
     void loadThresholds().then(setThresholds);
     if (!user?.id) return;
-    void loadMode(user.id).then(setMode);
-    void loadLastResult(user.id).then(r => { if (r) setResult(r); });
-  }, [user?.id]);
+    void loadLastResults(user.id).then(r => { setResult(r[mode]); });
+  }, [user?.id, mode]);
 
   const run = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -1353,7 +1357,7 @@ function WidgetSpeedTest() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-400">
           <Gauge className="size-3" />
-          <span>Speed Test</span>
+          <span>{SPEED_PATH_LABEL[mode]}</span>
         </div>
         <button
           onClick={run}
@@ -1383,7 +1387,9 @@ function WidgetSpeedTest() {
             <span className="text-[11px] font-semibold text-muted-foreground/55">Mbps down</span>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
-            <span className="flex items-center gap-1"><Upload className="size-3" />{fmtMbps(result.uploadMbps)}</span>
+            {hasUpload && (
+              <span className="flex items-center gap-1"><Upload className="size-3" />{fmtMbps(result.uploadMbps)}</span>
+            )}
             <span className="flex items-center gap-1"><Activity className="size-3" />{fmtMs(result.pingMs)} ms</span>
           </div>
         </button>
@@ -1497,19 +1503,35 @@ interface HASummary {
   hasEntities?: boolean
 }
 
+// Compact error state shared by the HA widgets — no forever-spinner when HA is down.
+function WidgetHAUnavailable() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-1.5 h-full p-4 text-muted-foreground/50">
+      <Home className="size-7" />
+      <span className="text-[12px] font-medium">Home Assistant unavailable</span>
+    </div>
+  )
+}
+
+// While the last fetch errored, back the poll off to 2 min instead of hammering
+// a down Home Assistant every 30s.
+const haRefetchInterval = (query: { state: { error: unknown } }) =>
+  query.state.error ? 120_000 : 30_000
+
 function WidgetHASummary() {
   const navigate = useNavigate()
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: ['ha-summary'],
     queryFn: async (): Promise<HASummary> => {
       const r = await fetch('/api/home-assistant/summary', { credentials: 'include' })
       if (!r.ok) throw new Error('summary failed')
       return (await r.json()) as HASummary
     },
-    refetchInterval: 30000,
+    refetchInterval: haRefetchInterval,
   })
 
   if (!data) {
+    if (isError) return <WidgetHAUnavailable />
     return <div className="flex items-center justify-center h-full p-4"><Loader2 className="size-5 animate-spin text-muted-foreground/50" /></div>
   }
   if (!data.configured) {
@@ -1582,97 +1604,98 @@ function WidgetHASummary() {
 
 // ── WidgetHAFavorites ─────────────────────────────────────────────────────────
 
-interface HAFavEntity {
-  entity_id: string
-  state: string
-  friendly_name: string
-  domain: string
-  area?: string
-  security?: boolean
-  attributes?: Record<string, unknown>
-}
-
-const HA_FAV_ON = new Set(['on', 'open', 'playing', 'unlocked', 'heat', 'cool', 'auto', 'fan_only'])
-
-function HAFavGlyph({ domain, className }: { domain: string; className?: string }) {
-  switch (domain) {
-    case 'light':        return <Lightbulb className={className} />
-    case 'climate':      return <Thermometer className={className} />
-    case 'fan':          return <Wind className={className} />
-    case 'lock':         return <Lock className={className} />
-    case 'media_player': return <Volume2 className={className} />
-    default:             return <Power className={className} />
+// Optimistic state for simple state-changing actions (mirrors HomeAssistantPage).
+function haOptimisticState(action: string): string | null {
+  switch (action) {
+    case 'turn_on': return 'on'
+    case 'turn_off': return 'off'
+    case 'lock': return 'locked'
+    case 'unlock': return 'unlocked'
+    case 'open': return 'open'
+    case 'close': return 'closed'
+    default: return null
   }
 }
 
+// Favorites render with the EXACT same mechanism as the Home Assistant page:
+// the shared DeviceCard (HAIcon-accurate icons, friendly_name, per-domain look
+// + control strips). This keeps names, icons and styling identical everywhere.
 function WidgetHAFavorites() {
   const navigate = useNavigate()
-  const { user } = useAuth()
-  const [favoriteIds, setFavoriteIds] = useState<string[] | null>(null)
+  const queryClient = useQueryClient()
   const [overrides, setOverrides] = useState<Record<string, string>>({})
-  const tempTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-  const [tempDrafts, setTempDrafts] = useState<Record<string, number>>({})
+  const [errorId, setErrorId] = useState<string | null>(null)
 
-  const { data, refetch } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: ['home-assistant-entities'],
     queryFn: async () => {
       const r = await fetch('/api/home-assistant/entities', { credentials: 'include' })
       if (!r.ok) throw new Error('fetch failed')
-      return (await r.json()) as { configured: boolean; entities?: HAFavEntity[] }
+      return (await r.json()) as { configured: boolean; entities?: HAEntity[] }
     },
-    refetchInterval: 30000,
+    refetchInterval: haRefetchInterval,
   })
 
-  useEffect(() => {
-    if (!user?.id) return
-    fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
-      .then(r => (r.ok ? r.json() : null))
-      .then((prefs: Record<string, unknown> | null) => {
-        const fav = prefs?.['ha.favorites']
-        setFavoriteIds(Array.isArray(fav) ? fav.filter((v): v is string => typeof v === 'string') : [])
-      })
-      .catch(() => setFavoriteIds([]))
-  }, [user?.id])
+  // Favorite ids come from the shared user-preferences query (one fetch app-wide).
+  const { data: prefs, isError: prefsError } = useUserPreferences()
+  const favoriteIds = useMemo<string[] | null>(() => {
+    if (prefs === undefined) return prefsError ? [] : null
+    const fav = prefs['ha.favorites']
+    return Array.isArray(fav) ? fav.filter((v): v is string => typeof v === 'string') : []
+  }, [prefs, prefsError])
 
-  async function callEntity(entityId: string, action: string, value?: number) {
+  // Optimistic flow: on success, write the new state for just this entity into the
+  // shared cache (no full-list refetch per toggle) and let an invalidate + the 30s
+  // poll settle the real state behind it.
+  async function callEntity(entity: HAEntity, action: string, value?: number | string) {
+    const optimistic = haOptimisticState(action)
+    const prevState = entity.state
+    if (optimistic) setOverrides(prev => ({ ...prev, [entity.entity_id]: optimistic }))
+    setErrorId(null)
     try {
       const r = await fetch('/api/home-assistant/entity', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_id: entityId, action, ...(value !== undefined ? { value } : {}) }),
+        body: JSON.stringify({ entity_id: entity.entity_id, action, ...(value !== undefined ? { value } : {}) }),
       })
       const res = (await r.json()) as { ok: boolean }
-      if (res.ok) { await refetch(); setOverrides(prev => { const n = { ...prev }; delete n[entityId]; return n }) }
-      else setOverrides(prev => { const n = { ...prev }; delete n[entityId]; return n })
+      if (!res.ok) {
+        if (optimistic) setOverrides(prev => ({ ...prev, [entity.entity_id]: prevState }))
+        setErrorId(entity.entity_id)
+      } else {
+        if (optimistic) {
+          queryClient.setQueryData<{ configured: boolean; entities?: HAEntity[] }>(
+            ['home-assistant-entities'],
+            (old) => old?.entities
+              ? { ...old, entities: old.entities.map(en => en.entity_id === entity.entity_id ? { ...en, state: optimistic } : en) }
+              : old,
+          )
+          // Mark stale; the 30s poll (or the HA page, if open) picks up the real state.
+          void queryClient.invalidateQueries({ queryKey: ['home-assistant-entities'], refetchType: 'none' })
+        } else {
+          // No known optimistic state (e.g. brightness/level changes) — background refetch.
+          void queryClient.invalidateQueries({ queryKey: ['home-assistant-entities'] })
+        }
+        setOverrides(prev => { const n = { ...prev }; delete n[entity.entity_id]; return n })
+      }
     } catch {
-      setOverrides(prev => { const n = { ...prev }; delete n[entityId]; return n })
+      if (optimistic) setOverrides(prev => ({ ...prev, [entity.entity_id]: prevState }))
+      setErrorId(entity.entity_id)
     }
   }
 
-  function toggle(e: HAFavEntity, isOn: boolean) {
-    setOverrides(prev => ({ ...prev, [e.entity_id]: isOn ? 'off' : 'on' }))
-    void callEntity(e.entity_id, isOn ? 'turn_off' : 'turn_on')
-  }
-
-  function nudgeTemp(e: HAFavEntity, delta: number) {
-    const attrs = e.attributes ?? {}
-    const current = tempDrafts[e.entity_id]
-      ?? (typeof attrs['temperature'] === 'number' ? (attrs['temperature'] as number) : 70)
-    const min = typeof attrs['min_temp'] === 'number' ? (attrs['min_temp'] as number) : 45
-    const max = typeof attrs['max_temp'] === 'number' ? (attrs['max_temp'] as number) : 90
-    const next = Math.min(max, Math.max(min, Math.round(current + delta)))
-    setTempDrafts(prev => ({ ...prev, [e.entity_id]: next }))
-    if (tempTimers.current[e.entity_id]) clearTimeout(tempTimers.current[e.entity_id])
-    tempTimers.current[e.entity_id] = setTimeout(() => { void callEntity(e.entity_id, 'set_temperature', next) }, 400)
-  }
+  const onToggle = (e: HAEntity, v: boolean) => { void callEntity(e, v ? 'turn_on' : 'turn_off') }
+  const onAction: CardAction = (e, action, value) => { void callEntity(e, action, value) }
+  const onOpen = () => navigate('/home-assistant')
 
   const favorites = (favoriteIds ?? [])
     .map(id => (data?.entities ?? []).find(e => e.entity_id === id))
-    .filter((e): e is HAFavEntity => !!e)
+    .filter((e): e is HAEntity => !!e)
     .map(e => (e.entity_id in overrides ? { ...e, state: overrides[e.entity_id]! } : e))
     .slice(0, 6)
 
   if (!data || favoriteIds === null) {
+    if (isError) return <WidgetHAUnavailable />
     return <div className="flex items-center justify-center h-full p-4"><Loader2 className="size-5 animate-spin text-muted-foreground/50" /></div>
   }
   if (!data.configured || favorites.length === 0) {
@@ -1685,60 +1708,10 @@ function WidgetHAFavorites() {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2 p-4 h-full content-start">
-      {favorites.map(e => {
-        const isOn = HA_FAV_ON.has(e.state)
-        const attrs = e.attributes ?? {}
-        if (e.domain === 'climate') {
-          const setpoint = tempDrafts[e.entity_id]
-            ?? (typeof attrs['temperature'] === 'number' ? (attrs['temperature'] as number) : null)
-          return (
-            <div key={e.entity_id} className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-2">
-              <Thermometer className="size-4 shrink-0 text-emerald-400" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[10px] text-muted-foreground/70">{e.friendly_name}</p>
-                <p className="text-sm font-black leading-tight tabular-nums">{setpoint !== null ? `${setpoint}°` : '—'}</p>
-              </div>
-              <div className="flex shrink-0 flex-col gap-0.5">
-                <button onClick={() => nudgeTemp(e, 1)} className="rounded bg-white/10 p-0.5 hover:bg-white/20 transition-colors"><Plus className="size-3" /></button>
-                <button onClick={() => nudgeTemp(e, -1)} className="rounded bg-white/10 p-0.5 hover:bg-white/20 transition-colors"><Minus className="size-3" /></button>
-              </div>
-            </div>
-          )
-        }
-        if (e.domain === 'lock') {
-          const locked = e.state === 'locked'
-          // Deliberately display-only: no unlocking from the home screen.
-          return (
-            <button key={e.entity_id} onClick={() => navigate('/home-assistant')}
-              className={cn('flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors',
-                locked ? 'border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/15' : 'border-red-500/25 bg-red-500/10 hover:bg-red-500/15')}>
-              {locked ? <Lock className="size-4 shrink-0 text-emerald-400" /> : <LockOpen className="size-4 shrink-0 text-red-400" />}
-              <div className="min-w-0">
-                <p className="truncate text-[10px] text-muted-foreground/70">{e.friendly_name}</p>
-                <p className={cn('text-[11px] font-semibold', locked ? 'text-emerald-300' : 'text-red-300')}>{locked ? 'Locked' : 'Unlocked'}</p>
-              </div>
-            </button>
-          )
-        }
-        const complex = e.domain === 'media_player' || e.domain === 'cover'
-        return (
-          <button key={e.entity_id}
-            onClick={() => (complex ? navigate('/home-assistant') : toggle(e, isOn))}
-            className={cn(
-              'flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all active:scale-[0.97]',
-              isOn ? 'border-amber-400/30 bg-white text-gray-900' : 'border-border/50 bg-white/[0.06] hover:bg-white/[0.1]',
-            )}>
-            <HAFavGlyph domain={e.domain} className={cn('size-4 shrink-0', isOn ? 'text-amber-500' : 'text-muted-foreground/60')} />
-            <div className="min-w-0">
-              <p className={cn('truncate text-[10px]', isOn ? 'text-gray-500' : 'text-muted-foreground/70')}>{e.friendly_name}</p>
-              <p className={cn('text-[11px] font-semibold', isOn ? 'text-gray-900' : 'text-foreground/70')}>
-                {e.state.charAt(0).toUpperCase() + e.state.slice(1).replace(/_/g, ' ')}
-              </p>
-            </div>
-          </button>
-        )
-      })}
+    <div className="grid gap-2 p-4 h-full content-start" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+      {favorites.map(e => (
+        <DeviceCard key={e.entity_id} entity={e} onToggle={onToggle} onOpen={onOpen} onAction={onAction} errorId={errorId} favorite showArea />
+      ))}
     </div>
   )
 }
@@ -1761,7 +1734,9 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'podcasts-continue':  () => <WidgetPodcastsContinue />,
   'podcasts-shows':     (m) => <WidgetPodcastsShows displayMode={m} />,
   'watchlist':          (m) => <WidgetWatchlist displayMode={m} />,
-  'speed-test':         () => <WidgetSpeedTest />,
+  'speed-test-internet':        () => <WidgetSpeedTest mode="internet" />,
+  'speed-test-server':          () => <WidgetSpeedTest mode="server" />,
+  'speed-test-server-internet': () => <WidgetSpeedTest mode="server-internet" />,
   'status':             () => <WidgetStatus />,
   'ha-summary':         () => <WidgetHASummary />,
   'ha-favorites':       () => <WidgetHAFavorites />,
@@ -1770,7 +1745,11 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
 function renderWidget(widget: HomeWidget, mode: 'row' | 'column'): React.ReactNode {
   const id = canonicalWidgetId(widget.toolId);
   const factory = WIDGET_RENDERERS[id];
-  return factory ? factory(mode) : <WidgetUnavailable />;
+  if (!factory) return <WidgetUnavailable />;
+  // Lowest common render point for every tile (canvas cards + drag overlay):
+  // a render throw inside one widget stays contained to that tile instead of
+  // bubbling to the app-wide ErrorBoundary and blanking the page.
+  return <WidgetErrorBoundary>{factory(mode)}</WidgetErrorBoundary>;
 }
 
 // ── Canvas model ──────────────────────────────────────────────────────────────
@@ -2161,9 +2140,6 @@ function CategoryTile({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-interface InstalledArchive {
-  id: string; sourceId: string; category: string; fileSizeBytes: number | null;
-}
 interface CategorySummary {
   category: string; count: number; totalBytes: number;
 }
@@ -2178,7 +2154,7 @@ export function HomePage() {
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   const { layout, locked, save } = useHomeLayout();
-  const { enabledToolIds } = useInstalledTools();
+  const { enabledToolIds, tools } = useInstalledTools();
 
   // Weather background for the header
   const { snapshot: wxSnap, status: wxStatus } = useWeatherSnapshot();
@@ -2193,49 +2169,22 @@ export function HomePage() {
   const [editMode, setEditMode] = useState(false);
   const [draftRows, setDraftRows] = useState<HomeRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [tools, setTools] = useState<ToolMeta[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Archives + app features for categories
-  const [archives, setArchives] = useState<InstalledArchive[]>([]);
-  const [appFeatures, setAppFeatures] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    fetch("/api/tools", { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: ToolMeta[] | null) => { setTools(d ?? []); })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetch("/api/archives/installed", { credentials: "include" })
-        .then(r => r.json())
-        .then(d => { if (!cancelled) setArchives((d as { archives?: InstalledArchive[] }).archives ?? []); })
-        .catch(() => {});
-    };
-    load();
-    window.addEventListener("focus", load);
-    return () => { cancelled = true; window.removeEventListener("focus", load); };
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/app-features", { credentials: "include" })
-      .then(r => r.json())
-      .then(d => setAppFeatures(d as Record<string, boolean>))
-      .catch(() => {});
-  }, []);
+  // Archives + app features for categories — shared React Query caches (deduped
+  // with the sidebar; archives refetch on window focus once stale).
+  const { data: archives } = useInstalledArchives();
+  const appFeatures = useAppFeatures();
 
   const toolsMap = useMemo(() => {
-    const m = new Map<string, ToolMeta>();
-    for (const t of tools) m.set(t.id, t);
+    const m = new Map<string, { enabled: boolean }>();
+    for (const t of tools ?? []) m.set(t.id, t);
     return m;
   }, [tools]);
 
   const libCategories = useMemo<CategorySummary[]>(() => {
     const byCat = new Map<string, CategorySummary>();
-    for (const a of archives) {
+    for (const a of archives ?? []) {
       const cur = byCat.get(a.category) ?? { category: a.category, count: 0, totalBytes: 0 };
       cur.count += 1; cur.totalBytes += a.fileSizeBytes ?? 0;
       byCat.set(a.category, cur);

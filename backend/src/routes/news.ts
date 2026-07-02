@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { and, desc, eq, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { db } from '@/db'
 import { feeds, feedItems, feedFolders, userPreferences } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
@@ -86,24 +86,30 @@ async function itemsFromFolder(folderId: string, limit: number): Promise<NewsIte
     .from(feeds).where(eq(feeds.folderId, folderId))
   if (folderFeeds.length === 0) return []
 
-  // Fetch top `limit` items per feed (sorted newest-first), then round-robin interleave.
+  // Take the top `limit` items per feed (sorted newest-first), then round-robin interleave.
   // Pure date-sort would crowd out any feed whose articles are older than the others.
+  // One bulk query instead of one per feed (20-30 sequential queries for the global category);
+  // the poller caps retention at 200 items/feed so the bulk fetch stays bounded, and the
+  // per-feed top-`limit` cut happens in JS while grouping.
   type Row = { it: typeof feedItems.$inferSelect; feedTitle: string | null }
-  const buckets: Row[][] = []
-  for (const feed of folderFeeds) {
-    const rows = await db.select({ it: feedItems })
-      .from(feedItems)
-      .where(eq(feedItems.feedId, feed.id))
-      .orderBy(desc(feedItems.publishedAt), desc(feedItems.fetchedAt))
-      .limit(limit)
-    buckets.push(rows.map((r) => ({ it: r.it, feedTitle: feed.title })))
+  const titleByFeedId = new Map(folderFeeds.map((f) => [f.id, f.title]))
+  const allRows = await db.select()
+    .from(feedItems)
+    .where(inArray(feedItems.feedId, folderFeeds.map((f) => f.id)))
+    .orderBy(desc(feedItems.publishedAt), desc(feedItems.fetchedAt))
+  const bucketByFeedId = new Map<string, Row[]>(folderFeeds.map((f) => [f.id, []]))
+  for (const it of allRows) {
+    const bucket = bucketByFeedId.get(it.feedId)
+    if (!bucket || bucket.length >= limit) continue
+    bucket.push({ it, feedTitle: titleByFeedId.get(it.feedId) ?? null })
   }
+  const buckets = [...bucketByFeedId.values()]
 
   // Interleave: pick item[0] from each bucket, then item[1], etc.
   const maxLen = Math.max(...buckets.map((b) => b.length))
   const merged: Row[] = []
   for (let i = 0; i < maxLen; i++) {
-    for (const bucket of buckets) { if (bucket[i]) merged.push(bucket[i]) }
+    for (const bucket of buckets) { const row = bucket[i]; if (row) merged.push(row) }
   }
 
   const items: NewsItem[] = []

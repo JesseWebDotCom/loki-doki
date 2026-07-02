@@ -7,8 +7,42 @@ import { sessions, users } from '@/db/schema'
 import { hashSessionToken } from '@/lib/session'
 import type { AppEnv } from '@/types'
 
+// In-memory TTL cache for session resolution — every authed request otherwise costs two DB
+// queries and ~30 fire per home-page load. Keyed by token HASH (never hold raw tokens in
+// memory). Only successful resolutions are cached, so invalid/expired tokens behave exactly
+// as before; a cached session's own expiresAt is still checked per hit. The 10s TTL bounds
+// staleness of user-row edits (profile changes); explicit invalidation covers logout,
+// session revocation, and user deletion.
+const SESSION_CACHE_TTL_MS = 10_000
+const SESSION_CACHE_MAX = 500
+interface CachedAuth { user: typeof users.$inferSelect; sessionExpiresAt: Date; cachedAt: number }
+const sessionCache = new Map<string, CachedAuth>()
+
+/** Drop the cache entry for one session token (call wherever that session row is deleted). */
+export function invalidateSessionCache(token: string): void {
+  sessionCache.delete(hashSessionToken(token))
+}
+
+/** Drop every cache entry for a user (call on user deletion / role change). */
+export function invalidateSessionCacheForUser(userId: string): void {
+  for (const [key, entry] of sessionCache) {
+    if (entry.user.id === userId) sessionCache.delete(key)
+  }
+}
+
 export async function resolveSession(token: string) {
   const tokenHash = hashSessionToken(token)
+
+  const cached = sessionCache.get(tokenHash)
+  if (cached && Date.now() - cached.cachedAt <= SESSION_CACHE_TTL_MS) {
+    if (cached.sessionExpiresAt < new Date()) {
+      sessionCache.delete(tokenHash)
+      return null
+    }
+    return cached.user
+  }
+  if (cached) sessionCache.delete(tokenHash)
+
   const [session] = await db
     .select({ userId: sessions.userId, expiresAt: sessions.expiresAt })
     .from(sessions)
@@ -22,6 +56,15 @@ export async function resolveSession(token: string) {
     .from(users)
     .where(eq(users.id, session.userId))
     .limit(1)
+
+  if (user) {
+    if (sessionCache.size >= SESSION_CACHE_MAX) {
+      // Simple oldest-first eviction: Map iteration order is insertion order.
+      const oldest = sessionCache.keys().next().value
+      if (oldest !== undefined) sessionCache.delete(oldest)
+    }
+    sessionCache.set(tokenHash, { user, sessionExpiresAt: session.expiresAt, cachedAt: Date.now() })
+  }
 
   return user ?? null
 }

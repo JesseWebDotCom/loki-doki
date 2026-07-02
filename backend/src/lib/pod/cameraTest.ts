@@ -8,7 +8,22 @@
 // When a test source is active, cameraUdp streams ITS latest frame instead of Frigate's.
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { ensureFfmpeg, ffmpegBin } from '@/lib/ffmpeg'
 import { logger } from '@/lib/logger'
+
+// Spawn ffmpeg with an 'error' listener always attached: a spawn failure (ENOENT when
+// ffmpeg isn't on PATH) emits 'error' on the child, and with no listener that becomes
+// an uncaught exception that kills the whole backend. On failure we kick the managed
+// download so the next attempt (watchdog retry / user retry) picks up the local copy.
+function spawnFfmpeg(args: string[], onError: () => void): ChildProcess {
+  const proc = spawn(ffmpegBin(), args)
+  proc.on('error', (err) => {
+    logger.error(`[pod-camera] ffmpeg spawn failed: ${err.message}`)
+    void ensureFfmpeg().catch(() => { /* logged inside */ })
+    onError()
+  })
+  return proc
+}
 
 const SOI = Buffer.from([0xff, 0xd8])
 const EOI = Buffer.from([0xff, 0xd9])
@@ -53,11 +68,11 @@ export function startFfmpegTest(fps = 30, w = 640, h = 360, q = 6): void {
     '-re', '-f', 'lavfi', '-i', `testsrc2=size=${w}x${h}:rate=${fps}`,
     '-c:v', 'mjpeg', '-q:v', String(q), '-f', 'mjpeg', 'pipe:1',
   ]
-  const proc = spawn('ffmpeg', args)
+  const proc = spawnFfmpeg(args, () => { if (ff === proc) { ff = null; active = false } })
   ff = proc
   let buf: Buffer = Buffer.alloc(0)
-  proc.stdout.on('data', (chunk: Buffer) => { if (active) buf = drain(buf.length ? Buffer.concat([buf, chunk]) : chunk) as Buffer })
-  proc.stderr.on('data', (d: Buffer) => logger.warn(`[pod-camera] ffmpeg: ${d.toString().trim().slice(0, 200)}`))
+  proc.stdout?.on('data', (chunk: Buffer) => { if (active) buf = drain(buf.length ? Buffer.concat([buf, chunk]) : chunk) as Buffer })
+  proc.stderr?.on('data', (d: Buffer) => logger.warn(`[pod-camera] ffmpeg: ${d.toString().trim().slice(0, 200)}`))
   proc.on('exit', (code) => { if (ff === proc) { ff = null; active = false; logger.warn(`[pod-camera] ffmpeg test exited (${code})`) } })
   logger.info(`[pod-camera] TEST source = ffmpeg ${w}x${h}@${fps}fps q${q}`)
 }
@@ -74,11 +89,11 @@ export function startFfmpegSource(inputUrl: string, w = 1280, h = 720, fps = 25,
     '-vf', `scale=${w}:${h}:flags=fast_bilinear`, '-r', String(fps),
     '-c:v', 'mjpeg', '-q:v', String(q), '-f', 'mjpeg', 'pipe:1',
   ]
-  const proc = spawn('ffmpeg', args)
+  const proc = spawnFfmpeg(args, () => { if (ff === proc) { ff = null; active = false } })
   ff = proc
   let buf: Buffer = Buffer.alloc(0)
-  proc.stdout.on('data', (chunk: Buffer) => { if (active) buf = drain(buf.length ? Buffer.concat([buf, chunk]) : chunk) as Buffer })
-  proc.stderr.on('data', (d: Buffer) => logger.warn(`[pod-camera] ffmpeg: ${d.toString().trim().slice(0, 200)}`))
+  proc.stdout?.on('data', (chunk: Buffer) => { if (active) buf = drain(buf.length ? Buffer.concat([buf, chunk]) : chunk) as Buffer })
+  proc.stderr?.on('data', (d: Buffer) => logger.warn(`[pod-camera] ffmpeg: ${d.toString().trim().slice(0, 200)}`))
   proc.on('exit', (code) => { if (ff === proc) { ff = null; active = false; logger.warn(`[pod-camera] ffmpeg source exited (${code})`) } })
   logger.info(`[pod-camera] source = ffmpeg(${inputUrl}) → ${w}x${h}@${fps}fps q${q}`)
 }
@@ -112,7 +127,7 @@ const STALL_MS = parseInt(process.env.POD_CAM_STALL_MS ?? '8000')
  *  at least one frame (so the caller knows the feed was actually alive). */
 function runSourceUntilStall(args: string[], label: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const proc = spawn('ffmpeg', args)
+    const proc = spawnFfmpeg(args, () => finish())
     ff = proc
     let buf: Buffer = Buffer.alloc(0)
     let produced = false
@@ -135,8 +150,8 @@ function runSourceUntilStall(args: string[], label: string): Promise<boolean> {
         finish()
       }
     }, 1000)
-    proc.stdout.on('data', (chunk: Buffer) => { if (active) buf = drain(buf.length ? Buffer.concat([buf, chunk]) : chunk) as Buffer })
-    proc.stderr.on('data', (d: Buffer) => logger.warn(`[pod-camera] ffmpeg: ${d.toString().trim().slice(0, 160)}`))
+    proc.stdout?.on('data', (chunk: Buffer) => { if (active) buf = drain(buf.length ? Buffer.concat([buf, chunk]) : chunk) as Buffer })
+    proc.stderr?.on('data', (d: Buffer) => logger.warn(`[pod-camera] ffmpeg: ${d.toString().trim().slice(0, 160)}`))
     proc.on('exit', () => finish())
   })
 }

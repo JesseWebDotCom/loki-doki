@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import { resolveToolConfig } from '@/lib/toolConfig'
 import { homeAssistantTool } from '@/tools/homeAssistant'
-import { ensureConnected, normalizeConnection, type CatalogEntity, type HAStore } from '@/lib/homeAssistant'
+import { ensureConnected, ensureConnectedSoft, normalizeConnection, type CatalogEntity, type HAStore } from '@/lib/homeAssistant'
 import { callService } from '@/lib/homeAssistant/client'
 import { getGrants, filterByGrants } from '@/lib/homeAssistant/permissions'
 import { ACTIONS_BY_DOMAIN, serviceCallsFor, clampPct } from '@/lib/homeAssistant/actions'
@@ -68,7 +68,13 @@ homeAssistantRoute.get('/entities', requireAuth, async (c) => {
   if (!conn) return c.json({ configured: false })
 
   try {
-    const store = await ensureConnected(conn)
+    // Soft: serve the last-known store instantly and reconnect in the background.
+    // Awaiting a full connect here hangs the home-page widget ~10 s whenever HA is
+    // configured but unreachable. A store that has never synced → quick 502 below.
+    const store = await ensureConnectedSoft(conn)
+    if (!store.connected && store.lastSyncMs === null) {
+      return c.json({ configured: true, entities: [], error: 'Could not reach Home Assistant.' }, 502)
+    }
     const visible = await visibleEntities(store, user.id, user.role === 'admin')
 
     const entities = visible.map(cat => {
@@ -100,7 +106,11 @@ homeAssistantRoute.get('/summary', requireAuth, async (c) => {
   if (!conn) return c.json({ configured: false })
 
   try {
-    const store = await ensureConnected(conn)
+    // Soft path — same reasoning as /entities above; never block the widget on a connect.
+    const store = await ensureConnectedSoft(conn)
+    if (!store.connected && store.lastSyncMs === null) {
+      return c.json({ configured: true, error: 'Could not reach Home Assistant.' }, 502)
+    }
     const visible = await visibleEntities(store, user.id, user.role === 'admin')
     const stateOf = (e: CatalogEntity) => store.states.get(e.entityId) ?? 'unknown'
 

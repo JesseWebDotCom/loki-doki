@@ -3,7 +3,7 @@ import { streamSSE } from 'hono/streaming'
 import { existsSync } from 'node:fs'
 import { writeFile, mkdir, readFile, unlink } from 'node:fs/promises'
 import { join, basename } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { eq, and, desc, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import {
@@ -112,15 +112,41 @@ function photoRestoreAvailable(): boolean {
   return isEsrganInstalled() || (isFaceRestoreNodeInstalled() && (isCodeFormerInstalled() || isGFPGANInstalled()))
 }
 
-// Manual adjustments via PIL — brightness, contrast, saturation, sharpness.
-// Each value is in [-100, 100] where 0 = no change; maps to PIL factor = max(0, 1 + v/100).
-function adjustImage(inputBytes: Buffer, opts: { brightness: number; contrast: number; saturation: number; sharpness: number }): Buffer {
+// Run a PIL one-liner in the ComfyUI venv Python, streaming the image over stdin.
+// MUST be async (never spawnSync): Bun is single-threaded, and a synchronous spawn
+// holds the whole event loop — including /api/health — hostage for the full run
+// (Python cold-start + PIL over a possibly huge image, up to the 30 s timeout).
+function runPilScript(label: string, script: string, inputBytes: Buffer): Promise<Buffer> {
   const venvDir = join(dataDir, 'comfyui-venv')
   const python  = process.platform === 'win32'
     ? join(venvDir, 'Scripts', 'python.exe')
     : join(venvDir, 'bin', 'python')
   if (!existsSync(python)) throw new Error('ComfyUI Python venv not found — ensure ComfyUI is installed.')
 
+  return new Promise<Buffer>((resolve, reject) => {
+    const proc = spawn(python, ['-c', script], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const out: Buffer[] = []
+    const err: Buffer[] = []
+    const timer = setTimeout(() => {
+      try { proc.kill('SIGKILL') } catch { /* already gone */ }
+      reject(new Error(`${label} timed out after 30s`))
+    }, 30_000)
+    proc.stdout?.on('data', (d: Buffer) => out.push(d))
+    proc.stderr?.on('data', (d: Buffer) => err.push(d))
+    proc.on('error', (e) => { clearTimeout(timer); reject(e) })
+    proc.on('close', (code) => {
+      clearTimeout(timer)
+      if (code !== 0) reject(new Error(`${label} failed: ${Buffer.concat(err).toString().slice(-500) || `exit ${code}`}`))
+      else resolve(Buffer.concat(out))
+    })
+    proc.stdin?.on('error', () => { /* EPIPE when the child dies early; 'close' reports it */ })
+    proc.stdin?.end(inputBytes)
+  })
+}
+
+// Manual adjustments via PIL — brightness, contrast, saturation, sharpness.
+// Each value is in [-100, 100] where 0 = no change; maps to PIL factor = max(0, 1 + v/100).
+function adjustImage(inputBytes: Buffer, opts: { brightness: number; contrast: number; saturation: number; sharpness: number }): Promise<Buffer> {
   // Coerce each value to a finite number before interpolating it into the script
   // string, so a non-clamping caller can't smuggle Python through a string value.
   const num = (x: number) => (Number.isFinite(x) ? x : 0)
@@ -140,19 +166,11 @@ function adjustImage(inputBytes: Buffer, opts: { brightness: number; contrast: n
     'sys.stdout.buffer.write(buf.getvalue())',
   ].join('\n')
 
-  const result = spawnSync(python, ['-c', script], { input: inputBytes, maxBuffer: 100 * 1024 * 1024, timeout: 30_000 })
-  if (result.status !== 0) throw new Error(`Adjust failed: ${result.stderr?.toString().slice(-500) ?? 'unknown'}`)
-  return result.stdout as Buffer
+  return runPilScript('Adjust', script, inputBytes)
 }
 
 // Auto color/levels via PIL in the ComfyUI venv Python — no model required.
-function autoColorImage(inputBytes: Buffer): Buffer {
-  const venvDir = join(dataDir, 'comfyui-venv')
-  const python  = process.platform === 'win32'
-    ? join(venvDir, 'Scripts', 'python.exe')
-    : join(venvDir, 'bin', 'python')
-  if (!existsSync(python)) throw new Error('ComfyUI Python venv not found — ensure ComfyUI is installed.')
-
+function autoColorImage(inputBytes: Buffer): Promise<Buffer> {
   const script = [
     'import sys, io',
     'from PIL import Image, ImageOps, ImageEnhance',
@@ -165,9 +183,7 @@ function autoColorImage(inputBytes: Buffer): Buffer {
     'sys.stdout.buffer.write(buf.getvalue())',
   ].join('\n')
 
-  const result = spawnSync(python, ['-c', script], { input: inputBytes, maxBuffer: 100 * 1024 * 1024, timeout: 30_000 })
-  if (result.status !== 0) throw new Error(`Auto color failed: ${result.stderr?.toString().slice(-500) ?? 'unknown'}`)
-  return result.stdout as Buffer
+  return runPilScript('Auto color', script, inputBytes)
 }
 
 function selectPipeline(body: {
@@ -348,14 +364,14 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
       if (payload.pipeline === 'auto_color' || payload.pipeline === 'adjust') {
         if (!payload.inputImagePath) throw new Error('No input image path in payload')
         const inputBytes = await readFile(payload.inputImagePath)
-        const resultBytes = payload.pipeline === 'adjust'
+        const resultBytes = await (payload.pipeline === 'adjust'
           ? adjustImage(inputBytes, {
               brightness: payload.adjustBrightness ?? 0,
               contrast:   payload.adjustContrast   ?? 0,
               saturation: payload.adjustSaturation ?? 0,
               sharpness:  payload.adjustSharpness  ?? 0,
             })
-          : autoColorImage(inputBytes)
+          : autoColorImage(inputBytes))
         await writeFile(imagePath, resultBytes)
         await db.update(generatedImages).set({ state: 'ready', path: imagePath, stepCurrent: 1, updatedAt: new Date() }).where(eq(generatedImages.id, imageId))
         ctx.emit('done', JSON.stringify({ imageId, elapsedMs: Date.now() - startedAt }))

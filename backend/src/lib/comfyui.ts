@@ -1,8 +1,9 @@
 import { join } from 'node:path'
-import { existsSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, writeFileSync, readFileSync, statSync, renameSync } from 'node:fs'
 import { execSync, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { dataDir } from '@/lib/download'
+import { logger } from '@/lib/logger'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import type { ComfyUILaunchConfig } from '@/lib/hwfit'
 
@@ -31,7 +32,20 @@ const LAUNCH_VER_FILE = join(dataDir, 'comfyui.launch_ver')
 
 const PID_FILE      = join(dataDir, 'comfyui.pid')
 const LOG_FILE      = join(dataDir, 'comfyui.log')
+const OLD_LOG_FILE  = join(dataDir, 'comfyui.old.log')
+const LOG_MAX_BYTES = 20 * 1024 * 1024
 const RING_MAX      = 500
+
+// Rotate an oversized log at spawn time ONLY. The sidecar writes via a shell `>>`
+// redirect, which holds an fd to the ORIGINAL inode — renaming while it runs would
+// leave it appending to the renamed file forever and the fresh path would never be
+// recreated. So in-session growth is unbounded; we can only rotate between sessions
+// (preserving the previous session's tail in .old.log instead of truncating it away).
+function rotateLogIfLarge(): void {
+  try {
+    if (statSync(LOG_FILE).size > LOG_MAX_BYTES) renameSync(LOG_FILE, OLD_LOG_FILE)
+  } catch { /* no log yet */ }
+}
 
 export const comfyRing        = [] as string[]
 export const comfySubscribers = new Set<(line: string) => void>()
@@ -128,12 +142,78 @@ export function markComfyUIReady(): void {
   state.current = 'ready'
   state.error   = ''
   if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
+  startSupervision()
 }
 
 export function markComfyUIError(msg: string): void {
   state.current = 'failed'
   state.error   = msg
   if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
+}
+
+// ── Post-ready supervision ────────────────────────────────────────────────────
+// The startup poll stops once ComfyUI is ready; if the process dies later (OOM,
+// CUDA error, segfault) the state would stay 'ready' with nothing respawning it.
+// A low-frequency liveness re-probe catches that and restarts — capped so a
+// persistently-crashing install can't respawn-loop forever.
+
+const SUPERVISE_INTERVAL_MS = 60_000
+const SUPERVISE_RETRY_MS    = 5_000       // quick re-probe before declaring death
+const RESTART_WINDOW_MS     = 10 * 60_000
+const RESTART_MAX           = 3
+
+let superviseTimer: ReturnType<typeof setTimeout> | null = null
+let superviseFailures = 0
+let restartTimes: number[] = []
+let comfyProc: ChildProcess | null = null
+
+function stopSupervision(): void {
+  if (superviseTimer) { clearTimeout(superviseTimer); superviseTimer = null }
+  superviseFailures = 0
+}
+
+function startSupervision(): void {
+  if (superviseTimer) return  // already supervising this instance
+  superviseFailures = 0
+  const tick = async (): Promise<void> => {
+    if (state.current !== 'ready') { superviseTimer = null; return }
+    let ok = false
+    try {
+      const r = await fetch(`${comfyUrl()}/system_stats`, { signal: AbortSignal.timeout(3_000) })
+      ok = r.ok
+    } catch { /* down or wedged */ }
+    if (state.current !== 'ready') { superviseTimer = null; return }  // stopped while probing
+    if (ok) {
+      superviseFailures = 0
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+      return
+    }
+    superviseFailures++
+    if (superviseFailures < 2) {
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_RETRY_MS)
+      return
+    }
+    superviseTimer = null
+    handleCrash()
+  }
+  superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+}
+
+// Shared respawn path for the liveness probe and the child 'exit' accelerator.
+// Old restart timestamps age out of the window, so a sustained healthy period
+// naturally resets the cap.
+function handleCrash(): void {
+  stopSupervision()
+  const now = Date.now()
+  restartTimes = restartTimes.filter((t) => now - t < RESTART_WINDOW_MS)
+  if (restartTimes.length >= RESTART_MAX) {
+    markComfyUIError(`ComfyUI crashed ${RESTART_MAX}+ times within 10 minutes — giving up`)
+    logger.error('[comfyui] ComfyUI keeps crashing — not respawning again (restart the backend or check data/comfyui.log)')
+    return
+  }
+  restartTimes.push(now)
+  logger.warn('[comfyui] ComfyUI died — respawning')
+  void restartComfyUI().catch((err) => markComfyUIError(`respawn failed: ${err}`))
 }
 
 // ── Spawn ─────────────────────────────────────────────────────────────────────
@@ -172,6 +252,7 @@ export function spawnComfyUI(config: ComfyUILaunchConfig): void {
     // so the only way to redirect to a file without a pipe is via shell redirection.)
     const extraQuoted = config.extraArgs.map((a) => `"${a}"`).join(' ')
     const shellCmd = `exec "$COMFY_PYTHON" "$COMFY_MAIN" --listen 127.0.0.1 --port ${COMFYUI_PORT} --disable-auto-launch --preview-method auto ${extraQuoted} >> "$COMFY_LOG" 2>&1`
+    rotateLogIfLarge()  // must happen before the child opens its `>>` fd
     child = spawn('sh', ['-c', shellCmd], {
       detached: true,
       stdio: 'ignore',
@@ -184,6 +265,17 @@ export function spawnComfyUI(config: ComfyUILaunchConfig): void {
     try { writeFileSync(PID_FILE, String(child.pid)) } catch { /* non-fatal */ }
   }
   try { writeFileSync(LAUNCH_VER_FILE, String(LAUNCH_VERSION)) } catch { /* non-fatal */ }
+  // Crash accelerator while we still hold the handle (`exec` makes child.pid the Python
+  // PID, so 'exit' fires when ComfyUI itself dies). After a backend hot-reload the
+  // process is an adopted orphan with no handle — the HTTP probe covers that case.
+  // stopComfyUI nulls comfyProc before the exit event fires, so intentional kills
+  // never respawn.
+  comfyProc = child
+  child.on('exit', () => {
+    if (comfyProc !== child) return
+    comfyProc = null
+    if (state.current === 'ready') handleCrash()
+  })
   child.unref()
 
   state.current = 'warming'
@@ -197,6 +289,8 @@ export function spawnComfyUI(config: ComfyUILaunchConfig): void {
 // to ComfyUI which would otherwise appear in lsof output and cause the backend to SIGTERM itself.
 // On Windows: fall back to PID file.
 export function stopComfyUI(): void {
+  stopSupervision()   // intentional stop (shutdown/restart) must never trigger a respawn
+  comfyProc = null    // detach the exit accelerator before the kill lands
   if (process.platform !== 'win32') {
     try {
       const pids = execSync(`lsof -ti tcp:${COMFYUI_PORT} -sTCP:LISTEN 2>/dev/null`, { encoding: 'utf8', timeout: 3_000 }).trim()
@@ -291,7 +385,7 @@ function startHealthPoll(): void {
     if (state.current !== 'warming') return
     try {
       const r = await fetch(`${comfyUrl()}/system_stats`, { signal: AbortSignal.timeout(3_000) })
-      if (r.ok) { state.current = 'ready'; return }
+      if (r.ok) { markComfyUIReady(); return }  // via markReady so supervision starts
     } catch { /* not up yet */ }
     if (Date.now() >= deadline) {
       state.current = 'failed'

@@ -131,6 +131,10 @@ export async function runYtMediaJob(
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
       let killTimer: ReturnType<typeof setTimeout> | null = null
+      // Drain stderr, keeping only a small rolling tail. Without a data handler the OS pipe
+      // buffer (~64KB) fills on a chatty failure and yt-dlp blocks on write — hanging forever.
+      let errTail = ''
+      proc.stderr?.on('data', (chunk: Buffer) => { errTail = (errTail + chunk.toString()).slice(-4096) })
       signal.addEventListener('abort', () => {
         proc.kill('SIGTERM')
         killTimer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ } }, 5_000)
@@ -143,7 +147,10 @@ export async function runYtMediaJob(
       proc.on('close', (code) => {
         if (killTimer) clearTimeout(killTimer)
         if (code === 0) resolve()
-        else reject(new Error(`yt-dlp exited with code ${code}`))
+        else {
+          const tail = errTail.trim().split('\n').slice(-3).join(' | ').slice(-500)
+          reject(new Error(`yt-dlp exited with code ${code}${tail ? `: ${tail}` : ''}`))
+        }
       })
       proc.on('error', reject)
     })
@@ -233,6 +240,9 @@ export async function runYtExportJob(
   await new Promise<void>((resolve, reject) => {
     const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
     let killTimer: ReturnType<typeof setTimeout> | null = null
+    // Drain stderr with a small rolling tail — an unread pipe fills (~64KB) and blocks yt-dlp.
+    let errTail = ''
+    proc.stderr?.on('data', (chunk: Buffer) => { errTail = (errTail + chunk.toString()).slice(-4096) })
     signal.addEventListener('abort', () => {
       proc.kill('SIGTERM')
       killTimer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ } }, 5_000)
@@ -242,7 +252,14 @@ export async function runYtExportJob(
       const progress = parseProgress(chunk.toString())
       if (progress) onProgress({ ...progress, note: 'Preparing download…' } as any)
     })
-    proc.on('close', (code) => { if (killTimer) clearTimeout(killTimer); code === 0 ? resolve() : reject(new Error(`yt-dlp exited with code ${code}`)) })
+    proc.on('close', (code) => {
+      if (killTimer) clearTimeout(killTimer)
+      if (code === 0) resolve()
+      else {
+        const tail = errTail.trim().split('\n').slice(-3).join(' | ').slice(-500)
+        reject(new Error(`yt-dlp exited with code ${code}${tail ? `: ${tail}` : ''}`))
+      }
+    })
     proc.on('error', reject)
   })
 }

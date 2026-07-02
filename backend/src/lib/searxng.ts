@@ -14,7 +14,7 @@
 // health poll on /healthz. Install/repair is wired through lib/installRegistry.
 
 import { join } from 'node:path'
-import { existsSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, writeFileSync, readFileSync, statSync, renameSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { execSync, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
@@ -31,7 +31,20 @@ const SETTINGS_FILE = join(dataDir, 'searxng-settings.yml')
 const SECRET_FILE   = join(dataDir, 'searxng-secret')          // generated once, persisted
 const PID_FILE      = join(dataDir, 'searxng.pid')
 const LOG_FILE      = join(dataDir, 'searxng.log')
+const OLD_LOG_FILE  = join(dataDir, 'searxng.old.log')
+const LOG_MAX_BYTES = 20 * 1024 * 1024
 const RING_MAX      = 500
+
+// Rotate an oversized log at spawn time ONLY. The sidecar writes via a shell `>>`
+// redirect, which holds an fd to the ORIGINAL inode — renaming while it runs would
+// leave it appending to the renamed file forever and the fresh path would never be
+// recreated. So in-session growth is unbounded; we can only rotate between sessions
+// (preserving the previous session's tail in .old.log instead of truncating it away).
+function rotateLogIfLarge(): void {
+  try {
+    if (statSync(LOG_FILE).size > LOG_MAX_BYTES) renameSync(LOG_FILE, OLD_LOG_FILE)
+  } catch { /* no log yet */ }
+}
 
 const SEARXNG_REPO  = 'https://github.com/searxng/searxng.git'
 
@@ -102,11 +115,76 @@ export function getSearXNGState(): SearXNGState { return state.current }
 export function getSearXNGError(): string        { return state.error }
 export function markSearXNGInstalling(): void { state.current = 'installing'; state.error = '' }
 
-function markReady(): void { state.current = 'ready'; state.error = ''; if (pollTimer) { clearTimeout(pollTimer); pollTimer = null } }
+function markReady(): void { state.current = 'ready'; state.error = ''; if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }; startSupervision() }
 function markError(msg: string): void {
   state.current = 'failed'; state.error = msg
   if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
   logger.warn(`[searxng] ${msg}`)
+}
+
+// ── Post-ready supervision ───────────────────────────────────────────────────────
+// The startup poll stops at markReady(); if the Python process dies later the state
+// would stay 'ready' with nothing respawning it. A low-frequency liveness re-probe
+// catches that and restarts — capped so a persistently-crashing install can't
+// respawn-loop forever.
+
+const SUPERVISE_INTERVAL_MS = 60_000
+const SUPERVISE_RETRY_MS    = 5_000       // quick re-probe before declaring death
+const RESTART_WINDOW_MS     = 10 * 60_000
+const RESTART_MAX           = 3
+
+let superviseTimer: ReturnType<typeof setTimeout> | null = null
+let superviseFailures = 0
+let restartTimes: number[] = []
+let sxProc: ChildProcess | null = null
+
+function stopSupervision(): void {
+  if (superviseTimer) { clearTimeout(superviseTimer); superviseTimer = null }
+  superviseFailures = 0
+}
+
+function startSupervision(): void {
+  if (superviseTimer) return  // already supervising this instance
+  superviseFailures = 0
+  const tick = async (): Promise<void> => {
+    if (state.current !== 'ready') { superviseTimer = null; return }
+    let ok = false
+    try {
+      const res = await fetch(`${searxngUrl()}/healthz`, { signal: AbortSignal.timeout(3_000) })
+      ok = res.ok
+    } catch { /* down or wedged */ }
+    if (state.current !== 'ready') { superviseTimer = null; return }  // stopped while probing
+    if (ok) {
+      superviseFailures = 0
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+      return
+    }
+    superviseFailures++
+    if (superviseFailures < 2) {
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_RETRY_MS)
+      return
+    }
+    superviseTimer = null
+    handleCrash()
+  }
+  superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+}
+
+// Shared respawn path for the liveness probe and the child 'exit' accelerator.
+// Old restart timestamps age out of the window, so a sustained healthy period
+// naturally resets the cap.
+function handleCrash(): void {
+  stopSupervision()
+  const now = Date.now()
+  restartTimes = restartTimes.filter((t) => now - t < RESTART_WINDOW_MS)
+  if (restartTimes.length >= RESTART_MAX) {
+    markError(`SearXNG crashed ${RESTART_MAX}+ times within 10 minutes — giving up`)
+    logger.error('[searxng] SearXNG keeps crashing — not respawning again (restart the backend or check data/searxng.log)')
+    return
+  }
+  restartTimes.push(now)
+  logger.warn('[searxng] SearXNG died — respawning')
+  void restartSearXNG().catch((err) => markError(`respawn failed: ${err}`))
 }
 
 // ── settings ─────────────────────────────────────────────────────────────────────
@@ -226,6 +304,7 @@ export function spawnSearXNG(): void {
   } else {
     // `exec` so child.pid IS the Python PID; file redirect avoids EPIPE on hot-reload.
     const shellCmd = `exec "$SX_PY" -m searx.webapp >> "$SX_LOG" 2>&1`
+    rotateLogIfLarge()  // must happen before the child opens its `>>` fd
     child = spawn('sh', ['-c', shellCmd], {
       cwd: SEARXNG_DIR, detached: true, stdio: 'ignore',
       env: { ...env, SX_PY: python, SX_LOG: LOG_FILE },
@@ -234,6 +313,16 @@ export function spawnSearXNG(): void {
   }
 
   if (child.pid !== undefined) { try { writeFileSync(PID_FILE, String(child.pid)) } catch { /* non-fatal */ } }
+  // Crash accelerator while we still hold the handle (`exec` makes child.pid the Python
+  // PID, so 'exit' fires when SearXNG itself dies). Adopted orphans (post hot-reload)
+  // have no handle — the HTTP probe covers them. stopSearXNG nulls sxProc before the
+  // exit event fires, so intentional kills never respawn.
+  sxProc = child
+  child.on('exit', () => {
+    if (sxProc !== child) return
+    sxProc = null
+    if (state.current === 'ready') handleCrash()
+  })
   child.unref()
 
   state.current = 'starting'
@@ -244,6 +333,8 @@ export function spawnSearXNG(): void {
 // Kill the running SearXNG by listening port (Unix) or PID file (Windows). Used by
 // restart and the backend shutdown handler so the sidecar never lingers.
 export function stopSearXNG(): void {
+  stopSupervision()  // intentional stop (shutdown/restart) must never trigger a respawn
+  sxProc = null      // detach the exit accelerator before the kill lands
   if (!IS_WIN) {
     try {
       const pids = execSync(`lsof -ti tcp:${SEARXNG_PORT} -sTCP:LISTEN 2>/dev/null`, { encoding: 'utf8', timeout: 3_000 }).trim()

@@ -25,7 +25,7 @@ import {
   WifiOff,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -43,6 +43,8 @@ import { ScrollFade } from "@/components/shared/ScrollFade";
 import { categoryVisual } from "@/lib/archiveCategories";
 import { APP_GROUPS, getAppByPath } from "@/lib/appCategories";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
+import { useAppFeatures } from "@/hooks/useAppFeatures";
+import { useInstalledArchives } from "@/hooks/useInstalledArchives";
 import { AppIconTile } from "@/components/shared/AppIconTile";
 import { ArchiveIcon } from "@/components/shared/ArchiveIcon";
 import { BrandMark } from "@/components/shared/BrandMark";
@@ -77,18 +79,6 @@ interface AppEntry {
 const ALL_APPS: AppEntry[] = APP_GROUPS.flatMap(g =>
   g.apps.map(a => ({ id: a.id, label: a.label, href: a.to, icon: a.icon, gradient: a.gradient, feature: a.feature }))
 );
-
-// App-level feature flags gated by admin toggle
-function useAppFeatures() {
-  const [features, setFeatures] = useState<Record<string, boolean>>({ bookmarks: true })
-  useEffect(() => {
-    fetch("/api/app-features", { credentials: "include" })
-      .then(r => r.json())
-      .then(d => setFeatures(d as Record<string, boolean>))
-      .catch(() => {})
-  }, [])
-  return features
-}
 
 function SectionHeading({ label, count }: { label: string; count?: number }) {
   return (
@@ -495,32 +485,21 @@ export function LeftSidebar() {
   );
 
   // Installed archives → map for resolving `read:<sourceId>` recents to a label
-  // + favicon. Refetched on focus so newly-installed archives resolve.
-  const [archiveMap, setArchiveMap] = useState<Map<string, RecentArchive>>(new Map());
-  useEffect(() => {
-    const load = () => {
-      fetch("/api/archives/installed", { credentials: "include" })
-        .then((r) => r.json())
-        .then((d) => {
-          const m = new Map<string, RecentArchive>();
-          for (const a of (d.archives ?? []) as Array<Record<string, unknown>>) {
-            const sid = a.sourceId as string;
-            m.set(sid, {
-              sourceId: sid,
-              label: (a.label as string) ?? sid,
-              href: `/read/${sid}`,
-              zimIconUrl: (a.zimIconUrl as string | null) ?? null,
-              category: (a.category as string) ?? "Other",
-            });
-          }
-          setArchiveMap(m);
-        })
-        .catch(() => {});
-    };
-    load();
-    window.addEventListener("focus", load);
-    return () => window.removeEventListener("focus", load);
-  }, []);
+  // + favicon. The shared query refetches on focus so newly-installed archives resolve.
+  const { data: installedArchives } = useInstalledArchives();
+  const archiveMap = useMemo(() => {
+    const m = new Map<string, RecentArchive>();
+    for (const a of installedArchives ?? []) {
+      m.set(a.sourceId, {
+        sourceId: a.sourceId,
+        label: a.label ?? a.sourceId,
+        href: `/read/${a.sourceId}`,
+        zimIconUrl: a.zimIconUrl ?? null,
+        category: a.category ?? "Other",
+      });
+    }
+    return m;
+  }, [installedArchives]);
 
   const { pinnedIds, recentIds, collapsed, pin, unpin, reorder, toggleCollapsed } =
     useNavPreferences(APPS);

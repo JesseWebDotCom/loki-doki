@@ -15,6 +15,7 @@ import { getRegion } from '@/lib/maps/catalog'
 import { listInstalledRegions } from '@/lib/maps/store'
 import { graphhopperJar, javaBin, regionGraphDir, regionPbfPath } from '@/lib/maps/paths'
 import { ghServerConfigYaml } from '@/lib/maps/ghConfig'
+import { logger } from '@/lib/logger'
 
 export type RouterMode = 'auto' | 'pedestrian' | 'bicycle' | 'hiking' | 'mtb'
 
@@ -92,7 +93,7 @@ function regionForPoints(a: LatLon, b: LatLon): string | null {
 
 // ── Sidecar lifecycle ─────────────────────────────────────────────────────────
 
-interface Sidecar { proc: ChildProcess; regionId: string }
+interface Sidecar { proc: ChildProcess; regionId: string; ready: boolean }
 let sidecar: Sidecar | null = null
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -104,11 +105,80 @@ function bumpIdle(): void {
 }
 
 function shutdown(): void {
+  stopSupervision()  // intentional stop (idle timeout / server exit) must never respawn
   if (sidecar) {
     try { sidecar.proc.kill('SIGTERM') } catch { /* gone */ }
-    sidecar = null
+    sidecar = null   // nulled before the exit event fires → exit handler won't respawn
   }
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+}
+
+// ── Post-ready supervision ──────────────────────────────────────────────────────
+// ensureSidecar only health-checks at request time; a JVM that dies between requests
+// (OOM is common with big graphs) would otherwise stay dead until the next route()
+// call. A low-frequency liveness re-probe + the child 'exit' handler respawn it —
+// capped so a persistently-crashing graph can't respawn-loop forever. The idle
+// timeout still governs shutdown: a respawned-but-unused sidecar ages out normally.
+
+const SUPERVISE_INTERVAL_MS = 60_000
+const SUPERVISE_RETRY_MS    = 5_000       // quick re-probe before declaring death
+const RESTART_WINDOW_MS     = 10 * 60_000
+const RESTART_MAX           = 3
+
+let superviseTimer: ReturnType<typeof setTimeout> | null = null
+let superviseFailures = 0
+let restartTimes: number[] = []
+
+function stopSupervision(): void {
+  if (superviseTimer) { clearTimeout(superviseTimer); superviseTimer = null }
+  superviseFailures = 0
+}
+
+function startSupervision(): void {
+  if (superviseTimer) return  // already supervising this instance
+  superviseFailures = 0
+  const tick = async (): Promise<void> => {
+    const current = sidecar
+    if (!current) { superviseTimer = null; return }  // shut down while waiting
+    let ok = false
+    try {
+      const r = await fetch(`${ghUrl()}/health`, { signal: AbortSignal.timeout(3_000) })
+      ok = r.ok
+    } catch { /* down or wedged */ }
+    if (sidecar !== current) { superviseTimer = null; return }  // replaced/stopped while probing
+    if (ok) {
+      superviseFailures = 0
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+      return
+    }
+    superviseFailures++
+    if (superviseFailures < 2) {
+      superviseTimer = setTimeout(() => void tick(), SUPERVISE_RETRY_MS)
+      return
+    }
+    superviseTimer = null
+    handleCrash(current.regionId)
+  }
+  superviseTimer = setTimeout(() => void tick(), SUPERVISE_INTERVAL_MS)
+}
+
+// Shared respawn path for the liveness probe and the child 'exit' handler. Old
+// restart timestamps age out of the window, so a sustained healthy period naturally
+// resets the cap.
+function handleCrash(regionId: string): void {
+  stopSupervision()
+  const now = Date.now()
+  restartTimes = restartTimes.filter((t) => now - t < RESTART_WINDOW_MS)
+  if (restartTimes.length >= RESTART_MAX) {
+    shutdown()  // leave no zombie; the next route() request may still retry explicitly
+    logger.error(`[graphhopper] GraphHopper (${regionId}) crashed ${RESTART_MAX}+ times within 10 minutes — not auto-respawning`)
+    return
+  }
+  restartTimes.push(now)
+  logger.warn(`[graphhopper] GraphHopper (${regionId}) died — respawning`)
+  void ensureSidecar(regionId).catch((err) => {
+    logger.warn(`[graphhopper] respawn failed: ${err instanceof Error ? err.message : String(err)}`)
+  })
 }
 
 /** Stop the GraphHopper JVM sidecar on server shutdown so it doesn't outlive us. */
@@ -136,8 +206,17 @@ async function ensureSidecar(regionId: string): Promise<void> {
     [`-Xmx${GH_HEAP_MB}m`, '-jar', graphhopperJar(), 'server', configPath],
     { stdio: 'ignore', detached: false },
   )
-  sidecar = { proc, regionId }
-  proc.on('exit', () => { if (sidecar?.proc === proc) sidecar = null })
+  sidecar = { proc, regionId, ready: false }
+  // Crash accelerator, post-ready only (a JVM dying during graph load is handled by
+  // the readiness poll below, as before). shutdown() nulls `sidecar` before the exit
+  // event fires, so intentional kills (idle timeout, region swap, server exit) never
+  // respawn.
+  proc.on('exit', () => {
+    if (sidecar?.proc !== proc) return
+    const wasReady = sidecar.ready
+    sidecar = null
+    if (wasReady) handleCrash(regionId)
+  })
   bumpIdle()
 
   // Poll for readiness (up to 60s — graph load into RAM can take a while).
@@ -145,7 +224,11 @@ async function ensureSidecar(regionId: string): Promise<void> {
   while (Date.now() < deadline) {
     try {
       const r = await fetch(`${ghUrl()}/health`, { signal: AbortSignal.timeout(2000) })
-      if (r.ok) return
+      if (r.ok) {
+        if (sidecar?.proc === proc) sidecar.ready = true
+        startSupervision()
+        return
+      }
     } catch { /* not up yet */ }
     await new Promise((res) => setTimeout(res, 1500))
   }

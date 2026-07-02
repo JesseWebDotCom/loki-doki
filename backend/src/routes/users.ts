@@ -5,7 +5,7 @@ import { mkdir, unlink, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { db } from '@/db'
 import { users, profilePins, userPreferences, conversations, ytDownloads } from '@/db/schema'
-import { requireAuth, requireAdmin } from '@/middleware/auth'
+import { requireAuth, requireAdmin, invalidateSessionCacheForUser } from '@/middleware/auth'
 import { hashPin } from '@/lib/pin'
 import { dataDir } from '@/lib/download'
 import { getDataRoot, userSlug } from '@/lib/storage/paths'
@@ -140,6 +140,9 @@ usersRoute.delete('/:id', requireAdmin, async (c) => {
   const refs = await db.select({ assetId: ytDownloads.assetId }).from(ytDownloads).where(eq(ytDownloads.userId, targetId))
 
   await db.delete(users).where(eq(users.id, targetId))
+  // The FK cascade just dropped their session rows — drop any cached resolutions too, so a
+  // deleted user's cookie stops authenticating immediately rather than after the cache TTL.
+  invalidateSessionCacheForUser(targetId)
 
   // Reclaim any shared media asset the deleted user was the LAST to reference (the cascade just
   // dropped their refs). Shared assets others still reference are left untouched; GC reclaims the

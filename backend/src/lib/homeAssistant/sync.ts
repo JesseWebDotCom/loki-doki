@@ -45,6 +45,7 @@ interface Conn {
   authReject: ((e: unknown) => void) | null
   reconnectTimer: ReturnType<typeof setTimeout> | null
   registryTimer: ReturnType<typeof setInterval> | null
+  connectPromise: Promise<void> | null
   closedByUs: boolean
   entityReg: Map<string, EntityRegEntry>
   deviceReg: Map<string, string | null>   // deviceId → areaId
@@ -76,7 +77,7 @@ function createConn(conn: HAConnection): Conn {
     store: { entities: new Map(), states: new Map(), attributes: new Map(), areas: new Map(), connected: false, lastSyncMs: null, lastError: null },
     ws: null, msgId: 1, pending: new Map(), subId: null,
     onFirstEvent: null, authResolve: null, authReject: null,
-    reconnectTimer: null, registryTimer: null, closedByUs: false,
+    reconnectTimer: null, registryTimer: null, connectPromise: null, closedByUs: false,
     entityReg: new Map(), deviceReg: new Map(),
   }
 }
@@ -104,8 +105,36 @@ export async function ensureConnected(conn: HAConnection): Promise<HAStore> {
   if (!c) { c = createConn(conn); conns.set(k, c) }
   // Token may have changed — keep the latest.
   c.conn = conn
-  await connect(c)
+  await connectDeduped(c)
   return c.store
+}
+
+// Non-blocking store access for hot read paths (the home-page widgets poll their
+// endpoints every 30 s): NEVER await the 10 s WebSocket connect. Return the
+// last-known store immediately and kick a background (re)connect; only the very
+// first call for an instance — when no store exists at all — waits briefly.
+export async function ensureConnectedSoft(conn: HAConnection, maxWaitMs = 2500): Promise<HAStore> {
+  const k = keyOf(conn)
+  const existing = conns.get(k)
+  if (existing) {
+    existing.conn = conn
+    if (!existing.store.connected) void connectDeduped(existing).catch(() => { /* reconnect loop retries */ })
+    return existing.store
+  }
+  const c = createConn(conn)
+  conns.set(k, c)
+  const attempt = connectDeduped(c).catch(() => { /* store stays disconnected */ })
+  await Promise.race([attempt, new Promise((r) => setTimeout(r, maxWaitMs))])
+  return c.store
+}
+
+// One connect attempt at a time per instance: without this, every request that
+// arrives while HA is down starts ANOTHER 10 s WebSocket attempt (connection pile-up).
+function connectDeduped(c: Conn): Promise<void> {
+  if (!c.connectPromise) {
+    c.connectPromise = connect(c).finally(() => { c.connectPromise = null })
+  }
+  return c.connectPromise
 }
 
 export function getStore(conn: HAConnection): HAStore | null {
@@ -116,6 +145,7 @@ export function getStore(conn: HAConnection): HAStore | null {
 
 function connect(c: Conn): Promise<void> {
   c.closedByUs = false
+  c.msgId = 1 // ids are per-connection; without a reset they grow unbounded across reconnects
   return new Promise<void>((resolve, reject) => {
     let settled = false
     const done = (err?: unknown) => {
@@ -134,6 +164,11 @@ function connect(c: Conn): Promise<void> {
       c.store.connected = false
       c.ws = null
       stopRegistryTimer(c)
+      // Settle every in-flight command: its reply can never arrive on this socket,
+      // and an unsettled promise + its pending entry would leak on every reconnect
+      // (and hang any await, e.g. refreshRegistries, forever).
+      for (const { reject } of c.pending.values()) reject(new Error('HA socket closed'))
+      c.pending.clear()
       if (!c.closedByUs) scheduleReconnect(c)
       done(new Error('socket closed before ready'))
     }

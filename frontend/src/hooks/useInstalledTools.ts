@@ -1,19 +1,24 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 export interface InstalledTool {
   id: string;
   name: string;
   enabled: boolean;
+  offline?: boolean;
 }
 
 interface UseInstalledToolsResult {
   /** Set of tool IDs where enabled === true. null while loading. */
   enabledToolIds: Set<string> | null;
   isLoading: boolean;
+  /** Full tool list from /api/tools. null while loading. */
+  tools: InstalledTool[] | null;
 }
 
 /**
- * Fetches /api/tools and returns the set of enabled tool IDs.
+ * Fetches /api/tools (shared React Query cache — deduped across all consumers)
+ * and returns the set of enabled tool IDs plus the raw tool list.
  * Use this to filter app listings — only show apps whose toolId is in
  * enabledToolIds (or apps that have no toolId at all, which are always shown).
  *
@@ -21,28 +26,22 @@ interface UseInstalledToolsResult {
  * to show all tools regardless of enabled status.
  */
 export function useInstalledTools(): UseInstalledToolsResult {
-  const [enabledToolIds, setEnabledToolIds] = useState<Set<string> | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data, isError } = useQuery({
+    queryKey: ["tools"],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<InstalledTool[]> => {
+      const r = await fetch("/api/tools", { credentials: "include" });
+      return r.ok ? ((await r.json()) as InstalledTool[]) : [];
+    },
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/tools", { credentials: "include" })
-      .then((r) => r.ok ? r.json() as Promise<InstalledTool[]> : Promise.resolve([]))
-      .then((tools) => {
-        if (cancelled) return;
-        const ids = new Set(tools.filter((t) => t.enabled).map((t) => t.id));
-        setEnabledToolIds(ids);
-      })
-      .catch(() => {
-        if (!cancelled) setEnabledToolIds(new Set());
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+  const tools = useMemo(() => data ?? (isError ? [] : null), [data, isError]);
+  const enabledToolIds = useMemo(
+    () => (tools ? new Set(tools.filter((t) => t.enabled).map((t) => t.id)) : null),
+    [tools],
+  );
 
-  return { enabledToolIds, isLoading };
+  return { enabledToolIds, isLoading: tools === null, tools };
 }
 
 /**

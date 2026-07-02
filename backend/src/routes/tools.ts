@@ -283,10 +283,37 @@ interface NWSAlertProperties {
   areaDesc: string
 }
 
+// Server-side weather TTL cache: the backend owns upstream calls — every widget,
+// tab, user, and Pod display polling the same location must collapse into ONE
+// open-meteo/NWS hit per TTL, not one per client.
+const WX_TTL_MS = 5 * 60 * 1000
+const wxCache = new Map<string, { ts: number; body: unknown }>()
+function wxGet(key: string): unknown | null {
+  const e = wxCache.get(key)
+  return e && Date.now() - e.ts < WX_TTL_MS ? e.body : null
+}
+function wxSet(key: string, body: unknown): void {
+  if (wxCache.size > 200) {
+    for (const [k, v] of wxCache) if (Date.now() - v.ts >= WX_TTL_MS) wxCache.delete(k)
+    // Still over the cap after dropping expired → evict oldest-inserted.
+    while (wxCache.size > 200) {
+      const k = wxCache.keys().next().value
+      if (k === undefined) break
+      wxCache.delete(k)
+    }
+  }
+  wxCache.set(key, { ts: Date.now(), body })
+}
+
 tools.get('/weather/alerts', requireAuth, async (c) => {
   const lat = parseFloat(c.req.query('lat') ?? '')
   const lng = parseFloat(c.req.query('lng') ?? '')
   if (isNaN(lat) || isNaN(lng)) return c.json({ alerts: [] })
+
+  // ~1km grid key: nearby clients share one NWS lookup.
+  const cacheKey = `alerts|${lat.toFixed(2)}|${lng.toFixed(2)}`
+  const cached = wxGet(cacheKey)
+  if (cached) return c.json(cached as object)
 
   try {
     const res = await fetch(
@@ -310,6 +337,7 @@ tools.get('/weather/alerts', requireAuth, async (c) => {
       expires: f.properties.expires ?? null,
       areaDesc: f.properties.areaDesc,
     }))
+    wxSet(cacheKey, { alerts })
     return c.json({ alerts })
   } catch {
     return c.json({ alerts: [] })
@@ -333,6 +361,10 @@ tools.get('/weather/data', requireAuth, async (c) => {
   const resolvedLat = lat ?? (toolConfig?._lat as number | undefined)
   const resolvedLng = lng ?? (toolConfig?._lng as number | undefined)
 
+  const cacheKey = `data|${location}|${resolvedLat ?? ''}|${resolvedLng ?? ''}|${days}|${unit}`
+  const cached = wxGet(cacheKey)
+  if (cached) return c.json(cached as object)
+
   const [result, observation] = await Promise.all([
     weatherTool.execute({ location, lat, lng, days, temperature_unit: unit, include_hourly: true }, toolConfig),
     resolvedLat != null && resolvedLng != null
@@ -342,7 +374,9 @@ tools.get('/weather/data', requireAuth, async (c) => {
 
   if (result.offline) return c.json({ offline: true }, 503)
   if (!result.success) return c.json({ error: result.error }, 400)
-  return c.json({ ...(result.data as object), observation: observation ?? undefined })
+  const body = { ...(result.data as object), observation: observation ?? undefined }
+  wxSet(cacheKey, body)
+  return c.json(body)
 })
 
 // ── Weather AI summary ─────────────────────────────────────────────────────────
