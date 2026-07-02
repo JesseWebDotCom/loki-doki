@@ -13,16 +13,18 @@ export interface Transport {
   stop: () => void
 }
 
-const stops: Partial<Record<'radio' | 'youtube' | 'podcast', StopFn>> = {}
-const transports: Partial<Record<'radio' | 'youtube' | 'podcast', Transport>> = {}
-let active: 'radio' | 'youtube' | 'podcast' | null = null
+type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio'
 
-export function registerMediaStop(kind: 'radio' | 'youtube' | 'podcast', fn: StopFn): () => void {
+const stops: Partial<Record<MediaSource, StopFn>> = {}
+const transports: Partial<Record<MediaSource, Transport>> = {}
+let active: MediaSource | null = null
+
+export function registerMediaStop(kind: MediaSource, fn: StopFn): () => void {
   stops[kind] = fn
   return () => { if (stops[kind] === fn) delete stops[kind] }
 }
 
-export function acquireAudio(source: 'radio' | 'youtube' | 'podcast'): void {
+export function acquireAudio(source: MediaSource): void {
   active = source
   for (const [kind, fn] of Object.entries(stops) as [string, StopFn][]) {
     if (kind !== source) fn()
@@ -30,7 +32,7 @@ export function acquireAudio(source: 'radio' | 'youtube' | 'podcast'): void {
 }
 
 /** An engine registers its transport controls; the most-recently-acquired one is active. */
-export function registerTransport(kind: 'radio' | 'youtube' | 'podcast', t: Transport): () => void {
+export function registerTransport(kind: MediaSource, t: Transport): () => void {
   transports[kind] = t
   return () => { if (transports[kind] === t) delete transports[kind] }
 }

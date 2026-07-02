@@ -4,13 +4,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Pencil, Sparkles, Video, Plus, Search, Loader2, Radio, ArrowUpDown,
   MoreHorizontal, Trash2, ListPlus, Music, Play, Pause, Download, Clock, AlertCircle,
-  Check, RotateCw,
+  Check, RotateCw, ArrowDownToLine,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { createPodcast, getChannelPage, getPlaylist } from '@/lib/youtube/api'
 import { getBatchSize } from '@/lib/youtube/podcast'
 import { ShowCover } from '@/components/podcast/ShowCover'
+import { RssShowDetail } from '@/components/podcast/RssShowDetail'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { usePodcastUI } from '@/components/podcast/PodcastLayout'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
@@ -19,8 +20,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   getShows, getEpisodes, getEpisodeDetail, generateEpisode, deleteShow, updateShow,
-  getHostCharacters, regenerateEpisode, deleteEpisode, toTrack,
-  stingerUrl, type Episode, type EpisodeDetail, type EpisodeSource,
+  getHostCharacters, regenerateEpisode, deleteEpisode, toTrack, stingerUrl,
+  downloadEpisode, removeEpisodeDownload,
+  type Episode, type EpisodeDetail, type EpisodeSource,
 } from '@/lib/podcast/api'
 import { fmtDate, fmtDuration, fmtTime } from '@/lib/podcast/format'
 import { Switch } from '@/components/ui/switch'
@@ -44,18 +46,23 @@ export function ShowDetailPage() {
   const { data: episodes = [], isLoading } = useQuery({
     queryKey: ['podcast-episodes', id],
     queryFn: () => getEpisodes(id),
-    refetchInterval: q => (q.state.data?.some((e: Episode) => e.status === 'generating' || e.status === 'pending') ? 4000 : false),
+    // Poll while anything is generating OR an offline download is in flight.
+    refetchInterval: q => (q.state.data?.some((e: Episode) =>
+      e.status === 'generating' || e.status === 'pending' ||
+      e.download?.status === 'pending' || e.download?.status === 'downloading') ? 4000 : false),
   })
   const { data: characters = [] } = useQuery({ queryKey: ['host-characters'], queryFn: getHostCharacters })
 
   const ready = episodes.filter(e => e.status === 'ready')
   const anyGenerating = episodes.some(e => e.status === 'generating' || e.status === 'pending')
   const isYouTube = show?.segments?.some(s => s.type === 'youtube') || show?.source === 'app'
+  // Real subscribed podcast (RSS feed) — read-only episodes, no generation/editing.
+  const isRss = show?.source === 'rss'
 
   const sorted = useMemo(() => {
     const q = query.trim().toLowerCase()
     const list = q ? episodes.filter(e => e.title.toLowerCase().includes(q)) : episodes
-    const ts = (e: Episode) => new Date(e.generatedAt ?? e.createdAt ?? 0).getTime()
+    const ts = (e: Episode) => new Date(e.publishedAt ?? e.generatedAt ?? e.createdAt ?? 0).getTime()
     return [...list].sort((a, b) => sortNewest ? ts(b) - ts(a) : ts(a) - ts(b))
   }, [episodes, query, sortNewest])
 
@@ -175,6 +182,9 @@ export function ShowDetailPage() {
     )
   }
 
+  // Subscribed RSS podcasts get their own layout — no transcripts/generation.
+  if (isRss) return <RssShowDetail show={show} />
+
   const hostNames = show.hosts
     .map(h => characters.find(c => c.id === h.characterId)?.name)
     .filter(Boolean) as string[]
@@ -214,7 +224,7 @@ export function ShowDetailPage() {
             {/* Cover — clickable to edit for owners */}
             <div className="relative shrink-0">
               <ShowCover showId={show.id} title={show.name} size={160} rounded="rounded-2xl" />
-              {show.isOwn && (
+              {show.isOwn && !isRss && (
                 <button onClick={() => openEdit(show)}
                   className="absolute inset-0 flex items-end justify-center rounded-2xl bg-black/0 opacity-0 transition-all hover:bg-black/40 hover:opacity-100 pb-2">
                   <span className="flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[10px] font-semibold text-white">
@@ -225,7 +235,7 @@ export function ShowDetailPage() {
             </div>
 
             <div className="min-w-0 flex-1 pt-1">
-              <div className="mb-1 flex items-center gap-2">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
                 <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">AI Podcast</span>
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold capitalize text-muted-foreground">{show.style}</span>
               </div>
@@ -244,7 +254,7 @@ export function ShowDetailPage() {
               )}
 
               <div className="mt-4 flex items-center gap-2">
-                {show.isOwn && (
+                {!isRss && show.isOwn && (
                   <>
                     <button onClick={() => openEdit(show)}
                       className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted">
@@ -264,7 +274,7 @@ export function ShowDetailPage() {
                     </DropdownMenu>
                   </>
                 )}
-                {!show.isOwn && show.ownerName && (
+                {!isRss && !show.isOwn && show.ownerName && (
                   <p className="text-xs text-muted-foreground">by {show.ownerName}</p>
                 )}
               </div>
@@ -293,7 +303,7 @@ export function ShowDetailPage() {
                 </p>
                 <h2 className="text-2xl font-black leading-snug tracking-tight">{selectedEp.title}</h2>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
-                  {selectedEp.generatedAt && <span>{fmtDate(selectedEp.generatedAt)}</span>}
+                  {(selectedEp.publishedAt ?? selectedEp.generatedAt) && <span>{fmtDate(selectedEp.publishedAt ?? selectedEp.generatedAt)}</span>}
                   {selectedEp.durationSec ? <span>· {fmtDuration(selectedEp.durationSec)}</span> : null}
                 </div>
                 {selectedEp.description && (
@@ -409,7 +419,7 @@ export function ShowDetailPage() {
           </div>
 
           {/* Generate actions */}
-          {show.isOwn && (
+          {show.isOwn && !isRss && (
             <div className="flex flex-wrap gap-1.5 border-b border-border/40 px-4 py-3">
               {ytSource && (
                 <button onClick={handleNextBatch} disabled={batching || anyGenerating}
@@ -473,7 +483,7 @@ export function ShowDetailPage() {
                   show={{ id, name: show.name }}
                   index={i + 1}
                   isSelected={ep.id === effectiveSelectedId}
-                  canManage={show.isOwn}
+                  canManage={show.isOwn && !isRss}
                   readyTracks={readyTracks}
                   onSelect={() => setSelectedId(ep.id)}
                   onInvalidate={async () => { await qc.invalidateQueries({ queryKey: ['podcast-episodes', id] }) }}
@@ -494,6 +504,7 @@ export function ShowDetailPage() {
         destructive
         onConfirm={() => void handleDeleteShow()}
       />
+
     </div>
   )
 }
@@ -511,10 +522,14 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
 }) {
   const { track, playing, play, playQueue, enqueue, pause, resume, close } = usePodcastPlayback()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
   const isCurrent = track?.episodeId === episode.id
   const ready = episode.status === 'ready'
   const progress = episode.watchState
   const pct = progress && episode.durationSec ? Math.min(100, (progress.positionSec / episode.durationSec) * 100) : 0
+  // RSS episodes (with a remote enclosure) can be archived offline per user.
+  const isRss = !!episode.enclosureUrl
+  const dl = episode.download ?? null
 
   function handlePlay(e: React.MouseEvent) {
     e.stopPropagation()
@@ -529,6 +544,23 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
     if (isCurrent) close()
     await deleteEpisode(episode.id)
     await onInvalidate()
+  }
+
+  async function handleDownload() {
+    try {
+      await downloadEpisode(episode.id)
+      await onInvalidate()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not download the episode.')
+    }
+  }
+  async function handleRemoveDownload() {
+    try {
+      await removeEpisodeDownload(episode.id)
+      await onInvalidate()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not remove the download.')
+    }
   }
 
   return (
@@ -565,12 +597,27 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
             {episode.title}
           </p>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0">
-            {episode.generatedAt && (
-              <span className="text-[10px] text-muted-foreground">{fmtDate(episode.generatedAt)}</span>
+            {(episode.publishedAt ?? episode.generatedAt) && (
+              <span className="text-[10px] text-muted-foreground">{fmtDate(episode.publishedAt ?? episode.generatedAt)}</span>
             )}
             {episode.durationSec ? (
               <span className="text-[10px] text-muted-foreground">· {fmtDuration(episode.durationSec)}</span>
             ) : null}
+            {isRss && dl?.status === 'ready' && (
+              <span className="flex items-center gap-0.5 text-[10px] text-brand" title="Downloaded">
+                <ArrowDownToLine className="size-2.5" /> Downloaded
+              </span>
+            )}
+            {isRss && (dl?.status === 'pending' || dl?.status === 'downloading') && (
+              <span className="flex items-center gap-0.5 text-[10px] text-brand">
+                <Loader2 className="size-2.5 animate-spin" /> Downloading
+              </span>
+            )}
+            {isRss && dl?.status === 'failed' && (
+              <span className="flex items-center gap-0.5 text-[10px] text-destructive" title="Download failed">
+                <AlertCircle className="size-2.5" /> Download failed
+              </span>
+            )}
             {episode.status === 'generating' && (
               <span className="flex items-center gap-0.5 text-[10px] text-brand">
                 <Loader2 className="size-2.5 animate-spin" /> Generating
@@ -615,6 +662,14 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
             <DropdownMenuContent align="end">
               {ready && <DropdownMenuItem onSelect={e => handlePlay(e as unknown as React.MouseEvent)}><Play className="size-4" /> Play</DropdownMenuItem>}
               {ready && <DropdownMenuItem onSelect={() => enqueue(toTrack(episode, show))}><ListPlus className="size-4" /> Add to Up Next</DropdownMenuItem>}
+              {isRss && (!dl || dl.status === 'failed') && (
+                <DropdownMenuItem onSelect={() => void handleDownload()}>
+                  <ArrowDownToLine className="size-4" /> {dl?.status === 'failed' ? 'Retry download' : 'Download'}
+                </DropdownMenuItem>
+              )}
+              {isRss && dl?.status === 'ready' && (
+                <DropdownMenuItem onSelect={() => setConfirmRemoveDl(true)}><Trash2 className="size-4" /> Remove download</DropdownMenuItem>
+              )}
               {canManage && (
                 <>
                   {ready && <DropdownMenuSeparator />}
@@ -639,6 +694,16 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
         confirmLabel="Delete"
         destructive
         onConfirm={() => void handleDelete()}
+      />
+
+      <ConfirmDialog
+        open={confirmRemoveDl}
+        onOpenChange={setConfirmRemoveDl}
+        title="Remove download"
+        description={`Remove the offline copy of "${episode.title}"? You can still stream it.`}
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => void handleRemoveDownload()}
       />
     </>
   )

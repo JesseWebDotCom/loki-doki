@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Loader2, Sparkles, Pencil, Check, X } from 'lucide-react'
+import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Loader2, Sparkles, Pencil, Check, X, RadioTower, Square } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -15,6 +15,12 @@ import { AppTabBar, type AppTab } from '@/components/shared/AppTabBar'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useRadio } from '@/context/RadioContext'
+import { useLiveRadio } from '@/context/LiveRadioContext'
+import { LiveStationFavicon, stationTagLine } from '@/components/music/LiveStationCard'
+import {
+  fetchLiveLibrary, removeLiveStation, listRecordings, stopRecording, deleteRecording,
+  type LiveLibraryStation, type LiveRecording,
+} from '@/lib/music/liveRadioApi'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { StationCard } from '@/components/music/StationCard'
 import { SongDownloadButton } from '@/components/music/SongDownloadButton'
@@ -39,12 +45,13 @@ function useOfflineAvailable() {
   }
 }
 
-type Tab = 'favorites' | 'playlists' | 'history' | 'offline' | 'created'
+type Tab = 'favorites' | 'playlists' | 'history' | 'radio' | 'offline' | 'created'
 const TABS: AppTab<Tab>[] = [
   { id: 'favorites', label: 'Favorites', icon: Heart },
   { id: 'playlists', label: 'Playlists', icon: ListMusic },
   { id: 'created', label: 'Created', icon: Sparkles },
   { id: 'history', label: 'History', icon: History },
+  { id: 'radio', label: 'Radio', icon: RadioTower },
   { id: 'offline', label: 'Offline', icon: Download },
 ]
 
@@ -298,6 +305,149 @@ function OfflineTab() {
   )
 }
 
+// ── Live radio: saved stations + recordings ─────────────────────────────────
+
+function LiveStationRow({ st }: { st: LiveLibraryStation }) {
+  const live = useLiveRadio()
+  const qc = useQueryClient()
+  const [confirmDel, setConfirmDel] = useState(false)
+  const del = async () => {
+    try { await removeLiveStation(st.id); await qc.invalidateQueries({ queryKey: ['live-radio-library'] }); toast.success('Station removed') }
+    catch { toast.error('Could not remove station') }
+  }
+  return (
+    <div className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
+      <button onClick={() => live.playLive({ id: st.id, name: st.name, favicon: st.favicon })}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <LiveStationFavicon favicon={st.favicon} className="size-10" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{st.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{stationTagLine(st.tags, st.country) || (st.source === 'manual' ? 'Custom stream' : '')}</p>
+        </div>
+      </button>
+      <button onClick={() => setConfirmDel(true)} aria-label="Remove station"
+        className="shrink-0 rounded-full p-2 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100">
+        <Trash2 className="size-4" />
+      </button>
+      <ConfirmDialog open={confirmDel} onOpenChange={setConfirmDel} title="Remove station?"
+        description={`“${st.name}” will be removed from your stations. Recordings are kept.`}
+        destructive confirmLabel="Remove" onConfirm={() => void del()} />
+    </div>
+  )
+}
+
+function RecordingRow({ rec }: { rec: LiveRecording }) {
+  const live = useLiveRadio()
+  const qc = useQueryClient()
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [confirmStop, setConfirmStop] = useState(false)
+  const inProgress = rec.status === 'pending' || rec.status === 'recording'
+  const del = async () => {
+    try { await deleteRecording(rec.id); await qc.invalidateQueries({ queryKey: ['live-radio-recordings'] }); toast.success('Recording deleted') }
+    catch { toast.error('Could not delete recording') }
+  }
+  const stop = async () => {
+    try { await stopRecording(rec.id); await qc.invalidateQueries({ queryKey: ['live-radio-recordings'] }); toast.success('Recording saved') }
+    catch { toast.error('Could not stop recording') }
+  }
+  const meta = [
+    new Date(rec.createdAt).toLocaleDateString(),
+    rec.durationSec ? fmtDur(rec.durationSec) : null,
+    rec.sizeBytes ? fmtBytes(rec.sizeBytes) : null,
+  ].filter(Boolean).join(' · ')
+  return (
+    <div className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
+      {rec.status === 'ready' ? (
+        <button onClick={() => live.playRecording({ id: rec.id, title: rec.title, stationName: rec.stationName })}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left">
+          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-gradient-to-br from-amber-500/25 to-amber-700/15">
+            <Play className="size-4 fill-current text-amber-600" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{rec.title}</p>
+            <p className="truncate text-xs text-muted-foreground">{[rec.stationName, meta].filter(Boolean).join(' · ')}</p>
+          </div>
+        </button>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-muted">
+            {rec.status === 'failed'
+              ? <X className="size-4 text-destructive" />
+              : <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-muted-foreground">{rec.title}</p>
+            <p className="truncate text-[11px] text-muted-foreground/70">
+              {rec.status === 'failed'
+                ? (rec.error ?? 'Recording failed')
+                : <span className="inline-flex items-center gap-1.5"><span className="inline-flex size-1.5 animate-pulse rounded-full bg-red-500" />Recording…</span>}
+            </p>
+          </div>
+        </div>
+      )}
+      <span className={cnBadge(rec.status)}>{rec.status}</span>
+      {inProgress && (
+        <button onClick={() => setConfirmStop(true)} aria-label="Stop recording" title="Stop and keep"
+          className="shrink-0 rounded-full p-2 text-red-500 transition hover:bg-red-500/10">
+          <Square className="size-4 fill-current" />
+        </button>
+      )}
+      <button onClick={() => setConfirmDel(true)} aria-label="Delete recording"
+        className="shrink-0 rounded-full p-2 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100">
+        <Trash2 className="size-4" />
+      </button>
+      <ConfirmDialog open={confirmStop} onOpenChange={setConfirmStop} title="Stop and keep recording?"
+        description="The recording ends now and everything captured so far is saved."
+        confirmLabel="Stop and keep" onConfirm={() => void stop()} />
+      <ConfirmDialog open={confirmDel} onOpenChange={setConfirmDel} title="Delete recording?"
+        description={`“${rec.title}” will be permanently removed.`}
+        destructive confirmLabel="Delete" onConfirm={() => void del()} />
+    </div>
+  )
+}
+
+/** Status pill for a recording row. */
+function cnBadge(status: LiveRecording['status']): string {
+  const base = 'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide'
+  if (status === 'ready') return `${base} bg-emerald-500/15 text-emerald-600`
+  if (status === 'failed') return `${base} bg-destructive/15 text-destructive`
+  return `${base} bg-red-500/15 text-red-500`
+}
+
+function RadioTab() {
+  const { data: stations } = useQuery({ queryKey: ['live-radio-library'], queryFn: fetchLiveLibrary })
+  const { data: recordings } = useQuery({
+    queryKey: ['live-radio-recordings'], queryFn: listRecordings,
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some(r => r.status === 'pending' || r.status === 'recording') ? 5000 : false,
+  })
+  const sts = stations ?? []
+  const recs = recordings ?? []
+  if (!sts.length && !recs.length) {
+    return <Empty icon={RadioTower} text="Save live radio stations (and record them) from Music → Live Radio." />
+  }
+  return (
+    <div className="space-y-8">
+      {sts.length > 0 && (
+        <section>
+          <SectionHeader title="Stations" />
+          <div className="mt-3 max-w-3xl divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 bg-card/30">
+            {sts.map(st => <LiveStationRow key={st.id} st={st} />)}
+          </div>
+        </section>
+      )}
+      {recs.length > 0 && (
+        <section>
+          <SectionHeader title="Recordings" />
+          <div className="mt-3 max-w-3xl divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 bg-card/30">
+            {recs.map(r => <RecordingRow key={r.id} rec={r} />)}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
 export function MusicLibraryPage() {
   const [params, setParams] = useSearchParams()
   const offline = useMusicModeOptional() === 'offline'
@@ -312,6 +462,7 @@ export function MusicLibraryPage() {
       {tab === 'playlists' && <PlaylistsTab />}
       {tab === 'created' && <CreatedTab />}
       {tab === 'history' && <HistoryTab />}
+      {tab === 'radio' && <RadioTab />}
       {tab === 'offline' && <OfflineTab />}
     </div>
   )

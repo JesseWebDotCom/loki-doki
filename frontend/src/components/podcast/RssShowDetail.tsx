@@ -1,0 +1,460 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ChevronRight, Play, Pause, Loader2,
+  RotateCw, Rss, ExternalLink, ArrowDownToLine, AlertCircle, Check, ListPlus,
+  Settings2, Trash2,
+} from 'lucide-react'
+import { cn } from '@/lib/cn'
+import { toast } from '@/lib/toast'
+import { ShowCover } from '@/components/podcast/ShowCover'
+import {
+  EPISODE_PAGE_SIZE, ShowHero, EpisodesToolbar, EpisodeListSkeleton, EpisodeEmptyState,
+  ShowMoreButton, EpisodeRowFrame, EpisodeRowTitle, EpisodeRowMeta, EpisodeRowDescription,
+} from '@/components/podcast/ShowDetailParts'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import { Switch } from '@/components/ui/switch'
+import {
+  getEpisodes, toTrack, refreshSubscription, unsubscribePodcast, updateSubscription,
+  downloadEpisode, removeEpisodeDownload,
+  type Episode, type Show,
+} from '@/lib/podcast/api'
+import { fmtDate, fmtDuration } from '@/lib/podcast/format'
+
+const PAGE_SIZE = EPISODE_PAGE_SIZE
+
+/** Detail page for a subscribed RSS podcast — Apple-Podcasts-style hero + episode list. */
+export function RssShowDetail({ show }: { show: Show }) {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const { closeIfShow, track, playing, pause, resume, playQueue } = usePodcastPlayback()
+
+  const [query, setQuery] = useState('')
+  const [sortNewest, setSortNewest] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [confirmUnsubscribe, setConfirmUnsubscribe] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const { data: episodes = [], isLoading } = useQuery({
+    queryKey: ['podcast-episodes', show.id],
+    queryFn: () => getEpisodes(show.id),
+    // Poll while an offline download is in flight.
+    refetchInterval: q => (q.state.data?.some((e: Episode) =>
+      e.download?.status === 'pending' || e.download?.status === 'downloading') ? 4000 : false),
+  })
+
+  const sorted = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const list = q ? episodes.filter(e => e.title.toLowerCase().includes(q)) : episodes
+    const ts = (e: Episode) => new Date(e.publishedAt ?? e.createdAt ?? 0).getTime()
+    return [...list].sort((a, b) => sortNewest ? ts(b) - ts(a) : ts(a) - ts(b))
+  }, [episodes, query, sortNewest])
+
+  // Reset paging when the list changes shape.
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [query, sortNewest, show.id])
+
+  const readyTracks = useMemo(
+    () => sorted.filter(e => e.status === 'ready').map(e => toTrack(e, { id: show.id, name: show.name })),
+    [sorted, show.id, show.name],
+  )
+
+  const latest = useMemo(() => {
+    const ts = (e: Episode) => new Date(e.publishedAt ?? e.createdAt ?? 0).getTime()
+    return [...episodes].filter(e => e.status === 'ready').sort((a, b) => ts(b) - ts(a))[0] ?? null
+  }, [episodes])
+  const latestIsCurrent = latest != null && track?.episodeId === latest.id
+
+  function playEpisode(ep: Episode) {
+    const i = readyTracks.findIndex(t => t.episodeId === ep.id)
+    const startAt = ep.watchState?.positionSec ?? 0
+    if (i >= 0) playQueue(readyTracks, i, startAt)
+  }
+
+  function handlePlayLatest() {
+    if (!latest) return
+    if (latestIsCurrent) { playing ? pause() : resume(); return }
+    playEpisode(latest)
+  }
+
+  async function handleRefreshFeed() {
+    setRefreshing(true)
+    try {
+      const added = await refreshSubscription(show.id)
+      if (added > 0) toast.success(`+${added} new ${added === 1 ? 'episode' : 'episodes'}`)
+      else toast.info('No new episodes.')
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['podcast-episodes', show.id] }),
+        qc.invalidateQueries({ queryKey: ['podcast-feed'] }),
+      ])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not refresh the feed.')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  async function handleUnsubscribe() {
+    try {
+      await unsubscribePodcast(show.id)
+      closeIfShow(show.id)
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['podcast-shows'] }),
+        qc.invalidateQueries({ queryKey: ['podcast-feed'] }),
+        qc.invalidateQueries({ queryKey: ['podcast-subscriptions'] }),
+      ])
+      navigate('/podcasts')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not unsubscribe.')
+    }
+  }
+
+  const visible = sorted.slice(0, visibleCount)
+
+  return (
+    <div className="mx-auto w-full max-w-3xl px-6 py-6 pb-24">
+      {/* Back nav */}
+      <Link to="/podcasts/library" className="mb-5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3.5 rotate-180" /> Library
+      </Link>
+
+      {/* ── Hero ── */}
+      <ShowHero
+        cover={<ShowCover showId={show.id} title={show.name} size={176} rounded="rounded-2xl" />}
+        badges={show.categories}
+        title={show.name}
+        author={show.author}
+        meta={<>
+          <span>{episodes.length} {episodes.length === 1 ? 'episode' : 'episodes'}</span>
+          {show.link && (
+            <span>· <a href={show.link} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-0.5 hover:text-foreground hover:underline">
+              Website <ExternalLink className="size-3" />
+            </a></span>
+          )}
+        </>}
+        description={show.description}
+        warning={show.feedError ? (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-500">
+            <AlertCircle className="size-3.5" /> Feed issue: {show.feedError}
+          </p>
+        ) : null}
+        actions={<>
+          <button onClick={handlePlayLatest} disabled={!latest}
+            className="flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground hover:opacity-90 disabled:opacity-50">
+            {latestIsCurrent && playing
+              ? <><Pause className="size-4 fill-current" /> Pause</>
+              : <><Play className="size-4 fill-current" /> {latestIsCurrent ? 'Resume' : 'Play Latest'}</>}
+          </button>
+
+          <button onClick={() => void handleRefreshFeed()} disabled={refreshing} title="Refresh feed"
+            className="flex size-10 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50">
+            {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
+          </button>
+
+          {show.subscription && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button title="Podcast settings"
+                  className="flex size-10 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-muted hover:text-foreground">
+                  <Settings2 className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <AutoDownloadSettings showId={show.id} subscription={show.subscription} />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => setConfirmUnsubscribe(true)}>
+                  <Rss className="size-4" /> Unsubscribe
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </>}
+      />
+
+      {/* ── Episode list ── */}
+      <EpisodesToolbar
+        count={sorted.length}
+        sortNewest={sortNewest}
+        onToggleSort={() => setSortNewest(v => !v)}
+        query={query}
+        onQueryChange={setQuery}
+      />
+
+      {isLoading ? (
+        <EpisodeListSkeleton />
+      ) : sorted.length === 0 ? (
+        <EpisodeEmptyState
+          primary={query ? 'No episodes match your search.' : 'No episodes yet.'}
+          secondary={query ? undefined : 'Try refreshing the feed.'}
+        />
+      ) : (
+        <>
+          <div className="divide-y divide-border/30">
+            {visible.map(ep => (
+              <RssEpisodeRow
+                key={ep.id}
+                episode={ep}
+                show={show}
+                readyTracks={readyTracks}
+                onPlay={() => playEpisode(ep)}
+                expanded={expandedId === ep.id}
+                onToggle={() => setExpandedId(cur => cur === ep.id ? null : ep.id)}
+                onInvalidate={async () => { await qc.invalidateQueries({ queryKey: ['podcast-episodes', show.id] }) }}
+              />
+            ))}
+          </div>
+          {visibleCount < sorted.length && (
+            <ShowMoreButton remaining={sorted.length - visibleCount} onClick={() => setVisibleCount(v => v + PAGE_SIZE)} />
+          )}
+        </>
+      )}
+
+      <ConfirmDialog
+        open={confirmUnsubscribe}
+        onOpenChange={setConfirmUnsubscribe}
+        title="Unsubscribe"
+        description={`Unsubscribe from "${show.name}"? Your downloaded episodes will be removed.`}
+        confirmLabel="Unsubscribe"
+        destructive
+        onConfirm={() => void handleUnsubscribe()}
+      />
+    </div>
+  )
+}
+
+/** Auto-download prefs, rendered inside the settings dropdown. */
+function AutoDownloadSettings({ showId, subscription }: {
+  showId: string
+  subscription: { autoDownload: boolean; autoDownloadKeep: number | null }
+}) {
+  const qc = useQueryClient()
+  const [auto, setAuto] = useState(subscription.autoDownload)
+  const [keep, setKeep] = useState(subscription.autoDownloadKeep ?? 3)
+  useEffect(() => {
+    setAuto(subscription.autoDownload)
+    setKeep(subscription.autoDownloadKeep ?? 3)
+  }, [subscription.autoDownload, subscription.autoDownloadKeep])
+
+  async function toggleAuto(v: boolean) {
+    setAuto(v)
+    try {
+      await updateSubscription(showId, { autoDownload: v })
+      await qc.invalidateQueries({ queryKey: ['podcast-shows'] })
+      toast.success(v ? 'New episodes will download automatically.' : 'Auto-download turned off.')
+    } catch {
+      setAuto(!v)
+      toast.error('Could not update auto-download.')
+    }
+  }
+
+  async function commitKeep(raw: number) {
+    const n = Math.max(1, Math.min(20, Math.round(raw) || 3))
+    setKeep(n)
+    try {
+      await updateSubscription(showId, { autoDownloadKeep: n })
+      await qc.invalidateQueries({ queryKey: ['podcast-shows'] })
+    } catch {
+      toast.error('Could not update the keep count.')
+    }
+  }
+
+  return (
+    <div className="space-y-2.5 px-2 py-2">
+      <label className="flex cursor-pointer items-center justify-between gap-3 text-xs font-medium">
+        <span className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5" /> Auto-download new episodes</span>
+        <Switch checked={auto} onCheckedChange={v => void toggleAuto(v)} className="scale-75" />
+      </label>
+      {auto && (
+        <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          Keep latest
+          <input
+            type="number" min={1} max={20} value={keep}
+            onChange={e => setKeep(Number(e.target.value))}
+            onBlur={e => void commitKeep(Number(e.target.value))}
+            className="w-14 rounded-md border border-border bg-background px-1.5 py-0.5 text-right text-xs outline-none focus:ring-1 focus:ring-brand"
+          />
+        </label>
+      )}
+    </div>
+  )
+}
+
+/** One episode row — click to expand the full description inline. */
+function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle, onInvalidate }: {
+  episode: Episode
+  show: Pick<Show, 'id' | 'name'>
+  readyTracks: ReturnType<typeof toTrack>[]
+  onPlay: () => void
+  expanded: boolean
+  onToggle: () => void
+  onInvalidate: () => Promise<void>
+}) {
+  const { track, playing, play, enqueue, pause, resume } = usePodcastPlayback()
+  const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
+  const isCurrent = track?.episodeId === episode.id
+  const ready = episode.status === 'ready'
+  const dl = episode.download ?? null
+  const progress = episode.watchState
+  const pct = progress && episode.durationSec ? Math.min(100, (progress.positionSec / episode.durationSec) * 100) : 0
+
+  function handlePlay(e?: React.MouseEvent) {
+    e?.stopPropagation()
+    if (!ready) return
+    if (isCurrent) { playing ? pause() : resume(); return }
+    if (readyTracks.some(t => t.episodeId === episode.id)) onPlay()
+    else play(toTrack(episode, show), progress?.positionSec ?? 0)
+  }
+
+  async function handleDownload(e?: React.MouseEvent) {
+    e?.stopPropagation()
+    try {
+      await downloadEpisode(episode.id)
+      await onInvalidate()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not download the episode.')
+    }
+  }
+  async function handleRemoveDownload() {
+    try {
+      await removeEpisodeDownload(episode.id)
+      await onInvalidate()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not remove the download.')
+    }
+  }
+
+  return (
+    <>
+      <EpisodeRowFrame
+        onToggle={onToggle}
+        expanded={expanded}
+        highlight={cn(isCurrent && 'bg-accent/30', expanded && !isCurrent && 'bg-accent/10')}
+        leading={
+          <button onClick={handlePlay} disabled={!ready}
+            title={isCurrent && playing ? 'Pause' : 'Play'}
+            className={cn('mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
+              isCurrent
+                ? 'bg-brand text-brand-foreground'
+                : 'bg-muted text-foreground group-hover:bg-brand group-hover:text-brand-foreground')}>
+            {isCurrent && playing
+              ? <Pause className="size-4 fill-current" />
+              : <Play className="ml-0.5 size-4 fill-current" />}
+          </button>
+        }
+        rightExtras={<>
+          {!dl && (
+            <button onClick={e => void handleDownload(e)} title="Download for offline"
+              className="flex size-8 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground">
+              <ArrowDownToLine className="size-4" />
+            </button>
+          )}
+          {(dl?.status === 'pending' || dl?.status === 'downloading') && (
+            <span title="Downloading…" className="flex size-8 items-center justify-center text-brand">
+              <Loader2 className="size-4 animate-spin" />
+            </span>
+          )}
+          {dl?.status === 'ready' && (
+            <button onClick={() => setConfirmRemoveDl(true)} title="Downloaded — remove offline copy"
+              className="flex size-8 items-center justify-center rounded-full text-brand hover:bg-muted">
+              <Check className="size-4" />
+            </button>
+          )}
+          {dl?.status === 'failed' && (
+            <button onClick={e => void handleDownload(e)} title="Download failed — retry"
+              className="flex size-8 items-center justify-center rounded-full text-destructive hover:bg-muted">
+              <RotateCw className="size-4" />
+            </button>
+          )}
+        </>}
+      >
+        <EpisodeRowTitle title={episode.title} expanded={expanded} current={isCurrent} />
+        <EpisodeRowMeta>
+          {episode.publishedAt && <span>{fmtDate(episode.publishedAt)}</span>}
+          {episode.durationSec ? <span>· {fmtDuration(episode.durationSec)}</span> : null}
+          {dl?.status === 'ready' && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+              <Check className="size-3" /> Downloaded
+            </span>
+          )}
+          {(dl?.status === 'pending' || dl?.status === 'downloading') && (
+            <span className="inline-flex items-center gap-0.5 text-brand">
+              <Loader2 className="size-3 animate-spin" /> Downloading
+            </span>
+          )}
+          {dl?.status === 'failed' && (
+            <span className="inline-flex items-center gap-0.5 text-destructive">
+              <AlertCircle className="size-3" /> Download failed
+            </span>
+          )}
+          {progress?.completed && (
+            <span className="inline-flex items-center gap-0.5 text-emerald-500"><Check className="size-3" /> Played</span>
+          )}
+        </EpisodeRowMeta>
+        {episode.description && <EpisodeRowDescription text={episode.description} expanded={expanded} />}
+        {pct > 0 && !progress?.completed && (
+          <div className="mt-2 h-1 w-full max-w-48 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
+          </div>
+        )}
+
+        {/* Expanded actions */}
+        {expanded && (
+          <div className="mt-3 flex flex-wrap items-center gap-2" onClick={e => e.stopPropagation()}>
+            {ready && (
+              <button onClick={handlePlay}
+                className="flex items-center gap-1.5 rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90">
+                {isCurrent && playing ? <><Pause className="size-3.5 fill-current" /> Pause</> : <><Play className="size-3.5 fill-current" /> Play</>}
+              </button>
+            )}
+            {ready && (
+              <button onClick={() => enqueue(toTrack(episode, show))}
+                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                <ListPlus className="size-3.5" /> Up Next
+              </button>
+            )}
+            {!dl && (
+              <button onClick={e => void handleDownload(e)}
+                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                <ArrowDownToLine className="size-3.5" /> Download
+              </button>
+            )}
+            {dl?.status === 'failed' && (
+              <button onClick={e => void handleDownload(e)}
+                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-destructive hover:bg-muted">
+                <RotateCw className="size-3.5" /> Retry download
+              </button>
+            )}
+            {dl?.status === 'ready' && (
+              <button onClick={() => setConfirmRemoveDl(true)}
+                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                <Trash2 className="size-3.5" /> Remove download
+              </button>
+            )}
+            {episode.link && (
+              <a href={episode.link} target="_blank" rel="noreferrer"
+                className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:underline">
+                Episode page <ExternalLink className="size-3" />
+              </a>
+            )}
+          </div>
+        )}
+      </EpisodeRowFrame>
+
+      <ConfirmDialog
+        open={confirmRemoveDl}
+        onOpenChange={setConfirmRemoveDl}
+        title="Remove download"
+        description={`Remove the offline copy of "${episode.title}"? You can still stream it.`}
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => void handleRemoveDownload()}
+      />
+    </>
+  )
+}

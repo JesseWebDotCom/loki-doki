@@ -1,7 +1,7 @@
 // Admin tab for podcast management: shared shows overview, script model, and default host config.
 
 import { useEffect, useState } from 'react'
-import { Mic, Users, Radio, Sparkles } from 'lucide-react'
+import { Mic, Users, Radio, Sparkles, KeyRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/lib/toast'
 
@@ -13,11 +13,14 @@ interface SharedShow {
   visibility: 'personal' | 'shared'
 }
 
+interface PodcastIndexState { configured: boolean; keyHint: string | null }
+
 export function AdminPodcastsTab() {
   const [shows, setShows] = useState<SharedShow[]>([])
   const [loading, setLoading] = useState(true)
   const [scriptModel, setScriptModel] = useState('')
   const [installedModels, setInstalledModels] = useState<string[]>([])
+  const [podcastIndex, setPodcastIndex] = useState<PodcastIndexState | null>(null)
 
   async function load() {
     const r = await fetch('/api/podcasts/shows', { credentials: 'include' })
@@ -26,9 +29,10 @@ export function AdminPodcastsTab() {
     try {
       const s = await fetch('/api/podcasts/admin/settings', { credentials: 'include' })
       if (s.ok) {
-        const sd = await s.json() as { scriptModel: string; installedModels: string[] }
+        const sd = await s.json() as { scriptModel: string; installedModels: string[]; podcastIndex?: PodcastIndexState }
         setScriptModel(sd.scriptModel ?? '')
         setInstalledModels(sd.installedModels ?? [])
+        setPodcastIndex(sd.podcastIndex ?? null)
       }
     } catch { /* settings section degrades to hidden */ }
   }
@@ -102,6 +106,9 @@ export function AdminPodcastsTab() {
         </select>
       </div>
 
+      {/* Podcast Index keys */}
+      <PodcastIndexCard state={podcastIndex} onSaved={pi => setPodcastIndex(pi)} />
+
       {/* Shared shows list */}
       <div>
         <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Family Shared Shows</h4>
@@ -134,6 +141,89 @@ export function AdminPodcastsTab() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Optional PodcastIndex API credentials — richer directory trending/search when set. */
+function PodcastIndexCard({ state, onSaved }: {
+  state: PodcastIndexState | null
+  onSaved: (state: PodcastIndexState | null) => void
+}) {
+  const [key, setKey] = useState('')
+  const [secret, setSecret] = useState('')
+  const [keyDirty, setKeyDirty] = useState(false)
+  const [secretDirty, setSecretDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (!keyDirty && !secretDirty) return
+    setSaving(true)
+    try {
+      const r = await fetch('/api/podcasts/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          // Only send fields the admin edited — undefined leaves the stored value alone,
+          // an empty string clears it.
+          ...(keyDirty && { podcastIndexKey: key.trim() }),
+          ...(secretDirty && { podcastIndexSecret: secret.trim() }),
+        }),
+      })
+      if (!r.ok) throw new Error()
+      toast.success('Podcast Index settings saved')
+      setKey(''); setSecret(''); setKeyDirty(false); setSecretDirty(false)
+      // Re-read so the configured badge + key hint reflect the new state.
+      const s = await fetch('/api/podcasts/admin/settings', { credentials: 'include' })
+      if (s.ok) {
+        const sd = await s.json() as { podcastIndex?: PodcastIndexState }
+        onSaved(sd.podcastIndex ?? null)
+      }
+    } catch {
+      toast.error('Could not save Podcast Index settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-card p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <KeyRound className="size-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Podcast Index (optional)</span>
+        {state?.configured && (
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+            Configured{state.keyHint ? ` · ${state.keyHint}` : ''}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Free API keys from podcastindex.org unlock richer trending charts and search in the podcast
+        directory. Without keys, browsing falls back to Apple's keyless directory — which still works fine.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <input
+          className="ld-input w-full"
+          placeholder={state?.configured ? 'API key (unchanged)' : 'API key'}
+          value={key}
+          onChange={e => { setKey(e.target.value); setKeyDirty(true) }}
+        />
+        <input
+          type="password"
+          className="ld-input w-full"
+          placeholder={state?.configured ? 'API secret (unchanged)' : 'API secret'}
+          value={secret}
+          onChange={e => { setSecret(e.target.value); setSecretDirty(true) }}
+        />
+      </div>
+      <button
+        onClick={() => void save()}
+        disabled={saving || (!keyDirty && !secretDirty)}
+        className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90 disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : 'Save'}
+      </button>
     </div>
   )
 }

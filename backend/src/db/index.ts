@@ -528,6 +528,25 @@ export function runMigrations() {
       ON ha_user_grants(user_id, domain, area_id);
   `)
 
+  // One-time: security entities (locks + entry covers) moved to an explicit-only
+  // 'security' pseudo-domain grant — wildcards no longer cover them. Copy existing
+  // lock grants to security grants so nobody silently loses door access. Flag-guarded
+  // so an admin who later revokes a security grant doesn't have it resurrected.
+  try {
+    const done = sqlite.query(`SELECT 1 FROM app_settings WHERE key='migr.ha_security_grants'`).get()
+    if (!done) {
+      sqlite.exec(`
+        INSERT OR IGNORE INTO ha_user_grants (id, user_id, domain, area_id, created_at)
+          SELECT lower(hex(randomblob(16))), user_id, 'security', area_id, created_at
+          FROM ha_user_grants WHERE domain = 'lock';
+      `)
+      sqlite.exec(`INSERT OR IGNORE INTO app_settings (id, key, value, updated_at) VALUES (lower(hex(randomblob(16))), 'migr.ha_security_grants', '"done"', ${Date.now()});`)
+      console.warn('[migrations] copied HA lock grants → security grants')
+    }
+  } catch (err) {
+    console.warn('[migrations] ha security grant migration failed:', err instanceof Error ? err.message : err)
+  }
+
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
   addColumn('music_stations', 'category', 'TEXT')
   addColumn('music_stations', 'loading_messages', 'TEXT')
@@ -838,6 +857,45 @@ export function runMigrations() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_music_dj_cache_station ON music_dj_cache(user_id, station_id);
+
+    -- Live internet radio: saved real-world stations (the user's radio library) and
+    -- timed recordings captured from live streams via the download-jobs queue.
+    CREATE TABLE IF NOT EXISTS music_radio_stations (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      station_uuid TEXT,
+      name TEXT NOT NULL,
+      stream_url TEXT NOT NULL,
+      homepage TEXT,
+      favicon TEXT,
+      tags TEXT,
+      country TEXT,
+      language TEXT,
+      codec TEXT,
+      bitrate INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_music_radio_stations_user_url ON music_radio_stations(user_id, stream_url);
+
+    CREATE TABLE IF NOT EXISTS music_radio_recordings (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      station_id TEXT,
+      station_name TEXT NOT NULL,
+      stream_url TEXT NOT NULL,
+      codec TEXT,
+      title TEXT NOT NULL,
+      requested_sec INTEGER NOT NULL,
+      duration_sec REAL,
+      rel_path TEXT,
+      size_bytes INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS music_radio_recordings_user_idx ON music_radio_recordings(user_id);
   `)
 
   // Offline music: media type a station was downloaded as (audio | video | both).
@@ -1191,6 +1249,58 @@ export function runMigrations() {
   // segments_json was added to podcast_suggestions after its initial inline CREATE; back-fill
   // for DBs created before this column existed (the suggestions route reads/writes it).
   addColumn('podcast_suggestions', 'segments_json', `TEXT NOT NULL DEFAULT '[]'`)
+
+  // Real podcast subscriptions (source='rss'): feed identity + conditional-GET state on the
+  // show, RSS enclosure/publish metadata on episodes.
+  addColumn('podcast_shows', 'feed_url', 'TEXT')
+  addColumn('podcast_shows', 'artwork_url', 'TEXT')
+  addColumn('podcast_shows', 'author', 'TEXT')
+  addColumn('podcast_shows', 'link', 'TEXT')
+  addColumn('podcast_shows', 'categories_json', 'TEXT')
+  addColumn('podcast_shows', 'feed_etag', 'TEXT')
+  addColumn('podcast_shows', 'feed_last_modified', 'TEXT')
+  addColumn('podcast_shows', 'feed_fetched_at', 'INTEGER')
+  addColumn('podcast_shows', 'feed_error', 'TEXT')
+  addColumn('podcast_episodes', 'guid', 'TEXT')
+  addColumn('podcast_episodes', 'enclosure_url', 'TEXT')
+  addColumn('podcast_episodes', 'enclosure_type', 'TEXT')
+  addColumn('podcast_episodes', 'enclosure_bytes', 'INTEGER')
+  addColumn('podcast_episodes', 'image_url', 'TEXT')
+  addColumn('podcast_episodes', 'link', 'TEXT')
+  addColumn('podcast_episodes', 'published_at', 'INTEGER')
+  addColumn('podcast_episodes', 'asset_id', 'TEXT')
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS podcast_shows_feed_idx ON podcast_shows(feed_url);
+    CREATE INDEX IF NOT EXISTS podcast_episodes_guid_idx ON podcast_episodes(show_id, guid);
+
+    -- Per-user membership in an RSS show; the show row itself is shared household-wide.
+    CREATE TABLE IF NOT EXISTS podcast_subscriptions (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      show_id TEXT NOT NULL REFERENCES podcast_shows(id) ON DELETE CASCADE,
+      auto_download INTEGER NOT NULL DEFAULT 0,
+      auto_download_keep INTEGER,
+      notify INTEGER NOT NULL DEFAULT 0,
+      added_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS podcast_subscriptions_user_show ON podcast_subscriptions(user_id, show_id);
+    CREATE INDEX IF NOT EXISTS podcast_subscriptions_show_idx ON podcast_subscriptions(show_id);
+
+    -- Per-user offline refs over the shared blob store (ytDownloads pattern); gcSweep pins on these.
+    CREATE TABLE IF NOT EXISTS podcast_downloads (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      asset_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      auto INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS podcast_downloads_user_ep ON podcast_downloads(user_id, episode_id);
+    CREATE INDEX IF NOT EXISTS podcast_downloads_asset_idx ON podcast_downloads(asset_id);
+  `)
 
   // Episode source links — which YouTube videos fed each episode (reverse "featured in podcasts").
   sqlite.exec(`

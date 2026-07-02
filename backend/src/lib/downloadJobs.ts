@@ -31,8 +31,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'bookmark-archive' | 'bookmark-thumb'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio'
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -378,6 +378,14 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
           const { failAssetByJobRefId } = await import('@/lib/youtube/assets')
           await failAssetByJobRefId(job.refId, String(err)).catch(() => {})
         }
+        if (job.type === 'podcast-download') {
+          const { failPodcastDownloadByJobRefId } = await import('@/lib/podcast/offline')
+          await failPodcastDownloadByJobRefId(job.refId, String(err)).catch(() => {})
+        }
+        if (job.type === 'radio-record') {
+          const { failRecordingUnlessReady } = await import('@/lib/music/radioRecord')
+          await failRecordingUnlessReady(job.refId, String(err)).catch(() => {})
+        }
       }
     }
   } finally {
@@ -504,7 +512,32 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runBookmarkThumbnailJob(job.refId, onProgress, signal)  // refId = bookmarks.id
       return
     }
+    case 'podcast-download': {
+      const { runPodcastDownloadJob } = await import('@/lib/podcast/offline')
+      const payload = JSON.parse(job.refId)
+      await runPodcastDownloadJob(payload, onProgress, signal)
+      return
+    }
+    case 'radio-record': {
+      const { runRadioRecordJob } = await import('@/lib/music/radioRecord')
+      await runRadioRecordJob(job.refId, onProgress, signal)  // refId = music_radio_recordings.id
+      return
+    }
   }
+}
+
+/** Enqueue a timed live-radio capture. One job per recording row (the row id is the refId);
+ *  maxAttempts 1 — live audio can't be re-fetched, so job-level retries would record a
+ *  different time window than the user asked for. Start-failures retry inside the runner. */
+export async function enqueueRadioRecording(recordingId: string, label: string): Promise<void> {
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'radio-record', refId: recordingId, variantKey: null,
+    domain: 'radio', sizeClass: 'small', label: label.slice(0, 120), priority: 45,
+    status: 'pending', attempts: 0, maxAttempts: 1, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
 }
 
 /** Enqueue an offline article archive for a bookmarks row. Idempotent per item id;
@@ -762,6 +795,16 @@ export async function cancelJob(id: string): Promise<void> {
   if (job?.type === 'yt-media') {
     const { failAssetByJobRefId } = await import('@/lib/youtube/assets')
     await failAssetByJobRefId(job.refId, 'cancelled').catch(() => {})
+  }
+  if (job?.type === 'podcast-download') {
+    const { failPodcastDownloadByJobRefId } = await import('@/lib/podcast/offline')
+    await failPodcastDownloadByJobRefId(job.refId, 'cancelled').catch(() => {})
+  }
+  // A cancelled recording keeps whatever it captured if ≥30s landed (finalized by the
+  // runner's abort path); this only cleans up rows that never reached 'ready'.
+  if (job?.type === 'radio-record') {
+    const { failRecordingUnlessReady } = await import('@/lib/music/radioRecord')
+    await failRecordingUnlessReady(job.refId, 'cancelled').catch(() => {})
   }
 }
 

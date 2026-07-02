@@ -4,8 +4,10 @@ import { Play, Pause, Maximize2, X, Loader2, SkipBack, SkipForward } from 'lucid
 import { cn } from '@/lib/cn'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { useRadio } from '@/context/RadioContext'
+import { useLiveRadio } from '@/context/LiveRadioContext'
 import { registerTransport, acquireAudio } from '@/lib/mediaCoordinator'
 import { RadioMiniBar } from '@/components/music/RadioMiniBar'
+import { LiveRadioMiniBar } from '@/components/music/LiveRadioMiniBar'
 import { fileUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { proxyImg } from '@/lib/img'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
@@ -24,6 +26,7 @@ import { SeekBar } from '@/components/shared/SeekBar'
 export function YoutubeMiniBar() {
   const pb = useYoutubePlayback()
   const radio = useRadio()
+  const liveRadio = useLiveRadio()
   const pbRef = useRef(pb); pbRef.current = pb
   const navigate = useNavigate()
   const location = useLocation()
@@ -144,6 +147,12 @@ export function YoutubeMiniBar() {
   const showRadio = radio.active && !track && !onRadioTab
     && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
   if (showRadio) return <RadioMiniBar />
+
+  // Live internet radio — same slot, when nothing else claims it (the mediaCoordinator's
+  // acquireAudio already guarantees only one engine plays at a time).
+  const showLiveRadio = liveRadio.active && !track && !radio.active
+    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
+  if (showLiveRadio) return <LiveRadioMiniBar />
 
   if (hidden) return null
 

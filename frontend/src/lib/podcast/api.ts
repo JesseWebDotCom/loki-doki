@@ -17,13 +17,22 @@ export interface Show {
   hosts: ShowHost[]
   segments: ShowSegment[]
   visibility: 'personal' | 'shared'
-  source: 'user' | 'suggested' | 'app'
+  source: 'user' | 'suggested' | 'app' | 'rss'
   sourceRef?: string | null
   autoGenerate?: boolean
   targetMinutes?: number | null
   ownerName: string
   isOwn: boolean
   createdAt: string | number
+  // RSS subscription shows only:
+  feedUrl?: string | null
+  artworkUrl?: string | null
+  author?: string | null
+  link?: string | null
+  categories?: string[]
+  feedError?: string | null
+  /** This user's subscription prefs — null unless they subscribe to this show. */
+  subscription?: { autoDownload: boolean; autoDownloadKeep: number | null } | null
 }
 
 export interface Episode {
@@ -39,6 +48,14 @@ export interface Episode {
   generatedAt?: string | number | null
   createdAt?: string | number | null
   watchState?: { positionSec: number; completed: boolean } | null
+  // RSS episodes only:
+  guid?: string | null
+  enclosureUrl?: string | null
+  publishedAt?: string | number | null
+  imageUrl?: string | null
+  link?: string | null
+  /** This user's offline copy state — null when not downloaded. */
+  download?: { status: 'pending' | 'downloading' | 'ready' | 'failed'; auto: boolean } | null
 }
 
 export interface EpisodeSource {
@@ -62,6 +79,36 @@ export interface Suggestion {
 }
 
 export interface HostCharacter { id: string; name: string; avatarRef?: string | null }
+
+/** A real podcast from the directory (iTunes / PodcastIndex). */
+export interface DirectoryResult {
+  itunesId: number | null
+  title: string
+  author: string | null
+  feedUrl: string | null // null for chart rows — subscribe by itunesId instead
+  artworkUrl: string | null
+  genre: string | null
+  episodeCount: number | null
+}
+
+export interface DirectoryGenre { id: number; name: string }
+
+export interface DirectoryCharts {
+  results: DirectoryResult[]
+  provider: 'itunes' | 'podcastindex'
+  genres: DirectoryGenre[]
+}
+
+export interface Subscription {
+  showId: string
+  autoDownload: boolean
+  autoDownloadKeep: number | null
+  addedAt: string | number
+  name: string
+  feedUrl: string | null
+  artworkUrl: string | null
+  author: string | null
+}
 
 // ── Endpoints ──────────────────────────────────────────────────────────────────
 
@@ -196,7 +243,127 @@ export async function getHostCharacters(): Promise<HostCharacter[]> {
   return Array.isArray(data) ? data : (data.companions ?? [])
 }
 
+// ── Real podcast subscriptions (RSS) ───────────────────────────────────────────
+
+/** Parse the body and throw the server's error message when the request failed. */
+async function jsonOrError<T>(r: Response, fallback: string): Promise<T> {
+  const d = await r.json().catch(() => null) as (T & { error?: string }) | null
+  if (!r.ok) throw new Error(d?.error || fallback)
+  return d as T
+}
+
+export interface DirectoryPreview {
+  feedUrl: string
+  title: string | null
+  author: string | null
+  description: string | null
+  imageUrl: string | null
+  link: string | null
+  categories: string[]
+  episodeCount: number
+  episodes: Array<{ title: string; description: string | null; durationSec: number | null; publishedAt: number | null }>
+}
+
+/** Pre-subscribe show details (description, categories, recent episodes) straight from
+ *  the feed — what a directory card opens into before any commitment. */
+export async function previewDirectory(input: { feedUrl?: string | null; itunesId?: number | null }): Promise<DirectoryPreview> {
+  const params = new URLSearchParams()
+  if (input.feedUrl) params.set('feedUrl', input.feedUrl)
+  else if (input.itunesId) params.set('itunesId', String(input.itunesId))
+  const r = await fetch(`/api/podcasts/directory/preview?${params}`, opts)
+  const d = await jsonOrError<{ preview?: DirectoryPreview }>(r, 'Could not load show details.')
+  if (!d.preview) throw new Error('Could not load show details.')
+  return d.preview
+}
+
+export async function searchDirectory(q: string, limit = 25): Promise<DirectoryResult[]> {
+  const r = await fetch(`/api/podcasts/directory/search?q=${encodeURIComponent(q)}&limit=${limit}`, opts)
+  if (!r.ok) throw new Error('directory-search')
+  return (await r.json() as { results: DirectoryResult[] }).results ?? []
+}
+
+/** Top charts, optionally per Apple genre id. Also carries the genre list for chips. */
+export async function getCharts(genreId?: number | null): Promise<DirectoryCharts> {
+  const r = await fetch(`/api/podcasts/directory/charts${genreId ? `?genre=${genreId}` : ''}`, opts)
+  if (!r.ok) throw new Error('directory-charts')
+  const d = await r.json() as Partial<DirectoryCharts>
+  return { results: d.results ?? [], provider: d.provider ?? 'itunes', genres: d.genres ?? [] }
+}
+
+export interface SubscribeInput {
+  feedUrl?: string
+  itunesId?: number
+  seed?: { title?: string; artworkUrl?: string; author?: string; genre?: string }
+}
+
+export async function subscribePodcast(input: SubscribeInput): Promise<Show> {
+  const r = await fetch('/api/podcasts/subscriptions', { ...opts, method: 'POST', headers: J, body: JSON.stringify(input) })
+  const d = await jsonOrError<{ show?: Show }>(r, 'Could not subscribe to this podcast.')
+  if (!d.show) throw new Error('Could not subscribe to this podcast.')
+  return d.show
+}
+
+export async function getSubscriptions(): Promise<Subscription[]> {
+  const r = await fetch('/api/podcasts/subscriptions', opts)
+  if (!r.ok) throw new Error('subscriptions')
+  return (await r.json() as { subscriptions: Subscription[] }).subscriptions ?? []
+}
+
+export async function updateSubscription(showId: string, prefs: { autoDownload?: boolean; autoDownloadKeep?: number | null }): Promise<void> {
+  const r = await fetch(`/api/podcasts/subscriptions/${showId}`, { ...opts, method: 'PUT', headers: J, body: JSON.stringify(prefs) })
+  await jsonOrError(r, 'Could not update subscription.')
+}
+
+export async function unsubscribePodcast(showId: string): Promise<void> {
+  const r = await fetch(`/api/podcasts/subscriptions/${showId}`, { ...opts, method: 'DELETE' })
+  await jsonOrError(r, 'Could not unsubscribe.')
+}
+
+/** Re-poll the feed now. Resolves to the number of newly discovered episodes. */
+export async function refreshSubscription(showId: string): Promise<number> {
+  const r = await fetch(`/api/podcasts/subscriptions/${showId}/refresh`, { ...opts, method: 'POST' })
+  const d = await jsonOrError<{ added?: number }>(r, 'Could not refresh the feed.')
+  return d.added ?? 0
+}
+
+export async function downloadEpisode(episodeId: string): Promise<void> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/download`, { ...opts, method: 'POST' })
+  await jsonOrError(r, 'Could not download the episode.')
+}
+
+export async function removeEpisodeDownload(episodeId: string): Promise<void> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/download`, { ...opts, method: 'DELETE' })
+  await jsonOrError(r, 'Could not remove the download.')
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/** Loose feed-URL identity: the backend normalizes URLs on subscribe, so compare
+ *  without protocol/trailing-slash noise. */
+export function feedKey(url: string | null | undefined): string {
+  if (!url) return ''
+  return url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '')
+}
+
+/** Find this user's subscription for a directory row. The feed URL is the identity;
+ *  only chart rows (which omit it) fall back to a title+author match — and that
+ *  fallback requires BOTH title and author to line up. A looser match here doesn't
+ *  just mislabel a card "Subscribed": the preview page redirects on it, silently
+ *  landing the user on a different show than the one they clicked. */
+export function matchSubscription(
+  result: Pick<DirectoryResult, 'feedUrl' | 'title' | 'author'>,
+  subs: Subscription[],
+): Subscription | null {
+  const key = feedKey(result.feedUrl)
+  if (key) return subs.find(s => feedKey(s.feedUrl) === key) ?? null
+  const title = result.title.trim().toLowerCase()
+  const author = result.author?.trim().toLowerCase()
+  if (!title || !author) return null
+  return subs.find(s =>
+    s.name.trim().toLowerCase() === title &&
+    s.author?.trim().toLowerCase() === author,
+  ) ?? null
+}
 
 /** Build a playback track from an episode + its show. */
 export function toTrack(ep: Episode, show: Pick<Show, 'id' | 'name'>, extra?: Partial<PodcastTrack>): PodcastTrack {

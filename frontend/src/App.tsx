@@ -14,6 +14,7 @@ import { SetupProgressProvider } from '@/context/SetupProgressContext'
 import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
 import { YoutubePlaybackProvider } from '@/context/YoutubePlaybackContext'
 import { RadioProvider } from '@/context/RadioContext'
+import { LiveRadioProvider } from '@/context/LiveRadioContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
@@ -72,6 +73,7 @@ import { ConverterPage } from '@/pages/ConverterPage'
 import { PodcastLayout } from '@/components/podcast/PodcastLayout'
 import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
 import { PodcastBrowsePage } from '@/pages/podcast/PodcastBrowsePage'
+import { PodcastPreviewPage } from '@/pages/podcast/PodcastPreviewPage'
 import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
 import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
 import { PodcastAdminPage } from '@/pages/podcast/PodcastAdminPage'
@@ -111,6 +113,7 @@ const MusicStationsPage = lazy(() => import('@/pages/music/MusicStationsPage').t
 const MusicStationPage = lazy(() => import('@/pages/music/MusicStationPage').then((m) => ({ default: m.MusicStationPage })))
 const MusicWatchStationPage = lazy(() => import('@/pages/music/MusicWatchStationPage').then((m) => ({ default: m.MusicWatchStationPage })))
 const MusicBrowsePage = lazy(() => import('@/pages/music/MusicBrowsePage').then((m) => ({ default: m.MusicBrowsePage })))
+const MusicLiveRadioPage = lazy(() => import('@/pages/music/MusicLiveRadioPage').then((m) => ({ default: m.MusicLiveRadioPage })))
 const NowPlayingPage = lazy(() => import('@/pages/music/NowPlayingPage').then((m) => ({ default: m.NowPlayingPage })))
 const MusicArtistPage = lazy(() => import('@/pages/music/MusicArtistPage').then((m) => ({ default: m.MusicArtistPage })))
 const MusicAlbumPage = lazy(() => import('@/pages/music/MusicAlbumPage').then((m) => ({ default: m.MusicAlbumPage })))
@@ -263,6 +266,7 @@ export default function App() {
           <PodcastPlaybackProvider>
           <YoutubePlaybackProvider>
           <RadioProvider>
+          <LiveRadioProvider>
           <TimeAlarmProvider>
           <FrigateAnnounceProvider>
           <ChatProvider>
@@ -296,6 +300,7 @@ export default function App() {
                   <Route path="station/:id" element={<MusicStationPage />} />
                   <Route path="watch/:id" element={<MusicWatchStationPage />} />
                   <Route path="browse" element={<MusicBrowsePage />} />
+                  <Route path="live" element={<MusicLiveRadioPage />} />
                   <Route path="now-playing" element={<NowPlayingPage />} />
                   <Route path="artist/:mbid" element={<MusicArtistPage />} />
                   <Route path="album/:mbid" element={<MusicAlbumPage />} />
@@ -346,6 +351,7 @@ export default function App() {
                 <Route path="/podcasts" element={<PodcastLayout />}>
                   <Route index element={<ListenNowPage />} />
                   <Route path="browse" element={<PodcastBrowsePage />} />
+                  <Route path="preview" element={<PodcastPreviewPage />} />
                   <Route path="library" element={<PodcastLibraryPage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
                   <Route path="admin" element={<PodcastAdminPage />} />
@@ -420,6 +426,7 @@ export default function App() {
           <AlarmRingDialog />
           <GlobalSetupWidget />
           </TimeAlarmProvider>
+          </LiveRadioProvider>
           </RadioProvider>
           </YoutubePlaybackProvider>
           </PodcastPlaybackProvider>

@@ -1,5 +1,5 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
-import { Home, Radio, Search, Disc3, Sparkles, Shuffle, Heart, ListMusic, History, Download, type LucideIcon } from 'lucide-react'
+import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, Heart, ListMusic, History, Download, type LucideIcon } from 'lucide-react'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { cn } from '@/lib/cn'
@@ -44,6 +44,9 @@ export function MusicRail() {
       <RailLink to="/music" icon={Home} label="Home" end />
       <RailLink to="/music/stations" icon={Radio} label="Stations" />
       <RailLink to="/music/browse" icon={Search} label="Browse" />
+      {/* Live radio streams need the internet — hide it offline (recordings stay reachable
+          via the library's Radio tab below). */}
+      {!offline && <RailLink to="/music/live" icon={RadioTower} label="Live Radio" />}
       {radio.active && <RailLink to="/music/now-playing" icon={Disc3} label="Now Playing" />}
 
       {/* Create needs the internet (LLM + generators) — hide it offline. */}
@@ -57,6 +60,7 @@ export function MusicRail() {
       <LibTab tab="favorites" icon={Heart} label="Favorites" />
       <LibTab tab="playlists" icon={ListMusic} label="Playlists" />
       <LibTab tab="history" icon={History} label="History" />
+      <LibTab tab="radio" icon={RadioTower} label="Radio" />
       <LibTab tab="offline" icon={Download} label="Offline" />
     </nav>
   )

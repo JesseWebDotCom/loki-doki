@@ -1,0 +1,106 @@
+import { Pause, Play, X, Loader2, RadioTower, Volume2, VolumeX } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useLiveRadio } from '@/context/LiveRadioContext'
+import { proxyImg } from '@/lib/img'
+import { cn } from '@/lib/cn'
+import { fmtClock } from '@/lib/youtube/format'
+import { EqVisualizer } from '@/components/shared/EqVisualizer'
+import { SeekBar } from '@/components/shared/SeekBar'
+
+const ACCENT = '#f59e0b'       // amber — matches the live-radio page accents
+const ACCENT_DARK = '#b45309'
+
+/**
+ * Compact live-internet-radio control shown in the app-wide mini-player slot while a station
+ * stream (or a saved recording) plays. The audio itself lives in the global LiveRadioEngine;
+ * this is purely a view/controller. Sibling of RadioMiniBar (AI Radio).
+ */
+export function LiveRadioMiniBar() {
+  const live = useLiveRadio()
+  const navigate = useNavigate()
+  const { mode, station, recording, paused, loading, error, positionSec, durationSec, muted } = live
+  const isLive = mode === 'live'
+  const canSeek = !isLive && durationSec > 0
+
+  const title = isLive ? (station?.name ?? 'Live Radio') : (recording?.title ?? 'Recording')
+  const subtitle = error ?? (isLive ? 'Live Radio' : (recording?.stationName ?? 'Recording'))
+  const goTo = () => navigate(isLive ? '/music/live' : '/music/library?tab=radio')
+
+  return (
+    <div className="relative z-40 shrink-0">
+      <div className="relative overflow-hidden border-t border-border/60 bg-background/95 backdrop-blur-md shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+        {/* Live EQ — sits subtly behind the controls, same tap as the AI-Radio bar. */}
+        <div className="absolute inset-0 z-0">
+          <EqVisualizer
+            active={!paused && !loading && !error}
+            getAnalyser={live.getAnalyser}
+            color={ACCENT}
+            colorDark={ACCENT_DARK}
+            opacity={0.2}
+            fade
+          />
+        </div>
+        <div className="relative z-10 flex items-center gap-3 px-4 py-2">
+          {/* Station art — favicon with a radio-tower fallback */}
+          <button onClick={goTo}
+            className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-gradient-to-br from-amber-500/30 to-amber-700/20"
+            aria-label={isLive ? 'Open Live Radio' : 'Open recordings'}>
+            <RadioTower className="absolute size-5 text-amber-600/80" />
+            {station?.favicon && (
+              <img src={proxyImg(station.favicon)} alt="" className="absolute inset-0 size-full object-cover"
+                onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
+            )}
+            {loading && (
+              <div className="absolute inset-0 grid place-items-center bg-black/40">
+                <Loader2 className="size-4 animate-spin text-white" />
+              </div>
+            )}
+          </button>
+
+          {/* Title + subtitle */}
+          <button onClick={goTo} className="min-w-0 flex-1 text-left">
+            <p className="truncate text-sm font-semibold">{title}</p>
+            <span className="mt-0.5 flex items-center gap-1.5">
+              {isLive && !error && <span className="inline-flex size-1.5 animate-pulse rounded-full bg-red-500" />}
+              <span className={cn('truncate text-xs', error ? 'text-destructive' : 'text-muted-foreground')}>{subtitle}</span>
+            </span>
+          </button>
+
+          {/* Elapsed / remaining — recordings only (live streams have no timeline). */}
+          {canSeek && (
+            <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
+              {fmtClock(positionSec)} / {fmtClock(durationSec)}
+            </span>
+          )}
+
+          {/* Controls + seek */}
+          <div className="flex flex-col items-stretch gap-1.5">
+            <div className="flex items-center justify-end gap-1">
+              <button onClick={live.toggleMute}
+                className={cn('grid size-8 place-items-center rounded-full hover:text-foreground',
+                  muted ? 'text-muted-foreground/40' : 'text-muted-foreground')}
+                aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
+                {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+              </button>
+              <button onClick={live.togglePause}
+                className="grid size-9 place-items-center rounded-full bg-foreground text-background hover:opacity-90"
+                aria-label={paused ? 'Resume' : 'Pause'}>
+                {paused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
+              </button>
+              <button onClick={live.stop}
+                className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
+                aria-label="Stop">
+                <X className="size-3.5" />
+              </button>
+            </div>
+
+            {/* Seek bar — recordings only; a live stream isn't scrubbable. */}
+            {canSeek && (
+              <SeekBar pos={positionSec} total={durationSec} onSeek={live.seek} accent={ACCENT} />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

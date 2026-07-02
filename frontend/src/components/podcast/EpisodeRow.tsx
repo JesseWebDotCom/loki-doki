@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Play, Pause, Loader2, Clock, AlertCircle, ListPlus, MoreHorizontal, Check, RotateCw, Trash2 } from 'lucide-react'
+import { Play, Pause, Loader2, Clock, AlertCircle, ListPlus, MoreHorizontal, Check, RotateCw, Trash2, ArrowDownToLine } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
+import { toast } from '@/lib/toast'
 import { usePodcastPlayback, type PodcastTrack } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -9,7 +10,10 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { fmtDate, fmtDuration } from '@/lib/podcast/format'
-import { toTrack, regenerateEpisode, deleteEpisode, type Episode, type Show } from '@/lib/podcast/api'
+import {
+  toTrack, regenerateEpisode, deleteEpisode, downloadEpisode, removeEpisodeDownload,
+  type Episode, type Show,
+} from '@/lib/podcast/api'
 
 export function EpisodeRow({ episode, show, playlist, showThumb = true, canManage = false }: {
   episode: Episode
@@ -23,10 +27,14 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
   const { track, playing, play, playQueue, enqueue, pause, resume, close } = usePodcastPlayback()
   const qc = useQueryClient()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
   const isCurrent = track?.episodeId === episode.id
   const ready = episode.status === 'ready'
   const progress = episode.watchState
   const pct = progress && episode.durationSec ? Math.min(100, (progress.positionSec / episode.durationSec) * 100) : 0
+  // RSS episodes (with a remote enclosure) can be archived offline per user.
+  const isRss = !!episode.enclosureUrl
+  const dl = episode.download ?? null
 
   function handlePlay() {
     if (isCurrent) { playing ? pause() : resume(); return }
@@ -48,6 +56,22 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
     if (isCurrent) close()
     await deleteEpisode(episode.id)
     await invalidate()
+  }
+  async function handleDownload() {
+    try {
+      await downloadEpisode(episode.id)
+      await invalidate()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not download the episode.')
+    }
+  }
+  async function handleRemoveDownload() {
+    try {
+      await removeEpisodeDownload(episode.id)
+      await invalidate()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not remove the download.')
+    }
   }
 
   const showMenu = ready || canManage
@@ -78,12 +102,17 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground leading-relaxed">{episode.description}</p>
         )}
         <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-          {episode.generatedAt && <span>{fmtDate(episode.generatedAt)}</span>}
+          {(episode.publishedAt ?? episode.generatedAt) && <span>{fmtDate(episode.publishedAt ?? episode.generatedAt)}</span>}
           {episode.durationSec ? <span>· {fmtDuration(episode.durationSec)}</span> : null}
           {episode.status === 'generating' && <span className="text-brand">Generating…</span>}
           {episode.status === 'pending' && <span>Queued</span>}
           {episode.status === 'failed' && <span className="text-destructive">Failed</span>}
           {progress?.completed && <span className="inline-flex items-center gap-0.5 text-emerald-500"><Check className="size-3" /> Played</span>}
+          {isRss && dl?.status === 'ready' && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+              <Check className="size-3" /> Downloaded
+            </span>
+          )}
         </div>
         {pct > 0 && !progress?.completed && (
           <div className="mt-1.5 h-1 w-full max-w-48 overflow-hidden rounded-full bg-muted">
@@ -92,7 +121,7 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
         )}
       </div>
 
-      {showMenu && (
+      {(showMenu || isRss) && (
         <div className="flex shrink-0 items-center gap-1">
           {ready && (
             <button onClick={() => enqueue(toTrack(episode, show))} title="Add to Up Next"
@@ -100,22 +129,48 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
               <ListPlus className="size-4" />
             </button>
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><MoreHorizontal className="size-4" /></button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {ready && <DropdownMenuItem onSelect={handlePlay}><Play className="size-4" /> Play</DropdownMenuItem>}
-              {ready && <DropdownMenuItem onSelect={() => enqueue(toTrack(episode, show))}><ListPlus className="size-4" /> Add to Up Next</DropdownMenuItem>}
-              {canManage && (
-                <>
-                  {ready && <DropdownMenuSeparator />}
-                  <DropdownMenuItem onSelect={() => void handleRegenerate()}><RotateCw className="size-4" /> Regenerate</DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}><Trash2 className="size-4" /> Delete</DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Offline download affordance — RSS episodes only */}
+          {isRss && !dl && (
+            <button onClick={() => void handleDownload()} title="Download for offline"
+              className="flex size-8 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100">
+              <ArrowDownToLine className="size-4" />
+            </button>
+          )}
+          {isRss && (dl?.status === 'pending' || dl?.status === 'downloading') && (
+            <span title="Downloading…" className="flex size-8 items-center justify-center text-brand">
+              <Loader2 className="size-4 animate-spin" />
+            </span>
+          )}
+          {isRss && dl?.status === 'failed' && (
+            <button onClick={() => void handleDownload()} title="Download failed — retry"
+              className="flex size-8 items-center justify-center rounded-full text-destructive hover:bg-muted">
+              <RotateCw className="size-4" />
+            </button>
+          )}
+          {showMenu && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><MoreHorizontal className="size-4" /></button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {ready && <DropdownMenuItem onSelect={handlePlay}><Play className="size-4" /> Play</DropdownMenuItem>}
+                {ready && <DropdownMenuItem onSelect={() => enqueue(toTrack(episode, show))}><ListPlus className="size-4" /> Add to Up Next</DropdownMenuItem>}
+                {isRss && !dl && (
+                  <DropdownMenuItem onSelect={() => void handleDownload()}><ArrowDownToLine className="size-4" /> Download</DropdownMenuItem>
+                )}
+                {isRss && dl?.status === 'ready' && (
+                  <DropdownMenuItem onSelect={() => setConfirmRemoveDl(true)}><Trash2 className="size-4" /> Remove download</DropdownMenuItem>
+                )}
+                {canManage && (
+                  <>
+                    {ready && <DropdownMenuSeparator />}
+                    <DropdownMenuItem onSelect={() => void handleRegenerate()}><RotateCw className="size-4" /> Regenerate</DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}><Trash2 className="size-4" /> Delete</DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       )}
     </div>
@@ -128,6 +183,15 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
       confirmLabel="Delete"
       destructive
       onConfirm={() => void handleDelete()}
+    />
+    <ConfirmDialog
+      open={confirmRemoveDl}
+      onOpenChange={setConfirmRemoveDl}
+      title="Remove download"
+      description={`Remove the offline copy of "${episode.title}"? You can still stream it.`}
+      confirmLabel="Remove"
+      destructive
+      onConfirm={() => void handleRemoveDownload()}
     />
     </>
   )

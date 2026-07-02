@@ -35,6 +35,7 @@ export type UserCategory =
   | 'youtube/transcripts'
   | 'podcasts'
   | 'music'
+  | 'radio-recordings'
   | 'documents'
   | 'converted'
 

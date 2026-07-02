@@ -83,9 +83,11 @@ import { adminHomeAssistant } from '@/routes/adminHomeAssistant'
 import { homeAssistantRoute } from '@/routes/homeAssistant'
 import { youtubeRoute } from '@/routes/youtube'
 import { podcastsRoute } from '@/routes/podcasts'
+import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
 import { music } from '@/routes/music'
 import { musicInfo } from '@/routes/musicInfo'
 import { musicRadio } from '@/routes/musicRadio'
+import { musicRadioLive } from '@/routes/musicRadioLive'
 import { musicCatalog } from '@/routes/musicCatalog'
 import { musicStations } from '@/routes/musicStations'
 import { musicPlaylists } from '@/routes/musicPlaylists'
@@ -97,6 +99,7 @@ import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/fee
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
 import { startFeedPoller, refreshSystemFeeds } from '@/lib/feeds/poller'
+import { startPodcastFeedPoller } from '@/lib/podcast/feeds'
 import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
 import { backfillYoutubeTitleEntities } from '@/lib/youtube/titleBackfill'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
@@ -239,6 +242,8 @@ startYoutubeFeedPoller()
 // Feeds: seed curated News as system feeds, kick an initial fetch, then poll on an interval.
 void seedSystemFeeds().then(() => refreshSystemFeeds()).catch(() => {})
 startFeedPoller()
+// Real podcast subscriptions: refresh RSS shows for new episodes (+ auto-download pass).
+startPodcastFeedPoller()
 // Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
 // that window between polls (bursts / extended downtime) is invisible to the poller forever.
 // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
@@ -421,9 +426,11 @@ app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
 app.route('/api/youtube', youtubeRoute)
+app.route('/api/podcasts', podcastSubscriptionsRoute)
 app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)
 app.route('/api/music/info', musicInfo)
+app.route('/api/music/radio/live', musicRadioLive)
 app.route('/api/music/radio', musicRadio)
 app.route('/api/music/catalog', musicCatalog)
 app.route('/api/music/stations', musicStations)

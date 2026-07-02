@@ -22,7 +22,8 @@ export function usePodcastFeed() {
   return useQuery({ queryKey: ['podcast-feed'], queryFn: fetchFeed })
 }
 
-const ts = (e: Episode) => new Date(e.generatedAt ?? e.createdAt ?? 0).getTime()
+// RSS episodes carry a real publish date; generated ones fall back to generation time.
+const ts = (e: Episode) => new Date(e.publishedAt ?? e.generatedAt ?? e.createdAt ?? 0).getTime()
 
 /** In-progress, not-completed episodes — most recent first. */
 export function continueListening(all: FeedEpisode[]): FeedEpisode[] {

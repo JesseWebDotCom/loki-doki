@@ -2,11 +2,15 @@
 
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { podcastShows, podcastEpisodes, podcastEpisodeSources, podcastSuggestions, podcastWatchState, users, characters, downloadJobs } from '@/db/schema'
+import { podcastShows, podcastEpisodes, podcastEpisodeSources, podcastSuggestions, podcastSubscriptions, podcastDownloads, podcastWatchState, mediaAssets, users, characters, downloadJobs } from '@/db/schema'
 import { eq, and, or, desc, inArray } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import { resolveUserPath, userPath, toRelativePath } from '@/lib/storage/paths'
 import { ensureStingerSoundfont } from '@/lib/download'
+import { getOrFetchProxyImage } from '@/lib/imageProxy'
+import { acquireRead, releaseRead, blobAbsPath } from '@/lib/content/store'
+import { enclosureFormat, formatContentType } from '@/lib/podcast/offline'
+import { safeFetch } from '@/lib/ssrfGuard'
 import { ollamaChat, ollamaList } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
@@ -24,12 +28,16 @@ podcastsRoute.use('*', requireAuth)
 // only the owner (or an admin) may MUTATE it. Episode routes look the parent show up
 // rather than trusting a bare episode id, so personal episodes can't be read by guessing.
 type Actor = { id: string; role: string }
-type ShowAccess = { ownerUserId: string; visibility: string | null }
-const canSeeShow = (s: ShowAccess, u: Actor) => s.ownerUserId === u.id || s.visibility === 'shared' || u.role === 'admin'
+type ShowAccess = { ownerUserId: string; visibility: string | null; source?: string | null }
+// RSS shows (real subscribed podcasts) are public content — any household member may
+// view/play them; access nuance lives in subscription rows, not visibility.
+const canSeeShow = (s: ShowAccess, u: Actor) => s.ownerUserId === u.id || s.visibility === 'shared' || s.source === 'rss' || u.role === 'admin'
 const canEditShow = (s: ShowAccess, u: Actor) => s.ownerUserId === u.id || u.role === 'admin'
+// RSS shows/episodes are managed by their feed — generate/edit/upload never applies.
+const isRssShow = (s: ShowAccess) => s.source === 'rss'
 
 async function showAccessForEpisode(episodeId: string): Promise<ShowAccess | null> {
-  const [row] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility })
+  const [row] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility, source: podcastShows.source })
     .from(podcastEpisodes)
     .innerJoin(podcastShows, eq(podcastEpisodes.showId, podcastShows.id))
     .where(eq(podcastEpisodes.id, episodeId))
@@ -47,6 +55,12 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
 // Personal shows + every shared show, with owner name + hosts/segments resolved.
 // Shared by GET /shows and GET /feed so the two stay consistent.
 async function loadVisibleShows(user: Actor) {
+  // RSS shows the user subscribed to are visible regardless of owner/visibility —
+  // membership lives in podcast_subscriptions (the show row is shared household-wide).
+  const subRows = await db.select().from(podcastSubscriptions)
+    .where(eq(podcastSubscriptions.userId, user.id))
+  const subMap = new Map(subRows.map(s => [s.showId, s]))
+
   const shows = await db.select({
     id: podcastShows.id,
     ownerUserId: podcastShows.ownerUserId,
@@ -61,11 +75,21 @@ async function loadVisibleShows(user: Actor) {
     sourceRef: podcastShows.sourceRef,
     autoGenerate: podcastShows.autoGenerate,
     targetMinutes: podcastShows.targetMinutes,
+    feedUrl: podcastShows.feedUrl,
+    artworkUrl: podcastShows.artworkUrl,
+    author: podcastShows.author,
+    link: podcastShows.link,
+    categoriesJson: podcastShows.categoriesJson,
+    feedError: podcastShows.feedError,
     createdAt: podcastShows.createdAt,
   }).from(podcastShows)
     // Push the visibility filter into SQL (indexed on owner_user_id) instead of scanning
     // every user's shows into memory.
-    .where(or(eq(podcastShows.ownerUserId, user.id), eq(podcastShows.visibility, 'shared')))
+    .where(or(
+      eq(podcastShows.ownerUserId, user.id),
+      eq(podcastShows.visibility, 'shared'),
+      ...(subMap.size ? [inArray(podcastShows.id, [...subMap.keys()])] : []),
+    ))
     .orderBy(desc(podcastShows.createdAt))
 
   const ownerIds = [...new Set(shows.map(s => s.ownerUserId))]
@@ -75,13 +99,22 @@ async function loadVisibleShows(user: Actor) {
     : []
   const ownerMap = Object.fromEntries(owners.map(o => [o.id, o]))
 
-  return shows.map(s => ({
-    ...s,
-    hosts: safeParse(s.hostsJson, [] as unknown[]),
-    segments: safeParse(s.segmentsJson, [] as unknown[]),
-    ownerName: ownerMap[s.ownerUserId] ? `${ownerMap[s.ownerUserId]!.firstName}`.trim() : 'Unknown',
-    isOwn: s.ownerUserId === user.id,
-  }))
+  return shows
+    // An RSS show someone ELSE subscribed to isn't in this user's library until they
+    // subscribe too (discovery happens in the browse directory, not the shows list).
+    .filter(s => s.source !== 'rss' || subMap.has(s.id))
+    .map(s => {
+      const sub = subMap.get(s.id)
+      return {
+        ...s,
+        hosts: safeParse(s.hostsJson, [] as unknown[]),
+        segments: safeParse(s.segmentsJson, [] as unknown[]),
+        categories: safeParse(s.categoriesJson, [] as string[]),
+        ownerName: ownerMap[s.ownerUserId] ? `${ownerMap[s.ownerUserId]!.firstName}`.trim() : 'Unknown',
+        isOwn: s.ownerUserId === user.id,
+        subscription: sub ? { autoDownload: sub.autoDownload, autoDownloadKeep: sub.autoDownloadKeep } : null,
+      }
+    })
 }
 
 podcastsRoute.get('/shows', async (c) => {
@@ -98,7 +131,9 @@ podcastsRoute.get('/feed', async (c) => {
   const episodes = showIds.length
     ? await db.select().from(podcastEpisodes)
         .where(inArray(podcastEpisodes.showId, showIds))
-        .orderBy(desc(podcastEpisodes.createdAt))
+        // RSS episodes sort by their real publish date; generated ones (null publishedAt)
+        // fall through to createdAt (SQLite DESC puts NULLs last).
+        .orderBy(desc(podcastEpisodes.publishedAt), desc(podcastEpisodes.createdAt))
     : []
 
   const epIds = episodes.map(e => e.id)
@@ -107,6 +142,7 @@ podcastsRoute.get('/feed', async (c) => {
         .where(and(eq(podcastWatchState.userId, user.id), inArray(podcastWatchState.episodeId, epIds)))
     : []
   const watchMap = new Map(watchRows.map(w => [w.episodeId, w]))
+  const downloadMap = await userDownloadMap(user.id, epIds)
 
   const episodesByShow: Record<string, unknown[]> = {}
   for (const id of showIds) episodesByShow[id] = []
@@ -115,11 +151,24 @@ podcastsRoute.get('/feed', async (c) => {
       ...e,
       chapters: safeParse(e.chaptersJson, [] as unknown[]),
       watchState: watchMap.get(e.id) ?? null,
+      download: downloadMap.get(e.id) ?? null,
     })
   }
 
   return c.json({ shows, episodesByShow })
 })
+
+/** This user's offline refs for a set of episodes → { status, auto } per episode id. */
+async function userDownloadMap(userId: string, episodeIds: string[]): Promise<Map<string, { status: string; auto: boolean }>> {
+  if (!episodeIds.length) return new Map()
+  const rows: Array<{ episodeId: string; status: string; auto: boolean }> = []
+  for (let i = 0; i < episodeIds.length; i += 400) {
+    rows.push(...await db.select({ episodeId: podcastDownloads.episodeId, status: podcastDownloads.status, auto: podcastDownloads.auto })
+      .from(podcastDownloads)
+      .where(and(eq(podcastDownloads.userId, userId), inArray(podcastDownloads.episodeId, episodeIds.slice(i, i + 400)))))
+  }
+  return new Map(rows.map(r => [r.episodeId, { status: r.status, auto: r.auto }]))
+}
 
 // Reverse link: episodes generated from a given YouTube video, visible to this user.
 // Powers the "Featured in podcasts" shelf on the YouTube watch page.
@@ -212,6 +261,7 @@ podcastsRoute.put('/shows/:id', async (c) => {
   const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, showId))
   if (!show) return c.json({ error: 'Not found' }, 404)
   if (show.ownerUserId !== user.id && user.role !== 'admin') return c.json({ error: 'Forbidden' }, 403)
+  if (isRssShow(show)) return c.json({ error: 'Subscribed podcasts are managed by their feed' }, 400)
 
   await db.update(podcastShows).set({
     ...(body.name !== undefined && { name: body.name }),
@@ -233,6 +283,9 @@ podcastsRoute.delete('/shows/:id', async (c) => {
   const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, showId))
   if (!show) return c.json({ error: 'Not found' }, 404)
   if (show.ownerUserId !== user.id && user.role !== 'admin') return c.json({ error: 'Forbidden' }, 403)
+  // RSS shows are shared household-wide — leaving is unsubscribing, not deleting the
+  // household's copy. Admins may still hard-delete.
+  if (isRssShow(show) && user.role !== 'admin') return c.json({ error: 'Unsubscribe instead of deleting' }, 400)
 
   // Gather every on-disk artifact BEFORE deleting rows (episodes cascade away on the
   // DB delete, but their files — and the cover/stinger — would otherwise leak).
@@ -336,9 +389,19 @@ podcastsRoute.put('/shows/:id/cover', async (c) => {
 // Serve a show's cover image. 404 when unset so the client renders a generated fallback.
 podcastsRoute.get('/shows/:id/cover', async (c) => {
   const showId = c.req.param('id')
-  const [show] = await db.select({ coverRelPath: podcastShows.coverRelPath })
+  const [show] = await db.select({ coverRelPath: podcastShows.coverRelPath, artworkUrl: podcastShows.artworkUrl })
     .from(podcastShows).where(eq(podcastShows.id, showId))
-  if (!show?.coverRelPath) return c.json({ error: 'No cover' }, 404)
+  if (!show) return c.json({ error: 'No cover' }, 404)
+  // RSS shows: no uploaded cover, but remote channel art — serve it through the disk-cached
+  // image proxy so ShowCover/now-playing render unchanged and the CDN never sees the client.
+  if (!show.coverRelPath && show.artworkUrl) {
+    const img = await getOrFetchProxyImage(show.artworkUrl).catch(() => null)
+    if (!img) return c.json({ error: 'No cover' }, 404)
+    return new Response(new Uint8Array(img.data), {
+      headers: { 'Content-Type': img.contentType, 'Cache-Control': 'public, max-age=86400' },
+    })
+  }
+  if (!show.coverRelPath) return c.json({ error: 'No cover' }, 404)
 
   let absPath: string
   try { absPath = await resolveUserPath(show.coverRelPath) } catch { return c.json({ error: 'Missing' }, 404) }
@@ -445,7 +508,7 @@ podcastsRoute.get('/episodes/:id', async (c) => {
 
   const [episode] = await db.select().from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId))
   if (!episode) return c.json({ error: 'Not found' }, 404)
-  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility })
+  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility, source: podcastShows.source })
     .from(podcastShows).where(eq(podcastShows.id, episode.showId))
   if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
 
@@ -487,28 +550,30 @@ podcastsRoute.get('/shows/:id/episodes', async (c) => {
   const showId = c.req.param('id')
   const user = c.get('user')
 
-  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility })
+  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility, source: podcastShows.source })
     .from(podcastShows).where(eq(podcastShows.id, showId))
   if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
 
   const episodes = await db.select()
     .from(podcastEpisodes)
     .where(eq(podcastEpisodes.showId, showId))
-    .orderBy(desc(podcastEpisodes.createdAt))
+    .orderBy(desc(podcastEpisodes.publishedAt), desc(podcastEpisodes.createdAt))
 
-  // Attach watch state
+  // Attach watch state + this user's offline-download state
   const epIds = episodes.map(e => e.id)
   const watchRows = epIds.length > 0
     ? await db.select().from(podcastWatchState)
         .where(and(eq(podcastWatchState.userId, user.id), inArray(podcastWatchState.episodeId, epIds)))
     : []
   const watchMap = new Map(watchRows.map(w => [w.episodeId, w]))
+  const downloadMap = await userDownloadMap(user.id, epIds)
 
   return c.json({
     episodes: episodes.map(e => ({
       ...e,
       chapters: safeParse(e.chaptersJson, [] as unknown[]),
       watchState: watchMap.get(e.id) ?? null,
+      download: downloadMap.get(e.id) ?? null,
     })),
   })
 })
@@ -520,6 +585,7 @@ podcastsRoute.post('/shows/:id/generate', async (c) => {
   const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, showId))
   if (!show) return c.json({ error: 'Show not found' }, 404)
   if (!canEditShow(show, user)) return c.json({ error: 'Forbidden' }, 403)
+  if (isRssShow(show)) return c.json({ error: 'Subscribed podcasts get episodes from their feed' }, 400)
 
   // Get user firstName for path resolution
   const [userRow] = await db.select({ firstName: users.firstName })
@@ -576,6 +642,7 @@ podcastsRoute.post('/episodes/:id/regenerate', async (c) => {
   const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, episode.showId))
   if (!show) return c.json({ error: 'Show not found' }, 404)
   if (show.ownerUserId !== user.id && user.role !== 'admin') return c.json({ error: 'Forbidden' }, 403)
+  if (isRssShow(show)) return c.json({ error: 'Subscribed episodes cannot be regenerated' }, 400)
 
   // Best-effort cleanup of the old audio file.
   if (episode.audioRelPath) {
@@ -608,9 +675,12 @@ podcastsRoute.delete('/episodes/:id', async (c) => {
 
   const [episode] = await db.select().from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId))
   if (!episode) return c.json({ error: 'Not found' }, 404)
-  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId })
+  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility, source: podcastShows.source })
     .from(podcastShows).where(eq(podcastShows.id, episode.showId))
   if (show && show.ownerUserId !== user.id && user.role !== 'admin') return c.json({ error: 'Forbidden' }, 403)
+  // Deleting an RSS episode is futile — the next feed refresh re-inserts it. Remove the
+  // download instead (the subscriptions API) or unsubscribe.
+  if (show && isRssShow(show) && user.role !== 'admin') return c.json({ error: 'Episodes of subscribed podcasts are managed by their feed' }, 400)
 
   if (episode.audioRelPath) {
     try { await unlink(await resolveUserPath(episode.audioRelPath)) } catch { /* gone already */ }
@@ -621,23 +691,21 @@ podcastsRoute.delete('/episodes/:id', async (c) => {
 
 // ── Episode file streaming ────────────────────────────────────────────────────
 
-podcastsRoute.get('/episodes/:id/stream', async (c) => {
-  const user = c.get('user')
-  const episodeId = c.req.param('id')
-
-  const [episode] = await db.select({ audioRelPath: podcastEpisodes.audioRelPath, status: podcastEpisodes.status, showId: podcastEpisodes.showId })
-    .from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId))
-
-  if (!episode?.audioRelPath) return c.json({ error: 'Not ready' }, 404)
-  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility })
-    .from(podcastShows).where(eq(podcastShows.id, episode.showId))
-  if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
-
-  let absPath: string
-  try { absPath = await resolveUserPath(episode.audioRelPath) } catch { return c.json({ error: 'File missing' }, 404) }
-
+// Serve a local audio file with clamped Range support (seek without re-buffering).
+// `pin` holds an in-flight read on a blob so GC can't unlink it mid-stream.
+function streamLocalAudio(c: { req: { header(name: string): string | undefined } }, absPath: string, contentType: string, pin?: string | null): Response {
   let stat: ReturnType<typeof statSync>
-  try { stat = statSync(absPath) } catch { return c.json({ error: 'File missing' }, 404) }
+  try { stat = statSync(absPath) } catch { return Response.json({ error: 'File missing' }, { status: 404 }) }
+
+  const attach = (stream: ReturnType<typeof createReadStream>) => {
+    if (pin) {
+      acquireRead(pin)
+      const release = () => releaseRead(pin)
+      stream.once('close', release)
+      stream.once('error', release)
+    }
+    return stream
+  }
 
   // Only honor a well-formed bytes=start-end; clamp to file size and 416 on impossible
   // ranges (a malformed header otherwise yields NaN offsets and a broken 206).
@@ -652,26 +720,91 @@ podcastsRoute.get('/episodes/:id/stream', async (c) => {
     if (start > end || start >= size) {
       return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
     }
-    const chunkSize = end - start + 1
-
     return new Response(
-      createReadStream(absPath, { start, end }) as any,
+      attach(createReadStream(absPath, { start, end })) as any,
       {
         status: 206,
         headers: {
           'Content-Range': `bytes ${start}-${end}/${size}`,
           'Accept-Ranges': 'bytes',
-          'Content-Length': String(chunkSize),
-          'Content-Type': 'audio/mpeg',
+          'Content-Length': String(end - start + 1),
+          'Content-Type': contentType,
         },
       }
     )
   }
 
   return new Response(
-    createReadStream(absPath) as any,
-    { headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': String(stat.size), 'Accept-Ranges': 'bytes' } }
+    attach(createReadStream(absPath)) as any,
+    { headers: { 'Content-Type': contentType, 'Content-Length': String(stat.size), 'Accept-Ranges': 'bytes' } }
   )
+}
+
+// Three sources, one endpoint — so the player never cares where audio lives:
+//   1. generated episode → per-user mp3 file (audioRelPath)
+//   2. downloaded RSS episode → shared blob (assetId), read-pinned against GC
+//   3. remote RSS episode → proxied enclosure with Range passthrough (CORS/mixed-content
+//      safe, client IP never reaches the podcast CDN — same posture as YT/image proxies)
+podcastsRoute.get('/episodes/:id/stream', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+
+  const [episode] = await db.select({
+    audioRelPath: podcastEpisodes.audioRelPath, status: podcastEpisodes.status, showId: podcastEpisodes.showId,
+    assetId: podcastEpisodes.assetId, enclosureUrl: podcastEpisodes.enclosureUrl, enclosureType: podcastEpisodes.enclosureType,
+  }).from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId))
+
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility, source: podcastShows.source })
+    .from(podcastShows).where(eq(podcastShows.id, episode.showId))
+  if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
+
+  // 1. Generated episode: per-user file.
+  if (episode.audioRelPath) {
+    let absPath: string
+    try { absPath = await resolveUserPath(episode.audioRelPath) } catch { return c.json({ error: 'File missing' }, 404) }
+    return streamLocalAudio(c, absPath, 'audio/mpeg')
+  }
+
+  // 2. Downloaded RSS episode: shared blob store.
+  if (episode.assetId) {
+    const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, episode.assetId))
+    if (asset?.status === 'ready' && asset.blobHash) {
+      const absPath = await blobAbsPath(asset.blobHash)
+      return streamLocalAudio(c, absPath, formatContentType(asset.format), asset.blobHash)
+    }
+  }
+
+  // 3. Remote RSS episode: proxy the enclosure, forwarding Range both ways. Some hosts
+  // ignore Range and answer 200 — pass the status through verbatim; <audio> copes.
+  if (episode.enclosureUrl) {
+    const fwdHeaders: Record<string, string> = { 'User-Agent': 'LokiDoki/3.0 podcast', Accept: '*/*' }
+    const range = c.req.header('range')
+    if (range) fwdHeaders.Range = range
+    let upstream: Response
+    try {
+      upstream = await safeFetch(episode.enclosureUrl, { headers: fwdHeaders }, { timeoutMs: 30_000, maxRedirects: 8 })
+    } catch {
+      return c.json({ error: 'Episode source is not responding' }, 502)
+    }
+    if (!upstream.ok && upstream.status !== 206) {
+      upstream.body?.cancel().catch(() => {})
+      return c.json({ error: `Episode source responded ${upstream.status}` }, 502)
+    }
+    const body = upstream.body
+    if (body) c.req.raw.signal.addEventListener('abort', () => { body.cancel().catch(() => {}) }, { once: true })
+    const headers: Record<string, string> = {
+      'Content-Type': upstream.headers.get('content-type') ?? formatContentType(enclosureFormat(episode.enclosureType, episode.enclosureUrl)),
+      'Cache-Control': 'no-store',
+    }
+    for (const h of ['content-length', 'content-range', 'accept-ranges'] as const) {
+      const v = upstream.headers.get(h)
+      if (v) headers[h] = v
+    }
+    return new Response(body, { status: upstream.status, headers })
+  }
+
+  return c.json({ error: 'Not ready' }, 404)
 })
 
 // ── Watch state ───────────────────────────────────────────────────────────────
@@ -815,14 +948,26 @@ podcastsRoute.get('/admin/settings', async (c) => {
   const scriptModel = ((await getAppSetting('podcast.script_model')) as string | null) ?? ''
   let installedModels: string[] = []
   try { installedModels = (await ollamaList()).map(m => m.name) } catch { /* Ollama unreachable — selector degrades to free text */ }
-  return c.json({ scriptModel, installedModels })
+  // PodcastIndex keys are secrets — report configured-ness + a hint, never the values.
+  const piKey = (await getAppSetting('podcast.podcastindex_key')) as string | null
+  const piSecret = (await getAppSetting('podcast.podcastindex_secret')) as string | null
+  return c.json({
+    scriptModel, installedModels,
+    podcastIndex: {
+      configured: !!(piKey && piSecret),
+      keyHint: piKey ? `…${piKey.slice(-4)}` : null,
+    },
+  })
 })
 
 podcastsRoute.put('/admin/settings', async (c) => {
   const user = c.get('user')
   if (user.role !== 'admin') return c.json({ error: 'Admin only' }, 403)
-  const body = await c.req.json() as { scriptModel?: string | null }
-  await setAppSetting('podcast.script_model', String(body.scriptModel ?? '').trim())
+  const body = await c.req.json() as { scriptModel?: string | null; podcastIndexKey?: string | null; podcastIndexSecret?: string | null }
+  if (body.scriptModel !== undefined) await setAppSetting('podcast.script_model', String(body.scriptModel ?? '').trim())
+  // Empty string clears the keys (turns the provider off); undefined leaves them alone.
+  if (body.podcastIndexKey !== undefined) await setAppSetting('podcast.podcastindex_key', String(body.podcastIndexKey ?? '').trim())
+  if (body.podcastIndexSecret !== undefined) await setAppSetting('podcast.podcastindex_secret', String(body.podcastIndexSecret ?? '').trim())
   return c.json({ ok: true })
 })
 

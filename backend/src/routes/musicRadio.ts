@@ -28,9 +28,34 @@ export async function lookupFacts(artist?: string, track?: string): Promise<stri
   } catch { return '' }
 }
 
-// Rotate across radio-browser.info mirrors (they use DNS round-robin).
-const RB_BASE = 'https://de1.api.radio-browser.info/json'
+// radio-browser.info mirror pool. Etiquette per their docs: don't pin one mirror —
+// try each in order and remember the first that answers for the rest of the process.
+const RB_MIRRORS = [
+  'https://de1.api.radio-browser.info/json',
+  'https://nl1.api.radio-browser.info/json',
+  'https://at1.api.radio-browser.info/json',
+]
 const RB_UA = 'LokiDoki/3.0 music-radio-browser'
+let rbPreferred = 0
+
+/** GET a radio-browser API path (e.g. 'stations/search?…') with mirror failover. */
+export async function rbFetch(path: string, timeoutMs = 8000): Promise<Response> {
+  let lastErr: unknown = null
+  for (let i = 0; i < RB_MIRRORS.length; i++) {
+    const idx = (rbPreferred + i) % RB_MIRRORS.length
+    try {
+      const res = await fetch(`${RB_MIRRORS[idx]}/${path}`, {
+        headers: { 'User-Agent': RB_UA, Accept: 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (res.ok) { rbPreferred = idx; return res }
+      lastErr = new Error(`mirror ${idx} responded ${res.status}`)
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+}
 
 // GET /api/music/radio/stations?genre=rock&name=KEXP&limit=20&country=US
 musicRadio.get('/stations', async (c) => {
@@ -50,16 +75,13 @@ musicRadio.get('/stations', async (c) => {
   if (country) params.set('country', country)
 
   try {
-    const res = await fetch(`${RB_BASE}/stations/search?${params}`, {
-      headers: { 'User-Agent': RB_UA, Accept: 'application/json' },
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) return c.json({ stations: [] })
+    const res = await rbFetch(`stations/search?${params}`)
     const data = await res.json() as Array<{
       stationuuid: string
       name: string
       url_resolved: string
       url: string
+      homepage: string
       favicon: string
       tags: string
       country: string
@@ -67,6 +89,7 @@ musicRadio.get('/stations', async (c) => {
       codec: string
       bitrate: number
       votes: number
+      hls: number
     }>
     const stations = (Array.isArray(data) ? data : [])
       .filter(s => s.url_resolved)
@@ -74,6 +97,7 @@ musicRadio.get('/stations', async (c) => {
         id: s.stationuuid,
         name: s.name,
         url: s.url_resolved || s.url,
+        homepage: s.homepage || null,
         favicon: s.favicon || null,
         tags: s.tags,
         country: s.country,
@@ -81,6 +105,8 @@ musicRadio.get('/stations', async (c) => {
         codec: s.codec,
         bitrate: s.bitrate,
         votes: s.votes,
+        // HLS stations can't play through <audio> + the byte proxy — the UI badges them.
+        hls: s.hls === 1,
       }))
     return c.json({ stations })
   } catch {

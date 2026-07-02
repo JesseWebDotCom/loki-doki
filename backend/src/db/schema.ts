@@ -462,11 +462,14 @@ export const toolUserConfig = sqliteTable('tool_user_config', {
 
 // Per-user Home Assistant control grants. Each row is one (domain, area) scope a
 // user is allowed to control. Wildcard '*' means "all". A user with no rows cannot
-// control anything (admins bypass). Examples:
-//   (userId, '*',     '*')          → control everything
+// control anything (admins bypass). Security entities (locks + entry covers — see
+// lib/homeAssistant/security.ts) are NEVER covered by '*' or plain-domain grants;
+// they require the pseudo-domain 'security'. Examples:
+//   (userId, '*',     '*')          → control everything EXCEPT locks/entry doors
 //   (userId, 'light', '*')          → all lights, any area
-//   (userId, '*',     'office')     → everything in the office
+//   (userId, '*',     'office')     → everything in the office (minus security)
 //   (userId, 'light', 'living_room')→ living-room lights only
+//   (userId, 'security', '*')       → locks + entry doors, any area
 export const haUserGrants = sqliteTable('ha_user_grants', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -717,6 +720,50 @@ export const musicDjCache = sqliteTable('music_dj_cache', {
   facts: text('facts'),  // cached Wikipedia lookup; null = no trivia available offline
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ─── Live internet radio ──────────────────────────────────────────────────────
+// Real-world radio stations a user saved to their library — either picked from the
+// radio-browser.info directory or added manually by stream URL. This table IS the
+// user's radio library (no musicFavorites dual-write). streamUrl is the resolved
+// stream captured at add time so playback never re-hits the directory.
+export const musicRadioStations = sqliteTable('music_radio_stations', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source', { enum: ['radio-browser', 'manual'] }).notNull(),
+  stationUuid: text('station_uuid'),  // radio-browser stationuuid; null for manual adds
+  name: text('name').notNull(),
+  streamUrl: text('stream_url').notNull(),
+  homepage: text('homepage'),
+  favicon: text('favicon'),
+  tags: text('tags'),                 // comma-separated, as radio-browser returns them
+  country: text('country'),
+  language: text('language'),
+  codec: text('codec'),               // MP3 / AAC / AAC+ …
+  bitrate: integer('bitrate'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userStreamUnique: unique().on(t.userId, t.streamUrl) }))
+
+// Timed captures of a live stream ("record 30 minutes of KEXP") made server-side by
+// ffmpeg through the download-jobs queue. Live audio can't be re-fetched, so a capture
+// that dies mid-way keeps the partial file when ≥30s landed. Files are per-user
+// (radio-recordings category), not blob-store: every capture is unique.
+export const musicRadioRecordings = sqliteTable('music_radio_recordings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stationId: text('station_id'),      // loose ref — station may be deleted after recording
+  stationName: text('station_name').notNull(),
+  streamUrl: text('stream_url').notNull(),  // frozen at enqueue time
+  codec: text('codec'),                     // station codec at enqueue — MP3 re-muxes, others transcode
+  title: text('title').notNull(),
+  requestedSec: integer('requested_sec').notNull(),
+  durationSec: real('duration_sec'),  // actual captured length (ffprobe), set on finish
+  relPath: text('rel_path'),
+  sizeBytes: integer('size_bytes'),
+  status: text('status', { enum: ['pending', 'recording', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userIdx: index('music_radio_recordings_user_idx').on(t.userId) }))
 
 // ─── LoRA System ──────────────────────────────────────────────────────────────
 
@@ -1156,7 +1203,11 @@ export const podcastShows = sqliteTable('podcast_shows', {
   // Generated once, nudged a little each episode. Not surfaced in the UI.
   castJson: text('cast_json'),
   visibility: text('visibility', { enum: ['personal', 'shared'] }).notNull().default('personal'),
-  source: text('source', { enum: ['user', 'suggested', 'app'] }).notNull().default('user'),
+  // 'rss' = a real-world podcast subscribed via its RSS feed. One show row per feed URL,
+  // shared household-wide; per-user membership lives in podcastSubscriptions. RSS shows
+  // keep visibility 'personal' (subscriptions, not the shared branch, grant access);
+  // ownerUserId is the first subscriber and is reassigned when they unsubscribe.
+  source: text('source', { enum: ['user', 'suggested', 'app', 'rss'] }).notNull().default('user'),
   // Origin of an auto-built show, e.g. 'channel:<id>' / 'playlist:<id>' — lets a YouTube
   // source find the show it created so "generate next batch" can continue it.
   sourceRef: text('source_ref'),
@@ -1165,8 +1216,21 @@ export const podcastShows = sqliteTable('podcast_shows', {
   autoGenerate: integer('auto_generate', { mode: 'boolean' }).notNull().default(false),
   // Target episode length in minutes (null = use style default). Stored as integer; 165 words/min.
   targetMinutes: integer('target_minutes'),
+  // ── RSS-subscription fields (source='rss' only) ──
+  feedUrl: text('feed_url'),          // canonical (normalized) RSS URL — identity for dedup
+  artworkUrl: text('artwork_url'),    // remote channel art; served via image proxy when no coverRelPath
+  author: text('author'),
+  link: text('link'),                 // channel homepage
+  categoriesJson: text('categories_json'),
+  feedEtag: text('feed_etag'),        // conditional-GET state for the refresh poller
+  feedLastModified: text('feed_last_modified'),
+  feedFetchedAt: integer('feed_fetched_at', { mode: 'timestamp' }),
+  feedError: text('feed_error'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-}, t => ({ ownerIdx: index('podcast_shows_owner_idx').on(t.ownerUserId) }))
+}, t => ({
+  ownerIdx: index('podcast_shows_owner_idx').on(t.ownerUserId),
+  feedIdx: index('podcast_shows_feed_idx').on(t.feedUrl),
+}))
 
 export const podcastEpisodes = sqliteTable('podcast_episodes', {
   id: text('id').primaryKey(),
@@ -1180,8 +1244,21 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
   status: text('status', { enum: ['pending', 'generating', 'ready', 'failed'] }).notNull().default('pending'),
   error: text('error'),
   generatedAt: integer('generated_at', { mode: 'timestamp' }),
+  // ── RSS-episode fields (shows with source='rss'; inserted status='ready') ──
+  guid: text('guid'),                 // per-show dedup key (feed guid → enclosureUrl → title+date hash)
+  enclosureUrl: text('enclosure_url'),
+  enclosureType: text('enclosure_type'),
+  enclosureBytes: integer('enclosure_bytes'),
+  imageUrl: text('image_url'),        // episode-level itunes:image
+  link: text('link'),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
+  // Shared media_assets rendition once any household member downloads this episode.
+  assetId: text('asset_id'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-}, t => ({ showIdx: index('podcast_episodes_show_idx').on(t.showId) }))
+}, t => ({
+  showIdx: index('podcast_episodes_show_idx').on(t.showId),
+  guidIdx: index('podcast_episodes_guid_idx').on(t.showId, t.guid),
+}))
 
 // Which source items (e.g. YouTube videos) fed each generated episode — powers the
 // reverse link "this video is featured in these podcasts" on the YouTube watch page.
@@ -1218,6 +1295,40 @@ export const podcastWatchState = sqliteTable('podcast_watch_state', {
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userEpUnique: unique().on(t.userId, t.episodeId) }))
+
+// Per-user membership in an RSS podcast show (shows with source='rss'). The show row is
+// shared household-wide; subscriptions carry each user's prefs. autoDownload keeps the
+// newest N episodes offline automatically (auto refs prune; manual downloads never do).
+export const podcastSubscriptions = sqliteTable('podcast_subscriptions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  showId: text('show_id').notNull().references(() => podcastShows.id, { onDelete: 'cascade' }),
+  autoDownload: integer('auto_download', { mode: 'boolean' }).notNull().default(false),
+  autoDownloadKeep: integer('auto_download_keep'),  // null → default 3
+  notify: integer('notify', { mode: 'boolean' }).notNull().default(false),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userShowUnique: unique().on(t.userId, t.showId),
+  showIdx: index('podcast_subscriptions_show_idx').on(t.showId),
+}))
+
+// Per-user offline refs for RSS episode audio — the ytDownloads-as-refs pattern over the
+// shared blob store: two users downloading the same episode share one media_assets copy.
+// gcSweep() counts these rows as pins; deleting the ref is what releases the blob.
+export const podcastDownloads = sqliteTable('podcast_downloads', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  assetId: text('asset_id'),          // → mediaAssets.id once the download starts
+  status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('pending'),
+  auto: integer('auto', { mode: 'boolean' }).notNull().default(false),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userEpUnique: unique().on(t.userId, t.episodeId),
+  assetIdx: index('podcast_downloads_asset_idx').on(t.assetId),
+}))
 
 // Cache of web-enriched POI metadata (phone/website/menu), keyed by place_id.
 export const mapsPoiEnrichments = sqliteTable('maps_poi_enrichments', {
