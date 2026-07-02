@@ -13,7 +13,7 @@
 import { getScriptModel } from '@/lib/models'
 import { ollamaChat } from '@/llm/ollama'
 import type { ShowConfig, ScriptTurn, SegmentContent, CastBrief } from './types'
-import { generateEpisodeOutline, fallbackOutline, formatOutlineBlock, type EpisodeOutline, type OutlineSegment } from './outline'
+import { generateEpisodeOutline, fallbackOutline, padOutline, formatOutlineBlock, type EpisodeOutline, type OutlineSegment } from './outline'
 import { generateEpisodeAngles } from './persona'
 
 // Per-style direction plus an explicit total word target. LLMs hit a word count far
@@ -86,7 +86,7 @@ export async function generateScript(
       ? generateEpisodeAngles(cast.members, contentSummary).catch(() => [])
       : Promise.resolve([]),
   ])
-  const outline = outlineMaybe ?? fallbackOutline(bodyCount)
+  const outline = padOutline(outlineMaybe ?? fallbackOutline(bodyCount), bodyCount)
   if (!outlineMaybe) console.log('[podcast] outline generation failed — using generic fallback arc')
   const angleById = new Map(episodeAngles.map(a => [a.id, a.angle]))
 
@@ -150,6 +150,22 @@ export async function generateScript(
 
   if (!turns.length) throw new Error('LLM script generation produced no usable turns across all segments')
 
+  // The outro prompt demands a goodbye, but a weak model sometimes writes takeaway waffle
+  // and stops — leaving the episode hanging mid-conversation. If no farewell landed, make
+  // one dedicated micro-call for just the goodbye. Best-effort.
+  if (!hasFarewell(turns)) {
+    console.log('[podcast] no farewell detected — generating explicit sign-off')
+    try {
+      const tail = turns.slice(-3).map(t => formatTurn(t, hostInfos)).join('\n')
+      const resp = await ollamaChat(model, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `The episode ends with:\n${tail}\n\nWrite ONLY the final sign-off: 2 to 4 short turns where ${isMultiHost ? 'the hosts' : 'the host'} thank the listener for listening to "${show.name}" and say goodbye / see you next time, in character. No new topics. Return ONLY the JSON array of these closing turns.` },
+      ], undefined, { temperature: 0.7, num_ctx: SCRIPT_NUM_CTX, num_predict: 400 }, undefined, SCRIPT_TIMEOUT_MS)
+      const closing = scrubTurns(parseTurns(resp.message?.content ?? '', hostInfos, false))
+      if (closing.length) turns.push(...closing.slice(0, 4))
+    } catch { /* an abrupt ending beats failing the episode */ }
+  }
+
   const total = countWords(turns)
   console.log(`[podcast] script complete: ${turns.length} turns, ${total} words (target ${targetWords}, ~${Math.round(total / 165)} min)`)
   if (total < targetWords * 0.5) {
@@ -192,6 +208,7 @@ function buildSystemPrompt(
 - Occasional light imperfections make it human: an "um" before a tricky idea, a "wait, no — I mean…" self-correction, a "you know" — at most one every 4 or 5 turns, never on facts, names, or numbers.
 - BANNED phrases (instant AI tells): "Absolutely!", "Exactly!", "Certainly!", "That's a great point", "Great question", "Fascinating", "As you mentioned". React like a person instead: "yeah", "right", "oh man", "hold on". Also avoid the analyst tics "it's essential to", "it's crucial to", and "I think it's important" — just say the thing plainly.
 - Friendly disagreement and different takes are good — let each host's distinct voice and angle come through. A more expert host goes deeper and offers opinions; a newer one asks the questions a listener would ask.
+- A host NEVER refers to themself by their own name or in the third person, and never credits a point to the person who just made it by name.
 - Use the occasional analogy ("it's basically like…") to make an idea land.`
     : `Single host: ${hostInfos[0]?.name ?? 'Host'}. Warm and direct, like talking to one person. Develop each point fully in complete sentences, use the occasional analogy to make a point land, and recap briefly when moving between the major parts. An occasional "you know" or self-correction keeps it human — sparingly, never on facts.`
 
@@ -202,6 +219,7 @@ Style: ${show.style} — ${styleGuide}
 PERSPECTIVE — THE GOLDEN RULE: The hosts are outside commentators discussing material that OTHER people made. They are NOT the people in the material and did none of the things in it. They talk ABOUT the creator in the third person — "in the video", "she shows", "apparently he…" — and NEVER use "I/we" for anything the creator did or owns. Never role-play or re-enact the material.
 NO AFFILIATION: The hosts have no connection to the source material or its creators — even if the show's name references them. The creator's channel, website, Discord, or socials are never "ours", and the hosts never plug them.
 NAME THE CREATOR: Refer to the creator/channel by the actual name given in the source material, naturally and often, the way real commentators do — not a flat "the creator" every time, and NEVER invent or substitute a name that isn't in the material.
+STAY GROUNDED — the #1 content rule: every specific claim must come from the source material below. NEVER invent plot points, names of people, budgets, business deals, behind-the-scenes facts, or outside "historical parallels". If the material doesn't cover something, a host may briefly wonder aloud ("I'd be curious whether…") — never assert it as fact. Spend the episode on the CONTENT: the specific moments, choices, jokes, and the creator's actual takes from the material. Do NOT pad with generic talk about the creator's "mission", "ethos", "brand", or "approach" — one brief mention of that at most in the whole episode.
 
 ${formatOutlineBlock(outline)}
 
@@ -247,7 +265,7 @@ function buildSegmentPrompt(opts: {
     const beats = castBeatsBlock(cast)
     if (beats) parts.push(beats)
   } else if (seg.type === 'outro') {
-    parts.push(`\nThis is the CLOSING of the episode. Land a final takeaway on what was discussed, then ${isMultiHost ? 'the hosts' : 'the host'} thank the listener and briefly tease coming back next time, in character. Wrap up cleanly — no new material, and finish every sentence.`)
+    parts.push(`\nThis is the CLOSING of the episode — it actually ENDS here. First 1-2 turns: land a final takeaway on what was discussed. Then the FINAL turns: an explicit on-air goodbye — ${isMultiHost ? 'the hosts' : 'the host'} thank the listener for listening and say goodbye / see you next time, in character. The very LAST turn must be a goodbye. Do NOT introduce new material, and do NOT propose "diving deeper", "exploring further", or continuing the discussion — the episode is over.`)
   } else {
     parts.push(`\nDo NOT wrap up, sign off, or thank the listener — the episode continues after this part. Stay on this part's focus; later parts handle the rest of the arc.`)
   }
@@ -299,21 +317,37 @@ function cleanPersonality(personality: string): string {
 const AI_AFFIRMATION = /^(?:exactly|absolutely|precisely|certainly|indeed)(?!\s+not\b)[.,!]?\s*/i
 const NATURAL_OPENERS = ['Yeah — ', 'Right — ', 'Oh totally — ']
 
-/** Drop turns that break the outside-commentator illusion (claimed channels/URLs/sub plugs)
- *  and swap turn-initial AI affirmations for natural reactions. */
+/** True when the script already lands an on-air goodbye near the end. */
+function hasFarewell(turns: ScriptTurn[]): boolean {
+  const FAREWELL = /thanks? (?:so much )?for (?:listening|tuning|joining)|see you (?:next|soon|then)|until next time|catch you (?:next|later)|that'?s (?:it|all) for (?:today|this|now)|good\s?bye|signing off|we'?ll be back next/i
+  return turns.slice(-4).some(t => FAREWELL.test(t.text))
+}
+
+/** Drop turns that break the outside-commentator illusion (claimed channels/URLs/sub plugs),
+ *  swap turn-initial AI affirmations for natural reactions, and drop consecutive duplicates
+ *  (local models occasionally emit the same turn twice back-to-back). */
 function scrubTurns(turns: ScriptTurn[]): ScriptTurn[] {
   let openerIdx = 0
   const out: ScriptTurn[] = []
+  let prevKey = ''
   for (const t of turns) {
     if (IDENTITY_LEAK.test(t.text)) {
       console.log(`[podcast] scrubbed identity-leak turn: "${t.text.slice(0, 80)}"`)
       continue
     }
+    const key = t.text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    if (key && key === prevKey) {
+      console.log(`[podcast] scrubbed duplicate turn: "${t.text.slice(0, 80)}"`)
+      continue
+    }
+    prevKey = key
     let text = t.text
     if (AI_AFFIRMATION.test(text)) {
       const rest = text.replace(AI_AFFIRMATION, '')
       text = rest ? NATURAL_OPENERS[openerIdx++ % NATURAL_OPENERS.length]! + rest : 'Yeah.'
     }
+    // Collapse stray punctuation runs local models emit ("Yeah., right" → "Yeah, right").
+    text = text.replace(/\.\s*,/g, ',').replace(/([!?]),/g, '$1').replace(/([.!?])\1+/g, '$1')
     out.push({ ...t, text })
   }
   return out

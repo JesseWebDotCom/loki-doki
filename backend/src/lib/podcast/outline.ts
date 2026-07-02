@@ -106,6 +106,32 @@ export function fallbackOutline(bodyCount = 3): EpisodeOutline {
   }
 }
 
+// Distinct discussion angles used to lengthen an arc that came back with fewer body
+// segments than the episode's length target needs. Generic but non-overlapping — and
+// per-segment "already covered" lists keep them from rehashing the walkthrough segments.
+const PAD_BODIES: OutlineSegment[] = [
+  { label: 'Reactions', focus: 'The hosts trade their biggest reactions, surprises, and disagreements about the material.', type: 'body' },
+  { label: 'What worked & what didn\'t', focus: 'The hosts each pick the strongest and weakest part of the material and defend their picks.', type: 'body' },
+  { label: 'Wider picture', focus: 'Put the material in context: comparisons, implications, and what it says about the bigger topic.', type: 'body' },
+]
+
+/**
+ * Ensure the arc has at least `bodyCount` body segments — episode length is enforced by
+ * segment COUNT (a local model emits ~240 words per call regardless of the ask), so an
+ * outline that came back short would silently shorten the whole episode. Extra discussion
+ * segments are inserted before the outro.
+ */
+export function padOutline(outline: EpisodeOutline, bodyCount: number): EpisodeOutline {
+  const bodies = outline.segments.filter(s => s.type === 'body').length
+  const deficit = Math.min(bodyCount - bodies, PAD_BODIES.length)
+  if (deficit <= 0) return outline
+  const outroAt = outline.segments.findIndex(s => s.type === 'outro')
+  const at = outroAt >= 0 ? outroAt : outline.segments.length
+  const segments = [...outline.segments]
+  segments.splice(at, 0, ...PAD_BODIES.slice(0, deficit))
+  return { ...outline, segments }
+}
+
 /** Format an outline into the episode-arc block shown in the script system prompt. */
 export function formatOutlineBlock(outline: EpisodeOutline): string {
   const lines = ['EPISODE ARC — the episode moves through these parts in order:']

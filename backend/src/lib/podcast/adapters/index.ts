@@ -64,9 +64,9 @@ async function detectGaps(briefText: string): Promise<KnowledgeGap[]> {
 async function buildEnrichmentBlock(
   title: string,
   author: string | undefined,
-  brief: { premise: string; beats: string[] },
+  brief: { premise: string; beats: { point: string; details: string[] }[] },
 ): Promise<string> {
-  const briefText = [brief.premise, ...brief.beats.slice(0, 5)].join('\n')
+  const briefText = [brief.premise, ...brief.beats.slice(0, 5).map(b => b.point)].join('\n')
 
   // Run creator lookup + gap detection in parallel
   const [creatorResults, gaps] = await Promise.all([
@@ -135,8 +135,12 @@ async function youtubeAdapter(
       // follow the big picture instead of re-enacting truncated first-person minutiae.
       const brief = await summarizeVideo(v.title ?? v.videoId, v.author, transcript, maxChunks)
       if (brief && (brief.premise || brief.beats.length)) {
+        // Each beat carries its concrete specifics as sub-bullets — this is the material
+        // the hosts actually discuss, so keep the detail, not just the arc headings.
         const arc = brief.beats.length
-          ? `\nHow it unfolds, in order — build the discussion around this arc (set up the overview first, then walk each major part):\n${brief.beats.map(b => `- ${b}`).join('\n')}`
+          ? `\nHow it unfolds, in order — build the discussion around this arc (set up the overview first, then walk each major part):\n${brief.beats.map(b =>
+              `- ${b.point}${b.details.length ? `\n${b.details.map(d => `    · ${d}`).join('\n')}` : ''}`,
+            ).join('\n')}`
           : ''
         const enrichment = await buildEnrichmentBlock(v.title ?? v.videoId, v.author, brief).catch(() => '')
         items.push(`${heading}\nWhat the video is about (overall): ${brief.premise}${arc}${enrichment}`)
