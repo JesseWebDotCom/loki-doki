@@ -11,14 +11,15 @@ import { readFile, writeFile, readdir, rm } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { bookmarks, bookmarkSnapshots, notifications } from '@/db/schema'
+import { bookmarks, bookmarkSnapshots } from '@/db/schema'
 import { capturePage } from '@/lib/bookmarks/snapshot'
+import { evaluateWatch, extractWatchText } from '@/lib/bookmarks/watch'
 import { renderPage } from '@/lib/bookmarks/render'
 import { ytDlpBin, withYtDlpSlot } from '@/lib/youtube/ytdlp'
 import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
 import type { DownloadProgress } from '@/lib/download'
-import { notifyPod } from '@/lib/pod/notifyPod'
+import { emitNotification } from '@/lib/notify'
 
 // Where POST /bookmarks/:id/snapshot stashes the browser-rendered HTML for the job to pick up.
 export const renderedHtmlPath = (itemId: string) => join(dataDir, 'tmp', `bookmark-render-${itemId}.html`)
@@ -125,6 +126,18 @@ export async function runArchiveArticleJob(
     const newHash = contentFingerprint(a.contentText)
     const changed = !!item.contentHash && item.contentHash !== newHash
 
+    // Watch conditions: extract the (optionally selector-scoped) watch text from the RAW
+    // page HTML and evaluate the configured condition edge-triggered against the previous
+    // extract. lastWatchValue is the stored baseline; null on first capture (never fires).
+    const watchTitle = item.title || a.title || item.url
+    const watchValue = await extractWatchText(snap.rawHtml, item.watchSelector, a.contentText ?? '')
+    const watch = evaluateWatch(item.lastWatchValue, watchValue, {
+      selector: item.watchSelector,
+      mode: item.watchMode,
+      keyword: item.watchKeyword,
+      threshold: item.watchThreshold,
+    }, watchTitle)
+
     await db.update(bookmarks)
       .set({
         title: item.title || a.title || item.url,
@@ -148,6 +161,7 @@ export async function runArchiveArticleJob(
         contentHash: newHash,
         lastCheckedAt: now,
         contentChangedAt: changed ? now : item.contentChangedAt,
+        lastWatchValue: watchValue,
         archiveState: 'ready',
         archiveError: null,
         updatedAt: now,
@@ -167,24 +181,34 @@ export async function runArchiveArticleJob(
       wordCount: a.wordCount,
       contentHash: newHash,
       changed,
+      watchValue,
     })
 
-    // Alert the owner when an auto-monitored page actually changed. Reuses the existing
-    // in-app notification badge (type 'system' → renders payload.message in the bell menu).
-    if (changed && item.alertOnChange && item.ownerId) {
-      await db.insert(notifications).values({
-        id: randomUUID(),
+    // Alert the owner when the watch condition fires. With a condition or selector
+    // configured, the edge-triggered verdict decides; a plain whole-page watch keeps the
+    // original fingerprint semantics. emitNotification covers the bell row, pod overlay,
+    // and push/telegram/email delivery routing.
+    const hasWatchConfig = item.watchMode !== 'any_change' || !!item.watchSelector
+    const shouldAlert = hasWatchConfig ? watch.triggered : changed
+    if (shouldAlert && item.alertOnChange && item.ownerId) {
+      const message = watch.triggered && watch.message ? watch.message : `"${watchTitle}" changed`
+      await emitNotification({
+        type: 'watcher_alert',
         userId: item.ownerId,
-        type: 'system',
-        payload: JSON.stringify({
-          message: `"${item.title || a.title || item.url}" changed`,
+        title: message,
+        url: `/bookmarks/read/${bookmarkId}`,
+        payload: {
+          message,
           kind: 'reader-change',
           itemId: bookmarkId,
-        }),
-        createdAt: now,
+          value: watchValue.slice(0, 200),
+        },
       })
-      notifyPod(item.ownerId, 'system', { message: `"${item.title || a.title || item.url}" changed` })
     }
+    // Semantic-search chunks: re-chunk + embed detached (never blocks the job; silent
+    // no-op when embeddings are unavailable — search falls back to FTS).
+    void import('@/lib/bookmarks/chunks').then((m) => m.chunkAndEmbedBookmark(bookmarkId)).catch(() => {})
+
     onProgress({ completed: 1, total: 1, speedBps: 0, etaSeconds: 0, note: `Done · ${snap.assetCount} assets${changed ? ' · changed' : ''}` })
   } catch (err) {
     // Local capture failed — try to preserve the page off-box via the Wayback Machine so the

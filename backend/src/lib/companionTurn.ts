@@ -84,9 +84,9 @@ export interface CompanionTurnParams {
   interactionStyle: import('@/lib/protections').InteractionStyle
   activeDials: ContentDials
   maskProfanityActive: boolean
-  // ── Surface options — how the three callers (chat / overlay / pod) differ ──
+  // ── Surface options — how the callers (chat / overlay / pod / telegram) differ ──
   /** Which surface this turn serves. Affects logging only; section toggles below. */
-  surface?: 'chat' | 'overlay' | 'pod'
+  surface?: 'chat' | 'overlay' | 'pod' | 'telegram'
   /** Extra harness line placed right before the persona (e.g. the overlay's
    *  "chatting casually in a little floating bar" framing). */
   harnessLine?: string | null

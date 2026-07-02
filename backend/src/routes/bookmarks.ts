@@ -7,6 +7,7 @@ import {
   bookmarkTags,
   bookmarkItemTags,
   bookmarkSnapshots,
+  bookmarkHighlights,
   userPreferences,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
@@ -17,6 +18,8 @@ import { summarizeArticle, askArticle } from '@/lib/bookmarks/ai'
 import { dataDir } from '@/lib/download'
 import { BOOKMARK_ARCHIVE_ROOT } from '@/lib/bookmarks/snapshot'
 import { renderedHtmlPath } from '@/lib/bookmarks/archive'
+import { createBookmark } from '@/lib/bookmarks/create'
+import { WATCH_MODES, type WatchMode } from '@/lib/bookmarks/watch'
 import { join, normalize, dirname } from 'node:path'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { rm } from 'node:fs/promises'
@@ -514,28 +517,14 @@ bookmarksRouter.post('/', requireAuth, async (c) => {
   let collectionId = body.collectionId ?? null
   if (!collectionId && body.collectionName) collectionId = await findCollectionId(user.id, body.collectionName)
 
-  const now = new Date()
-  const id = crypto.randomUUID()
-  await db.insert(bookmarks).values({
-    id, ownerId, source: type === 'offline' ? 'article' : 'bookmark', sourceRef: null, type,
-    url: body.url.trim(), title: body.title?.trim() || body.url.trim(),
-    byline: null, siteName: null, faviconUrl: body.faviconUrl ?? null, excerpt: null,
-    contentHtml: null, contentText: null, wordCount: 0, readingMins: 0,
-    status: 'unread', archiveState: type === 'offline' ? 'pending' : 'none', archiveError: null, readAt: null,
-    useProxy: body.useProxy ?? false, useEmbed: body.useEmbed ?? false,
-    category: body.category?.trim() || 'Other', collectionId, sortOrder: 0,
-    screenshotPath: null, snapshotPath: null, ogImagePath: null,
-    pdfPath: null, mediaPath: null, captureMedia: body.captureMedia ?? false, archiveOrgUrl: null,
-    isAdult: false,
-    createdAt: now, updatedAt: now,
+  // Insert + archive/thumbnail enqueue live in the shared lib (also used by the
+  // Telegram bridge and the companion save_bookmark tool).
+  const item = await createBookmark({
+    ownerId, url: body.url, title: body.title, type,
+    faviconUrl: body.faviconUrl ?? null, collectionId, category: body.category,
+    useProxy: body.useProxy, useEmbed: body.useEmbed, captureMedia: body.captureMedia,
   })
-
-  if (body.tags?.length) await setItemTags(id, await resolveTagIds(user.id, body.tags))
-  // Offline → full archive (server-renders + screenshots); live → screenshot thumbnail only.
-  if (type === 'offline') await enqueueArchiveArticle(id, body.title?.trim() || body.url.trim())
-  else await enqueueBookmarkThumbnail(id, body.title?.trim() || body.url.trim())
-
-  const item = await db.select().from(bookmarks).where(eq(bookmarks.id, id)).then((r) => r[0])
+  if (body.tags?.length) await setItemTags(item.id, await resolveTagIds(user.id, body.tags))
   return c.json({ item })
 })
 
@@ -563,6 +552,7 @@ bookmarksRouter.get('/:id/snapshots', requireAuth, async (c) => {
   const rows = await db.select({
     id: bookmarkSnapshots.id, capturedAt: bookmarkSnapshots.capturedAt,
     title: bookmarkSnapshots.title, wordCount: bookmarkSnapshots.wordCount, changed: bookmarkSnapshots.changed,
+    watchValue: bookmarkSnapshots.watchValue,
   }).from(bookmarkSnapshots).where(eq(bookmarkSnapshots.bookmarkId, id)).orderBy(desc(bookmarkSnapshots.capturedAt))
   return c.json({ snapshots: rows })
 })
@@ -700,6 +690,7 @@ bookmarksRouter.patch('/:id', requireAuth, async (c) => {
     tags: string[]; category: string; useProxy: boolean; useEmbed: boolean; sortOrder: number
     autoUpdate: boolean; autoUpdateIntervalMins: number | null; alertOnChange: boolean
     captureMedia: boolean; makeGlobal: boolean
+    watchSelector: string | null; watchMode: WatchMode; watchKeyword: string | null; watchThreshold: number | null
   }>>()
   const isAdmin = user.role === 'admin'
   // Owners edit their own items; admins may edit anyone's (incl. global items, ownerId null).
@@ -731,6 +722,14 @@ bookmarksRouter.patch('/:id', requireAuth, async (c) => {
     autoUpdateIntervalMins: body.autoUpdateIntervalMins !== undefined ? body.autoUpdateIntervalMins : existing.autoUpdateIntervalMins,
     alertOnChange: body.alertOnChange !== undefined ? body.alertOnChange : existing.alertOnChange,
     captureMedia: body.captureMedia !== undefined ? body.captureMedia : existing.captureMedia,
+    // Watch conditions: trimmed, empty → null; unknown modes / non-finite thresholds rejected
+    // to their previous values. Changing the scope resets the baseline extract so the next
+    // capture re-baselines instead of comparing across differently-scoped text.
+    watchSelector: body.watchSelector !== undefined ? (body.watchSelector?.trim() || null) : existing.watchSelector,
+    watchMode: body.watchMode !== undefined && WATCH_MODES.includes(body.watchMode) ? body.watchMode : existing.watchMode,
+    watchKeyword: body.watchKeyword !== undefined ? (body.watchKeyword?.trim() || null) : existing.watchKeyword,
+    watchThreshold: body.watchThreshold !== undefined ? (Number.isFinite(body.watchThreshold) ? body.watchThreshold : null) : existing.watchThreshold,
+    lastWatchValue: body.watchSelector !== undefined && (body.watchSelector?.trim() || null) !== existing.watchSelector ? null : existing.lastWatchValue,
     ownerId,
     // Stamp lastCheckedAt when enabling so the poller waits a full interval before the *next*
     // refresh (the baseline below covers "now"). Clear it when disabling.
@@ -809,10 +808,86 @@ bookmarksRouter.post('/:id/ask', requireAuth, async (c) => {
   if (!item) return c.json({ error: 'Not found' }, 404)
   if (!item.contentText) return c.json({ error: 'No readable text' }, 422)
   try {
-    return c.json({ answer: await askArticle(item.title, item.contentText, question.trim()) })
+    // The reader's own highlights/notes are prime context — what THEY cared about.
+    const notes = await db.select().from(bookmarkHighlights)
+      .where(and(eq(bookmarkHighlights.bookmarkId, id), eq(bookmarkHighlights.userId, user.id)))
+    const noteBlock = notes.length
+      ? `Reader's own notes and highlights:\n${notes.map((h) => `- ${h.quote ? `"${h.quote.slice(0, 200)}"` : ''}${h.note ? ` — ${h.note.slice(0, 300)}` : ''}`).join('\n')}\n\n`
+      : ''
+    return c.json({ answer: await askArticle(item.title, `${noteBlock}${item.contentText}`, question.trim()) })
   } catch (err) {
     return c.json({ error: 'Ask failed', detail: String(err) }, 503)
   }
+})
+
+// ── Highlights & notes ───────────────────────────────────────────────────────────
+// Per-user annotations; visible-bookmark check mirrors GET /:id (own or global).
+
+const HL_COLORS = ['yellow', 'green', 'blue', 'pink', 'purple'] as const
+
+async function visibleBookmark(id: string, userId: string) {
+  return db.select().from(bookmarks)
+    .where(and(eq(bookmarks.id, id), or(isNull(bookmarks.ownerId), eq(bookmarks.ownerId, userId))))
+    .then((r) => r[0])
+}
+
+bookmarksRouter.get('/:id/highlights', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  if (!(await visibleBookmark(id, user.id))) return c.json({ error: 'Not found' }, 404)
+  const items = await db.select().from(bookmarkHighlights)
+    .where(and(eq(bookmarkHighlights.bookmarkId, id), eq(bookmarkHighlights.userId, user.id)))
+    .orderBy(bookmarkHighlights.createdAt)
+  return c.json({ items })
+})
+
+bookmarksRouter.post('/:id/highlights', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  if (!(await visibleBookmark(id, user.id))) return c.json({ error: 'Not found' }, 404)
+  const body = await c.req.json<{ kind?: 'highlight' | 'note'; quote?: string; prefix?: string; suffix?: string; color?: string; note?: string }>()
+  const kind = body.kind === 'note' ? 'note' : 'highlight'
+  const quote = (body.quote ?? '').slice(0, 2000)
+  if (kind === 'highlight' && !quote.trim()) return c.json({ error: 'quote required for a highlight' }, 400)
+  if (kind === 'note' && !(body.note ?? '').trim()) return c.json({ error: 'note text required' }, 400)
+  const now = new Date()
+  const row = {
+    id: crypto.randomUUID(),
+    bookmarkId: id,
+    userId: user.id,
+    kind,
+    quote,
+    prefix: (body.prefix ?? '').slice(0, 64),
+    suffix: (body.suffix ?? '').slice(0, 64),
+    color: HL_COLORS.includes(body.color as typeof HL_COLORS[number]) ? body.color! : 'yellow',
+    note: body.note?.slice(0, 4000) ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await db.insert(bookmarkHighlights).values(row)
+  return c.json({ item: row })
+})
+
+bookmarksRouter.patch('/:id/highlights/:hid', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json<{ color?: string; note?: string | null }>()
+  const [existing] = await db.select().from(bookmarkHighlights)
+    .where(and(eq(bookmarkHighlights.id, c.req.param('hid')), eq(bookmarkHighlights.userId, user.id)))
+    .limit(1)
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+  await db.update(bookmarkHighlights).set({
+    color: body.color !== undefined && HL_COLORS.includes(body.color as typeof HL_COLORS[number]) ? body.color : existing.color,
+    note: body.note !== undefined ? (body.note?.slice(0, 4000) ?? null) : existing.note,
+    updatedAt: new Date(),
+  }).where(eq(bookmarkHighlights.id, existing.id))
+  return c.json({ ok: true })
+})
+
+bookmarksRouter.delete('/:id/highlights/:hid', requireAuth, async (c) => {
+  const user = c.get('user')
+  await db.delete(bookmarkHighlights)
+    .where(and(eq(bookmarkHighlights.id, c.req.param('hid')), eq(bookmarkHighlights.userId, user.id)))
+  return c.json({ ok: true })
 })
 
 // ── Hide / unhide a global item (reuses the legacy bookmarks.hidden pref key) ────

@@ -17,6 +17,7 @@ import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdv
 import { AdminCompanionsTab, type CompanionView } from '@/components/admin/AdminCompanionsTab'
 import { AdminSecurityTab } from '@/components/admin/AdminSecurityTab'
 import { AdminNewsTab } from '@/components/admin/AdminNewsTab'
+import { AdminNotificationsTab } from '@/components/admin/AdminNotificationsTab'
 import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
 import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
@@ -200,6 +201,7 @@ export function AdminPage() {
         {section === 'apps'       && <AdminAppsTab openSignal={openSignal} />}
         {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
         {section === 'news'       && <AdminNewsTab />}
+        {section === 'notifications' && <AdminNotificationsTab openSignal={openSignal} />}
         {section === 'devices'    && <AdminDevicesTab view={sub} />}
         {section === 'integrations' && sub === 'frigate'         && <AdminFrigateTab />}
         {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}

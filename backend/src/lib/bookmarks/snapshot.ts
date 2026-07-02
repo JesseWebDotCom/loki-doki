@@ -52,6 +52,7 @@ export interface SnapshotResult {
   faviconRel: string | null // archive-relative path to the locally-saved site favicon
   assetCount: number
   totalBytes: number
+  rawHtml: string // pre-sanitization page HTML — watch selectors need class/id attrs
 }
 
 // Best site favicon from the page <head> (prefer larger / apple-touch / svg/png), falling
@@ -248,7 +249,7 @@ export async function capturePage(
     try { if (statSync(join(absDir, faviconLocal)).size > 0) faviconRel = faviconLocal } catch { /* failed */ }
   }
 
-  return { reader, snapshotRelDir, thumbRel, faviconRel, assetCount: fetched.size, totalBytes }
+  return { reader, snapshotRelDir, thumbRel, faviconRel, assetCount: fetched.size, totalBytes, rawHtml: html }
 }
 
 // ── HTML rewriting ─────────────────────────────────────────────────────────────

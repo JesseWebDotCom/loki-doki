@@ -64,6 +64,9 @@ self.addEventListener("push", (event) => {
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       data: { url: payload.url || "/" },
+      // Urgent alerts (security cameras) stay on screen until dismissed.
+      requireInteraction: payload.priority === "urgent",
+      tag: payload.tag || undefined,
     })
   );
 });

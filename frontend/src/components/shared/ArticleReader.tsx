@@ -25,6 +25,9 @@ export interface ArticleReaderProps {
   contentHtml?: string | null
   readingMins?: number | null
   className?: string
+  /** Ref to the rendered prose container — the highlights layer (Bookmarks reader)
+   *  walks its text nodes to anchor/apply <mark> wrappers. */
+  contentRef?: React.Ref<HTMLDivElement>
 }
 
 const PROSE = cn(
@@ -59,6 +62,7 @@ export function ArticleReader({
   contentHtml,
   readingMins,
   className,
+  contentRef,
 }: ArticleReaderProps) {
   const host = (() => {
     try {
@@ -101,7 +105,7 @@ export function ArticleReader({
       )}
 
       {contentHtml ? (
-        <div className={PROSE} dangerouslySetInnerHTML={{ __html: proxyHtmlImages(contentHtml) }} />
+        <div ref={contentRef} className={PROSE} dangerouslySetInnerHTML={{ __html: proxyHtmlImages(contentHtml) }} />
       ) : (
         <div className="max-w-[44rem] mx-auto text-muted-foreground">
           No readable content was extracted.{' '}

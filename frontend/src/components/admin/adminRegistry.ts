@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera, Cpu, MonitorPlay, Plug2 } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera, Cpu, MonitorPlay, Plug2, BellRing } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -106,6 +106,25 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines', 'shared'],
     description: 'Shared News categories and their RSS feeds (visible to everyone)',
     subsections: [],
+  },
+  {
+    id: 'notifications', label: 'Notifications', icon: BellRing,
+    keywords: ['notifications', 'push', 'telegram', 'email', 'smtp', 'bot', 'digest', 'delivery', 'alerts', 'quiet hours', 'vapid'],
+    description: 'Delivery channels: Telegram bot, email (SMTP), web push, and the delivery log',
+    subsections: [
+      { id: 'telegram', label: 'Telegram Bot', kind: 'anchor', anchorId: 'telegram',
+        keywords: ['bot', 'botfather', 'token', 'chat', 'telegram'],
+        description: 'Household bot for notifications and companion chat' },
+      { id: 'email', label: 'Email (SMTP)', kind: 'anchor', anchorId: 'email',
+        keywords: ['smtp', 'mail', 'email', 'sender', 'app password'],
+        description: 'SMTP account for email notifications and summaries' },
+      { id: 'web-push', label: 'Web Push', kind: 'anchor', anchorId: 'web-push',
+        keywords: ['vapid', 'browser', 'pwa', 'push', 'device'],
+        description: 'Browser/device push status and app URL' },
+      { id: 'log', label: 'Delivery Log', kind: 'anchor', anchorId: 'log',
+        keywords: ['log', 'failures', 'health', 'history', 'deliveries'],
+        description: 'Recent delivery attempts and channel health' },
+    ],
   },
   {
     id: 'devices', label: 'Devices', icon: Cpu,

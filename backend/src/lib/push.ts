@@ -60,24 +60,28 @@ export interface PushPayload {
   title: string
   body?: string
   url?: string // opened on notificationclick
+  priority?: 'info' | 'normal' | 'urgent' // sw.js sets requireInteraction for 'urgent'
 }
 
 /** Send a push to every subscription owned by `userId`. Dead subscriptions (410/404 —
- *  the browser unsubscribed or the endpoint expired) are pruned automatically. */
-export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
-  await sendPushToUsers([userId], payload)
+ *  the browser unsubscribed or the endpoint expired) are pruned automatically.
+ *  Returns how many endpoints accepted the push so callers (the notify dispatcher)
+ *  can tell "delivered somewhere" from "all endpoints failed". */
+export async function sendPushToUser(userId: string, payload: PushPayload): Promise<{ sent: number }> {
+  return sendPushToUsers([userId], payload)
 }
 
 /** Same as sendPushToUser but for several recipients at once (e.g. every admin). */
-export async function sendPushToUsers(userIds: string[], payload: PushPayload): Promise<void> {
-  if (!userIds.length) return
+export async function sendPushToUsers(userIds: string[], payload: PushPayload): Promise<{ sent: number }> {
+  if (!userIds.length) return { sent: 0 }
   await ensureConfigured()
 
   const subs = await db.select().from(pushSubscriptions).where(inArray(pushSubscriptions.userId, userIds))
-  if (!subs.length) return
+  if (!subs.length) return { sent: 0 }
 
   const body = JSON.stringify(payload)
   const dead: string[] = []
+  let sent = 0
 
   await Promise.all(subs.map(async (sub) => {
     try {
@@ -85,6 +89,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dhKey, auth: sub.authKey } },
         body,
       )
+      sent++
     } catch (err) {
       const status = (err as { statusCode?: number }).statusCode
       if (status === 404 || status === 410) dead.push(sub.id)
@@ -93,6 +98,17 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
   }))
 
   if (dead.length) await db.delete(pushSubscriptions).where(inArray(pushSubscriptions.id, dead))
+  return { sent }
+}
+
+/** Whether the user has at least one push subscription (dispatcher endpoint check). */
+export async function hasPushSubscription(userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: pushSubscriptions.id })
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, userId))
+    .limit(1)
+  return !!row
 }
 
 /** Every admin's user id — the audience for household-wide alerts (camera events today)

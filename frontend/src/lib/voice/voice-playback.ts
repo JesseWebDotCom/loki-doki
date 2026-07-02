@@ -40,6 +40,38 @@ export class VoicePlayback {
     return this.playing;
   }
 
+  private pausedState = false;
+  private pauseListeners: ((paused: boolean) => void)[] = [];
+
+  get isPaused(): boolean {
+    return this.pausedState;
+  }
+
+  onPauseChange(listener: (paused: boolean) => void): () => void {
+    this.pauseListeners.push(listener);
+    return () => {
+      this.pauseListeners = this.pauseListeners.filter((l) => l !== listener);
+    };
+  }
+
+  /** Freeze playback in place. AudioContext.suspend() halts the scheduler's clock and
+   *  all scheduled buffers, so resume() picks up mid-sentence with nothing lost. */
+  async pause(): Promise<void> {
+    const ctx = this.scheduler?.audioContext;
+    if (!ctx || this.pausedState) return;
+    try { await ctx.suspend(); } catch { return; }
+    this.pausedState = true;
+    this.pauseListeners.forEach((l) => l(true));
+  }
+
+  async resume(): Promise<void> {
+    const ctx = this.scheduler?.audioContext;
+    if (!ctx || !this.pausedState) return;
+    try { await ctx.resume(); } catch { return; }
+    this.pausedState = false;
+    this.pauseListeners.forEach((l) => l(false));
+  }
+
   onStateChange(listener: (playing: boolean) => void): () => void {
     this.listeners.push(listener);
     return () => {
@@ -179,6 +211,12 @@ export class VoicePlayback {
     this.dispatchTail = Promise.resolve();
     this.activeFetches = 0;
     this.fetchWaiters = [];
+    // A stopped context must not stay suspended — the next play() would be silent.
+    if (this.pausedState) {
+      this.pausedState = false;
+      void this.scheduler?.audioContext.resume().catch(() => {});
+      this.pauseListeners.forEach((l) => l(false));
+    }
     this.notify(false);
   }
 

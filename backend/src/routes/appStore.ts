@@ -1,8 +1,6 @@
 import { Hono } from 'hono'
-import { isNull } from 'drizzle-orm'
-import { db } from '@/db'
-import { notifications } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
+import { emitNotification } from '@/lib/notify'
 import type { AppEnv } from '@/types'
 
 const appStore = new Hono<AppEnv>()
@@ -16,20 +14,19 @@ appStore.post('/request', requireAuth, async (c) => {
   const body = await c.req.json() as { toolId: string; toolName: string; message?: string }
   if (!body.toolId || !body.toolName) return c.json({ error: 'toolId and toolName are required' }, 400)
 
-  const id = crypto.randomUUID()
-  const now = new Date()
-  await db.insert(notifications).values({
-    id,
-    userId: null,
+  const id = await emitNotification({
     type: 'install_request',
-    payload: JSON.stringify({
+    userId: null,
+    title: 'App install requested',
+    body: `${user.firstName} asked for ${body.toolName}`,
+    url: '/admin/apps',
+    payload: {
       requestedBy: user.id,
       requestedByName: user.firstName,
       toolId: body.toolId,
       toolName: body.toolName,
       message: body.message ?? '',
-    }),
-    createdAt: now,
+    },
   })
   return c.json({ ok: true, id })
 })

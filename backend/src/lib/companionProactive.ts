@@ -15,10 +15,10 @@
 
 import { and, eq, isNull, gte, inArray, desc } from 'drizzle-orm'
 import { db } from '@/db'
-import { memories, users, userPreferences, notifications, characters } from '@/db/schema'
+import { memories, users, userPreferences, characters } from '@/db/schema'
 import { ollamaChat } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
-import { sendPushToUser } from '@/lib/push'
+import { emitNotification } from '@/lib/notify'
 import { logger } from '@/lib/logger'
 
 const TICK_MS = 60 * 60 * 1000            // consider check-ins hourly
@@ -139,19 +139,19 @@ async function maybeCheckIn(user: { id: string; nickname: string | null; firstNa
   if (!message || message.length < 8 || message.length > 300) return
 
   const now = new Date()
-  await db.insert(notifications).values({
-    id: crypto.randomUUID(),
-    userId: user.id,
+  await emitNotification({
     type: 'companion_checkin',
-    payload: JSON.stringify({
+    userId: user.id,
+    title: characterName,
+    body: message,
+    url: '/chat',
+    payload: {
       message,
       characterId: charRow?.id ?? null,
       characterName,
       memoryId: thread.id,
-    }),
-    createdAt: now,
+    },
   })
-  void sendPushToUser(user.id, { title: characterName, body: message, url: '/chat' }).catch(() => {})
 
   await db
     .insert(userPreferences)

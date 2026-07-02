@@ -938,11 +938,55 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin'] }).notNull(),
+  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
+  // Delivery routing (lib/notify): 'urgent' breaks through quiet hours; 'info' is
+  // bell-only fodder. Priority lives as a real column (not payload) because the
+  // dispatcher and quiet-hours logic query on it.
+  priority: text('priority', { enum: ['info', 'normal', 'urgent'] }).notNull().default('normal'),
+  // Optional idempotency key: emitNotification() skips the insert when an unread row
+  // with the same key exists (replaces payload-LIKE dedupe hacks).
+  dedupeKey: text('dedupe_key'),
   readAt: integer('read_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
+
+// Per-user delivery endpoints beyond web push (push endpoints live in push_subscriptions).
+// One row per (user, kind): kind='telegram' → address is the chat id (label @username);
+// kind='email' → address is the email (verified via a 6-digit code). See lib/notify/.
+export const notificationChannels = sqliteTable('notification_channels', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['telegram', 'email'] }).notNull(),
+  address: text('address').notNull(),
+  label: text('label'),
+  verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
+  verifyCode: text('verify_code'),
+  verifyExpiresAt: integer('verify_expires_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  userKindUnique: unique().on(t.userId, t.kind),
+}))
+
+// Delivery log + digest/deferred queue in one table (status is the discriminator).
+// title/body/url are denormalized from the notification so a digest flush still works
+// after the user clears their bell list. Pruned to the newest ~1000 terminal rows.
+export const notificationDeliveries = sqliteTable('notification_deliveries', {
+  id: text('id').primaryKey(),
+  notificationId: text('notification_id'),
+  userId: text('user_id').notNull(),
+  channel: text('channel', { enum: ['push', 'telegram', 'email'] }).notNull(),
+  status: text('status', { enum: ['sent', 'failed', 'digest', 'deferred'] }).notNull(),
+  title: text('title').notNull(),
+  body: text('body'),
+  url: text('url'),
+  error: text('error'),
+  attempts: integer('attempts').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  sentAt: integer('sent_at', { mode: 'timestamp' }),
+}, (t) => ({
+  statusUserIdx: index('idx_notification_deliveries_status').on(t.status, t.userId),
+}))
 
 // ── Content profiles ──────────────────────────────────────────────────────────
 // A named set of per-category content ceilings, assigned to users. Built-ins are
@@ -1574,6 +1618,16 @@ export const bookmarks = sqliteTable('bookmarks', {
   contentHash: text('content_hash'),
   lastCheckedAt: integer('last_checked_at', { mode: 'timestamp' }),
   contentChangedAt: integer('content_changed_at', { mode: 'timestamp' }),
+  // ── Watch conditions (scoped change monitoring — lib/bookmarks/watch.ts) ──
+  // watchSelector: CSS selector scoping the diff to part of the page (null = reader text).
+  // Runs against the RAW page HTML via Bun's HTMLRewriter (the sanitizer strips class/id).
+  // watchMode + keyword/threshold turn "changed" into a real condition ("price below 500",
+  // "'in stock' appeared"). lastWatchValue is the scoped extract at last capture.
+  watchSelector: text('watch_selector'),
+  watchMode: text('watch_mode', { enum: ['any_change', 'keyword_appears', 'keyword_disappears', 'number_below', 'number_above'] }).notNull().default('any_change'),
+  watchKeyword: text('watch_keyword'),
+  watchThreshold: real('watch_threshold'),
+  lastWatchValue: text('last_watch_value'),
   // reserved for later phases (no P1 UI):
   screenshotPath: text('screenshot_path'),
   snapshotPath: text('snapshot_path'),
@@ -1609,6 +1663,7 @@ export const bookmarkSnapshots = sqliteTable('bookmark_snapshots', {
   wordCount: integer('word_count').notNull().default(0),
   contentHash: text('content_hash'),
   changed: integer('changed', { mode: 'boolean' }).notNull().default(false),
+  watchValue: text('watch_value'),  // scoped watch extract at this capture (value-over-time timeline)
 }, t => ({
   bookmarkIdx: index('bookmark_snapshots_bookmark_idx').on(t.bookmarkId, t.capturedAt),
 }))
@@ -1617,6 +1672,45 @@ export const bookmarkItemTags = sqliteTable('bookmark_item_tags', {
   itemId: text('item_id').notNull().references(() => bookmarks.id, { onDelete: 'cascade' }),
   tagId: text('tag_id').notNull().references(() => bookmarkTags.id, { onDelete: 'cascade' }),
 }, t => ({ pk: primaryKey({ columns: [t.itemId, t.tagId] }) }))
+
+// ─── Bookmark content chunks (semantic search) ─────────────────────────────────
+// ~1.4k-char paragraph-packed chunks of an offline article's reader text, embedded
+// (nomic via Ollama; JSON float array — docChunks convention) DETACHED after each
+// archive. Powers paraphrase recall in global search, deep /ask context on long
+// articles, and the bookmarksLibrary tool's FTS-miss fallback. Rows are absent when
+// embeddings were unavailable at archive time — every consumer degrades to FTS.
+export const bookmarkChunks = sqliteTable('bookmark_chunks', {
+  id: text('id').primaryKey(),
+  bookmarkId: text('bookmark_id').notNull().references(() => bookmarks.id, { onDelete: 'cascade' }),
+  idx: integer('idx').notNull(),
+  text: text('text').notNull(),
+  embedding: text('embedding'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  bookmarkIdx: index('bookmark_chunks_bookmark_idx').on(t.bookmarkId),
+}))
+
+// ─── Bookmark highlights & notes ───────────────────────────────────────────────
+// Per-user annotations on an article. kind='highlight' anchors a text quote in the
+// reader view (prefix/suffix = ~32 chars of surrounding plain text to disambiguate
+// duplicate phrases and survive re-archives); kind='note' is a page-level note with an
+// empty quote. Anchors are TEXT QUOTES, not offsets — reflow/asset changes don't orphan
+// them, only genuine content edits do (orphans stay listed with a badge, never dropped).
+export const bookmarkHighlights = sqliteTable('bookmark_highlights', {
+  id: text('id').primaryKey(),
+  bookmarkId: text('bookmark_id').notNull().references(() => bookmarks.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['highlight', 'note'] }).notNull().default('highlight'),
+  quote: text('quote').notNull().default(''),
+  prefix: text('prefix').notNull().default(''),
+  suffix: text('suffix').notNull().default(''),
+  color: text('color').notNull().default('yellow'),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  bookmarkUserIdx: index('bookmark_highlights_bookmark_idx').on(t.bookmarkId, t.userId),
+}))
 
 // ─── Skills / Bundles ───────────────────────────────────────────────────────────
 // User-authored markdown "skills" (frontmatter + body) shape the companion's reply.

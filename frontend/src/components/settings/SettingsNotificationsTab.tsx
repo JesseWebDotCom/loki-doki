@@ -1,133 +1,121 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CheckCheck, Loader2, Trash2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { Switch } from '@/components/ui/switch'
+// Settings → Notifications: channels ("where"), routing matrix ("what to send where"),
+// timing (quiet hours + daily summary), and history. Channel plumbing lives in
+// ./notifications/*; prefs persist via PATCH /api/users/:id/preferences.
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CheckCheck, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/hooks/useNotifications'
-import { NOTIF_CATEGORIES, notifIcon, notifLabel, timeAgo } from '@/lib/notifications'
-import { getPushSubscription, pushSupported, subscribeToPush, unsubscribeFromPush } from '@/lib/push'
+import {
+  notifIcon, notifLabel, timeAgo,
+  type ChannelStatus, type DeliveryChannel, type DeliveryMatrix, type DeliveryMode,
+} from '@/lib/notifications'
+import { ChannelsSection } from './notifications/ChannelsSection'
+import { DeliveryMatrixSection } from './notifications/DeliveryMatrixSection'
+import { TimingSection, type QuietHoursPref } from './notifications/TimingSection'
 
-const PREF_KEY = 'notifications.muted'
-
-function PushSection() {
-  const supported = pushSupported()
-  const [subscribed, setSubscribed] = useState(false)
-  const [checking, setChecking] = useState(true)
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (!supported) { setChecking(false); return }
-    getPushSubscription().then((s) => setSubscribed(!!s)).finally(() => setChecking(false))
-  }, [supported])
-
-  const toggle = async (enabled: boolean) => {
-    setBusy(true)
-    try {
-      if (enabled) { await subscribeToPush(); setSubscribed(true); toast.success('Push notifications enabled on this device') }
-      else { await unsubscribeFromPush(); setSubscribed(false); toast.success('Push notifications disabled on this device') }
-    } catch (e) {
-      toast.error((e as Error).message || 'Could not update push notifications')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <section>
-      <p className="text-sm font-medium mb-1">Push Notifications</p>
-      <p className="text-xs text-muted-foreground mb-4">
-        Get camera alerts and other household notifications on this device, even when the app isn't open.
-      </p>
-      <div className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium">This device</p>
-          <p className="text-xs text-muted-foreground">
-            {!supported ? "Not supported in this browser" : checking ? 'Checking…' : subscribed ? 'Enabled' : 'Off'}
-          </p>
-        </div>
-        {checking || busy
-          ? <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          : <Switch checked={subscribed} disabled={!supported} onCheckedChange={(v) => void toggle(v)} />}
-      </div>
-    </section>
-  )
-}
+const MUTED_KEY = 'notifications.muted'
+const MATRIX_KEY = 'notifications.delivery'
+const QUIET_KEY = 'notifications.quiet'
+const DIGEST_TIME_KEY = 'notifications.digest_time'
 
 export function SettingsNotificationsTab() {
   const { user } = useAuth()
   const { notifications, loadNotifications, markRead, markAllRead, clearAll } = useNotifications()
+
+  const [channels, setChannels] = useState<ChannelStatus | null>(null)
   const [muted, setMuted] = useState<string[]>([])
+  const [matrix, setMatrix] = useState<DeliveryMatrix>({})
+  const [quiet, setQuiet] = useState<QuietHoursPref>({ enabled: false, start: '22:00', end: '07:00' })
+  const [digestTime, setDigestTime] = useState('18:00')
   const [saving, setSaving] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
 
-  // Load the saved delivery preference + the current history on mount.
+  const refreshChannels = useCallback(() => {
+    fetch('/api/notify/channels', { credentials: 'include' })
+      .then((r) => (r.ok ? (r.json() as Promise<ChannelStatus>) : null))
+      .then((data) => { if (data) setChannels(data) })
+      .catch(() => {})
+  }, [])
+
+  // Load channels + saved prefs + history on mount.
   useEffect(() => {
     if (!user?.id) return
     void loadNotifications()
+    refreshChannels()
     fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: Record<string, unknown> | null) => {
-        const saved = data?.[PREF_KEY]
-        if (Array.isArray(saved)) setMuted(saved.filter((x): x is string => typeof x === 'string'))
+        if (!data) return
+        const savedMuted = data[MUTED_KEY]
+        if (Array.isArray(savedMuted)) setMuted(savedMuted.filter((x): x is string => typeof x === 'string'))
+        const savedMatrix = data[MATRIX_KEY]
+        if (savedMatrix && typeof savedMatrix === 'object') setMatrix(savedMatrix as DeliveryMatrix)
+        const savedQuiet = data[QUIET_KEY] as Partial<QuietHoursPref> | undefined
+        if (savedQuiet && typeof savedQuiet === 'object') {
+          setQuiet({ enabled: !!savedQuiet.enabled, start: savedQuiet.start ?? '22:00', end: savedQuiet.end ?? '07:00' })
+        }
+        const savedDigest = data[DIGEST_TIME_KEY]
+        if (typeof savedDigest === 'string') setDigestTime(savedDigest)
       })
       .catch(() => {})
-  }, [user?.id, loadNotifications])
+  }, [user?.id, loadNotifications, refreshChannels])
 
-  const unreadCount = useMemo(() => notifications.filter((n) => n.readAt === null).length, [notifications])
-
-  function persistMuted(next: string[]) {
-    setMuted(next)
+  const persist = useCallback((key: string, value: unknown, after?: () => void) => {
     if (!user?.id) return
     setSaving(true)
     fetch(`/api/users/${user.id}/preferences`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [PREF_KEY]: next }),
+      body: JSON.stringify({ [key]: value }),
     })
-      // Re-pull the list so just-muted types disappear (and unmuted ones return) right away.
-      .then(() => loadNotifications())
+      .then(() => after?.())
       .finally(() => setSaving(false))
+  }, [user?.id])
+
+  const toggleMuted = (types: string[], enabled: boolean) => {
+    const set = new Set(muted)
+    if (enabled) types.forEach((t) => set.delete(t)) // ON = unmute
+    else types.forEach((t) => set.add(t))
+    const next = [...set]
+    setMuted(next)
+    // Re-pull so just-muted types disappear from the bell + list immediately.
+    persist(MUTED_KEY, next, () => void loadNotifications())
   }
 
-  function toggleCategory(types: string[], enabled: boolean) {
-    const set = new Set(muted)
-    if (enabled) types.forEach((t) => set.delete(t)) // turning ON = unmute
-    else types.forEach((t) => set.add(t))            // turning OFF = mute
-    persistMuted([...set])
+  const setMode = (category: string, channel: DeliveryChannel, mode: DeliveryMode) => {
+    const next: DeliveryMatrix = { ...matrix, [category]: { ...matrix[category], [channel]: mode } }
+    setMatrix(next)
+    persist(MATRIX_KEY, next)
   }
+
+  const changeQuiet = (q: QuietHoursPref) => { setQuiet(q); persist(QUIET_KEY, q) }
+  const changeDigestTime = (t: string) => { setDigestTime(t); persist(DIGEST_TIME_KEY, t) }
+
+  const unreadCount = useMemo(() => notifications.filter((n) => n.readAt === null).length, [notifications])
 
   return (
     <div className="p-4 space-y-8">
-      <PushSection />
+      <ChannelsSection channels={channels} onRefresh={refreshChannels} />
 
-      {/* Delivery preferences */}
-      <section>
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-sm font-medium">Delivery</p>
-          {saving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
-        </div>
-        <p className="text-xs text-muted-foreground mb-4">
-          Choose what you're notified about. Muted types are hidden from the bell and the list below.
-        </p>
-        <div className="space-y-1">
-          {NOTIF_CATEGORIES.map(({ key, label, description, types, Icon }) => {
-            const enabled = !types.some((t) => muted.includes(t))
-            return (
-              <div key={key} className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors">
-                <Icon className="size-4 text-muted-foreground shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{label}</p>
-                  <p className="text-xs text-muted-foreground">{description}</p>
-                </div>
-                <Switch checked={enabled} onCheckedChange={(v) => toggleCategory(types, v)} />
-              </div>
-            )
-          })}
-        </div>
-      </section>
+      <DeliveryMatrixSection
+        channels={channels}
+        muted={muted}
+        matrix={matrix}
+        onToggleMuted={toggleMuted}
+        onSetMode={setMode}
+        saving={saving}
+      />
+
+      <TimingSection
+        quiet={quiet}
+        digestTime={digestTime}
+        onQuietChange={changeQuiet}
+        onDigestTimeChange={changeDigestTime}
+      />
 
       {/* History */}
       <section>

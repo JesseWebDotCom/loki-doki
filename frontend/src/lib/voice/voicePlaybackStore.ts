@@ -44,6 +44,14 @@ export function stopSpeech(): void {
   getVoicePlayback().stop()
 }
 
+export function pauseSpeech(): Promise<void> {
+  return getVoicePlayback().pause()
+}
+
+export function resumeSpeech(): Promise<void> {
+  return getVoicePlayback().resume()
+}
+
 export function useVoicePlaying(): boolean {
   const [, force] = useState(0)
   useEffect(() => {
@@ -55,6 +63,13 @@ export function useVoicePlaying(): boolean {
     }
   }, [])
   return playing
+}
+
+/** Whether the shared playback context is paused (article narration pause button). */
+export function useVoicePaused(): boolean {
+  const [paused, setPaused] = useState(getVoicePlayback().isPaused)
+  useEffect(() => getVoicePlayback().onPauseChange(setPaused), [])
+  return paused
 }
 
 /** Live mouth viseme from the audio bridge (closed when idle). */

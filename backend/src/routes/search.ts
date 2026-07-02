@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import {
-  bookmarks, characters, homeDevices,
+  bookmarks, bookmarkHighlights, characters, homeDevices,
   ytDownloads, ytCollections, ytVideos, ytSubscriptions,
   feedItems, feeds, podcastEpisodes, podcastShows,
 } from '@/db/schema'
@@ -218,8 +218,41 @@ const podcastProvider: Provider = async (userId, q) => {
   }))
 }
 
+// The user's own article highlights and notes — searching your own annotations is often
+// faster than re-finding the article. LIKE (not FTS): hand-authored short strings at
+// household volume are sub-ms with the (bookmarkId, userId) index.
+const highlightsProvider: Provider = async (userId, q) => {
+  const pattern = likePattern(q)
+  const rows = await db.select({
+    id: bookmarkHighlights.id,
+    bookmarkId: bookmarkHighlights.bookmarkId,
+    quote: bookmarkHighlights.quote,
+    note: bookmarkHighlights.note,
+    title: bookmarks.title,
+  }).from(bookmarkHighlights)
+    .innerJoin(bookmarks, eq(bookmarks.id, bookmarkHighlights.bookmarkId))
+    .where(and(
+      eq(bookmarkHighlights.userId, userId),
+      or(
+        sql`${bookmarkHighlights.quote} LIKE ${pattern} ESCAPE '\\'`,
+        sql`${bookmarkHighlights.note} LIKE ${pattern} ESCAPE '\\'`,
+      ),
+    ))
+    .limit(PER_PROVIDER)
+  return rows.map((r) => ({
+    type: 'bookmark' as const,
+    id: r.id,
+    title: r.note?.trim() || r.quote.slice(0, 80),
+    subtitle: `Highlight · ${r.title}`,
+    icon: null,
+    route: `/bookmarks/read/${r.bookmarkId}`,
+    group: 'Highlights',
+  }))
+}
+
 const PROVIDERS: Provider[] = [
   bookmarksProvider,
+  highlightsProvider,
   newsProvider,
   youtubeProvider,
   podcastProvider,

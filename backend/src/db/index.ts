@@ -1591,6 +1591,45 @@ export function runMigrations() {
   addColumn('bookmarks', 'capture_media', 'INTEGER NOT NULL DEFAULT 0')
   addColumn('bookmarks', 'archive_org_url', 'TEXT')
 
+  // Watch conditions (scoped change monitoring — lib/bookmarks/watch.ts).
+  addColumn('bookmarks', 'watch_selector', 'TEXT')
+  addColumn('bookmarks', 'watch_mode', `TEXT NOT NULL DEFAULT 'any_change'`)
+  addColumn('bookmarks', 'watch_keyword', 'TEXT')
+  addColumn('bookmarks', 'watch_threshold', 'REAL')
+  addColumn('bookmarks', 'last_watch_value', 'TEXT')
+  addColumn('bookmark_snapshots', 'watch_value', 'TEXT')
+
+  // Bookmark content chunks for semantic search (schema.ts bookmarkChunks).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS bookmark_chunks (
+      id TEXT NOT NULL PRIMARY KEY,
+      bookmark_id TEXT NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      embedding TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS bookmark_chunks_bookmark_idx ON bookmark_chunks(bookmark_id);
+  `)
+
+  // Bookmark highlights & notes (schema.ts bookmarkHighlights).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS bookmark_highlights (
+      id TEXT NOT NULL PRIMARY KEY,
+      bookmark_id TEXT NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'highlight',
+      quote TEXT NOT NULL DEFAULT '',
+      prefix TEXT NOT NULL DEFAULT '',
+      suffix TEXT NOT NULL DEFAULT '',
+      color TEXT NOT NULL DEFAULT 'yellow',
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS bookmark_highlights_bookmark_idx ON bookmark_highlights(bookmark_id, user_id);
+  `)
+
   // News categories: feed_folders doubles as the News category table. Back-fill slug/locked
   // for existing DBs, and relax user_id to nullable (shared/built-in categories have userId=null).
   addColumn('feed_folders', 'slug', 'TEXT')
@@ -2080,5 +2119,39 @@ export function runMigrations() {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
+  `)
+
+  // Notification delivery layer — see schema.ts notificationChannels/notificationDeliveries
+  // and lib/notify/. priority/dedupe_key power the dispatcher's routing + idempotency.
+  addColumn('notifications', 'priority', `TEXT NOT NULL DEFAULT 'normal'`)
+  addColumn('notifications', 'dedupe_key', 'TEXT')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS notification_channels (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      address TEXT NOT NULL,
+      label TEXT,
+      verified INTEGER NOT NULL DEFAULT 0,
+      verify_code TEXT,
+      verify_expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, kind)
+    );
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id TEXT NOT NULL PRIMARY KEY,
+      notification_id TEXT,
+      user_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      status TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      url TEXT,
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      sent_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status ON notification_deliveries(status, user_id);
   `)
 }

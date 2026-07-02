@@ -1,4 +1,4 @@
-import { Bell, Camera, CheckCircle2, Download, HardDrive, MessageCircleHeart } from 'lucide-react'
+import { Bell, Camera, CheckCircle2, Download, Eye, HardDrive, MessageCircleHeart } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AppNotification } from '@/hooks/useNotifications'
 
@@ -12,6 +12,7 @@ export function notifIcon(type: NotifType): LucideIcon {
     case 'download_complete': return HardDrive
     case 'frigate_event':     return Camera
     case 'companion_checkin': return MessageCircleHeart
+    case 'watcher_alert':     return Eye
     default:                  return Bell
   }
 }
@@ -29,6 +30,8 @@ export function notifLabel(n: AppNotification): string {
         return `${p.name ?? 'File'} download complete`
       case 'companion_checkin':
         return p.characterName ? `${p.characterName}: ${p.message ?? 'checked in'}` : (p.message ?? 'Your companion checked in')
+      case 'watcher_alert':
+        return p.message ?? 'A watched page changed'
       default:
         return p.message ?? 'System notification'
     }
@@ -61,10 +64,26 @@ export interface NotifCategory {
   Icon: LucideIcon
 }
 
+// Keep in sync with backend/src/lib/notify/categories.ts (CATEGORY_META) — the backend
+// copy drives delivery routing; this one drives display. Same keys, same type mapping.
 export const NOTIF_CATEGORIES: NotifCategory[] = [
   { key: 'camera',    label: 'Security camera events', description: 'Motion and people detected by your cameras', types: ['frigate_event'],                       Icon: Camera       },
+  { key: 'watchers',  label: 'Page watchers',          description: 'Watched web pages that changed — price drops, stock alerts', types: ['watcher_alert'],       Icon: Eye          },
   { key: 'downloads', label: 'Downloads finished',     description: 'Maps, models, and other downloads completing', types: ['download_complete'],                  Icon: HardDrive    },
   { key: 'installs',  label: 'App install updates',    description: 'Install requests and completed installs',      types: ['install_request', 'install_complete'], Icon: CheckCircle2 },
-  { key: 'system',    label: 'System messages',        description: 'Page-change alerts and general notices',       types: ['system'],                             Icon: Bell         },
+  { key: 'system',    label: 'System messages',        description: 'Maintenance notices and general messages',     types: ['system'],                             Icon: Bell         },
   { key: 'companion', label: 'Companion check-ins',    description: 'Your companion occasionally asks about things you shared — at most once a day', types: ['companion_checkin'], Icon: MessageCircleHeart },
 ]
+
+// Delivery matrix types (Settings → Notifications "What to send where").
+export type DeliveryChannel = 'push' | 'telegram' | 'email'
+export type DeliveryMode = 'off' | 'instant' | 'digest'
+export type DeliveryMatrix = Partial<Record<string, Partial<Record<DeliveryChannel, DeliveryMode>>>>
+
+export interface ChannelStatus {
+  push: { subscriptions: number }
+  telegram: { linked: boolean; label: string | null } | null
+  telegramAvailable: boolean
+  email: { address: string; verified: boolean } | null
+  emailAvailable: boolean
+}

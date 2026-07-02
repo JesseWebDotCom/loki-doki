@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
-import { eq, and, isNull, or, desc, notInArray } from 'drizzle-orm'
+import { eq, and, isNull, or, desc, notInArray, count } from 'drizzle-orm'
 import { db } from '@/db'
 import { notifications, userPreferences } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
-import { notifyPod } from '@/lib/pod/notifyPod'
+import { emitNotification } from '@/lib/notify'
 import type { AppEnv } from '@/types'
 
 const notificationsRoute = new Hono<AppEnv>()
@@ -17,7 +17,7 @@ const visibleTo = (user: { id: string; role: string }) =>
     : eq(notifications.userId, user.id)
 
 type NotifType = typeof notifications.$inferSelect['type']
-const NOTIF_TYPES: readonly NotifType[] = ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event']
+const NOTIF_TYPES: readonly NotifType[] = ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert']
 
 // Per-user "delivery" preference (Settings → Notifications). A user can mute whole
 // notification types; we filter at read time rather than creation time because the
@@ -69,11 +69,11 @@ notificationsRoute.get('/', requireAuth, async (c) => {
 notificationsRoute.get('/unread-count', requireAuth, async (c) => {
   const user = c.get('user')
   const muted = await mutedTypes(user.id)
-  const rows = await db
-    .select({ id: notifications.id })
+  const [row] = await db
+    .select({ n: count() })
     .from(notifications)
     .where(and(whereFor(user, muted), isNull(notifications.readAt)))
-  return c.json({ unreadCount: rows.length })
+  return c.json({ unreadCount: row?.n ?? 0 })
 })
 
 // ── PATCH /api/notifications/:id/read ─────────────────────────────────────────
@@ -113,21 +113,18 @@ notificationsRoute.delete('/', requireAuth, async (c) => {
 
 notificationsRoute.post('/', requireAdmin, async (c) => {
   const body = await c.req.json() as {
-    type: 'install_request' | 'install_complete' | 'download_complete' | 'system' | 'frigate_event'
+    type: NotifType
     userId?: string | null
     payload?: Record<string, unknown>
+    priority?: 'info' | 'normal' | 'urgent'
   }
-  const id = crypto.randomUUID()
-  const now = new Date()
-  const payload = body.payload ?? {}
-  await db.insert(notifications).values({
-    id,
-    userId: body.userId ?? null,
+  if (!NOTIF_TYPES.includes(body.type)) return c.json({ error: 'unknown notification type' }, 400)
+  const id = await emitNotification({
     type: body.type,
-    payload: JSON.stringify(payload),
-    createdAt: now,
+    userId: body.userId ?? null,
+    payload: body.payload ?? {},
+    priority: body.priority,
   })
-  notifyPod(body.userId, body.type, payload)
   return c.json({ ok: true, id })
 })
 

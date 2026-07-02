@@ -6,6 +6,7 @@ const J = { 'Content-Type': 'application/json' }
 export type BookmarkType = 'live' | 'offline'
 export type BookmarkStatus = 'unread' | 'reading' | 'archived'
 export type ArchiveState = 'none' | 'pending' | 'fetching' | 'ready' | 'failed'
+export type WatchMode = 'any_change' | 'keyword_appears' | 'keyword_disappears' | 'number_below' | 'number_above'
 
 export interface BookmarkItem {
   id: string
@@ -40,6 +41,11 @@ export interface BookmarkItem {
   alertOnChange: boolean
   lastCheckedAt: string | null
   contentChangedAt: string | null
+  watchSelector: string | null
+  watchMode: WatchMode
+  watchKeyword: string | null
+  watchThreshold: number | null
+  lastWatchValue: string | null
   createdAt: string
   updatedAt: string
   tags: string[]
@@ -93,7 +99,7 @@ export async function createItem(body: CreateBody): Promise<BookmarkItem> {
   return (await res.json()).item
 }
 
-export async function updateItem(id: string, body: Partial<{ title: string; status: BookmarkStatus; collectionId: string | null; tags: string[]; category: string; useProxy: boolean; useEmbed: boolean; autoUpdate: boolean; autoUpdateIntervalMins: number | null; alertOnChange: boolean; captureMedia: boolean; makeGlobal: boolean }>): Promise<void> {
+export async function updateItem(id: string, body: Partial<{ title: string; status: BookmarkStatus; collectionId: string | null; tags: string[]; category: string; useProxy: boolean; useEmbed: boolean; autoUpdate: boolean; autoUpdateIntervalMins: number | null; alertOnChange: boolean; captureMedia: boolean; makeGlobal: boolean; watchSelector: string | null; watchMode: WatchMode; watchKeyword: string | null; watchThreshold: number | null }>): Promise<void> {
   const res = await fetch(`/api/bookmarks/${id}`, { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(body) })
   if (!res.ok) throw new Error('Failed to update')
 }
@@ -158,7 +164,46 @@ export async function setHidden(id: string, hidden: boolean): Promise<void> {
 }
 
 // ── Version history (snapshots) ──
-export interface BookmarkSnapshotMeta { id: string; capturedAt: string; title: string | null; wordCount: number; changed: boolean }
+// ── Highlights & notes ─────────────────────────────────────────────────────────
+
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink' | 'purple'
+
+export interface Highlight {
+  id: string
+  bookmarkId: string
+  kind: 'highlight' | 'note'
+  quote: string
+  prefix: string
+  suffix: string
+  color: HighlightColor
+  note: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function listHighlights(id: string): Promise<Highlight[]> {
+  const r = await fetch(`/api/bookmarks/${id}/highlights`, opts)
+  if (!r.ok) return []
+  return ((await r.json()) as { items: Highlight[] }).items
+}
+
+export async function createHighlight(id: string, body: {
+  kind?: 'highlight' | 'note'; quote?: string; prefix?: string; suffix?: string; color?: HighlightColor; note?: string
+}): Promise<Highlight> {
+  const r = await fetch(`/api/bookmarks/${id}/highlights`, { ...opts, method: 'POST', headers: J, body: JSON.stringify(body) })
+  if (!r.ok) throw new Error('Failed to save highlight')
+  return ((await r.json()) as { item: Highlight }).item
+}
+
+export async function updateHighlight(id: string, hid: string, body: { color?: HighlightColor; note?: string | null }): Promise<void> {
+  await fetch(`/api/bookmarks/${id}/highlights/${hid}`, { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(body) })
+}
+
+export async function deleteHighlight(id: string, hid: string): Promise<void> {
+  await fetch(`/api/bookmarks/${id}/highlights/${hid}`, { ...opts, method: 'DELETE' })
+}
+
+export interface BookmarkSnapshotMeta { id: string; capturedAt: string; title: string | null; wordCount: number; changed: boolean; watchValue: string | null }
 export interface BookmarkSnapshot extends BookmarkSnapshotMeta { contentHtml: string | null; contentText: string | null; contentHash: string | null; bookmarkId: string }
 
 export async function listSnapshots(id: string): Promise<BookmarkSnapshotMeta[]> {

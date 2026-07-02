@@ -1,10 +1,9 @@
-import { db } from '@/db'
-import { bookmarks } from '@/db/schema'
-import { enqueueArchiveArticle } from '@/lib/downloadJobs'
+import { createBookmark } from '@/lib/bookmarks/create'
 import type { Tool, ToolResult } from './index'
 
 // Companion tool: "save this for me" — save a URL into the user's Bookmarks library.
 // Offline mode extracts the full article in the background; live just bookmarks it.
+// Creation goes through the shared lib (same path as the route + Telegram bridge).
 
 export const saveToBookmarksTool: Tool = {
   id: 'saveToBookmarks',
@@ -37,24 +36,23 @@ export const saveToBookmarksTool: Tool = {
   async execute(args: unknown, config?: Record<string, unknown>): Promise<ToolResult> {
     const { url, offline } = (args ?? {}) as { url?: string; offline?: boolean }
     const userId = config?._userId as string | undefined
-    if (!userId || !url || !/^https?:\/\//i.test(url)) return { success: false }
+    if (!userId) return { success: false }
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return {
+        success: true,
+        data: { saved: false },
+        directReply: "I need the actual link to save it — paste the URL and I'll bookmark it.",
+      }
+    }
 
     const type = offline ? 'offline' : 'live'
-    const now = new Date()
-    const id = crypto.randomUUID()
-    await db.insert(bookmarks).values({
-      id, ownerId: userId, source: type === 'offline' ? 'article' : 'bookmark', sourceRef: null, type,
-      url: url.trim(), title: url.trim(), byline: null, siteName: null, faviconUrl: null, excerpt: null,
-      contentHtml: null, contentText: null, wordCount: 0, readingMins: 0,
-      status: 'unread', archiveState: type === 'offline' ? 'pending' : 'none', archiveError: null, readAt: null,
-      useProxy: false, useEmbed: false, category: 'Other', collectionId: null, sortOrder: 0,
-      screenshotPath: null, snapshotPath: null, ogImagePath: null, isAdult: false, createdAt: now, updatedAt: now,
-    })
-    if (type === 'offline') await enqueueArchiveArticle(id, url.trim())
-
+    const item = await createBookmark({ ownerId: userId, url, type })
     return {
       success: true,
-      data: { saved: true, url, type, answer_payload: { gist: `Saved ${url} to your Bookmarks library${type === 'offline' ? ' for offline reading' : ''}.` } },
+      data: { saved: true, itemId: item.id, url, type },
+      directReply: type === 'offline'
+        ? `Saved it to your bookmarks — I'm archiving an offline copy now.`
+        : `Saved it to your bookmarks.`,
     }
   },
 }
