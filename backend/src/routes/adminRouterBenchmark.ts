@@ -61,7 +61,7 @@ const TEST_CASES: RouterTestCase[] = [
   { id: 'news-explicit',     category: 'news', prompt: "what's in the news today?",                   expectedTools: ['news'] },
   { id: 'news-topic',        category: 'news', prompt: "latest news about AI",                        expectedTools: ['news', 'search'] },
   { id: 'search-person',     category: 'search', prompt: "who is Ada Lovelace?",                      expectedTools: ['search'] },
-  { id: 'youtube-how',       category: 'youtube', prompt: "show me how to make sourdough bread",      expectedTools: ['youtube'] },
+  { id: 'youtube-how',       category: 'youtube', prompt: "show me how to make sourdough bread",      expectedTools: ['youtube', 'recipes'] },
   { id: 'recipes-make',      category: 'recipes', prompt: "how do I make pasta carbonara?",           expectedTools: ['recipes'] },
   { id: 'jokes-tell',        category: 'jokes', prompt: "tell me a joke",                             expectedTools: ['jokes'] },
   { id: 'tvshows-query',     category: 'tvshows', prompt: "how many seasons does Breaking Bad have?", expectedTools: ['tvshows', 'search'] },
@@ -94,6 +94,15 @@ const TEST_CASES: RouterTestCase[] = [
   // ── Explicit memory control ─────────────────────────────────────────────────
   { id: 'mem-remember',      category: 'memory', prompt: "remember that I park in garage spot 14",    expectedTools: ['remember'] },
   { id: 'mem-forget',        category: 'memory', prompt: "forget what I said about my old job",       expectedTools: ['forget'] },
+  // Recall QUESTIONS must never hit the remember tool (which would store the
+  // question text as a junk memory) — the injected memory block answers these.
+  { id: 'mem-recall-q',      category: 'memory', prompt: "do you remember when we first met?",        expectedTools: [] },
+  { id: 'mem-recall-q2',     category: 'memory', prompt: "do you remember what I told you about my sister?", expectedTools: [] },
+
+  // ── Math/unit/define regressions (used to be hijacked by SEARCH_INTENT_RE) ──
+  { id: 'calc-symbols',      category: 'calculator', prompt: "what's 144 / 12 + 7?",                  expectedTools: ['calculator'] },
+  { id: 'unit-cooking',      category: 'unit_conversion', prompt: "convert 350 fahrenheit to celsius", expectedTools: ['unit_conversion'] },
+  { id: 'dict-define',       category: 'dictionary', prompt: "what is the definition of ubiquitous?",  expectedTools: ['dictionary'] },
 ]
 
 const adminRouterBenchmark = new Hono<AppEnv>()

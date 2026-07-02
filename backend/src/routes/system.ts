@@ -22,6 +22,7 @@ import {
   dataDir,
   OLLAMA_BIN_DEST,
   findSystemOllama,
+  ollamaServeEnv,
   isWakewordCoreInstalled,
   isWakewordTrainInstalled,
 } from '@/lib/download'
@@ -191,7 +192,7 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   } catch {
     const systemBin = findSystemOllama()
     if (systemBin) {
-      spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore' }).unref()
+      spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore', env: ollamaServeEnv() }).unref()
       // `ollama serve` takes a few seconds to bind — wait for it to accept connections
       // so step 3 below doesn't falsely report "Ollama unreachable".
       const deadline = Date.now() + 20_000

@@ -251,7 +251,7 @@ async function runPass<T>(model: string, b64: string, prompt: string, schema: ob
     model,
     [{ role: 'user', content: prompt, images: [b64] }],
     undefined,
-    { temperature: 0.1, num_ctx: 4096 },
+    { temperature: 0.1 },
     schema,
   )
   const text = chunk.message.content

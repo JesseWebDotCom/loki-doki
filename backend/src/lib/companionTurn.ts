@@ -338,6 +338,16 @@ export async function runCompanionTurn(
   const noteFor = (name: string, data: unknown): string =>
     `${name} → ${JSON.stringify(data ?? null).slice(0, 600)}`
 
+  // What the LLM sees of a tool result. Tools that provide an answer_payload
+  // (gist/highlights/sources — the ~20-tool convention) get ONLY that: folding the
+  // full payload dumped every raw field into the prompt — a single news call
+  // measured 7,348 prompt tokens (18s of prefill) mostly from item URLs/snippets
+  // the model never needed. Full data still reaches the UI via tool_data/block.
+  const llmFold = (data: unknown): string => {
+    const payload = (data as { answer_payload?: unknown } | null)?.answer_payload
+    return JSON.stringify(payload ?? data ?? null)
+  }
+
   // Shared tool-config assembly (identical for primary and extra calls).
   const buildToolConfig = async (toolId: string): Promise<Record<string, unknown>> => {
     const cfg = await resolveToolConfig(toolId, p.userId)
@@ -467,7 +477,7 @@ export async function runCompanionTurn(
         // than narrating JSON.
         const toolTurnContent = typeof result.synthesisHint === 'string' && result.synthesisHint.trim()
           ? `${p.message}\n\n${result.synthesisHint.trim()}${sourceList}`
-          : `${p.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}${sourceList}`
+          : `${p.message}\n\n[${tool.name} data]: ${llmFold(result.data)}${sourceList}`
         ollamaMessages = [
           ...history,
           { role: 'user', content: toolTurnContent },
@@ -512,7 +522,7 @@ export async function runCompanionTurn(
         fold = extraResult.synthesisHint.trim()
         toolNotes.push(noteFor(call.tool.name, extraResult.data))
       } else {
-        fold = `[${call.tool.name} data]: ${JSON.stringify(extraResult.data)}`
+        fold = `[${call.tool.name} data]: ${llmFold(extraResult.data)}`
         toolNotes.push(noteFor(call.tool.name, extraResult.data))
       }
     } else {

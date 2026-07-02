@@ -131,6 +131,10 @@ export class WakeDetector {
   /** Fired once per detection (after hysteresis + suppression). */
   onDetect: (() => void) | null = null
 
+  /** Fired with every smoothed frame score (80 ms cadence) — consumed by the
+   *  FA/hr eval harness (scripts/eval/wakeword-fa-eval.ts) and future testers. */
+  onScore: ((smoothed: number) => void) | null = null
+
   constructor(opts: WakeDetectorOptions = {}) {
     this.modelId = opts.modelId ?? null
     const envT = Number(process.env.POD_WAKE_THRESHOLD)
@@ -269,6 +273,7 @@ export class WakeDetector {
   private diagPeak = 0
   private diagN = 0
   private handleScore(score: number): void {
+    this.onScore?.(score)
     const threshold = this.thresholdOverride ?? this.calibratedThreshold
     // diag: report the peak smoothed score periodically so we can see how close it gets.
     this.diagPeak = Math.max(this.diagPeak, score)

@@ -203,7 +203,7 @@ async function llmResolve(message: string, candidates: CatalogEntity[], model: s
     },
     required: ['intent', 'entity_ids'],
   }
-  const res = await ollamaChat(model, [{ role: 'system', content: system }, { role: 'user', content: user }], undefined, { temperature: 0.1, num_ctx: 4096 }, format)
+  const res = await ollamaChat(model, [{ role: 'system', content: system }, { role: 'user', content: user }], undefined, { temperature: 0.1 }, format)
   let parsed: LLMOut
   try { parsed = JSON.parse(res.message.content ?? '{}') as LLMOut } catch { return null }
 

@@ -538,6 +538,17 @@ export function findSystemOllama(): string | null {
   return SYSTEM_OLLAMA_CANDIDATES.find(existsSync) ?? null
 }
 
+// A single companion turn touches four models (chat, router LLM, and two embed
+// models) and vision makes five. Ollama's default keeps only 3 loaded, so every
+// turn evicted the biggest model (the 8B chat model) and paid a measured ~930ms
+// reload plus total KV-cache loss on the next call. All five fit in ~12GB.
+export function ollamaServeEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    OLLAMA_MAX_LOADED_MODELS: process.env.OLLAMA_MAX_LOADED_MODELS ?? '6',
+  }
+}
+
 export async function downloadAndStartOllama(
   onProgress: (p: DownloadProgress) => void,
   signal?: AbortSignal,
@@ -554,7 +565,7 @@ export async function downloadAndStartOllama(
   // installation ships with all required runner binaries (llama-server, etc.)
   const systemBin = findSystemOllama()
   if (systemBin) {
-    spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore' }).unref()
+    spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore', env: ollamaServeEnv() }).unref()
   } else {
     // Fall back to downloading only when no system Ollama exists
     const binPath = join(dataDir, OLLAMA_BIN_DEST)
@@ -590,7 +601,7 @@ export async function downloadAndStartOllama(
         chmodSync(binPath, 0o755)
       }
     }
-    spawn(binPath, ['serve'], { detached: true, stdio: 'ignore' }).unref()
+    spawn(binPath, ['serve'], { detached: true, stdio: 'ignore', env: ollamaServeEnv() }).unref()
   }
 
   // Wait for Ollama to become responsive, emitting indeterminate status each second

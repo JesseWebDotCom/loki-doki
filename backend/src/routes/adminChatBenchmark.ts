@@ -31,7 +31,7 @@ const adminChatBenchmark = new Hono<AppEnv>()
 
 const TEST_MESSAGE = 'hi'
 const ROUTE_MESSAGE = 'what is the weather in paris'
-const GEN_OPTS = { num_ctx: 4096, num_predict: 300 } as const
+const GEN_OPTS = { num_ctx: 8192, num_predict: 300 } as const
 
 /**
  * GET /api/admin/chat-benchmark/stream

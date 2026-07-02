@@ -113,6 +113,19 @@ export async function ollamaEmbed(model: string, input: string): Promise<number[
   return embedding
 }
 
+// Every chat call gets this num_ctx unless the caller deliberately overrides it.
+// Ollama fully reloads a model's runner when num_ctx changes between calls on the
+// SAME model — measured at ~930-980ms per reload, plus total KV-cache loss. The
+// judge/summary/HA-resolver used to omit num_ctx (Ollama default 4096) while chat
+// turns used 8192, so every background sweep forced two reloads of the chat model
+// and the next user turn paid full re-prefill. Matching the chat default here
+// kills the whole class of bug for any future call site.
+export const DEFAULT_NUM_CTX = 8192
+
+function withDefaultCtx(options?: Record<string, unknown>): Record<string, unknown> {
+  return { num_ctx: DEFAULT_NUM_CTX, ...options }
+}
+
 export async function ollamaChat(
   model: string,
   messages: OllamaChatMessage[],
@@ -123,6 +136,7 @@ export async function ollamaChat(
 ): Promise<OllamaChatChunk> {
   // Centralized text safety floor — covers every non-vision generative call here.
   messages = applyTextFloor(messages)
+  options = withDefaultCtx(options)
   const res = await fetch(`${ollamaUrl()}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -148,6 +162,7 @@ export function ollamaChatStream(
 ): AsyncGenerator<OllamaChatChunk> {
   // Centralized text safety floor (skipped for vision / already-floored companion calls).
   messages = applyTextFloor(messages)
+  options = withDefaultCtx(options)
   const payload = JSON.stringify({ model, messages, stream: true, keep_alive: -1, options, think: false })
   const base = new URL(ollamaUrl())
 

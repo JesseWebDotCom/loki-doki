@@ -236,7 +236,7 @@ adminCompanions.post('/test', requireAdmin, async (c) => {
   c.header('X-Accel-Buffering', 'no')
   return streamSSE(c, async (stream) => {
     try {
-      for await (const chunk of ollamaChatStream(model, messages, { temperature: 0.7, num_ctx: 4096, num_predict: 512 })) {
+      for await (const chunk of ollamaChatStream(model, messages, { temperature: 0.7, num_predict: 512 })) {
         if (chunk.message.content) await stream.writeSSE({ event: 'token', data: chunk.message.content })
         if (chunk.done) { await stream.writeSSE({ event: 'done', data: '{}' }); break }
       }

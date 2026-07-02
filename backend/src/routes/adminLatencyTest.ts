@@ -264,7 +264,7 @@ adminLatencyTest.get('/stream', requireAdmin, async (c) => {
           { role: 'user' as const, content: testMessage },
         ]
 
-        for await (const chunk of ollamaChatStream(model, ollamaMessages, { num_ctx: 4096, num_predict: 500 })) {
+        for await (const chunk of ollamaChatStream(model, ollamaMessages, { num_ctx: 8192, num_predict: 500 })) {
           if (chunk.message.content) {
             tokenCount++
             if (!ttfbMs) ttfbMs = Math.round(performance.now() - start)

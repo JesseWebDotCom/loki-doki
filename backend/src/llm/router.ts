@@ -36,6 +36,24 @@ const PLAY_INTENT_RE = /^(?:(?:hey|ok|okay|yo)\b[\s,]+\w+[\s,!]+)?(?:can you|cou
 // …but not non-media uses of "play" (games, instruments, sports).
 const NOT_MEDIA_PLAY_RE = /\bplay(?:ing)?\s+(?:a\s+|some\s+)?(?:game|games|chess|checkers|cards|a\s+round|outside|sports?|football|basketball|tag|the\s+(?:guitar|piano|drums|violin|keyboard))\b/i
 
+// Arithmetic the embeddings can't see: symbols and money-math score near-zero on
+// all-minilm ("what is 17 × 23?" → calculator=0.24), so a regex is the only gate
+// that catches them before the search-intent path swallows the question.
+const MATH_INTENT_RE = /\d\s*[+\-×x*/÷^]\s*\d|\d+(?:\.\d+)?\s*%\s*(?:tip|of|on)|\b(?:tip|split|divide)\b[^.?!]{0,40}\$?\d/i
+
+// Unit conversions phrased as questions ("how many km is 5 miles?", "what is 6
+// foot 2 in cm?") sit just below the tier-2 band on embeddings (0.33–0.39) and
+// used to fall through to web search.
+const UNIT_WORD = '(?:km|kilometers?|miles?|mi|cm|centimeters?|meters?|millimeters?|mm|feet|foot|ft|inch(?:es)?|kg|kilograms?|lbs?|pounds?|oz|ounces?|grams?|stone|celsius|fahrenheit|°\\s?[cf]|kelvin|liters?|litres?|gallons?|quarts?|pints?|cups?|tablespoons?|teaspoons?|tbsp|tsp|ml|milliliters?|acres?|hectares?|mph|kph|knots)'
+const UNIT_CONVERT_RE = new RegExp(
+  `\\bconvert\\b[^.?!]*\\b${UNIT_WORD}\\b|\\bhow many\\s+${UNIT_WORD}\\b|\\b${UNIT_WORD}\\b[^.?!]{0,30}\\b(?:in|to|into)\\s+${UNIT_WORD}\\b|\\bwhat(?:'s| is) that in\\s+${UNIT_WORD}\\b|\\d\\s*${UNIT_WORD}\\b[^.?!]{0,30}\\bin\\s+${UNIT_WORD}\\b`,
+  'i',
+)
+
+// "define X" / "what does X mean" — dictionary scores only ~0.25 on these under
+// all-minilm, so without the regex they dropped to the conversational path.
+const DEFINE_RE = /^(?:define\s+\w|definition of\b|what(?:'s| is) the definition of\b|what does\s+["']?\w+["']?\s+mean\b|how do you (?:pronounce|spell)\b)/i
+
 // A message shaped like a question — leads with an interrogative or ends with "?".
 // Used so a LOW-confidence question still escalates to Tier 2 (which always includes
 // search) instead of dropping to the conversational "no tool → answer from memory"
@@ -152,11 +170,39 @@ interface RouteEntry {
   embeddings: number[][]
 }
 
+// Pseudo-tool absorber: social chitchat that GREETING_RE/REACTION_RE miss ("hey,
+// how has your day been?") used to land in the 0.40–0.65 band against a random
+// tool (sleep, news) and pay a 1.4–1.8s Tier-2 LLM call just to hear "no tool".
+// These exemplars give chitchat something to match INSTEAD — when this entry wins,
+// the router returns conversational directly at embed cost (~30ms).
+const CONVERSATIONAL_ID = '__conversational'
+const CONVERSATIONAL_EXAMPLES = [
+  'hey, how has your day been?',
+  'how was your day today?',
+  'good morning! how are you feeling?',
+  'what have you been up to lately?',
+  "I'm so tired today",
+  'I had a rough day at work',
+  'that made me laugh so hard',
+  'I really appreciate you',
+  "you're the best, thanks for the help",
+  'do you ever get bored?',
+  'what do you think about me?',
+  'tell me something about yourself',
+  'who are you?',
+  'what are you exactly?',
+  'are you a real person?',
+  'how do you feel today?',
+  'I missed talking to you',
+  'guess what happened to me today',
+]
+
 let routeIndex: RouteEntry[] = []
 
 // Stable hash of all tool examples — cache key. Changing any example text invalidates the cache.
 function examplesHash(): string {
   const payload = toolRegistry.map((t) => `${t.id}:${t.examples.join('|')}`).join('\n')
+    + `\n${CONVERSATIONAL_ID}:${CONVERSATIONAL_EXAMPLES.join('|')}`
   return createHash('sha256').update(payload).digest('hex').slice(0, 16)
 }
 
@@ -166,7 +212,9 @@ function loadCache(hash: string): RouteEntry[] | null {
   try {
     const raw = readFileSync(CACHE_FILE, 'utf8')
     const cache = JSON.parse(raw) as CacheFile
-    if (cache.hash === hash) return cache.index
+    // Entry-count check besides the hash: a dev hot-reload mid-edit can persist an
+    // index built from a partial module state under the final hash.
+    if (cache.hash === hash && cache.index.length === toolRegistry.length + 1) return cache.index
   } catch { /* miss */ }
   return null
 }
@@ -193,7 +241,10 @@ export async function initRouter(): Promise<void> {
 
   logger.info('[router] building index (examples changed or first run)…')
   routeIndex = await Promise.all(
-    toolRegistry.map(async (tool) => ({
+    [
+      ...toolRegistry.map((t) => ({ id: t.id, examples: t.examples })),
+      { id: CONVERSATIONAL_ID, examples: CONVERSATIONAL_EXAMPLES },
+    ].map(async (tool) => ({
       toolId: tool.id,
       embeddings: await Promise.all(tool.examples.map(embedForRouter)),
     })),
@@ -272,6 +323,16 @@ export async function routePrompt(
     return { tool: null, args: {}, path: 'reaction' }
   }
 
+  // Fast path: recall QUESTIONS ("do you remember when we first met?") are asking
+  // the companion to use its memory, not to store anything — but they embed right
+  // on top of the remember tool's examples, so tier-1 passthrough was STORING the
+  // question text as a junk memory and never answering it. The injected memory
+  // block is what answers these; route to plain conversation.
+  if (/^(?:hey\s+\w+[\s,]+)?(?:do|did|don'?t|can|would|will) you (?:remember|recall|still remember)\b/i.test(prompt.trim())) {
+    logger.info(`[ROUTER] path=recall-question msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'recall-question' }
+  }
+
   // Fast path: a contextual lookup command ("look it up", "google it"). The thing
   // to search lives in earlier turns, so route to a history-aware Tier 2 (search
   // only) that rebuilds the query from context — never a literal passthrough.
@@ -323,20 +384,46 @@ export async function routePrompt(
     }
   }
 
-  // Fast path: regex beats embeddings for information-seeking patterns.
-  // "what is X / who is X / tell me about X" are unambiguously search queries.
-  // No score check needed — the regex itself is the gate. Skips the embed call too.
-  // Social ("how are you") and self-directed ("who are you?", "how do you feel?")
-  // questions are excluded — those fall through to the embedding tiers instead of
-  // being literally web-searched.
-  if (SEARCH_INTENT_RE.test(prompt) && !SOCIAL_QUESTION_RE.test(prompt.trim()) && !SELF_DIRECTED_RE.test(prompt.trim())) {
-    const searchTool = toolRegistry.find(t => t.id === 'search')
-    if (searchTool && isAllowed(searchTool)) {
-      const args = searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {}
-      logger.info(`[ROUTER] path=search-intent msg="${excerpt}"`)
-      return { tool: searchTool, args, path: 'search-intent' }
+  // Fast path: arithmetic — symbols/money-math score near-zero on embeddings, and
+  // SEARCH_INTENT_RE ("what is", "how much") would otherwise web-search them.
+  if (MATH_INTENT_RE.test(prompt)) {
+    const calcTool = toolRegistry.find((t) => t.id === 'calculator')
+    if (calcTool && model && isAllowed(calcTool)) {
+      logger.info(`[ROUTER] path=math-intent msg="${excerpt}"`)
+      return tier2Call(model, prompt, history, [calcTool], chatNumCtx)
     }
   }
+
+  // Fast path: unit conversions ("how many km is 5 miles") — they embed at
+  // 0.33–0.39, below the tier-2 band, so without the regex they fell to search.
+  if (UNIT_CONVERT_RE.test(prompt)) {
+    const unitTool = toolRegistry.find((t) => t.id === 'unit_conversion')
+    if (unitTool && model && isAllowed(unitTool)) {
+      logger.info(`[ROUTER] path=unit-intent msg="${excerpt}"`)
+      return tier2Call(model, prompt, history, [unitTool], chatNumCtx)
+    }
+  }
+
+  // Fast path: "define X" / "what does X mean" → dictionary (embeds at ~0.25).
+  if (DEFINE_RE.test(prompt.trim())) {
+    const dictTool = toolRegistry.find((t) => t.id === 'dictionary')
+    if (dictTool && model && isAllowed(dictTool)) {
+      logger.info(`[ROUTER] path=define-intent msg="${excerpt}"`)
+      return tier2Call(model, prompt, history, [dictTool], chatNumCtx)
+    }
+  }
+
+  // Information-seeking patterns ("what is X / who is X / tell me about X") are
+  // still search-shaped, but the regex is no longer an unconditional gate: it used
+  // to fire BEFORE the embedding tiers and hijacked calculator/datetime/recipes
+  // questions ("how much is a 20% tip on $85" → web search). Now it only decides
+  // AFTER scoring: if any specialized tool clears the ambiguous band, the normal
+  // cascade adjudicates (search stays a Tier-2 candidate); only when nothing else
+  // is plausible does it passthrough to search directly (keeping the 0ms win for
+  // "who is Ada Lovelace"-style lookups, which score <0.4 on every tool).
+  const searchIntent = SEARCH_INTENT_RE.test(prompt)
+    && !SOCIAL_QUESTION_RE.test(prompt.trim())
+    && !SELF_DIRECTED_RE.test(prompt.trim())
 
   let promptEmbedding: number[]
   try {
@@ -349,15 +436,20 @@ export async function routePrompt(
   // scored (to detect "the best route was denied") but excluded from candidates.
   const toolScores: { tool: Tool; score: number }[] = []
   let deniedBest: { tool: Tool; score: number } | null = null
+  let conversationalScore = 0
 
   for (const entry of routeIndex) {
-    const tool = toolRegistry.find((t) => t.id === entry.toolId)
-    if (!tool) continue
     let toolBest = 0
     for (const exampleEmbedding of entry.embeddings) {
       const score = cosineSimilarity(promptEmbedding, exampleEmbedding)
       if (score > toolBest) toolBest = score
     }
+    if (entry.toolId === CONVERSATIONAL_ID) {
+      conversationalScore = toolBest
+      continue
+    }
+    const tool = toolRegistry.find((t) => t.id === entry.toolId)
+    if (!tool) continue
     if (!isAllowed(tool)) {
       if (!deniedBest || toolBest > deniedBest.score) deniedBest = { tool, score: toolBest }
       continue
@@ -373,12 +465,32 @@ export async function routePrompt(
 
   const top3log = toolScores.slice(0, 3).map((e) => `${e.tool.id}=${e.score.toFixed(3)}`).join(' ')
 
+  // Chitchat absorber: when the conversational exemplars outscore every tool, the
+  // message is social — answer directly instead of paying a Tier-2 call to learn
+  // "no tool". Never absorbs search-shaped prompts ("tell me about X" can sit
+  // close to "tell me something about yourself").
+  if (!searchIntent && conversationalScore >= 0.45 && conversationalScore > bestScore) {
+    logger.info(`[ROUTER] path=conversational-absorber score=${conversationalScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'conversational-absorber' }
+  }
+
   // The user's denied tool would have won confidently — surface that instead of
   // silently answering from model memory (e.g. a weather question with weather off).
   const deniedWouldWin = deniedBest && deniedBest.score >= SIMILARITY_THRESHOLD && deniedBest.score > bestScore
   if (deniedWouldWin) {
     logger.info(`[ROUTER] path=denied-tool tool=${deniedBest!.tool.id} score=${deniedBest!.score.toFixed(3)} msg="${excerpt}"`)
     return { tool: null, args: {}, deniedToolId: deniedBest!.tool.id, path: 'denied-tool' }
+  }
+
+  // Search-shaped prompt with no plausible specialized tool → direct passthrough,
+  // same 0ms cost the old unconditional fast path had. Anything at/above the
+  // ambiguous band falls through so Tier 1/Tier 2 can pick the specialized tool.
+  if (searchIntent && bestScore < CONVERSATIONAL_THRESHOLD) {
+    const searchTool = toolRegistry.find((t) => t.id === 'search')
+    if (searchTool && isAllowed(searchTool)) {
+      logger.info(`[ROUTER] path=search-intent score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
+      return { tool: searchTool, args: searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {}, path: 'search-intent' }
+    }
   }
 
   // ── Tier 1: confident match ─────────────────────────────────────────────────
@@ -468,7 +580,10 @@ async function tier2Call(
     // Ollama re-initializes the runner on any context-size change, so a 4096-route
     // followed by an 8192-chat forced two model reloads per message.
     const routerModel = (await getRouterModel()) ?? model
-    const opts: Record<string, unknown> = { temperature: 0.1 }
+    // num_predict: a tool call is a name + short JSON args (~50 tokens); without a
+    // cap a chatty router model can ramble for hundreds of tokens before the
+    // tool_calls array closes. 200 leaves room for 3 multi-intent calls.
+    const opts: Record<string, unknown> = { temperature: 0.1, num_predict: 200 }
     if (routerModel === model) opts['num_ctx'] = chatNumCtx ?? 8192
 
     const response = await ollamaChat(

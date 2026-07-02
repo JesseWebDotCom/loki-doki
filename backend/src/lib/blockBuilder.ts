@@ -70,6 +70,7 @@ function buildContentRatingBlock(data: unknown): Block | null {
 function buildWeatherBlock(data: unknown): Block | null {
   const d = data as {
     location?: string
+    temperature_unit?: string
     weather?: {
       current?: {
         temperature_2m?: number
@@ -92,14 +93,20 @@ function buildWeatherBlock(data: unknown): Block | null {
 
   const daily = d.weather?.daily ?? {}
   const times = daily.time ?? []
-  const tempC = Math.round(c.temperature_2m ?? 0)
+  // The tool requests the user's preferred unit from open-meteo (fahrenheit by
+  // default), so temperature_2m is NOT always Celsius — assuming it was turned an
+  // 80°F reading into tempC:80/tempF:176.
+  const raw = c.temperature_2m ?? 0
+  const isF = d.temperature_unit === 'fahrenheit'
+  const tempC = Math.round(isF ? (raw - 32) * 5 / 9 : raw)
+  const tempF = Math.round(isF ? raw : raw * 9 / 5 + 32)
 
   return {
     kind: 'weather',
     data: {
       location: d.location ?? '',
       tempC,
-      tempF: Math.round(tempC * 9 / 5 + 32),
+      tempF,
       humidity: Math.round(c.relative_humidity_2m ?? 0),
       precipMm: c.precipitation ?? 0,
       windKph: Math.round(c.wind_speed_10m ?? 0),

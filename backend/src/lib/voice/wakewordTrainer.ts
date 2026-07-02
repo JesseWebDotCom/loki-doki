@@ -138,8 +138,44 @@ const NEGATIVE_PHRASES = [
 // fixed list, because what's confusable depends entirely on the phrase. Kept to a
 // modest count so they sharpen the boundary without dominating the negative set
 // (which would teach "reject things near the phrase" too aggressively and hurt
-// recall). Returns [] when Ollama is offline — discrimination then rests on the
-// diverse generic + contrastive negatives, exactly as before.
+// recall). Falls back to deterministic phonetic variants when Ollama is offline —
+// it used to return [], silently shipping a model with NO near-miss negatives,
+// which fires on rhymes ("hey lucky" for "hey loki").
+function staticNearMissPhrases(phrase: string): string[] {
+  const words = phrase.trim().toLowerCase().split(/\s+/)
+  const name = words[words.length - 1] ?? phrase
+  const lead = words.slice(0, -1).join(' ')
+  const withLead = (w: string) => (lead ? `${lead} ${w}` : w)
+  const out = new Set<string>()
+
+  // Onset-consonant swaps (l→r/n/m/y, k→g/t, etc.) — one sound off at the front.
+  const onsetSwaps: Record<string, string[]> = {
+    b: ['p', 'd'], p: ['b', 't'], d: ['t', 'b'], t: ['d', 'k'], k: ['g', 't'], g: ['k', 'd'],
+    l: ['r', 'n', 'y'], r: ['l', 'w'], m: ['n', 'b'], n: ['m', 'l'], s: ['z', 'sh'],
+    j: ['ch', 'g'], f: ['v', 'th'], v: ['f', 'b'], h: ['wh', ''], w: ['r', 'v'],
+    a: ['o'], e: ['a'], i: ['e'], o: ['a'], u: ['o'], c: ['k', 's'], q: ['k'], z: ['s'],
+    x: ['s'], y: ['l'],
+  }
+  const first = name[0] ?? ''
+  for (const sub of onsetSwaps[first] ?? ['m', 'r']) out.add(withLead(sub + name.slice(1)))
+
+  // Interior vowel shifts — same shape, different nucleus.
+  const vowelShift: Record<string, string> = { a: 'o', e: 'a', i: 'u', o: 'ee', u: 'i' }
+  for (let i = 1; i < name.length; i++) {
+    const ch = name[i]!
+    const repl = vowelShift[ch]
+    if (repl) { out.add(withLead(name.slice(0, i) + repl + name.slice(i + 1))); break }
+  }
+
+  // Suffix mutations — right onset, wrong ending.
+  out.add(withLead(name.slice(0, Math.max(2, name.length - 2)) + 'key'))
+  out.add(withLead(name.slice(0, Math.max(2, name.length - 2)) + 'la'))
+  out.add(withLead(`${name.slice(0, 2)}${name.slice(0, 2)}y`))
+
+  const want = phrase.trim().toLowerCase()
+  return [...out].filter((p) => p !== want && p.length > 2).slice(0, 8)
+}
+
 async function genNearMissPhrases(phrase: string, signal?: AbortSignal): Promise<string[]> {
   try {
     const model = await getModel()
@@ -164,22 +200,25 @@ Rules:
         format: 'json',
         stream: false,
         keep_alive: -1,
-        options: { temperature: 0.7, num_predict: 160 },
+        // num_ctx matches the chat default — a bare call reloads the chat model's
+        // runner at 4096 and back, costing ~2s and the KV cache mid-training.
+        options: { temperature: 0.7, num_predict: 160, num_ctx: 8192 },
         think: false,
       }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
     })
-    if (!res.ok) return []
+    if (!res.ok) return staticNearMissPhrases(phrase)
     const data = (await res.json()) as { message?: { content?: string } }
     const parsed = JSON.parse(data.message?.content ?? '{}') as { phrases?: unknown[] }
     const want = phrase.trim().toLowerCase()
-    return (parsed.phrases ?? [])
+    const fromLlm = (parsed.phrases ?? [])
       .filter((p): p is string => typeof p === 'string')
       .map((p) => p.trim())
       .filter((p) => p.length > 0 && p.toLowerCase() !== want)
       .slice(0, 8)
+    return fromLlm.length > 0 ? fromLlm : staticNearMissPhrases(phrase)
   } catch {
-    return []
+    return staticNearMissPhrases(phrase)
   }
 }
 

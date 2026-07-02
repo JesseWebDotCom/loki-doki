@@ -28,9 +28,11 @@ import { and, eq, isNull, or, inArray, desc, gte, sql, count } from 'drizzle-orm
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const TOP_K_VECTOR = 5          // max non-entity memories from vector pass
+const TOP_K_VECTOR = 5          // max non-entity episodic memories from vector pass
+const TOP_K_DURABLE = 4         // max non-pinned durable memories (lower gate, see below)
+const TOP_K_ENTITY = 12         // max entity-linked memories (most-important first)
 const TOP_K_EPISODES = 1        // max episode summaries to include
-const PROMPT_CHAR_BUDGET = 1200 // max characters for the injected memory block
+const PROMPT_CHAR_BUDGET = 2000 // max characters for the injected memory block
 
 // "Open threads": recent goal/event/project/state memories the companion may
 // proactively ask about once ("how'd the interview go?"). This is the deliberate
@@ -47,6 +49,16 @@ const OPEN_THREAD_CATEGORIES: ('goal' | 'event' | 'project' | 'state')[] = ['goa
 // semantic similarity first. Tuned for nomic-embed-text, where unrelated English
 // sentences typically sit ~0.3–0.45 and genuinely related ones ~0.6+.
 const VECTOR_MIN_COSINE = 0.55
+
+// Durable non-pinned memories (stable preferences: "dislikes cilantro", "is
+// vegetarian") get a LOWER gate. Measured under nomic-embed-text: a dinner
+// question scores ~0.38 against "dislikes cilantro" and a steakhouse request
+// ~0.41 against "is vegetarian" — the 0.55 gate meant durable preferences were
+// stored but never recalled. Unrelated pairs measure ~0.30–0.36, so 0.37 is the
+// separating line (thin margin — guarded by scripts/eval/memory-eval.ts). Only
+// durable rows get this: episodic memories at 0.37 are noise, durables are few
+// (judge marks little durable) and capped at TOP_K_DURABLE.
+const DURABLE_MIN_COSINE = 0.37
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -238,8 +250,10 @@ export async function recallMemories(
     const cosine = cosineSimilarity(promptEmbedding, vec)
 
     // Non-pinned memories must be semantically relevant to the prompt to be
-    // considered at all. Pinned rows bypass this (they're always included below).
-    if (!row.pinned && cosine < VECTOR_MIN_COSINE) continue
+    // considered at all. Pinned rows bypass this (they're always included below);
+    // durable rows use the lower preference gate (see DURABLE_MIN_COSINE).
+    const minCosine = row.tier === 'durable' ? DURABLE_MIN_COSINE : VECTOR_MIN_COSINE
+    if (!row.pinned && cosine < minCosine) continue
 
     const ageDays = row.createdAt ? (now - row.createdAt.getTime()) / 86_400_000 : 0
     // Durable memories: no recency decay. Episodic: standard decay.
@@ -263,15 +277,28 @@ export async function recallMemories(
   // Always include pinned (durable identity facts)
   const pinned = vectorMemories.filter((m) => m.pinned)
 
-  // Top-K non-pinned by score (filter out noise)
+  // Non-pinned durables (preferences) and episodic memories are capped
+  // separately, so a handful of relevant stable preferences can't be crowded out
+  // by fresher episodic rows (or vice versa).
+  const topDurable = vectorMemories
+    .filter((m) => !m.pinned && m.tier === 'durable')
+    .sort((a, b) => b.score - a.score)
+    .slice(0, TOP_K_DURABLE)
+
   const topK = vectorMemories
-    .filter((m) => !m.pinned && m.score > 0.12)
+    .filter((m) => !m.pinned && m.tier !== 'durable' && m.score > 0.12)
     .sort((a, b) => b.score - a.score)
     .slice(0, TOP_K_VECTOR)
 
   // ── Merge ─────────────────────────────────────────────────────────────────
 
-  const all = [...entityMemories, ...pinned, ...topK]
+  // Entity memories are capped most-important-first so one heavily-documented
+  // person can't blow the prompt budget and truncate every later section.
+  const cappedEntity = entityMemories
+    .sort((a, b) => b.importance - a.importance)
+    .slice(0, TOP_K_ENTITY)
+
+  const all = [...cappedEntity, ...pinned, ...topDurable, ...topK]
 
   // Update usage stats in the background — one batched SQL statement, never blocks the SSE stream
   const recalledIds = all.map((m) => m.id)

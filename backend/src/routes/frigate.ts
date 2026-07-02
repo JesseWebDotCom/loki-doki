@@ -93,7 +93,7 @@ frigate.post('/v1/chat/completions', async (c) => {
       model,
       ollamaMessages,
       undefined,
-      { temperature: typeof body.temperature === 'number' ? body.temperature : 0.2, num_ctx: 4096 },
+      { temperature: typeof body.temperature === 'number' ? body.temperature : 0.2 },
       format,
     )
     const content = chunk.message?.content ?? ''

@@ -132,8 +132,10 @@ export const documentEditTool: Tool = {
     const explain = isExplainIntent(instruction)
 
     // Size the context/output window to the document so a long file isn't truncated.
+    // Floor matches DEFAULT_NUM_CTX — a 4096 floor forced a full runner reload of
+    // the chat model (~1s + total KV loss) around every small-document edit.
     const docTokens = Math.ceil(doc.text.length / 4)
-    const num_ctx     = Math.min(16_384, Math.max(4_096, docTokens * 2 + 1_024))
+    const num_ctx     = Math.min(16_384, Math.max(8_192, docTokens * 2 + 1_024))
     const num_predict = explain
       ? Math.min(4_096, Math.max(1_024, docTokens))
       : Math.min(8_192, Math.max(1_024, docTokens + 1_024))
