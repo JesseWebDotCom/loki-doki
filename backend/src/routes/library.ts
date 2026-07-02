@@ -7,7 +7,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { mediaWatchlist, showWatchedEpisodes } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
-import { getShowEpisodes, type ShowEpisode } from '@/lib/shows/tvmaze'
+import { getShowDetails, getShowEpisodes, type ShowEpisode } from '@/lib/shows/tvmaze'
 import { mirrorWatchlistAdd, mirrorWatchlistRemove } from '@/lib/plex/sync'
 import { mirrorEpisodeWatched } from '@/lib/plex/watched'
 import type { AppEnv } from '@/types'
@@ -248,10 +248,19 @@ libraryRoute.get('/continue', async (c) => {
       // Only surface shows that have been started (some watched) or explicitly 'watching'.
       const started = (watchedByShow.get(id)?.size ?? 0) > 0
       if (!started && !meta.has(id)) return
+      let title = meta.get(id)?.title ?? ''
+      let posterUrl = meta.get(id)?.posterUrl ?? null
+      if (!title || !posterUrl) {
+        const details = await getShowDetails(id)
+        if (details) {
+          title = title || details.name
+          posterUrl = posterUrl || details.poster
+        }
+      }
       items.push({
         tvmazeId: id,
-        title: meta.get(id)?.title ?? '',
-        posterUrl: meta.get(id)?.posterUrl ?? null,
+        title,
+        posterUrl,
         nextEpisode: next ? { id: next.id, season: next.season, number: next.number, name: next.name } : null,
       })
     }),
