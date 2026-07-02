@@ -89,6 +89,7 @@ import { SportsPage } from '@/pages/SportsPage'
 import { HolidaysPage } from '@/pages/HolidaysPage'
 import { MoonPhasePage } from '@/pages/MoonPhasePage'
 import { HomeAssistantPage } from '@/pages/HomeAssistantPage'
+import { HomeAssistantSettingsPage } from '@/pages/HomeAssistantSettingsPage'
 import { LocalEventsPage } from '@/pages/LocalEventsPage'
 import { StoreLayout } from '@/components/store/StoreLayout'
 import { StoreHomePage } from '@/pages/store/StoreHomePage'
@@ -385,6 +386,7 @@ export default function App() {
                 <Route path="/sports" element={<SportsPage />} />
                 <Route path="/holidays" element={<HolidaysPage />} />
                 <Route path="/home-assistant" element={<HomeAssistantPage />} />
+                <Route path="/home-assistant/settings" element={<HomeAssistantSettingsPage />} />
                 <Route path="/local-events" element={<LocalEventsPage />} />
                 <Route path="/app-store" element={<StoreLayout />}>
                   <Route index element={<StoreHomePage />} />

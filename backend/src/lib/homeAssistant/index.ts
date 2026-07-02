@@ -6,6 +6,8 @@ import { ollamaChat } from '@/llm/ollama'
 import { ensureConnected, getStore, type CatalogEntity, type HAStore } from './sync'
 import { callService, describeError, normalizeConnection, type HAConnection } from './client'
 import { deterministicResolve, scopeCandidates, type ResolvedPlan, type HAAction } from './resolve'
+import { VALID_ACTIONS, serviceCallsFor, actionTargetDomain, clampPct, type ServiceCall } from './actions'
+import { isSecurityEntity } from './security'
 import { getGrants, filterByGrants } from './permissions'
 import {
   ctxKey, getContext, setContext, isFollowUp, followUpResolve,
@@ -39,7 +41,6 @@ export async function startHomeAssistantSync(): Promise<void> {
     .catch((e) => logger.warn(`[HA] boot sync failed: ${e}`))
 }
 
-const VALID_ACTIONS = new Set<HAAction>(['turn_on', 'turn_off', 'toggle', 'lock', 'unlock', 'open', 'close', 'set_brightness', 'activate_scene'])
 const DOMAIN_LABEL: Record<string, string> = {
   light: 'lights', switch: 'switches', fan: 'fans', cover: 'covers',
   lock: 'locks', climate: 'thermostat', media_player: 'media', scene: 'scene',
@@ -150,7 +151,7 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
       return { ok: true, reply, data: { intent: 'query', targets: plan.targets.map(t => ({ entity_id: t.entityId, name: t.name, state: store.states.get(t.entityId) })) } }
     }
 
-    const calls = buildServiceCalls(plan)
+    const calls = buildServiceCalls(plan, store)
     let anyOk = false
     for (const call of calls) {
       const r = await callService(p.conn, call.domain, call.service, call.data)
@@ -172,33 +173,34 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
   }
 }
 
-// A plan that actuates physical security: any unlock, or opening a cover that
-// looks like an entry point (garage, gate, door). Opening blinds/shades/curtains
+// A plan that actuates physical security: any unlock, or opening an entry-type
+// cover (garage, gate, door — see security.ts). Opening blinds/shades/curtains
 // stays instant — confirming those would be pure annoyance.
-const ENTRY_COVER_RE = /\b(garage|gate|front|back|side|entry|door)\b/i
 function isSecuritySensitive(plan: ResolvedPlan): boolean {
   if (plan.action === 'unlock') return true
-  if (plan.action === 'open') {
-    return plan.targets.some(t =>
-      t.domain === 'cover' && (ENTRY_COVER_RE.test(t.name) || ENTRY_COVER_RE.test(t.areaName ?? '')))
+  if (plan.action === 'open' || (plan.action === 'set_position' && (plan.value ?? 0) > 0)) {
+    return plan.targets.some(isSecurityEntity)
   }
   return false
 }
 
 // ── LLM fallback ──────────────────────────────────────────────────────────────
 
-interface LLMOut { intent?: string; action?: string | null; brightness_pct?: number | null; entity_ids?: string[] }
+interface LLMOut { intent?: string; action?: string | null; brightness_pct?: number | null; value?: number | null; hvac_mode?: string | null; entity_ids?: string[] }
 
 async function llmResolve(message: string, candidates: CatalogEntity[], model: string): Promise<ResolvedPlan | null> {
   const list = candidates.map(c => `${c.entityId} | ${c.name}${c.areaName ? ` | ${c.areaName}` : ''} | ${c.domain}`).join('\n')
   const system = 'You map a smart-home request to specific devices and an action. Only use entity_id values from the provided list. If the request asks about state, use intent "query". Respond with JSON only.'
-  const user = `Devices (entity_id | name | area | domain):\n${list}\n\nRequest: "${message}"\n\nReturn JSON: {"intent":"control"|"query"|"none","action":"turn_on"|"turn_off"|"toggle"|"lock"|"unlock"|"open"|"close"|"set_brightness"|"activate_scene"|null,"brightness_pct":number|null,"entity_ids":[entity_id,...]}`
+  const actions = '"turn_on"|"turn_off"|"toggle"|"lock"|"unlock"|"open"|"close"|"set_brightness"|"activate_scene"|"set_temperature"|"set_hvac_mode"|"media_play"|"media_pause"|"media_next"|"media_previous"|"set_volume"|"volume_up"|"volume_down"|"mute"|"unmute"|"set_position"'
+  const user = `Devices (entity_id | name | area | domain):\n${list}\n\nRequest: "${message}"\n\nReturn JSON: {"intent":"control"|"query"|"none","action":${actions}|null,"brightness_pct":number|null,"value":number|null,"hvac_mode":"heat"|"cool"|"auto"|"off"|"heat_cool"|"fan_only"|"dry"|null,"entity_ids":[entity_id,...]}\n"value" is the temperature in degrees for set_temperature, or 0-100 percent for set_volume/set_position.`
   const format = {
     type: 'object',
     properties: {
       intent: { type: 'string' },
       action: { type: ['string', 'null'] },
       brightness_pct: { type: ['number', 'null'] },
+      value: { type: ['number', 'null'] },
+      hvac_mode: { type: ['string', 'null'] },
       entity_ids: { type: 'array', items: { type: 'string' } },
     },
     required: ['intent', 'entity_ids'],
@@ -221,6 +223,8 @@ async function llmResolve(message: string, candidates: CatalogEntity[], model: s
     intent,
     action,
     brightnessPct: typeof parsed.brightness_pct === 'number' ? parsed.brightness_pct : undefined,
+    value: typeof parsed.value === 'number' ? parsed.value : undefined,
+    hvacMode: typeof parsed.hvac_mode === 'string' && parsed.hvac_mode ? parsed.hvac_mode : undefined,
     targets,
     matchedArea: targets[0]?.areaName ?? null,
     matchedDomain: targets[0]?.domain ?? null,
@@ -231,31 +235,42 @@ async function llmResolve(message: string, candidates: CatalogEntity[], model: s
 
 // ── Execution helpers ───────────────────────────────────────────────────────
 
-interface ServiceCall { domain: string; service: string; data: Record<string, unknown> }
+function buildServiceCalls(plan: ResolvedPlan, store: HAStore): ServiceCall[] {
+  if (!plan.action) return []
+  // Domain-specific services must only hit entities of that domain (a mixed
+  // "everything in the office" target list may include others).
+  const domain = actionTargetDomain(plan.action)
+  const targets = domain ? plan.targets.filter(t => t.domain === domain) : plan.targets
+  const ids = (targets.length ? targets : plan.targets).map(t => t.entityId)
 
-function buildServiceCalls(plan: ResolvedPlan): ServiceCall[] {
-  const ids = plan.targets.map(t => t.entityId)
-  switch (plan.action) {
-    // homeassistant.* routes to each entity's own domain — handles mixed targets.
-    case 'turn_on':  return [{ domain: 'homeassistant', service: 'turn_on',  data: { entity_id: ids } }]
-    case 'turn_off': return [{ domain: 'homeassistant', service: 'turn_off', data: { entity_id: ids } }]
-    case 'toggle':   return [{ domain: 'homeassistant', service: 'toggle',   data: { entity_id: ids } }]
-    case 'lock':     return [{ domain: 'lock',  service: 'lock',         data: { entity_id: ids } }]
-    case 'unlock':   return [{ domain: 'lock',  service: 'unlock',       data: { entity_id: ids } }]
-    case 'open':     return [{ domain: 'cover', service: 'open_cover',   data: { entity_id: ids } }]
-    case 'close':    return [{ domain: 'cover', service: 'close_cover',  data: { entity_id: ids } }]
-    case 'activate_scene': return [{ domain: 'scene', service: 'turn_on', data: { entity_id: ids } }]
-    case 'set_brightness': {
-      const lightIds = plan.targets.filter(t => t.domain === 'light').map(t => t.entityId)
-      return [{ domain: 'light', service: 'turn_on', data: { entity_id: lightIds.length ? lightIds : ids, brightness_pct: plan.brightnessPct ?? 50 } }]
-    }
-    default: return []
+  // Relative "warmer/cooler": resolve each thermostat's current setpoint. Setpoints
+  // can differ per zone, so this may fan out into one call per entity.
+  if (plan.action === 'set_temperature' && plan.value === undefined && plan.tempDelta !== undefined) {
+    return ids.map(id => {
+      const attrs = store.attributes.get(id) ?? {}
+      const current = typeof attrs['temperature'] === 'number' ? attrs['temperature'] : 70
+      const min = typeof attrs['min_temp'] === 'number' ? attrs['min_temp'] : 45
+      const max = typeof attrs['max_temp'] === 'number' ? attrs['max_temp'] : 90
+      const target = Math.min(max, Math.max(min, current + plan.tempDelta!))
+      return { domain: 'climate', service: 'set_temperature', data: { entity_id: [id], temperature: target } }
+    })
   }
+
+  return serviceCallsFor(plan.action, ids, { brightnessPct: plan.brightnessPct, value: plan.value, hvacMode: plan.hvacMode })
 }
 
 function buildConfirmation(plan: ResolvedPlan): string {
-  if (plan.action === 'set_brightness') return `Set ${describeTargets(plan)} to ${plan.brightnessPct ?? 50}%.`
-  return `${actionVerb(plan)} ${describeTargets(plan)}.`
+  switch (plan.action) {
+    case 'set_brightness': return `Set ${describeTargets(plan)} to ${clampPct(plan.brightnessPct ?? 50)}%.`
+    case 'set_temperature':
+      return plan.value !== undefined
+        ? `Set ${describeTargets(plan)} to ${plan.value}°.`
+        : `Nudged ${describeTargets(plan)} ${(plan.tempDelta ?? 0) >= 0 ? 'up' : 'down'} ${Math.abs(plan.tempDelta ?? 2)}°.`
+    case 'set_hvac_mode': return `Switched ${describeTargets(plan)} to ${(plan.hvacMode ?? 'auto').replace('_', ' ')} mode.`
+    case 'set_volume': return `Set ${describeTargets(plan)} volume to ${clampPct(plan.value ?? 50)}%.`
+    case 'set_position': return `Set ${describeTargets(plan)} to ${clampPct(plan.value ?? 50)}%.`
+    default: return `${actionVerb(plan)} ${describeTargets(plan)}.`
+  }
 }
 
 function actionVerb(plan: ResolvedPlan): string {
@@ -267,8 +282,17 @@ function actionVerb(plan: ResolvedPlan): string {
     case 'unlock':   return 'Unlocked'
     case 'open':     return 'Opened'
     case 'close':    return 'Closed'
+    case 'stop':     return 'Stopped'
     case 'activate_scene': return 'Activated'
     case 'set_brightness': return `Set${plan.brightnessPct !== undefined ? ` to ${plan.brightnessPct}%` : ''}`
+    case 'media_play':     return 'Resumed'
+    case 'media_pause':    return 'Paused'
+    case 'media_next':     return 'Skipped ahead on'
+    case 'media_previous': return 'Went back a track on'
+    case 'volume_up':   return 'Turned up'
+    case 'volume_down': return 'Turned down'
+    case 'mute':   return 'Muted'
+    case 'unmute': return 'Unmuted'
     default: return 'Done with'
   }
 }
@@ -290,7 +314,51 @@ const ON_STATES = new Set(['on', 'open', 'playing', 'unlocked', 'home', 'heat', 
 
 const DEAD_STATES = new Set(['unavailable', 'unknown'])
 
+// One climate entity → "It's 68° inside — heating to 70°."
+function summarizeClimate(t: CatalogEntity, store: HAStore): string {
+  const attrs = store.attributes.get(t.entityId) ?? {}
+  const current = attrs['current_temperature']
+  const target = attrs['temperature']
+  const hvacAction = attrs['hvac_action']
+  const state = store.states.get(t.entityId) ?? 'unknown'
+  if (typeof current !== 'number') return `${t.name} is ${state}.`
+  let s = `It's ${Math.round(current)}° inside`
+  if (typeof target === 'number') {
+    const verb = hvacAction === 'heating' ? 'heating to' : hvacAction === 'cooling' ? 'cooling to' : 'set to'
+    s += ` — ${verb} ${Math.round(target)}°`
+  } else if (state === 'off') {
+    s += ` — the thermostat is off`
+  }
+  return `${s}.`
+}
+
+function summarizeMedia(t: CatalogEntity, store: HAStore): string {
+  const attrs = store.attributes.get(t.entityId) ?? {}
+  const state = store.states.get(t.entityId) ?? 'unknown'
+  if (state === 'playing') {
+    const title = attrs['media_title']
+    const artist = attrs['media_artist']
+    if (typeof title === 'string' && title) {
+      return `${t.name} is playing ${title}${typeof artist === 'string' && artist ? ` by ${artist}` : ''}.`
+    }
+    return `${t.name} is playing.`
+  }
+  return `${t.name} is ${state}.`
+}
+
 function summarizeQuery(plan: ResolvedPlan, store: HAStore): string {
+  // Domain-aware summaries when the whole plan is one kind of device.
+  const live = plan.targets.filter(t => !DEAD_STATES.has(store.states.get(t.entityId) ?? 'unknown'))
+  if (live.length >= 1 && live.every(t => t.domain === 'climate')) {
+    return live.map(t => live.length > 1 ? `${t.name}: ${summarizeClimate(t, store)}` : summarizeClimate(t, store)).join(' ')
+  }
+  if (live.length >= 1 && live.every(t => t.domain === 'media_player')) {
+    const playing = live.filter(t => store.states.get(t.entityId) === 'playing')
+    if (playing.length > 0) return playing.map(t => summarizeMedia(t, store)).join(' ')
+    if (live.length === 1) return summarizeMedia(live[0]!, store)
+    return `Nothing is playing right now.`
+  }
+
   const all = plan.targets.map(t => ({ name: t.name, state: store.states.get(t.entityId) ?? 'unknown' }))
   const items = all.filter(i => !DEAD_STATES.has(i.state))
   const dead = all.length - items.length

@@ -3,7 +3,7 @@
 // per-user (domain × area) access grants.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Home, RefreshCw, Plus, X, Check } from 'lucide-react'
+import { Loader2, Home, RefreshCw, Plus, X, Check, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +24,8 @@ interface Status  {
 }
 
 const ALL = '*'
+// Pseudo-domain for locks + entry doors — never covered by 'All devices'.
+const SECURITY = 'security'
 const opts: RequestInit = { credentials: 'include' }
 
 function timeAgo(ms: number | null | undefined): string {
@@ -113,6 +115,9 @@ export function AdminHomeAssistantTab() {
   function addGrant(userId: string) {
     setUserGrants(userId, [...(grants[userId] ?? []), { domain: ALL, areaId: ALL }])
   }
+  function addSecurityGrant(userId: string) {
+    setUserGrants(userId, [...(grants[userId] ?? []), { domain: SECURITY, areaId: ALL }])
+  }
   function updateGrant(userId: string, idx: number, patch: Partial<Grant>) {
     setUserGrants(userId, (grants[userId] ?? []).map((g, i) => i === idx ? { ...g, ...patch } : g))
   }
@@ -142,7 +147,7 @@ export function AdminHomeAssistantTab() {
         <div>
           <h2 className="text-base font-semibold">Home Assistant</h2>
           <p className="text-sm text-muted-foreground">
-            Control smart-home devices — lights, switches, locks, thermostats, and scenes — via the companion.
+            Control smart-home devices — lights, switches, locks, thermostats, media players, and scenes — via the companion.
             Configure the connection here and grant users access to specific devices and rooms.
           </p>
         </div>
@@ -223,6 +228,11 @@ export function AdminHomeAssistantTab() {
             ) : (
               users.map(u => {
                 const ug = grants[u.id] ?? []
+                const general = ug.map((g, i) => [g, i] as const).filter(([g]) => g.domain !== SECURITY)
+                const security = ug.map((g, i) => [g, i] as const).filter(([g]) => g.domain === SECURITY)
+                // 'lock' grants are inert under the security model — hide the option
+                // for new rows but keep legacy rows editable/removable.
+                const generalDomains = domains.filter(d => d !== 'lock' && d !== SECURITY)
                 return (
                   <div key={u.id} className="rounded-xl border border-border bg-background/40 p-3 space-y-3">
                     <div className="flex items-center justify-between">
@@ -237,16 +247,17 @@ export function AdminHomeAssistantTab() {
                         </Button>
                       </div>
                     </div>
-                    {ug.length === 0 ? (
+                    {general.length === 0 ? (
                       <p className="text-xs text-muted-foreground">No grants — this user can't control anything.</p>
                     ) : (
                       <div className="space-y-2">
-                        {ug.map((g, i) => (
+                        {general.map(([g, i]) => (
                           <div key={i} className="flex items-center gap-2 flex-wrap">
                             <select value={g.domain} onChange={e => updateGrant(u.id, i, { domain: e.target.value })}
                               className="rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
                               <option value={ALL}>All devices</option>
-                              {domains.map(d => <option key={d} value={d}>{d}</option>)}
+                              {generalDomains.map(d => <option key={d} value={d}>{d}</option>)}
+                              {g.domain === 'lock' && <option value="lock">lock (legacy — use Security below)</option>}
                             </select>
                             <span className="text-xs text-muted-foreground">in</span>
                             <select value={g.areaId} onChange={e => updateGrant(u.id, i, { areaId: e.target.value })}
@@ -262,6 +273,39 @@ export function AdminHomeAssistantTab() {
                         ))}
                       </div>
                     )}
+                    {/* Security — locks + entry doors, explicit-only */}
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-amber-500">
+                          <Lock className="size-3.5" />Security
+                        </span>
+                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => addSecurityGrant(u.id)}>
+                          <Plus className="size-3 mr-1" />Security access
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Locks and entry doors (garage, gates) are never included in "All devices" — grant them explicitly.
+                      </p>
+                      {security.length > 0 && (
+                        <div className="space-y-2">
+                          {security.map(([g, i]) => (
+                            <div key={i} className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm">Locks &amp; entry doors</span>
+                              <span className="text-xs text-muted-foreground">in</span>
+                              <select value={g.areaId} onChange={e => updateGrant(u.id, i, { areaId: e.target.value })}
+                                className="rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
+                                <option value={ALL}>All rooms</option>
+                                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                              </select>
+                              <button type="button" onClick={() => removeGrant(u.id, i)}
+                                className={cn('rounded-md p-1.5 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10 transition-colors')}>
+                                <X className="size-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })

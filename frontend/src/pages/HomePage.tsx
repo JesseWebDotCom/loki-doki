@@ -3,9 +3,9 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Activity, Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Laugh, LayoutGrid,
-  ListVideo, Loader2, Music, Newspaper, Pencil, Play, PlaySquare, Plus, RotateCw, Sunrise, Trophy, Tv,
-  Upload, X, type LucideIcon,
+  Activity, Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Home, Laugh, LayoutGrid,
+  Lightbulb, ListVideo, Loader2, Lock, LockOpen, Minus, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
+  Power, RotateCw, ShieldCheck, Star, Sunrise, Thermometer, Trophy, Tv, Upload, Volume2, Wind, X, type LucideIcon,
 } from "lucide-react";
 import type { VideoItem } from "@/lib/youtube/types";
 import { useQuery } from "@tanstack/react-query";
@@ -1487,6 +1487,262 @@ function WidgetStatus() {
   )
 }
 
+// ── WidgetHASummary ───────────────────────────────────────────────────────────
+
+interface HASummary {
+  configured: boolean
+  counts?: { lightsOn: number; devicesOn: number; mediaPlaying: number; securityOpen: number }
+  mediaPlaying?: { entity_id: string; name: string; title: string | null; artist: string | null }[]
+  securityOpen?: { entity_id: string; name: string; state: string; kind: string }[]
+  hasEntities?: boolean
+}
+
+function WidgetHASummary() {
+  const navigate = useNavigate()
+  const { data } = useQuery({
+    queryKey: ['ha-summary'],
+    queryFn: async (): Promise<HASummary> => {
+      const r = await fetch('/api/home-assistant/summary', { credentials: 'include' })
+      if (!r.ok) throw new Error('summary failed')
+      return (await r.json()) as HASummary
+    },
+    refetchInterval: 30000,
+  })
+
+  if (!data) {
+    return <div className="flex items-center justify-center h-full p-4"><Loader2 className="size-5 animate-spin text-muted-foreground/50" /></div>
+  }
+  if (!data.configured) {
+    return (
+      <button onClick={() => navigate('/home-assistant')} className="flex flex-col items-center justify-center gap-1.5 h-full p-4 text-muted-foreground/60 hover:text-foreground/80 transition-colors">
+        <Home className="size-7" />
+        <span className="text-[12px] font-medium">Connect Home Assistant</span>
+      </button>
+    )
+  }
+  if (data.hasEntities === false) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-1.5 h-full p-4 text-muted-foreground/60">
+        <Home className="size-7" />
+        <span className="text-[12px] font-medium">No devices available</span>
+      </div>
+    )
+  }
+
+  const c = data.counts ?? { lightsOn: 0, devicesOn: 0, mediaPlaying: 0, securityOpen: 0 }
+  const media = data.mediaPlaying?.[0]
+  const openItems = data.securityOpen ?? []
+  const secure = openItems.length === 0
+
+  return (
+    <div className="flex flex-col gap-2.5 p-4 h-full">
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2.5 text-left hover:bg-amber-500/15 transition-colors">
+          <Lightbulb className="size-4.5 shrink-0 text-amber-400" />
+          <div className="min-w-0">
+            <p className="text-lg font-black leading-none tabular-nums">{c.lightsOn}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground/70">light{c.lightsOn !== 1 ? 's' : ''} on</p>
+          </div>
+        </button>
+        <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 px-3 py-2.5 text-left hover:bg-blue-500/15 transition-colors">
+          <Power className="size-4.5 shrink-0 text-blue-400" />
+          <div className="min-w-0">
+            <p className="text-lg font-black leading-none tabular-nums">{c.devicesOn}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground/70">device{c.devicesOn !== 1 ? 's' : ''} on</p>
+          </div>
+        </button>
+      </div>
+      <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 px-3 py-2 text-left hover:bg-purple-500/15 transition-colors">
+        <Volume2 className="size-4 shrink-0 text-purple-400" />
+        <p className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
+          {media
+            ? <>{media.name}: <span className="font-semibold">{media.title ?? 'playing'}</span>{c.mediaPlaying > 1 ? ` +${c.mediaPlaying - 1}` : ''}</>
+            : <span className="text-muted-foreground/60">Nothing playing</span>}
+        </p>
+      </button>
+      <button
+        onClick={() => navigate('/home-assistant')}
+        className={cn(
+          'flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors',
+          secure ? 'bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/15' : 'bg-red-500/10 border-red-500/25 hover:bg-red-500/15',
+        )}
+      >
+        {secure
+          ? <ShieldCheck className="size-4 shrink-0 text-emerald-400" />
+          : <LockOpen className="size-4 shrink-0 text-red-400" />}
+        <p className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
+          {secure
+            ? <span className="text-emerald-400/90 font-medium">All secure</span>
+            : <span className="font-semibold text-red-300">{openItems.map(o => o.name).join(', ')} {openItems.length === 1 ? openItems[0]!.state : 'open'}</span>}
+        </p>
+      </button>
+    </div>
+  )
+}
+
+// ── WidgetHAFavorites ─────────────────────────────────────────────────────────
+
+interface HAFavEntity {
+  entity_id: string
+  state: string
+  friendly_name: string
+  domain: string
+  area?: string
+  security?: boolean
+  attributes?: Record<string, unknown>
+}
+
+const HA_FAV_ON = new Set(['on', 'open', 'playing', 'unlocked', 'heat', 'cool', 'auto', 'fan_only'])
+
+function HAFavGlyph({ domain, className }: { domain: string; className?: string }) {
+  switch (domain) {
+    case 'light':        return <Lightbulb className={className} />
+    case 'climate':      return <Thermometer className={className} />
+    case 'fan':          return <Wind className={className} />
+    case 'lock':         return <Lock className={className} />
+    case 'media_player': return <Volume2 className={className} />
+    default:             return <Power className={className} />
+  }
+}
+
+function WidgetHAFavorites() {
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const [favoriteIds, setFavoriteIds] = useState<string[] | null>(null)
+  const [overrides, setOverrides] = useState<Record<string, string>>({})
+  const tempTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const [tempDrafts, setTempDrafts] = useState<Record<string, number>>({})
+
+  const { data, refetch } = useQuery({
+    queryKey: ['home-assistant-entities'],
+    queryFn: async () => {
+      const r = await fetch('/api/home-assistant/entities', { credentials: 'include' })
+      if (!r.ok) throw new Error('fetch failed')
+      return (await r.json()) as { configured: boolean; entities?: HAFavEntity[] }
+    },
+    refetchInterval: 30000,
+  })
+
+  useEffect(() => {
+    if (!user?.id) return
+    fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((prefs: Record<string, unknown> | null) => {
+        const fav = prefs?.['ha.favorites']
+        setFavoriteIds(Array.isArray(fav) ? fav.filter((v): v is string => typeof v === 'string') : [])
+      })
+      .catch(() => setFavoriteIds([]))
+  }, [user?.id])
+
+  async function callEntity(entityId: string, action: string, value?: number) {
+    try {
+      const r = await fetch('/api/home-assistant/entity', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity_id: entityId, action, ...(value !== undefined ? { value } : {}) }),
+      })
+      const res = (await r.json()) as { ok: boolean }
+      if (res.ok) { await refetch(); setOverrides(prev => { const n = { ...prev }; delete n[entityId]; return n }) }
+      else setOverrides(prev => { const n = { ...prev }; delete n[entityId]; return n })
+    } catch {
+      setOverrides(prev => { const n = { ...prev }; delete n[entityId]; return n })
+    }
+  }
+
+  function toggle(e: HAFavEntity, isOn: boolean) {
+    setOverrides(prev => ({ ...prev, [e.entity_id]: isOn ? 'off' : 'on' }))
+    void callEntity(e.entity_id, isOn ? 'turn_off' : 'turn_on')
+  }
+
+  function nudgeTemp(e: HAFavEntity, delta: number) {
+    const attrs = e.attributes ?? {}
+    const current = tempDrafts[e.entity_id]
+      ?? (typeof attrs['temperature'] === 'number' ? (attrs['temperature'] as number) : 70)
+    const min = typeof attrs['min_temp'] === 'number' ? (attrs['min_temp'] as number) : 45
+    const max = typeof attrs['max_temp'] === 'number' ? (attrs['max_temp'] as number) : 90
+    const next = Math.min(max, Math.max(min, Math.round(current + delta)))
+    setTempDrafts(prev => ({ ...prev, [e.entity_id]: next }))
+    if (tempTimers.current[e.entity_id]) clearTimeout(tempTimers.current[e.entity_id])
+    tempTimers.current[e.entity_id] = setTimeout(() => { void callEntity(e.entity_id, 'set_temperature', next) }, 400)
+  }
+
+  const favorites = (favoriteIds ?? [])
+    .map(id => (data?.entities ?? []).find(e => e.entity_id === id))
+    .filter((e): e is HAFavEntity => !!e)
+    .map(e => (e.entity_id in overrides ? { ...e, state: overrides[e.entity_id]! } : e))
+    .slice(0, 6)
+
+  if (!data || favoriteIds === null) {
+    return <div className="flex items-center justify-center h-full p-4"><Loader2 className="size-5 animate-spin text-muted-foreground/50" /></div>
+  }
+  if (!data.configured || favorites.length === 0) {
+    return (
+      <button onClick={() => navigate('/home-assistant')} className="flex flex-col items-center justify-center gap-1.5 h-full p-4 text-muted-foreground/60 hover:text-foreground/80 transition-colors">
+        <Star className="size-7" />
+        <span className="text-[12px] font-medium text-center">Star devices in the Home app to see them here</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2 p-4 h-full content-start">
+      {favorites.map(e => {
+        const isOn = HA_FAV_ON.has(e.state)
+        const attrs = e.attributes ?? {}
+        if (e.domain === 'climate') {
+          const setpoint = tempDrafts[e.entity_id]
+            ?? (typeof attrs['temperature'] === 'number' ? (attrs['temperature'] as number) : null)
+          return (
+            <div key={e.entity_id} className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-2">
+              <Thermometer className="size-4 shrink-0 text-emerald-400" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[10px] text-muted-foreground/70">{e.friendly_name}</p>
+                <p className="text-sm font-black leading-tight tabular-nums">{setpoint !== null ? `${setpoint}°` : '—'}</p>
+              </div>
+              <div className="flex shrink-0 flex-col gap-0.5">
+                <button onClick={() => nudgeTemp(e, 1)} className="rounded bg-white/10 p-0.5 hover:bg-white/20 transition-colors"><Plus className="size-3" /></button>
+                <button onClick={() => nudgeTemp(e, -1)} className="rounded bg-white/10 p-0.5 hover:bg-white/20 transition-colors"><Minus className="size-3" /></button>
+              </div>
+            </div>
+          )
+        }
+        if (e.domain === 'lock') {
+          const locked = e.state === 'locked'
+          // Deliberately display-only: no unlocking from the home screen.
+          return (
+            <button key={e.entity_id} onClick={() => navigate('/home-assistant')}
+              className={cn('flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors',
+                locked ? 'border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/15' : 'border-red-500/25 bg-red-500/10 hover:bg-red-500/15')}>
+              {locked ? <Lock className="size-4 shrink-0 text-emerald-400" /> : <LockOpen className="size-4 shrink-0 text-red-400" />}
+              <div className="min-w-0">
+                <p className="truncate text-[10px] text-muted-foreground/70">{e.friendly_name}</p>
+                <p className={cn('text-[11px] font-semibold', locked ? 'text-emerald-300' : 'text-red-300')}>{locked ? 'Locked' : 'Unlocked'}</p>
+              </div>
+            </button>
+          )
+        }
+        const complex = e.domain === 'media_player' || e.domain === 'cover'
+        return (
+          <button key={e.entity_id}
+            onClick={() => (complex ? navigate('/home-assistant') : toggle(e, isOn))}
+            className={cn(
+              'flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all active:scale-[0.97]',
+              isOn ? 'border-amber-400/30 bg-white text-gray-900' : 'border-border/50 bg-white/[0.06] hover:bg-white/[0.1]',
+            )}>
+            <HAFavGlyph domain={e.domain} className={cn('size-4 shrink-0', isOn ? 'text-amber-500' : 'text-muted-foreground/60')} />
+            <div className="min-w-0">
+              <p className={cn('truncate text-[10px]', isOn ? 'text-gray-500' : 'text-muted-foreground/70')}>{e.friendly_name}</p>
+              <p className={cn('text-[11px] font-semibold', isOn ? 'text-gray-900' : 'text-foreground/70')}>
+                {e.state.charAt(0).toUpperCase() + e.state.slice(1).replace(/_/g, ' ')}
+              </p>
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Widget renderers ──────────────────────────────────────────────────────────
 // Keyed by canonical widget id (see lib/homeWidgets). The catalog there is the
 // source of truth for which widgets exist; this map just wires ids to views.
@@ -1507,6 +1763,8 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'watchlist':          (m) => <WidgetWatchlist displayMode={m} />,
   'speed-test':         () => <WidgetSpeedTest />,
   'status':             () => <WidgetStatus />,
+  'ha-summary':         () => <WidgetHASummary />,
+  'ha-favorites':       () => <WidgetHAFavorites />,
 };
 
 function renderWidget(widget: HomeWidget, mode: 'row' | 'column'): React.ReactNode {

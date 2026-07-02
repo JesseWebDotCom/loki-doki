@@ -37,6 +37,39 @@
   .station-art-float, .station-art-glow { animation: none; }
 }
 
+/* ── Home Assistant device cards — "powered" motion ───────────────────────── */
+/* Equalizer bars for playing media. */
+@keyframes ha-eq { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+.ha-eq-bar { animation: ha-eq 0.9s ease-in-out infinite; transform-origin: bottom; will-change: transform; }
+/* Soft breathing glow behind active device icons. */
+@keyframes ha-glow { 0%, 100% { opacity: 0.45; transform: scale(1); } 50% { opacity: 0.9; transform: scale(1.15); } }
+.ha-glow { animation: ha-glow 3.2s ease-in-out infinite; will-change: opacity, transform; }
+/* Spinning fan blades. */
+@keyframes ha-rotate { to { transform: rotate(360deg); } }
+.ha-spin-fan { animation: ha-rotate 1.6s linear infinite; will-change: transform; }
+/* Expanding alert ring around an unlocked lock / open door. */
+@keyframes ha-pulse-ring { 0% { transform: scale(0.85); opacity: 0.6; } 75%, 100% { transform: scale(1.5); opacity: 0; } }
+.ha-pulse-ring { animation: ha-pulse-ring 2.2s ease-out infinite; will-change: transform, opacity; }
+/* Shimmer sweep across a cover position bar while it moves. */
+@keyframes ha-shimmer-x { from { transform: translateX(-120%); } to { transform: translateX(320%); } }
+.ha-shimmer { animation: ha-shimmer-x 1.3s ease-in-out infinite; will-change: transform; }
+/* Flowing "energy line" along the bottom edge of an active device card. */
+@keyframes ha-energy { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.ha-energy-line { background-size: 200% 100%; animation: ha-energy 3.5s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .ha-eq-bar, .ha-glow, .ha-spin-fan, .ha-pulse-ring, .ha-shimmer, .ha-energy-line { animation: none; }
+}
+/* Inline brightness/volume slider on device cards — track fill set per-value via inline style. */
+.ha-range { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 9999px; outline: none; cursor: pointer; }
+.ha-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.5); cursor: pointer;
+}
+.ha-range::-moz-range-thumb {
+  width: 14px; height: 14px; border: none; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.5); cursor: pointer;
+}
+
 /* Shared input style for the character studio editor. */
 @layer components {
   .ld-input {

@@ -1,6 +1,6 @@
 import {
-  Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Headphones, Laugh, ListVideo, Music,
-  Newspaper, PlaySquare, Radio, Sunrise, Trophy, Tv, type LucideIcon,
+  Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Headphones, Home, Laugh, ListVideo, Music,
+  Newspaper, PlaySquare, Radio, Star, Sunrise, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -123,6 +123,20 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     icon: ListVideo, color: "#a78bfa",
     gradient: "linear-gradient(135deg,#2e1065,#6d28d9)",
     allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "ha-summary", title: "Home Status",
+    description: "Lights, media & security at a glance",
+    icon: Home, color: "#10b981",
+    gradient: "linear-gradient(135deg,#064e3b,#10b981)",
+    allowWide: true, toolId: "homeAssistant",
+  },
+  {
+    id: "ha-favorites", title: "Home Favorites",
+    description: "Quick controls for your starred devices",
+    icon: Star, color: "#f59e0b",
+    gradient: "linear-gradient(135deg,#78350f,#f59e0b)",
+    allowWide: true, toolId: "homeAssistant",
   },
   {
     id: "speed-test", title: "Speed Test",

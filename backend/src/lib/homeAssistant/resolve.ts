@@ -11,11 +11,18 @@ export type HAAction =
   | 'open' | 'close'
   | 'set_brightness'
   | 'activate_scene'
+  | 'set_temperature' | 'set_hvac_mode'
+  | 'media_play' | 'media_pause' | 'media_next' | 'media_previous'
+  | 'set_volume' | 'volume_up' | 'volume_down' | 'mute' | 'unmute'
+  | 'set_position' | 'stop'
 
 export interface ResolvedPlan {
   intent: 'control' | 'query' | 'unknown'
   action?: HAAction
   brightnessPct?: number
+  value?: number          // set_temperature: °F setpoint · set_volume/set_position: 0–100 pct
+  tempDelta?: number      // relative "warmer/cooler" — resolved against the current setpoint
+  hvacMode?: string       // set_hvac_mode: heat | cool | auto | off | heat_cool | fan_only | dry
   targets: CatalogEntity[]
   matchedArea: string | null
   matchedDomain: string | null
@@ -25,21 +32,37 @@ export interface ResolvedPlan {
 
 const CONTROLLABLE = new Set(['light', 'switch', 'fan', 'cover', 'lock', 'climate', 'media_player', 'scene', 'script', 'input_boolean'])
 
-const QUERY_RE = /^\s*(is|are|was|were|how many|which|what'?s|what is|what are|do|does|did|tell me (if|whether)|check (if|whether))\b/i
+const QUERY_RE = /^\s*(is|are|was|were|how many|which|what'?s|what is|what are|what temperature|how (warm|cold|hot)|do|does|did|tell me (if|whether)|check (if|whether))\b/i
 const STATE_QUESTION_RE = /\b(on or off|on\?|off\?|open or closed|locked|unlocked|still on|still running)\b/i
 
 const DOMAIN_KEYWORDS: Array<{ re: RegExp; domain: string }> = [
   { re: /\b(lights?|lamps?|lighting)\b/i, domain: 'light' },
   { re: /\b(fans?)\b/i, domain: 'fan' },
   { re: /\b(thermostat|temperature|heat(ing)?|cooling|air ?con(ditioner)?|a\/?c|climate)\b/i, domain: 'climate' },
-  { re: /\b(tv|television|media|speakers?|music|stereo|receiver)\b/i, domain: 'media_player' },
+  { re: /\b(tv|television|media|speakers?|music|stereo|receiver|volume|songs?|tracks?|playing|playlist)\b/i, domain: 'media_player' },
   { re: /\b(switch(es)?|outlets?|plugs?)\b/i, domain: 'switch' },
   { re: /\b(blinds?|shades?|curtains?|garage|covers?)\b/i, domain: 'cover' },
   { re: /\b(locks?|locked|unlocked|deadbolt)\b/i, domain: 'lock' },
 ]
 
+export interface DetectedAction {
+  action: HAAction
+  brightnessPct?: number
+  value?: number
+  tempDelta?: number
+  hvacMode?: string
+}
+
+const HVAC_MODE_RE = /\b(heat[_ ]?cool|fan[_ ]?only|heat(?:ing)?|cool(?:ing)?|auto|dry|off)\b/
+function normalizeHvacMode(raw: string): string {
+  const m = raw.toLowerCase().replace(/\s+/, '_')
+  if (m === 'heating') return 'heat'
+  if (m === 'cooling') return 'cool'
+  return m
+}
+
 // Detect the action verb. Returns null if no control verb found.
-function detectAction(text: string): { action: HAAction; brightnessPct?: number } | null {
+function detectAction(text: string): DetectedAction | null {
   const t = text.toLowerCase()
   // NB: no trailing \b — "%" is a non-word char, so \b fails on "50%" at end of string.
   const pctMatch = t.match(/(\d{1,3})\s*(%|percent|pct)/)
@@ -49,6 +72,52 @@ function detectAction(text: string): { action: HAAction; brightnessPct?: number 
   if (/\block\b/.test(t)) return { action: 'lock' }
   if (/\btoggle\b/.test(t)) return { action: 'toggle' }
   if (/\b(activate|run|start)\b.*\bscene\b|\bscene\b.*\b(on|activate)\b/.test(t)) return { action: 'activate_scene' }
+
+  // Media transport — before open/close so "resume"/"skip" never fall through.
+  if (/\bunpause\b/.test(t)) return { action: 'media_play' }
+  if (/\bpause\b/.test(t)) return { action: 'media_pause' }
+  if (/\bresume\b/.test(t) || /\b(start|continue) playing\b/.test(t)) return { action: 'media_play' }
+  if (/\b(next|skip)\b.{0,15}\b(song|track|episode)\b/.test(t) || /\bskip (this|it|ahead|forward)\b/.test(t)) return { action: 'media_next' }
+  if (/\b(previous|last|go back a)\b.{0,10}\b(song|track)\b/.test(t) || /\bplay (the )?(previous|last) (song|track)\b/.test(t)) return { action: 'media_previous' }
+
+  // Volume — before open ("raise the volume") and close ("lower the volume"),
+  // and before the pct→brightness rule ("volume to 30%" is not a dim request).
+  if (/\bunmute\b/.test(t)) return { action: 'unmute' }
+  if (/\bmute\b/.test(t)) return { action: 'mute' }
+  if (/\b(volume|sound)\b/.test(t)) {
+    if (pct !== undefined) return { action: 'set_volume', value: pct }
+    const vol = t.match(/\b(?:volume|sound)\b.*?\bto\s+(\d{1,3})\b/) ?? t.match(/\b(?:set|make|change)\b.*?\bto\s+(\d{1,3})\b.*\b(?:volume|sound)\b/)
+    if (vol) return { action: 'set_volume', value: Math.min(100, Math.max(0, parseInt(vol[1]!, 10))) }
+    if (/\b(up|raise|increase|louder)\b/.test(t)) return { action: 'volume_up' }
+    if (/\b(down|lower|decrease|quieter|softer)\b/.test(t)) return { action: 'volume_down' }
+  }
+  if (/\blouder\b/.test(t)) return { action: 'volume_up' }
+  if (/\bquieter\b/.test(t)) return { action: 'volume_down' }
+
+  // Climate — HVAC mode phrases first ("turn on the heat" must not become turn_on),
+  // then absolute setpoints, then relative warmer/cooler.
+  const modeMatch = t.match(/\b(?:set|switch|change|put|flip)\b.*\b(?:thermostat|hvac|climate|a\/?c|air conditioning)\b.*\bto\s+(heat[_ ]?cool|fan[_ ]?only|heat(?:ing)?|cool(?:ing)?|auto|dry|off)\b/)
+  if (modeMatch) return { action: 'set_hvac_mode', hvacMode: normalizeHvacMode(modeMatch[1]!) }
+  if (/\bturn on the (heat(er|ing)?)\b/.test(t)) return { action: 'set_hvac_mode', hvacMode: 'heat' }
+  if (/\bturn on the (a\/?c|air conditioning|air conditioner|cooling)\b/.test(t)) return { action: 'set_hvac_mode', hvacMode: 'cool' }
+  if (/\bturn off the (heat(er|ing)?|a\/?c|air conditioning|air conditioner|thermostat|hvac)\b/.test(t)) return { action: 'set_hvac_mode', hvacMode: 'off' }
+  if (pct === undefined) {
+    const deg = t.match(/\b(\d{2,3})\s*(?:°|degrees?)\b/) ?? t.match(/\b(?:set|change|turn|put)\b.*\b(?:thermostat|temp(?:erature)?|heat|a\/?c)\b.*\bto\s+(\d{2,3})\b/)
+    if (deg) {
+      const v = parseInt(deg[1]!, 10)
+      if (v >= 40 && v <= 95) return { action: 'set_temperature', value: v }
+    }
+    if (/\b(warmer|turn up the (heat|temperature|thermostat)|bump (up )?the (heat|temperature|thermostat))\b/.test(t)) return { action: 'set_temperature', tempDelta: 2 }
+    if (/\b(cooler|colder|turn down the (heat|temperature|thermostat))\b/.test(t)) return { action: 'set_temperature', tempDelta: -2 }
+  }
+
+  // Cover position — "open the blinds halfway", "set the shades to 40%".
+  if (/\b(blinds?|shades?|curtains?|covers?|garage)\b/.test(t)) {
+    if (pct !== undefined) return { action: 'set_position', value: pct }
+    if (/\bhalfway\b/.test(t)) return { action: 'set_position', value: 50 }
+    if (/\bstop\b/.test(t)) return { action: 'stop' }
+  }
+
   if (/\b(open|raise)\b/.test(t)) return { action: 'open' }
   if (/\b(close|shut|lower)\b/.test(t)) return { action: 'close' }
   if (/\b(dim|dimmer)\b/.test(t)) return { action: 'set_brightness', brightnessPct: pct ?? 30 }
@@ -63,9 +132,15 @@ function detectAction(text: string): { action: HAAction; brightnessPct?: number 
   return null
 }
 
+const MEDIA_ACTIONS = new Set<HAAction>(['media_play', 'media_pause', 'media_next', 'media_previous', 'set_volume', 'volume_up', 'volume_down', 'mute', 'unmute'])
+const CLIMATE_ACTIONS = new Set<HAAction>(['set_temperature', 'set_hvac_mode'])
+
 function detectDomain(text: string, action: HAAction | null): string | null {
-  // Action constrains the domain in ambiguous cases (e.g. "door").
+  // Action constrains the domain in ambiguous cases (e.g. "door", "pause it").
   if (action === 'lock' || action === 'unlock') return 'lock'
+  if (action && MEDIA_ACTIONS.has(action)) return 'media_player'
+  if (action && CLIMATE_ACTIONS.has(action)) return 'climate'
+  if (action === 'set_position') return 'cover'
   for (const { re, domain } of DOMAIN_KEYWORDS) if (re.test(text)) return domain
   if ((action === 'open' || action === 'close') && /\bdoor\b/i.test(text)) return 'cover'
   return null
@@ -141,6 +216,22 @@ export function deterministicResolve(
   } else if (area && !domain && (isQuery || wantsAll)) {
     // "what's on in the office" / "turn off everything in the office"
     targets = entities.filter(e => e.areaId === area.areaId && CONTROLLABLE.has(e.domain))
+  } else if (domain === 'climate') {
+    // "set the thermostat to 72" — most homes have one thermostat (or want all
+    // zones set together), so a missing area shouldn't force the LLM fallback.
+    targets = entities.filter(e => e.domain === 'climate')
+  } else if (domain) {
+    // No area named: safe only when it resolves to a single device (one TV, one
+    // lock) or the message names one. Multiple unnamed candidates stay ambiguous
+    // (→ LLM fallback). Short names like "TV" slip past narrowByName's ≥3-char
+    // token filter, so also try a verbatim-name match.
+    const cands = entities.filter(e => e.domain === domain)
+    const named = narrowByName(message, cands)
+    const t = message.toLowerCase()
+    const verbatim = cands.filter(e => e.name.length >= 2 && t.includes(e.name.toLowerCase()))
+    if (cands.length === 1) targets = cands
+    else if (named.length < cands.length) targets = named
+    else if (verbatim.length > 0 && verbatim.length < cands.length) targets = verbatim
   } else {
     targets = matchByName(message, entities)
     // If a name match also implies an area+domain wasn't needed, keep it.
@@ -162,6 +253,9 @@ export function deterministicResolve(
     intent: 'control',
     action,
     brightnessPct: detected?.brightnessPct,
+    value: detected?.value,
+    tempDelta: detected?.tempDelta,
+    hvacMode: detected?.hvacMode,
     targets,
     matchedArea: area?.areaName ?? null,
     matchedDomain: domain,

@@ -148,7 +148,7 @@ const TIER2_RULES: Record<string, string> = {
   localNews: 'localNews: hyperlocal news for the user\'s own town. "what\'s going on in town", "local news near me".',
   localEvents: 'localEvents: local events, festivals, parades, or things to do near the user. "anything happening this weekend", "events near me".',
   onthisday: 'onthisday: historical events or notable birthdays for a calendar date. "what happened on this day", "celebrity birthdays today".',
-  homeAssistant: 'homeAssistant: commands to control a smart home — lights, switches, fans, locks, thermostats, scenes, covers/garage doors. "turn off the living room lights", "dim the bedroom", "lock the front door", "set the thermostat to 70", "is the garage open". Pass the user\'s full command verbatim as the text argument.',
+  homeAssistant: 'homeAssistant: control or query smart-home devices — lights, switches, fans, locks, thermostats (temperature + mode), home TVs/speakers (pause, skip, volume, mute), scenes, covers/garage doors. "turn off the living room lights", "set the thermostat to 72", "pause the living room tv", "is the garage open", "what temperature is it inside". Only for devices in the home — outdoor conditions are weather, and starting new music by name is play_music. Pass the user\'s full command verbatim as the text argument.',
 }
 
 function tier2System(candidates: Tool[]): string {

@@ -108,9 +108,20 @@ export function followUpResolve(message: string, ctx: HAContext): ResolvedPlan |
   if (/\bback on\b/.test(t) || /\bturn (it|them|those) on\b/.test(t)) return { intent: 'control', action: 'turn_on' as HAAction, ...base }
 
   const num = t.match(/(\d{1,3})/)
-  if (num && (ctx.matchedDomain === 'light' || ctx.targets.some(e => e.domain === 'light'))) {
-    const pct = Math.min(100, Math.max(0, parseInt(num[1]!, 10)))
-    return { intent: 'control', action: 'set_brightness' as HAAction, brightnessPct: pct, ...base }
+  if (num) {
+    const n = parseInt(num[1]!, 10)
+    // "make it 72" after a thermostat command → new setpoint; after a media
+    // command → volume; after lights → brightness.
+    if (ctx.matchedDomain === 'climate' || ctx.targets.every(e => e.domain === 'climate')) {
+      if (n >= 40 && n <= 95) return { intent: 'control', action: 'set_temperature' as HAAction, value: n, ...base }
+      return null
+    }
+    if (ctx.matchedDomain === 'media_player' || ctx.targets.every(e => e.domain === 'media_player')) {
+      return { intent: 'control', action: 'set_volume' as HAAction, value: Math.min(100, Math.max(0, n)), ...base }
+    }
+    if (ctx.matchedDomain === 'light' || ctx.targets.some(e => e.domain === 'light')) {
+      return { intent: 'control', action: 'set_brightness' as HAAction, brightnessPct: Math.min(100, Math.max(0, n)), ...base }
+    }
   }
   return null
 }

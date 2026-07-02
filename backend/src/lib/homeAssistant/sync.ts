@@ -14,21 +14,24 @@ import type { HAConnection } from './client'
 export interface CatalogEntity {
   entityId: string
   domain: string
-  name: string            // best display name (registry override → friendly_name → id)
+  name: string            // best display name (friendly_name → registry override → id)
   areaId: string | null
   areaName: string | null
+  deviceClass: string | null
+  category: string | null // entity_category: 'config' | 'diagnostic' | null (null = primary control)
 }
 
 export interface HAStore {
   entities: Map<string, CatalogEntity>
   states: Map<string, string>      // entity_id → current state
+  attributes: Map<string, Record<string, unknown>>  // entity_id → live attributes
   areas: Map<string, string>       // areaId → area name
   connected: boolean
   lastSyncMs: number | null
   lastError: string | null
 }
 
-interface EntityRegEntry { areaId: string | null; deviceId: string | null; name: string | null }
+interface EntityRegEntry { areaId: string | null; deviceId: string | null; name: string | null; category: string | null }
 
 interface Conn {
   conn: HAConnection
@@ -70,7 +73,7 @@ function wsUrl(baseUrl: string): string { return baseUrl.replace(/^http/i, 'ws')
 function createConn(conn: HAConnection): Conn {
   return {
     conn,
-    store: { entities: new Map(), states: new Map(), areas: new Map(), connected: false, lastSyncMs: null, lastError: null },
+    store: { entities: new Map(), states: new Map(), attributes: new Map(), areas: new Map(), connected: false, lastSyncMs: null, lastError: null },
     ws: null, msgId: 1, pending: new Map(), subId: null,
     onFirstEvent: null, authResolve: null, authReject: null,
     reconnectTimer: null, registryTimer: null, closedByUs: false,
@@ -180,9 +183,10 @@ interface HAMessage {
   success?: boolean
   result?: unknown
   error?: { message?: string }
-  event?: { a?: Record<string, RawState>; c?: Record<string, { '+'?: RawState }>; r?: string[] }
+  event?: { a?: Record<string, RawState>; c?: Record<string, EntityDiff>; r?: string[] }
 }
 interface RawState { s?: string; a?: Record<string, unknown> }
+interface EntityDiff { '+'?: RawState; '-'?: { a?: string[] } }
 
 function handleMessage(c: Conn, raw: string): void {
   let msg: HAMessage
@@ -218,7 +222,7 @@ function handleMessage(c: Conn, raw: string): void {
 
 interface AreaRow { area_id: string; name: string }
 interface DeviceRow { id: string; area_id: string | null }
-interface EntityRow { entity_id: string; area_id: string | null; device_id: string | null; name: string | null }
+interface EntityRow { entity_id: string; area_id: string | null; device_id: string | null; name: string | null; entity_category?: string | null }
 
 async function initialSync(c: Conn): Promise<void> {
   await refreshRegistries(c)
@@ -251,7 +255,7 @@ async function refreshRegistries(c: Conn): Promise<void> {
 
   c.entityReg.clear()
   for (const e of entities) {
-    c.entityReg.set(e.entity_id, { areaId: e.area_id ?? null, deviceId: e.device_id ?? null, name: e.name ?? null })
+    c.entityReg.set(e.entity_id, { areaId: e.area_id ?? null, deviceId: e.device_id ?? null, name: e.name ?? null, category: e.entity_category ?? null })
   }
 
   // Re-derive area/name for entities we already know about.
@@ -266,7 +270,11 @@ function rederive(c: Conn, eid: string): void {
   const areaId = reg?.areaId ?? (reg?.deviceId ? c.deviceReg.get(reg.deviceId) ?? null : null)
   ent.areaId = areaId
   ent.areaName = areaId ? c.store.areas.get(areaId) ?? null : null
-  if (reg?.name) ent.name = reg.name
+  ent.category = reg?.category ?? null
+  // friendly_name is HA's fully-computed display name ("Coffee Maker Switch" —
+  // device + entity). The bare registry name ("Switch") is only a last resort
+  // when the entity never reported a friendly_name.
+  if (ent.name === eid && reg?.name) ent.name = reg.name
 }
 
 function applyEntitiesEvent(c: Conn, event: NonNullable<HAMessage['event']>): void {
@@ -289,13 +297,25 @@ function applyEntitiesEvent(c: Conn, event: NonNullable<HAMessage['event']>): vo
       if (plus?.a) {
         const fn = plus.a['friendly_name']
         const ent = c.store.entities.get(eid)
-        if (ent && typeof fn === 'string' && !c.entityReg.get(eid)?.name) ent.name = fn
+        if (ent && typeof fn === 'string' && fn) ent.name = fn
+        // Merge attribute updates into the live attribute map.
+        const attrs = c.store.attributes.get(eid) ?? {}
+        Object.assign(attrs, plus.a)
+        c.store.attributes.set(eid, attrs)
+        const dc = plus.a['device_class']
+        if (ent && dc !== undefined) ent.deviceClass = typeof dc === 'string' ? dc : null
+      }
+      const minus = diff['-']
+      if (minus?.a) {
+        // Attributes removed (e.g. media_title clearing when playback stops).
+        const attrs = c.store.attributes.get(eid)
+        if (attrs) for (const key of minus.a) delete attrs[key]
       }
     }
     c.store.lastSyncMs = Date.now()
   }
   if (event.r) {
-    for (const eid of event.r) { c.store.entities.delete(eid); c.store.states.delete(eid) }
+    for (const eid of event.r) { c.store.entities.delete(eid); c.store.states.delete(eid); c.store.attributes.delete(eid) }
   }
 }
 
@@ -306,6 +326,11 @@ function upsertEntity(c: Conn, eid: string, st: RawState): void {
   const areaId = reg?.areaId ?? (reg?.deviceId ? c.deviceReg.get(reg.deviceId) ?? null : null)
   const areaName = areaId ? c.store.areas.get(areaId) ?? null : null
   const fn = st.a?.['friendly_name']
-  const name = reg?.name ?? (typeof fn === 'string' ? fn : eid)
-  c.store.entities.set(eid, { entityId: eid, domain, name, areaId, areaName })
+  // friendly_name is HA's computed "{device} {entity}" display name — prefer it
+  // over the bare entity-registry name, which is often just "Switch"/"Light".
+  const name = (typeof fn === 'string' && fn ? fn : null) ?? reg?.name ?? eid
+  const attrs = st.a ?? {}
+  c.store.attributes.set(eid, { ...attrs })
+  const dc = attrs['device_class']
+  c.store.entities.set(eid, { entityId: eid, domain, name, areaId, areaName, deviceClass: typeof dc === 'string' ? dc : null, category: reg?.category ?? null })
 }

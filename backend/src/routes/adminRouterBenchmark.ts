@@ -86,6 +86,13 @@ const TEST_CASES: RouterTestCase[] = [
   // ── Smart home ──────────────────────────────────────────────────────────────
   { id: 'ha-lights-off',     category: 'homeAssistant', prompt: "turn off the living room lights",    expectedTools: ['homeAssistant'] },
   { id: 'ha-dim',            category: 'homeAssistant', prompt: "dim the bedroom to 30%",             expectedTools: ['homeAssistant'] },
+  { id: 'ha-thermostat',     category: 'homeAssistant', prompt: "set the thermostat to 72",           expectedTools: ['homeAssistant'] },
+  { id: 'ha-heat-up',        category: 'homeAssistant', prompt: "turn up the heat a little",          expectedTools: ['homeAssistant'] },
+  { id: 'ha-media-pause',    category: 'homeAssistant', prompt: "pause the living room tv",           expectedTools: ['homeAssistant'] },
+  { id: 'ha-volume-down',    category: 'homeAssistant', prompt: "turn down the volume on the kitchen speaker", expectedTools: ['homeAssistant'] },
+  { id: 'ha-mute',           category: 'homeAssistant', prompt: "mute the tv",                        expectedTools: ['homeAssistant'] },
+  { id: 'ha-temp-query',     category: 'homeAssistant', prompt: "what temperature is it inside?",     expectedTools: ['homeAssistant'] },
+  { id: 'ha-whats-playing',  category: 'homeAssistant', prompt: "what's playing in the living room?", expectedTools: ['homeAssistant'] },
 
   // ── Playback vs browse confusables ──────────────────────────────────────────
   { id: 'play-artist',       category: 'play_music', prompt: "play some led zeppelin",                expectedTools: ['play_music'] },

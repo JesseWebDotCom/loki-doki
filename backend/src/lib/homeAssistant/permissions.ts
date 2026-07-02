@@ -2,10 +2,15 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { haUserGrants } from '@/db/schema'
 import type { CatalogEntity } from './sync'
+import { SECURITY_DOMAIN, isSecurityEntity } from './security'
 
 // Per-user control grants. Each grant is a (domain, area) scope; '*' is a wildcard.
 // A user with no grants controls nothing (admins bypass entirely). State queries are
 // gated the same way — you can only ask about devices you're allowed to see.
+//
+// Security entities (locks + entry covers, see security.ts) are excluded from
+// wildcard and plain-domain grants: they match ONLY grants with the pseudo-domain
+// 'security'. ('*','*') grants everything EXCEPT the front door.
 
 export interface Grant { domain: string; areaId: string }
 
@@ -29,9 +34,10 @@ export async function setGrants(userId: string, grants: Grant[]): Promise<void> 
 }
 
 function grantCovers(grant: Grant, entity: CatalogEntity): boolean {
-  const domainOk = grant.domain === '*' || grant.domain === entity.domain
   const areaOk = grant.areaId === '*' || grant.areaId === (entity.areaId ?? '')
-  return domainOk && areaOk
+  if (!areaOk) return false
+  if (isSecurityEntity(entity)) return grant.domain === SECURITY_DOMAIN
+  return grant.domain === '*' || grant.domain === entity.domain
 }
 
 export interface PermissionFilter {

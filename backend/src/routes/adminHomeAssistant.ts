@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { requireAdmin } from '@/middleware/auth'
 import { ensureConnected, getStore, getGlobalConnection } from '@/lib/homeAssistant'
-import { getGrants, setGrants, type Grant } from '@/lib/homeAssistant/permissions'
+import { setGrants, type Grant } from '@/lib/homeAssistant/permissions'
+import { isSecurityEntity } from '@/lib/homeAssistant/security'
 import { describeError } from '@/lib/homeAssistant/client'
 import { db } from '@/db'
 import { users, haUserGrants } from '@/db/schema'
@@ -55,7 +56,7 @@ adminHomeAssistant.get('/catalog', requireAdmin, async (c) => {
     areas,
     domains,
     entities: entities
-      .map((e) => ({ entity_id: e.entityId, name: e.name, domain: e.domain, area_id: e.areaId, area: e.areaName, state: store?.states.get(e.entityId) ?? null }))
+      .map((e) => ({ entity_id: e.entityId, name: e.name, domain: e.domain, area_id: e.areaId, area: e.areaName, device_class: e.deviceClass, category: e.category, security: isSecurityEntity(e), state: store?.states.get(e.entityId) ?? null }))
       .sort((a, b) => a.entity_id.localeCompare(b.entity_id)),
   })
 })

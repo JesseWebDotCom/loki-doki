@@ -1,14 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
+import { useAuth } from '@/context/AuthContext'
 import {
   Home,
   Lightbulb,
   Power,
-  Wind,
-  Lock,
-  Thermometer,
   Volume2,
   ChevronRight,
   Loader2,
@@ -22,20 +20,16 @@ import {
   DoorOpen,
   UtensilsCrossed,
   Waves,
+  Settings,
+  type LucideIcon,
 } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { Button } from '@/components/ui/button'
+import { DeviceDetailDialog, type HAEntity } from '@/components/homeassistant/DeviceDetailDialog'
+import { DeviceCard, isEntityOn, isUnavailable, type CardAction } from '@/components/homeassistant/DeviceCard'
 import { cn } from '@/lib/cn'
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-interface HAEntity {
-  entity_id: string
-  state: string
-  friendly_name: string
-  domain: string
-  area?: string
-}
 
 interface EntitiesResponse {
   configured: boolean
@@ -49,29 +43,149 @@ interface ToggleResponse {
   error?: string | null
 }
 
-// ── Domain config (complete class strings, not templates) ─────────────────────
-
-const DOMAIN_CFG: Record<string, { label: string; dot: string; iconBg: string; icon: string; iconOn: string; cardBg: string; cardBorder: string }> = {
-  light:         { label: 'Light',   dot: 'bg-amber-400',   iconBg: 'bg-amber-400/20',   icon: 'text-amber-300',   iconOn: 'text-amber-500',   cardBg: 'bg-amber-500/10',   cardBorder: 'border-amber-500/25' },
-  switch:        { label: 'Switch',  dot: 'bg-blue-400',    iconBg: 'bg-blue-400/20',    icon: 'text-blue-300',    iconOn: 'text-blue-600',    cardBg: 'bg-blue-500/10',    cardBorder: 'border-blue-500/25' },
-  fan:           { label: 'Fan',     dot: 'bg-cyan-400',    iconBg: 'bg-cyan-400/20',    icon: 'text-cyan-300',    iconOn: 'text-cyan-600',    cardBg: 'bg-cyan-500/10',    cardBorder: 'border-cyan-500/25' },
-  lock:          { label: 'Lock',    dot: 'bg-orange-400',  iconBg: 'bg-orange-400/20',  icon: 'text-orange-300',  iconOn: 'text-orange-500',  cardBg: 'bg-orange-500/10',  cardBorder: 'border-orange-500/25' },
-  cover:         { label: 'Cover',   dot: 'bg-sky-400',     iconBg: 'bg-sky-400/20',     icon: 'text-sky-300',     iconOn: 'text-sky-600',     cardBg: 'bg-sky-500/10',     cardBorder: 'border-sky-500/25' },
-  climate:       { label: 'Climate', dot: 'bg-emerald-400', iconBg: 'bg-emerald-400/20', icon: 'text-emerald-300', iconOn: 'text-emerald-600', cardBg: 'bg-emerald-500/10', cardBorder: 'border-emerald-500/25' },
-  input_boolean: { label: 'Toggle',  dot: 'bg-violet-400',  iconBg: 'bg-violet-400/20',  icon: 'text-violet-300',  iconOn: 'text-violet-600',  cardBg: 'bg-violet-500/10',  cardBorder: 'border-violet-500/25' },
-  media_player:  { label: 'Media',   dot: 'bg-purple-400',  iconBg: 'bg-purple-400/20',  icon: 'text-purple-300',  iconOn: 'text-purple-600',  cardBg: 'bg-purple-500/10',  cardBorder: 'border-purple-500/25' },
-}
-const DOMAIN_CFG_DEFAULT = { label: 'Device', dot: 'bg-zinc-400', iconBg: 'bg-zinc-400/20', icon: 'text-zinc-300', iconOn: 'text-zinc-600', cardBg: 'bg-zinc-500/10', cardBorder: 'border-zinc-500/25' }
-
 const ALL_TAB = '__all__'
 const ACTIVE_TAB = '__active__'
 const DOMAIN_ORDER = ['light', 'switch', 'fan', 'lock', 'cover', 'climate', 'input_boolean', 'media_player']
 
 function domainPriority(d: string) { const i = DOMAIN_ORDER.indexOf(d); return i === -1 ? 99 : i }
-function isEntityOn(e: HAEntity) { return new Set(['on', 'open', 'playing', 'unlocked', 'home', 'heat', 'cool', 'auto', 'fan_only']).has(e.state) }
-function isUnavailable(e: HAEntity) { return e.state === 'unavailable' || e.state === 'unknown' }
+
 function sortEntities(entities: HAEntity[]) {
   return [...entities].sort((a, b) => domainPriority(a.domain) - domainPriority(b.domain) || a.friendly_name.localeCompare(b.friendly_name))
+}
+
+// ── Stat chips (clickable "all off" counters, per home + per room) ────────────
+
+type StatKind = 'lights' | 'devices' | 'media' | 'doors'
+
+// "Devices" excludes lights — those have their own counter.
+const ON_DEVICE_DOMAINS = new Set(['switch', 'fan'])
+const OPEN_STATES = new Set(['open', 'opening', 'unlocked'])
+
+function statGroups(entities: HAEntity[]): Record<StatKind, HAEntity[]> {
+  return {
+    lights: entities.filter((e) => e.domain === 'light' && e.state === 'on'),
+    devices: entities.filter((e) => ON_DEVICE_DOMAINS.has(e.domain) && e.state === 'on'),
+    media: entities.filter((e) => e.domain === 'media_player' && e.state === 'playing'),
+    doors: entities.filter((e) => !!e.security && OPEN_STATES.has(e.state)),
+  }
+}
+
+const STAT_CFG: Record<StatKind, { Icon: LucideIcon; label: (n: number) => string; title: string; on: string; off: string; roundOn: string }> = {
+  lights:  { Icon: Lightbulb,  label: (n) => `${n} light${n !== 1 ? 's' : ''} on`,  title: 'Turn all these lights off',   on: 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25',   off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-amber-400 text-amber-950 hover:bg-amber-300' },
+  devices: { Icon: Power,      label: (n) => `${n} device${n !== 1 ? 's' : ''} on`, title: 'Turn all these devices off',  on: 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25',      off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-blue-400 text-blue-950 hover:bg-blue-300' },
+  media:   { Icon: Volume2,    label: (n) => `${n} playing`,                        title: 'Pause everything playing',    on: 'bg-purple-500/15 text-purple-300 hover:bg-purple-500/25', off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-purple-400 text-purple-950 hover:bg-purple-300' },
+  doors:   { Icon: DoorOpen,   label: (n) => `${n} open`,                           title: 'Close doors & lock locks',    on: 'bg-red-500/15 text-red-300 hover:bg-red-500/25',          off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-red-400 text-red-950 hover:bg-red-300' },
+}
+const STAT_ORDER: StatKind[] = ['lights', 'devices', 'media', 'doors']
+
+interface StatChipsProps {
+  groups: Record<StatKind, HAEntity[]>
+  scopeKey: string
+  onOff: (scopeKey: string, kind: StatKind, group: HAEntity[]) => void
+  busyKey: string | null
+  /** Round = mushroom-style circular icon chips with a count badge (room cards). */
+  round?: boolean
+}
+
+// Always renders all four counters — zero counts show dimmed so every room
+// (dining room included) gets the same at-a-glance row as the whole home.
+function StatChips({ groups, scopeKey, onOff, busyKey, round }: StatChipsProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {STAT_ORDER.map((kind) => {
+        const cfg = STAT_CFG[kind]
+        const group = groups[kind]
+        const n = group.length
+        const busy = busyKey === `${scopeKey}:${kind}`
+        const active = n > 0
+
+        if (round) {
+          return (
+            <button
+              key={kind}
+              type="button"
+              disabled={!active || busy}
+              title={active ? cfg.title : undefined}
+              onClick={(e) => { e.stopPropagation(); onOff(scopeKey, kind, group) }}
+              className={cn(
+                'relative flex size-8 shrink-0 items-center justify-center rounded-full transition-all',
+                active ? cn(cfg.roundOn, 'shadow-sm active:scale-90') : 'bg-white/[0.07] text-white/25 cursor-default',
+              )}
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <cfg.Icon className="size-3.5" strokeWidth={active ? 2.5 : 1.75} />}
+              {active && (
+                <span className="absolute -right-1 -top-1 flex size-4 min-w-4 items-center justify-center rounded-full border border-white/20 bg-gray-900 text-[9px] font-bold leading-none text-white tabular-nums">
+                  {n}
+                </span>
+              )}
+            </button>
+          )
+        }
+
+        return (
+          <button
+            key={kind}
+            type="button"
+            disabled={!active || busy}
+            title={active ? cfg.title : undefined}
+            onClick={(e) => { e.stopPropagation(); onOff(scopeKey, kind, group) }}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all',
+              active ? cn(cfg.on, 'active:scale-95') : cn(cfg.off, 'cursor-default'),
+            )}
+          >
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <cfg.Icon className="size-3.5" />}
+            <span className="tabular-nums">{cfg.label(n)}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Room accents (mushroom-style tinted containers; complete class strings) ───
+
+const ACCENT_STYLES = {
+  green:  { card: 'bg-emerald-500/[0.07]', circle: 'bg-emerald-500/20', icon: 'text-emerald-300' },
+  blue:   { card: 'bg-blue-500/[0.07]',    circle: 'bg-blue-500/20',    icon: 'text-blue-300' },
+  orange: { card: 'bg-orange-500/[0.07]',  circle: 'bg-orange-500/20',  icon: 'text-orange-300' },
+  purple: { card: 'bg-purple-500/[0.07]',  circle: 'bg-purple-500/20',  icon: 'text-purple-300' },
+  cyan:   { card: 'bg-cyan-500/[0.07]',    circle: 'bg-cyan-500/20',    icon: 'text-cyan-300' },
+  rose:   { card: 'bg-rose-500/[0.07]',    circle: 'bg-rose-500/20',    icon: 'text-rose-300' },
+  amber:  { card: 'bg-amber-500/[0.07]',   circle: 'bg-amber-500/20',   icon: 'text-amber-300' },
+  teal:   { card: 'bg-teal-500/[0.07]',    circle: 'bg-teal-500/20',    icon: 'text-teal-300' },
+  slate:  { card: 'bg-white/[0.05]',       circle: 'bg-white/10',       icon: 'text-white/60' },
+} as const
+
+const ACCENT_FALLBACKS: (keyof typeof ACCENT_STYLES)[] = ['green', 'blue', 'orange', 'purple', 'cyan', 'rose', 'amber', 'teal']
+
+function areaAccent(name: string): (typeof ACCENT_STYLES)[keyof typeof ACCENT_STYLES] {
+  const n = name.toLowerCase()
+  if (/living|lounge|family|den/.test(n)) return ACCENT_STYLES.green
+  if (/office|study|work/.test(n)) return ACCENT_STYLES.blue
+  if (/bed|master|sleep/.test(n)) return ACCENT_STYLES.orange
+  if (/kitchen|cook/.test(n)) return ACCENT_STYLES.purple
+  if (/bath|shower|laundry/.test(n)) return ACCENT_STYLES.cyan
+  if (/dining|eat/.test(n)) return ACCENT_STYLES.rose
+  if (/hall|entry|entrance|foyer|corridor/.test(n)) return ACCENT_STYLES.amber
+  if (/garden|outdoor|yard|patio|deck|porch/.test(n)) return ACCENT_STYLES.teal
+  if (/garage|basement|attic|utility|other/.test(n)) return ACCENT_STYLES.slate
+  // Stable per-name fallback so unrecognized rooms still get a consistent hue.
+  let h = 0
+  for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0
+  return ACCENT_STYLES[ACCENT_FALLBACKS[h % ACCENT_FALLBACKS.length]!]
+}
+
+// First thermostat reading in the room — the mushroom-style temp in the corner.
+function roomClimate(entities: HAEntity[]): { temp: number | null; humidity: number | null } {
+  for (const e of entities) {
+    if (e.domain !== 'climate') continue
+    const a = e.attributes ?? {}
+    const t = a['current_temperature']
+    const h = a['current_humidity']
+    if (typeof t === 'number') return { temp: t, humidity: typeof h === 'number' ? h : null }
+  }
+  return { temp: null, humidity: null }
 }
 
 // ── Area icon ─────────────────────────────────────────────────────────────────
@@ -91,77 +205,22 @@ function AreaIcon({ name, className }: { name: string; className?: string }) {
   return <Icon className={className} />
 }
 
-// ── Domain icon ───────────────────────────────────────────────────────────────
+// ── Device grid (wide mushroom-style cards — see components/homeassistant) ────
 
-function DomainIcon({ domain, className, strokeWidth }: { domain: string; className?: string; strokeWidth?: number }) {
-  const props = { className, strokeWidth }
-  switch (domain) {
-    case 'light':        return <Lightbulb {...props} />
-    case 'climate':      return <Thermometer {...props} />
-    case 'fan':          return <Wind {...props} />
-    case 'lock':         return <Lock {...props} />
-    case 'media_player': return <Volume2 {...props} />
-    default:             return <Power {...props} />
-  }
-}
-
-// ── Device card ───────────────────────────────────────────────────────────────
-
-interface CardProps {
-  entity: HAEntity
+interface GridProps {
+  entities: HAEntity[]
   onToggle: (e: HAEntity, v: boolean) => void
+  onOpen: (e: HAEntity) => void
+  onAction: CardAction
   errorId: string | null
+  favorites: Set<string>
 }
 
-function DeviceCard({ entity, onToggle, errorId }: CardProps) {
-  const isOn = isEntityOn(entity)
-  const unavail = isUnavailable(entity)
-  const cfg = DOMAIN_CFG[entity.domain] ?? DOMAIN_CFG_DEFAULT
-
+function DeviceGrid({ entities, onToggle, onOpen, onAction, errorId, favorites }: GridProps) {
   return (
-    <button
-      disabled={unavail}
-      onClick={() => { onToggle(entity, !isOn) }}
-      className={cn(
-        'relative flex aspect-square w-full flex-col justify-between rounded-2xl p-3.5 text-left transition-all duration-150 active:scale-[0.96]',
-        isOn ? 'bg-white shadow-lg shadow-black/30' : 'bg-white/[0.08] hover:bg-white/[0.11]',
-        unavail && 'cursor-not-allowed opacity-30',
-      )}
-    >
-      <div className="flex items-start justify-between">
-        <div className={cn('flex size-10 items-center justify-center rounded-xl', isOn ? cfg.iconBg : 'bg-white/8')}>
-          <DomainIcon
-            domain={entity.domain}
-            className={cn('size-5', isOn ? cfg.iconOn : 'text-white/50')}
-            strokeWidth={isOn ? 2.5 : 1.75}
-          />
-        </div>
-        <div className={cn('size-2 rounded-full', cfg.dot)} />
-      </div>
-
-      <div className="min-w-0">
-        <p className={cn('text-xs font-medium', isOn ? 'text-gray-400' : 'text-white/35')}>
-          {cfg.label}
-        </p>
-        <p className={cn('mt-0.5 truncate text-base font-bold leading-tight', isOn ? 'text-gray-900' : 'text-white/85')}>
-          {entity.friendly_name}
-        </p>
-      </div>
-
-      {errorId === entity.entity_id && (
-        <p className="absolute inset-x-2 bottom-1.5 text-center text-[8px] text-destructive/80">Failed</p>
-      )}
-    </button>
-  )
-}
-
-// ── Device grid ───────────────────────────────────────────────────────────────
-
-function DeviceGrid({ entities, onToggle, errorId }: { entities: HAEntity[]; onToggle: (e: HAEntity, v: boolean) => void; errorId: string | null }) {
-  return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+    <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))' }}>
       {sortEntities(entities).map((e) => (
-        <DeviceCard key={e.entity_id} entity={e} onToggle={onToggle} errorId={errorId} />
+        <DeviceCard key={e.entity_id} entity={e} onToggle={onToggle} onOpen={onOpen} onAction={onAction} errorId={errorId} favorite={favorites.has(e.entity_id)} />
       ))}
     </div>
   )
@@ -187,32 +246,47 @@ function groupByArea(entities: HAEntity[]): { name: string; entities: HAEntity[]
   return groups
 }
 
-interface GroupedGridProps {
-  entities: HAEntity[]
-  onToggle: (e: HAEntity, v: boolean) => void
-  errorId: string | null
+interface GroupedGridProps extends GridProps {
   onAreaClick?: (area: string) => void
+  onBulkOff: (scopeKey: string, kind: StatKind, group: HAEntity[]) => void
+  bulkBusy: string | null
 }
 
-function GroupedGrid({ entities, onToggle, errorId, onAreaClick }: GroupedGridProps) {
+function GroupedGrid({ entities, onToggle, onOpen, onAction, errorId, favorites, onAreaClick, onBulkOff, bulkBusy }: GroupedGridProps) {
   const groups = groupByArea(entities)
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {groups.map((g) => {
-        const onCount = g.entities.filter(isEntityOn).length
+        const acc = areaAccent(g.name)
+        const { temp, humidity } = roomClimate(g.entities)
         return (
-          <div key={g.name}>
-            <button
-              className="mb-2.5 flex w-full items-center gap-2 px-0.5 transition-opacity hover:opacity-70"
-              onClick={() => onAreaClick?.(g.name)}
-            >
-              <AreaIcon name={g.name} className="size-4 shrink-0 text-muted-foreground/60" />
-              <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground/60">{g.name}</span>
-              {onCount > 0 && (
-                <span className="ml-auto shrink-0 text-sm font-semibold text-brand">{onCount} on</span>
-              )}
-            </button>
-            <DeviceGrid entities={g.entities} onToggle={onToggle} errorId={errorId} />
+          <div key={g.name} className={cn('rounded-3xl p-3.5 sm:p-4', acc.card)}>
+            <div className="mb-3.5 flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+              <button
+                className="flex min-w-0 items-center gap-3 text-left transition-opacity hover:opacity-80"
+                onClick={() => onAreaClick?.(g.name)}
+              >
+                <span className={cn('flex size-11 shrink-0 items-center justify-center rounded-full', acc.circle)}>
+                  <AreaIcon name={g.name} className={cn('size-5', acc.icon)} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-base font-semibold leading-tight">{g.name}</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {g.entities.length} device{g.entities.length !== 1 ? 's' : ''}
+                  </span>
+                </span>
+              </button>
+              <div className="ml-auto flex flex-col items-end gap-1.5">
+                {temp !== null && (
+                  <span className="text-lg font-semibold leading-none">
+                    {Math.round(temp)}°
+                    {humidity !== null && <span className="ml-1 text-[11px] font-normal text-muted-foreground">{Math.round(humidity)}%</span>}
+                  </span>
+                )}
+                <StatChips groups={statGroups(g.entities)} scopeKey={`area:${g.name}`} onOff={onBulkOff} busyKey={bulkBusy} round />
+              </div>
+            </div>
+            <DeviceGrid entities={g.entities} onToggle={onToggle} onOpen={onOpen} onAction={onAction} errorId={errorId} favorites={favorites} />
           </div>
         )
       })}
@@ -263,7 +337,7 @@ function NotConfiguredCard() {
             Configure your Home Assistant URL and token in Admin settings to control devices.
           </p>
         </div>
-        <Button variant="outline" className="gap-2" onClick={() => { navigate('/admin/home-assistant') }}>
+        <Button variant="outline" className="gap-2" onClick={() => { navigate('/admin/integrations/home-assistant') }}>
           Go to Admin Settings
           <ChevronRight className="size-4" />
         </Button>
@@ -282,12 +356,30 @@ async function fetchEntities(): Promise<EntitiesResponse> {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+// Optimistic state for simple state-changing actions; null = no optimistic update.
+function optimisticState(action: string): string | null {
+  switch (action) {
+    case 'turn_on': return 'on'
+    case 'turn_off': return 'off'
+    case 'lock': return 'locked'
+    case 'unlock': return 'unlocked'
+    case 'open': return 'open'
+    case 'close': return 'closed'
+    default: return null
+  }
+}
+
 export function HomeAssistantPage() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [errorId, setErrorId] = useState<string | null>(null)
   const [filterQuery, setFilterQuery] = useState('')
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [selectedTab, setSelectedTab] = useState(ALL_TAB)
+  const [sheetId, setSheetId] = useState<string | null>(null)
+  const [favorites, setFavorites] = useState<string[]>([])
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const { data, isLoading, isError } = useQuery({
@@ -296,9 +388,38 @@ export function HomeAssistantPage() {
     refetchInterval: 30000,
   })
 
+  useEffect(() => {
+    if (!user?.id) return
+    fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((prefs: Record<string, unknown> | null) => {
+        const fav = prefs?.['ha.favorites']
+        if (Array.isArray(fav)) setFavorites(fav.filter((v): v is string => typeof v === 'string'))
+      })
+      .catch(() => {})
+  }, [user?.id])
+
+  function toggleFavorite(entity: HAEntity) {
+    if (!user?.id) return
+    const next = favorites.includes(entity.entity_id)
+      ? favorites.filter((id) => id !== entity.entity_id)
+      : [...favorites, entity.entity_id]
+    setFavorites(next)
+    fetch(`/api/users/${user.id}/preferences`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'ha.favorites': next }),
+    }).catch(() => {})
+  }
+
   const merged: HAEntity[] = (data?.entities ?? []).map((e) =>
     e.entity_id in overrides ? { ...e, state: overrides[e.entity_id]! } : e,
   )
+
+  // Live entity for the sheet — re-derived every refetch so state stays fresh.
+  const sheetEntity = sheetId ? merged.find((e) => e.entity_id === sheetId) ?? null : null
+  const favoriteSet = new Set(favorites)
 
   const unavailableCount = merged.filter(isUnavailable).length
   const afterUnavailable = showUnavailable ? merged : merged.filter((e) => !isUnavailable(e))
@@ -312,37 +433,106 @@ export function HomeAssistantPage() {
   const totalOn = afterUnavailable.filter(isEntityOn).length
   const areaNames = [...new Set(merged.filter((e) => e.area).map((e) => e.area!))].sort()
 
+  // A user-facing settings gear (everyone, not just admins) → Home Assistant
+  // settings (favorites + admin-locked connection/permissions).
+  const rightSlot = useMemo(
+    () => (
+      <button
+        onClick={() => navigate('/home-assistant/settings')}
+        title="Home Assistant settings"
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <Settings className="size-4" />
+      </button>
+    ),
+    [navigate],
+  )
   useAppHeader({
     query: filterQuery,
     setQuery: setFilterQuery,
     placeholder: 'Filter devices...',
     externalHref: data?.serverUrl,
-    settingsHref: '/admin/features',
+    rightSlot,
   })
 
-  async function handleToggle(entity: HAEntity, newOn: boolean) {
-    const newState = newOn ? 'on' : 'off'
+  // Generic device action — optimistic for simple state changes, refetch-driven
+  // for value actions (setpoints, volume, brightness) whose result HA reports back.
+  async function callEntity(entity: HAEntity, action: string, value?: number | string) {
+    const optimistic = optimisticState(action)
     const prevState = entity.state
-    setOverrides((prev) => ({ ...prev, [entity.entity_id]: newState }))
+    if (optimistic) setOverrides((prev) => ({ ...prev, [entity.entity_id]: optimistic }))
     setErrorId(null)
     try {
       const resp = await fetch('/api/home-assistant/entity', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_id: entity.entity_id, action: newOn ? 'turn_on' : 'turn_off' }),
+        body: JSON.stringify({ entity_id: entity.entity_id, action, ...(value !== undefined ? { value } : {}) }),
       })
       const result = (await resp.json()) as ToggleResponse
       if (!result.ok) {
-        setOverrides((prev) => ({ ...prev, [entity.entity_id]: prevState }))
+        if (optimistic) setOverrides((prev) => ({ ...prev, [entity.entity_id]: prevState }))
         setErrorId(entity.entity_id)
       } else {
         await queryClient.refetchQueries({ queryKey: ['home-assistant-entities'] })
         setOverrides((prev) => { const next = { ...prev }; delete next[entity.entity_id]; return next })
       }
     } catch {
-      setOverrides((prev) => ({ ...prev, [entity.entity_id]: prevState }))
+      if (optimistic) setOverrides((prev) => ({ ...prev, [entity.entity_id]: prevState }))
       setErrorId(entity.entity_id)
+    }
+  }
+
+  function handleToggle(entity: HAEntity, newOn: boolean) {
+    void callEntity(entity, newOn ? 'turn_on' : 'turn_off')
+  }
+
+  function openSheet(entity: HAEntity) {
+    setSheetId(entity.entity_id)
+  }
+
+  const cardAction: CardAction = (entity, action, value) => { void callEntity(entity, action, value) }
+
+  // "All off" for a stat chip: one grouped bulk call per action (doors split into
+  // lock + close). Optimistic state for the whole group, refetch reconciles.
+  async function bulkOff(scopeKey: string, kind: StatKind, group: HAEntity[]) {
+    if (group.length === 0 || bulkBusy) return
+    setBulkBusy(`${scopeKey}:${kind}`)
+    setErrorId(null)
+    const targetState = (e: HAEntity) =>
+      kind === 'media' ? 'paused' : e.domain === 'lock' ? 'locked' : e.domain === 'cover' ? 'closed' : 'off'
+    setOverrides((prev) => {
+      const next = { ...prev }
+      for (const e of group) next[e.entity_id] = targetState(e)
+      return next
+    })
+    const post = (entityIds: string[], action: string) =>
+      fetch('/api/home-assistant/bulk', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity_ids: entityIds, action }),
+      })
+    try {
+      const reqs: Promise<Response>[] = []
+      if (kind === 'doors') {
+        const locks = group.filter((e) => e.domain === 'lock').map((e) => e.entity_id)
+        const covers = group.filter((e) => e.domain === 'cover').map((e) => e.entity_id)
+        if (locks.length) reqs.push(post(locks, 'lock'))
+        if (covers.length) reqs.push(post(covers, 'close'))
+      } else {
+        reqs.push(post(group.map((e) => e.entity_id), kind === 'media' ? 'media_pause' : 'turn_off'))
+      }
+      await Promise.all(reqs)
+      await queryClient.refetchQueries({ queryKey: ['home-assistant-entities'] })
+    } catch { /* refetch/cleanup below reconciles */ }
+    finally {
+      setOverrides((prev) => {
+        const next = { ...prev }
+        for (const e of group) delete next[e.entity_id]
+        return next
+      })
+      setBulkBusy(null)
     }
   }
 
@@ -371,15 +561,22 @@ export function HomeAssistantPage() {
             <button
               onClick={() => { setShowUnavailable((p) => !p) }}
               className={cn(
-                'ml-auto rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition-all',
+                'ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-medium transition-all',
                 showUnavailable
-                  ? 'border-white/20 bg-white/10 text-foreground/80'
-                  : 'border-white/15 bg-white/5 text-muted-foreground/70 hover:bg-white/10 hover:text-foreground/80',
+                  ? 'bg-white/15 text-foreground/80'
+                  : 'bg-white/[0.07] text-muted-foreground/70 hover:bg-white/10 hover:text-foreground/80',
               )}
             >
               {showUnavailable ? 'Hide unavailable' : `${unavailableCount} unavailable`}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Whole-home "all off" chips */}
+      {merged.length > 0 && (
+        <div className="shrink-0 px-5 pb-3">
+          <StatChips groups={statGroups(afterUnavailable)} scopeKey="home" onOff={bulkOff} busyKey={bulkBusy} />
         </div>
       )}
 
@@ -424,18 +621,20 @@ export function HomeAssistantPage() {
               const active = visible.filter(isEntityOn)
               return active.length === 0
                 ? <p className="py-20 text-center text-sm text-muted-foreground">No devices are on right now.</p>
-                : <GroupedGrid entities={active} onToggle={handleToggle} errorId={errorId} onAreaClick={setSelectedTab} />
+                : <GroupedGrid entities={active} onToggle={handleToggle} onOpen={openSheet} onAction={cardAction} errorId={errorId} favorites={favoriteSet} onAreaClick={setSelectedTab} onBulkOff={bulkOff} bulkBusy={bulkBusy} />
             })()}
 
             {/* Specific area tab */}
             {selectedTab !== ALL_TAB && selectedTab !== ACTIVE_TAB && (() => {
               const areaEntities = visible.filter((e) => e.area === selectedTab)
               const onCount = areaEntities.filter(isEntityOn).length
+              const acc = areaAccent(selectedTab)
+              const { temp, humidity } = roomClimate(areaEntities)
               return (
                 <>
-                  <div className="mb-4 flex items-center gap-3 px-0.5">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
-                      <AreaIcon name={selectedTab} className="size-5 text-foreground/70" />
+                  <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 px-0.5">
+                    <div className={cn('flex size-11 shrink-0 items-center justify-center rounded-full', acc.circle)}>
+                      <AreaIcon name={selectedTab} className={cn('size-5', acc.icon)} />
                     </div>
                     <div className="min-w-0">
                       <h2 className="truncate text-base font-bold leading-tight">{selectedTab}</h2>
@@ -443,10 +642,19 @@ export function HomeAssistantPage() {
                         {areaEntities.length} device{areaEntities.length !== 1 ? 's' : ''} · {onCount} on
                       </p>
                     </div>
+                    <div className="ml-auto flex flex-col items-end gap-1.5">
+                      {temp !== null && (
+                        <span className="text-lg font-semibold leading-none">
+                          {Math.round(temp)}°
+                          {humidity !== null && <span className="ml-1 text-[11px] font-normal text-muted-foreground">{Math.round(humidity)}%</span>}
+                        </span>
+                      )}
+                      <StatChips groups={statGroups(areaEntities)} scopeKey={`area:${selectedTab}`} onOff={bulkOff} busyKey={bulkBusy} round />
+                    </div>
                   </div>
                   {areaEntities.length === 0
                     ? <p className="py-10 text-center text-sm text-muted-foreground">No devices here.</p>
-                    : <DeviceGrid entities={areaEntities} onToggle={handleToggle} errorId={errorId} />
+                    : <DeviceGrid entities={areaEntities} onToggle={handleToggle} onOpen={openSheet} onAction={cardAction} errorId={errorId} favorites={favoriteSet} />
                   }
                 </>
               )
@@ -454,7 +662,7 @@ export function HomeAssistantPage() {
 
             {/* All tab — grouped by area */}
             {selectedTab === ALL_TAB && visible.length > 0 && (
-              <GroupedGrid entities={visible} onToggle={handleToggle} errorId={errorId} onAreaClick={setSelectedTab} />
+              <GroupedGrid entities={visible} onToggle={handleToggle} onOpen={openSheet} onAction={cardAction} errorId={errorId} favorites={favoriteSet} onAreaClick={setSelectedTab} onBulkOff={bulkOff} bulkBusy={bulkBusy} />
             )}
 
             {selectedTab === ALL_TAB && merged.length > 0 && visible.length === 0 && (
@@ -465,6 +673,14 @@ export function HomeAssistantPage() {
           </>
         )}
       </div>
+
+      <DeviceDetailDialog
+        entity={sheetEntity}
+        onOpenChange={(open) => { if (!open) setSheetId(null) }}
+        onAction={(entity, action, value) => { void callEntity(entity, action, value) }}
+        favorite={!!sheetEntity && favoriteSet.has(sheetEntity.entity_id)}
+        onToggleFavorite={toggleFavorite}
+      />
     </PageShell>
   )
 }
