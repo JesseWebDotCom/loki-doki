@@ -3,7 +3,7 @@ import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'reac
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BookmarkPlus, Download, Heart, Clock, Search, Smartphone, Mic, Check,
-  ThumbsUp, ThumbsDown, Pin, PictureInPicture2,
+  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft,
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -84,6 +84,13 @@ export function WatchPage() {
   // (slower to start, currently caps at 720p) and remembered across the session.
   const [privacy, setPrivacy] = useState(() => localStorage.getItem(PRIVACY_KEY) === '1')
   const togglePrivacy = () => setPrivacy(p => { const n = !p; try { localStorage.setItem(PRIVACY_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
+  // Picture-in-Picture on the plain iframe embed needs a real <video> to hand off to,
+  // which means switching onto the privacy-proxy stream (see VideoPlayer's togglePip).
+  // Doesn't persist the toggle — this is "just get me PiP", not "always use the proxy".
+  // VideoPlayer is keyed on `privacy` (remounts on change), so the pending-PiP intent is
+  // threaded through as a prop rather than a ref, which a remount would wipe out.
+  const [pipPending, setPipPending] = useState(false)
+  const enablePrivacyForPip = () => { setPrivacy(true); setPipPending(true) }
   // Audio-only: stream just the audio (thumbnail stays as poster). Remembered per session.
   const [audioOnly, setAudioOnly] = useState(() => localStorage.getItem(AUDIO_KEY) === '1')
   const toggleAudioOnly = () => setAudioOnly(p => { const n = !p; try { localStorage.setItem(AUDIO_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
@@ -206,6 +213,8 @@ export function WatchPage() {
             ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
             resumeSec={resumeSec} onEnded={onEnded}
             privacyProxy={online && privacy} audioOnly={online && audioOnly}
+            onNeedsProxyForPip={enablePrivacyForPip}
+            autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
             skipSegments={online ? segments : undefined}
             onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
             chapters={chapters}
@@ -348,7 +357,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
         <div className="ml-auto flex items-center gap-1.5">
           <Button variant="outline" size="icon" onClick={onMinimize} title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." aria-label="Minimize to mini-player"
             className="border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground">
-            <PictureInPicture2 className="size-4" />
+            <SquareArrowOutDownLeft className="size-4" />
           </Button>
           {online && (
             <Button variant="outline" size="icon" onClick={onTogglePrivacy} title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." aria-label="Private stream"

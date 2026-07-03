@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Play, Pause, Maximize2, X, SkipBack, SkipForward } from 'lucide-react'
+import { Play, Pause, Maximize2, PictureInPicture, X, SkipBack, SkipForward } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -11,7 +11,7 @@ import { useLiveRadio } from '@/context/LiveRadioContext'
 import { registerTransport, acquireAudio } from '@/lib/mediaCoordinator'
 import { RadioMiniBar } from '@/components/music/RadioMiniBar'
 import { LiveRadioMiniBar } from '@/components/music/LiveRadioMiniBar'
-import { fileUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
+import { fileUrl, proxyStreamUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { proxyImg } from '@/lib/img'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
 import { loadYTApi } from '@/lib/youtube/ytapi'
@@ -46,6 +46,12 @@ export function YoutubeMiniBar() {
   const [favErr, setFavErr] = useState(false)
   const [win, setWin] = useState<{ x: number; y: number } | null>(null)
   const [winW, setWinW] = useState(288)
+  const [pipActive, setPipActive] = useState(false)
+  // True once an online track has been switched from the iframe embed onto the
+  // proxy-streamed real <video> specifically to satisfy a PiP request (see togglePip).
+  const [pipProxyActive, setPipProxyActive] = useState(false)
+  const pendingPipRequest = useRef(false)
+  const pipSwitchPos = useRef(0)
   const drag = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
   const resize = useRef<{ sx: number; ow: number } | null>(null)
   const scrubbing = useRef(false)
@@ -54,6 +60,9 @@ export function YoutubeMiniBar() {
   const isStream = !!track?.streamUrl
   const online = !!track && !track.localKind && !isStream
   const isLocalAudio = track?.localKind === 'audio'
+  // Which backend is actually driving playback right now: the iframe embed, or a real
+  // <video> (true offline file, or an online track swapped onto the proxy for PiP).
+  const useIframe = online && !pipProxyActive
 
   // When something asks to "play expanded" (e.g. a Shows/Movies trailer), pop the larger
   // player open. Only for real YouTube videos; local audio / live streams have no video.
@@ -65,7 +74,7 @@ export function YoutubeMiniBar() {
 
   // ── Online: drive the YouTube IFrame embed ───────────────────────────────────
   useEffect(() => {
-    if (!track || !online || hidden) return
+    if (!track || !useIframe || hidden) return
     let cancelled = false
     setLoading(true)
     void loadYTApi().then(YT => {
@@ -91,23 +100,44 @@ export function YoutubeMiniBar() {
     })
     return () => { cancelled = true; try { ytRef.current?.destroy?.() } catch { /* gone */ }; ytRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.videoId, online, hidden])
+  }, [track?.videoId, useIframe, hidden])
 
-  // ── Offline: drive the local <video> ─────────────────────────────────────────
+  // ── PiP state sync: a real <video> can be sent to native PiP directly; reflect
+  // browser-driven exits (e.g. the PiP window's own close button) back into our icon.
   useEffect(() => {
-    if (!track || online || isStream) return
+    if (useIframe || isStream) return
+    const el = videoRef.current; if (!el) return
+    const onEnter = () => setPipActive(true)
+    const onLeave = () => setPipActive(false)
+    el.addEventListener('enterpictureinpicture', onEnter)
+    el.addEventListener('leavepictureinpicture', onLeave)
+    return () => { el.removeEventListener('enterpictureinpicture', onEnter); el.removeEventListener('leavepictureinpicture', onLeave) }
+  }, [useIframe, isStream])
+
+  // ── Real <video>: true offline file, or an online track swapped onto the proxy
+  // stream to satisfy a PiP request (see togglePip) ────────────────────────────────
+  useEffect(() => {
+    if (!track || useIframe || isStream) return
     const el = videoRef.current; if (!el) return
     setLoading(true)
-    const src = fileUrl(track.videoId, track.localKind === 'audio' ? 'audio' : 'video')
+    const src = online
+      ? proxyStreamUrl(track.videoId, 'video')
+      : fileUrl(track.videoId, track.localKind === 'audio' ? 'audio' : 'video')
     if (!el.src.endsWith(src)) el.src = src
-    const onMeta = () => { try { el.currentTime = pb.startSec } catch { /* not seekable */ } }
+    // True offline resumes at the dock-time position; an online track switching onto
+    // the proxy mid-watch resumes at wherever the iframe had actually gotten to.
+    const startAt = online ? pipSwitchPos.current : pb.startSec
+    const onMeta = () => { try { el.currentTime = startAt } catch { /* not seekable */ } }
     const onEnd = () => { void saveWatchState(track.videoId, 0, true); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
     el.addEventListener('loadedmetadata', onMeta, { once: true })
     el.addEventListener('ended', onEnd)
-    void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
+    void el.play().then(() => {
+      setPlaying(true)
+      if (pendingPipRequest.current) { pendingPipRequest.current = false; void el.requestPictureInPicture().catch(() => {}) }
+    }).catch(() => setPlaying(false))
     return () => { el.removeEventListener('loadedmetadata', onMeta); el.removeEventListener('ended', onEnd) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.videoId, online, isStream])
+  }, [track?.videoId, useIframe, isStream])
 
   // ── Live stream: drive the <audio> element ───────────────────────────────────
   useEffect(() => {
@@ -123,7 +153,7 @@ export function YoutubeMiniBar() {
 
   // ── Position reporting + watch-state save (online + offline only) ─────────────
   const read = () => {
-    if (online) { const y = ytRef.current; if (y?.getCurrentTime) { try { return { t: y.getCurrentTime() || 0, d: y.getDuration?.() || 0, playing: y.getPlayerState?.() === 1 } } catch { /* not ready */ } } }
+    if (useIframe) { const y = ytRef.current; if (y?.getCurrentTime) { try { return { t: y.getCurrentTime() || 0, d: y.getDuration?.() || 0, playing: y.getPlayerState?.() === 1 } } catch { /* not ready */ } } }
     else if (!isStream) { const v = videoRef.current; if (v) return { t: v.currentTime || 0, d: v.duration || 0, playing: !v.paused } }
     return null
   }
@@ -139,28 +169,24 @@ export function YoutubeMiniBar() {
     }, 500)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.videoId, online, hidden, isStream])
+  }, [track?.videoId, useIframe, hidden, isStream])
 
   useEffect(() => { if (hidden) { setExpanded(false); setWin(null) } }, [hidden])
   useEffect(() => { setFavErr(false) }, [track?.videoId])
+  // Reset the PiP-proxy swap per video, so a freshly docked online track always starts
+  // on the fast iframe embed again rather than inheriting the previous video's PiP state.
+  useEffect(() => { setPipProxyActive(false) }, [track?.videoId])
 
-  // Show the AI-Radio controller when a station is live, nothing's docked in the YT
-  // player, and we're not already on the full radio tab.
-  const onRadioTab = location.pathname === '/music' && new URLSearchParams(location.search).get('tab') === 'radio'
-  const showRadio = radio.active && !track && !onRadioTab
-    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
-  if (showRadio) return <RadioMiniBar />
-
-  // Live internet radio: same slot, when nothing else claims it (the mediaCoordinator's
-  // acquireAudio already guarantees only one engine plays at a time).
-  const showLiveRadio = liveRadio.active && !track && !radio.active
-    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
-  if (showLiveRadio) return <LiveRadioMiniBar />
-
-  if (hidden) return null
-
-  const total = dur || track!.durationSec || 0
-  const seekTo = (sec: number) => { if (online) ytRef.current?.seekTo?.(sec, true); else if (videoRef.current) videoRef.current.currentTime = sec }
+  // ── Actions + their registration hooks ───────────────────────────────────────
+  // Defined here, before the showRadio/showLiveRadio/hidden early returns below, so
+  // every hook in this component runs on every render regardless of which branch ends
+  // up rendering (violating that previously threw "Rendered more hooks than during the
+  // previous render" the first time a video docked mid-session — hidden flips
+  // true→false on the SAME mounted instance, and hooks declared after an early return
+  // fire inconsistently across renders). These closures dereference `track!` only when
+  // actually invoked, which only happens from JSX below that renders after `hidden` is
+  // confirmed false, so `track` is guaranteed non-null by then.
+  const seekTo = (sec: number) => { if (useIframe) ytRef.current?.seekTo?.(sec, true); else if (videoRef.current) videoRef.current.currentTime = sec }
 
   const togglePlay = () => {
     if (isStream) {
@@ -169,7 +195,7 @@ export function YoutubeMiniBar() {
       return
     }
     const s = read(); if (!s) return
-    if (online) { const y = ytRef.current; if (s.playing) { y?.pauseVideo?.(); setPlaying(false) } else { y?.playVideo?.(); setPlaying(true) } }
+    if (useIframe) { const y = ytRef.current; if (s.playing) { y?.pauseVideo?.(); setPlaying(false) } else { y?.playVideo?.(); setPlaying(true) } }
     else { const v = videoRef.current; if (!v) return; if (v.paused) { void v.play(); setPlaying(true) } else { v.pause(); setPlaying(false) } }
   }
 
@@ -197,12 +223,38 @@ export function YoutubeMiniBar() {
       webkitRequestFullscreen?: () => void
       webkitEnterFullscreen?: () => void
     }
-    const el: FsEl | null = online
+    const el: FsEl | null = useIframe
       ? ((hostRef.current?.querySelector('iframe') as FsEl | null) ?? (hostRef.current as FsEl | null))
       : (videoRef.current as FsEl | null)
     if (!el) return
     const req = el.requestFullscreen ?? el.webkitRequestFullscreen ?? el.webkitEnterFullscreen
     try { req?.call(el) } catch { /* fullscreen denied; ignore */ }
+  }
+
+  // True OS-level Picture-in-Picture. Works directly on the real <video> element when
+  // one's already active (true offline file). The plain YouTube iframe embed has no
+  // PiP-eligible element to hand off — the Document PiP API (which can host arbitrary
+  // DOM, including iframes) was tried, but YouTube's embedded player rejects being
+  // hosted in a Document PiP window's top-level browsing context outright, throwing
+  // onError 153 ("video player configuration error") whether the existing iframe is
+  // moved there or a brand-new player is created there fresh — confirmed by testing,
+  // not a reload/move artifact. So requesting PiP while still on the iframe instead
+  // switches this video onto the same real-<video> proxy stream the watch page's
+  // "Private stream" toggle already uses, then fires PiP itself once that stream is
+  // actually playing (see the pendingPipRequest handling in the video effect above).
+  const togglePip = async () => {
+    if (useIframe) {
+      const s = read()
+      pipSwitchPos.current = s?.t ?? 0
+      pendingPipRequest.current = true
+      setPipProxyActive(true)
+      return
+    }
+    const el = videoRef.current; if (!el) return
+    try {
+      if (document.pictureInPictureElement === el) await document.exitPictureInPicture()
+      else await el.requestPictureInPicture()
+    } catch { /* denied or unsupported */ }
   }
 
   const onClose = () => {
@@ -269,6 +321,22 @@ export function YoutubeMiniBar() {
     }).catch(() => {})
   }, [track])
 
+  // Show the AI-Radio controller when a station is live, nothing's docked in the YT
+  // player, and we're not already on the full radio tab.
+  const onRadioTab = location.pathname === '/music' && new URLSearchParams(location.search).get('tab') === 'radio'
+  const showRadio = radio.active && !track && !onRadioTab
+    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
+  if (showRadio) return <RadioMiniBar />
+
+  // Live internet radio: same slot, when nothing else claims it (the mediaCoordinator's
+  // acquireAudio already guarantees only one engine plays at a time).
+  const showLiveRadio = liveRadio.active && !track && !radio.active
+    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
+  if (showLiveRadio) return <LiveRadioMiniBar />
+
+  if (hidden) return null
+
+  const total = dur || track!.durationSec || 0
   const winH = Math.round(winW * 9 / 16)
   const toggleExpand = () => { if (isLocalAudio || isStream) return; if (expanded) { setExpanded(false); setWin(null) } else setExpanded(true) }
   const onDown = (e: React.PointerEvent) => {
@@ -315,6 +383,11 @@ export function YoutubeMiniBar() {
   // Thumbnail: use override (station favicon/logo) if provided, else YouTube thumbnail.
   const thumbSrc = track!.thumbnail ?? ytImageProxy(thumbUrl(track!.videoId, 'mq'))
 
+  // PiP is offered for any real video track — online included, via the proxy-switch in
+  // togglePip above — just not local audio or live streams, which have no video at all.
+  const showPip = !isStream && !isLocalAudio
+    && typeof document !== 'undefined' && document.pictureInPictureEnabled
+
   return (
     <div className="relative z-40 shrink-0">
       {/* Stream audio (live radio / arbitrary URLs) */}
@@ -326,10 +399,12 @@ export function YoutubeMiniBar() {
         onError={() => { setLoading(false); setPlaying(false) }}
       />
 
-      {/* Video pop-out: only for online YouTube and offline video/audio (not stream) */}
+      {/* Video pop-out: only for online YouTube and offline video/audio (not stream).
+          Hidden (not unmounted — refs must stay valid) while true PiP owns the video,
+          since the docked surface would otherwise show an empty/duplicated box. */}
       {!isLocalAudio && !isStream && (
-        <>
-          {online
+        <div className={cn(pipActive && 'hidden')}>
+          {useIframe
             ? <div ref={hostRef} className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'overflow-hidden rounded-control bg-black shadow-lg')} style={posStyle} />
             : <video ref={videoRef} playsInline className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'rounded-control bg-black object-cover shadow-lg')} style={posStyle} />}
 
@@ -354,7 +429,7 @@ export function YoutubeMiniBar() {
               <Spinner className="size-5 text-white/80" />
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* The visible bar */}
@@ -420,6 +495,13 @@ export function YoutubeMiniBar() {
               {!isStream && (
                 <Button variant="ghost" size="icon-sm" onClick={skipNext} disabled={!pb.hasNext} className="size-8 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label="Next">
                   <SkipForward className="size-4" />
+                </Button>
+              )}
+              {showPip && (
+                <Button variant="ghost" size="icon-sm" onClick={togglePip}
+                  className={cn('size-8 text-muted-foreground hover:text-foreground', pipActive && 'text-foreground')}
+                  aria-label={pipActive ? 'Exit picture-in-picture' : 'Picture-in-picture'} title="Picture-in-picture">
+                  <PictureInPicture className="size-4" />
                 </Button>
               )}
               {!isStream && (

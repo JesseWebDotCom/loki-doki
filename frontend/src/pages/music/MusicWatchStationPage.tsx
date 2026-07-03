@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { SkipForward, SkipBack, Headphones, Heart, Play, ListVideo, PictureInPicture2, ExternalLink } from 'lucide-react'
+import { SkipForward, SkipBack, Headphones, Heart, Play, ListVideo, SquareArrowOutDownLeft, ExternalLink } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
 import { VideoPlayer } from '@/components/youtube/VideoPlayer'
@@ -228,7 +228,7 @@ export function MusicWatchStationPage() {
                       <Headphones className="size-4" /> Listen
                     </Button>
                     <button className={CTRL} onClick={() => window.open(`https://www.youtube.com/watch?v=${cur.videoId}`, '_blank', 'noopener,noreferrer')} aria-label="Open on YouTube" title="Open on YouTube"><ExternalLink className="size-4" /></button>
-                    <button className={CTRL} onClick={minimize} aria-label="Minimize to mini-player" title="Minimize - keep playing in the mini-player while you browse"><PictureInPicture2 className="size-4" /></button>
+                    <button className={CTRL} onClick={minimize} aria-label="Minimize to mini-player" title="Minimize - keep playing in the mini-player while you browse"><SquareArrowOutDownLeft className="size-4" /></button>
                   </div>
                 </div>
               )}

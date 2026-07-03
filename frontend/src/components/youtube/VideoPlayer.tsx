@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Play, Pause, Volume2, VolumeX, Maximize, Music, ShieldCheck, Settings, Check } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock } from '@/lib/youtube/format'
@@ -48,6 +48,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Privacy proxy: stream through our server (native <video>) instead of the YouTube
   // embed, so the browser never contacts Google. Ignored for offline (local) playback.
   privacyProxy?: boolean
+  // Called when Picture-in-Picture is requested while still on the plain iframe embed
+  // (no native <video> to hand off yet) — the parent should flip privacyProxy on so a
+  // real <video> mounts; this component fires PiP itself once it's actually playing.
+  onNeedsProxyForPip?: () => void
+  // Set by the parent (alongside flipping privacyProxy) when this mount exists
+  // specifically to satisfy a pending PiP request — WatchPage remounts VideoPlayer on
+  // privacy changes (it's keyed on it), so a local ref set before that remount would be
+  // lost; this prop is how the request survives the remount. Consumed once, via
+  // onPipRequestHandled, the first time the resulting <video> starts playing.
+  autoRequestPip?: boolean
+  onPipRequestHandled?: () => void
   // Audio-only: stream just the audio (through our server) and show the video's
   // thumbnail as a static poster; saves bandwidth, keeps the visual context.
   audioOnly?: boolean
@@ -67,7 +78,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Frame shape: 'video' self-sizes to 16:9; 'short' fills its parent (the parent
   // sizes the 9:16 box); used by the vertical Shorts feed.
   aspect?: 'video' | 'short'
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null)
@@ -79,6 +90,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const posRef = useRef(resumeSec)
 
   const [playing, setPlaying] = useState(false)
+  const [pipActive, setPipActive] = useState(false)
   const [position, setPosition] = useState(resumeSec)
   const [duration, setDuration] = useState(0)
   const [muted, setMuted] = useState(false)
@@ -260,6 +272,37 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     try { (el?.requestFullscreen ?? el?.webkitRequestFullscreen)?.call(el) } catch { /* noop */ }
   }
 
+  // PiP state sync: reflect browser-driven exits (e.g. the PiP window's own close
+  // button) back into our icon. Native <video> only — no PiP-eligible element while
+  // still on the iframe embed or in audio-only mode.
+  useEffect(() => {
+    if (!nativeVideoSrc) return
+    const el = mediaRef.current; if (!el) return
+    const onEnter = () => setPipActive(true)
+    const onLeave = () => setPipActive(false)
+    el.addEventListener('enterpictureinpicture', onEnter)
+    el.addEventListener('leavepictureinpicture', onLeave)
+    return () => { el.removeEventListener('enterpictureinpicture', onEnter); el.removeEventListener('leavepictureinpicture', onLeave) }
+  }, [nativeVideoSrc])
+
+  // True OS-level Picture-in-Picture. Works directly on the native <video> element when
+  // one's already active (offline file, or the privacy-proxy stream). The plain YouTube
+  // iframe embed has no PiP-eligible element to hand off (and Document PiP can't host
+  // it — YouTube's embedded player rejects that context outright with an onError 153,
+  // confirmed by testing; see YoutubeMiniBar's togglePip for the same finding), so
+  // requesting PiP while still on the embed instead asks the parent to switch this video
+  // onto the same real-<video> proxy stream the "Private stream" toggle already uses,
+  // and fires PiP itself once that stream is actually playing (see onPlaying below).
+  const togglePip = () => {
+    const el = mediaRef.current
+    if (el instanceof HTMLVideoElement) {
+      if (document.pictureInPictureElement === el) void document.exitPictureInPicture().catch(() => {})
+      else void el.requestPictureInPicture().catch(() => {})
+      return
+    }
+    onNeedsProxyForPip?.()
+  }
+
   // Apply an embed quality level (best-effort; modern YouTube often ignores this and
   // keeps auto, but the API still accepts the hint).
   const pickEmbedQuality = (level: string) => {
@@ -295,6 +338,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     return i >= 0 ? chapters[i]!.title : null
   }, [chapters, position])
 
+  // PiP is offered whenever there's real video content to show — including the iframe
+  // embed, via the proxy-switch in togglePip above — but not in audio-only mode (just a
+  // static poster behind a hidden <audio>, nothing to put in a video PiP window).
+  const showPip = typeof document !== 'undefined' && document.pictureInPictureEnabled && !nativeAudioSrc
+
   // What the Quality row should show + whether it's interactive in this mode.
   const qualityLabel = usingProxy
     ? (PROXY_QUALITIES.find(q => q.value === proxyQuality)?.label ?? 'Auto')
@@ -308,7 +356,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
         {nativeVideoSrc ? (
           <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={nativeVideoSrc} className="size-full"
             onLoadStart={() => setBuffering(true)} onWaiting={() => setBuffering(true)} onStalled={() => setBuffering(true)}
-            onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)} onPlaying={() => { setBuffering(false); setPlaying(true) }}
+            onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)}
+            onPlaying={() => {
+              setBuffering(false); setPlaying(true)
+              if (autoRequestPip) { onPipRequestHandled?.(); void mediaRef.current?.requestPictureInPicture?.().catch(() => {}) }
+            }}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
             onError={() => { if (privacyProxy && !localKind) setProxyFailed(true) }}
             onEnded={() => { persist(true); onEnded?.() }} />
@@ -433,6 +485,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             )}
           </div>
 
+          {showPip && (
+            <button onClick={togglePip} aria-label={pipActive ? 'Exit picture-in-picture' : 'Picture-in-picture'} title="Picture-in-picture"
+              className={cn(pipActive && 'text-[var(--yt-accent-fg)]')}>
+              <PictureInPicture className="size-5" />
+            </button>
+          )}
           <button onClick={fullscreen} aria-label="Fullscreen"><Maximize className="size-5" /></button>
         </div>
       </div>
