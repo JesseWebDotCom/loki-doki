@@ -30,6 +30,7 @@ Requirements (pip install):
 import argparse
 import atexit
 import os
+import re
 import sys
 import json
 import struct
@@ -324,10 +325,13 @@ def windows_from_embeddings(embeddings: np.ndarray, rms: np.ndarray, positive: b
 
 
 def score_real_negatives(calib_dir, mel_sess, emb_sess, mel_input_name, emb_input_name,
-                          mel_frames_per_chunk, scaler, clf) -> np.ndarray:
+                          mel_frames_per_chunk, predict_fn) -> np.ndarray:
     """Score every negative window in a directory of real WAVs (e.g. MS-SNSD) through
     the trained detector, for real-audio threshold calibration (see --calib-dir).
-    Returns a flat array of positive-class probabilities, one per sliding window."""
+    `predict_fn(X: np.ndarray[N,1536]) -> np.ndarray[N]` handles normalization and
+    inference (the DNN normalizes internally — see WakeWordDNN — so no separate
+    scaler is needed here). Returns a flat array of positive-class probabilities,
+    one per sliding window."""
     from pathlib import Path as _P
     files = sorted(_P(calib_dir).glob("*.wav"))
     scored = []
@@ -338,11 +342,50 @@ def score_real_negatives(calib_dir, mel_sess, emb_sess, mel_input_name, emb_inpu
             X, _y = windows_from_embeddings(embs, rms, positive=False)
             if not X:
                 continue
-            Xs = scaler.transform(np.array(X, dtype=np.float32))
-            scored.append(clf.predict_proba(Xs)[:, 1])
+            scored.append(predict_fn(np.array(X, dtype=np.float32)))
         except Exception as e:
             progress(f"  calib skip {f.name}: {e}")
     return np.concatenate(scored) if scored else np.empty((0,), np.float32)
+
+
+def pick_operating_threshold(pos: np.ndarray, neg: np.ndarray, neg_hours: float,
+                             target_faph: float, recall_floor: float,
+                             tmin: float = 0.30, tmax: float = 0.90):
+    """Choose a fire threshold that PRESERVES recall, then minimizes false accepts.
+
+    The previous formula — max(neg_p95 + 0.10, (neg_p95 + pos_p10)/2), clamped to
+    [0.3, 0.85] — floored at 0.30 whenever the model had clean separation
+    (negatives clustered near 0), leaving a strictly-better operating point on the
+    table: e.g. a model measuring 17.7 FA/hr at the floored 0.30 held 100% recall
+    all the way up to 0.52, where it measured only 10.6 FA/hr. This instead sweeps
+    thresholds and picks lexicographically: (1) find the best achievable recall,
+    (2) keep recall within a small tolerance of it (never below `recall_floor`),
+    (3) among those, take the HIGHEST threshold — i.e. the lowest FA. If some
+    recall-preserving threshold also meets the FA target, prefer that subset.
+    Recall is measured on held-out (group-split) positives, so the operating
+    point transfers to genuinely unseen voices. Returns (threshold, faph, recall)."""
+    if len(pos) == 0 or len(neg) == 0:
+        return 0.5, 0.0, 0.0
+    cands = np.round(np.arange(tmin, tmax + 1e-9, 0.01), 2)
+    recalls = np.array([float(np.mean(pos >= t)) for t in cands])
+    faphs = np.array([(float(np.sum(neg >= t)) / neg_hours if neg_hours > 0 else 0.0) for t in cands])
+    best_recall = float(recalls.max())
+    # "Acceptable" recall: within 2 points of the best achievable, and — when the
+    # model can actually clear the floor — no lower than the floor. When the floor
+    # is UNachievable (best_recall < recall_floor), we must NOT demand it: doing so
+    # would leave `feasible` empty and (a prior bug) fall back to every threshold,
+    # then pick the highest one (0.90) and annihilate recall. Clamping the target
+    # to best_recall guarantees `feasible` always contains the argmax point.
+    target = best_recall - 0.02
+    if best_recall >= recall_floor:
+        target = max(target, recall_floor)
+    target = min(target, best_recall)
+    feasible = recalls >= target
+    within_fa = feasible & (faphs <= target_faph)
+    pick_from = within_fa if within_fa.any() else feasible
+    idxs = np.where(pick_from)[0]
+    best_i = int(idxs[np.argmax(cands[idxs])])  # highest threshold in the chosen set → lowest FA
+    return float(cands[best_i]), float(faphs[best_i]), float(recalls[best_i])
 
 
 # ---------------------------------------------------------------------------
@@ -463,46 +506,6 @@ def augment(audio: np.ndarray, sr: int, rng, noise_pool, rir_pool=None) -> np.nd
 
 
 # ---------------------------------------------------------------------------
-# ONNX export
-# ---------------------------------------------------------------------------
-
-def export_mlp_onnx(W0: np.ndarray, b0: np.ndarray, W1: np.ndarray, b1: np.ndarray, out_path: str) -> None:
-    """
-    Build an ONNX graph for a 1-hidden-layer ReLU MLP:
-      x.1[1,16,96] → Reshape[1,1536] → Gemm(W0,b0) → Relu → Gemm(W1,b1) → Sigmoid → [1,1]
-    The StandardScaler is absorbed into the first layer (W0/b0), so no separate
-    normalization node is needed. Output matches the same [1,1] score contract
-    the runtime expects, so WakeWordLoop is unchanged.
-    """
-    import onnx
-    from onnx import helper, TensorProto, numpy_helper
-
-    shape_const = numpy_helper.from_array(np.array([1, 1536], dtype=np.int64), name="__shape")
-    W0i = numpy_helper.from_array(W0.astype(np.float32), name="__W0")  # [1536, H]
-    b0i = numpy_helper.from_array(b0.astype(np.float32), name="__b0")  # [H]
-    W1i = numpy_helper.from_array(W1.astype(np.float32), name="__W1")  # [H, 1]
-    b1i = numpy_helper.from_array(b1.astype(np.float32), name="__b1")  # [1]
-
-    nodes = [
-        helper.make_node("Reshape", ["x.1", "__shape"],        ["_flat"]),
-        helper.make_node("Gemm",    ["_flat", "__W0", "__b0"], ["_z1"]),
-        helper.make_node("Relu",    ["_z1"],                   ["_a1"]),
-        helper.make_node("Gemm",    ["_a1", "__W1", "__b1"],   ["_z2"]),
-        helper.make_node("Sigmoid", ["_z2"],                   ["_output"]),
-    ]
-    graph = helper.make_graph(
-        nodes,
-        "wakeword_mlp",
-        [helper.make_tensor_value_info("x.1", TensorProto.FLOAT, [1, 16, 96])],
-        [helper.make_tensor_value_info("_output", TensorProto.FLOAT, [1, 1])],
-        initializer=[shape_const, W0i, b0i, W1i, b1i],
-    )
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
-    model.ir_version = 8
-    onnx.save(model, out_path)
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -553,8 +556,9 @@ def main() -> None:
 
     import onnxruntime as ort
     from pathlib import Path
-    from sklearn.neural_network import MLPClassifier
-    from sklearn.preprocessing import StandardScaler
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
 
     progress("Loading ONNX backbones…")
     mel_sess = ort.InferenceSession(args.mel,   providers=["CPUExecutionProvider"])
@@ -600,10 +604,20 @@ def main() -> None:
             wx_all.extend(wx); wy_all.extend(wy)
         return wx_all, wy_all
 
+    def group_id(f) -> str:
+        # Strip the trailing numeric index (speed variant for positives, phrase
+        # index for negatives) so windows group by VOICE, not by voice+speed —
+        # e.g. pos_af_bella_00.wav and pos_af_bella_05.wav (same voice, different
+        # speed) collapse to one group. Without this, holding out a "group" could
+        # still hold out only one speed of a voice while the model saw that same
+        # voice's timbre at other speeds in training — a softer leak than a random
+        # per-window split, but still not a genuinely unseen voice.
+        return re.sub(r"_\d+$", "", f.stem)
+
     def collect(dir_path: str, label: int, name: str):
         files = sorted(Path(dir_path).glob("*.wav"))
         n_aug = AUG_POS if label == 1 else AUG_NEG
-        X, y = [], []
+        X, y, groups = [], [], []
         done = 0
 
         if _EMBEDDER_POOL is not None:
@@ -633,6 +647,7 @@ def main() -> None:
                     else:
                         wx, wy = result
                         X.extend(wx); y.extend(wy)
+                        groups.extend([group_id(f)] * len(wx))
                     if done % 10 == 0 or done == len(files):
                         progress(f"  {done}/{len(files)} done")
         else:
@@ -641,15 +656,16 @@ def main() -> None:
                 try:
                     wx, wy = process_one(f, label, aug_rng, None)
                     X.extend(wx); y.extend(wy)
+                    groups.extend([group_id(f)] * len(wx))
                 except Exception as e:
                     progress(f"  skip {f.name}: {e}")
                 if (i + 1) % 10 == 0:
                     progress(f"  {i + 1}/{len(files)} done")
 
-        return X, y
+        return X, y, groups
 
-    Xp, yp = collect(args.positives, 1, "positive")
-    Xn, yn = collect(args.negatives, 0, "negative")
+    Xp, yp, gp = collect(args.positives, 1, "positive")
+    Xn, yn, gn = collect(args.negatives, 0, "negative")
 
     if not Xp or not Xn:
         progress("ERROR: need both positive and negative samples", error=True)
@@ -657,6 +673,14 @@ def main() -> None:
 
     X = np.array(Xp + Xn, dtype=np.float32)
     y = np.array(yp + yn, dtype=np.int32)
+    # Group id per window — the SOURCE FILE (voice+speed for positives, phrase+
+    # voice for negatives). Used for a group-held-out validation split below:
+    # a random PER-WINDOW split leaks speaker identity (windows from the same
+    # voice are highly correlated), which is what made earlier validation
+    # numbers here look far better than the model's actual generalization to
+    # unseen voices (measured separately by eval:wakeword's independent voice
+    # bank) — see project notes. Holding out entire source files fixes that.
+    groups = np.array(gp + gn, dtype=object)
 
     # Mix in openWakeWord's precomputed negative feature bank (real-world audio
     # in the same (16,96) window format). This large, diverse negative set is
@@ -682,6 +706,12 @@ def main() -> None:
             if bank.shape[1] == X.shape[1]:
                 X = np.concatenate([X, bank], axis=0)
                 y = np.concatenate([y, np.zeros(len(bank), dtype=np.int32)])
+                # Each precomputed-bank window is independent audio (random slices
+                # of an unrelated 2000h corpus) — no speaker-correlation risk, so a
+                # unique group per row is fine (never forced together across a
+                # train/val split, but also never NEEDS to be).
+                bank_groups = np.array([f"negbank_{i}" for i in range(len(bank))], dtype=object)
+                groups = np.concatenate([groups, bank_groups])
                 progress(f"Added {len(bank)} negatives from the feature bank")
             else:
                 progress(f"Feature bank width {bank.shape[1]} != {X.shape[1]} — skipped")
@@ -701,7 +731,7 @@ def main() -> None:
     if len(pos_i) and len(neg_i) > NEG_PER_POS * len(pos_i):
         neg_keep = rng_cap.choice(neg_i, NEG_PER_POS * len(pos_i), replace=False)
         keep = np.concatenate([pos_i, neg_keep]); rng_cap.shuffle(keep)
-        X = X[keep]; y = y[keep]
+        X = X[keep]; y = y[keep]; groups = groups[keep]
         progress(f"Capped negatives to {NEG_PER_POS}:1 ({len(neg_keep)} kept)")
 
     n_pos = int(np.sum(y == 1)); n_neg = int(np.sum(y == 0))
@@ -710,83 +740,284 @@ def main() -> None:
         progress("ERROR: after silence filtering, need both positive and negative windows", error=True)
         sys.exit(1)
 
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    # ---------------------------------------------------------------------
+    # Model + training loop — openWakeWord's own auto_train recipe: hard-example
+    # loss masking, a linearly-ramping negative-class weight, Adam with warmup+
+    # cosine-decay LR, and checkpoint averaging (SWA-style). A one-shot sklearn
+    # MLPClassifier.fit() (the previous approach here) cannot do any of these —
+    # they all require control over individual training steps. Scaled down from
+    # openWakeWord's production values (50000 steps against ~2000h of data) to
+    # fit our much smaller per-phrase dataset.
+    # ---------------------------------------------------------------------
 
-    # MLPClassifier has no class_weight, so balance by oversampling the minority
-    # class (positives are fewer after silence filtering).
-    rng = np.random.default_rng(42)
-    def balance(Xs, ys):
-        pi = np.where(ys == 1)[0]; ni = np.where(ys == 0)[0]
-        if len(pi) == 0 or len(ni) == 0:
-            return Xs, ys
-        if len(pi) < len(ni):
-            pi = rng.choice(pi, len(ni), replace=True)
-        elif len(ni) < len(pi):
-            ni = rng.choice(ni, len(pi), replace=True)
-        idx = np.concatenate([pi, ni]); rng.shuffle(idx)
-        return Xs[idx], ys[idx]
+    class FCNBlock(nn.Module):
+        def __init__(self, dim: int):
+            super().__init__()
+            self.linear = nn.Linear(dim, dim)
+            self.norm = nn.LayerNorm(dim)
+            self.relu = nn.ReLU()
 
-    # A small ReLU MLP — unlike a linear model it can separate similar phrases
-    # ("hey loki" vs "hey alexa"), which logistic regression could not. L2 (alpha)
-    # + early_stopping guard against memorizing synthetic TTS so it still
-    # generalizes to a real microphone.
-    # 32-unit hidden layer keeps the ONNX small (~200 KB) while augmentation
-    # supplies enough data to learn a tight, speaker-robust boundary.
-    def make_mlp():
-        return MLPClassifier(hidden_layer_sizes=(64,), activation="relu", alpha=1e-3,
-                             max_iter=400, random_state=42, early_stopping=False)
+        def forward(self, x):
+            return self.relu(self.norm(self.linear(x)))
 
-    # Calibrate the fire threshold on a held-out split (fit on balanced train).
+    class WakeWordDNN(nn.Module):
+        """Linear->ReLU->LayerNorm input block, N FCNBlocks, Sigmoid output —
+        matches openWakeWord's reference DNN architecture. Normalization is a
+        fixed (non-trainable) buffer INSIDE the graph, computed once from the
+        training split, so the exported ONNX needs no separate scaler node and
+        the whole forward pass traces cleanly for torch.onnx.export."""
+        def __init__(self, input_dim: int, layer_dim: int = 128, n_blocks: int = 1):
+            super().__init__()
+            self.register_buffer("mean", torch.zeros(input_dim))
+            self.register_buffer("std", torch.ones(input_dim))
+            self.flatten = nn.Flatten()
+            self.layer1 = nn.Linear(input_dim, layer_dim)
+            self.relu1 = nn.ReLU()
+            self.norm1 = nn.LayerNorm(layer_dim)
+            self.blocks = nn.ModuleList([FCNBlock(layer_dim) for _ in range(n_blocks)])
+            self.out = nn.Linear(layer_dim, 1)
+            self.sigmoid = nn.Sigmoid()
+
+        def forward(self, x):
+            x = self.flatten(x)
+            x = (x - self.mean) / self.std
+            x = self.norm1(self.relu1(self.layer1(x)))
+            for block in self.blocks:
+                x = block(x)
+            return self.sigmoid(self.out(x))
+
+    def torch_predict(model, Xin: np.ndarray, batch: int = 4096) -> np.ndarray:
+        model.eval()
+        out = []
+        with torch.no_grad():
+            for i in range(0, len(Xin), batch):
+                chunk = torch.tensor(Xin[i:i + batch], dtype=torch.float32)
+                out.append(model(chunk).squeeze(1).numpy())
+        return np.concatenate(out) if out else np.empty((0,), np.float32)
+
+    def group_train_val_split(y_in: np.ndarray, groups_in: np.ndarray, val_frac: float, rng_t):
+        """Held out by GROUP (source file — one voice+speed for positives, one
+        phrase+voice for negatives), not by window. A random per-window split
+        leaks speaker identity: windows from the same TTS clip are highly
+        correlated, so the model can partly memorize a voice's acoustic
+        fingerprint and still "generalize" to held-out windows FROM THAT SAME
+        VOICE. That's what made earlier validation numbers here look far
+        better (90%+ recall) than the model's actual recall on eval:wakeword's
+        genuinely independent voice bank (as low as 17%). Holding out whole
+        source files/voices fixes that — validation now measures the same
+        thing eval:wakeword does: does this generalize to voices never seen?
+        Split per class so both train and val get positives and negatives."""
+        train_mask = np.zeros(len(y_in), dtype=bool)
+        val_mask = np.zeros(len(y_in), dtype=bool)
+        for cls in (0, 1):
+            cls_idx = np.where(y_in == cls)[0]
+            cls_groups = np.unique(groups_in[cls_idx])
+            rng_t.shuffle(cls_groups)
+            n_val = max(1, int(len(cls_groups) * val_frac))
+            val_groups = set(cls_groups[:n_val].tolist())
+            for i in cls_idx:
+                if groups_in[i] in val_groups:
+                    val_mask[i] = True
+                else:
+                    train_mask[i] = True
+        return train_mask, val_mask
+
+    def train_dnn(X_in: np.ndarray, y_in: np.ndarray, groups_in: np.ndarray, layer_dim: int = 128, n_blocks: int = 2,
+                  total_steps: int = 6000, batch_pos: int = 32, batch_neg: int = 224,
+                  max_negative_weight: float = 25.0, target_lr: float = 1e-4, seed: int = 42):
+        rng_t = np.random.default_rng(seed)
+        torch.manual_seed(seed)
+
+        # 0.25 (up from 0.15): with only ~28 positive source voices total, a 15%
+        # hold-out was just 4 voices — a noisy validation estimate where one
+        # unusually hard voice could swing recall by 25 points. More held-out
+        # voices gives a steadier signal to base checkpoint selection on.
+        train_mask, val_mask = group_train_val_split(y_in, groups_in, val_frac=0.25, rng_t=rng_t)
+        Xtr, ytr = X_in[train_mask], y_in[train_mask]
+        Xva, yva = X_in[val_mask], y_in[val_mask]
+        pos_tr = Xtr[ytr == 1]; neg_tr = Xtr[ytr == 0]
+        if len(pos_tr) == 0 or len(neg_tr) == 0:
+            raise ValueError("need both positive and negative training windows")
+        n_pos_val_groups = len(np.unique(groups_in[val_mask & (y_in == 1)]))
+        progress(f"  group-held-out split: {len(Xtr)} train / {len(Xva)} val windows "
+                 f"({n_pos_val_groups} positive source voices held out entirely for validation)")
+
+        model = WakeWordDNN(input_dim=X_in.shape[1], layer_dim=layer_dim, n_blocks=n_blocks)
+        # Normalization stats from the TRAIN split only — computing them over all
+        # of X (as the old scaler.fit_transform(X) did, before the val split)
+        # leaks validation statistics into training; this fixes that too.
+        mean = Xtr.mean(axis=0); std = Xtr.std(axis=0); std[std < 1e-6] = 1e-6
+        with torch.no_grad():
+            model.mean.copy_(torch.tensor(mean, dtype=torch.float32))
+            model.std.copy_(torch.tensor(std, dtype=torch.float32))
+
+        optimizer = optim.Adam(model.parameters(), lr=target_lr)
+        warmup_steps = max(1, total_steps // 5)
+        hold_steps = total_steps // 3
+
+        def lr_at(step: int) -> float:
+            if step < warmup_steps:
+                return target_lr * (step / warmup_steps)
+            frac = (step - warmup_steps - hold_steps) / max(1, total_steps - warmup_steps - hold_steps)
+            frac = min(1.0, max(0.0, frac))
+            return 0.5 * target_lr * (1 + float(np.cos(np.pi * frac)))
+
+        neg_weight_schedule = np.linspace(1.0, max_negative_weight, total_steps)
+        Xva_t = torch.tensor(Xva, dtype=torch.float32)
+
+        # Feature-space augmentation on each TRAINING batch (never validation) —
+        # label-preserving regularizers that target the measured weakness, recall
+        # on voices never seen in training. Two techniques adapted to our 16×96
+        # embedding windows (we can't SpecAugment raw spectrograms — the detector
+        # only sees embeddings — but both transfer):
+        #   • within-class MixUp: blend a window with another of the SAME class,
+        #     λ∈[0.5,1] so the original dominates and the hard label stays valid.
+        #     Blending two different positive VOICES synthesizes an intermediate
+        #     voice — literally augmenting toward unseen-voice generalization.
+        #     (Cross-class mixup is skipped: its soft labels would break the
+        #     hard-example mask + negative-weight scheme below.)
+        #   • SpecAugment time-masking: zero a random 1–2 frame span of the
+        #     16-frame window so the detector can't lean on any single frame.
+        P_MIX, P_MASK = 0.4, 0.4
+        def augment_batch(xb, n_pos):
+            out = xb.copy()
+            for i in range(out.shape[0]):
+                if rng_t.random() < P_MIX:
+                    # same-class partner — batch is [positives | negatives], so the
+                    # class of row i is known from its position (no label scan).
+                    j = int(rng_t.integers(0, n_pos)) if i < n_pos else int(rng_t.integers(n_pos, out.shape[0]))
+                    lam = rng_t.uniform(0.5, 1.0)
+                    out[i] = lam * out[i] + (1.0 - lam) * xb[j]
+                if rng_t.random() < P_MASK:
+                    w = out[i].reshape(DET_FRAMES, EMB_DIM).copy()
+                    span = int(rng_t.integers(1, 3))  # mask 1 or 2 frames
+                    start = int(rng_t.integers(0, DET_FRAMES - span + 1))
+                    w[start:start + span, :] = 0.0
+                    out[i] = w.reshape(-1)
+            return out
+
+        val_fp_history, val_recall_history = [], []
+        best_checkpoints = []
+        MAX_CHECKPOINTS = 10
+        VAL_EVERY = max(1, total_steps // 40)
+
+        for step in range(total_steps):
+            for g in optimizer.param_groups:
+                g["lr"] = lr_at(step)
+
+            pi = rng_t.choice(len(pos_tr), batch_pos, replace=True)
+            ni = rng_t.choice(len(neg_tr), batch_neg, replace=True)
+            xb = np.concatenate([pos_tr[pi], neg_tr[ni]], axis=0)
+            xb = augment_batch(xb, batch_pos)
+            yb = np.concatenate([np.ones(batch_pos, np.float32), np.zeros(batch_neg, np.float32)])
+            wb = np.concatenate([np.ones(batch_pos, np.float32),
+                                  np.full(batch_neg, neg_weight_schedule[step], np.float32)])
+            xb_t = torch.tensor(xb, dtype=torch.float32)
+            yb_t = torch.tensor(yb, dtype=torch.float32).unsqueeze(1)
+            wb_t = torch.tensor(wb, dtype=torch.float32).unsqueeze(1)
+
+            model.train()
+            optimizer.zero_grad()
+            preds = model(xb_t)
+
+            # Hard-example mining: only backprop on borderline predictions (neg
+            # preds >=0.001, pos preds <0.999) — openWakeWord's auto_train does
+            # the same to concentrate gradient updates on cases the model hasn't
+            # already nailed. Falls back to the full batch if everything's
+            # currently "easy" (common in the first few steps).
+            with torch.no_grad():
+                mask = ((yb_t == 0) & (preds >= 0.001)) | ((yb_t == 1) & (preds < 0.999))
+            if mask.sum() == 0:
+                mask = torch.ones_like(mask, dtype=torch.bool)
+
+            loss_raw = nn.functional.binary_cross_entropy(preds, yb_t, weight=wb_t, reduction="none")
+            loss = (loss_raw * mask.float()).sum() / mask.float().sum().clamp(min=1)
+            loss.backward()
+            optimizer.step()
+
+            if (step + 1) % VAL_EVERY == 0 or step == total_steps - 1:
+                model.eval()
+                with torch.no_grad():
+                    val_probs = model(Xva_t).squeeze(1).numpy()
+                n_fp = int(np.sum((val_probs >= 0.5) & (yva == 0)))
+                recall = float(np.mean(val_probs[yva == 1] >= 0.5)) if np.any(yva == 1) else 0.0
+                val_fp_history.append(n_fp)
+                val_recall_history.append(recall)
+
+                # Checkpoint selection: keep this snapshot when it's at or below
+                # the median FP count seen so far AND at or above the MEDIAN
+                # recall. openWakeWord's auto_train uses a 5th-percentile recall
+                # floor (theirs runs against ~2000h of negatives, where FP
+                # dominates); on our smaller dataset that let the FP criterion
+                # win almost every time and dragged recall down (measured: a
+                # first pass at 5th-percentile shipped a checkpoint at 83%
+                # recall vs the prior model's 100%). Requiring above-median
+                # recall too balances both metrics instead of letting FP alone
+                # decide which snapshots get averaged (below, approximating SWA).
+                if len(val_fp_history) >= 3:
+                    fp_thr = np.percentile(val_fp_history, 50)
+                    recall_thr = np.percentile(val_recall_history, 50)
+                    if n_fp <= fp_thr and recall >= recall_thr:
+                        # Score combines both metrics (recall dominant, FP a
+                        # tiebreaker) so eviction below removes the WORST
+                        # qualifying checkpoint, not just the oldest — a plain
+                        # FIFO pop(0) could discard a genuinely strong early
+                        # checkpoint in favor of a later one that only barely
+                        # cleared the bar, since both FP and recall are noisy
+                        # (non-monotonic) across steps.
+                        score = recall - 0.001 * n_fp
+                        best_checkpoints.append((score, {k: v.clone() for k, v in model.state_dict().items()}))
+                        if len(best_checkpoints) > MAX_CHECKPOINTS:
+                            best_checkpoints.sort(key=lambda ck: ck[0])
+                            best_checkpoints.pop(0)
+
+                if (step + 1) % (VAL_EVERY * 5) == 0:
+                    progress(f"  step {step + 1}/{total_steps}: val_fp={n_fp} val_recall={recall:.0%} "
+                             f"lr={lr_at(step):.2e} neg_w={neg_weight_schedule[step]:.1f} "
+                             f"checkpoints={len(best_checkpoints)}")
+
+        if best_checkpoints:
+            avg_state = {}
+            for k in best_checkpoints[0][1]:
+                avg_state[k] = torch.stack([ck[1][k].float() for ck in best_checkpoints]).mean(dim=0)
+            model.load_state_dict(avg_state)
+            progress(f"Averaged {len(best_checkpoints)} checkpoints (SWA-style)")
+
+        model.eval()
+        with torch.no_grad():
+            val_probs = model(Xva_t).squeeze(1).numpy()
+            train_probs = model(torch.tensor(Xtr, dtype=torch.float32)).squeeze(1).numpy()
+        val_acc_out = float(np.mean((val_probs >= 0.5) == (yva == 1)))
+        train_acc_out = float(np.mean((train_probs >= 0.5) == (ytr == 1)))
+        return model, val_probs, yva, val_acc_out, train_acc_out
+
+    DNN_STEPS = 6000
+    progress(f"Training DNN ({DNN_STEPS} steps: hard-example mining, negative-weight ramp, "
+             f"cosine LR, checkpoint averaging)…")
+    model, pva, yva, val_acc, acc = train_dnn(X, y, groups, total_steps=DNN_STEPS)
+    progress(f"Training accuracy: {acc:.1%}")
+
+    # Calibrate the fire threshold on the DNN's own held-out val split.
     # openWakeWord/microWakeWord both tune to a target FALSE-ACCEPTS-PER-HOUR, not
     # raw accuracy, so we do the same here against the held-out negative windows.
     threshold = 0.5
     TARGET_FAPH  = 1.0   # aim for ≤1 false accept per hour of ambient audio
     RECALL_FLOOR = 0.6   # …but never so strict the phrase stops firing
-    val_acc = None       # held-out validation accuracy (quality metric, persisted)
     try:
-        from sklearn.model_selection import train_test_split
-        Xtr, Xva, ytr, yva = train_test_split(X_scaled, y, test_size=0.25, random_state=42, stratify=y)
-        Xtb, ytb = balance(Xtr, ytr)
-        cal = make_mlp().fit(Xtb, ytb)
-        pva = cal.predict_proba(Xva)[:, 1]
         pos = pva[yva == 1]; neg = pva[yva == 0]
-        val_acc = float(cal.score(Xva, yva))
         if len(pos) and len(neg):
-            neg_hi = float(np.percentile(neg, 95))   # nearly all negatives below this
-            pos_lo = float(np.percentile(pos, 10))   # most positives above this
-            thr = max(neg_hi + 0.10, (neg_hi + pos_lo) / 2)  # separation baseline
-
-            # FA/hr calibration. The held-out negative windows are a proxy ambient
-            # stream: each window is one 80 ms detector hop, so 12.5 windows ≈ 1 s.
-            # Pick the LOWEST threshold whose negative-crossing rate meets TARGET_FAPH
-            # (maximizes recall), then back off if it would drop recall below the
-            # floor. Conservative: the runtime's 4-frame smoothing + 2-frame
-            # hysteresis suppress isolated crossings, so real FA/hr ≤ the figure here.
+            # The held-out negative windows are a proxy ambient stream: each window
+            # is one 80 ms detector hop, so 12.5 windows ≈ 1 s. The runtime's 4-frame
+            # smoothing + 2-frame hysteresis suppress isolated crossings further, so
+            # real FA/hr ≤ the figure here.
             hours = len(neg) / 12.5 / 3600.0
-            def faph(t: float) -> float:
-                return float(np.sum(neg >= t)) / hours if hours > 0 else 0.0
-            sorted_desc = np.sort(neg)[::-1]
-            allowed = int(np.floor(TARGET_FAPH * hours))
-            thr_fa = thr if allowed >= len(sorted_desc) else max(thr, float(sorted_desc[allowed]) + 1e-4)
-            if float(np.mean(pos >= thr_fa)) < RECALL_FLOOR:
-                thr_fa = thr  # keep recall: accept a higher FA/hr than the target
-            threshold = round(min(0.85, max(0.3, thr_fa)), 2)
-            measured = faph(threshold)
-            recall   = float(np.mean(pos >= threshold))
+            threshold, measured, recall = pick_operating_threshold(pos, neg, hours, TARGET_FAPH, RECALL_FLOOR)
             progress(f"Validation accuracy: {val_acc:.1%}; threshold {threshold:.2f} "
                      f"(~{measured:.2f} false-accepts/hr over {hours * 60:.0f} min held-out negatives, recall {recall:.0%})")
         else:
             progress(f"Validation accuracy: {val_acc:.1%}; calibrated threshold {threshold:.2f}")
     except Exception as e:
         progress(f"Threshold calibration skipped ({e}); using {threshold:.2f}")
-
-    # Final model on all (balanced) data.
-    Xb, yb = balance(X_scaled, y)
-    clf = make_mlp()
-    clf.fit(Xb, yb)
-    acc = float(clf.score(Xb, yb))
-    progress(f"Training accuracy: {acc:.1%}")
 
     # Real-audio threshold calibration (structural fix): synthetic held-out windows
     # are a proxy ambient stream and understate real false-accept risk, which is why
@@ -798,22 +1029,19 @@ def main() -> None:
         try:
             progress(f"Calibrating threshold against real audio in {args.calib_dir}…")
             real_neg = score_real_negatives(args.calib_dir, mel_sess, emb_sess, mel_input_name,
-                                             emb_input_name, mel_frames_per_chunk, scaler, clf)
-            pos_final = clf.predict_proba(X_scaled[y == 1])[:, 1]
+                                             emb_input_name, mel_frames_per_chunk,
+                                             lambda Xin: torch_predict(model, Xin))
+            # HELD-OUT positives only (pva/yva from train_dnn's group split) — using
+            # X[y==1] (including training positives the model already fit to) would
+            # reintroduce the same leakage this whole fix targets: an inflated
+            # recall estimate that doesn't reflect real generalization. A threshold
+            # proven against REAL audio can afford a higher recall floor (0.85) than
+            # the synthetic pass, since real negatives are the true FP source.
+            pos_final = pva[yva == 1]
             if len(real_neg) and len(pos_final):
-                REAL_RECALL_FLOOR = 0.85
-                neg_hi = float(np.percentile(real_neg, 95))
-                pos_lo = float(np.percentile(pos_final, 10))
-                thr = max(neg_hi + 0.10, (neg_hi + pos_lo) / 2)
                 hours = len(real_neg) / 12.5 / 3600.0
-                sorted_desc = np.sort(real_neg)[::-1]
-                allowed = int(np.floor(TARGET_FAPH * hours))
-                thr_real = thr if allowed >= len(sorted_desc) else max(thr, float(sorted_desc[allowed]) + 1e-4)
-                if float(np.mean(pos_final >= thr_real)) < REAL_RECALL_FLOOR:
-                    thr_real = thr  # keep recall: accept a higher FA/hr than the target
-                threshold = round(min(0.85, max(0.3, thr_real)), 2)
-                measured = float(np.sum(real_neg >= threshold)) / hours if hours > 0 else 0.0
-                recall_real = float(np.mean(pos_final >= threshold))
+                threshold, measured, recall_real = pick_operating_threshold(
+                    pos_final, real_neg, hours, TARGET_FAPH, recall_floor=0.85)
                 progress(f"Real-audio calibration: threshold {threshold:.2f} (~{measured:.2f} false-accepts/hr over "
                          f"{hours * 60:.0f} min real negatives, recall {recall_real:.0%})")
             else:
@@ -821,18 +1049,22 @@ def main() -> None:
         except Exception as e:
             progress(f"Real-audio calibration skipped ({e}); keeping synthetic threshold {threshold:.2f}")
 
-    # Fuse the StandardScaler into the first layer so the ONNX graph needs no
-    # separate normalization:  z1 = (x - mean)/scale @ W0 + b0
-    #   = x @ (W0 / scale[:,None]) + (b0 - (mean/scale) @ W0)
-    W0 = np.asarray(clf.coefs_[0], dtype=np.float64)        # [1536, H]
-    b0 = np.asarray(clf.intercepts_[0], dtype=np.float64)   # [H]
-    W1 = np.asarray(clf.coefs_[1], dtype=np.float64)        # [H, 1]
-    b1 = np.asarray(clf.intercepts_[1], dtype=np.float64)   # [1]
-    W0_fused = W0 / scaler.scale_[:, None]
-    b0_fused = b0 - (scaler.mean_ / scaler.scale_) @ W0
-
     progress("Exporting ONNX detector…")
-    export_mlp_onnx(W0_fused, b0_fused, W1, b1, args.output)
+    dummy = torch.zeros(1, DET_FRAMES, EMB_DIM, dtype=torch.float32)
+    model.eval()
+    # dynamo=False forces the legacy TorchScript-based exporter — the newer
+    # dynamo exporter (torch's default in recent versions) emits IR version 10,
+    # which the bundled onnxruntime-web WASM build can't load ("Can't create a
+    # session", empty error). Our known-working mel/embedding backbones are IR
+    # version 7; the old sklearn export pinned IR version 8 for the same reason.
+    # Force it down post-export too as a belt-and-suspenders fix regardless of
+    # which exporter path ends up handling this on a given torch version.
+    torch.onnx.export(model, dummy, args.output, input_names=["x.1"], output_names=["_output"],
+                       opset_version=17, dynamo=False)
+    import onnx as _onnx
+    _exported = _onnx.load(args.output)
+    _exported.ir_version = 8
+    _onnx.save(_exported, args.output)
     if _EMBEDDER_POOL is not None:
         _EMBEDDER_POOL.close()
     progress("Done.", done=True, threshold=threshold, accuracy=val_acc)

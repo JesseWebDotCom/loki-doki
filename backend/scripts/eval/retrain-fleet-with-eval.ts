@@ -17,6 +17,13 @@
 // pkill patterns.
 //
 //   cd backend && nohup bun scripts/eval/retrain-fleet-with-eval.ts > <log> 2>&1 &
+// Must be the first import: @/lib/download and @/lib/logger form a circular
+// pair (download.ts imports logger.ts; logger.ts imports `dataDir` back from
+// download.ts and reads it synchronously at its own module top level). Which
+// of the two a standalone script's import graph reaches first determines
+// whether `dataDir` is still in its temporal dead zone — see the same fix in
+// retrain-one-wakeword.ts and wakeword-fa-eval.ts.
+import '@/lib/logger'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { characters, wakeWordCatalog } from '@/db/schema'

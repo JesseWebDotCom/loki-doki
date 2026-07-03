@@ -14,12 +14,23 @@
 //
 // Usage:
 //   bun run scripts/eval/wakeword-fa-eval.ts [modelId ...]   (default: hey_loki latest + hey_jarvis)
+// Must be the first import: @/lib/download and @/lib/logger form a circular pair
+// (download.ts imports logger.ts; logger.ts imports `dataDir` back from
+// download.ts and calls makeLogger() — which reads `dataDir` — synchronously at
+// its own module top level). Whichever of the two starts loading FIRST in the
+// whole graph determines the outcome: if download.ts loads first, logger.ts's
+// nested re-entry hits `dataDir` while it's still in its temporal dead zone
+// ("Cannot access 'dataDir' before initialization"); if logger.ts loads first,
+// its own nested import of download.ts finishes cleanly before logger.ts needs
+// the value. This entry point doesn't go through the main app's bootstrap (which
+// happens to import logger first), so force the safe order explicitly here.
+import '@/lib/logger'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { BANK_DIR, SR, buildNegativeBank, buildPositiveBank, scoreStream, countFires, POSITIVE_COUNT } from './wakewordEvalCore'
 import { db } from '@/db'
 import { wakeWordCatalog } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { BANK_DIR, SR, buildNegativeBank, buildPositiveBank, scoreStream, countFires, POSITIVE_COUNT } from './wakewordEvalCore'
 
 const TARGET_FAPH = 1.0
 

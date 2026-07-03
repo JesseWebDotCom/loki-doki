@@ -4,6 +4,15 @@
 // verification.
 //
 // Usage: bun run scripts/eval/retrain-one-wakeword.ts "hey loki"
+// Must be the first import: @/lib/download and @/lib/logger form a circular
+// pair (download.ts imports logger.ts; logger.ts imports `dataDir` back from
+// download.ts and reads it synchronously at its own module top level via
+// makeLogger()). Standalone entry points like this one don't go through the
+// main app's bootstrap (which happens to import logger first), so whichever
+// of the two a script's own import graph reaches FIRST determines whether
+// `dataDir` is still in its temporal dead zone when logger.ts runs. Importing
+// this first forces the safe order regardless of what else changes upstream.
+import '@/lib/logger'
 import { db } from '@/db'
 import { wakeWordCatalog } from '@/db/schema'
 import { trainWakeword } from '@/lib/voice/wakewordTrainer'
