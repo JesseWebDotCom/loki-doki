@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ExternalLink, RotateCw, Archive, AlertTriangle, FileText, Layout, FileDown, Film, Headphones, Highlighter, History, Pause, Play, Square, X, Globe } from 'lucide-react'
+import { ArrowLeft, ExternalLink, RotateCw, Archive, AlertTriangle, FileText, Layout, FileDown, Film, Headphones, Highlighter, History, Pause, Play, Square, X, Globe, Drama, Download } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -13,6 +13,8 @@ import { HighlightsPanel } from '@/components/bookmarks/HighlightsPanel'
 import { SelectionToolbar } from '@/components/bookmarks/SelectionToolbar'
 import { scrollToHighlight, useHighlightAnchoring } from '@/components/bookmarks/useHighlightAnchoring'
 import { useArticleNarration } from '@/hooks/useArticleNarration'
+import { useMultiVoiceNarration } from '@/hooks/useMultiVoiceNarration'
+import { SpeakerAssignmentPanel } from '@/components/narration/SpeakerAssignmentPanel'
 import {
   getItem, updateItem, rearchiveItem, listSnapshots, getSnapshot, archiveAssetUrl,
   createHighlight, deleteHighlight, listHighlights, updateHighlight, type HighlightColor,
@@ -73,6 +75,12 @@ export function BookmarkReadPage() {
 
   // "Listen to this article" - narrates the latest reader content.
   const narration = useArticleNarration({ id, contentHtml: item?.type === 'offline' ? item?.contentHtml : null })
+
+  // "Cast voices" - same article, but detects dialogue and reads it with distinct
+  // per-character voices. Independent from the plain narration above so either can
+  // be used; starting one stops the other (both share the same playback singleton).
+  const castVoices = useMultiVoiceNarration({ id, contentHtml: item?.type === 'offline' ? item?.contentHtml : null, sourceType: 'bookmark', sourceRef: id })
+  const [showCastPanel, setShowCastPanel] = useState(false)
 
   const addHighlight = useCallback(async (color: HighlightColor, note?: string) => {
     const sel = anchoring.pendingSelection
@@ -166,6 +174,21 @@ export function BookmarkReadPage() {
           </div>
         )
       )}
+      {/* Cast voices: same article, but with a distinct TTS voice per detected character */}
+      {item.type === 'offline' && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={async () => {
+            if (!castVoices.session) await castVoices.createSession()
+            setShowCastPanel((v) => !v)
+          }}
+          title="Cast voices: read with a different voice per character"
+          className={cn(showCastPanel && 'text-foreground')}
+        >
+          {castVoices.status === 'loading' ? <Spinner size="sm" /> : <Drama className="size-4" />}
+        </Button>
+      )}
       {item.type === 'offline' && (
         <Button variant="ghost" size="icon-sm" onClick={() => setShowHighlights((v) => !v)} title="Highlights & notes"
           className={cn(showHighlights && 'text-foreground', highlights.length > 0 && 'text-warning')}>
@@ -214,6 +237,43 @@ export function BookmarkReadPage() {
   return (
     <div className="flex h-full flex-col">
       {TopBar}
+      {showCastPanel && (
+        <div className="border-b border-border/40 bg-background/60 px-4 py-2">
+          {castVoices.status === 'loading' && <p className="text-[11px] text-muted-foreground">Detecting speakers…</p>}
+          {castVoices.status === 'failed' && <p className="text-[11px] text-destructive">Couldn't prepare this article for casting.</p>}
+          {castVoices.session && (
+            <div className="space-y-2">
+              <SpeakerAssignmentPanel
+                speakers={castVoices.session.speakers}
+                onVoiceChange={(speakerId, voiceId) => void castVoices.updateSpeakerVoice(speakerId, voiceId)}
+              />
+              <div className="flex items-center gap-2">
+                {castVoices.status === 'playing' ? (
+                  <Button variant="outline" size="sm" onClick={castVoices.pause}><Pause className="mr-1 size-3.5" />Pause</Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={() => (castVoices.status === 'paused' ? castVoices.resume() : castVoices.start())}>
+                    <Play className="mr-1 size-3.5" />{castVoices.status === 'paused' ? 'Resume' : 'Play'}
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={castVoices.stop}><Square className="mr-1 size-3.5" />Stop</Button>
+                <span className="text-[10px] tabular-nums text-muted-foreground">Turn {castVoices.progress.turn}/{castVoices.progress.total}</span>
+                <div className="ml-auto flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={castVoices.exportStatus === 'rendering'}
+                    onClick={() => void castVoices.exportAudio('mp3')}
+                  >
+                    {castVoices.exportStatus === 'rendering' ? <Spinner size="sm" className="mr-1" /> : <Download className="mr-1 size-3.5" />}
+                    {castVoices.exportStatus === 'rendering' ? 'Rendering…' : 'Download MP3'}
+                  </Button>
+                  {castVoices.exportStatus === 'failed' && <span className="text-[10px] text-destructive">Export failed</span>}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex min-h-0 flex-1">
       <div className="min-h-0 flex-1 overflow-y-auto">
         {item.archiveState === 'pending' || item.archiveState === 'fetching' ? (

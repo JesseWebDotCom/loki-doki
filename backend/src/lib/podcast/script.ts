@@ -12,6 +12,7 @@
 
 import { getScriptModel } from '@/lib/models'
 import { ollamaChat } from '@/llm/ollama'
+import { extractJsonPairs as extractPairs } from '@/lib/textRepair'
 import type { ShowConfig, ScriptTurn, SegmentContent, CastBrief } from './types'
 import { generateEpisodeOutline, fallbackOutline, padOutline, formatOutlineBlock, type EpisodeOutline, type OutlineSegment } from './outline'
 import { generateEpisodeAngles } from './persona'
@@ -408,22 +409,7 @@ function tryParseJsonArray(s: string): { host: string; text: string }[] {
 
 /** Pull {host,text} pairs out of JSON-ish text even when JSON.parse rejects it. */
 function extractJsonPairs(text: string): { host: string; text: string }[] {
-  const out: { host: string; text: string }[] = []
-  for (const obj of text.match(/\{[^{}]*\}/g) ?? []) {
-    const host = obj.match(/"host"\s*:\s*"([^"]*)"/i)?.[1]
-    const body = obj.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/i)?.[1]
-    if (host == null || body == null) continue
-    const text = unescapeJson(body).trim()
-    if (text) out.push({ host, text })
-  }
-  return out
-}
-
-function unescapeJson(s: string): string {
-  return s
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/\\[nrt]/g, ' ')
-    .replace(/\\(["\\/])/g, '$1')
+  return extractPairs(text, 'host', 'text') as { host: string; text: string }[]
 }
 
 const SPEAKER_LINE = /^\s*([A-Za-z][\w .'-]{0,30}?)\s*:\s*(.*)$/

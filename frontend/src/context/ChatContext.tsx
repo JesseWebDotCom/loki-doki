@@ -8,7 +8,7 @@ import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
 import { toast } from '@/lib/toast'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
-import { applyPlayDirective, parsePlayDirective, type PlayMediaDirective } from '@/lib/playDirective'
+import { applyPlayDirective, parsePlayDirective, type Directive } from '@/lib/playDirective'
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
@@ -136,8 +136,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const youtube = useYoutubePlayback()
   // Playback directives from a chat turn ("play heavy metal") drive the global
   // mini-player in place — no navigation. Kept in a ref so `submit` stays stable.
-  const applyDirectiveRef = useRef<(d: PlayMediaDirective) => void>(() => {})
-  applyDirectiveRef.current = (d: PlayMediaDirective) =>
+  const applyDirectiveRef = useRef<(d: Directive) => void>(() => {})
+  applyDirectiveRef.current = (d: Directive) =>
     applyPlayDirective(d, { playExpanded: youtube.playExpanded, startStation: radio.start })
 
   useEffect(() => {
@@ -910,7 +910,7 @@ interface StreamCallbacks {
   onToken: (token: string) => void
   onBlock: (block: Block) => void
   onSources: (sources: Source[]) => void
-  onDirective: (directive: PlayMediaDirective) => void
+  onDirective: (directive: Directive) => void
   onDone: (meta: { conversationId?: string; title?: string }) => void
   onError: (err: string) => void
 }

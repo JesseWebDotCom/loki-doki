@@ -28,7 +28,7 @@ export interface ArticleNarration {
   stop: () => void
 }
 
-function extractParagraphs(contentHtml: string): string[] {
+export function extractParagraphs(contentHtml: string): string[] {
   const doc = new DOMParser().parseFromString(contentHtml, 'text/html')
   const nodes = doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, figcaption')
   const out: string[] = []

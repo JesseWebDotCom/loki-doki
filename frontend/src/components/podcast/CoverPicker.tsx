@@ -4,7 +4,7 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { generateThemedVariants, coverBlob, type CoverVariant } from '@/lib/podcast/cover'
+import { generateThemedVariants, coverBlob, type CoverVariant } from '@/lib/coverArt'
 
 type Tab = 'designed' | 'upload'
 

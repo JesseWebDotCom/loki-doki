@@ -35,6 +35,9 @@ const DESCRIPTIONS: Record<string, string> = {
   am_onyx: 'Deep and gravelly',
 }
 
+/** Bare ids of the curated voice roster (used e.g. for narration speaker assignment). */
+export const KOKORO_VOICE_IDS: string[] = Object.keys(DESCRIPTIONS)
+
 function bareId(ttsVoice: string): string {
   return ttsVoice.includes(':') ? ttsVoice.split(':').pop()! : ttsVoice
 }

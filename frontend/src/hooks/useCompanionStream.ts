@@ -1,12 +1,13 @@
 import { useCallback, useRef, useState } from 'react'
-import { parsePlayDirective, type PlayMediaDirective } from '@/lib/playDirective'
+import { parsePlayDirective, type Directive } from '@/lib/playDirective'
 
 interface Turn { role: 'user' | 'assistant'; content: string }
 
 interface CompanionStreamOptions {
-  /** Fired when the companion turn emits a playback directive (e.g. "play heavy
-   *  metal"). The caller drives the global mini-player. */
-  onDirective?: (directive: PlayMediaDirective) => void
+  /** Fired when the companion turn emits a playback/narration directive (e.g.
+   *  "play heavy metal" or "read this with character voices"). The caller drives
+   *  the global mini-player / TTS playback. */
+  onDirective?: (directive: Directive) => void
 }
 
 // Ephemeral companion chat used OFF the chat app. Streams a reply in place and

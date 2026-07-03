@@ -1,6 +1,7 @@
 import { instantStationDj } from '@/lib/music/catalogApi'
 import type { DjStation } from '@/lib/music/radioStations'
 import type { YtMiniTrack } from '@/context/YoutubePlaybackContext'
+import { playNarrationTurns, type NarrationPlayTurn } from '@/lib/narration/playSession'
 
 /** Mirror of the backend `PlayMediaDirective` (tools/index.ts). Emitted over the
  *  chat/companion SSE stream as a `directive` event so the companion can start
@@ -20,6 +21,17 @@ export interface PlayMediaDirective {
   seed?: string
 }
 
+/** Mirror of the backend `StartNarrationDirective` (tools/index.ts). Emitted when
+ *  a companion tool detects speakers in a piece of text and wants the client to
+ *  read it aloud with a distinct voice per speaker. */
+export interface StartNarrationDirective {
+  action: 'start_narration'
+  sessionId: string
+  turns: NarrationPlayTurn[]
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective
+
 export interface PlayDirectiveDeps {
   /** YoutubePlaybackContext.playExpanded — docks + expands one clip. */
   playExpanded: (t: YtMiniTrack) => void
@@ -27,18 +39,28 @@ export interface PlayDirectiveDeps {
   startStation: (s: DjStation, opts?: { silentIntro?: boolean }) => void
 }
 
-/** Parse an unknown SSE payload into a PlayMediaDirective, or null if it isn't one. */
-export function parsePlayDirective(raw: unknown): PlayMediaDirective | null {
+/** Parse an unknown SSE payload into a Directive, or null if it isn't one. */
+export function parsePlayDirective(raw: unknown): Directive | null {
   if (!raw || typeof raw !== 'object') return null
+  const action = (raw as { action?: string }).action
+  if (action === 'start_narration') {
+    const d = raw as Partial<StartNarrationDirective>
+    if (!d.sessionId || !Array.isArray(d.turns)) return null
+    return d as StartNarrationDirective
+  }
   const d = raw as Partial<PlayMediaDirective>
   if (d.action !== 'play_media') return null
   if (d.media !== 'video' && d.media !== 'station') return null
   return d as PlayMediaDirective
 }
 
-/** Honor a play directive by driving the global mini-player. No navigation —
- *  playback starts wherever the user is. */
-export function applyPlayDirective(directive: PlayMediaDirective, deps: PlayDirectiveDeps): void {
+/** Honor a play/narration directive. No navigation: playback starts wherever
+ *  the user is (global mini-player, or the shared TTS playback singleton). */
+export function applyPlayDirective(directive: Directive, deps: PlayDirectiveDeps): void {
+  if (directive.action === 'start_narration') {
+    void playNarrationTurns(directive.turns)
+    return
+  }
   if (directive.media === 'video' && directive.videoId) {
     deps.playExpanded({
       videoId: directive.videoId,

@@ -5,6 +5,7 @@ import { db } from '@/db'
 import { zimArchives } from '@/db/schema'
 import { ZIM_CATALOG } from '@/lib/zimCatalog'
 import { kiwixUrl, getKiwixState, getKiwixError, isKiwixInstalled, kiwixContentBase, kiwixContentRelPrefix } from '@/lib/kiwix'
+import { IS_WIN } from '@/lib/platform'
 import { requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 
@@ -102,6 +103,37 @@ function libraryStatusPage(opts: { retry: boolean; title: string; body: string }
 <style>html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;background:#0a0a0f;color:#e5e7eb;font-family:-apple-system,system-ui,sans-serif}.w{text-align:center;max-width:30rem;padding:2rem}.s{width:34px;height:34px;margin:0 auto 1.25rem;border:3px solid rgba(139,92,246,.25);border-top-color:#8b5cf6;border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}h1{font-size:1.05rem;font-weight:700;margin:0 0 .45rem}p{font-size:.85rem;color:#9ca3af;line-height:1.55;margin:0}</style>
 </head><body><div class="w">${opts.retry ? '<div class="s"></div>' : ''}<h1>${opts.title}</h1><p>${opts.body}</p></div></body></html>`
 }
+
+// ── Title browse (individual entries within a ZIM, as a book-like list) ────────
+// Only the custom zim-server.ts (macOS/Linux) implements /browse — real kiwix-serve
+// (Windows) doesn't have an equivalent JSON listing API, so this reports
+// unsupported there and the frontend falls back to the in-archive search box.
+
+archives.get('/browse/:sourceId', async (c) => {
+  const sourceId = c.req.param('sourceId')
+  if (IS_WIN) return c.json({ unsupported: true, results: [], total: 0 })
+  if (getKiwixState() !== 'ready') return c.json({ results: [], total: 0 })
+
+  const row = await db.select().from(zimArchives)
+    .where(eq(zimArchives.sourceId, sourceId))
+    .then((r) => r[0])
+  if (!row?.kiwixBookName) return c.json({ results: [], total: 0 })
+
+  const start = c.req.query('start') ?? '0'
+  const count = c.req.query('count') ?? '30'
+  const q     = c.req.query('q') ?? ''
+
+  try {
+    const upstream = await fetch(
+      `${kiwixContentBase(row.kiwixBookName)}/browse?start=${encodeURIComponent(start)}&count=${encodeURIComponent(count)}&q=${encodeURIComponent(q)}&format=json`,
+      { signal: AbortSignal.timeout(10_000) },
+    )
+    if (!upstream.ok) return c.json({ results: [], total: 0 })
+    return c.json(await upstream.json())
+  } catch {
+    return c.json({ results: [], total: 0 })
+  }
+})
 
 // ── Content proxy → kiwix-serve ───────────────────────────────────────────────
 // Forwards everything to kiwix-serve and rewrites absolute kiwix-serve paths

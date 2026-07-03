@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { AppBreadcrumb } from '@/components/shared/AppBreadcrumb'
 import { Search, ArrowLeft, ArrowRight, Shuffle, ExternalLink, BookOpen, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,10 @@ interface InstalledArchive {
 export function ReaderPage() {
   const { sourceId } = useParams<{ sourceId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // Captured once: a deep link (e.g. from ArchiveBrowsePage) opens at a specific
+  // article, but in-iframe navigation shouldn't reset back to it afterwards.
+  const initialPathRef = useRef(searchParams.get('path') ?? '')
 
   const [archive, setArchive]       = useState<InstalledArchive | null>(null)
   const [loaded, setLoaded]         = useState(false)
@@ -63,9 +67,9 @@ export function ReaderPage() {
     setIframeKey((k) => k + 1)
   }, [sourceId])
 
-  // Load the archive's landing page once resolved.
+  // Load the archive's landing page (or a deep-linked article) once resolved.
   useEffect(() => {
-    if (archive) open()
+    if (archive) open(initialPathRef.current)
   }, [archive, open])
 
   // Read document.title from the iframe on every load; works for both initial

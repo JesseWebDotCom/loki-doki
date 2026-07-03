@@ -12,7 +12,7 @@ import { warmupModel } from '@/lib/models'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import { CATALOG, TIERS, recommendedTier, ROLE_SETTINGS_KEY } from '@/lib/catalog'
 import { ollamaList } from '@/llm/ollama'
-import { pullOllama, downloadHfFile, downloadAndStartOllama, downloadComfyUIModel, setupComfyUIBase, installComfyUINodes, downloadTaesdModels, downloadSdxlVae, downloadEsrganModel, findSystemOllama, OLLAMA_BIN_APPROX_BYTES, OLLAMA_WINDOWS_INSTALL_MESSAGE, dataDir } from '@/lib/download'
+import { pullOllama, downloadHfFile, downloadAndStartOllama, downloadComfyUIModel, setupComfyUIBase, installComfyUINodes, downloadTaesdModels, downloadSdxlVae, downloadEsrganModel, findSystemOllama, OLLAMA_BIN_APPROX_BYTES, OLLAMA_WINDOWS_INSTALL_MESSAGE, dataDir, currentOllamaVersion } from '@/lib/download'
 import { IS_WIN } from '@/lib/platform'
 import { spawnComfyUI, isComfyUIInstalled } from '@/lib/comfyui'
 import { maybeSpawnKiwix } from '@/lib/kiwix'
@@ -188,6 +188,7 @@ setup.get('/catalog', requireAuth, async (c) => {
     ollamaRunning:     ollamaOk,
     ollamaInstalled:   ollamaOk || !!findSystemOllama(),
     ollamaInstallBytes: ollamaOk ? 0 : OLLAMA_INSTALL_BYTES,
+    ollamaVersion:     ollamaOk ? await currentOllamaVersion() : null,
     activeModelIds,
   })
 })

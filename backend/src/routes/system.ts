@@ -45,7 +45,7 @@ import {
 import { CATALOG } from '@/lib/catalog'
 import { getAppSetting } from '@/lib/settings'
 import { INSTALL_COMPONENTS, getInstallComponent, getInstalledLedger, recordInstalled, IMAGE_ROLES } from '@/lib/installRegistry'
-import { enqueueBackground } from '@/lib/downloadJobs'
+import { enqueueBackground, scanAndRepairCorruptImageModels } from '@/lib/downloadJobs'
 import type { AppEnv } from '@/types'
 
 const system = new Hono<AppEnv>()
@@ -120,7 +120,7 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
       const prefix = tag.split(':')[0] ?? tag
       return models.some((m) => m.name === tag || m.name.startsWith(prefix))
     }
-    for (const settingKey of ['router_llm_model', 'vision_model']) {
+    for (const settingKey of ['router_llm_model', 'vision_model', 'coding_model']) {
       const modelId = await getAppSetting(settingKey) as string | null
       if (!modelId) continue
       const cat = CATALOG.find((m) => m.id === modelId && m.backend === 'ollama' && m.ollamaTag)
@@ -361,7 +361,8 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
 
   // ── 6. Image generation (ComfyUI) ────────────────────────────────────────────
   // ComfyUI is spawned eagerly by index.ts at backend startup via maybeSpawnComfyUI().
-  // The boot sequence handles two remaining cases:
+  // The boot sequence handles the remaining cases:
+  //   0) corrupt model files — verify + quarantine + re-queue before anything uses them
   //   a) venv Python < 3.10 — rebuild in-place with progress streamed to the boot screen
   //   b) partial model downloads — resume them
   step(broadcast, { key: 'image', label: 'Checking image generation', status: 'running' })
@@ -372,6 +373,25 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
 
   const comfyInstalled = isComfyUIInstalled()
   let imgOk = comfyAlive || getComfyUIState() === 'warming'
+
+  // (0) Verify installed model files aren't corrupt — catches a checkpoint/LoRA that went
+  // bad after it already passed its post-download check (disk fault, or — as happened once
+  // — a header-coverage bug that let a truncated safetensors file through as "valid"). Runs
+  // before anything below touches these files, so a bad checkpoint never reaches a live
+  // generation; index.ts also runs this once at process start, but this pass is the one
+  // that's visible on the boot screen so a returning user sees why a re-download started.
+  if (comfyInstalled) {
+    step(broadcast, { key: 'image', label: 'Verifying image model files…', status: 'running' })
+    try {
+      const repaired = await scanAndRepairCorruptImageModels()
+      // No dedicated "repairing" UI here — a quarantined file is now simply missing, so
+      // the existing missingImageModel check below naturally reports "will set up in the
+      // background" and the download queue's own widget takes over from there.
+      if (repaired.length) logger.warn(`[boot] quarantined corrupt model file(s): ${repaired.join(', ')}`)
+    } catch (e) {
+      logger.warn(`[boot] image model integrity scan failed: ${e}`)
+    }
+  }
 
   // Restart ComfyUI if it's alive but was spawned with outdated launch args.
   // This happens when the backend restarts after a code change that bumped

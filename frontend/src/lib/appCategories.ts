@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, BookOpen, Brain, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
+  ArrowLeftRight, BookAudio, BookOpen, Brain, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Gamepad2, Gauge, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
   Search, Settings2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
@@ -144,6 +144,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard },
       { id: "youtube",        to: "/youtube",        label: "YouTube",         description: "Search and watch YouTube videos",     gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#dc2626", icon: Play,           toolId: "youtube" },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
+      { id: "books",          to: "/books",          label: "Books",           description: "Read EPUBs & offline libraries, listen to audiobooks", gradient: "linear-gradient(135deg,#422006,#a16207)", color: "#ca8a04", icon: BookAudio,      feature: "books" },
       { id: "recipes",        to: "/recipes",        label: "Recipes",         description: "Discover meals to cook tonight",      gradient: "linear-gradient(135deg,#7c2d12,#ea580c)", color: "#ea580c", icon: UtensilsCrossed, toolId: "recipes" },
       { id: "showtimes",      to: "/showtimes",      label: "Movie Showtimes", description: "Find movies playing near you",        gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard,    toolId: "showtimes" },
     ],
@@ -178,6 +179,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "reverse-lookup", to: "/reverse-lookup", label: "Reverse Lookup", description: "Property & people by address, name, or phone", gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Search },
       { id: "speed-test",     to: "/speed-test",     label: "Speed Test",     description: "Measure your connection speed to the server", gradient: "linear-gradient(135deg,#0c2a52,#0891b2)", color: "#0891b2", icon: Gauge },
       { id: "shopping",       to: "/shopping",       label: "Shop",           description: "Compare prices & catch drops", gradient: "linear-gradient(135deg,#14532d,#0d9488)", color: "#10b981", icon: Tag, toolId: "shopping" },
+      { id: "coding",         to: "/coding",         label: "Coding",         description: "AI coding agent for sandboxed projects", gradient: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "#3b82f6", icon: Code2, toolId: "coding" },
     ],
   },
 ];

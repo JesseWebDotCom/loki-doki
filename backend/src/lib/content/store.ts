@@ -18,9 +18,9 @@ import { createHash } from 'node:crypto'
 import { createReadStream, statSync } from 'node:fs'
 import { mkdir, rename, cp, rm, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { and, eq, lt, notExists } from 'drizzle-orm'
+import { and, eq, lt, ne, notExists, or } from 'drizzle-orm'
 import { db } from '@/db'
-import { blobs, mediaAssets, podcastDownloads, ytDownloads } from '@/db/schema'
+import { blobs, mediaAssets, narrationSessions, podcastDownloads, ytDownloads } from '@/db/schema'
 import { resolveUserPath, toRelativePath } from '@/lib/storage/paths'
 import { logger } from '@/lib/logger'
 
@@ -158,10 +158,18 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
   // (FK ON DELETE CASCADE drops the user's refs directly). The settle window protects the
   // brief create-time window where an asset exists before its first ref is inserted (both
   // happen together under withLock).
+  //
+  // Narration exports (sourceType='narration') have no per-user ref table — they're personal,
+  // non-shared artifacts pinned directly by their owning narration_sessions row instead; the
+  // asset is only orphaned once that session itself is deleted.
   const orphanAssets = await db.delete(mediaAssets).where(and(
     lt(mediaAssets.createdAt, cutoff),
     notExists(db.select().from(ytDownloads).where(eq(ytDownloads.assetId, mediaAssets.id))),
     notExists(db.select().from(podcastDownloads).where(eq(podcastDownloads.assetId, mediaAssets.id))),
+    or(
+      ne(mediaAssets.sourceType, 'narration'),
+      notExists(db.select().from(narrationSessions).where(eq(narrationSessions.id, mediaAssets.sourceId))),
+    ),
   )).returning({ id: mediaAssets.id })
 
   // Step 2: delete blob FILES now unreferenced (any orphan assets above just released theirs).

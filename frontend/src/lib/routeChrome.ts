@@ -9,7 +9,7 @@ export interface RouteChrome {
   isHome: boolean;
   isChat: boolean;
   isPanel: boolean;
-  /** ZIM reader (/read/:id) + docs — provide their own breadcrumb header. */
+  /** ZIM reader (/read/:id) + docs: provide their own breadcrumb header. */
   isReader: boolean;
   /** Apps that own their full height (no scroller, no shell backdrop). */
   isFullBleed: boolean;
@@ -30,7 +30,11 @@ export function classifyRoute(pathname: string): RouteChrome {
     pathname.startsWith("/video") ||
     pathname.startsWith("/youtube") ||
     pathname.startsWith("/music") ||
-    pathname.startsWith("/bookmarks");
+    pathname.startsWith("/bookmarks") ||
+    pathname.startsWith("/books") ||
+    // Embeds OpenCode's own web UI edge-to-edge: keeps the automatic breadcrumb
+    // (not isReader, that suppresses it), just owns its own full-height content.
+    pathname.startsWith("/coding");
   // The shell paints the backdrop for standard scroller apps only. Full-bleed,
   // chat and panel routes own their own backgrounds (PageShell self-tints them).
   const shellBackdrop = !isHome && !isChat && !isPanel && !isFullBleed;

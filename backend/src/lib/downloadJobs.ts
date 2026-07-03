@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books'
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -390,6 +390,18 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
           const { failRecordingUnlessReady } = await import('@/lib/music/radioRecord')
           await failRecordingUnlessReady(job.refId, String(err)).catch(() => {})
         }
+        if (job.type === 'narration-render') {
+          const { failNarrationRenderByJobRefId } = await import('@/lib/narration/render')
+          await failNarrationRenderByJobRefId(job.refId, String(err)).catch(() => {})
+        }
+        if (job.type === 'book-download') {
+          const { failBookDownloadByJobRefId } = await import('@/lib/books/offline')
+          await failBookDownloadByJobRefId(job.refId, String(err)).catch(() => {})
+        }
+        if (job.type === 'book-tts-render') {
+          const { failBookTtsRenderByJobRefId } = await import('@/lib/books/tts')
+          await failBookTtsRenderByJobRefId(job.refId, String(err)).catch(() => {})
+        }
       }
     }
   } finally {
@@ -518,6 +530,24 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
     case 'radio-record': {
       const { runRadioRecordJob } = await import('@/lib/music/radioRecord')
       await runRadioRecordJob(job.refId, onProgress, signal)  // refId = music_radio_recordings.id
+      return
+    }
+    case 'narration-render': {
+      const { runNarrationRenderJob } = await import('@/lib/narration/render')
+      const payload = JSON.parse(job.refId)
+      await runNarrationRenderJob(payload, onProgress, signal)
+      return
+    }
+    case 'book-download': {
+      const { runBookDownloadJob } = await import('@/lib/books/offline')
+      const payload = JSON.parse(job.refId)
+      await runBookDownloadJob(payload, onProgress, signal)
+      return
+    }
+    case 'book-tts-render': {
+      const { runBookTtsRenderJob } = await import('@/lib/books/tts')
+      const payload = JSON.parse(job.refId)
+      await runBookTtsRenderJob(payload, onProgress, signal)
       return
     }
   }

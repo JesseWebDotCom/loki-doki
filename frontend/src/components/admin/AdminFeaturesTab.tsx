@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 import { useAuth } from '@/context/AuthContext'
 import {
   ArrowLeftRight, ArrowRight, BookOpen, Bot, Calculator, CalendarClock, ChefHat, CheckCircle2,
-  ChevronDown, Clock, Cloud, Cpu, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
+  ChevronDown, Clock, Cloud, Code2, Cpu, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
   Home, Laugh, Lightbulb, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Newspaper, Package,
   PartyPopper, Play, RefreshCw, Route, ScanFace, Search, Server, Settings2, ShieldCheck, Sparkles,
   Stethoscope, Trash2, Trophy, Tv, Wand2, Wifi, Wrench, X, Image as ImageIcon,
@@ -136,7 +136,7 @@ function qMatch(text: string, q: string): boolean {
 type ModelRole =
   | 'llm' | 'uncensored_llm' | 'vision' | 'embeddings' | 'router' | 'router_llm'
   | 'image_gen' | 'face_id' | 'face_embed' | 'video_motion' | 'video_gen' | 'bg_remove'
-  | 'voice' | 'runtime' | 'component'
+  | 'voice' | 'coding' | 'runtime' | 'component'
 
 interface CatalogEntry {
   id: string; role: ModelRole; label: string; description: string
@@ -153,6 +153,7 @@ interface FullCatalogResponse {
   recommendedTier: string; tiers: CatalogTier[]; models: CatalogEntry[]
   disk: { freeBytes: number; totalBytes: number }; ollamaRunning: boolean
   ollamaInstallBytes: number; activeModelIds: Record<string, string | null>
+  ollamaVersion: string | null
 }
 
 interface AdminCapDef {
@@ -168,6 +169,8 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
   { id: 'esphome',       label: 'Devices',         description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB).', bytes: 1_000_000_000, requires: [],                     icon: Cpu  },
+  { id: 'opencode-server', label: 'Coding',        description: 'Local AI coding agent (OpenCode) for sandboxed dev projects, usable from the Coding app or by asking the companion in chat. File edits and commands always pause for your approval.', bytes: 60_000_000, requires: [], icon: Code2 },
+  { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['opencode-server'], icon: ShieldCheck },
 ]
 
 const LLM_ROLES_SET = new Set<ModelRole>(['llm', 'uncensored_llm'])
@@ -1544,6 +1547,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
   const chatModels = tierModels.filter(m => CHAT_ROLES_SET.has(m.role))
   const imageModels = tierModels.filter(m => IMAGE_GEN_ROLES_SET.has(m.role))
   const voiceModels = tierModels.filter(m => m.role === 'voice')
+  const codingModels = tierModels.filter(m => m.role === 'coding')
   const imageGenInstalled = catalog.models.find(m => m.role === 'image_gen')?.installed ?? false
 
   const ollamaState = installStates.get('ollama-runtime')
@@ -1598,7 +1602,11 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
               <Server className="size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <span className="text-overline text-muted-foreground">Runtime</span>
-                <p className="text-sm font-semibold leading-tight">{catalog.ollamaRunning ? 'Ollama · running' : 'Ollama'}</p>
+                <p className="text-sm font-semibold leading-tight">
+                  {catalog.ollamaRunning ? 'Ollama · running' : 'Ollama'}
+                  {catalog.ollamaVersion && <span className="ml-1.5 font-normal text-muted-foreground">v{catalog.ollamaVersion}</span>}
+                </p>
+                <p className="text-[11px] text-muted-foreground/70">Auto-checked weekly, upgrades itself when installed via Homebrew</p>
               </div>
               <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">~{fmtCatalogBytes(catalog.ollamaInstallBytes)}</span>
               <div className="shrink-0">
@@ -1700,6 +1708,41 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
           </div>
         )}
 
+        {codingModels.length > 0 && (
+          <div id="section-coding" className="space-y-2">
+            <p className="text-overline text-muted-foreground/60">Coding</p>
+            <CapInstallRow
+              cap={ADMIN_CAPS.find(c => c.id === 'opencode-server')!}
+              installed={compMap.get('opencode-server') === true}
+              installState={installStates.get('opencode-server')}
+              onInstall={() => void repairComponent('opencode-server', 'opencode-server')}
+              onCancel={() => cancelInstall('opencode-server')}
+            />
+            {catalog.hardware.platform === 'win32' ? (
+              <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
+                <ShieldCheck className="size-4 shrink-0" />
+                Sandbox isolation isn't available on Windows yet. Coding tasks still pause for your approval, just without an OS-level wall behind it.
+              </div>
+            ) : (
+              <CapInstallRow
+                cap={ADMIN_CAPS.find(c => c.id === 'coding-sandbox-user')!}
+                installed={compMap.get('coding-sandbox-user') === true}
+                blocked={compMap.get('opencode-server') !== true}
+                installState={installStates.get('coding-sandbox-user')}
+                onInstall={() => void repairComponent('coding-sandbox-user', 'coding-sandbox-user')}
+                onCancel={() => cancelInstall('coding-sandbox-user')}
+              />
+            )}
+            {codingModels.map(m => (
+              <ModelInstallRow key={m.id} entry={m}
+                installState={installStates.get(m.id)}
+                onInstall={() => installEntry(m)}
+                onCancel={() => cancelInstall(m.id)}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Base Applications */}
         <div id="section-capabilities" className="space-y-2">
           <p className="text-overline text-muted-foreground/60">Base Applications</p>
@@ -1717,7 +1760,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
         <div className="space-y-2">
           <p className="text-overline text-muted-foreground/60">More Capabilities</p>
           <p className="px-1 text-xs text-muted-foreground/70 -mt-1">Optional: add these at any time.</p>
-          {ADMIN_CAPS.filter(c => !c.base).map(cap => (
+          {ADMIN_CAPS.filter(c => !c.base && c.id !== 'opencode-server' && c.id !== 'coding-sandbox-user').map(cap => (
             <CapInstallRow key={cap.id} cap={cap}
               installed={compMap.get(cap.id) === true}
               blocked={cap.requires.some(r => compMap.get(r) !== true)}

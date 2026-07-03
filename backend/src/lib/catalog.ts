@@ -2,6 +2,7 @@ import type { HardwareInfo } from '@/lib/hwfit'
 
 export type ModelRole =
   | 'llm' | 'uncensored_llm' | 'vision' | 'embeddings' | 'router' | 'router_llm'
+  | 'coding'          // agentic coding model, served to the OpenCode sidecar
   | 'image_gen'       // SDXL base checkpoint
   | 'face_id'         // IP-Adapter FaceID weights
   | 'face_embed'      // InsightFace AntelopeV2
@@ -103,6 +104,21 @@ export const CATALOG: CatalogModel[] = [
     approxBytes: 3_300_000_000,
     tiers: ['apple-24', 'apple-36', 'pc-32'],
     tags: ['accurate', 'fast'],
+    format: 'Q4_K_M',
+    backendLabel: 'Ollama',
+  },
+
+  // ── Coding ─────────────────────────────────────────────────────────────────
+  {
+    id: 'ornith:9b',
+    role: 'coding',
+    label: 'Ornith 1.0 9B',
+    description: 'DeepReinforce Ornith 1.0 9B via Ollama. Agentic coding model with native tool-calling, powers the Coding app and companion coding tool through the OpenCode sidecar.',
+    backend: 'ollama',
+    ollamaTag: 'ornith:9b',
+    approxBytes: 5_900_000_000,
+    tiers: ['apple-24', 'apple-36', 'pc-32'],
+    tags: ['recommended', 'agentic'],
     format: 'Q4_K_M',
     backendLabel: 'Ollama',
   },
@@ -313,4 +329,5 @@ export const ROLE_SETTINGS_KEY: Record<ModelRole, string> = {
   video_gen:     'video_gen_model',
   bg_remove:     'bg_remove_model',
   voice:         'voice_model',
+  coding:        'coding_model',
 }

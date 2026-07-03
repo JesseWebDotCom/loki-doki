@@ -25,6 +25,18 @@ export interface PlayMediaDirective {
   seed?: string
 }
 
+/** A structured client-side action telling the frontend to read a piece of text
+ *  aloud with a distinct TTS voice per detected speaker (backend/src/lib/narration).
+ *  `turns` are pre-resolved (voice already assigned) so the client can start
+ *  playback immediately via the existing streaming TTS pipeline. */
+export interface StartNarrationDirective {
+  action: 'start_narration'
+  sessionId: string
+  turns: { voiceId: string | null; text: string }[]
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective
+
 export interface ToolResult {
   success: boolean
   data?: unknown
@@ -35,8 +47,9 @@ export interface ToolResult {
   // (e.g. Home Assistant's own action confirmation). Maximum-snappiness path.
   directReply?: string
   // If set, emitted to the client as a `directive` event so the frontend performs
-  // an action (e.g. start playback in the mini-player). Independent of directReply.
-  directive?: PlayMediaDirective
+  // an action (e.g. start playback in the mini-player, or start multi-voice
+  // narration). Independent of directReply.
+  directive?: Directive
   // If set, replaces the generic "use this data" instruction given to the LLM with
   // a tool-tailored one — and suppresses the raw data dump. Use when the tool has
   // ALREADY acted (e.g. started playback) and just wants a natural, in-character
@@ -131,6 +144,8 @@ import { sleepTool } from './sleep'
 import { displayAlertTool } from './displayAlert'
 import { rememberTool, forgetTool } from './memory'
 import { shoppingTool } from './shopping'
+import { codingTool } from './coding'
+import { narrateTool } from './narrate'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -176,4 +191,6 @@ export const toolRegistry: Tool[] = [
   rememberTool,
   forgetTool,
   shoppingTool,
+  codingTool,
+  narrateTool,
 ]

@@ -5,8 +5,9 @@ import { dirname, join, resolve, basename, isAbsolute } from 'node:path'
 import { spawn, execSync } from 'node:child_process'
 import { CATALOG } from '@/lib/catalog'
 import type { HfSource, CatalogModel } from '@/lib/catalog'
-import { getAppSetting } from '@/lib/settings'
-import { IS_WIN, extractZip } from '@/lib/platform'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { IS_WIN, extractZip, killByCommandLine } from '@/lib/platform'
+import { logger } from '@/lib/logger'
 import type { ComfyUILaunchConfig } from '@/lib/hwfit'
 
 const ollamaBase = () => (process.env.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/$/, '')
@@ -64,18 +65,28 @@ export function validateSafetensorsFile(filePath: string): boolean {
     const headerBuf = Buffer.allocUnsafe(headerLen)
     readSync(fd, headerBuf, 0, headerLen, 8)
     closeSync(fd)
-    // Parse tensor descriptors — each has data_offsets: [start, end]; find max end.
+    // Parse tensor descriptors — each has data_offsets: [start, end]. safetensors requires
+    // these ranges to exactly tile the data section when sorted: start at 0, no gaps or
+    // overlaps, ending precisely at the buffer length. Checking only "does the file fit the
+    // largest offset" (the old approach) misses a header that lost trailing tensor entries —
+    // the file is still big enough, but data past the last described tensor is unaccounted
+    // for. That's exactly what ComfyUI's Rust safetensors loader rejects as "file not fully
+    // covered", and it was silently passing this check.
     const header = JSON.parse(headerBuf.toString('utf8')) as Record<string, unknown>
-    let maxOffset = 0
+    const ranges: Array<[number, number]> = []
     for (const val of Object.values(header)) {
       if (typeof val !== 'object' || val === null) continue
       const offsets = (val as Record<string, unknown>)['data_offsets']
-      if (Array.isArray(offsets) && offsets.length >= 2) {
-        const end = offsets[1] as number
-        if (end > maxOffset) maxOffset = end
-      }
+      if (Array.isArray(offsets) && offsets.length >= 2) ranges.push([offsets[0] as number, offsets[1] as number])
     }
-    return size >= 8 + headerLen + maxOffset
+    ranges.sort((a, b) => a[0] - b[0])
+    const dataLen = size - 8 - headerLen
+    let prevEnd = 0
+    for (const [start, end] of ranges) {
+      if (start !== prevEnd || end < start) return false
+      prevEnd = end
+    }
+    return prevEnd === dataLen
   } catch {
     return false
   }
@@ -767,6 +778,125 @@ export async function downloadAndStartOllama(
   throw new Error('Ollama failed to start within 30 seconds')
 }
 
+// ── Ollama auto-upgrade ────────────────────────────────────────────────────────
+// Ollama ships new model-manifest formats faster than most users manually upgrade
+// it (an outdated Ollama can't even pull a model whose manifest it doesn't
+// understand yet, discovered the hard way pulling ornith:9b against 0.30.8). Same
+// check-interval idiom as ytdlp.ts/searxng.ts: gate on a persisted "last checked"
+// timestamp so this runs at most daily, never block boot on it, never throw.
+
+const OLLAMA_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000        // re-check at most once a day at boot
+const OLLAMA_UPDATE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000   // forced re-check cadence while running
+const OLLAMA_CHECKED_KEY = 'ollama.checked_at'
+const OLLAMA_VERSION_KEY = 'ollama.version'
+
+export type OllamaUpgradeOutcome = 'upgraded' | 'up-to-date' | 'manual-required' | 'error'
+
+export async function currentOllamaVersion(): Promise<string | null> {
+  try {
+    const r = await fetch(`${ollamaBase()}/api/version`, { signal: AbortSignal.timeout(3_000) })
+    if (!r.ok) return null
+    const { version } = await r.json() as { version?: string }
+    return version ?? null
+  } catch { return null }
+}
+
+function hasHomebrewOllama(): boolean {
+  if (IS_WIN) return false
+  try { execSync('brew list --formula ollama', { timeout: 5_000, stdio: 'ignore' }); return true }
+  catch { return false }
+}
+
+/** Kill whatever's currently serving on Ollama's port and start it again from
+ *  whichever binary now resolves first (system install, or our managed copy),
+ *  same resolution order as downloadAndStartOllama, just without the install fallback. */
+async function restartOllamaServe(): Promise<void> {
+  killByCommandLine('ollama serve')
+  await new Promise<void>((r) => setTimeout(r, 800))
+  const bin = findSystemOllama() ?? join(dataDir, OLLAMA_BIN_DEST)
+  if (!existsSync(bin)) return
+  spawn(bin, ['serve'], { detached: true, stdio: 'ignore', env: ollamaServeEnv() }).unref()
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, 1_000))
+    try { const r = await fetch(`${ollamaBase()}/api/tags`, { signal: AbortSignal.timeout(1_500) }); if (r.ok) return } catch { /* keep waiting */ }
+  }
+}
+
+/**
+ * Best-effort Ollama upgrade. Only acts on install methods this app can upgrade
+ * safely and unattended:
+ *   - Homebrew-managed (macOS/Linux): `brew upgrade ollama`, brew itself no-ops if
+ *     already current, then restart the serve process so the new binary loads.
+ *   - App-managed (no system install found, binary lives under data/bin): re-fetch
+ *     the always-"latest" release zip, same URL downloadAndStartOllama uses.
+ * Any other install (the macOS .app bundle, a Windows install, apt/yum, or unknown)
+ * has its own update mechanism or needs an elevated installer. This never touches
+ * those; it returns 'manual-required' so the caller can notify the admin instead.
+ */
+export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<OllamaUpgradeOutcome> {
+  const status = (msg: string) => { logger.info(`[ollama-update] ${msg}`); onStatus?.(msg) }
+  try {
+    if (hasHomebrewOllama()) {
+      status('Upgrading Ollama via Homebrew…')
+      execSync('brew upgrade ollama', { timeout: 300_000, stdio: 'ignore' })
+      await restartOllamaServe()
+      const v = await currentOllamaVersion()
+      if (v) await setAppSetting(OLLAMA_VERSION_KEY, v)
+      status(`Ollama now on ${v ?? 'unknown version'}`)
+      return 'upgraded'
+    }
+    const systemBin = findSystemOllama()
+    const managedBin = join(dataDir, OLLAMA_BIN_DEST)
+    if (!systemBin && existsSync(managedBin)) {
+      status('Re-downloading the latest Ollama build…')
+      await rm(managedBin, { force: true })
+      await downloadAndStartOllama(() => {})
+      const v = await currentOllamaVersion()
+      if (v) await setAppSetting(OLLAMA_VERSION_KEY, v)
+      status(`Ollama now on ${v ?? 'unknown version'}`)
+      return 'upgraded'
+    }
+    // System install we don't own the upgrade path for (macOS .app, Windows, apt/yum, etc.)
+    return 'manual-required'
+  } catch (err) {
+    logger.warn(`[ollama-update] upgrade failed: ${err instanceof Error ? err.message : String(err)}`)
+    return 'error'
+  }
+}
+
+/**
+ * Boot + periodic hook (mirrors ytdlp.ts's ensureYtDlp/startYtdlpAutoUpdate split).
+ * Only actually calls upgradeOllama() when the model-pull path just failed with a
+ * manifest-version error, OR the daily check interval has elapsed AND a newer
+ * release genuinely looks available. Cheap enough to just delegate straight to
+ * upgradeOllama() on the gated interval, since brew/re-download are themselves
+ * no-ops when already current.
+ */
+export async function ensureOllamaUpToDate(force = false): Promise<void> {
+  const checkedAt = await getAppSetting(OLLAMA_CHECKED_KEY) as number | null
+  const due = force || !checkedAt || Date.now() - checkedAt > OLLAMA_CHECK_INTERVAL_MS
+  if (!due) return
+  await setAppSetting(OLLAMA_CHECKED_KEY, Date.now())
+  const outcome = await upgradeOllama()
+  if (outcome === 'manual-required') {
+    logger.warn('[ollama-update] Ollama is installed in a way this app can\'t auto-upgrade. Update manually from https://ollama.com/download if model pulls start failing.')
+  }
+}
+
+export function startOllamaAutoUpdate(): void {
+  void ensureOllamaUpToDate()
+  setInterval(() => void ensureOllamaUpToDate(true), OLLAMA_UPDATE_INTERVAL_MS).unref()
+}
+
+export async function getOllamaUpdateStatus(): Promise<{ version: string | null; checkedAt: number | null; managed: boolean }> {
+  const [version, checkedAt] = await Promise.all([
+    currentOllamaVersion(),
+    getAppSetting(OLLAMA_CHECKED_KEY) as Promise<number | null>,
+  ])
+  return { version, checkedAt, managed: !findSystemOllama() }
+}
+
 // ── Direct-URL download (CivitAI, etc.) ───────────────────────────────────────
 // Public models on CivitAI download without auth:
 //   https://civitai.com/api/download/models/{versionId}
@@ -1150,8 +1280,14 @@ export async function installWakewordTrainDeps(
     await runCmd(python, ['-m', 'ensurepip', '--upgrade'], dataDir, onProgress, signal)
   }
 
-  onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Installing Python packages (onnxruntime, scikit-learn, onnx, scipy)…' })
-  await runCmd(pip, ['install', '--quiet', 'onnxruntime', 'numpy', 'scikit-learn', 'onnx', 'scipy'], dataDir, onProgress, signal)
+  onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Installing Python packages (onnxruntime, torch, onnx, onnxscript, scipy)…' })
+  // torch (CPU build) trains the detector itself — the openWakeWord-style DNN with
+  // hard-example mining, negative-weight ramp, cosine LR, and checkpoint averaging
+  // needs a real training loop, which scikit-learn's one-shot MLPClassifier.fit()
+  // structurally can't provide. onnxscript is a hard dependency of torch.onnx.export
+  // for models using newer ops (e.g. LayerNorm) at opset 17. onnxruntime/onnx/scipy
+  // remain for feature extraction (mel/embedding backbones), audio I/O, and export.
+  await runCmd(pip, ['install', '--quiet', 'onnxruntime', 'numpy', 'torch', 'onnx', 'onnxscript', 'scipy'], dataDir, onProgress, signal)
 
   // Bundle the real room-impulse-response pack with the training feature so the
   // trainer never reaches out to the network itself. Best-effort: a failure here

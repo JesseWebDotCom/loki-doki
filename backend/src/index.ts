@@ -47,6 +47,9 @@ import { voice } from '@/routes/voice'
 import { createSttRoute } from '@/routes/stt'
 import { bookmarks } from '@/routes/bookmarks'
 import { adminBookmarks } from '@/routes/adminBookmarks'
+import { narration } from '@/routes/narration'
+import { books } from '@/routes/books'
+import { adminBooks } from '@/routes/adminBooks'
 import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
@@ -100,6 +103,7 @@ import { musicLibrary } from '@/routes/musicLibrary'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
 import { shopping } from '@/routes/shopping'
+import { coding } from '@/routes/coding'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
@@ -112,6 +116,7 @@ import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { mediaImageCacheSweep } from '@/lib/titles/imageProxy'
 import { imageCacheSweep } from '@/lib/imageProxy'
 import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
+import { startOllamaAutoUpdate } from '@/lib/download'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
 import { recipesRoute } from '@/routes/recipes'
@@ -134,6 +139,9 @@ import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
 import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
+import { stopAllCodingServers } from '@/lib/codingServer'
+import { killSandboxedOrphans } from '@/lib/codingSandboxUser'
+import { killByCommandLine } from '@/lib/platform'
 import { reconcileBuiltinPronunciationPacks } from '@/lib/voice/pronunciation'
 import { cleanupStaleTrainingTmp } from '@/lib/voice/wakewordTrainer'
 import { startPodGateway } from '@/lib/pod/gateway'
@@ -316,7 +324,21 @@ if (firstBoot) {
   // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
   // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
   startYtdlpAutoUpdate()
-  
+  // Keep Ollama fresh too: an outdated Ollama can't pull models with a newer manifest
+  // format (discovered pulling ornith:9b against 0.30.8). Same daily-check/weekly-force
+  // cadence; only upgrades installs it can do safely and unattended (Homebrew or its own
+  // managed binary), otherwise just logs a manual-upgrade nudge.
+  startOllamaAutoUpdate()
+
+  // Coding sidecars from before a restart survive it as orphans: the backend's own
+  // in-memory tracking resets on every restart (--hot or a real relaunch alike), but
+  // the actual spawned processes (especially sandboxed ones, which jessetorres can't
+  // even signal directly) keep running, invisible and unmanaged, squatting on their
+  // ports forever. Sweep both flavors clean on every boot; a fresh one spawns on
+  // next access same as any other cold start.
+  killSandboxedOrphans()
+  killByCommandLine('opencode web --port')
+
   // Plex: mirror the linked user's media watchlist with their Plex account Watchlist every
   // 15 min (two-way, tombstone-aware). No-op until a Plex server+token is configured.
   import('@/lib/plex/sync').then((m) => m.startPlexWatchlistSync()).catch(() => {})
@@ -364,6 +386,7 @@ async function stopSidecars() {
   try { stopComfyUI() } catch { /* best-effort */ }
   try { stopSearXNG() } catch { /* best-effort */ }
   try { stopVoiceServer() } catch { /* best-effort */ }
+  try { stopAllCodingServers() } catch { /* best-effort */ }
   try { stopGraphHopper() } catch { /* best-effort */ }
 }
 
@@ -455,6 +478,9 @@ app.route('/api/pod', deviceStudio)
 app.route('/api/browser-session', browserSessionRoute)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
+app.route('/api/narration', narration)
+app.route('/api/books', books)
+app.route('/api/admin/books', adminBooks)
 // Deprecated alias: archives captured before the Reader→Bookmarks rename baked
 // `/api/reader/<id>/archive/*` asset URLs into their saved HTML. Keep serving them.
 app.route('/api/reader', bookmarks)
@@ -514,6 +540,7 @@ app.route('/api/music/library', musicLibrary)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
 app.route('/api/shopping', shopping)
+app.route('/api/coding', coding)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)
 app.route('/api/recipes', recipesRoute)

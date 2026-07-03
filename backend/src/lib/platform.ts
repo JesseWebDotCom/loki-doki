@@ -6,6 +6,8 @@ import { readdir, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export const IS_WIN = process.platform === 'win32'
+export const IS_MAC = process.platform === 'darwin'
+export const IS_LINUX = process.platform === 'linux'
 
 function psEscape(s: string): string {
   // Single-quoted PowerShell strings escape an embedded quote by doubling it.

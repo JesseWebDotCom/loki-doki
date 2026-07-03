@@ -50,6 +50,8 @@ import { warmUpToolchain } from '@/lib/pod/firmware'
 import { isKiwixInstalled, installKiwixTools } from '@/lib/kiwix'
 import { isVoiceServerInstalled, installVoiceModels, maybeSpawnVoiceServer } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled, installMapsToolchain } from '@/lib/maps/toolchain'
+import { isOpenCodeInstalled, installOpenCode } from '@/lib/opencode'
+import { isSandboxUserInstalled, installSandboxUser } from '@/lib/codingSandboxUser'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import { CATALOG, type CatalogModel, type ModelRole } from '@/lib/catalog'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
@@ -247,6 +249,24 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     id: 'podcast-stinger-sf', group: 'podcast', label: 'Podcast Stinger SoundFont',
     isInstalled: isStingerSoundfontInstalled,
     repair: (onP, sig) => downloadStingerSoundfont(onP, sig),
+  },
+  {
+    // Servers are per-user and spawned on demand (see codingServer.ts): install
+    // just needs the binary present; nothing to pre-warm here.
+    id: 'opencode-server', group: 'coding', label: 'Coding (OpenCode)',
+    isInstalled: isOpenCodeInstalled,
+    repair: (onP, sig) => installOpenCode(statusAdapter(onP), sig),
+  },
+  {
+    // Real OS-level isolation for the coding sidecar (see codingSandboxUser.ts):
+    // a restricted OS user with zero access to any home directory, since the
+    // opencode-sandbox plugin's Seatbelt/bubblewrap wrapping was verified live to
+    // fail open (sandbox-exec itself is non-functional on this machine). Requires
+    // one-time OS admin approval (native password/Touch ID dialog on macOS,
+    // pkexec on Linux); every later sidecar spawn is silent after that.
+    id: 'coding-sandbox-user', group: 'coding', label: 'Coding Sandbox Isolation',
+    isInstalled: isSandboxUserInstalled,
+    repair: (onP) => installSandboxUser(statusAdapter(onP)),
   },
 ]
 

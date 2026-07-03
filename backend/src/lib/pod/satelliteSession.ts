@@ -19,7 +19,7 @@ import { logger } from '@/lib/logger'
 import { SttSession, encodeWav } from '@/lib/voice/sttSession'
 import { kokoroEngine } from '@/lib/voice/engines/kokoroEngine'
 import { parseVoiceId, segmentSentences, voiceConfig } from '@/lib/voice'
-import { stripForSpeech } from '@/lib/voice/speechText'
+import { stripForSpeech, createFenceStripper } from '@/lib/voice/speechText'
 import { runPodBrain } from '@/lib/pod/brain'
 import { WakeDetector, wakeAvailable } from '@/lib/pod/wake'
 import { authenticateDeviceToken } from '@/lib/pod/devices'
@@ -617,9 +617,15 @@ export class SatelliteSession implements PodFireTarget {
         this.send(audioChunk(pcm.subarray(off, Math.min(off + CHUNK, pcm.length)).slice(), POD_TTS_RATE))
       }
     }
+    // Fenced code blocks stream in sentence-by-sentence, so their interior lines would
+    // otherwise be voiced/shown before the closing ``` ever arrives. This carries the
+    // open/closed fence state across sentences and yields only the non-code text.
+    const stripFence = createFenceStripper()
     const deliver = async (sentence: string): Promise<void> => {
-      typeSentence(sentence)            // always show on screen
-      if (speak) await speakSentence(sentence)
+      const spoken = stripFence(sentence)   // drop anything inside a code fence
+      if (!spoken.trim()) return            // whole sentence was code → nothing to say/show
+      typeSentence(spoken)                  // always show on screen
+      if (speak) await speakSentence(spoken)
     }
 
     try {

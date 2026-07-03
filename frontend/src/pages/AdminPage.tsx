@@ -25,6 +25,7 @@ import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
 import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
 import { AdminHomeAssistantTab } from '@/components/admin/AdminHomeAssistantTab'
+import { AdminBooksTab } from '@/components/admin/AdminBooksTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { AdminSpeedTestTab } from '@/components/admin/AdminSpeedTestTab'
 
@@ -223,6 +224,7 @@ export function AdminPage() {
         {section === 'integrations' && sub === 'frigate'         && <AdminFrigateTab />}
         {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}
         {section === 'integrations' && sub === 'home-assistant'  && <AdminHomeAssistantTab />}
+        {section === 'integrations' && sub === 'books'           && <AdminBooksTab />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}

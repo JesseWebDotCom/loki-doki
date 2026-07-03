@@ -1630,6 +1630,105 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS bookmark_highlights_bookmark_idx ON bookmark_highlights(bookmark_id, user_id);
   `)
 
+  // Multi-voice narration (schema.ts narrationSessions/narrationSpeakers/narrationTurns).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS narration_sessions (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL DEFAULT '',
+      source_type TEXT NOT NULL DEFAULT 'paste',
+      source_ref TEXT,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'detecting',
+      detection_method TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS narration_sessions_user_idx ON narration_sessions(user_id);
+    CREATE TABLE IF NOT EXISTS narration_speakers (
+      id TEXT NOT NULL PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES narration_sessions(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      normalized_key TEXT NOT NULL,
+      voice_id TEXT NOT NULL,
+      speech_rate REAL NOT NULL DEFAULT 1.0,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      is_narrator INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(session_id, normalized_key)
+    );
+    CREATE INDEX IF NOT EXISTS narration_speakers_session_idx ON narration_speakers(session_id);
+    CREATE TABLE IF NOT EXISTS narration_turns (
+      id TEXT NOT NULL PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES narration_sessions(id) ON DELETE CASCADE,
+      speaker_id TEXT NOT NULL REFERENCES narration_speakers(id) ON DELETE CASCADE,
+      turn_index INTEGER NOT NULL,
+      text TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS narration_turns_session_idx ON narration_turns(session_id, turn_index);
+  `)
+
+  // Books (schema.ts books/bookChapters/bookLibrary/bookProgress).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS books (
+      id TEXT NOT NULL PRIMARY KEY,
+      title TEXT NOT NULL,
+      author TEXT,
+      narrator TEXT,
+      series_name TEXT,
+      series_index REAL,
+      description TEXT,
+      language TEXT,
+      cover_url TEXT,
+      published_year INTEGER,
+      isbn TEXT,
+      source_type TEXT NOT NULL DEFAULT 'upload',
+      source_ref TEXT,
+      metadata_json TEXT,
+      added_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS books_source_ref_unique ON books(source_type, source_ref);
+    CREATE TABLE IF NOT EXISTS book_chapters (
+      id TEXT NOT NULL PRIMARY KEY,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      epub_href TEXT,
+      audio_start_sec REAL,
+      audio_end_sec REAL,
+      word_count INTEGER,
+      external_audio_url TEXT,
+      external_audio_duration_sec REAL
+    );
+    CREATE INDEX IF NOT EXISTS book_chapters_book_idx ON book_chapters(book_id, idx);
+    CREATE TABLE IF NOT EXISTS book_library (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'ready',
+      added_at INTEGER NOT NULL,
+      UNIQUE(user_id, book_id)
+    );
+    CREATE TABLE IF NOT EXISTS book_progress (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      mode TEXT NOT NULL DEFAULT 'reading',
+      epub_cfi TEXT,
+      percent REAL NOT NULL DEFAULT 0,
+      audio_position_sec REAL,
+      audio_chapter_idx INTEGER,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, book_id)
+    );
+  `)
+  addColumn('book_chapters', 'external_audio_url', 'TEXT')
+  addColumn('book_chapters', 'external_audio_duration_sec', 'REAL')
+  addColumn('book_progress', 'audio_chapter_idx', 'INTEGER')
+
   // News categories: feed_folders doubles as the News category table. Back-fill slug/locked
   // for existing DBs, and relax user_id to nullable (shared/built-in categories have userId=null).
   addColumn('feed_folders', 'slug', 'TEXT')
@@ -2257,4 +2356,13 @@ export function runMigrations() {
   addColumn('shopping_listings', 'description', 'TEXT')
   addColumn('shopping_listings', 'rating_value', 'REAL')
   addColumn('shopping_listings', 'rating_count', 'INTEGER')
+
+  // Coding app: superseded by one persistent per-user OpenCode workspace directory
+  // (lib/codingServer.ts) instead of app-tracked project/session rows: OpenCode's
+  // own web UI manages projects natively. Drop the short-lived tables from the
+  // earlier design (never shipped/committed).
+  sqlite.exec(`
+    DROP TABLE IF EXISTS coding_sessions;
+    DROP TABLE IF EXISTS coding_projects;
+  `)
 }

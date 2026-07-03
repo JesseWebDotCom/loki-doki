@@ -155,8 +155,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'integrations', label: 'Integrations', icon: Plug2,
-    keywords: ['integrations', 'frigate', 'plex', 'home assistant', 'nvr', 'camera', 'media', 'smart home', 'mqtt', 'hass', 'cctv', 'security'],
-    description: 'External service integrations — Frigate NVR, Plex, and Home Assistant',
+    keywords: ['integrations', 'frigate', 'plex', 'home assistant', 'nvr', 'camera', 'media', 'smart home', 'mqtt', 'hass', 'cctv', 'security', 'books', 'opds'],
+    description: 'External service integrations — Frigate NVR, Plex, Home Assistant, and Books',
     subsections: [
       {
         id: 'frigate', label: 'Frigate', kind: 'view',
@@ -172,6 +172,11 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         id: 'home-assistant', label: 'Home Assistant', kind: 'view',
         keywords: ['home assistant', 'hass', 'smart home', 'iot', 'devices', 'entities', 'areas', 'automation', 'lights', 'thermostat'],
         description: 'Connect Home Assistant for smart-home control via the companion',
+      },
+      {
+        id: 'books', label: 'Books', kind: 'view',
+        keywords: ['books', 'opds', 'ebook', 'calibre', 'kavita', 'indexer', 'catalog', 'discover'],
+        description: 'Optional self-hosted OPDS book catalog as a third Discover source',
       },
     ],
   },

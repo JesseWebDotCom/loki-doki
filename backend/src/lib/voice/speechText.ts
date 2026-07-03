@@ -14,8 +14,14 @@ export function stripForSpeech(text: string): string {
   // <i>/<em>/<b> emphasis carry real words → UNWRAP (strip markers, keep inner).
   s = s.replace(/<\/?[a-z][^>]*>/gi, ' ')
 
-  // Code: drop fenced blocks, unwrap inline code.
+  // Code: drop fenced blocks, unwrap inline code. The second replace also drops an
+  // UNTERMINATED trailing fence (an opening ``` with no closing one yet) so a code block
+  // that's still streaming, or a chunk that happens to hold only the opening fence, is
+  // never voiced. (For fully streamed, sentence-by-sentence delivery the caller must ALSO
+  // use createFenceStripper below — a bare interior code line carries no fence of its own
+  // and can't be recognised here in isolation.)
   s = s.replace(/```[\s\S]*?```/g, ' ')
+  s = s.replace(/```[\s\S]*$/g, ' ')
   s = s.replace(/`([^`\n]+)`/g, '$1')
 
   // Images/links → keep the visible label only.
@@ -53,4 +59,28 @@ export function stripForSpeech(text: string): string {
   s = s.replace(/([^\n.!?…])[ \t]*\n[ \t]*(?=\S)/g, '$1 ')
   s = s.replace(/\n{2,}/g, '\n')
   return s.trim()
+}
+
+/** Stateful fenced-code-block remover for STREAMING speech. `stripForSpeech` drops only
+ *  COMPLETE ```…``` pairs, but a streamed reply is spoken sentence-by-sentence, so the
+ *  interior code lines arrive — and would be read aloud — long before the closing fence
+ *  exists (and, once delivered, a lone code line carries no fence of its own to strip).
+ *  Feed each streamed piece through the returned function IN ORDER: it carries the
+ *  open/closed fence state across calls and returns only the text OUTSIDE any code fence
+ *  (empty string while inside one). Handles fences that open and close within one piece,
+ *  or straddle the boundary between two. Inline `code` is left to stripForSpeech. */
+export function createFenceStripper(): (piece: string) => string {
+  let inFence = false
+  return (piece: string): string => {
+    let out = ''
+    let i = 0
+    for (;;) {
+      const idx = piece.indexOf('```', i)
+      if (idx === -1) { if (!inFence) out += piece.slice(i); break }
+      if (!inFence) out += piece.slice(i, idx)
+      inFence = !inFence
+      i = idx + 3
+    }
+    return out
+  }
 }

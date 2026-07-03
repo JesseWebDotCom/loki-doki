@@ -24,6 +24,30 @@ const CLAUSE_BOUNDARY = /[,;:](?=\s)|\s[—–-](?=\s)/g
 const WHOLE_SENTENCE_MAX = 130 // sentences up to this length play whole (no splitting)
 const CLAUSE_FLUSH_MIN = 50    // never flush a clause shorter than this
 
+// Fenced code blocks (```…```) must never be read aloud. The backend TTS strip only
+// drops COMPLETE fences, but we chunk the reply into sentences as it streams — so a code
+// block's interior lines arrive (and would be spoken) before its closing ``` exists.
+// `dropFencedCode` removes anything inside a fence given whether the chunk starts inside
+// one, returning the speakable text plus the updated fence state. Fence state at any
+// point is derived from the already-consumed prefix (`text.slice(0, consumed)`) so it
+// stays correct across cursor resets when a reply is replaced. Inline `code` is left
+// alone (handled by the backend's stripForSpeech, which keeps its inner text).
+function fenceOpenAt(prefix: string): boolean {
+  return ((prefix.match(/```/g)?.length ?? 0) % 2) === 1
+}
+function dropFencedCode(chunk: string, inFence: boolean): { text: string; inFence: boolean } {
+  let out = ''
+  let i = 0
+  for (;;) {
+    const idx = chunk.indexOf('```', i)
+    if (idx === -1) { if (!inFence) out += chunk.slice(i); break }
+    if (!inFence) out += chunk.slice(i, idx)
+    inFence = !inFence
+    i = idx + 3
+  }
+  return { text: out, inFence }
+}
+
 // End offset of the next chunk in `sub`, or -1 if none yet. Prefer a real sentence
 // end; but if a sentence is running long with no terminator in sight, flush at the
 // last clause boundary so a 200-char run-on doesn't block the first audio. Short
@@ -103,12 +127,15 @@ export function useCompanionVoice(opts: {
     prevText.current = text
     const pending = text.slice(consumed.current)
     let localConsumed = 0
+    let inFence = fenceOpenAt(text.slice(0, consumed.current))
     for (;;) {
       const sub = pending.slice(localConsumed)
       const end = nextBoundary(sub)
       if (end < 0) break
       const raw = sub.slice(0, end)
-      const chunk = stripEmotes(raw)
+      const despoked = dropFencedCode(raw, inFence)
+      inFence = despoked.inFence
+      const chunk = stripEmotes(despoked.text)
       if (chunk) {
         // Derive prosody from the RAW chunk (emotes intact) before they're stripped.
         const p = prosodyForChunk(raw, expressiveness)
@@ -127,7 +154,9 @@ export function useCompanionVoice(opts: {
     if (streaming || !voiceOn || !characterId) return
     if (!sawStreaming.current) return // never witnessed this reply generate — don't speak it
     const rawRest = text.slice(consumed.current)
-    const rest = stripEmotes(rawRest)
+    // Drop any trailing code — including an UNTERMINATED fence if the reply ended inside one.
+    const rawSpeakable = dropFencedCode(rawRest, fenceOpenAt(text.slice(0, consumed.current))).text
+    const rest = stripEmotes(rawSpeakable)
     if (rest) {
       const p = prosodyForChunk(rawRest, expressiveness)
       if (p.rateScale !== 1 || p.gain !== 1) replyTone.current = p

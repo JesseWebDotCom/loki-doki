@@ -1,6 +1,9 @@
-// Instant podcast cover generation — topic-themed gradient + an OpenMoji glyph +
-// the show title, composited on a canvas. Fully client-side, offline (emoji SVGs
-// are bundled under /public/openmoji), no AI model and no API keys.
+// Instant cover-art generation, shared by Podcasts and Books: topic-themed gradient
+// + an OpenMoji glyph + the title, composited on a canvas. Fully client-side,
+// offline (emoji SVGs are bundled under /public/openmoji), no AI model, no API
+// keys. Genuinely generic: the only per-app knob is which DEFAULT_THEME a caller
+// falls back to when no keyword/topic match is found (see `detectTheme`'s second
+// argument), so a book with no detectable subject doesn't get a "PODCAST" kicker.
 
 export interface CoverPalette { c1: string; c2: string; fg: string; accent: string }
 
@@ -47,10 +50,15 @@ const DEFAULT_THEME: CoverTheme = {
   palettes: [PAL.violet, PAL.indigo, PAL.sky, PAL.orange, PAL.green, PAL.rose],
 }
 
-export function detectTheme(text: string): CoverTheme {
+export const BOOKS_DEFAULT_THEME: CoverTheme = {
+  kicker: 'Book', emojis: ['1F4D6', '1F4DA', '1F4D3', '270D'],
+  palettes: [PAL.gold, PAL.amber, PAL.teal, PAL.rose, PAL.indigo, PAL.green],
+}
+
+export function detectTheme(text: string, fallback: CoverTheme = DEFAULT_THEME): CoverTheme {
   const t = (text || '').toLowerCase()
   for (const theme of THEMES) if (theme.test.test(t)) return { kicker: theme.kicker, palettes: theme.palettes, emojis: theme.emojis }
-  return DEFAULT_THEME
+  return fallback
 }
 
 // ── Smart icon selection ─────────────────────────────────────────────────────────
@@ -183,9 +191,9 @@ export function hashString(s: string): number {
   return Math.abs(h)
 }
 
-/** Deterministic palette + kicker + emoji for a show (stable fallback art). */
-export function fallbackTheme(seed: string, text: string): { palette: CoverPalette; kicker: string; emojiHex: string } {
-  const theme = detectTheme(text)
+/** Deterministic palette + kicker + emoji for an item (stable fallback art). */
+export function fallbackTheme(seed: string, text: string, fallback: CoverTheme = DEFAULT_THEME): { palette: CoverPalette; kicker: string; emojiHex: string } {
+  const theme = detectTheme(text, fallback)
   const i = hashString(seed)
   return { palette: theme.palettes[i % theme.palettes.length], kicker: theme.kicker, emojiHex: theme.emojis[i % theme.emojis.length] }
 }
@@ -512,7 +520,7 @@ function rotate<T>(arr: T[], n: number): T[] {
   return [...arr.slice(k), ...arr.slice(0, k)]
 }
 
-/** A grid of distinct topic-themed variants — varied palette × layout × smartly
+/** A grid of distinct topic-themed variants: varied palette x layout x smartly
  *  selected (content-matched) icons, with multi-icon layouts using several. */
 export async function generateThemedVariants(title: string, topicText: string, count = 6, size = 320, offset = 0, imageUrl?: string): Promise<CoverVariant[]> {
   const theme = detectTheme(`${title} ${topicText}`)

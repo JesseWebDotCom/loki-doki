@@ -119,6 +119,18 @@ export default defineConfig({
         timeout: 0,
         agent: false,
       },
+      // Coding app: /api/coding/projects/:id/events is a raw SSE passthrough from the
+      // per-project OpenCode sidecar. The project id varies, so this covers the whole
+      // /api/coding prefix (harmless for the plain JSON routes under it too) rather
+      // than listing one dynamic path — same unpooled-socket treatment as the other
+      // SSE entries above, for the same "Bun SSE poisons the pooled proxy socket" reason.
+      '/api/coding': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        proxyTimeout: 0,
+        timeout: 0,
+        agent: false,
+      },
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,

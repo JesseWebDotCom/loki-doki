@@ -10,6 +10,26 @@ const BIND = process.env.ZIM_SERVER_HOST ?? '127.0.0.1'
 // Map bookName → { archive, path }
 const books = new Map<string, { archive: Archive; path: string }>()
 
+// Lazy per-book cache of "top-level" entries (no '/' in path) sorted by title —
+// the closest thing to "one row per book/work" a ZIM's title index offers.
+// Many Books-category ZIMs (Wikibooks, Wikisource) store one entry per SECTION of
+// a book under a shared prefix, so filtering to depth-0 paths turns "118k pages"
+// into "14k book-like titles" instead of a wall of sub-chapter noise. Building
+// this requires a full iterByTitle() scan (~150ms for a 400k-entry ZIM) so it's
+// built once per book and reused, not recomputed per request.
+const browseCache = new Map<string, { title: string; path: string }[]>()
+
+function topLevelEntries(archive: Archive, bookName: string): { title: string; path: string }[] {
+  const cached = browseCache.get(bookName)
+  if (cached) return cached
+  const out: { title: string; path: string }[] = []
+  for (const e of archive.iterByTitle()) {
+    if (!e.path.includes('/')) out.push({ title: e.title, path: e.path })
+  }
+  browseCache.set(bookName, out)
+  return out
+}
+
 // Load all ZIM paths passed as CLI args
 for (const p of process.argv.slice(2)) {
   if (!p.endsWith('.zim')) continue
@@ -81,6 +101,19 @@ Bun.serve({
       const format  = url.searchParams.get('format')
       if (format === 'json') return serveSearchJson(archive, bookName, pattern, count)
       return serveSearch(archive, bookName, pattern)
+    }
+
+    // Browse: /:bookName/browse?start=<n>&count=<n>&q=<title filter>&format=json
+    // Alphabetical listing of top-level entries, unlike /search which full-text
+    // searches article bodies. This is what lets a Books-category ZIM be browsed
+    // as a proper title list instead of only reachable via full-text search.
+    if (articlePath === 'browse') {
+      const start = Math.max(0, parseInt(url.searchParams.get('start') ?? '0', 10) || 0)
+      const count = Math.min(100, Math.max(1, parseInt(url.searchParams.get('count') ?? '30', 10) || 30))
+      const q     = (url.searchParams.get('q') ?? '').trim().toLowerCase()
+      const all   = topLevelEntries(archive, bookName)
+      const filtered = q ? all.filter((e) => e.title.toLowerCase().includes(q)) : all
+      return json({ results: filtered.slice(start, start + count), total: filtered.length })
     }
 
     // Random article — manually follow redirect chain instead of getItem(true)

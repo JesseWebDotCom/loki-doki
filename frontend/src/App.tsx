@@ -69,6 +69,7 @@ import { UnitConverterPage } from '@/pages/UnitConverterPage'
 import { SpeedTestPage } from '@/pages/SpeedTestPage'
 import { ShoppingPage } from '@/pages/shopping/ShoppingPage'
 import { ProductDetailPage } from '@/pages/shopping/ProductDetailPage'
+import { CodingPage } from '@/pages/coding/CodingPage'
 import { CamerasPage } from '@/pages/CamerasPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
@@ -124,6 +125,18 @@ const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').the
 const MusicPlaylistPage = lazy(() => import('@/pages/music/MusicPlaylistPage').then((m) => ({ default: m.MusicPlaylistPage })))
 const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicGeneratePage })))
 const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
+
+const BooksLayout = lazy(() => import('@/components/books/BooksLayout').then((m) => ({ default: m.BooksLayout })))
+const BooksLibraryPage = lazy(() => import('@/pages/books/BooksLibraryPage').then((m) => ({ default: m.BooksLibraryPage })))
+const BooksDiscoverPage = lazy(() => import('@/pages/books/BooksDiscoverPage').then((m) => ({ default: m.BooksDiscoverPage })))
+const BooksOfflineArchivesPage = lazy(() => import('@/pages/books/BooksOfflineArchivesPage').then((m) => ({ default: m.BooksOfflineArchivesPage })))
+const BooksUploadPage = lazy(() => import('@/pages/books/BooksUploadPage').then((m) => ({ default: m.BooksUploadPage })))
+const BookReaderPage = lazy(() => import('@/pages/books/BookReaderPage').then((m) => ({ default: m.BookReaderPage })))
+const AudiobookPlayerPage = lazy(() => import('@/pages/books/AudiobookPlayerPage').then((m) => ({ default: m.AudiobookPlayerPage })))
+const BookDetailPage = lazy(() => import('@/pages/books/BookDetailPage').then((m) => ({ default: m.BookDetailPage })))
+const BooksAudiobooksPage = lazy(() => import('@/pages/books/BooksAudiobooksPage').then((m) => ({ default: m.BooksAudiobooksPage })))
+const ArchiveBrowsePage = lazy(() => import('@/pages/books/ArchiveBrowsePage').then((m) => ({ default: m.ArchiveBrowsePage })))
+const BookPreviewPage = lazy(() => import('@/pages/books/BookPreviewPage').then((m) => ({ default: m.BookPreviewPage })))
 
 const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
@@ -313,6 +326,18 @@ export default function App() {
                   <Route path="library" element={<MusicLibraryPage />} />
                   <Route path="playlist/:id" element={<MusicPlaylistPage />} />
                 </Route>
+                <Route path="/books" element={<BooksLayout />}>
+                  <Route index element={<BooksDiscoverPage />} />
+                  <Route path="library" element={<BooksLibraryPage />} />
+                  <Route path="audiobooks" element={<BooksAudiobooksPage />} />
+                  <Route path="archives" element={<BooksOfflineArchivesPage />} />
+                  <Route path="archives/:sourceId" element={<ArchiveBrowsePage />} />
+                  <Route path="upload" element={<BooksUploadPage />} />
+                  <Route path="detail/:id" element={<BookDetailPage />} />
+                  <Route path="preview/:kind/:ref" element={<BookPreviewPage />} />
+                  <Route path="read/:id" element={<BookReaderPage />} />
+                  <Route path="listen/:id" element={<AudiobookPlayerPage />} />
+                </Route>
                 <Route path="/video" element={<VideoPage />} />
                 <Route path="/read/:sourceId" element={<ReaderPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
@@ -373,6 +398,7 @@ export default function App() {
                 <Route path="/speed-test" element={<SpeedTestPage />} />
                 <Route path="/shopping" element={<ShoppingPage />} />
                 <Route path="/shopping/product/:retailer/:encodedId" element={<ProductDetailPage />} />
+                <Route path="/coding" element={<CodingPage />} />
                 <Route path="/cameras" element={<CamerasPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/cn'
 import { coverUrl } from '@/lib/podcast/api'
-import { fallbackTheme, paletteBg, emojiUrl } from '@/lib/podcast/cover'
+import { fallbackTheme, paletteBg, emojiUrl } from '@/lib/coverArt'
 
 /**
  * The one cover primitive. Renders the show's uploaded/generated PNG; if none

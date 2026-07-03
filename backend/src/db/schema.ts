@@ -1195,8 +1195,8 @@ export const mediaAssets = sqliteTable('media_assets', {
   id: text('id').primaryKey(),
   sourceType: text('source_type').notNull().default('youtube'),
   sourceId: text('source_id').notNull(),           // e.g. the YouTube videoId
-  kind: text('kind', { enum: ['audio', 'video'] }).notNull(),
-  format: text('format').notNull(),                // container (m4a | mp3 | mp4) — part of identity
+  kind: text('kind', { enum: ['audio', 'video', 'ebook'] }).notNull(),
+  format: text('format').notNull(),                // container (m4a | mp3 | mp4 | epub) — part of identity
   height: integer('height'),                       // actual stored pixel height (null for audio)
   blobHash: text('blob_hash'),                     // → blobs.hash; null until first download lands
   status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('pending'),
@@ -1712,6 +1712,133 @@ export const bookmarkHighlights = sqliteTable('bookmark_highlights', {
   bookmarkUserIdx: index('bookmark_highlights_bookmark_idx').on(t.bookmarkId, t.userId),
 }))
 
+// ─── Multi-voice narration (character TTS) ─────────────────────────────────────
+// A "session" is one piece of text (pasted, uploaded, or pulled from a bookmark/chat
+// document) run through speaker detection. Deliberately separate from `characters` —
+// these speakers are lightweight and scoped to one session, not full companion personas.
+export const narrationSessions = sqliteTable('narration_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull().default(''),
+  sourceType: text('source_type', { enum: ['paste', 'upload', 'bookmark', 'chat_document'] }).notNull().default('paste'),
+  sourceRef: text('source_ref'),
+  text: text('text').notNull(),
+  status: text('status', { enum: ['detecting', 'ready', 'failed'] }).notNull().default('detecting'),
+  detectionMethod: text('detection_method'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('narration_sessions_user_idx').on(t.userId),
+}))
+
+export const narrationSpeakers = sqliteTable('narration_speakers', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull().references(() => narrationSessions.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  normalizedKey: text('normalized_key').notNull(),
+  voiceId: text('voice_id').notNull(),
+  speechRate: real('speech_rate').notNull().default(1.0),
+  orderIndex: integer('order_index').notNull().default(0),
+  isNarrator: integer('is_narrator', { mode: 'boolean' }).notNull().default(false),
+}, t => ({
+  sessionIdx: index('narration_speakers_session_idx').on(t.sessionId),
+  sessionKeyUnique: unique().on(t.sessionId, t.normalizedKey),
+}))
+
+export const narrationTurns = sqliteTable('narration_turns', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull().references(() => narrationSessions.id, { onDelete: 'cascade' }),
+  speakerId: text('speaker_id').notNull().references(() => narrationSpeakers.id, { onDelete: 'cascade' }),
+  turnIndex: integer('turn_index').notNull(),
+  text: text('text').notNull(),
+}, t => ({
+  sessionIdx: index('narration_turns_session_idx').on(t.sessionId, t.turnIndex),
+}))
+
+// ─── Books (reading/listening hub) ──────────────────────────────────────────────
+// Shared household catalog, mirroring the Podcasts/Music/YouTube shape: one `books`
+// row per work regardless of who added it; only library membership and progress are
+// per-user. The ebook/audiobook bytes themselves live in `media_assets`
+// (sourceType='book', kind='ebook'|'audio', sourceId=books.id) — no per-user ref/dedup
+// table like ytDownloads/podcastDownloads, since (for now) a book's files aren't
+// re-downloaded per user the way YouTube/podcast media is; `bookLibrary` below is
+// purely "is this in my library", not an offline-copy ref.
+export const books = sqliteTable('books', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  author: text('author'),
+  narrator: text('narrator'),
+  seriesName: text('series_name'),
+  seriesIndex: real('series_index'),
+  description: text('description'),
+  language: text('language'),
+  coverUrl: text('cover_url'),
+  publishedYear: integer('published_year'),
+  isbn: text('isbn'),
+  sourceType: text('source_type', { enum: ['upload', 'gutenberg', 'standardebooks', 'archiveorg', 'wikisource', 'indexer', 'librivox', 'manual'] }).notNull().default('upload'),
+  sourceRef: text('source_ref'),      // external id/URL — the dedup key for non-upload sources
+  metadataJson: text('metadata_json'), // raw payload from Open Library / source API
+  addedByUserId: text('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  sourceRefUnique: uniqueIndex('books_source_ref_unique').on(t.sourceType, t.sourceRef),
+}))
+
+// One row per chapter/spine-item — shared by EPUB TOC nav and audiobook chapter
+// markers (audioStartSec/EndSec populated once a TTS render or chaptered upload exists).
+export const bookChapters = sqliteTable('book_chapters', {
+  id: text('id').primaryKey(),
+  bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
+  idx: integer('idx').notNull(),
+  title: text('title').notNull().default(''),
+  epubHref: text('epub_href'),
+  audioStartSec: real('audio_start_sec'),
+  audioEndSec: real('audio_end_sec'),
+  wordCount: integer('word_count'),
+  // Set only for "multi-track" audiobooks (e.g. LibriVox, one file per chapter on
+  // Internet Archive) — this chapter streams from its own source URL via
+  // /api/books/:bookId/chapters/:idx/stream instead of seeking into a single
+  // shared mediaAssets file with audioStartSec/EndSec offsets.
+  externalAudioUrl: text('external_audio_url'),
+  externalAudioDurationSec: real('external_audio_duration_sec'),
+}, t => ({
+  bookIdx: index('book_chapters_book_idx').on(t.bookId, t.idx),
+}))
+
+// Per-user "in my library" membership — presence here, not just a catalog row,
+// is what surfaces a book on the user's Library page.
+export const bookLibrary = sqliteTable('book_library', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
+  status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('ready'),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userBookUnique: unique().on(t.userId, t.bookId),
+}))
+
+// Per-user reading/listening position. One row per (user, book) holding whichever
+// mode was last touched — switching surfaces does NOT preserve position (no forced
+// alignment between ebook text and audiobook audio exists yet).
+export const bookProgress = sqliteTable('book_progress', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
+  mode: text('mode', { enum: ['reading', 'listening'] }).notNull().default('reading'),
+  epubCfi: text('epub_cfi'),
+  percent: real('percent').notNull().default(0),
+  audioPositionSec: real('audio_position_sec'),
+  // Which chapter is playing, for multi-track (LibriVox) audiobooks — those have no
+  // single seekable file, so "position" is (chapterIdx, seconds into that chapter).
+  audioChapterIdx: integer('audio_chapter_idx'),
+  completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userBookUnique: unique().on(t.userId, t.bookId),
+}))
+
 // ─── Skills / Bundles ───────────────────────────────────────────────────────────
 // User-authored markdown "skills" (frontmatter + body) shape the companion's reply.
 // The skill definitions live on disk (family scope: {dataDir}/skills/*.md, default off;
@@ -2006,3 +2133,8 @@ export const shoppingSaved = sqliteTable('shopping_saved', {
   itemUnique: unique().on(t.userId, t.kind, t.retailer, t.externalId),
   userKindIdx: index('shopping_saved_user_kind_idx').on(t.userId, t.kind),
 }))
+
+// Coding (OpenCode): no app-level project/session tables. Each user gets one
+// persistent sandboxed workspace directory (data/coding/users/<userId>/, see
+// lib/codingServer.ts workspaceDirFor()); OpenCode's own web UI manages projects and
+// sessions within it natively, so there's nothing for us to track separately.
