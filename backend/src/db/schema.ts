@@ -1775,8 +1775,9 @@ export const books = sqliteTable('books', {
   language: text('language'),
   coverUrl: text('cover_url'),
   publishedYear: integer('published_year'),
+  contentType: text('content_type', { enum: ['book', 'magazine', 'children', 'comic', 'manga', 'coloring_book'] }).notNull().default('book'),
   isbn: text('isbn'),
-  sourceType: text('source_type', { enum: ['upload', 'gutenberg', 'standardebooks', 'archiveorg', 'wikisource', 'indexer', 'librivox', 'manual'] }).notNull().default('upload'),
+  sourceType: text('source_type', { enum: ['upload', 'gutenberg', 'standardebooks', 'archiveorg', 'wikisource', 'googlebooks', 'openlibrary', 'indexer', 'librivox', 'manual', 'ai-generated'] }).notNull().default('upload'),
   sourceRef: text('source_ref'),      // external id/URL — the dedup key for non-upload sources
   metadataJson: text('metadata_json'), // raw payload from Open Library / source API
   addedByUserId: text('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
@@ -1808,12 +1809,15 @@ export const bookChapters = sqliteTable('book_chapters', {
 }))
 
 // Per-user "in my library" membership — presence here, not just a catalog row,
-// is what surfaces a book on the user's Library page.
+// is what surfaces a book on the user's Library page. `status` distinguishes a
+// lightweight save (metadata only, no bytes on disk — 'saved') from an offline
+// download's lifecycle ('pending' → 'downloading' → 'ready', or 'failed'). Only
+// 'ready' has a local copy; the "Offline" view keys off exactly that.
 export const bookLibrary = sqliteTable('book_library', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
-  status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('ready'),
+  status: text('status', { enum: ['saved', 'pending', 'downloading', 'ready', 'failed'] }).notNull().default('ready'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   userBookUnique: unique().on(t.userId, t.bookId),
@@ -1852,6 +1856,62 @@ export const bookIndexers = sqliteTable('book_indexers', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// AI book authoring workspace — a single-user draft-in-progress, kept separate from the
+// shared `books` catalog so abandoned/rejected generations never surface in anyone's
+// library. Once approved end to end, `commitProjectToBook()` materializes a real `books`
+// row (sourceType='ai-generated') and this row's resultBookId is set.
+export const bookProjects = sqliteTable('book_projects', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  mode: text('mode', { enum: ['create', 'continue', 'reshape'] }).notNull(),
+  sourceBookId: text('source_book_id').references(() => books.id, { onDelete: 'set null' }),
+  resultBookId: text('result_book_id').references(() => books.id, { onDelete: 'set null' }),
+  title: text('title'),
+  promptJson: text('prompt_json'),          // brief: genre/premise/length/tone/POV, or reshape instruction
+  styleProfileJson: text('style_profile_json'), // extracted voice/character/plot profile (continue/reshape)
+  storyBibleJson: text('story_bible_json'),  // characters/setting/tone/themes, user-editable pre-generation
+  outlineJson: text('outline_json'),         // [{idx,title,summary,targetWords}]
+  coveredSummaryJson: text('covered_summary_json'), // running continuity summary, grows per chapter
+  status: text('status', {
+    enum: ['drafting_bible', 'pending_bible_approval', 'pending_sample', 'pending_sample_approval',
+      'generating', 'pending_reshape_review', 'completed', 'failed', 'cancelled'],
+  }).notNull().default('drafting_bible'),
+  currentChapterIdx: integer('current_chapter_idx').notNull().default(0),
+  targetChapterCount: integer('target_chapter_count'),
+  targetWordsPerChapter: integer('target_words_per_chapter'),
+  coverImageId: text('cover_image_id'),
+  jobId: text('job_id'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('book_projects_user_idx').on(t.userId),
+}))
+
+// Per-chapter draft state for a book_project. Decoupled from `book_chapters` (the
+// published book's chapter list) since drafts may be regenerated, rejected, or forked
+// (reshape keeps both an original reference and an alternate draft per chapter).
+export const bookProjectChapters = sqliteTable('book_project_chapters', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => bookProjects.id, { onDelete: 'cascade' }),
+  idx: integer('idx').notNull(),
+  title: text('title'),
+  draftText: text('draft_text'),
+  wordCount: integer('word_count'),
+  status: text('status', { enum: ['pending', 'generating', 'sample_ready', 'approved', 'failed'] })
+    .notNull().default('pending'),
+  isSample: integer('is_sample', { mode: 'boolean' }).notNull().default(false),
+  // Reshape mode only: the chapter this one forks from, plus the AI-regenerated
+  // alternate awaiting review. draftText holds the user's FINAL choice once reviewed.
+  originalChapterId: text('original_chapter_id').references(() => bookChapters.id, { onDelete: 'set null' }),
+  alternateText: text('alternate_text'),
+  diffStatus: text('diff_status', { enum: ['pending', 'kept_original', 'kept_alternate'] }),
+  attempts: integer('attempts').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  projectIdx: index('book_project_chapters_project_idx').on(t.projectId, t.idx),
+}))
 
 // ─── Skills / Bundles ───────────────────────────────────────────────────────────
 // User-authored markdown "skills" (frontmatter + body) shape the companion's reply.

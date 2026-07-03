@@ -30,6 +30,14 @@ export async function getScriptModel(): Promise<string> {
   return configured || await getModel()
 }
 
+// AI book generation model (chapter prose + outline/story-bible). Same rationale as
+// getScriptModel() — long-form creative writing wants a stock instruct model even when
+// the main chat model is an abliterated/uncensored variant. Unset, follows the main model.
+export async function getBookModel(): Promise<string> {
+  const configured = (await getSetting('books.generate_model'))?.trim()
+  return configured || await getModel()
+}
+
 // Cached router model — read once, re-read only on explicit invalidation.
 // router_llm_model almost never changes (only via admin UI), so caching is safe.
 let _routerModelCache: { value: string | null } | null = null

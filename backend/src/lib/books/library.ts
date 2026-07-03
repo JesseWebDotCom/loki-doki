@@ -26,6 +26,7 @@ export interface BookListItem {
   seriesIndex: number | null
   coverUrl: string | null
   sourceType: string
+  contentType: 'book' | 'magazine' | 'children' | 'comic' | 'manga' | 'coloring_book'
   libraryStatus: string
   hasEbook: boolean
   hasAudio: boolean
@@ -104,6 +105,7 @@ async function uploadEbookFile(userId: string, filename: string, bytes: Uint8Arr
 
     await db.insert(books).values({
       id: bookId, title, author, language, sourceType: 'upload', sourceRef: null,
+      contentType: finalFormat === 'cbz' ? 'comic' : 'book',
       metadataJson: coverHref ? JSON.stringify({ coverHref }) : null,
       addedByUserId: userId, createdAt: now, updatedAt: now,
     })
@@ -149,7 +151,7 @@ async function uploadAudiobook(userId: string, filename: string, bytes: Uint8Arr
  *  proxy, so this only needs to persist metadata + per-chapter URLs. Multiple users
  *  adding the same audiobook share one `books` row via the (sourceType, sourceRef)
  *  unique index — the second add is just a new bookLibrary ref. */
-export async function addLibrivoxAudiobook(userId: string, identifier: string): Promise<{ bookId: string }> {
+export async function addLibrivoxAudiobook(userId: string, identifier: string, publishedYear?: number | null): Promise<{ bookId: string }> {
   const [existing] = await db.select({ id: books.id }).from(books)
     .where(and(eq(books.sourceType, 'librivox'), eq(books.sourceRef, identifier))).limit(1)
 
@@ -163,7 +165,7 @@ export async function addLibrivoxAudiobook(userId: string, identifier: string): 
     bookId = randomUUID()
     await db.insert(books).values({
       id: bookId, title: audiobook.title, author: audiobook.author, description: audiobook.description,
-      language: audiobook.language, sourceType: 'librivox', sourceRef: identifier,
+      language: audiobook.language, publishedYear: publishedYear ?? null, sourceType: 'librivox', sourceRef: identifier,
       coverUrl: `https://archive.org/services/img/${identifier}`,
       addedByUserId: userId, createdAt: now, updatedAt: now,
     })
@@ -186,7 +188,7 @@ export async function listLibrary(userId: string): Promise<BookListItem[]> {
   const rows = await db.select({
     id: books.id, title: books.title, author: books.author, narrator: books.narrator,
     seriesName: books.seriesName, seriesIndex: books.seriesIndex, coverUrl: books.coverUrl,
-    sourceType: books.sourceType, addedAt: bookLibrary.addedAt, libraryStatus: bookLibrary.status,
+    sourceType: books.sourceType, contentType: books.contentType, addedAt: bookLibrary.addedAt, libraryStatus: bookLibrary.status,
   })
     .from(bookLibrary)
     .innerJoin(books, eq(bookLibrary.bookId, books.id))
@@ -226,12 +228,27 @@ export async function listLibrary(userId: string): Promise<BookListItem[]> {
     return {
       id: r.id, title: r.title, author: r.author, narrator: r.narrator,
       seriesName: r.seriesName, seriesIndex: r.seriesIndex, coverUrl: r.coverUrl,
-      sourceType: r.sourceType, libraryStatus: r.libraryStatus,
+      sourceType: r.sourceType, contentType: r.contentType, libraryStatus: r.libraryStatus,
       hasEbook: kinds?.has('ebook') ?? false,
       hasAudio: (kinds?.has('audio') ?? false) || externalAudioBookIds.has(r.id),
       progress: p ? { mode: p.mode, percent: p.percent, completed: p.completed } : null,
     }
   })
+}
+
+export interface LibraryIndexEntry { source: string; sourceRef: string; bookId: string; status: string }
+
+/** A lightweight map of the user's library keyed by external source ref, so
+ *  storefront tiles/cards (which only hold a `source:sourceRef`, not a bookId)
+ *  can show the right Save/Download/Offline state without a per-tile lookup. */
+export async function listLibraryIndex(userId: string): Promise<LibraryIndexEntry[]> {
+  const rows = await db.select({
+    source: books.sourceType, sourceRef: books.sourceRef, bookId: books.id, status: bookLibrary.status,
+  })
+    .from(bookLibrary)
+    .innerJoin(books, eq(bookLibrary.bookId, books.id))
+    .where(eq(bookLibrary.userId, userId))
+  return rows.flatMap((r) => (r.sourceRef ? [{ source: r.source, sourceRef: r.sourceRef, bookId: r.bookId, status: r.status }] : []))
 }
 
 export async function getBook(bookId: string, userId: string) {

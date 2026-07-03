@@ -1681,6 +1681,7 @@ export function runMigrations() {
       language TEXT,
       cover_url TEXT,
       published_year INTEGER,
+      content_type TEXT NOT NULL DEFAULT 'book',
       isbn TEXT,
       source_type TEXT NOT NULL DEFAULT 'upload',
       source_ref TEXT,
@@ -1734,8 +1735,48 @@ export function runMigrations() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS book_projects (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      mode TEXT NOT NULL,
+      source_book_id TEXT REFERENCES books(id) ON DELETE SET NULL,
+      result_book_id TEXT REFERENCES books(id) ON DELETE SET NULL,
+      title TEXT,
+      prompt_json TEXT,
+      style_profile_json TEXT,
+      story_bible_json TEXT,
+      outline_json TEXT,
+      covered_summary_json TEXT,
+      status TEXT NOT NULL DEFAULT 'drafting_bible',
+      current_chapter_idx INTEGER NOT NULL DEFAULT 0,
+      target_chapter_count INTEGER,
+      target_words_per_chapter INTEGER,
+      cover_image_id TEXT,
+      job_id TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS book_projects_user_idx ON book_projects(user_id);
+    CREATE TABLE IF NOT EXISTS book_project_chapters (
+      id TEXT NOT NULL PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES book_projects(id) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      title TEXT,
+      draft_text TEXT,
+      word_count INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      is_sample INTEGER NOT NULL DEFAULT 0,
+      original_chapter_id TEXT REFERENCES book_chapters(id) ON DELETE SET NULL,
+      alternate_text TEXT,
+      diff_status TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS book_project_chapters_project_idx ON book_project_chapters(project_id, idx);
   `)
   addColumn('book_chapters', 'external_audio_url', 'TEXT')
+  addColumn('books', 'content_type', "TEXT NOT NULL DEFAULT 'book'")
   addColumn('book_chapters', 'external_audio_duration_sec', 'REAL')
   addColumn('book_progress', 'audio_chapter_idx', 'INTEGER')
 

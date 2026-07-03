@@ -9,39 +9,54 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Check } from 'lucide-react'
+import { ArrowLeft, Check, Eye, Plus } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { BookCover } from '@/components/books/BookCover'
 import { BookShelf, ShelfSlot } from '@/components/books/BookShelf'
 import { BookResultTile } from '@/components/books/BookResultTile'
+import { GoogleBooksPreview } from '@/components/books/GoogleBooksPreview'
+import { ArchiveBookPreview } from '@/components/books/ArchiveBookPreview'
+import { BookTextPreview } from '@/components/books/BookTextPreview'
+import { LibraryActionButton } from '@/components/books/LibraryActionButton'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
 import {
   downloadBook, searchBooks, searchLibrivox, addLibrivox,
   type BookSearchResult, type LibrivoxSearchResult,
 } from '@/lib/books/api'
+import { readBookPreviewState, type BookPreviewState } from '@/lib/books/previewState'
 
-type PreviewKind = 'ebook' | 'librivox'
-interface PreviewState { kind: PreviewKind; result: BookSearchResult | LibrivoxSearchResult }
+const CONTENT_LABEL = { book: 'Book', magazine: 'Magazine', children: "Children's Book", comic: 'Comic', manga: 'Manga', coloring_book: 'Coloring Book' } as const
 
 const SOURCE_LABEL: Record<BookSearchResult['source'], string> = {
   gutenberg: 'Project Gutenberg',
   archiveorg: 'Internet Archive',
   indexer: 'Your indexer',
+  wikisource: 'Wikisource',
+  googlebooks: 'Google Books',
+  openlibrary: 'Open Library',
 }
 
 export function BookPreviewPage() {
   const location = useLocation()
   const navigate = useNavigate()
-  const state = location.state as PreviewState | null
+  const [state, setState] = useState<BookPreviewState | null>(() => (
+    (location.state as BookPreviewState | null) ?? readBookPreviewState(location.pathname)
+  ))
   const [adding, setAdding] = useState(false)
   const [added, setAdded] = useState(false)
   const [more, setMore] = useState<(BookSearchResult | LibrivoxSearchResult)[]>([])
 
+  useEffect(() => {
+    const nextState = (location.state as BookPreviewState | null) ?? readBookPreviewState(location.pathname)
+    setState(nextState)
+  }, [location.pathname, location.state])
+
   const author = state?.result.author
-  const currentId = state && state.kind === 'librivox' ? (state.result as LibrivoxSearchResult).identifier
+  const currentId = state && state.kind === 'librivox'
+    ? (state.result as LibrivoxSearchResult).identifier
     : state ? `${(state.result as BookSearchResult).source}:${(state.result as BookSearchResult).sourceRef}` : null
 
   useEffect(() => {
@@ -61,7 +76,7 @@ export function BookPreviewPage() {
     setAdding(true)
     try {
       const bookId = state.kind === 'librivox'
-        ? (await addLibrivox((state.result as LibrivoxSearchResult).identifier)).bookId
+        ? (await addLibrivox((state.result as LibrivoxSearchResult).identifier, state.result.publishedYear)).bookId
         : (await downloadBook(state.result as BookSearchResult)).bookId
       setAdded(true)
       toast.success('Added to your library')
@@ -76,7 +91,7 @@ export function BookPreviewPage() {
   if (!state) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
-        <p className="text-sm">This preview isn't available directly, go back and open it from a shelf.</p>
+        <p className="text-sm">This preview needs the item state from a shelf click, refresh the shelf and open it again.</p>
         <Button variant="outline" onClick={() => navigate(-1)}><ArrowLeft className="mr-1.5 size-4" />Back</Button>
       </div>
     )
@@ -84,10 +99,21 @@ export function BookPreviewPage() {
 
   const r = state.result
   const isLibrivox = state.kind === 'librivox'
+  const isGoogleBooks = !isLibrivox && (r as BookSearchResult).source === 'googlebooks'
+  const googlePreviewId = isGoogleBooks ? (r as BookSearchResult).previewId : undefined
+  const isOpenLibrary = !isLibrivox && (r as BookSearchResult).source === 'openlibrary'
+  const openLibraryPreviewId = isOpenLibrary ? (r as BookSearchResult).previewId : undefined
+  const archivePreviewId = !isLibrivox && (r as BookSearchResult).source === 'archiveorg'
+    ? (r as BookSearchResult).sourceRef : undefined
+  // Gutenberg / Standard Ebooks have no embeddable reader, so we render a server-fetched text sample instead.
+  const textPreviewSource = !isLibrivox && ['gutenberg', 'standardebooks'].includes((r as BookSearchResult).source)
+    ? (r as BookSearchResult).source : undefined
   const coverSrc = r.coverUrl ? proxyImg(r.coverUrl) : null
   const meta = isLibrivox
-    ? [(r as LibrivoxSearchResult).runtime ? `${(r as LibrivoxSearchResult).runtime} runtime` : null, 'Audiobook']
-    : [SOURCE_LABEL[(r as BookSearchResult).source], (r as BookSearchResult).language]
+    ? [(r as LibrivoxSearchResult).runtime ? `${(r as LibrivoxSearchResult).runtime} runtime` : null, 'Audiobook', r.publishedYear]
+    : [SOURCE_LABEL[(r as BookSearchResult).source], CONTENT_LABEL[(r as BookSearchResult).contentType ?? 'book'],
+        ...((r as BookSearchResult).formats ?? []), (r as BookSearchResult).pageCount ? `${(r as BookSearchResult).pageCount} pages` : null,
+        (r as BookSearchResult).language, r.publishedYear]
 
   return (
     <div className="h-full overflow-y-auto">
@@ -125,13 +151,37 @@ export function BookPreviewPage() {
             )}
 
             <div className="mt-6">
-              <Button size="lg" disabled={adding || added} onClick={() => void add()}>
-                {adding ? <Spinner size="sm" className="mr-2" /> : added ? <Check className="mr-2 size-4" /> : <Plus className="mr-2 size-4" />}
-                {added ? 'Added' : `Add to Library`}
-              </Button>
+              {isGoogleBooks ? (
+                <Button size="lg" asChild><a href="#book-sample"><Eye className="mr-2 size-4" />Read sample</a></Button>
+              ) : isOpenLibrary ? (
+                <Button size="lg" asChild><a href="#book-sample"><Eye className="mr-2 size-4" />Preview</a></Button>
+              ) : isLibrivox ? (
+                <Button size="lg" disabled={adding || added} onClick={() => void add()}>
+                  {adding ? <Spinner size="sm" className="mr-2" /> : added ? <Check className="mr-2 size-4" /> : <Plus className="mr-2 size-4" />}
+                  {added ? 'Added' : 'Add to Library'}
+                </Button>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  {(archivePreviewId || textPreviewSource) && <Button size="lg" variant="outline" asChild><a href="#book-sample"><Eye className="mr-2 size-4" />Preview</a></Button>}
+                  <LibraryActionButton result={r as BookSearchResult} variant="inline" />
+                </div>
+              )}
             </div>
           </div>
         </div>
+
+        {googlePreviewId && (
+          <div id="book-sample"><GoogleBooksPreview volumeId={googlePreviewId} title={r.title} /></div>
+        )}
+        {archivePreviewId && (
+          <div id="book-sample"><ArchiveBookPreview identifier={archivePreviewId} title={r.title} /></div>
+        )}
+        {openLibraryPreviewId && (
+          <div id="book-sample"><ArchiveBookPreview identifier={openLibraryPreviewId} title={r.title} /></div>
+        )}
+        {textPreviewSource && (
+          <div id="book-sample"><BookTextPreview source={textPreviewSource} sourceRef={(r as BookSearchResult).sourceRef} title={r.title} /></div>
+        )}
 
         {more.length > 0 && (
           <BookShelf title={`More by ${author}`}>
@@ -146,6 +196,7 @@ export function BookPreviewPage() {
                     title={item.title}
                     author={item.author}
                     coverSrc={item.coverUrl ? proxyImg(item.coverUrl) : null}
+                    result={isLibrivox ? undefined : (item as BookSearchResult)}
                   />
                 </ShelfSlot>
               )

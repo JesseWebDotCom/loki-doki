@@ -12,12 +12,17 @@ import { db } from '@/db'
 import { toolGlobalConfig } from '@/db/schema'
 
 const TOOL_ID = 'books'
-export type BuiltinSource = 'gutenberg' | 'archiveorg' | 'librivox' | 'standardebooks'
+const GOOGLE_BOOKS_KEY = 'google_books_api_key'
+export type BuiltinSource = 'gutenberg' | 'archiveorg' | 'librivox' | 'standardebooks' | 'wikisource' | 'googlebooks' | 'openlibrary' | 'web'
 const KEYS: Record<BuiltinSource, string> = {
   gutenberg: 'gutenberg_enabled',
   archiveorg: 'archiveorg_enabled',
   librivox: 'librivox_enabled',
   standardebooks: 'standardebooks_enabled',
+  wikisource: 'wikisource_enabled',
+  googlebooks: 'googlebooks_enabled',
+  openlibrary: 'openlibrary_enabled',
+  web: 'web_enabled',
 }
 
 export interface BuiltinSourceToggles {
@@ -25,6 +30,10 @@ export interface BuiltinSourceToggles {
   archiveorg: boolean
   librivox: boolean
   standardebooks: boolean
+  wikisource: boolean
+  googlebooks: boolean
+  openlibrary: boolean
+  web: boolean
 }
 
 export async function getBuiltinSourceToggles(): Promise<BuiltinSourceToggles> {
@@ -38,6 +47,7 @@ export async function getBuiltinSourceToggles(): Promise<BuiltinSourceToggles> {
   return {
     gutenberg: read(KEYS.gutenberg), archiveorg: read(KEYS.archiveorg),
     librivox: read(KEYS.librivox), standardebooks: read(KEYS.standardebooks),
+    wikisource: read(KEYS.wikisource), googlebooks: read(KEYS.googlebooks), openlibrary: read(KEYS.openlibrary), web: read(KEYS.web),
   }
 }
 
@@ -51,4 +61,21 @@ export async function setBuiltinSourceToggle(source: BuiltinSource, enabled: boo
   const now = new Date()
   await db.insert(toolGlobalConfig).values({ id: randomUUID(), toolId: TOOL_ID, key, value: JSON.stringify(enabled), updatedAt: now })
     .onConflictDoUpdate({ target: [toolGlobalConfig.toolId, toolGlobalConfig.key], set: { value: JSON.stringify(enabled), updatedAt: now } })
+}
+
+export async function getGoogleBooksApiKey(): Promise<string | null> {
+  if (process.env.GOOGLE_BOOKS_API_KEY?.trim()) return process.env.GOOGLE_BOOKS_API_KEY.trim()
+  const rows = await db.select().from(toolGlobalConfig).where(eq(toolGlobalConfig.toolId, TOOL_ID))
+  const value = rows.find((item) => item.key === GOOGLE_BOOKS_KEY)?.value
+  if (!value) return null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return typeof parsed === 'string' ? parsed : null
+  } catch { return null }
+}
+
+export async function setGoogleBooksApiKey(value: string): Promise<void> {
+  const now = new Date()
+  await db.insert(toolGlobalConfig).values({ id: randomUUID(), toolId: TOOL_ID, key: GOOGLE_BOOKS_KEY, value: JSON.stringify(value.trim()), updatedAt: now })
+    .onConflictDoUpdate({ target: [toolGlobalConfig.toolId, toolGlobalConfig.key], set: { value: JSON.stringify(value.trim()), updatedAt: now } })
 }

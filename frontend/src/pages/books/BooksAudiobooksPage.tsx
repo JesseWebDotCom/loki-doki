@@ -32,7 +32,7 @@ export function BooksAudiobooksPage() {
   return (
     <div className="h-full overflow-y-auto">
       <PageContainer width="wide" className="space-y-9 py-6 pb-24">
-        <PageHeader title="Audiobook Store" subtitle="Everything you can listen to, plus public-domain titles you can add." className="pt-0 pb-0" />
+        <PageHeader title="Audiobook Store" subtitle="Audiobooks you can stream, sample, or add to your library." className="pt-0 pb-0" />
 
         {!libraryLoading && audiobooks.length > 0 && (
           <section>

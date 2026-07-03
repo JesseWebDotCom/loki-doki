@@ -27,7 +27,7 @@ function ensureExtraModelPaths(): void {
 // Bump this whenever the ComfyUI launch args change (e.g. new flags added).
 // On boot, if a running instance was spawned with an older version, it is
 // restarted automatically so the new args take effect without manual action.
-const LAUNCH_VERSION  = 4
+const LAUNCH_VERSION  = 6
 const LAUNCH_VER_FILE = join(dataDir, 'comfyui.launch_ver')
 
 const PID_FILE      = join(dataDir, 'comfyui.pid')

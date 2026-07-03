@@ -104,6 +104,16 @@ export function getComfyUILaunchConfig(hw: HardwareInfo, gpuIndexOverride?: numb
       // MPS isn't in ComfyUI's auto-enable allowlist for pytorch cross-attention
       // (model_management.py only auto-enables it for NVIDIA/XPU/Ascend/AMD), so
       // without this flag it falls back to the slower sub-quadratic implementation.
+      //
+      // NOTE: torch's native scaled_dot_product_attention (what this flag opts into) has
+      // a known MPS bug where VAEEncode's mid-block self-attention miscalculates its
+      // buffer size ("Invalid buffer size: 18.00 GiB") during the hi-res-fix refine pass
+      // (upscale -> re-encode -> second KSampler). `--cpu-vae` avoids the crash but makes
+      // EVERY generation's VAE encode/decode run on CPU — tested at 8+ minutes for one
+      // 1024x1024 image with hi-res-fix, far too slow to ship app-wide. The actual fix is
+      // at the call site: request `fast: true` for anything that doesn't need hi-res-fix
+      // (see commit.ts's book-cover generation) so hiresUpscale is skipped and VAEEncode
+      // is never reached in the first place — see backend/src/routes/image.ts:828.
       extraArgs: hw.mpsBf16Supported ? ['--use-pytorch-cross-attention'] : ['--force-fp16', '--use-pytorch-cross-attention'],
       env: { PYTORCH_MPS_HIGH_WATERMARK_RATIO: '0.0' },
       primaryGpuIndex: 0,

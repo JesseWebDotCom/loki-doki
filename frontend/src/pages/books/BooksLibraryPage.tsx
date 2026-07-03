@@ -172,7 +172,7 @@ export function BooksLibraryPage() {
             <EmptyAppState
               icon={BookAudio}
               title="Your library is empty"
-              tagline="Upload your own EPUBs, find public-domain classics, or read whole offline book collections, all in one place."
+              tagline="Upload your own books, search online catalogs, or read whole offline collections, all in one place."
               gradient={BOOKS_GRADIENT}
               actions={(
                 <>
@@ -182,7 +182,7 @@ export function BooksLibraryPage() {
               )}
               features={[
                 { icon: Upload, title: 'Upload your own', desc: 'EPUB, PDF, CBZ, CBR, and audiobook files (MP3/M4A/M4B).' },
-                { icon: Compass, title: 'Discover public domain', desc: 'Search Project Gutenberg and the Internet Archive directly.' },
+                { icon: Compass, title: 'Discover books', desc: 'Search downloadable editions, previews, and online catalogs.' },
                 { icon: Sparkles, title: 'Convert to audiobook', desc: 'AI narration with a distinct voice per character.' },
                 { icon: Archive, title: 'Offline collections', desc: 'Read whole libraries like Gutenberg and Wikisource fully offline.' },
               ]}
@@ -260,6 +260,7 @@ export function BooksLibraryPage() {
                     hasAudio={b.hasAudio}
                     pending={b.libraryStatus === 'pending' || b.libraryStatus === 'downloading'}
                     failed={b.libraryStatus === 'failed'}
+                    savedOnly={b.libraryStatus === 'saved'}
                   />
                 </div>
               ))}

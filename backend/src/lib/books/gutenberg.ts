@@ -39,6 +39,9 @@ function toResult(b: GutendexBook): BookSearchResult {
     description: b.summaries?.[0]?.replace(/\s*\(This is an automatically generated summary\.\)\s*$/i, '') ?? null,
     subjects: [...new Set((b.bookshelves ?? []).map(cleanBookshelf))].slice(0, 4),
     downloadCount: b.download_count ?? null,
+    mediaType: 'ebook',
+    formats: ['EPUB'],
+    sizeBytes: null,
   }
 }
 

@@ -12,9 +12,10 @@ import { Spinner } from '@/components/ui/spinner'
 import { BookCover } from '@/components/books/BookCover'
 import {
   getBook, getChapters, bookCoverUrl, bookFileUrl, bookAudioUrl, enqueueBookTts, getBookTtsStatus,
-  retryBookDownload, type BookDetail, type BookChapter,
+  retryBookDownload, downloadBookOffline, type BookDetail, type BookChapter,
 } from '@/lib/books/api'
 import { proxyImg } from '@/lib/img'
+import { toast } from '@/lib/toast'
 
 const TTS_POLL_MS = 3000
 const DOWNLOAD_POLL_MS = 3000
@@ -37,6 +38,7 @@ export function BookDetailPage() {
   const [loading, setLoading] = useState(true)
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'rendering' | 'ready' | 'failed'>('idle')
   const [retrying, setRetrying] = useState(false)
+  const [startingDownload, setStartingDownload] = useState(false)
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const downloadPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -92,6 +94,18 @@ export function BookDetailPage() {
     }
   }, [id, load])
 
+  const startOfflineDownload = useCallback(async () => {
+    setStartingDownload(true)
+    try {
+      await downloadBookOffline(id)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not start the download')
+    } finally {
+      setStartingDownload(false)
+    }
+  }, [id, load])
+
   if (loading) return <div className="flex h-full items-center justify-center"><Spinner size="lg" /></div>
   if (!detail) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Book not found.</div>
 
@@ -109,6 +123,7 @@ export function BookDetailPage() {
 
   const isDownloading = detail.libraryStatus === 'pending' || detail.libraryStatus === 'downloading'
   const isFailed = detail.libraryStatus === 'failed'
+  const isSavedOnly = detail.libraryStatus === 'saved'
   const notReadyYet = !ebookAsset && !audioAsset
 
   return (
@@ -143,6 +158,14 @@ export function BookDetailPage() {
               )}
               {detail.language && (
                 <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground">{detail.language}</span>
+              )}
+              {detail.publishedYear && (
+                <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground">{detail.publishedYear}</span>
+              )}
+              {detail.contentType !== 'book' && (
+                <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium capitalize text-muted-foreground">
+                  {detail.contentType.replace('_', ' ')}
+                </span>
               )}
               {lengthLabel && (
                 <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground">{lengthLabel}</span>
@@ -198,7 +221,16 @@ export function BookDetailPage() {
                   </Button>
                 </div>
               )}
-              {notReadyYet && !isDownloading && !isFailed && (
+              {notReadyYet && isSavedOnly && (
+                <div className="flex flex-col gap-1.5">
+                  <Button size="lg" disabled={startingDownload} onClick={() => void startOfflineDownload()}>
+                    {startingDownload ? <Spinner size="sm" className="mr-2" /> : <Download className="mr-2 size-4" />}
+                    Download for offline
+                  </Button>
+                  <p className="text-xs text-muted-foreground">Saved to your library. Download a copy to read it offline.</p>
+                </div>
+              )}
+              {notReadyYet && !isDownloading && !isFailed && !isSavedOnly && (
                 <p className="text-sm text-muted-foreground">This book isn't ready yet.</p>
               )}
             </div>

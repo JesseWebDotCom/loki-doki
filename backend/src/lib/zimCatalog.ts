@@ -991,7 +991,7 @@ export const ZIM_CATALOG: ZimSource[] = [
   {
     sourceId: 'gutenberg',
     label: 'Project Gutenberg',
-    description: '70,000+ free public domain ebooks',
+    description: '70,000+ free ebooks',
     category: 'Books',
     bookCategory: 'Fiction & Classics',
     faviconUrl: 'https://www.gutenberg.org/favicon.ico',

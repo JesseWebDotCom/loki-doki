@@ -24,6 +24,20 @@ export const GUTENBERG_CATEGORY_LABELS: Record<string, string> = {
   children: "Children's Literature",
 }
 
+export const MAGAZINE_CATEGORY_LABELS: Record<string, string> = {
+  'pc gaming': 'PC & Gaming',
+  magazine: 'Current Magazines',
+  comic: 'Comics & Anthologies',
+  science: 'Science & Technology',
+  'art photography': 'Arts & Photography',
+  'fashion beauty': 'Fashion & Beauty',
+  'business finance': 'Business & Finance',
+  'children kids': 'Kids & Family',
+  'travel lifestyle': 'Travel & Lifestyle',
+  'sports outdoor': 'Sports & Outdoors',
+  'music entertainment': 'Music & Entertainment',
+}
+
 export const LIBRIVOX_CATEGORY_LABELS: Record<string, string> = {
   fiction: 'Classic Fiction',
   mystery: 'Mystery & Detective',

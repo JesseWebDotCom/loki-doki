@@ -1,7 +1,7 @@
-// "View by category": the full list behind a Book Store / Audiobook Store
-// shelf's title (a shelf only ever shows 12 as a preview). One page for both
-// kinds since the layout is identical; only which fetch function/preview route
-// to use differs.
+// "View by category": the full list behind a Book Store / Audiobook Store /
+// Magazine Store shelf's title (a shelf only ever shows 12 as a preview). One
+// page for all kinds since the layout is identical; only which fetch function
+// and preview route to use differs.
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -13,33 +13,46 @@ import { Spinner } from '@/components/ui/spinner'
 import { BookResultTile } from '@/components/books/BookResultTile'
 import { proxyImg } from '@/lib/img'
 import {
-  browseGutenbergCategoryFull, browseLibrivoxCategoryFull,
+  browseGutenbergCategoryFull, browseLibrivoxCategoryFull, browseMagazineCategoryFull,
   type BookSearchResult, type LibrivoxSearchResult,
 } from '@/lib/books/api'
-import { GUTENBERG_CATEGORY_LABELS, LIBRIVOX_CATEGORY_LABELS } from '@/lib/books/categories'
+import { GUTENBERG_CATEGORY_LABELS, LIBRIVOX_CATEGORY_LABELS, MAGAZINE_CATEGORY_LABELS } from '@/lib/books/categories'
 
-type Kind = 'ebook' | 'audiobook'
+type Kind = 'ebook' | 'audiobook' | 'magazine'
 
 export function BookCategoryPage() {
   const { kind = 'ebook', key = '' } = useParams<{ kind: Kind; key: string }>()
-  const isAudiobook = kind === 'audiobook'
   const [results, setResults] = useState<(BookSearchResult | LibrivoxSearchResult)[] | null>(null)
 
   useEffect(() => {
     setResults(null)
-    void (isAudiobook ? browseLibrivoxCategoryFull(key) : browseGutenbergCategoryFull(key)).then(setResults)
-  }, [isAudiobook, key])
+    void (
+      kind === 'audiobook'
+        ? browseLibrivoxCategoryFull(key)
+        : kind === 'magazine'
+          ? browseMagazineCategoryFull(key)
+          : browseGutenbergCategoryFull(key)
+    ).then(setResults)
+  }, [kind, key])
 
-  const label = (isAudiobook ? LIBRIVOX_CATEGORY_LABELS : GUTENBERG_CATEGORY_LABELS)[key] ?? key
+  const label = (kind === 'audiobook'
+    ? LIBRIVOX_CATEGORY_LABELS
+    : kind === 'magazine'
+      ? MAGAZINE_CATEGORY_LABELS
+      : GUTENBERG_CATEGORY_LABELS)[key] ?? key
 
   return (
     <div className="h-full overflow-y-auto">
       <PageContainer width="wide" className="pb-16">
-        <Link to={isAudiobook ? '/books/audiobooks' : '/books'} className="mt-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="size-4" />{isAudiobook ? 'Audiobook Store' : 'Book Store'}
+        <Link to={kind === 'audiobook' ? '/books/audiobooks' : kind === 'magazine' ? '/books/magazines' : '/books'} className="mt-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-4" />{kind === 'audiobook' ? 'Audiobook Store' : kind === 'magazine' ? 'Magazine Store' : 'Book Store'}
         </Link>
 
-        <PageHeader title={label} eyebrow="Books" subtitle={isAudiobook ? 'Public-domain audiobooks via LibriVox.' : 'Public-domain books via Project Gutenberg.'} />
+        <PageHeader
+          title={label}
+          eyebrow="Books"
+          subtitle={kind === 'audiobook' ? 'Audiobooks from LibriVox.' : kind === 'magazine' ? 'Magazines and periodicals from enabled sources.' : 'Books from Project Gutenberg.'}
+        />
 
         {results === null ? (
           <div className="flex justify-center py-16"><Spinner size="lg" /></div>
@@ -59,6 +72,7 @@ export function BookCategoryPage() {
                   title={r.title}
                   author={r.author}
                   coverSrc={r.coverUrl ? proxyImg(r.coverUrl) : null}
+                  result={previewKind === 'ebook' ? (r as BookSearchResult) : undefined}
                 />
               )
             })}

@@ -18,7 +18,8 @@ import { openEpub, readSpineChapters } from '@/lib/epub/parse'
 import { resolveGutenbergDownload } from './gutenberg'
 import { resolveArchiveOrgDownload } from './archiveOrg'
 import { resolveIndexerDownload } from './indexer'
-import type { BookSearchResult, ResolvedDownload } from './types'
+import { resolveWikisourceDownload } from './wikisource'
+import type { BookSearchResult, DownloadableBookFormat, ResolvedDownload } from './types'
 import { logger } from '@/lib/logger'
 
 export interface BookDownloadPayload { bookId: string }
@@ -26,41 +27,72 @@ export interface BookDownloadPayload { bookId: string }
 const SOURCE = 'book'
 const lockKey = (bookId: string) => `book:${bookId}:ebook`
 
-async function resolveDownloadUrl(sourceType: string, sourceRef: string): Promise<ResolvedDownload> {
+async function resolveDownloadUrl(sourceType: string, sourceRef: string, format: DownloadableBookFormat): Promise<ResolvedDownload> {
   if (sourceType === 'gutenberg') return resolveGutenbergDownload(sourceRef)
-  if (sourceType === 'archiveorg') return resolveArchiveOrgDownload(sourceRef)
+  if (sourceType === 'archiveorg') return resolveArchiveOrgDownload(sourceRef, format)
   if (sourceType === 'indexer') return resolveIndexerDownload(sourceRef)
+  if (sourceType === 'wikisource') return resolveWikisourceDownload(sourceRef)
   // Standard Ebooks: sourceRef IS the direct .epub URL (captured at browse time),
   // no per-book lookup needed like Gutenberg/Archive.org's numeric-id schemes.
   if (sourceType === 'standardebooks') return { url: sourceRef, format: 'epub' }
   throw new Error(`Unknown source type: ${sourceType}`)
 }
 
-/** Get-or-create the catalog row for a Discover search hit, add it to the
- *  requesting user's library, and kick off (or reuse) its download. */
-export async function addAndDownloadBook(userId: string, result: BookSearchResult): Promise<{ bookId: string; jobId: string | null }> {
+/** Get-or-create the shared catalog row for a Discover/search hit. */
+async function getOrCreateCatalogBook(userId: string, result: BookSearchResult): Promise<{ id: string }> {
   const now = new Date()
-
-  let [book] = await db.select().from(books)
+  let [book] = await db.select({ id: books.id }).from(books)
     .where(and(eq(books.sourceType, result.source), eq(books.sourceRef, result.sourceRef))).limit(1)
   if (!book) {
     const id = randomUUID()
     await db.insert(books).values({
-      id, title: result.title, author: result.author, language: result.language,
+      id, title: result.title, author: result.author, language: result.language, publishedYear: result.publishedYear ?? null,
       coverUrl: result.coverUrl, description: result.description ?? null,
-      sourceType: result.source, sourceRef: result.sourceRef,
+      sourceType: result.source, sourceRef: result.sourceRef, contentType: result.contentType ?? 'book',
+      metadataJson: JSON.stringify({ downloadFormat: result.downloadFormat ?? 'epub' }),
       addedByUserId: userId, createdAt: now, updatedAt: now,
     }).onConflictDoNothing()
-    ;[book] = await db.select().from(books)
+    ;[book] = await db.select({ id: books.id }).from(books)
       .where(and(eq(books.sourceType, result.source), eq(books.sourceRef, result.sourceRef))).limit(1)
   }
   if (!book) throw new Error('Failed to create catalog entry')
+  return book
+}
 
-  await db.insert(bookLibrary).values({ id: randomUUID(), userId, bookId: book.id, status: 'pending', addedAt: now })
+/** "Save" — add a search hit to the user's library WITHOUT downloading any bytes
+ *  (status 'saved'). The user can read it via the source's online preview, or hit
+ *  "Download offline" later to pull a local copy. No-ops if already in the library. */
+export async function saveBook(userId: string, result: BookSearchResult): Promise<{ bookId: string }> {
+  const book = await getOrCreateCatalogBook(userId, result)
+  await db.insert(bookLibrary).values({ id: randomUUID(), userId, bookId: book.id, status: 'saved', addedAt: new Date() })
     .onConflictDoNothing()
+  return { bookId: book.id }
+}
 
-  const { jobId } = await enqueueBookDownload(book.id)
-  return { bookId: book.id, jobId }
+/** "Download offline" for a book already in (or about to enter) the user's library:
+ *  flip a lightweight 'saved'/'failed' ref to 'pending' (creating one if missing)
+ *  and kick off — or reuse — the shared download job. A ref that's already
+ *  downloading/ready is left as-is. */
+export async function downloadBookOffline(userId: string, bookId: string): Promise<{ jobId: string | null }> {
+  const now = new Date()
+  const [ref] = await db.select({ status: bookLibrary.status }).from(bookLibrary)
+    .where(and(eq(bookLibrary.userId, userId), eq(bookLibrary.bookId, bookId))).limit(1)
+  if (!ref) {
+    await db.insert(bookLibrary).values({ id: randomUUID(), userId, bookId, status: 'pending', addedAt: now })
+      .onConflictDoNothing()
+  } else if (ref.status === 'saved' || ref.status === 'failed') {
+    await db.update(bookLibrary).set({ status: 'pending' })
+      .where(and(eq(bookLibrary.userId, userId), eq(bookLibrary.bookId, bookId)))
+  }
+  return enqueueBookDownload(bookId)
+}
+
+/** Get-or-create the catalog row for a search hit, add it to the requesting user's
+ *  library, and immediately download it offline (Save + Download in one step). */
+export async function addAndDownloadBook(userId: string, result: BookSearchResult): Promise<{ bookId: string; jobId: string | null }> {
+  const { bookId } = await saveBook(userId, result)
+  const { jobId } = await downloadBookOffline(userId, bookId)
+  return { bookId, jobId }
 }
 
 /** Get-or-create the (book, epub) asset and its download job. Returns immediately
@@ -69,15 +101,17 @@ export async function enqueueBookDownload(bookId: string): Promise<{ jobId: stri
   const [book] = await db.select().from(books).where(eq(books.id, bookId)).limit(1)
   if (!book) throw new Error('Unknown book')
   const now = new Date()
+  const metadata = book.metadataJson ? JSON.parse(book.metadataJson) as { downloadFormat?: DownloadableBookFormat } : {}
+  const format = metadata.downloadFormat ?? 'epub'
 
   return withLock(lockKey(bookId), async () => {
     let [asset] = await db.select().from(mediaAssets).where(and(
       eq(mediaAssets.sourceType, SOURCE), eq(mediaAssets.sourceId, bookId),
-      eq(mediaAssets.kind, 'ebook'), eq(mediaAssets.format, 'epub'),
+      eq(mediaAssets.kind, 'ebook'), eq(mediaAssets.format, format),
     )).limit(1)
     if (!asset) {
       const values: typeof mediaAssets.$inferInsert = {
-        id: randomUUID(), sourceType: SOURCE, sourceId: bookId, kind: 'ebook', format: 'epub',
+        id: randomUUID(), sourceType: SOURCE, sourceId: bookId, kind: 'ebook', format,
         status: 'pending', createdAt: now, updatedAt: now,
       }
       await db.insert(mediaAssets).values(values)
@@ -138,7 +172,8 @@ export async function runBookDownloadJob(
   const [book] = await db.select().from(books).where(eq(books.id, bookId)).limit(1)
   if (!book || !book.sourceRef) throw new Error(`Unknown book ${bookId}`)
 
-  const { url, format, headers: authHeaders } = await resolveDownloadUrl(book.sourceType, book.sourceRef)
+  const metadata = book.metadataJson ? JSON.parse(book.metadataJson) as { downloadFormat?: DownloadableBookFormat } : {}
+  const { url, format, headers: authHeaders } = await resolveDownloadUrl(book.sourceType, book.sourceRef, metadata.downloadFormat ?? 'epub')
 
   const asset = await withLock(lockKey(bookId), async () => {
     const [a] = await db.select().from(mediaAssets).where(and(
@@ -198,12 +233,11 @@ export async function runBookDownloadJob(
     }
     if (completed === 0) throw new Error('Download returned no data')
 
-    // Validate + parse chapters BEFORE landing — a corrupt/partial file fails the
-    // job instead of being stored as "ready".
-    const handle = await openEpub(tmpPath)
-    const chapters = readSpineChapters(handle)
+    const chapters = format === 'epub' ? readSpineChapters(await openEpub(tmpPath)) : []
+    const mime = format === 'epub' ? 'application/epub+zip'
+      : format === 'pdf' ? 'application/pdf' : 'application/vnd.comicbook+zip'
 
-    const put = await putBlobFromFile(tmpPath, { mime: 'application/epub+zip' })
+    const put = await putBlobFromFile(tmpPath, { mime })
     await withLock(lockKey(bookId), async () => {
       const now = new Date()
       await db.update(mediaAssets).set({

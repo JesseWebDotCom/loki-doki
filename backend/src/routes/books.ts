@@ -7,22 +7,28 @@ import { createReadStream, statSync } from 'node:fs'
 import { and, eq } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import {
-  uploadBookFile, listLibrary, getBook, getChapters, upsertProgress, getReadyAssetBlobHash, addLibrivoxAudiobook,
+  uploadBookFile, listLibrary, listLibraryIndex, getBook, getChapters, upsertProgress, getReadyAssetBlobHash, addLibrivoxAudiobook,
   removeFromLibrary,
 } from '@/lib/books/library'
 import { openEpub, readMetadata } from '@/lib/epub/parse'
 import { acquireRead, blobAbsPath, releaseRead } from '@/lib/content/store'
-import { searchBooks } from '@/lib/books/search'
-import { addAndDownloadBook, enqueueBookDownload } from '@/lib/books/offline'
+import { searchBookCatalog, searchBooks } from '@/lib/books/search'
+import { getBookSample } from '@/lib/books/preview'
+import { addAndDownloadBook, downloadBookOffline, enqueueBookDownload, saveBook } from '@/lib/books/offline'
 import { enqueueBookTtsRender } from '@/lib/books/tts'
 import { searchLibrivox, browseLibrivoxByCategory, browseAllLibrivoxCategories, browseLibrivoxByCategoryFull, LIBRIVOX_CATEGORIES } from '@/lib/books/librivox'
 import { browseGutenbergByTopic, browseAllGutenbergCategories, browseGutenbergByTopicFull } from '@/lib/books/gutenberg'
 import { getStandardEbooksNewReleases } from '@/lib/books/standardEbooks'
-import { getBuiltinSourceToggles, setBuiltinSourceToggle, type BuiltinSource } from '@/lib/books/sourceToggles'
+import { getBuiltinSourceToggles } from '@/lib/books/sourceToggles'
 import { listIndexers } from '@/lib/books/indexer'
 import { safeFetch } from '@/lib/ssrfGuard'
 import type { BookSearchResult } from '@/lib/books/types'
 import { GUTENBERG_CATEGORIES } from '@/lib/books/types'
+import { browseArchiveVisualBooks, VISUAL_BOOK_SECTIONS } from '@/lib/books/archiveOrg'
+import type { BookContentType } from '@/lib/books/types'
+import { browseGoogleBooks } from '@/lib/books/googleBooks'
+import { browseOpenLibrary } from '@/lib/books/openLibrary'
+import { browseAllMagazineCategories, browseMagazineByTopic, browseMagazineByTopicFull, MAGAZINE_CATEGORIES } from '@/lib/books/magazines'
 import { mediaAssets, bookChapters } from '@/db/schema'
 import { db } from '@/db'
 import type { AppEnv } from '@/types'
@@ -57,6 +63,13 @@ books.get('/library', async (c) => {
   return c.json({ books: await listLibrary(user.id) })
 })
 
+// Lightweight source-ref → {bookId, status} map so storefront tiles/cards can
+// render Save/Download/Offline state without a lookup per result.
+books.get('/library/index', async (c) => {
+  const user = c.get('user')
+  return c.json({ entries: await listLibraryIndex(user.id) })
+})
+
 // Bulk-capable from the start (Clear Selected/Clear All on Books' Offline view) —
 // only ever removes the calling user's own library ref + progress, see
 // lib/books/library.ts::removeFromLibrary for why the shared catalog row is untouched.
@@ -68,11 +81,31 @@ books.post('/library/remove', async (c) => {
   return c.json({ ok: true })
 })
 
-// Fans out to Gutenberg + Internet Archive (public-domain only — see lib/books/search.ts).
+// Fans out to the enabled book sources in parallel (see lib/books/search.ts).
 books.get('/search', async (c) => {
   const q = c.req.query('q')?.trim()
   if (!q) return c.json({ results: [] })
   return c.json({ results: await searchBooks(q) })
+})
+
+// Unified title search for the storefront. It keeps downloadable IA/Gutenberg
+// records separate from externally discovered web pages so licensing and ingest
+// guarantees are explicit at the API boundary.
+books.get('/search/catalog', async (c) => {
+  const q = c.req.query('q') ?? ''
+  if (!q.trim()) return c.json({ ebooks: [], audiobooks: [], web: [] })
+  return c.json(await searchBookCatalog(q))
+})
+
+// A short reading sample for sources with no embeddable reader (Gutenberg,
+// Standard Ebooks) — fetched + de-boilerplated server-side, see lib/books/preview.ts.
+books.get('/sample', async (c) => {
+  const source = c.req.query('source')?.trim()
+  const ref = c.req.query('ref')?.trim()
+  if (!source || !ref) return c.json({ code: 'bad_request' }, 400)
+  const sample = await getBookSample(source, ref)
+  if (!sample) return c.json({ code: 'no_sample' }, 404)
+  return c.json(sample)
 })
 
 // Book Store landing shelves — one row per curated genre, Gutenberg only (Internet
@@ -82,6 +115,35 @@ books.get('/search', async (c) => {
 // All gated on the Gutenberg on/off toggle (Admin/Books Sources) — disabled means
 // "don't show or fetch any of it", not just "hide the search results".
 books.get('/categories', (c) => c.json({ categories: GUTENBERG_CATEGORIES }))
+books.get('/visual-sections', (c) => c.json({ sections: VISUAL_BOOK_SECTIONS }))
+books.get('/visual/:type', async (c) => {
+  const toggles = await getBuiltinSourceToggles()
+  const type = c.req.param('type') as BookContentType
+  if (!VISUAL_BOOK_SECTIONS.some((section) => section.key === type) || type === 'book') return c.json({ code: 'bad_request' }, 400)
+  const [google, openLibrary] = await Promise.all([
+    toggles.googlebooks ? browseGoogleBooks(type) : Promise.resolve([]),
+    toggles.openlibrary ? browseOpenLibrary(type) : Promise.resolve([]),
+  ])
+  const results = [...new Map([...google, ...openLibrary].map((item) => [item.title.toLowerCase(), item])).values()].slice(0, 30)
+  if (results.length) return c.json({ results })
+  return c.json({ results: toggles.archiveorg ? await browseArchiveVisualBooks(type) : [] })
+})
+books.get('/magazines/categories', (c) => c.json({ categories: MAGAZINE_CATEGORIES }))
+books.get('/magazines/categories/browse-all', async (c) => {
+  const toggles = await getBuiltinSourceToggles()
+  if (!toggles.archiveorg && !toggles.openlibrary) return c.json({ shelves: [] })
+  return c.json({ shelves: await browseAllMagazineCategories({ archive: toggles.archiveorg, openLibrary: toggles.openlibrary }) })
+})
+books.get('/magazines/categories/:topic/full', async (c) => {
+  const toggles = await getBuiltinSourceToggles()
+  if (!toggles.archiveorg && !toggles.openlibrary) return c.json({ results: [] })
+  return c.json({ results: await browseMagazineByTopicFull(c.req.param('topic'), { archive: toggles.archiveorg, openLibrary: toggles.openlibrary }) })
+})
+books.get('/magazines/categories/:topic', async (c) => {
+  const toggles = await getBuiltinSourceToggles()
+  if (!toggles.archiveorg && !toggles.openlibrary) return c.json({ results: [] })
+  return c.json({ results: await browseMagazineByTopic(c.req.param('topic'), 12, { archive: toggles.archiveorg, openLibrary: toggles.openlibrary }) })
+})
 books.get('/categories/browse-all', async (c) => {
   if (!(await getBuiltinSourceToggles()).gutenberg) return c.json({ shelves: [] })
   return c.json({ shelves: await browseAllGutenbergCategories() })
@@ -126,35 +188,39 @@ books.get('/librivox/categories/:subject', async (c) => {
   return c.json({ results: await browseLibrivoxByCategory(c.req.param('subject')) })
 })
 
-// Sources: on/off for the built-in keyless catalogs (any household member can
-// flip these), plus a read-only list of admin-managed custom OPDS indexers
-// (adding/editing those needs credentials, so that stays in
-// Admin > Integrations > Books — see routes/adminBooks.ts).
+// Read-only source status for the in-app settings page. Mutations are admin-only
+// under /api/admin/books/sources.
 books.get('/sources', async (c) => {
   const [toggles, indexers] = await Promise.all([getBuiltinSourceToggles(), listIndexers()])
   return c.json({ toggles, indexers })
 })
-books.put('/sources/toggle', async (c) => {
-  const body = (await c.req.json().catch(() => null)) as { source?: BuiltinSource; enabled?: boolean } | null
-  if (!body?.source || typeof body.enabled !== 'boolean' || !['gutenberg', 'archiveorg', 'librivox'].includes(body.source)) {
-    return c.json({ code: 'bad_request' }, 400)
-  }
-  await setBuiltinSourceToggle(body.source, body.enabled)
-  return c.json({ ok: true })
-})
 
 books.post('/librivox/add', async (c) => {
   const user = c.get('user')
-  const body = (await c.req.json().catch(() => null)) as { identifier?: string } | null
+  const body = (await c.req.json().catch(() => null)) as { identifier?: string; publishedYear?: number | null } | null
   if (!body?.identifier) return c.json({ code: 'bad_request' }, 400)
   try {
-    const { bookId } = await addLibrivoxAudiobook(user.id, body.identifier)
+    const { bookId } = await addLibrivoxAudiobook(user.id, body.identifier, body.publishedYear)
     return c.json({ bookId })
   } catch (err) {
     return c.json({ code: 'add_failed', error: err instanceof Error ? err.message : String(err) }, 400)
   }
 })
 
+// "Save" — add to library with metadata only, no bytes downloaded (status 'saved').
+books.post('/save', async (c) => {
+  const user = c.get('user')
+  const result = (await c.req.json()) as BookSearchResult
+  if (!result?.source || !result?.sourceRef || !result?.title) return c.json({ code: 'bad_request' }, 400)
+  try {
+    const { bookId } = await saveBook(user.id, result)
+    return c.json({ bookId })
+  } catch (err) {
+    return c.json({ code: 'save_failed', error: String(err) }, 400)
+  }
+})
+
+// "Download offline" (Save + Download in one step from a search hit).
 books.post('/download', async (c) => {
   const user = c.get('user')
   const result = (await c.req.json()) as BookSearchResult
@@ -164,6 +230,17 @@ books.post('/download', async (c) => {
     return c.json({ bookId, jobId, ready: jobId === null })
   } catch (err) {
     return c.json({ code: 'download_failed', error: String(err) }, 400)
+  }
+})
+
+// "Download offline" for a book already saved in the library (by bookId).
+books.post('/:id/download-offline', async (c) => {
+  const user = c.get('user')
+  try {
+    const { jobId } = await downloadBookOffline(user.id, c.req.param('id'))
+    return c.json({ jobId, ready: jobId === null })
+  } catch (err) {
+    return c.json({ code: 'download_failed', error: err instanceof Error ? err.message : String(err) }, 400)
   }
 })
 

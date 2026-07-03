@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { NavLink, Link, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { BookAudio, Compass, Download, Library, Settings, Upload } from 'lucide-react'
+import { BookAudio, Compass, Download, Library, Newspaper, Settings, Sparkles, Upload } from 'lucide-react'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
@@ -79,7 +79,7 @@ function OfflineLink() {
 }
 
 export function BooksLayout() {
-  usePublishUIContext({ label: 'Books', description: 'User is browsing the Books app (EPUBs, offline libraries, audiobooks).' })
+  usePublishUIContext({ label: 'Books', description: 'User is browsing the Books app (books, magazines, offline libraries, audiobooks).' })
 
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -92,7 +92,7 @@ export function BooksLayout() {
   // Keep the search box in sync with the URL query on the Book Store route.
   const urlQ = params.get('q') ?? ''
   useEffect(() => {
-    if (pathname === '/books') setQuery(urlQ)
+    if (pathname === '/books' || pathname === '/books/magazines') setQuery(urlQ)
   }, [pathname, urlQ])
 
   // Book Store / Audiobook Store are live internet catalogs, meaningless offline.
@@ -100,7 +100,7 @@ export function BooksLayout() {
   // offline mode is on and you're sitting on one of them, same as switching to
   // offline mode with a rail item hidden out from under you.
   useEffect(() => {
-    if (mode === 'offline' && (pathname === '/books' || pathname === '/books/audiobooks')) {
+    if (mode === 'offline' && (pathname === '/books' || pathname === '/books/audiobooks' || pathname === '/books/magazines')) {
       navigate('/books/library', { replace: true })
     }
   }, [mode, pathname, navigate])
@@ -109,7 +109,14 @@ export function BooksLayout() {
   useAppHeader({
     query,
     setQuery,
-    onSubmit: () => { const t = query.trim(); if (t) navigate(`/books?q=${encodeURIComponent(t)}`) },
+    onSubmit: () => {
+      const t = query.trim()
+      if (!t) return
+      const base = pathname.startsWith('/books/magazines') || /\b(magazine|magazines|periodical|periodicals|journal|journals)\b/i.test(t)
+        ? '/books/magazines'
+        : '/books'
+      navigate(`${base}?q=${encodeURIComponent(t)}`)
+    },
     placeholder: 'Search books…',
     settingsHref: '/books/sources',
     rightSlot,
@@ -135,12 +142,14 @@ export function BooksLayout() {
           {mode === 'online' && (
             <>
               <RailLink to="/books" icon={Compass} label="Book Store" end />
+              <RailLink to="/books/magazines" icon={Newspaper} label="Magazine Store" />
               <RailLink to="/books/audiobooks" icon={BookAudio} label="Audiobook Store" />
             </>
           )}
           <RailLink to="/books/library" icon={Library} label="My Library" end={mode === 'offline'} />
           <OfflineLink />
           <RailLink to="/books/upload" icon={Upload} label="Upload" />
+          <RailLink to="/books/generate" icon={Sparkles} label="Create with AI" />
           <RailLink to="/books/sources" icon={Settings} label="Sources" />
         </nav>
 

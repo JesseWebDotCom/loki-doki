@@ -32,7 +32,7 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate'
 export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books'
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
@@ -402,6 +402,10 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
           const { failBookTtsRenderByJobRefId } = await import('@/lib/books/tts')
           await failBookTtsRenderByJobRefId(job.refId, String(err)).catch(() => {})
         }
+        if (job.type === 'book-generate') {
+          const { failBookGenerateByJobRefId } = await import('@/lib/books/generate/generate')
+          await failBookGenerateByJobRefId(job.refId, String(err)).catch(() => {})
+        }
       }
     }
   } finally {
@@ -548,6 +552,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       const { runBookTtsRenderJob } = await import('@/lib/books/tts')
       const payload = JSON.parse(job.refId)
       await runBookTtsRenderJob(payload, onProgress, signal)
+      return
+    }
+    case 'book-generate': {
+      const { runBookGenerateJob } = await import('@/lib/books/generate/generate')
+      const payload = JSON.parse(job.refId)
+      await runBookGenerateJob(payload, onProgress, signal)
       return
     }
   }

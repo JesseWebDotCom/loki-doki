@@ -132,6 +132,7 @@ const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then(
 const BooksLayout = lazy(() => import('@/components/books/BooksLayout').then((m) => ({ default: m.BooksLayout })))
 const BooksLibraryPage = lazy(() => import('@/pages/books/BooksLibraryPage').then((m) => ({ default: m.BooksLibraryPage })))
 const BooksDiscoverPage = lazy(() => import('@/pages/books/BooksDiscoverPage').then((m) => ({ default: m.BooksDiscoverPage })))
+const MagazinesPage = lazy(() => import('@/pages/books/MagazinesPage').then((m) => ({ default: m.MagazinesPage })))
 const BooksUploadPage = lazy(() => import('@/pages/books/BooksUploadPage').then((m) => ({ default: m.BooksUploadPage })))
 const BookReaderPage = lazy(() => import('@/pages/books/BookReaderPage').then((m) => ({ default: m.BookReaderPage })))
 const AudiobookPlayerPage = lazy(() => import('@/pages/books/AudiobookPlayerPage').then((m) => ({ default: m.AudiobookPlayerPage })))
@@ -141,6 +142,11 @@ const ArchiveBrowsePage = lazy(() => import('@/pages/books/ArchiveBrowsePage').t
 const BookPreviewPage = lazy(() => import('@/pages/books/BookPreviewPage').then((m) => ({ default: m.BookPreviewPage })))
 const BookCategoryPage = lazy(() => import('@/pages/books/BookCategoryPage').then((m) => ({ default: m.BookCategoryPage })))
 const BooksSourcesPage = lazy(() => import('@/pages/books/BooksSourcesPage').then((m) => ({ default: m.BooksSourcesPage })))
+const BookCreateEntryPage = lazy(() => import('@/pages/books/generate/BookCreateEntryPage').then((m) => ({ default: m.BookCreateEntryPage })))
+const BookCreateBriefPage = lazy(() => import('@/pages/books/generate/BookCreateBriefPage').then((m) => ({ default: m.BookCreateBriefPage })))
+const BookBibleReviewPage = lazy(() => import('@/pages/books/generate/BookBibleReviewPage').then((m) => ({ default: m.BookBibleReviewPage })))
+const BookSampleApprovalPage = lazy(() => import('@/pages/books/generate/BookSampleApprovalPage').then((m) => ({ default: m.BookSampleApprovalPage })))
+const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/BookGenerationProgressPage').then((m) => ({ default: m.BookGenerationProgressPage })))
 
 const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
@@ -332,6 +338,7 @@ export default function App() {
                 </Route>
                 <Route path="/books" element={<BooksLayout />}>
                   <Route index element={<BooksDiscoverPage />} />
+                  <Route path="magazines" element={<MagazinesPage />} />
                   <Route path="library" element={<BooksLibraryPage />} />
                   <Route path="audiobooks" element={<BooksAudiobooksPage />} />
                   <Route path="archives/:sourceId" element={<ArchiveBrowsePage />} />
@@ -342,6 +349,11 @@ export default function App() {
                   <Route path="sources" element={<BooksSourcesPage />} />
                   <Route path="read/:id" element={<BookReaderPage />} />
                   <Route path="listen/:id" element={<AudiobookPlayerPage />} />
+                  <Route path="generate" element={<BookCreateEntryPage />} />
+                  <Route path="generate/new" element={<BookCreateBriefPage />} />
+                  <Route path="generate/:id/bible" element={<BookBibleReviewPage />} />
+                  <Route path="generate/:id/sample" element={<BookSampleApprovalPage />} />
+                  <Route path="generate/:id/progress" element={<BookGenerationProgressPage />} />
                 </Route>
                 <Route path="/video" element={<VideoPage />} />
                 <Route path="/read/:sourceId" element={<ReaderPage />} />

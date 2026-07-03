@@ -1,4 +1,4 @@
-// Standard Ebooks: free, public-domain, meticulously typeset ebooks. Their full
+// Standard Ebooks: free, meticulously typeset ebooks. Their full
 // catalog OPDS feed (/opds/all) now requires an account/API key (confirmed by a
 // live 401), so this only integrates their public "New Releases" Atom feed (the
 // latest 15 titles, no auth needed) as a browse-only shelf, not a searchable
@@ -6,9 +6,9 @@
 // OPDS's rel="...acquisition" convention, so it can't reuse opds.ts's parser
 // wholesale, but reuses its low-level tag-walk helpers.
 //
-// This does NOT satisfy "modern books": a "new release" here means a public
-// domain work that Standard Ebooks just finished re-transcribing/formatting, not
-// a recently-published contemporary title. Their catalog is the same legal
+// This does NOT satisfy "modern books": a "new release" here means a work that
+// Standard Ebooks just finished re-transcribing/formatting, not a
+// recently-published contemporary title. Their catalog is the same general
 // category as Gutenberg/Archive.org, just a different (higher-production-value)
 // curation of it.
 
@@ -44,6 +44,10 @@ function parseNewReleases(xml: string, feedUrl: string): BookSearchResult[] {
     }
     if (!epubHref) continue
 
+    // Each entry carries a <media:thumbnail url="…/cover-thumbnail.jpg"> — use it so
+    // the tiles show the real Standard Ebooks cover instead of a generated placeholder.
+    const coverHref = entryBlock.match(/<media:thumbnail[^>]*\burl="([^"]+)"/i)?.[1] ?? null
+
     results.push({
       source: 'standardebooks',
       sourceRef: resolveUrl(epubHref, feedUrl),
@@ -51,7 +55,7 @@ function parseNewReleases(xml: string, feedUrl: string): BookSearchResult[] {
       author,
       description,
       language: 'en',
-      coverUrl: null,
+      coverUrl: coverHref ? resolveUrl(coverHref, feedUrl) : null,
     })
   }
 

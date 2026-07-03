@@ -49,6 +49,7 @@ import { bookmarks } from '@/routes/bookmarks'
 import { adminBookmarks } from '@/routes/adminBookmarks'
 import { narration } from '@/routes/narration'
 import { books } from '@/routes/books'
+import { booksGenerate } from '@/routes/booksGenerate'
 import { adminBooks } from '@/routes/adminBooks'
 import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
@@ -481,6 +482,7 @@ app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
 app.route('/api/narration', narration)
 app.route('/api/books', books)
+app.route('/api/books', booksGenerate)
 app.route('/api/admin/books', adminBooks)
 // Deprecated alias: archives captured before the Reader→Bookmarks rename baked
 // `/api/reader/<id>/archive/*` asset URLs into their saved HTML. Keep serving them.

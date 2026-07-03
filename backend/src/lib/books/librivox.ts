@@ -1,10 +1,10 @@
-// LibriVox public-domain audiobooks, sourced via Internet Archive's `librivoxaudio`
+// LibriVox audiobooks, sourced via Internet Archive's `librivoxaudio`
 // collection rather than LibriVox's own API (librivox.org's /api/feed endpoint is
 // behind Cloudflare and timed out on every attempt during development — archive.org
 // is where LibriVox actually hosts its audio and metadata, and it's reliable).
 //
 // Verified live (2026-07-03): items in this collection are not access-restricted
-// and carry a public-domain-mark license; each chapter is its own MP3 file served
+// and carry a direct-download license; each chapter is its own MP3 file served
 // with `Access-Control-Allow-Origin: *` and `Accept-Ranges: bytes`, so chapters can
 // stream directly from archive.org's CDN — no local download/storage needed, unlike
 // the EPUB sources (see `library.ts`'s `bookLibrary` "ready" for a librivox `books`
@@ -22,6 +22,10 @@ export interface LibrivoxSearchResult {
   runtime: string | null
   description?: string | null
   subjects?: string[]
+  mediaType?: 'audiobook'
+  formats?: string[]
+  sizeBytes?: number | null
+  publishedYear?: number | null
 }
 
 export interface LibrivoxChapter {
@@ -65,6 +69,7 @@ interface IaSearchDoc {
   runtime?: string
   description?: string | string[]
   subject?: string | string[]
+  item_size?: number
 }
 
 function firstOf(v: string | string[] | undefined): string | null {
@@ -84,7 +89,7 @@ function subjectsOf(v: string | string[] | undefined): string[] {
   return [...new Set(list.map((s) => s.trim()).filter((s) => s && !/librivox|audiobook/i.test(s)))].slice(0, 4)
 }
 
-const RESULT_FIELDS = ['identifier', 'title', 'creator', 'language', 'runtime', 'description', 'subject']
+const RESULT_FIELDS = ['identifier', 'title', 'creator', 'language', 'runtime', 'description', 'subject', 'item_size']
 
 function toResult(d: IaSearchDoc): LibrivoxSearchResult {
   return {
@@ -96,6 +101,9 @@ function toResult(d: IaSearchDoc): LibrivoxSearchResult {
     runtime: d.runtime ?? null,
     description: stripDescriptionHtml(d.description),
     subjects: subjectsOf(d.subject),
+    mediaType: 'audiobook',
+    formats: ['MP3'],
+    sizeBytes: typeof d.item_size === 'number' ? d.item_size : null,
   }
 }
 

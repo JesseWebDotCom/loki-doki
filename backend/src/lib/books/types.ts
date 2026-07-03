@@ -1,5 +1,5 @@
 export interface BookSearchResult {
-  source: 'gutenberg' | 'archiveorg' | 'standardebooks' | 'indexer'
+  source: 'gutenberg' | 'archiveorg' | 'standardebooks' | 'indexer' | 'wikisource' | 'googlebooks' | 'openlibrary'
   sourceRef: string
   title: string
   author: string | null
@@ -10,7 +10,23 @@ export interface BookSearchResult {
   subjects?: string[]
   /** Gutenberg download count, used as a popularity signal (its API has no page-count field). */
   downloadCount?: number | null
+  /** Media information exposed by the source. Search results only advertise
+   * formats the Books app can read or play. */
+  mediaType?: 'ebook'
+  formats?: string[]
+  sizeBytes?: number | null
+  publishedYear?: number | null
+  contentType?: BookContentType
+  downloadFormat?: DownloadableBookFormat
+  previewId?: string
+  previewAvailable?: boolean
+  pageCount?: number | null
+  publishedDate?: string | null
+  externalUrl?: string
 }
+
+export type BookContentType = 'book' | 'magazine' | 'children' | 'comic' | 'manga' | 'coloring_book'
+export type DownloadableBookFormat = 'epub' | 'pdf' | 'cbz'
 
 export interface GutenbergCategory {
   label: string
@@ -42,7 +58,7 @@ export const GUTENBERG_CATEGORIES: GutenbergCategory[] = [
 
 export interface ResolvedDownload {
   url: string
-  format: 'epub'
+  format: DownloadableBookFormat
   /** Extra request headers needed to fetch the file (e.g. Basic auth for a
    *  self-hosted OPDS indexer). Undefined for keyless public sources. */
   headers?: Record<string, string>
