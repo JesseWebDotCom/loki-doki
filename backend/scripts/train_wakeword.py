@@ -29,10 +29,13 @@ Requirements (pip install):
 
 import argparse
 import atexit
+import os
 import sys
 import json
 import struct
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 # ---------------------------------------------------------------------------
@@ -52,6 +55,17 @@ DET_FRAMES      = 16     # DETECTOR_INPUT_FRAMES
 # that silence/any onset → wake, which made it fire on almost anything.
 SILENCE_RMS = 0.015
 
+# How many parallel ort-web embedder subprocesses to run in --embed-runtime
+# ortweb mode. Each is single-threaded WASM (matches the single-threaded
+# browser, which has no crossOriginIsolated headers), so this parallelizes
+# ACROSS independent files/variants rather than speeding up any one embedding
+# call — real, multi-minute audio files (see --calib-dir / real-noise training
+# negatives) were the dominant cost, and were running one-at-a-time on a single
+# core while the rest of the machine sat idle. Leaves 2 cores for the Python
+# main thread + OS + whatever else is running on the box (this machine also
+# runs the backend dev server, Ollama, ComfyUI, etc. concurrently).
+EMBED_POOL_SIZE = max(1, min((os.cpu_count() or 4) - 2, 12))
+
 # How many windows to sample from the external negative feature bank. A large,
 # diverse negative set is the single biggest factor for a tight boundary — the
 # 180 MB bank holds ~481k windows, so we draw a big slice (the real openWakeWord
@@ -59,9 +73,15 @@ SILENCE_RMS = 0.015
 NEG_FEATURE_SAMPLES = 60000
 
 
+_progress_lock = threading.Lock()
+
+
 def progress(msg: str, **kw) -> None:
-    """Emit a JSON progress line to stdout (read by the Bun trainer)."""
-    print(json.dumps({"msg": msg, **kw}), flush=True)
+    """Emit a JSON progress line to stdout (read by the Bun trainer). Locked since
+    collect() now calls this from a thread pool — two interleaved prints could
+    otherwise corrupt a JSON line the Bun side parses per newline."""
+    with _progress_lock:
+        print(json.dumps({"msg": msg, **kw}), flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +139,49 @@ class OrtWebEmbedder:
             self.proc.kill()
 
 
+class EmbedderPool:
+    """A pool of independent OrtWebEmbedder subprocesses so collect() can process
+    many files' worth of embeddings in parallel across CPU cores.
+
+    Each subprocess runs onnxruntime-web WASM single-threaded — identical to the
+    browser runtime, which has no crossOriginIsolated headers and therefore also
+    runs single-threaded (verified: no COOP/COEP headers anywhere in this app).
+    Enabling onnxruntime-web's OWN internal multi-threading was considered and
+    rejected: it would make training numerically diverge from the (single-
+    threaded) browser again — the exact bug this ortweb-parity setup exists to
+    avoid — for a speed win that's redundant with this pool anyway. Running many
+    single-threaded subprocesses concurrently gets the CPU parallelism without
+    touching the numerics of any individual embedding call at all.
+    """
+
+    def __init__(self, node_bin: str, script: str, mel_path: str, emb_path: str, size: int):
+        self._all = [OrtWebEmbedder(node_bin, script, mel_path, emb_path) for _ in range(size)]
+        self._free: "list[OrtWebEmbedder]" = list(self._all)
+        self._cond = threading.Condition()
+
+    def acquire(self) -> OrtWebEmbedder:
+        with self._cond:
+            while not self._free:
+                self._cond.wait()
+            return self._free.pop()
+
+    def release(self, embedder: OrtWebEmbedder) -> None:
+        with self._cond:
+            self._free.append(embedder)
+            self._cond.notify()
+
+    def close(self) -> None:
+        for e in self._all:
+            e.close()
+
+
 # Active embedder (set in main when --embed-runtime ortweb); None → native path.
+# Used directly by call sites that don't participate in the parallel pool below
+# (e.g. real-audio threshold calibration, which scores sequentially).
 _EMBEDDER: "OrtWebEmbedder | None" = None
+# Pool of embedders for collect()'s parallel file dispatch; None → sequential
+# (native path, or ortweb with a pool size of 1).
+_EMBEDDER_POOL: "EmbedderPool | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +219,7 @@ def extract_embeddings(
     mel_input_name: str,
     emb_input_name: str,
     mel_frames_per_chunk: int = 0,
+    embedder: "OrtWebEmbedder | None" = None,
 ) -> np.ndarray:
     """Return (embeddings (N, EMB_DIM), per-chunk RMS (N,)) using openWakeWord's
     STREAMING method — the SAME path the live runtime uses, so train-time and
@@ -181,10 +243,15 @@ def extract_embeddings(
     rms = [float(np.sqrt(np.mean(audio[end - FRAME_SAMPLES:end] ** 2)))
            for end in range(FRAME_SAMPLES, len(audio) + 1, FRAME_SAMPLES)]
 
-    if _EMBEDDER is not None:
+    active_embedder = embedder if embedder is not None else _EMBEDDER
+    if active_embedder is not None:
         # Extract with onnxruntime-web (browser parity). One embedding per chunk,
-        # so the count matches the RMS list above.
-        embeddings = _EMBEDDER.embed(audio)
+        # so the count matches the RMS list above. `embedder`, when given, routes
+        # to a specific pooled instance (see EmbedderPool) instead of the shared
+        # module-level _EMBEDDER — required for parallel dispatch across files,
+        # since two threads sharing one subprocess would interleave the binary
+        # stdin/stdout protocol and corrupt it.
+        embeddings = active_embedder.embed(audio)
         if embeddings.shape[0] == 0:
             return np.empty((0, EMB_DIM), np.float32), np.empty((0,), np.float32)
         rms = rms[:embeddings.shape[0]]
@@ -461,20 +528,21 @@ def main() -> None:
                          "instead of the synthetic held-out split")
     args = ap.parse_args()
 
-    global _EMBEDDER
+    global _EMBEDDER, _EMBEDDER_POOL
     if args.embed_runtime == "ortweb":
         script = args.embed_script
         if not script:
             from pathlib import Path as _P
             script = str(_P(__file__).with_name("wake_embed_ortweb.mjs"))
-        progress("Starting onnxruntime-web embedding server (browser parity)…")
+        progress(f"Starting {EMBED_POOL_SIZE} onnxruntime-web embedding servers (browser parity, parallel)…")
         try:
-            _EMBEDDER = OrtWebEmbedder(args.node_bin, script, args.mel, args.embed)
-            # Ensure the Node embed server is reaped on every exit path, including the
+            _EMBEDDER_POOL = EmbedderPool(args.node_bin, script, args.mel, args.embed, EMBED_POOL_SIZE)
+            _EMBEDDER = _EMBEDDER_POOL._all[0]  # single-instance fallback for sequential call sites (e.g. --calib-dir scoring)
+            # Ensure every Node embed server is reaped on every exit path, including the
             # sys.exit() early-returns below — not just the explicit close() at the end.
-            atexit.register(_EMBEDDER.close)
+            atexit.register(_EMBEDDER_POOL.close)
         except Exception as e:
-            progress(f"ERROR: could not start ort-web embed server: {e}", error=True)
+            progress(f"ERROR: could not start ort-web embed server pool: {e}", error=True)
             sys.exit(1)
         # The precomputed negative bank lives in NATIVE embedding space; mixing it
         # with ort-web positives would let the model separate by feature-space
@@ -512,32 +580,72 @@ def main() -> None:
     lead_pad = np.zeros(int(0.6 * SAMPLE_RATE), dtype=np.float32)   # 0.6 s lead-in
     tail_pad = np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32)   # 0.3 s trailing
 
+    def process_one(f, label, rng, embedder):
+        base = load_audio(str(f))
+        # Pad positives with leading/trailing silence so the phrase has a
+        # clean speech→silence boundary for completion-aligned labeling.
+        if label == 1:
+            base = np.concatenate([lead_pad, base, tail_pad])
+        n_aug = AUG_POS if label == 1 else AUG_NEG
+        # Labels come from the CLEAN clip's RMS: augment() mixes noise into
+        # every frame, which would erase the silence boundary and break
+        # completion detection. Augmentation preserves length, so the clean
+        # frame→window alignment is valid for every variant.
+        _, clean_rms = extract_embeddings(base, mel_sess, emb_sess, mel_input_name, emb_input_name, mel_frames_per_chunk, embedder)
+        variants = [base] + [augment(base, SAMPLE_RATE, rng, noise_pool, rir_pool) for _ in range(n_aug)]
+        wx_all, wy_all = [], []
+        for v in variants:
+            embs, rms = extract_embeddings(v, mel_sess, emb_sess, mel_input_name, emb_input_name, mel_frames_per_chunk, embedder)
+            wx, wy = windows_from_embeddings(embs, clean_rms if label == 1 else rms, positive=(label == 1))
+            wx_all.extend(wx); wy_all.extend(wy)
+        return wx_all, wy_all
+
     def collect(dir_path: str, label: int, name: str):
         files = sorted(Path(dir_path).glob("*.wav"))
         n_aug = AUG_POS if label == 1 else AUG_NEG
-        progress(f"Processing {len(files)} {name} files (×{n_aug + 1} augmented)…", count=len(files))
         X, y = [], []
-        for i, f in enumerate(files):
-            try:
-                base = load_audio(str(f))
-                # Pad positives with leading/trailing silence so the phrase has a
-                # clean speech→silence boundary for completion-aligned labeling.
-                if label == 1:
-                    base = np.concatenate([lead_pad, base, tail_pad])
-                # Labels come from the CLEAN clip's RMS: augment() mixes noise into
-                # every frame, which would erase the silence boundary and break
-                # completion detection. Augmentation preserves length, so the clean
-                # frame→window alignment is valid for every variant.
-                _, clean_rms = extract_embeddings(base, mel_sess, emb_sess, mel_input_name, emb_input_name, mel_frames_per_chunk)
-                variants = [base] + [augment(base, SAMPLE_RATE, aug_rng, noise_pool, rir_pool) for _ in range(n_aug)]
-                for v in variants:
-                    embs, rms = extract_embeddings(v, mel_sess, emb_sess, mel_input_name, emb_input_name, mel_frames_per_chunk)
-                    wx, wy = windows_from_embeddings(embs, clean_rms if label == 1 else rms, positive=(label == 1))
+        done = 0
+
+        if _EMBEDDER_POOL is not None:
+            # Parallel across files — each task gets its own pooled embedder
+            # subprocess (single-threaded WASM, bit-identical to the browser) and
+            # its own independent RNG (numpy Generators aren't thread-safe to
+            # share; [1234, i] deterministically derives an uncorrelated stream
+            # per file index instead of racing on the shared aug_rng).
+            progress(f"Processing {len(files)} {name} files (×{n_aug + 1} augmented, {EMBED_POOL_SIZE}-way parallel)…", count=len(files))
+
+            def task(item):
+                i, f = item
+                embedder = _EMBEDDER_POOL.acquire()
+                try:
+                    rng = np.random.default_rng([1234, i])
+                    return f, process_one(f, label, rng, embedder), None
+                except Exception as e:
+                    return f, None, e
+                finally:
+                    _EMBEDDER_POOL.release(embedder)
+
+            with ThreadPoolExecutor(max_workers=EMBED_POOL_SIZE) as ex:
+                for f, result, err in ex.map(task, enumerate(files)):
+                    done += 1
+                    if err is not None:
+                        progress(f"  skip {f.name}: {err}")
+                    else:
+                        wx, wy = result
+                        X.extend(wx); y.extend(wy)
+                    if done % 10 == 0 or done == len(files):
+                        progress(f"  {done}/{len(files)} done")
+        else:
+            progress(f"Processing {len(files)} {name} files (×{n_aug + 1} augmented)…", count=len(files))
+            for i, f in enumerate(files):
+                try:
+                    wx, wy = process_one(f, label, aug_rng, None)
                     X.extend(wx); y.extend(wy)
-            except Exception as e:
-                progress(f"  skip {f.name}: {e}")
-            if (i + 1) % 10 == 0:
-                progress(f"  {i + 1}/{len(files)} done")
+                except Exception as e:
+                    progress(f"  skip {f.name}: {e}")
+                if (i + 1) % 10 == 0:
+                    progress(f"  {i + 1}/{len(files)} done")
+
         return X, y
 
     Xp, yp = collect(args.positives, 1, "positive")
@@ -725,8 +833,8 @@ def main() -> None:
 
     progress("Exporting ONNX detector…")
     export_mlp_onnx(W0_fused, b0_fused, W1, b1, args.output)
-    if _EMBEDDER is not None:
-        _EMBEDDER.close()
+    if _EMBEDDER_POOL is not None:
+        _EMBEDDER_POOL.close()
     progress("Done.", done=True, threshold=threshold, accuracy=val_acc)
 
 
