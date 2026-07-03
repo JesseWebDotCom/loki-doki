@@ -101,7 +101,10 @@ export function getComfyUILaunchConfig(hw: HardwareInfo, gpuIndexOverride?: numb
     const dtype = hw.mpsBf16Supported ? 'bf16' : 'fp16'
     return {
       dtype,
-      extraArgs: hw.mpsBf16Supported ? [] : ['--force-fp16'],
+      // MPS isn't in ComfyUI's auto-enable allowlist for pytorch cross-attention
+      // (model_management.py only auto-enables it for NVIDIA/XPU/Ascend/AMD), so
+      // without this flag it falls back to the slower sub-quadratic implementation.
+      extraArgs: hw.mpsBf16Supported ? ['--use-pytorch-cross-attention'] : ['--force-fp16', '--use-pytorch-cross-attention'],
       env: { PYTORCH_MPS_HIGH_WATERMARK_RATIO: '0.0' },
       primaryGpuIndex: 0,
     }
