@@ -77,6 +77,16 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         installs: [{ id: 'vision', type: 'model' }],
         advanced: 'gemma3:4b · loads on demand · Ollama LRU',
       },
+      {
+        id: 'canvas',
+        name: 'Canvas & Export',
+        description: 'Editable docs, code, and web pages your AI writes for you, with PDF export.',
+        diskBytes: 170_000_000,  // headless Chromium (shared with the Reader archive)
+        ramBytes:  300_000_000,
+        requires: ['chat'],
+        installs: [{ id: 'chromium-render', type: 'component' }],
+        advanced: 'Headless Chromium · also powers the Reader offline archive',
+      },
     ],
   },
   {

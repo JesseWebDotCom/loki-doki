@@ -8,14 +8,17 @@ import { and, eq } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import {
   uploadBookFile, listLibrary, getBook, getChapters, upsertProgress, getReadyAssetBlobHash, addLibrivoxAudiobook,
+  removeFromLibrary,
 } from '@/lib/books/library'
 import { openEpub, readMetadata } from '@/lib/epub/parse'
 import { acquireRead, blobAbsPath, releaseRead } from '@/lib/content/store'
 import { searchBooks } from '@/lib/books/search'
 import { addAndDownloadBook, enqueueBookDownload } from '@/lib/books/offline'
 import { enqueueBookTtsRender } from '@/lib/books/tts'
-import { searchLibrivox, browseLibrivoxByCategory, browseAllLibrivoxCategories, LIBRIVOX_CATEGORIES } from '@/lib/books/librivox'
-import { browseGutenbergByTopic, browseAllGutenbergCategories } from '@/lib/books/gutenberg'
+import { searchLibrivox, browseLibrivoxByCategory, browseAllLibrivoxCategories, browseLibrivoxByCategoryFull, LIBRIVOX_CATEGORIES } from '@/lib/books/librivox'
+import { browseGutenbergByTopic, browseAllGutenbergCategories, browseGutenbergByTopicFull } from '@/lib/books/gutenberg'
+import { getBuiltinSourceToggles, setBuiltinSourceToggle, type BuiltinSource } from '@/lib/books/sourceToggles'
+import { listIndexers } from '@/lib/books/indexer'
 import { safeFetch } from '@/lib/ssrfGuard'
 import type { BookSearchResult } from '@/lib/books/types'
 import { GUTENBERG_CATEGORIES } from '@/lib/books/types'
@@ -53,6 +56,17 @@ books.get('/library', async (c) => {
   return c.json({ books: await listLibrary(user.id) })
 })
 
+// Bulk-capable from the start (Clear Selected/Clear All on Books' Offline view) —
+// only ever removes the calling user's own library ref + progress, see
+// lib/books/library.ts::removeFromLibrary for why the shared catalog row is untouched.
+books.post('/library/remove', async (c) => {
+  const user = c.get('user')
+  const body = (await c.req.json().catch(() => null)) as { bookIds?: string[] } | null
+  if (!body?.bookIds?.length) return c.json({ code: 'bad_request' }, 400)
+  await Promise.all(body.bookIds.map((id) => removeFromLibrary(user.id, id)))
+  return c.json({ ok: true })
+})
+
 // Fans out to Gutenberg + Internet Archive (public-domain only — see lib/books/search.ts).
 books.get('/search', async (c) => {
   const q = c.req.query('q')?.trim()
@@ -64,9 +78,19 @@ books.get('/search', async (c) => {
 // Archive/indexer have no comparable genre taxonomy to browse this way). The
 // landing page calls browse-all (one round trip, server-side parallel + cached
 // per topic — see gutenberg.ts) instead of hitting /categories/:topic ten times.
+// All gated on the Gutenberg on/off toggle (Admin/Books Sources) — disabled means
+// "don't show or fetch any of it", not just "hide the search results".
 books.get('/categories', (c) => c.json({ categories: GUTENBERG_CATEGORIES }))
-books.get('/categories/browse-all', async (c) => c.json({ shelves: await browseAllGutenbergCategories() }))
+books.get('/categories/browse-all', async (c) => {
+  if (!(await getBuiltinSourceToggles()).gutenberg) return c.json({ shelves: [] })
+  return c.json({ shelves: await browseAllGutenbergCategories() })
+})
+books.get('/categories/:topic/full', async (c) => {
+  if (!(await getBuiltinSourceToggles()).gutenberg) return c.json({ results: [] })
+  return c.json({ results: await browseGutenbergByTopicFull(c.req.param('topic')) })
+})
 books.get('/categories/:topic', async (c) => {
+  if (!(await getBuiltinSourceToggles()).gutenberg) return c.json({ results: [] })
   return c.json({ results: await browseGutenbergByTopic(c.req.param('topic')) })
 })
 
@@ -76,14 +100,39 @@ books.get('/categories/:topic', async (c) => {
 // straight from archive.org.
 books.get('/search/librivox', async (c) => {
   const q = c.req.query('q')?.trim()
-  if (!q) return c.json({ results: [] })
+  if (!q || !(await getBuiltinSourceToggles()).librivox) return c.json({ results: [] })
   return c.json({ results: await searchLibrivox(q) })
 })
 
 books.get('/librivox/categories', (c) => c.json({ categories: LIBRIVOX_CATEGORIES }))
-books.get('/librivox/categories/browse-all', async (c) => c.json({ shelves: await browseAllLibrivoxCategories() }))
+books.get('/librivox/categories/browse-all', async (c) => {
+  if (!(await getBuiltinSourceToggles()).librivox) return c.json({ shelves: [] })
+  return c.json({ shelves: await browseAllLibrivoxCategories() })
+})
+books.get('/librivox/categories/:subject/full', async (c) => {
+  if (!(await getBuiltinSourceToggles()).librivox) return c.json({ results: [] })
+  return c.json({ results: await browseLibrivoxByCategoryFull(c.req.param('subject')) })
+})
 books.get('/librivox/categories/:subject', async (c) => {
+  if (!(await getBuiltinSourceToggles()).librivox) return c.json({ results: [] })
   return c.json({ results: await browseLibrivoxByCategory(c.req.param('subject')) })
+})
+
+// Sources: on/off for the built-in keyless catalogs (any household member can
+// flip these), plus a read-only list of admin-managed custom OPDS indexers
+// (adding/editing those needs credentials, so that stays in
+// Admin > Integrations > Books — see routes/adminBooks.ts).
+books.get('/sources', async (c) => {
+  const [toggles, indexers] = await Promise.all([getBuiltinSourceToggles(), listIndexers()])
+  return c.json({ toggles, indexers })
+})
+books.put('/sources/toggle', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { source?: BuiltinSource; enabled?: boolean } | null
+  if (!body?.source || typeof body.enabled !== 'boolean' || !['gutenberg', 'archiveorg', 'librivox'].includes(body.source)) {
+    return c.json({ code: 'bad_request' }, 400)
+  }
+  await setBuiltinSourceToggle(body.source, body.enabled)
+  return c.json({ ok: true })
 })
 
 books.post('/librivox/add', async (c) => {

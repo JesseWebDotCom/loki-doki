@@ -89,6 +89,29 @@ export async function browseAllGutenbergCategories(): Promise<{ category: Gutenb
   )
 }
 
+/** The "view all" page behind a shelf's title: follows Gutendex's own pagination
+ *  (`next` links) for a few pages instead of the shelf preview's single page, so a
+ *  category page shows ~90 books instead of 12. Cached under a distinct key from
+ *  the shelf preview since it's a different result set. */
+export async function browseGutenbergByTopicFull(topic: string, maxPages = 3): Promise<BookSearchResult[]> {
+  return categoryCache.getOrCompute(`${topic}::full`, async () => {
+    const out: BookSearchResult[] = []
+    let url: string | null = `https://gutendex.com/books/?topic=${encodeURIComponent(topic)}&sort=popular`
+    for (let page = 0; page < maxPages && url; page++) {
+      try {
+        const res = await safeFetch(url, {}, { timeoutMs: 10_000 })
+        if (!res.ok) break
+        const data = (await res.json()) as { results: GutendexBook[]; next: string | null }
+        out.push(...data.results.filter((b) => Object.keys(b.formats).some((f) => f.includes('epub'))).map(toResult))
+        url = data.next
+      } catch {
+        break
+      }
+    }
+    return out
+  })
+}
+
 export async function resolveGutenbergDownload(sourceRef: string): Promise<ResolvedDownload> {
   const res = await safeFetch(`https://gutendex.com/books/${sourceRef}`, {}, { timeoutMs: 10_000 })
   if (!res.ok) throw new Error(`Gutenberg lookup failed (${res.status})`)

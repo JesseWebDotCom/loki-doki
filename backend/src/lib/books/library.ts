@@ -289,6 +289,20 @@ export async function upsertProgress(userId: string, bookId: string, update: {
   })
 }
 
+/** Removes a book from ONE user's library — this is a shared household catalog
+ *  (like Podcasts/Music/YouTube), so this only ever drops the calling user's
+ *  bookLibrary ref + their own progress, never the shared `books`/`bookChapters`/
+ *  `mediaAssets` rows another household member might still have in their library.
+ *  The existing content-store gcSweep() reclaims the underlying blob automatically
+ *  once no bookLibrary row anywhere still references it — no explicit blob release
+ *  needed, matching how Podcasts/YouTube downloads already work. */
+export async function removeFromLibrary(userId: string, bookId: string): Promise<void> {
+  await Promise.all([
+    db.delete(bookLibrary).where(and(eq(bookLibrary.userId, userId), eq(bookLibrary.bookId, bookId))),
+    db.delete(bookProgress).where(and(eq(bookProgress.userId, userId), eq(bookProgress.bookId, bookId))),
+  ])
+}
+
 /** Get the ready asset's blob hash + format for a book, or null if not present/ready. */
 export async function getReadyAssetBlobHash(bookId: string, kind: 'ebook' | 'audio'): Promise<{ hash: string; format: string } | null> {
   const [asset] = await db.select({ blobHash: mediaAssets.blobHash, format: mediaAssets.format, status: mediaAssets.status })

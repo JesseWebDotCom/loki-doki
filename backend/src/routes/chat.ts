@@ -195,7 +195,7 @@ chat.patch('/conversations/:id', requireAuth, async (c) => {
 chat.post('/stream', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, clientTz, attachments } = (await c.req.json()) as {
+  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, clientTz, attachments, focusedArtifact } = (await c.req.json()) as {
     message: string
     conversationId?: string
     characterId?: string
@@ -205,6 +205,8 @@ chat.post('/stream', requireAuth, async (c) => {
     clientLng?: number | null
     clientTz?: string | null
     attachments?: { filename: string; text: string }[]
+    /** The Canvas artifact open in this chat, so an edit-style message targets it. */
+    focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } | null
   }
 
   // Validate the message before it flows into the token budget / title generation.
@@ -348,6 +350,7 @@ chat.post('/stream', requireAuth, async (c) => {
     // relationship-stage line in the system prompt derives from this.
     firstMetAt: characterId ? (existingRelation?.createdAt ?? null) : undefined,
     conversationSummary: historyIncomplete ? convSummary : null,
+    focusedArtifact: focusedArtifact ?? null,
     // Refresh the rolling summary after this turn when the conversation is long
     // enough for the window to be (or soon be) incomplete.
     maybeSummarize: dbRows.length >= 16,
@@ -680,6 +683,8 @@ interface ChatRunParams {
   interactionStyle: import('@/lib/protections').InteractionStyle
   activeDials: ContentDials
   maskProfanityActive: boolean
+  /** The Canvas artifact open in this chat (edit-style messages target it). */
+  focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } | null
   /** false for /regenerate — the user turn already exists in the DB, don't re-insert it. */
   insertUserMessage?: boolean
   /** /regenerate only — the old assistant reply to remove once the new one lands. Left
@@ -730,6 +735,7 @@ function makeChatRun(p: ChatRunParams) {
           prefs: p.prefs,
           firstMetAt: p.firstMetAt,
           conversationSummary: p.conversationSummary ?? null,
+          focusedArtifact: p.focusedArtifact ?? null,
           cookieHeader: p.cookieHeader,
           locale: p.locale,
           interactionStyle: p.interactionStyle,

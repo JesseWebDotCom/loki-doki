@@ -163,6 +163,17 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
     if (vad && hasVoice && !vad.isInstalled() && !bgComponentIds.includes(vad.id)) {
       bgComponentIds.push(vad.id)
     }
+
+    // Headless Chromium powers Canvas → PDF export AND the Reader archive, but was
+    // only ever lazy-installed before — so no install has it in the ledger. Chat is
+    // universal in this app and this reconcile only runs post-first-run, so heal it
+    // whenever it's missing (background, non-blocking; the ~150MB lands and the next
+    // export/archive picks it up live). Matches "install in the wizard + heal as part
+    // of chat".
+    const chromium = getInstallComponent('chromium-render')
+    if (chromium && !chromium.isInstalled() && !bgComponentIds.includes(chromium.id)) {
+      bgComponentIds.push(chromium.id)
+    }
   } catch { /* ledger unreadable — skip */ }
 
   if (bgModelIds.length || bgComponentIds.length) {

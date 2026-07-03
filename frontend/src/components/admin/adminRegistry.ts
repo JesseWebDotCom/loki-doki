@@ -176,7 +176,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       {
         id: 'books', label: 'Books', kind: 'view',
         keywords: ['books', 'opds', 'ebook', 'calibre', 'kavita', 'indexer', 'catalog', 'discover'],
-        description: 'Optional self-hosted OPDS book catalog as a third Discover source',
+        description: 'Optional self-hosted OPDS indexers as extra Book Store sources',
       },
     ],
   },

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
+import { cn } from '@/lib/cn'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -32,8 +33,9 @@ import { AddToPlaylistButton } from '@/components/music/AddToPlaylistButton'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import {
   getFavorites, getHistory, listPlaylists, createPlaylist,
-  listOffline, listOfflineStations, removeOffline,
+  listOffline, listOfflineStations, removeOffline, removeOfflineStation,
 } from '@/lib/music/catalogApi'
+import { OfflineSelectionToolbar } from '@/components/shared/OfflineSelectionToolbar'
 
 /** In offline mode, the set of song videoIds + station ids that are actually downloaded - used to
  *  hide library rows that couldn't play without internet. Returns null (no filtering) when online. */
@@ -237,9 +239,44 @@ function OfflineTab() {
   const stations = stationData?.stations ?? []
   const stationSongIds = new Set(data?.stationVideoIds ?? [])
   const songs = (data?.offline ?? []).filter(t => !stationSongIds.has(t.videoId))
+
+  const [selStations, setSelStations] = useState<Set<string>>(new Set())
+  const [selSongs, setSelSongs] = useState<Set<string>>(new Set())
+  const [busyStations, setBusyStations] = useState(false)
+  const [busySongs, setBusySongs] = useState(false)
+
+  const toggleStation = (id: string) => setSelStations(s => { const next = new Set(s); next.has(id) ? next.delete(id) : next.add(id); return next })
+  const toggleSong = (id: string) => setSelSongs(s => { const next = new Set(s); next.has(id) ? next.delete(id) : next.add(id); return next })
+
   const del = async (videoId: string) => {
     try { await removeOffline(videoId); await qc.invalidateQueries({ queryKey: ['music-offline'] }); toast.success('Removed') }
     catch { toast.error('Could not remove') }
+  }
+  const clearStations = async (ids: string[]) => {
+    setBusyStations(true)
+    try {
+      await Promise.all(ids.map(id => removeOfflineStation(id)))
+      setSelStations(new Set())
+      await qc.invalidateQueries({ queryKey: ['music-offline-stations'] })
+      toast.success(ids.length === 1 ? 'Station removed from offline' : `${ids.length} stations removed from offline`)
+    } catch {
+      toast.error('Could not remove all stations')
+    } finally {
+      setBusyStations(false)
+    }
+  }
+  const clearSongs = async (ids: string[]) => {
+    setBusySongs(true)
+    try {
+      await Promise.all(ids.map(id => removeOffline(id)))
+      setSelSongs(new Set())
+      await qc.invalidateQueries({ queryKey: ['music-offline'] })
+      toast.success(ids.length === 1 ? 'Song removed from offline' : `${ids.length} songs removed from offline`)
+    } catch {
+      toast.error('Could not remove all songs')
+    } finally {
+      setBusySongs(false)
+    }
   }
 
   if (!stations.length && !songs.length) {
@@ -260,8 +297,33 @@ function OfflineTab() {
       {stations.length > 0 && (
         <section>
           <SectionHeader title="Stations" />
+          <div className="mb-3">
+            <OfflineSelectionToolbar
+              totalCount={stations.length}
+              selectedCount={selStations.size}
+              allSelected={stations.length > 0 && selStations.size === stations.length}
+              busy={busyStations}
+              itemLabel="station"
+              onToggleSelectAll={() => setSelStations(selStations.size === stations.length ? new Set() : new Set(stations.map(s => s.id)))}
+              onClearSelected={() => clearStations([...selStations])}
+              onClearAll={() => clearStations(stations.map(s => s.id))}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {stations.map(s => <StationCard key={s.id} station={s} />)}
+            {stations.map(s => (
+              <div key={s.id} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => toggleStation(s.id)}
+                  className={cn('absolute left-2 top-2 z-10 flex size-6 items-center justify-center rounded-full border-2 transition-colors',
+                    selStations.has(s.id) ? 'border-brand bg-brand' : 'border-white/70 bg-black/40 opacity-0 group-hover:opacity-100')}
+                  aria-label={selStations.has(s.id) ? 'Deselect' : 'Select'}
+                >
+                  {selStations.has(s.id) && <span className="size-2 rounded-full bg-white" />}
+                </button>
+                <StationCard station={s} />
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -269,9 +331,30 @@ function OfflineTab() {
       {songs.length > 0 && (
         <section>
           <SectionHeader title="Songs" />
+          <div className="mb-3 max-w-3xl">
+            <OfflineSelectionToolbar
+              totalCount={songs.length}
+              selectedCount={selSongs.size}
+              allSelected={songs.length > 0 && selSongs.size === songs.length}
+              busy={busySongs}
+              itemLabel="song"
+              onToggleSelectAll={() => setSelSongs(selSongs.size === songs.length ? new Set() : new Set(songs.map(t => t.videoId)))}
+              onClearSelected={() => clearSongs([...selSongs])}
+              onClearAll={() => clearSongs(songs.map(t => t.videoId))}
+            />
+          </div>
           <div className="max-w-3xl divide-y divide-border/50 overflow-hidden rounded-card border border-border/60 bg-card/30">
             {songs.map(t => (
               <div key={t.videoId} className="group flex items-center gap-3 px-2.5 py-2 transition hover:bg-accent/40">
+                <button
+                  type="button"
+                  onClick={() => toggleSong(t.videoId)}
+                  className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                    selSongs.has(t.videoId) ? 'border-brand bg-brand' : 'border-border')}
+                  aria-label={selSongs.has(t.videoId) ? 'Deselect' : 'Select'}
+                >
+                  {selSongs.has(t.videoId) && <span className="size-1.5 rounded-full bg-white" />}
+                </button>
                 {t.status === 'ready' ? (
                   <button onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title })} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                     <div className="relative shrink-0">

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { parsePlayDirective, type Directive } from '@/lib/playDirective'
+import { appendToken as appendArtifactToken, finishStreaming as finishArtifactStreaming } from '@/lib/canvas/artifactStore'
 
 interface Turn { role: 'user' | 'assistant'; content: string }
 
@@ -95,6 +96,14 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
                 const directive = parsePlayDirective(JSON.parse(data))
                 if (directive) onDirectiveRef.current?.(directive)
               } catch { /* malformed directive */ }
+            }
+            else if (event === 'artifact_token') {
+              // Canvas body streams into the pane (opened by the open_artifact
+              // directive above), NOT the spoken/typed companion reply.
+              try { const a = JSON.parse(data) as { artifactId: string; token: string }; appendArtifactToken(a.artifactId, a.token) } catch { /* malformed */ }
+            }
+            else if (event === 'artifact_done') {
+              try { const a = JSON.parse(data) as { artifactId: string; content: string }; finishArtifactStreaming(a.artifactId, a.content) } catch { /* malformed */ }
             }
             else if (event === 'error') {
               // Mid-stream failure: surface it through the normal reply channel so

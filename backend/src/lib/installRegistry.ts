@@ -51,6 +51,7 @@ import { isKiwixInstalled, installKiwixTools } from '@/lib/kiwix'
 import { isVoiceServerInstalled, installVoiceModels, maybeSpawnVoiceServer } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled, installMapsToolchain } from '@/lib/maps/toolchain'
 import { isOpenCodeInstalled, installOpenCode } from '@/lib/opencode'
+import { isChromiumInstalled, installChromium } from '@/lib/bookmarks/chromiumInstall'
 import { isSandboxUserInstalled, installSandboxUser } from '@/lib/codingSandboxUser'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import { CATALOG, type CatalogModel, type ModelRole } from '@/lib/catalog'
@@ -267,6 +268,14 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     id: 'coding-sandbox-user', group: 'coding', label: 'Coding Sandbox Isolation',
     isInstalled: isSandboxUserInstalled,
     repair: (onP) => installSandboxUser(statusAdapter(onP)),
+  },
+  {
+    // Headless Chromium — powers the Reader offline archive AND Canvas → PDF export.
+    // Previously lazy-installed on first use with no boot heal; now a first-class
+    // component so the wizard provisions it and reconcileInstalls repairs it.
+    id: 'chromium-render', group: 'chat', label: 'Document export (PDF)',
+    isInstalled: isChromiumInstalled,
+    repair: (onP, sig) => installChromium(statusAdapter(onP), sig),
   },
 ]
 

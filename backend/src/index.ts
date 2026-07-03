@@ -104,6 +104,7 @@ import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
 import { shopping } from '@/routes/shopping'
 import { coding } from '@/routes/coding'
+import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
@@ -541,6 +542,7 @@ app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
 app.route('/api/shopping', shopping)
 app.route('/api/coding', coding)
+app.route('/api/artifacts', artifactsRoute)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)
 app.route('/api/recipes', recipesRoute)

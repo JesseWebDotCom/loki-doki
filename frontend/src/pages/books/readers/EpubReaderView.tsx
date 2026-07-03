@@ -59,7 +59,12 @@ export function EpubReaderView({ bookId, detail }: { bookId: string; detail: Boo
       setChapters(chs)
       if (!viewerRef.current) return
 
-      const book = ePub(bookFileUrl(bookId)) as unknown as Book
+      // epub.js sniffs the URL's file extension to decide whether it's a packed
+      // .epub archive to fetch-and-unzip vs. an already-unpacked directory of
+      // loose files to fetch piece by piece. Our URL (/api/books/:id/file) has no
+      // extension, so without this hint it guesses "unpacked" and 404s trying to
+      // fetch META-INF/container.xml as a relative path off that URL.
+      const book = ePub(bookFileUrl(bookId), { openAs: 'epub' }) as unknown as Book
       bookRef.current = book
       const rendition = book.renderTo(viewerRef.current, {
         width: '100%', height: '100%', flow: 'scrolled-doc', allowScriptedContent: false,

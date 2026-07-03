@@ -1724,6 +1724,16 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, book_id)
     );
+    CREATE TABLE IF NOT EXISTS book_indexers (
+      id TEXT NOT NULL PRIMARY KEY,
+      label TEXT NOT NULL,
+      base_url TEXT NOT NULL,
+      username TEXT,
+      password TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `)
   addColumn('book_chapters', 'external_audio_url', 'TEXT')
   addColumn('book_chapters', 'external_audio_duration_sec', 'REAL')
@@ -2092,6 +2102,35 @@ export function runMigrations() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_chat_document_edits_conversation ON chat_document_edits(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS artifacts (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      conversation_id TEXT,
+      message_id TEXT,
+      type TEXT NOT NULL,
+      language TEXT,
+      title TEXT NOT NULL,
+      current_content TEXT NOT NULL DEFAULT '',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      archived_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS artifacts_user_idx ON artifacts(user_id);
+    CREATE INDEX IF NOT EXISTS artifacts_conversation_idx ON artifacts(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS artifact_versions (
+      id TEXT NOT NULL PRIMARY KEY,
+      artifact_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      summary TEXT,
+      author TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS artifact_versions_artifact_idx ON artifact_versions(artifact_id);
 
     CREATE TABLE IF NOT EXISTS pronunciation_packs (
       id TEXT NOT NULL PRIMARY KEY,

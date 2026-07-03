@@ -151,7 +151,7 @@ export function AudiobookPlayerPage() {
                   c.idx === chapterIdx && 'bg-accent/70 font-medium',
                 )}
               >
-                {c.idx === chapterIdx ? <Check className="size-3.5 shrink-0 text-brand" /> : <span className="w-3.5 shrink-0" />}
+                {c.idx === chapterIdx ? <Check className="size-3.5 shrink-0 text-[var(--books-accent-fg)]" /> : <span className="w-3.5 shrink-0" />}
                 <span className="min-w-0 flex-1 truncate">{c.title}</span>
                 {c.externalAudioDurationSec && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDuration(c.externalAudioDurationSec)}</span>}
               </button>

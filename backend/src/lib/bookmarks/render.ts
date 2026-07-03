@@ -86,6 +86,10 @@ export async function ensureChromium(): Promise<LaunchOptions | null> {
   return resolving
 }
 
+// Install-registry hooks live in ./chromiumInstall (a standalone module that imports
+// only playwright, NOT logger/download) so the install registry can import them
+// WITHOUT dragging render.ts's logger↔download cycle into early boot.
+
 // ── render ──────────────────────────────────────────────────────────────────────
 
 let busy: Promise<unknown> = Promise.resolve() // serialize renders (one browser at a time)
@@ -116,6 +120,46 @@ export async function renderPage(url: string, opts: RenderOptions = {}): Promise
   const run = busy.then(() => doRender(url, launchOpts, opts)).catch(() => null)
   busy = run.catch(() => {})
   return run
+}
+
+/** Print a self-contained HTML string to a PDF (Canvas export). Shares the same
+ *  browser-serialization queue as renderPage so we never run two Chromiums at once.
+ *  Subresource requests to private/loopback hosts are blocked (SSRF guard); the
+ *  artifacts this serves are meant to be self-contained anyway. Returns null if no
+ *  browser is available (caller surfaces a friendly error). */
+export async function renderHtmlToPdf(html: string): Promise<Uint8Array | null> {
+  const launchOpts = await ensureChromium()
+  if (!launchOpts) return null
+  const run = busy.then(() => doRenderHtmlToPdf(html, launchOpts)).catch(() => null)
+  busy = run.catch(() => {})
+  return run
+}
+
+async function doRenderHtmlToPdf(html: string, launchOpts: LaunchOptions): Promise<Uint8Array | null> {
+  const browser = await chromium.launch({ ...launchOpts, headless: true })
+  const killer = setTimeout(() => { browser.close().catch(() => {}) }, 30_000)
+  try {
+    const ctx = await browser.newContext({ viewport: VIEWPORT, javaScriptEnabled: true })
+    await ctx.route('**', (route) => {
+      const url = route.request().url()
+      if (url.startsWith('data:') || url.startsWith('about:')) return route.continue()
+      const host = (() => { try { return new URL(url).hostname } catch { return '' } })()
+      const bad = host === 'localhost' || host.endsWith('.local') ||
+        ((/^[\d.]+$/.test(host) || host.includes(':')) && isBlockedIp(host.replace(/^\[|\]$/g, '')))
+      if (bad) return route.abort()
+      return route.continue()
+    })
+    const page = await ctx.newPage()
+    await page.setContent(html, { waitUntil: 'networkidle', timeout: 15_000 }).catch(() => {})
+    return await page.pdf({ format: 'A4', printBackground: true, margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' } })
+      .then((b) => new Uint8Array(b))
+      .catch(() => null)
+  } catch {
+    return null
+  } finally {
+    clearTimeout(killer)
+    await browser.close().catch(() => {})
+  }
 }
 
 async function doRender(url: string, launchOpts: LaunchOptions, opts: RenderOptions): Promise<RenderResult | null> {

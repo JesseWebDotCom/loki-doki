@@ -7,8 +7,54 @@
 import type { Tool, ToolResult } from './index'
 import { getUserWorkspace, markWorkspaceBusy } from '@/lib/codingServer'
 import { isOpenCodeInstalled } from '@/lib/opencode'
+import { emitNotification } from '@/lib/notify'
+import { logger } from '@/lib/logger'
 
 interface CodingArgs { task?: string }
+
+// The coding turn is fired async (prompt_async) and runs in the background needing
+// approval, so — especially when the request came by voice with no chat/Coding app
+// open — the user needs a nudge when there's something to review. Poll the session's
+// message list until it stops growing (API-shape-agnostic: just needs a JSON array),
+// then drop a bell notification linking to the Coding app. Best-effort + bounded:
+// any error or timeout just stops quietly (no false notifications).
+async function watchCodingCompletion(url: string, authHeader: string, sessionId: string, userId: string): Promise<void> {
+  const deadline = Date.now() + 5 * 60_000
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  let lastCount = -1, stable = 0, grew = false
+  while (Date.now() < deadline) {
+    await sleep(4_000)
+    let count: number
+    try {
+      const r = await fetch(`${url}/session/${sessionId}/message`, {
+        headers: { Authorization: authHeader, Accept: 'application/json' },
+        signal: AbortSignal.timeout(5_000),
+      })
+      if (!r.ok) return
+      const body = await r.json() as unknown
+      const arr = Array.isArray(body) ? body
+        : Array.isArray((body as { messages?: unknown }).messages) ? (body as { messages: unknown[] }).messages
+        : Array.isArray((body as { data?: unknown }).data) ? (body as { data: unknown[] }).data
+        : null
+      if (!arr) return
+      count = arr.length
+    } catch { return }
+    if (count > lastCount) { grew = true; stable = 0 } else if (count === lastCount) { stable++ }
+    lastCount = count
+    // Grew (agent produced output) then held steady for ~8s → the turn has settled.
+    if (grew && stable >= 2 && count > 0) {
+      await emitNotification({
+        type: 'system',
+        userId,
+        title: 'Coding update',
+        body: 'The coding agent finished working — open the Coding app to review and approve changes.',
+        url: '/coding',
+        dedupeKey: `coding-done:${sessionId}`,
+      }).catch(() => {})
+      return
+    }
+  }
+}
 
 async function execute(args: unknown, config?: Record<string, unknown>): Promise<ToolResult> {
   const { task } = (args ?? {}) as CodingArgs
@@ -42,6 +88,12 @@ async function execute(args: unknown, config?: Record<string, unknown>): Promise
         body: JSON.stringify({ parts: [{ type: 'text', text: task }] }),
       })
       if (!res.ok) throw new Error(`opencode message failed: ${res.status}`)
+
+      // Background: nudge the user (bell → Coding app) once the agent settles, since
+      // the work runs async and may need approval — the key signal when the request
+      // came by voice with no chat/Coding app open. Detached; never blocks the reply.
+      void watchCodingCompletion(url, authHeader, session.id, userId)
+        .catch((e) => logger.warn(`[coding] completion watcher failed: ${e}`))
     } finally {
       markWorkspaceBusy(userId, false)
     }
@@ -60,18 +112,19 @@ async function execute(args: unknown, config?: Record<string, unknown>): Promise
 export const codingTool: Tool = {
   id: 'coding',
   name: 'Coding',
-  description: 'Kick off a coding task (build/fix/explain code) in your sandboxed workspace. File edits and shell commands always pause for approval in the Coding app.',
+  description: 'Kick off a MULTI-FILE coding project — build/scaffold a whole app, or work across an existing codebase (fix bugs, add features, refactor, run commands) — in your sandboxed workspace. File edits and shell commands pause for approval in the Coding app. For a single standalone snippet/file, use Canvas instead.',
   examples: [
     'build me a simple todo app',
-    'fix the bug in my script',
-    'write a python function to parse CSV files',
-    'set up a basic Express server',
+    'scaffold a new express project with a database',
+    'add a login page to my project',
+    'fix the failing tests in my repo',
+    'refactor the auth module in my codebase',
   ],
   toolDefinition: {
     type: 'function',
     function: {
       name: 'coding',
-      description: 'Start a coding task with the local coding agent, running in a sandboxed workspace.',
+      description: 'Start a MULTI-FILE coding project or work on an existing codebase with the sandboxed coding agent. Not for a single self-contained snippet or file (use the canvas tool for that).',
       parameters: {
         type: 'object',
         properties: {

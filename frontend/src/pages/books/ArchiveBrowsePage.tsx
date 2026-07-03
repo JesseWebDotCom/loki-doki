@@ -52,8 +52,8 @@ export function ArchiveBrowsePage() {
   return (
     <div className="h-full overflow-y-auto">
       <PageContainer width="wide" className="pb-16">
-        <Button variant="ghost" className="mt-4" onClick={() => navigate('/books/archives')}>
-          <ArrowLeft className="mr-1.5 size-4" />Offline Archives
+        <Button variant="ghost" className="mt-4" onClick={() => navigate('/books/library')}>
+          <ArrowLeft className="mr-1.5 size-4" />My Library
         </Button>
 
         <PageHeader title={archive?.label ?? 'Browse'} eyebrow="Books" subtitle={archive?.description ?? 'Browse titles in this offline library.'} />
@@ -89,8 +89,8 @@ export function ArchiveBrowsePage() {
                 <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {results.map((e) => (
                     <Card key={e.path} variant="interactive" className="flex items-center gap-3 p-3" onClick={() => openEntry(e.path)}>
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-brand/15">
-                        <BookOpen className="size-4 text-brand" />
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-[var(--books-accent-soft)]">
+                        <BookOpen className="size-4 text-[var(--books-accent-fg)]" />
                       </span>
                       <p className="min-w-0 flex-1 truncate text-sm font-medium">{e.title}</p>
                     </Card>

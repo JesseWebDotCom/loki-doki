@@ -215,6 +215,13 @@ export interface PlayMusicBlockData {
   videos: PlayMusicVideo[]
 }
 
+export interface ArtifactBlockData {
+  artifactId: string
+  artifactType: 'code' | 'document' | 'html'
+  title: string
+  preview: string
+}
+
 export type Block =
   | { kind: 'weather'; data: WeatherBlockData }
   | { kind: 'content_rating'; data: ContentRatingBlockData }
@@ -232,3 +239,4 @@ export type Block =
   | { kind: 'holidays'; data: HolidaysBlockData }
   | { kind: 'play_music'; data: PlayMusicBlockData }
   | { kind: 'document_edit'; data: DocumentEditBlockData }
+  | { kind: 'artifact'; data: ArtifactBlockData }

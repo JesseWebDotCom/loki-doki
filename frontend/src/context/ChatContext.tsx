@@ -9,6 +9,14 @@ import { toast } from '@/lib/toast'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { applyPlayDirective, parsePlayDirective, type Directive } from '@/lib/playDirective'
+import { appendToken as appendArtifactToken, finishStreaming as finishArtifactStreaming, getArtifactState } from '@/lib/canvas/artifactStore'
+
+/** The Canvas artifact open in this chat, so an edit-style message ("make it shorter")
+ *  targets it instead of creating a new one. Undefined when no canvas is active. */
+function focusedArtifactForTurn(): { id: string; type: 'code' | 'document' | 'html'; title: string } | undefined {
+  const o = getArtifactState().open
+  return o ? { id: o.id, type: o.type, title: o.title } : undefined
+}
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
@@ -471,7 +479,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const currentProjectId = currentProjectRef.current?.id ?? undefined
 
     streamChat(
-      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, clientTz: getClientTz(), attachments: sendAttachments.length ? sendAttachments : undefined },
+      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, clientTz: getClientTz(), attachments: sendAttachments.length ? sendAttachments : undefined, focusedArtifact: focusedArtifactForTurn() },
       controller.signal,
       {
         onGen: ({ genId, conversationId: serverConvId, assistantMessageId }) => {
@@ -983,7 +991,7 @@ function getClientTz(): string | null {
 
 /** Start a new chat generation (POST). */
 async function streamChat(
-  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; clientTz?: string | null; attachments?: { filename: string; text: string }[] },
+  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; clientTz?: string | null; attachments?: { filename: string; text: string }[]; focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } },
   signal: AbortSignal,
   { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
 ) {
@@ -1018,6 +1026,10 @@ async function streamChat(
       try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
     } else if (eventName === 'directive') {
       try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
+    } else if (eventName === 'artifact_token') {
+      try { const a = JSON.parse(data) as { artifactId: string; token: string }; appendArtifactToken(a.artifactId, a.token) } catch { /* malformed */ }
+    } else if (eventName === 'artifact_done') {
+      try { const a = JSON.parse(data) as { artifactId: string; content: string }; finishArtifactStreaming(a.artifactId, a.content) } catch { /* malformed */ }
     } else if (eventName === 'offline') {
       try { const o = JSON.parse(data) as { tool: string }; if (o.tool) onRouting(`${o.tool}:offline`) } catch { /* malformed */ }
     } else if (eventName === 'tool_error') {
@@ -1111,6 +1123,10 @@ async function streamTurnRerun(
       try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
     } else if (eventName === 'directive') {
       try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
+    } else if (eventName === 'artifact_token') {
+      try { const a = JSON.parse(data) as { artifactId: string; token: string }; appendArtifactToken(a.artifactId, a.token) } catch { /* malformed */ }
+    } else if (eventName === 'artifact_done') {
+      try { const a = JSON.parse(data) as { artifactId: string; content: string }; finishArtifactStreaming(a.artifactId, a.content) } catch { /* malformed */ }
     } else if (eventName === 'offline') {
       try { const o = JSON.parse(data) as { tool: string }; if (o.tool) onRouting(`${o.tool}:offline`) } catch { /* malformed */ }
     } else if (eventName === 'tool_error') {

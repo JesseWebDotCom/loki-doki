@@ -24,6 +24,8 @@ import { CompanionEngineProvider } from "./CompanionEngineContext";
 import { QueueBanner } from "./QueueBanner";
 import { PodcastPlayerBar } from "@/components/podcast/PodcastPlayerBar";
 import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
+import { ArtifactPane } from "@/components/canvas/ArtifactPane";
+import { useArtifactState } from "@/lib/canvas/artifactStore";
 import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
@@ -54,6 +56,10 @@ export function AppShell() {
   const { isHome, isChat, isPanel, isReader, isFullBleed, shellBackdrop } = classifyRoute(pathname);
   const { conversations, conversationId, currentProject } = useChatContext();
   const { user } = useAuth();
+  // When the Canvas pane is open, inset the whole content column on desktop so chat
+  // (and any app) reflows BESIDE the pane rather than being covered by it. Mobile
+  // keeps the pane as a full-screen overlay (no room to split), so no inset there.
+  const { paneOpen: canvasOpen } = useArtifactState();
   const navigate = useNavigate();
   const breadcrumbSearch = useAppHeaderConfig();
   // Bumped when the user clicks the app crumb; remounts the Outlet to "reload" the app.
@@ -129,8 +135,9 @@ export function AppShell() {
       {/* Fixed left sidebar */}
       <LeftSidebar />
 
-      {/* Right column */}
-      <div className="relative z-10 flex flex-1 min-w-0 flex-col">
+      {/* Right column: inset by the Canvas pane's width on desktop when it's open,
+          but only on the Chat app, which is the only place the pane renders. */}
+      <div className={`relative z-10 flex flex-1 min-w-0 flex-col transition-[padding] duration-200 ${canvasOpen && isChat ? "md:pr-[32rem] lg:pr-[40rem]" : ""}`}>
 
         {/* Queue position banner — shown when waiting for a generation slot */}
         <QueueBanner />
@@ -322,6 +329,9 @@ export function AppShell() {
             </div>
           </div>
         )}
+
+        {/* Canvas artifact pane: chat-app only (hides when you switch apps) */}
+        <ArtifactPane />
 
         {/* Persistent media player bars — shown above companion when a track is loaded */}
         <YoutubeMiniBar />

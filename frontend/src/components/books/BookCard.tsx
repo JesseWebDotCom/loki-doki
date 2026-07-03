@@ -56,7 +56,7 @@ export function BookCard({
       )}
       {pct > 0 && !completed && !inert && (
         <div className="absolute inset-x-0 bottom-0 h-1 bg-black/40">
-          <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
+          <div className="h-full bg-[var(--books-accent)]" style={{ width: `${pct}%` }} />
         </div>
       )}
     </div>

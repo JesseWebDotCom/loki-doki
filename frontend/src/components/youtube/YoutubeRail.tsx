@@ -55,7 +55,7 @@ export function YoutubeRail({ onManage }: { onManage: () => void }) {
       <LibTab tab="history" icon={History} label="History" />
       <LibTab tab="watch-later" icon={Clock} label="Watch Later" />
       <LibTab tab="liked" icon={Heart} label="Liked Videos" />
-      <LibTab tab="saved" icon={Download} label="Saved offline" />
+      <LibTab tab="saved" icon={Download} label="Offline" />
 
       <div className="mb-1 mt-5 flex items-center justify-between px-3">
         <Link to="/youtube/subscriptions"

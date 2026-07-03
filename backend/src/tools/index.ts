@@ -35,7 +35,20 @@ export interface StartNarrationDirective {
   turns: { voiceId: string | null; text: string }[]
 }
 
-export type Directive = PlayMediaDirective | StartNarrationDirective
+/** A structured client-side action telling the frontend to open a Canvas artifact
+ *  (a code snippet, markdown document, or small HTML page the companion produced).
+ *  On-chat it opens the side pane; off-chat (voice, no chat mounted) it floats the
+ *  pane over the current app. The artifact itself is already persisted; the client
+ *  loads its content from /api/artifacts/:id and, during the same turn, receives the
+ *  streaming body via `artifact_token`/`artifact_done` events. */
+export interface OpenArtifactDirective {
+  action: 'open_artifact'
+  artifactId: string
+  artifactType: 'code' | 'document' | 'html'
+  title: string
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective
 
 export interface ToolResult {
   success: boolean
@@ -145,6 +158,7 @@ import { displayAlertTool } from './displayAlert'
 import { rememberTool, forgetTool } from './memory'
 import { shoppingTool } from './shopping'
 import { codingTool } from './coding'
+import { canvasTool } from './canvas'
 import { narrateTool } from './narrate'
 
 export const toolRegistry: Tool[] = [
@@ -192,5 +206,6 @@ export const toolRegistry: Tool[] = [
   forgetTool,
   shoppingTool,
   codingTool,
+  canvasTool,
   narrateTool,
 ]

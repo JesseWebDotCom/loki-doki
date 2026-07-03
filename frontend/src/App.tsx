@@ -73,11 +73,13 @@ import { CodingPage } from '@/pages/coding/CodingPage'
 import { CamerasPage } from '@/pages/CamerasPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
+import { CanvasPage } from '@/pages/CanvasPage'
 import { PodcastLayout } from '@/components/podcast/PodcastLayout'
 import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
 import { PodcastBrowsePage } from '@/pages/podcast/PodcastBrowsePage'
 import { PodcastPreviewPage } from '@/pages/podcast/PodcastPreviewPage'
 import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
+import { PodcastOfflinePage } from '@/pages/podcast/PodcastOfflinePage'
 import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
 import { PodcastAdminPage } from '@/pages/podcast/PodcastAdminPage'
 import { DictionaryPage } from '@/pages/DictionaryPage'
@@ -129,7 +131,6 @@ const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then(
 const BooksLayout = lazy(() => import('@/components/books/BooksLayout').then((m) => ({ default: m.BooksLayout })))
 const BooksLibraryPage = lazy(() => import('@/pages/books/BooksLibraryPage').then((m) => ({ default: m.BooksLibraryPage })))
 const BooksDiscoverPage = lazy(() => import('@/pages/books/BooksDiscoverPage').then((m) => ({ default: m.BooksDiscoverPage })))
-const BooksOfflineArchivesPage = lazy(() => import('@/pages/books/BooksOfflineArchivesPage').then((m) => ({ default: m.BooksOfflineArchivesPage })))
 const BooksUploadPage = lazy(() => import('@/pages/books/BooksUploadPage').then((m) => ({ default: m.BooksUploadPage })))
 const BookReaderPage = lazy(() => import('@/pages/books/BookReaderPage').then((m) => ({ default: m.BookReaderPage })))
 const AudiobookPlayerPage = lazy(() => import('@/pages/books/AudiobookPlayerPage').then((m) => ({ default: m.AudiobookPlayerPage })))
@@ -137,6 +138,8 @@ const BookDetailPage = lazy(() => import('@/pages/books/BookDetailPage').then((m
 const BooksAudiobooksPage = lazy(() => import('@/pages/books/BooksAudiobooksPage').then((m) => ({ default: m.BooksAudiobooksPage })))
 const ArchiveBrowsePage = lazy(() => import('@/pages/books/ArchiveBrowsePage').then((m) => ({ default: m.ArchiveBrowsePage })))
 const BookPreviewPage = lazy(() => import('@/pages/books/BookPreviewPage').then((m) => ({ default: m.BookPreviewPage })))
+const BookCategoryPage = lazy(() => import('@/pages/books/BookCategoryPage').then((m) => ({ default: m.BookCategoryPage })))
+const BooksSourcesPage = lazy(() => import('@/pages/books/BooksSourcesPage').then((m) => ({ default: m.BooksSourcesPage })))
 
 const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
@@ -330,11 +333,12 @@ export default function App() {
                   <Route index element={<BooksDiscoverPage />} />
                   <Route path="library" element={<BooksLibraryPage />} />
                   <Route path="audiobooks" element={<BooksAudiobooksPage />} />
-                  <Route path="archives" element={<BooksOfflineArchivesPage />} />
                   <Route path="archives/:sourceId" element={<ArchiveBrowsePage />} />
                   <Route path="upload" element={<BooksUploadPage />} />
                   <Route path="detail/:id" element={<BookDetailPage />} />
                   <Route path="preview/:kind/:ref" element={<BookPreviewPage />} />
+                  <Route path="category/:kind/:key" element={<BookCategoryPage />} />
+                  <Route path="sources" element={<BooksSourcesPage />} />
                   <Route path="read/:id" element={<BookReaderPage />} />
                   <Route path="listen/:id" element={<AudiobookPlayerPage />} />
                 </Route>
@@ -381,6 +385,7 @@ export default function App() {
                   <Route path="browse" element={<PodcastBrowsePage />} />
                   <Route path="preview" element={<PodcastPreviewPage />} />
                   <Route path="library" element={<PodcastLibraryPage />} />
+                  <Route path="offline" element={<PodcastOfflinePage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
                   <Route path="admin" element={<PodcastAdminPage />} />
                 </Route>
@@ -402,6 +407,7 @@ export default function App() {
                 <Route path="/cameras" element={<CamerasPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
+                <Route path="/canvas" element={<CanvasPage />} />
                 <Route path="/time" element={<TimePage />} />
                 <Route path="/dictionary" element={<DictionaryPage />} />
                 <Route path="/shows" element={<ShowsHomePage />} />

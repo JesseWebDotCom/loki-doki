@@ -42,12 +42,14 @@ import { retrieveDocChunks, DOC_STUFF_BUDGET } from '@/lib/docChunks'
 import { getModel, getFastModel } from '@/lib/models'
 import { CATALOG } from '@/lib/catalog'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
+import { appendVersion as appendArtifactVersion } from '@/lib/artifacts/store'
+import type { OpenArtifactDirective } from '@/tools'
 import { logger } from '@/lib/logger'
 
 // Structured side-channel events (mirror the chat route's SSE taxonomy). Data is
 // pre-stringified so the chat route can forward it to the wire verbatim; the Pod
 // ignores these.
-export type CompanionTurnEvent = 'routing' | 'offline' | 'tool_data' | 'block' | 'sources' | 'tool_error' | 'directive'
+export type CompanionTurnEvent = 'routing' | 'offline' | 'tool_data' | 'block' | 'sources' | 'tool_error' | 'directive' | 'artifact_token' | 'artifact_done'
 
 export interface CompanionTurnParams {
   userId: string
@@ -100,6 +102,10 @@ export interface CompanionTurnParams {
   /** Base64 images for a vision turn — attached to the user message. The caller
    *  is responsible for passing a vision-capable model. */
   images?: string[]
+  /** The Canvas artifact currently open/last-active in this chat, if any. When the
+   *  user's message reads like an edit instruction, the turn edits THIS artifact
+   *  (streams a new version into the same pane) instead of creating a new one. */
+  focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } | null
 }
 
 export interface CompanionTurnHandlers {
@@ -210,6 +216,30 @@ function isEmptyResult(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false
   const d = data as { results?: unknown }
   return Array.isArray(d.results) && d.results.length === 0
+}
+
+// Edit-intent detector for the focused Canvas artifact. Only consulted when a canvas
+// is actually open (see the override in runCompanionTurn), so it can be liberal. A
+// clear NEW-creation ("write me a new script") is excluded; an imperative tweak
+// ("make it shorter", "add error handling") or a reference to the artifact
+// ("the code", "this function") counts as an edit.
+const NEW_CREATION_RE = /\b(write|create|make|draft|generate|build|compose)\s+(me\s+)?(a|an|another|the)\s+\w/i
+// Imperative edit verbs, anywhere in the message (so "can you add X" counts too).
+const EDIT_VERB_RE = /\b(add|remove|delete|change|fix|rewrite|refactor|rename|update|shorten|lengthen|expand|simplify|improve|polish|translate|convert|replace|wrap|comment|document|optimi[sz]e|handle|support|adjust|tweak|revise|redo|append|insert|swap|reformat|indent|rework|instead|as well|make it|make the|turn it|turn the)\b|^\s*also\b/i
+const ARTIFACT_REF_RE = /\b(it|this|that|the (code|script|program|function|file|doc|document|page|html|markdown|essay|letter|list|snippet|class|method))\b/i
+// A question ABOUT the artifact ("how does this work?", "is this right?") should be
+// explained, not trigger a rewrite — unless it also carries an edit verb ("can you
+// make it shorter?").
+const QUESTION_RE = /\?\s*$|^\s*(how|what|why|does|do|did|is|are|was|were|where|when|who|which|explain|tell me|describe|show me)\b/i
+
+function looksLikeArtifactEdit(msg: string): boolean {
+  const m = msg.trim()
+  const hasEditVerb = EDIT_VERB_RE.test(m)
+  // Pure question with no edit verb = "explain this", not an edit.
+  if (QUESTION_RE.test(m) && !hasEditVerb) return false
+  // "write me a NEW thing" with no back-reference is a fresh artifact, not an edit.
+  if (NEW_CREATION_RE.test(m) && !ARTIFACT_REF_RE.test(m)) return false
+  return hasEditVerb || ARTIFACT_REF_RE.test(m)
 }
 
 /** Does this message look like it's about / acting on the conversation's attached document? */
@@ -324,8 +354,26 @@ export async function runCompanionTurn(
     if (docTool) { tool = docTool; args = { instruction: p.message } }
   }
 
+  // Focused-canvas edit override: when a Canvas artifact is open in this chat and the
+  // message reads like an instruction to change it, edit THAT artifact (canvas tool in
+  // edit mode → streams a new version into the same pane, reopening it) instead of
+  // creating a new one or just chatting. Only overrides a conversational route or a
+  // canvas(create) route — never hijacks a real tool call (weather, search, HA, …).
+  if (p.focusedArtifact && allowedToolIds.has('canvas') && (!tool || tool.id === 'canvas') && looksLikeArtifactEdit(p.message)) {
+    const canvasTool = toolRegistry.find((t) => t.id === 'canvas')
+    if (canvasTool) { tool = canvasTool; args = { editArtifactId: p.focusedArtifact.id, instruction: p.message } }
+  }
+
   const hasClientCoords = typeof p.clientLat === 'number' && typeof p.clientLng === 'number'
   let ollamaMessages: OllamaChatMessage[] = [...history, { role: 'user', content: p.message }]
+
+  // Canvas artifact mode: when a tool opens an artifact (the `canvas` tool emits an
+  // `open_artifact` directive), the LLM synthesis pass that follows IS the artifact
+  // body. We tee those tokens into `artifact_token` events (streamed live into the
+  // canvas pane) instead of the chat bubble, persist them as the artifact's first
+  // version, and leave a compact "Created …" line in the transcript. Set inside the
+  // tool block below; consumed by the streaming loop.
+  let artifactMode: OpenArtifactDirective | null = null
 
   // Multi-intent turns ("turn off the lights and play some jazz"): the extra
   // calls run serially after the primary, each folding its result into the turn.
@@ -447,6 +495,9 @@ export async function runCompanionTurn(
         // synthesis pass — emit the directive now so the player starts as the
         // reply streams in.
         if (result.directive) emitEvent('directive', JSON.stringify(result.directive))
+
+        // Canvas: the following synthesis stream is the artifact body, not chat prose.
+        if (result.directive?.action === 'open_artifact') artifactMode = result.directive
 
         // The tool ran fine but found nothing (e.g. a web search on a garbled or
         // misheard name). Without an explicit signal the model treats the empty
@@ -688,12 +739,18 @@ export async function runCompanionTurn(
         if (firstToken) { _lap('first-token'); firstToken = false }
         const raw = chunk.message.content
         fullResponse += raw
-        const emitted = profanityBuf ? profanityBuf.flush(raw) : raw
-        if (emitted) h.onToken(emitted)
+        if (artifactMode) {
+          // Artifact body → stream into the canvas pane, NOT the chat bubble. No
+          // profanity masking (it's code/document content, not spoken prose).
+          emitEvent('artifact_token', JSON.stringify({ artifactId: artifactMode.artifactId, token: raw }))
+        } else {
+          const emitted = profanityBuf ? profanityBuf.flush(raw) : raw
+          if (emitted) h.onToken(emitted)
+        }
       }
       if (chunk.done) {
         // Drain any partial word left in the profanity buffer
-        if (profanityBuf) {
+        if (profanityBuf && !artifactMode) {
           const tail = profanityBuf.drain()
           if (tail) h.onToken(tail)
         }
@@ -717,8 +774,47 @@ export async function runCompanionTurn(
     logger.error(`[companion-turn] stream failed after ${fullResponse.length} chars: ${streamError}`)
   }
 
+  // ── Canvas finalization ─────────────────────────────────────────────────────
+  // The synthesis stream was the artifact body. Persist it as version 1, tell the
+  // pane it's done, drop a compact card into the transcript, and replace the chat
+  // message with a one-line pointer (the body lives in the canvas, not the bubble).
+  let finalText = fullResponse
+  if (artifactMode) {
+    const body = stripWrappingFence(fullResponse).trim()
+    try {
+      if (body) await appendArtifactVersion(artifactMode.artifactId, body, 'assistant')
+    } catch (e) {
+      logger.warn(`[companion-turn] artifact persist failed: ${e}`)
+    }
+    emitEvent('artifact_done', JSON.stringify({ artifactId: artifactMode.artifactId, content: body }))
+    emitEvent('block', JSON.stringify({
+      kind: 'artifact',
+      data: {
+        artifactId: artifactMode.artifactId,
+        artifactType: artifactMode.artifactType,
+        title: artifactMode.title,
+        preview: body.slice(0, 240),
+      },
+    }))
+    finalText = `Created **${artifactMode.title}** in your canvas.`
+    // Surface the pointer line in the chat bubble too (nothing else was streamed there).
+    if (completed) h.onToken(finalText)
+    toolNotes.push(`Canvas: created ${artifactMode.artifactType} "${artifactMode.title}"`)
+    // Off-chat (voice/overlay/pod/telegram): the pane auto-opens, but also drop a
+    // bell notification so it's findable later (the "always tray/notify" contract).
+    if (completed && body && p.surface && p.surface !== 'chat') {
+      void import('@/lib/notify').then((n) => n.emitNotification({
+        type: 'system',
+        userId: p.userId,
+        title: 'Canvas ready',
+        body: `"${artifactMode!.title}" is ready in your canvas.`,
+        url: '/canvas',
+      })).catch(() => {})
+    }
+  }
+
   return {
-    text: fullResponse, // RAW — callers persist raw and mask at read time
+    text: finalText, // RAW — callers persist raw and mask at read time
     toolId: tool?.id ?? null,
     viaDirectReply: false,
     completed,
@@ -726,6 +822,15 @@ export async function runCompanionTurn(
     ...(streamError && { error: streamError }),
     ...(toolNotes.length > 0 && { toolNote: toolNotes.join(' | ').slice(0, 800) }),
   }
+}
+
+/** The model sometimes wraps a whole artifact body in a single ```lang … ``` fence
+ *  despite being told not to. Strip exactly one such outer fence (leaving inner
+ *  fences intact) so the canvas stores clean code/markdown, not a fenced blob. */
+function stripWrappingFence(s: string): string {
+  const t = s.trim()
+  const m = t.match(/^```[^\n]*\n([\s\S]*?)\n?```$/)
+  return m ? m[1]! : s
 }
 
 // ── Shared per-user/character context resolution ─────────────────────────────

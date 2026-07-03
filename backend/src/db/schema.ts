@@ -1839,6 +1839,20 @@ export const bookProgress = sqliteTable('book_progress', {
   userBookUnique: unique().on(t.userId, t.bookId),
 }))
 
+// Custom self-hosted OPDS indexers (Calibre-Web, Kavita, COPS, etc.) as extra Book
+// Store sources. Admin-managed (Admin > Integrations > Books), multiple allowed —
+// replaces an earlier single-slot design that lived in tool_global_config.
+export const bookIndexers = sqliteTable('book_indexers', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+  baseUrl: text('base_url').notNull(),
+  username: text('username'),
+  password: text('password'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── Skills / Bundles ───────────────────────────────────────────────────────────
 // User-authored markdown "skills" (frontmatter + body) shape the companion's reply.
 // The skill definitions live on disk (family scope: {dataDir}/skills/*.md, default off;
@@ -1944,6 +1958,45 @@ export const chatDocumentEdits = sqliteTable('chat_document_edits', {
   text: text('text').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ─── Canvas artifacts ───────────────────────────────────────────────────────────
+// A persistent, editable "canvas" the companion produces — a code snippet, a
+// markdown document, or a small HTML page — surfaced beside chat (or, off-chat,
+// as a floating pane) instead of dumped into the transcript. `currentContent`
+// denormalizes the latest version for fast list/open; full history lives in
+// artifact_versions. Personal-scoped (like chatDocumentEdits); conversationId is
+// nullable because an off-chat voice turn may have no real conversation.
+export const artifacts = sqliteTable('artifacts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id'),
+  messageId: text('message_id'),
+  type: text('type', { enum: ['code', 'document', 'html'] }).notNull(),
+  language: text('language'),            // e.g. 'typescript', 'python', 'markdown'
+  title: text('title').notNull(),
+  currentContent: text('current_content').notNull().default(''),
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  archivedAt: integer('archived_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  userIdx: index('artifacts_user_idx').on(t.userId),
+  convIdx: index('artifacts_conversation_idx').on(t.conversationId),
+}))
+
+// One immutable revision of an artifact. `author` distinguishes the assistant's
+// generation/edits from the user's own hand edits; `summary` is an optional
+// human-readable note ("Made the function async").
+export const artifactVersions = sqliteTable('artifact_versions', {
+  id: text('id').primaryKey(),
+  artifactId: text('artifact_id').notNull().references(() => artifacts.id, { onDelete: 'cascade' }),
+  content: text('content').notNull(),
+  summary: text('summary'),
+  author: text('author', { enum: ['assistant', 'user'] }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  artifactIdx: index('artifact_versions_artifact_idx').on(t.artifactId),
+}))
 
 // ─── TTS pronunciation packs ───────────────────────────────────────────────────
 // Named, toggleable sets of respelling rules shipped with each app. Built-ins

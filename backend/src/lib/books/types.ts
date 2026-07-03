@@ -18,18 +18,26 @@ export interface GutenbergCategory {
 }
 
 /** Curated genre shelves for the Book Store — Gutendex's `topic` filter matches
- *  against both `subjects` and `bookshelves` substrings. */
+ *  against both `subjects` and `bookshelves` substrings. Each entry verified live
+ *  to return a real, non-trivial result count before being added. */
 export const GUTENBERG_CATEGORIES: GutenbergCategory[] = [
   { label: 'Classics', topic: 'classic' },
   { label: 'Mystery & Detective', topic: 'mystery' },
   { label: 'Science Fiction', topic: 'science fiction' },
+  { label: 'Fantasy', topic: 'fantasy' },
   { label: 'Romance', topic: 'romance' },
   { label: 'Horror & Gothic', topic: 'horror' },
+  { label: 'Adventure', topic: 'adventure' },
+  { label: 'Drama & Plays', topic: 'drama' },
   { label: 'History', topic: 'history' },
+  { label: 'Biography & Memoir', topic: 'biography' },
   { label: 'Philosophy', topic: 'philosophy' },
   { label: 'Poetry', topic: 'poetry' },
+  { label: 'Essays', topic: 'essays' },
+  { label: 'Humor', topic: 'humor' },
+  { label: 'Travel & Exploration', topic: 'travel' },
+  { label: 'Fairy Tales & Folklore', topic: 'fairy tales' },
   { label: "Children's Literature", topic: 'children' },
-  { label: 'Adventure', topic: 'adventure' },
 ]
 
 export interface ResolvedDownload {

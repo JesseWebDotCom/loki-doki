@@ -77,7 +77,7 @@ export function BooksDiscoverPage() {
           <div className="flex justify-center py-16"><Spinner size="lg" /></div>
         ) : (
           shelves.filter((s) => s.results.length > 0).map((shelf) => (
-            <BookShelf key={shelf.category.topic} title={shelf.category.label}>
+            <BookShelf key={shelf.category.topic} title={shelf.category.label} to={`/books/category/ebook/${encodeURIComponent(shelf.category.topic)}`}>
               {shelf.results.map((r) => {
                 const key = resultKey(r)
                 const link = previewLink(r)

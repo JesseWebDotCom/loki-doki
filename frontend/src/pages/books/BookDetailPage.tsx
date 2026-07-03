@@ -204,10 +204,10 @@ export function BookDetailPage() {
             </div>
 
             {isEpub && !audioAsset && (
-              <div className="mt-8 max-w-xl rounded-card border border-brand/30 bg-brand/5 p-4">
+              <div className="mt-8 max-w-xl rounded-card border border-[var(--books-accent)]/30 bg-[var(--books-accent-soft)] p-4">
                 <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-control bg-brand/15">
-                    <Sparkles className="size-5 text-brand" />
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-control bg-[var(--books-accent-soft)]">
+                    <Sparkles className="size-5 text-[var(--books-accent-fg)]" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold">Convert to Audiobook</p>

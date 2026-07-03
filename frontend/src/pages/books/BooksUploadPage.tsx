@@ -50,7 +50,7 @@ export function BooksUploadPage() {
             onClick={() => inputRef.current?.click()}
             className={cn(
               'flex w-full max-w-md cursor-pointer flex-col items-center gap-3 rounded-card border-2 border-dashed px-8 py-16 text-center transition-colors',
-              dragging ? 'border-brand bg-brand/5' : 'border-border hover:border-border/80 hover:bg-accent/30',
+              dragging ? 'border-[var(--books-accent)] bg-[var(--books-accent-soft)]' : 'border-border hover:border-border/80 hover:bg-accent/30',
             )}
           >
             {uploading ? <Spinner size="lg" /> : <FileUp className="size-10 text-muted-foreground/50" />}

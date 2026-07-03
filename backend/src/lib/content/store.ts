@@ -20,7 +20,7 @@ import { mkdir, rename, cp, rm, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { and, eq, lt, ne, notExists, or } from 'drizzle-orm'
 import { db } from '@/db'
-import { blobs, mediaAssets, narrationSessions, podcastDownloads, ytDownloads } from '@/db/schema'
+import { blobs, mediaAssets, narrationSessions, podcastDownloads, ytDownloads, bookLibrary } from '@/db/schema'
 import { resolveUserPath, toRelativePath } from '@/lib/storage/paths'
 import { logger } from '@/lib/logger'
 
@@ -162,6 +162,10 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
   // Narration exports (sourceType='narration') have no per-user ref table — they're personal,
   // non-shared artifacts pinned directly by their owning narration_sessions row instead; the
   // asset is only orphaned once that session itself is deleted.
+  //
+  // Books (sourceType='book') are a shared household catalog like podcasts/YouTube, but
+  // bookLibrary has no assetId FK — it points at bookId, which equals mediaAssets.sourceId
+  // for book assets — so its ref check joins on sourceId instead of assetId like the others.
   const orphanAssets = await db.delete(mediaAssets).where(and(
     lt(mediaAssets.createdAt, cutoff),
     notExists(db.select().from(ytDownloads).where(eq(ytDownloads.assetId, mediaAssets.id))),
@@ -169,6 +173,10 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
     or(
       ne(mediaAssets.sourceType, 'narration'),
       notExists(db.select().from(narrationSessions).where(eq(narrationSessions.id, mediaAssets.sourceId))),
+    ),
+    or(
+      ne(mediaAssets.sourceType, 'book'),
+      notExists(db.select().from(bookLibrary).where(eq(bookLibrary.bookId, mediaAssets.sourceId))),
     ),
   )).returning({ id: mediaAssets.id })
 

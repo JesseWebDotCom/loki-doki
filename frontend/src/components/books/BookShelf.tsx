@@ -8,8 +8,10 @@ import type { ReactNode } from 'react'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { Spinner } from '@/components/ui/spinner'
 
-export function BookShelf({ title, count, loading, empty, children }: {
+export function BookShelf({ title, to, count, loading, empty, children }: {
   title: string
+  /** "See all" link: the deep view-by-category page behind this shelf's preview. */
+  to?: string
   count?: number
   loading?: boolean
   empty?: ReactNode
@@ -17,7 +19,7 @@ export function BookShelf({ title, count, loading, empty, children }: {
 }) {
   return (
     <section>
-      <SectionHeader title={title} count={count} className="mb-4" />
+      <SectionHeader title={title} to={to} count={count} className="mb-4" />
       {loading ? (
         <div className="flex h-40 items-center justify-center"><Spinner /></div>
       ) : empty ? (

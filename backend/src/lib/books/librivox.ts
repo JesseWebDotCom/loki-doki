@@ -42,13 +42,19 @@ export const LIBRIVOX_CATEGORIES: LibrivoxCategory[] = [
   { label: 'Classic Fiction', subject: 'fiction' },
   { label: 'Mystery & Detective', subject: 'mystery' },
   { label: 'Science Fiction', subject: 'science fiction' },
+  { label: 'Fantasy', subject: 'fantasy' },
   { label: 'Romance', subject: 'romance' },
   { label: 'Horror & Gothic', subject: 'horror' },
+  { label: 'Adventure', subject: 'adventure' },
+  { label: 'Drama & Plays', subject: 'drama' },
   { label: 'History', subject: 'history' },
+  { label: 'Biography & Memoir', subject: 'biography' },
   { label: 'Philosophy', subject: 'philosophy' },
   { label: 'Poetry', subject: 'poetry' },
+  { label: 'Essays', subject: 'essays' },
+  { label: 'Humor', subject: 'humor' },
+  { label: 'Travel & Exploration', subject: 'travel' },
   { label: "Children's Literature", subject: 'children' },
-  { label: 'Adventure', subject: 'adventure' },
 ]
 
 interface IaSearchDoc {
@@ -127,6 +133,13 @@ export async function browseAllLibrivoxCategories(): Promise<{ category: Librivo
   return Promise.all(
     LIBRIVOX_CATEGORIES.map(async (category) => ({ category, results: await browseLibrivoxByCategory(category.subject) })),
   )
+}
+
+/** The "view all" page behind a shelf's title — archive.org paginates via
+ *  rows/start directly, so this is just a bigger `rows` request rather than
+ *  Gutenberg's cursor-following, cached under a distinct key from the shelf preview. */
+export async function browseLibrivoxByCategoryFull(subject: string, limit = 90): Promise<LibrivoxSearchResult[]> {
+  return categoryCache.getOrCompute(`${subject}::full`, () => fetchLibrivoxCategory(subject, limit))
 }
 
 async function fetchLibrivoxCategory(subject: string, limit: number): Promise<LibrivoxSearchResult[]> {

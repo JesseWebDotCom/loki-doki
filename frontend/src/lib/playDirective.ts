@@ -2,6 +2,7 @@ import { instantStationDj } from '@/lib/music/catalogApi'
 import type { DjStation } from '@/lib/music/radioStations'
 import type { YtMiniTrack } from '@/context/YoutubePlaybackContext'
 import { playNarrationTurns, type NarrationPlayTurn } from '@/lib/narration/playSession'
+import { openFromDirective } from '@/lib/canvas/artifactStore'
 
 /** Mirror of the backend `PlayMediaDirective` (tools/index.ts). Emitted over the
  *  chat/companion SSE stream as a `directive` event so the companion can start
@@ -30,12 +31,22 @@ export interface StartNarrationDirective {
   turns: NarrationPlayTurn[]
 }
 
-export type Directive = PlayMediaDirective | StartNarrationDirective
+/** Mirror of the backend `OpenArtifactDirective` (tools/index.ts). Emitted when the
+ *  companion creates a Canvas artifact so the client opens the pane (over any app,
+ *  even with chat closed). The body streams in afterwards via artifact_token events. */
+export interface OpenArtifactDirective {
+  action: 'open_artifact'
+  artifactId: string
+  artifactType: 'code' | 'document' | 'html'
+  title: string
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective
 
 export interface PlayDirectiveDeps {
-  /** YoutubePlaybackContext.playExpanded — docks + expands one clip. */
+  /** YoutubePlaybackContext.playExpanded - docks + expands one clip. */
   playExpanded: (t: YtMiniTrack) => void
-  /** RadioContext.start — begins an AI radio station. */
+  /** RadioContext.start - begins an AI radio station. */
   startStation: (s: DjStation, opts?: { silentIntro?: boolean }) => void
 }
 
@@ -48,6 +59,11 @@ export function parsePlayDirective(raw: unknown): Directive | null {
     if (!d.sessionId || !Array.isArray(d.turns)) return null
     return d as StartNarrationDirective
   }
+  if (action === 'open_artifact') {
+    const d = raw as Partial<OpenArtifactDirective>
+    if (!d.artifactId || !d.artifactType) return null
+    return d as OpenArtifactDirective
+  }
   const d = raw as Partial<PlayMediaDirective>
   if (d.action !== 'play_media') return null
   if (d.media !== 'video' && d.media !== 'station') return null
@@ -57,6 +73,12 @@ export function parsePlayDirective(raw: unknown): Directive | null {
 /** Honor a play/narration directive. No navigation: playback starts wherever
  *  the user is (global mini-player, or the shared TTS playback singleton). */
 export function applyPlayDirective(directive: Directive, deps: PlayDirectiveDeps): void {
+  if (directive.action === 'open_artifact') {
+    // The canvas store is a global singleton, so this works whether or not the chat
+    // page (and its deps) are mounted - the pane floats over the current app.
+    openFromDirective(directive)
+    return
+  }
   if (directive.action === 'start_narration') {
     void playNarrationTurns(directive.turns)
     return

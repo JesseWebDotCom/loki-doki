@@ -155,6 +155,18 @@ export async function retryBookDownload(bookId: string): Promise<{ jobId: string
   return r.json()
 }
 
+/** Removes one or more books from your library (Clear Selected/Clear All on the
+ *  Offline view). Only your own library ref + progress are removed, see
+ *  backend/src/lib/books/library.ts::removeFromLibrary. */
+export async function removeBooksFromLibrary(bookIds: string[]): Promise<void> {
+  const r = await fetch('/api/books/library/remove', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bookIds }),
+  })
+  if (!r.ok) throw new Error('Could not remove from library')
+}
+
 export async function enqueueBookTts(bookId: string): Promise<{ ready: boolean }> {
   const r = await fetch(`/api/books/${bookId}/tts`, { method: 'POST', credentials: 'include' })
   if (!r.ok) {
@@ -224,4 +236,75 @@ export async function browseAllLibrivoxCategories(): Promise<LibrivoxShelf[]> {
   if (!r.ok) return []
   const d = (await r.json()) as { shelves?: LibrivoxShelf[] }
   return d.shelves ?? []
+}
+
+/** The full "view all" list behind a Book Store shelf's title (a few pages, not
+ *  just the 12-item preview). */
+export async function browseGutenbergCategoryFull(topic: string): Promise<BookSearchResult[]> {
+  const r = await fetch(`/api/books/categories/${encodeURIComponent(topic)}/full`, { credentials: 'include' })
+  if (!r.ok) return []
+  const d = (await r.json()) as { results?: BookSearchResult[] }
+  return d.results ?? []
+}
+
+/** The full "view all" list behind an Audiobook Store shelf's title. */
+export async function browseLibrivoxCategoryFull(subject: string): Promise<LibrivoxSearchResult[]> {
+  const r = await fetch(`/api/books/librivox/categories/${encodeURIComponent(subject)}/full`, { credentials: 'include' })
+  if (!r.ok) return []
+  const d = (await r.json()) as { results?: LibrivoxSearchResult[] }
+  return d.results ?? []
+}
+
+// ── Sources: on/off for built-ins (any user), custom OPDS indexers (admin CRUD) ──
+
+export type BuiltinSource = 'gutenberg' | 'archiveorg' | 'librivox'
+export interface BuiltinSourceToggles { gutenberg: boolean; archiveorg: boolean; librivox: boolean }
+export interface BookIndexer { id: string; label: string; baseUrl: string; username: string | null; hasPassword: boolean; enabled: boolean }
+
+export async function getBookSources(): Promise<{ toggles: BuiltinSourceToggles; indexers: BookIndexer[] }> {
+  const r = await fetch('/api/books/sources', { credentials: 'include' })
+  if (!r.ok) return { toggles: { gutenberg: true, archiveorg: true, librivox: true }, indexers: [] }
+  return r.json()
+}
+
+export async function setBookSourceToggle(source: BuiltinSource, enabled: boolean): Promise<void> {
+  await fetch('/api/books/sources/toggle', {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, enabled }),
+  })
+}
+
+export async function listBookIndexers(): Promise<BookIndexer[]> {
+  const r = await fetch('/api/admin/books/indexers', { credentials: 'include' })
+  if (!r.ok) return []
+  const d = (await r.json()) as { indexers?: BookIndexer[] }
+  return d.indexers ?? []
+}
+
+export async function createBookIndexer(input: { label: string; baseUrl: string; username?: string; password?: string; enabled?: boolean }): Promise<BookIndexer> {
+  const r = await fetch('/api/admin/books/indexers', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const d = await r.json() as { indexer: BookIndexer }
+  return d.indexer
+}
+
+export async function updateBookIndexer(id: string, patch: { label?: string; baseUrl?: string; username?: string | null; password?: string; enabled?: boolean }): Promise<void> {
+  await fetch(`/api/admin/books/indexers/${id}`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export async function deleteBookIndexer(id: string): Promise<void> {
+  await fetch(`/api/admin/books/indexers/${id}`, { method: 'DELETE', credentials: 'include' })
+}
+
+export async function testBookIndexer(id: string): Promise<{ ok: boolean; resultCount?: number; error?: string }> {
+  const r = await fetch(`/api/admin/books/indexers/${id}/test`, { method: 'POST', credentials: 'include' })
+  return r.json()
 }
