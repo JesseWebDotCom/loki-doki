@@ -3,6 +3,7 @@ import { useGenerationContext } from "@/context/GenerationContext";
 import { usePrivacy } from "@/context/PrivacyContext";
 import { useBusyAppPaths } from "@/context/SetupProgressContext";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
@@ -37,6 +38,8 @@ import { APP_GROUPS } from "@/lib/appCategories";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
 import { useAppFeatures } from "@/hooks/useAppFeatures";
 import { useInstalledArchives } from "@/hooks/useInstalledArchives";
+import { usePresenceStatus } from "@/hooks/usePresenceStatus";
+import { STATUS_PRESETS } from "@/lib/presence";
 import { AppIconTile } from "@/components/shared/AppIconTile";
 import { ArchiveIcon } from "@/components/shared/ArchiveIcon";
 import { BrandMark } from "@/components/shared/BrandMark";
@@ -48,6 +51,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SortableNavItem } from "./SortableNavItem";
@@ -296,72 +302,47 @@ function ArchiveIconLink({ archive }: { archive: PinnedArchive }) {
 }
 
 // ── Quick status switcher ───────────────────────────────────────────────────
-// Hex values are presence-state data rendered via inline styles, not UI accents.
-// design-ok(hex-in-tsx): status preset color data
-const STATUS_PRESETS = [
-  { state: 'available', label: 'Available', color: '#22c55e' },
-  { state: 'busy',      label: 'Busy',      color: '#ef4444' },
-  { state: 'focusing',  label: 'Focusing',  color: '#3b82f6' },
-  { state: 'dnd',       label: 'DND',       color: '#7c3aed' },
-  { state: 'brb',       label: 'BRB',       color: '#eab308' },
-] as const
-
-function StatusQuickSwitcher({ userId }: { userId: string }) {
-  const [current, setCurrent] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (!userId) return
-    fetch('/api/pod/presence', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: { status?: { state?: string } | null } | null) => {
-        setCurrent(d?.status?.state ?? null)
-      })
-      .catch(() => { /* ignore */ })
-  }, [userId])
-
-  const setStatus = async (state: string | null) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      if (!state) {
-        await fetch('/api/pod/status', { method: 'DELETE', credentials: 'include' })
-        setCurrent(null)
-      } else {
-        await fetch('/api/pod/status', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state }),
-        })
-        setCurrent(state)
-      }
-    } catch { /* ignore */ } finally { setBusy(false) }
-  }
+// Current/setStatus/busy are lifted to LeftSidebar (usePresenceStatus) so the
+// profile avatar can show the same status dot the switcher itself sets.
+function StatusQuickSwitcher({ current, setStatus, busy }: {
+  current: string | null
+  setStatus: (state: string | null) => void | Promise<void>
+  busy: boolean
+}) {
+  const currentPreset = STATUS_PRESETS.find((p) => p.state === current)
 
   return (
-    <div className="px-2 py-1">
-      <p className="text-overline text-muted-foreground/70 mb-1.5 px-1">Status</p>
-      <div className="flex flex-wrap gap-1">
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="flex items-center gap-2">
+        <Circle
+          className="size-2.5 shrink-0 fill-current"
+          style={{ color: currentPreset?.color ?? 'var(--muted-foreground)' }}
+        />
+        <span className="flex-1">{currentPreset ? currentPreset.label : 'Set status'}</span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
         {STATUS_PRESETS.map((p) => (
-          <button
+          <DropdownMenuItem
             key={p.state}
             disabled={busy}
             onClick={() => setStatus(current === p.state ? null : p.state)}
-            className={cn(
-              "flex items-center gap-1 rounded-full px-2 py-0.5 text-caption transition-colors disabled:opacity-60",
-              current === p.state
-                ? "text-white shadow-sm"
-                : "bg-muted/60 text-muted-foreground hover:bg-muted",
-            )}
-            style={current === p.state ? { backgroundColor: p.color } : undefined}
-            title={current === p.state ? 'Click to clear' : `Set status to ${p.label}`}
+            className="flex items-center gap-2"
           >
-            <Circle className="size-2 shrink-0 fill-current" style={{ color: current === p.state ? undefined : p.color }} />
-            <span>{p.label}</span>
-          </button>
+            <Circle className="size-2.5 shrink-0 fill-current" style={{ color: p.color }} />
+            <span className="flex-1">{p.label}</span>
+            {current === p.state && <Check className="size-3.5 shrink-0" />}
+          </DropdownMenuItem>
         ))}
-      </div>
-    </div>
+        {current && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={busy} onClick={() => setStatus(null)} className="text-muted-foreground">
+              Clear status
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 
@@ -395,6 +376,8 @@ export function LeftSidebar() {
   const [launcherOpen, setLauncherOpen] = useState(false)
   const { unreadCount, notifications, loadNotifications, markRead, markAllRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
+  const presence = usePresenceStatus(user?.id)
+  const currentStatusPreset = STATUS_PRESETS.find((p) => p.state === presence.current)
 
   const handleNotifOpen = useCallback((open: boolean) => {
     setNotifOpen(open)
@@ -609,19 +592,32 @@ export function LeftSidebar() {
                       : "size-10 justify-center hover:bg-foreground/5",
                   )}
                 >
-                  <UserAvatar
-                    user={user}
-                    size={isWide ? 32 : 28}
-                    className={cn("shrink-0 rounded-control", isWide ? "size-8" : "size-7")}
-                  />
+                  <span className="relative shrink-0">
+                    <UserAvatar
+                      user={user}
+                      size={isWide ? 32 : 28}
+                      className={cn("rounded-control", isWide ? "size-8" : "size-7")}
+                    />
+                    {currentStatusPreset && (
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-sidebar"
+                        style={{ backgroundColor: currentStatusPreset.color }}
+                        title={currentStatusPreset.label}
+                      />
+                    )}
+                  </span>
                   {isWide && (
                     <>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-semibold leading-tight">
                           {user.nickname || user.firstName}
                         </span>
-                        <span className="block truncate text-caption leading-tight text-muted-foreground">
-                          {user.role === "admin" ? "Administrator" : "Member"}
+                        <span className="flex items-center gap-1.5 truncate text-caption leading-tight text-muted-foreground">
+                          <Circle
+                            className="size-1.5 shrink-0 fill-current"
+                            style={{ color: currentStatusPreset?.color ?? 'var(--muted-foreground)' }}
+                          />
+                          {currentStatusPreset ? currentStatusPreset.label : 'Set status'}
                         </span>
                       </span>
                       <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -649,7 +645,7 @@ export function LeftSidebar() {
                     No notifications
                   </div>
                 ) : (
-                  notifications.slice(0, 8).map((n) => {
+                  notifications.slice(0, 4).map((n) => {
                     const NIcon = notifIcon(n.type);
                     return (
                       <DropdownMenuItem
@@ -676,7 +672,7 @@ export function LeftSidebar() {
                 )}
                 <DropdownMenuSeparator />
                 {/* Quick status switcher */}
-                <StatusQuickSwitcher userId={user?.id ?? ''} />
+                <StatusQuickSwitcher current={presence.current} setStatus={presence.setStatus} busy={presence.busy} />
                 <DropdownMenuSeparator />
                 {/* User menu items */}
                 <DropdownMenuItem asChild>

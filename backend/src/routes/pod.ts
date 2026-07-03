@@ -7,7 +7,8 @@
 
 import { Hono } from 'hono'
 import { streamSSE, stream } from 'hono/streaming'
-import { requireAdmin, requireAuth } from '@/middleware/auth'
+import { getCookie } from 'hono/cookie'
+import { requireAdmin, requireAuth, resolveSession } from '@/middleware/auth'
 import { logger } from '@/lib/logger'
 import { buildControllerAtlas, resolveLocalArt, renderPodcastCoverForShow, toDeviceJpeg } from '@/lib/pod/controllerAtlas'
 import type { AppEnv } from '@/types'
@@ -342,12 +343,13 @@ pod.post('/devices/:id/display', requireAdmin, async (c) => {
 // POST /api/pod/sleep                — enter/exit sleep mode
 
 pod.get('/presence', async (c) => {
-  const user = c.get('user')
-  if (!user) return c.json({ error: 'unauthorized' }, 401)
-  // If a deviceId is provided, resolve the owner (for the headless display page which
-  // is not authenticated as the device's user).
+  // Soft session resolution: an authenticated browser has a session cookie, but the
+  // headless display page (kiosk Pod) does not — it identifies itself via ?deviceId=
+  // instead. Only reject if neither resolves to a user.
+  const token = getCookie(c, 'session')
+  const sessionUser = token ? await resolveSession(token) : null
   const deviceId = c.req.query('deviceId')
-  let userId = user.id
+  let userId = sessionUser?.id
   if (deviceId) {
     const { db: dbInst } = await import('@/db')
     const { devices } = await import('@/db/schema')
@@ -355,11 +357,12 @@ pod.get('/presence', async (c) => {
     const [dev] = await dbInst.select({ userId: devices.userId }).from(devices).where(eq(devices.id, deviceId)).limit(1)
     if (dev) userId = dev.userId
   }
+  if (!userId) return c.json({ error: 'unauthorized' }, 401)
   const presence = await getUserPresence(userId)
   return c.json(presence)
 })
 
-pod.post('/status', async (c) => {
+pod.post('/status', requireAuth, async (c) => {
   const user = c.get('user')
   if (!user) return c.json({ error: 'unauthorized' }, 401)
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -382,7 +385,7 @@ pod.post('/status', async (c) => {
   return c.json({ ok: true, status })
 })
 
-pod.delete('/status', async (c) => {
+pod.delete('/status', requireAuth, async (c) => {
   const user = c.get('user')
   if (!user) return c.json({ error: 'unauthorized' }, 401)
   await clearUserStatus(user.id)
@@ -391,7 +394,7 @@ pod.delete('/status', async (c) => {
   return c.json({ ok: true })
 })
 
-pod.post('/sleep', async (c) => {
+pod.post('/sleep', requireAuth, async (c) => {
   const user = c.get('user')
   if (!user) return c.json({ error: 'unauthorized' }, 401)
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -414,7 +417,7 @@ pod.post('/sleep', async (c) => {
 // ── User alert (ephemeral overlay on screen-Pod displays) ────────────────────────
 // POST /api/pod/alert  { emoji, message, color?, ttlSec? }
 // DELETE /api/pod/alert
-pod.post('/alert', async (c) => {
+pod.post('/alert', requireAuth, async (c) => {
   const user = c.get('user')
   if (!user?.id) return c.json({ error: 'not authenticated' }, 401)
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -431,7 +434,7 @@ pod.post('/alert', async (c) => {
   return c.json({ ok: true, alert })
 })
 
-pod.delete('/alert', async (c) => {
+pod.delete('/alert', requireAuth, async (c) => {
   const user = c.get('user')
   if (!user?.id) return c.json({ error: 'not authenticated' }, 401)
   clearUserAlert(user.id)

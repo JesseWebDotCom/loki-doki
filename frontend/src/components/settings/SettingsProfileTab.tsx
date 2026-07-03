@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import { Camera, Check, KeyRound } from 'lucide-react'
+import { Camera, Check, Circle, KeyRound } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,8 @@ import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 import { DicebearAvatarPicker } from '@/components/shared/DicebearAvatarPicker'
 import { randomSeed } from '@/components/companion/styleSchemas'
+import { usePresenceStatus } from '@/hooks/usePresenceStatus'
+import { STATUS_PRESETS } from '@/lib/presence'
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -189,6 +191,11 @@ export function SettingsProfileTab() {
 
       <Separator />
 
+      {/* ── Status ── */}
+      <StatusSection userId={user.id} />
+
+      <Separator />
+
       {/* ── Avatar picker ── */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -327,6 +334,50 @@ export function SettingsProfileTab() {
       {/* ── Interaction style ── */}
       <InteractionStyleSection userId={user.id} />
 
+    </div>
+  )
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────
+
+function StatusSection({ userId }: { userId: string }) {
+  const { current, setStatus, busy } = usePresenceStatus(userId)
+  const currentPreset = STATUS_PRESETS.find((p) => p.state === current)
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-muted">
+          <Circle
+            className="h-3.5 w-3.5 fill-current"
+            style={{ color: currentPreset?.color ?? 'var(--muted-foreground)' }}
+          />
+        </div>
+        <div>
+          <p className="text-sm font-medium leading-none">Status</p>
+          <p className="mt-1 text-xs text-muted-foreground">{currentPreset ? currentPreset.label : 'Not set'}</p>
+        </div>
+      </div>
+      <div className="ml-[37px] flex flex-wrap gap-1.5">
+        {STATUS_PRESETS.map((p) => (
+          <button
+            key={p.state}
+            type="button"
+            disabled={busy}
+            onClick={() => setStatus(current === p.state ? null : p.state)}
+            className={cn(
+              'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-60',
+              current === p.state
+                ? 'border-transparent text-white'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+            style={current === p.state ? { backgroundColor: p.color } : undefined}
+          >
+            <Circle className="size-2 shrink-0 fill-current" style={{ color: current === p.state ? undefined : p.color }} />
+            {p.label}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

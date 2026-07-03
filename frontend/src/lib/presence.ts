@@ -60,3 +60,16 @@ export interface UserPresence {
   plexActivity: PlexActivity | null
   alert: Alert | null
 }
+
+// Curated quick-set presets shown in the sidebar's status switcher and in
+// Settings → Profile. A subset of the full StatusState space — the rest
+// (on_call, in_meeting, away, custom) are set via companion/API, not this UI.
+// Hex values are presence-state data rendered via inline styles, not UI accents.
+// design-ok(hex-in-tsx): status preset color data
+export const STATUS_PRESETS = [
+  { state: 'available', label: 'Available', color: '#22c55e' },
+  { state: 'busy',      label: 'Busy',      color: '#ef4444' },
+  { state: 'focusing',  label: 'Focusing',  color: '#3b82f6' },
+  { state: 'dnd',       label: 'DND',       color: '#7c3aed' },
+  { state: 'brb',       label: 'BRB',       color: '#eab308' },
+] as const

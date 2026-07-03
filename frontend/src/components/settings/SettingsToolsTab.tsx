@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   ArrowLeftRight, BookOpen, Calculator, CalendarClock, ChefHat,
-  Cloud, Eye, EyeOff, Globe, Laugh, MapPin, Newspaper,
+  ChevronRight, Cloud, Eye, EyeOff, Globe, Laugh, MapPin, Newspaper,
   Play, Save, ShieldCheck, Trash2, Trophy, Tv, Wifi, WifiOff, Wrench,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -75,6 +74,7 @@ export function SettingsToolsTab() {
   const [error, setError]   = useState<string | null>(null)
   const [connectivityMode, setConnectivityMode] = useState<'online' | 'offline'>('online')
   const [connectivitySaving, setConnectivitySaving] = useState(false)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!user?.id) return
@@ -177,147 +177,155 @@ export function SettingsToolsTab() {
   }
 
   return (
-    <div className="p-4 space-y-3">
-      <Card variant="surface" className="border-border/60">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-card',
-            connectivityMode === 'offline' ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success'
-          )}>
-            {connectivityMode === 'offline' ? <WifiOff className="size-5" /> : <Wifi className="size-5" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold leading-tight">
-                  {connectivityMode === 'offline' ? 'Local only' : 'Standard'}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
-                  {connectivityMode === 'offline'
-                    ? 'Internet features are off, only local tools work'
-                    : 'All tools and features can use the internet'}
-                </p>
-              </div>
-              <Switch
-                checked={connectivityMode === 'online'}
-                disabled={connectivitySaving}
-                onCheckedChange={async (v) => {
-                  const newMode = v ? 'online' : 'offline'
-                  setConnectivitySaving(true)
-                  setConnectivityMode(newMode)
-                  await apiFetch(`/api/users/${user?.id}/preferences`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 'connectivity.mode': newMode }),
-                  })
-                  setConnectivitySaving(false)
-                }}
-              />
-            </div>
-          </div>
+    <div className="p-4">
+      <div className="flex items-center gap-3 rounded-control px-3 py-2.5 hover:bg-foreground/[0.04] transition-colors">
+        <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-control',
+          connectivityMode === 'offline' ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success'
+        )}>
+          {connectivityMode === 'offline' ? <WifiOff className="size-4" /> : <Wifi className="size-4" />}
         </div>
-      </Card>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium leading-tight">
+            {connectivityMode === 'offline' ? 'Local only' : 'Standard'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+            {connectivityMode === 'offline'
+              ? 'Internet features are off, only local tools work'
+              : 'All tools and features can use the internet'}
+          </p>
+        </div>
+        <Switch
+          checked={connectivityMode === 'online'}
+          disabled={connectivitySaving}
+          onCheckedChange={async (v) => {
+            const newMode = v ? 'online' : 'offline'
+            setConnectivitySaving(true)
+            setConnectivityMode(newMode)
+            await apiFetch(`/api/users/${user?.id}/preferences`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 'connectivity.mode': newMode }),
+            })
+            setConnectivitySaving(false)
+          }}
+        />
+      </div>
 
-      <p className="text-xs text-muted-foreground pb-1">
-        Your personal preferences override admin defaults.
+      <p className="text-xs text-muted-foreground px-3 pt-2 pb-1">
+        Your personal preferences override admin defaults. Tap a tool to configure it.
       </p>
 
-      {configurableTools.map(tool => {
-        const meta = TOOL_ICONS[tool.id] ?? { icon: Wrench, chip: 'bg-muted text-muted-foreground' }
-        const ToolIcon = meta.icon
-        const fields = userFields(tool)
+      <div className="mt-1 divide-y divide-border/40 border-y border-border/40">
+        {configurableTools.map(tool => {
+          const meta = TOOL_ICONS[tool.id] ?? { icon: Wrench, chip: 'bg-muted text-muted-foreground' }
+          const ToolIcon = meta.icon
+          const fields = userFields(tool)
+          const isOpen = expanded.has(tool.id)
+          const hasOverride = fields.some(f => (config[tool.id]?.[f.key] ?? '') !== '')
 
-        return (
-          <Card key={tool.id} variant="surface" className="border-border/60">
-            {/* Tool header — same layout as Admin > Features > Tools */}
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-card', meta.chip)}>
-                <ToolIcon className="size-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-semibold leading-tight">{tool.name}</p>
-                  {!tool.offline && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/40">
-                      <Wifi className="size-2.5" /> internet
-                    </span>
-                  )}
+          return (
+            <div key={tool.id}>
+              <button
+                type="button"
+                onClick={() => setExpanded(s => {
+                  const next = new Set(s)
+                  if (next.has(tool.id)) next.delete(tool.id); else next.add(tool.id)
+                  return next
+                })}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-foreground/[0.04] transition-colors"
+              >
+                <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-control', meta.chip)}>
+                  <ToolIcon className="size-4" />
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{tool.description}</p>
-              </div>
-            </div>
-
-            {/* Config fields */}
-            <div className="border-t border-border/50 px-4 py-3 space-y-4">
-              {fields.map(field => {
-                const stateKey = `${tool.id}.${field.key}`
-                const val = currentValue(tool.id, field.key)
-                const isSet = (config[tool.id]?.[field.key] ?? '') !== ''
-                const isDirty = drafts[tool.id]?.[field.key] !== undefined
-                const isSaving = saving[stateKey]
-
-                return (
-                  <div key={field.key} className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs font-medium">{field.label}</Label>
-                      {isSet && !isDirty && (
-                        <span className="text-[10px] font-semibold text-success">set</span>
-                      )}
-                    </div>
-                    {field.description && (
-                      <p className="text-[10px] text-muted-foreground/60">{field.description}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium leading-tight">{tool.name}</p>
+                    {!tool.offline && (
+                      <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/40">
+                        <Wifi className="size-2.5" /> internet
+                      </span>
                     )}
+                    {hasOverride && <span className="size-1.5 rounded-full bg-brand" title="Customized" />}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug truncate">{tool.description}</p>
+                </div>
+                <ChevronRight className={cn('size-4 shrink-0 text-muted-foreground/60 transition-transform', isOpen && 'rotate-90')} />
+              </button>
 
-                    {field.type === 'boolean' ? (
-                      <Switch
-                        checked={val === 'true'}
-                        onCheckedChange={v => setDrafts(d => ({ ...d, [tool.id]: { ...d[tool.id], [field.key]: String(v) } }))}
-                      />
-                    ) : (
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Input
-                            type={field.type === 'secret' && !showSecret[stateKey] ? 'password' : 'text'}
-                            value={val}
-                            onChange={e => setDrafts(d => ({ ...d, [tool.id]: { ...d[tool.id], [field.key]: e.target.value } }))}
-                            placeholder={field.placeholder ?? ''}
-                            className="text-xs h-8 pr-8"
-                          />
-                          {field.type === 'secret' && (
-                            <button
-                              type="button"
-                              onClick={() => setShowSecret(s => ({ ...s, [stateKey]: !s[stateKey] }))}
-                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                            >
-                              {showSecret[stateKey] ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-                            </button>
+              {isOpen && (
+                <div className="px-3 pb-4 pl-[3.25rem] space-y-4">
+                  {fields.map(field => {
+                    const stateKey = `${tool.id}.${field.key}`
+                    const val = currentValue(tool.id, field.key)
+                    const isSet = (config[tool.id]?.[field.key] ?? '') !== ''
+                    const isDirty = drafts[tool.id]?.[field.key] !== undefined
+                    const isSaving = saving[stateKey]
+
+                    return (
+                      <div key={field.key} className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs font-medium">{field.label}</Label>
+                          {isSet && !isDirty && (
+                            <span className="text-[10px] font-semibold text-success">set</span>
                           )}
                         </div>
-                        <Button
-                          size="sm" variant="outline"
-                          className={cn('h-8 px-2.5 shrink-0', isDirty && 'border-brand/50 text-brand')}
-                          disabled={isSaving || (!isDirty && !val)}
-                          onClick={() => saveKey(tool.id, field)}
-                        >
-                          {isSaving ? <Spinner size="sm" /> : <Save className="size-3.5" />}
-                        </Button>
-                        {isSet && (
-                          <Button
-                            size="sm" variant="ghost"
-                            className="h-8 px-2 shrink-0 text-muted-foreground hover:text-destructive"
-                            onClick={() => clearKey(tool.id, field.key)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
+                        {field.description && (
+                          <p className="text-[10px] text-muted-foreground/60">{field.description}</p>
+                        )}
+
+                        {field.type === 'boolean' ? (
+                          <Switch
+                            checked={val === 'true'}
+                            onCheckedChange={v => setDrafts(d => ({ ...d, [tool.id]: { ...d[tool.id], [field.key]: String(v) } }))}
+                          />
+                        ) : (
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <Input
+                                type={field.type === 'secret' && !showSecret[stateKey] ? 'password' : 'text'}
+                                value={val}
+                                onChange={e => setDrafts(d => ({ ...d, [tool.id]: { ...d[tool.id], [field.key]: e.target.value } }))}
+                                placeholder={field.placeholder ?? ''}
+                                className="text-xs h-8 pr-8"
+                              />
+                              {field.type === 'secret' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowSecret(s => ({ ...s, [stateKey]: !s[stateKey] }))}
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                >
+                                  {showSecret[stateKey] ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                                </button>
+                              )}
+                            </div>
+                            <Button
+                              size="sm" variant="outline"
+                              className={cn('h-8 px-2.5 shrink-0', isDirty && 'border-brand/50 text-brand')}
+                              disabled={isSaving || (!isDirty && !val)}
+                              onClick={() => saveKey(tool.id, field)}
+                            >
+                              {isSaving ? <Spinner size="sm" /> : <Save className="size-3.5" />}
+                            </Button>
+                            {isSet && (
+                              <Button
+                                size="sm" variant="ghost"
+                                className="h-8 px-2 shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => clearKey(tool.id, field.key)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                )
-              })}
+                    )
+                  })}
+                </div>
+              )}
             </div>
-          </Card>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }
