@@ -397,16 +397,34 @@ export async function trainWakeword(
     let generated = 0
 
     const synthesize = async (text: string, voice: string, speed: number, dest: string) => {
-      if (signal?.aborted) throw new Error('aborted')
-      const res = await fetch(`${base}/synthesize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice, speed }),
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
-      })
-      if (!res.ok) throw new Error(`synthesize failed: ${res.status}`)
-      const wav = await res.arrayBuffer()
-      await writeFile(dest, Buffer.from(wav))
+      // Retry with backoff: the Kokoro sidecar transiently drops connections when
+      // it restarts (e.g. concurrent dev hot-reload), and a single ConnectionRefused
+      // must NOT abort a multi-hour fleet retrain — wait it out and continue. Only
+      // a genuinely persistent failure (server down for the whole window) throws.
+      const MAX_ATTEMPTS = 5
+      let lastErr: unknown
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        if (signal?.aborted) throw new Error('aborted')
+        try {
+          const res = await fetch(`${base}/synthesize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, voice, speed }),
+            signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
+          })
+          if (!res.ok) throw new Error(`synthesize failed: ${res.status}`)
+          const wav = await res.arrayBuffer()
+          await writeFile(dest, Buffer.from(wav))
+          return
+        } catch (err) {
+          if (signal?.aborted) throw err
+          lastErr = err
+          if (attempt < MAX_ATTEMPTS) {
+            await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1))) // 1s,2s,4s,8s
+          }
+        }
+      }
+      throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
     }
 
     emit({ step: 'generating', msg: `Generating ${totalPos} positive + ${totalNeg} negative samples…`, pct: 0 })
