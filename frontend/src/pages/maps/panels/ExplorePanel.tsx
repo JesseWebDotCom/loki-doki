@@ -30,7 +30,7 @@ export function ExplorePanel({
               data-testid={`explore-category-${slug}`}
               onClick={() => onSelectCategory(slug)}
               className={cn(
-                "flex flex-col items-center gap-1.5 rounded-xl border border-border/60 bg-card/70 px-2 py-3",
+                "flex flex-col items-center gap-1.5 rounded-card border border-border/60 bg-card/70 px-2 py-3",
                 "text-center text-[11px] text-foreground/80 transition-colors",
                 "hover:border-primary/40 hover:bg-primary/5 hover:text-foreground",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",

@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, Trash2, Moon, Layers, Check, MessageSquare, Ear } from 'lucide-react'
+import { Plus, Trash2, Moon, Layers, Check, MessageSquare, Ear } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/spinner'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
 
@@ -24,8 +27,8 @@ const DEFAULTS: DeviceSettings = {
 
 const RESPONSE_OPTIONS: { value: string; label: string }[] = [
   { value: 'inherit', label: 'Use companion’s setting' },
-  { value: 'auto', label: 'Automatic — short, expands when needed' },
-  { value: 'brief', label: 'Brief — one or two sentences' },
+  { value: 'auto', label: 'Automatic: short, expands when needed' },
+  { value: 'brief', label: 'Brief: one or two sentences' },
   { value: 'balanced', label: 'Balanced' },
   { value: 'detailed', label: 'Detailed' },
 ]
@@ -43,9 +46,9 @@ function deployMessage(deploy?: { online: number; total: number }): string {
   if (!deploy || deploy.total === 0) return 'Saved'
   const { online, total } = deploy
   const offline = total - online
-  if (online === 0) return `Saved — none of the ${total} device${total > 1 ? 's' : ''} are online; they’ll sync when powered on`
-  if (offline === 0) return `Saved — sent to ${online} device${online > 1 ? 's' : ''} now`
-  return `Saved — sent to ${online} online now · ${offline} will sync when powered on`
+  if (online === 0) return `Saved. None of the ${total} device${total > 1 ? 's' : ''} are online; they’ll sync when powered on`
+  if (offline === 0) return `Saved. Sent to ${online} device${online > 1 ? 's' : ''} now`
+  return `Saved. Sent to ${online} online now · ${offline} will sync when powered on`
 }
 
 export function DeviceGroupsPanel() {
@@ -76,9 +79,9 @@ export function DeviceGroupsPanel() {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
-        <Layers className="size-4 text-violet-500" />
-        <h3 className="text-sm font-semibold">Settings groups</h3>
-        <span className="text-xs text-muted-foreground">— deploy to every device in a group, live</span>
+        <Layers className="size-4 text-brand" />
+        <h3 className="text-section">Settings groups</h3>
+        <span className="text-caption text-muted-foreground">Deploy to every device in a group, live</span>
         {!adding && (
           <Button size="sm" variant="ghost" className="ml-auto h-8 gap-1.5 text-xs" onClick={() => setAdding(true)}>
             <Plus className="size-3.5" /> New group
@@ -87,18 +90,18 @@ export function DeviceGroupsPanel() {
       </div>
 
       {adding && (
-        <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-card/40 p-3">
+        <div className="flex items-center gap-2 rounded-card border border-border/40 bg-card/40 p-3">
           <Input autoFocus placeholder="Group name (e.g. Bedrooms)" value={newName}
             onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void createGroup() }} />
           <Button size="sm" onClick={createGroup} disabled={busy || !newName.trim()}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : 'Add'}
+            {busy ? <Spinner className="text-current" /> : 'Add'}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setNewName('') }}>Cancel</Button>
         </div>
       )}
 
       {isLoading ? (
-        <div className="py-6 text-center"><Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" /></div>
+        <SkeletonCards count={2} className="grid-cols-1 gap-3 sm:grid-cols-1 lg:grid-cols-2" />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {groups.map((g) => (
@@ -162,14 +165,14 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-card p-4">
+    <Card variant="surface" className="flex flex-col gap-3 border-border/50 p-4">
       <div className="flex items-center gap-2">
         {group.isDefault ? (
           <span className="text-sm font-semibold">Default</span>
         ) : (
           <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8 max-w-[200px] text-sm font-semibold" />
         )}
-        {group.isDefault && <span className="rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400">baseline</span>}
+        {group.isDefault && <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">baseline</span>}
         {!group.isDefault && (
           <Button size="icon" variant="ghost" className="ml-auto size-7 text-muted-foreground hover:text-destructive" onClick={onDelete} aria-label="Delete group">
             <Trash2 className="size-4" />
@@ -177,32 +180,32 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
         )}
       </div>
 
-      {/* Response length — overrides the companion's own reply style on these devices */}
-      <div className="space-y-2 rounded-xl bg-muted/40 p-3">
+      {/* Response length: overrides the companion's own reply style on these devices */}
+      <div className="space-y-2 rounded-card bg-muted/40 p-3">
         <div className="flex items-center gap-2">
-          <MessageSquare className="size-4 text-emerald-500" />
+          <MessageSquare className="size-4 text-brand" />
           <span className="text-sm font-medium">Response length</span>
         </div>
         <select
           value={responseLength}
           onChange={(e) => setResponseLength(e.target.value)}
-          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="h-9 w-full rounded-control border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {RESPONSE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
 
       {/* Show the reply as text on screen (screen devices) */}
-      <div className="flex items-center gap-2 rounded-xl bg-muted/40 p-3">
-        <MessageSquare className="size-4 text-indigo-500" />
+      <div className="flex items-center gap-2 rounded-card bg-muted/40 p-3">
+        <MessageSquare className="size-4 text-brand" />
         <span className="text-sm font-medium">Show reply text on screen</span>
         <Switch className="ml-auto" checked={showReplyText} onCheckedChange={setShowReplyText} />
       </div>
 
       {/* Wake word sensitivity */}
-      <div className="space-y-2.5 rounded-xl bg-muted/40 p-3">
+      <div className="space-y-2.5 rounded-card bg-muted/40 p-3">
         <div className="flex items-center gap-2">
-          <Ear className="size-4 text-amber-500" />
+          <Ear className="size-4 text-brand" />
           <span className="text-sm font-medium">Wake sensitivity</span>
           <Switch
             className="ml-auto"
@@ -221,13 +224,13 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
               type="range" min={0.3} max={0.9} step={0.05}
               value={wakeThreshold}
               onChange={(e) => setWakeThreshold(Number(e.target.value))}
-              className="w-full accent-amber-500"
+              className="w-full accent-brand"
             />
             <p className="text-[11px] text-muted-foreground">
-              {wakeThreshold <= 0.45 ? 'Very sensitive — fires easily, may get false positives.' :
-               wakeThreshold <= 0.6 ? 'Balanced — good for quiet rooms.' :
-               wakeThreshold <= 0.75 ? 'Strict — better for rooms with music or TV.' :
-               'Very strict — use only if false fires are frequent.'}
+              {wakeThreshold <= 0.45 ? 'Very sensitive: fires easily, may get false positives.' :
+               wakeThreshold <= 0.6 ? 'Balanced: good for quiet rooms.' :
+               wakeThreshold <= 0.75 ? 'Strict: better for rooms with music or TV.' :
+               'Very strict: use only if false fires are frequent.'}
             </p>
           </div>
         ) : (
@@ -236,9 +239,9 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
       </div>
 
       {/* Screen dimming */}
-      <div className="space-y-2.5 rounded-xl bg-muted/40 p-3">
+      <div className="space-y-2.5 rounded-card bg-muted/40 p-3">
         <div className="flex items-center gap-2">
-          <Moon className="size-4 text-sky-500" />
+          <Moon className="size-4 text-brand" />
           <span className="text-sm font-medium">Dim screen when idle</span>
           <Switch className="ml-auto" checked={dimEnabled} onCheckedChange={setDimEnabled} />
         </div>
@@ -264,9 +267,9 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
 
       {/* Night dim — a TIME-of-day trigger (local sunset→sunrise), independent of idle dim
           above. Substitute for "dim when dark": no light sensor / camera can't see (MIPI-CSI). */}
-      <div className="space-y-2.5 rounded-xl bg-muted/40 p-3">
+      <div className="space-y-2.5 rounded-card bg-muted/40 p-3">
         <div className="flex items-center gap-2">
-          <Moon className="size-4 text-indigo-500" />
+          <Moon className="size-4 text-brand" />
           <span className="text-sm font-medium">Dim after sunset</span>
           <Switch className="ml-auto" checked={nightDimEnabled} onCheckedChange={setNightDimEnabled} />
         </div>
@@ -286,8 +289,8 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
       </div>
 
       <Button size="sm" className="ml-auto h-8 gap-1.5 text-xs" onClick={save} disabled={busy || !dirty}>
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <><Check className="size-3.5" /> Save & deploy</>}
+        {busy ? <Spinner className="text-current" /> : <><Check className="size-3.5" /> Save & deploy</>}
       </Button>
-    </div>
+    </Card>
   )
 }

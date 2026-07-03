@@ -1,9 +1,13 @@
 import { useState } from 'react'
-import { Trophy, Circle } from 'lucide-react'
+import { Trophy } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { cn } from '@/lib/cn'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { StatusDot } from '@/components/shared/StatusDot'
+import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 type LeagueFilter = 'all' | 'mlb' | 'nfl' | 'nba' | 'nhl' | 'mls' | 'world-cup'
@@ -63,14 +67,14 @@ function StatusPill({ status }: { status: 'final' | 'live' | 'upcoming' }) {
   }
   if (status === 'live') {
     return (
-      <span className="flex shrink-0 items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-400">
-        <Circle className="size-2 animate-pulse fill-green-400 text-green-400" />
+      <span className="flex shrink-0 items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">
+        <StatusDot status="ok" pulse className="size-2" />
         Live
       </span>
     )
   }
   return (
-    <span className="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-400">
+    <span className="shrink-0 rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-info">
       Upcoming
     </span>
   )
@@ -79,25 +83,25 @@ function StatusPill({ status }: { status: 'final' | 'live' | 'upcoming' }) {
 function GameRow({ game }: { game: GameItem }) {
   const { badge, line, status } = parseGameTitle(game.title)
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/40 bg-card/50 px-4 py-3">
+    <Card className="flex items-center gap-3 border-border/40 bg-card/50 px-4 py-3">
       {badge && (
-        <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           {badge}
         </span>
       )}
       <p className="min-w-0 flex-1 text-sm font-medium">{line}</p>
       <StatusPill status={status} />
-    </div>
+    </Card>
   )
 }
 
 function SkeletonRow() {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/40 bg-card/50 px-4 py-3">
-      <div className="h-5 w-10 animate-pulse rounded-md bg-muted" />
-      <div className="h-4 flex-1 animate-pulse rounded-md bg-muted" />
-      <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
-    </div>
+    <Card className="flex items-center gap-3 border-border/40 bg-card/50 px-4 py-3">
+      <Skeleton className="h-5 w-10" />
+      <Skeleton className="h-4 flex-1" />
+      <Skeleton className="h-5 w-16 rounded-full" />
+    </Card>
   )
 }
 
@@ -116,36 +120,22 @@ export function SportsPage() {
   const games = data?.games ?? []
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#14532d,#16a34a)" GhostIcon={Trophy}>
-      <PageHeader
-        variant="compact"
-        title="Sports"
-        subtitle="Live scores and upcoming games across major leagues."
-        gradient="linear-gradient(135deg,#14532d,#16a34a)"
-        icon={<Trophy className="size-7 text-white" />}
-      />
+    <PageShell>
+      <PageContainer className="pb-10">
+        <PageHeader subtitle="Live scores and upcoming games across major leagues." />
 
-      {/* League filter chips */}
-      <div className="px-5 pb-3">
-        <div className="flex flex-wrap gap-2">
+        {/* League filter chips */}
+        <ChipRow className="flex-wrap pb-4">
           {CHIPS.map((chip) => (
-            <button
+            <Chip
               key={chip.value}
+              label={chip.label}
+              active={league === chip.value}
               onClick={() => setLeague(chip.value)}
-              className={cn(
-                'rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
-                league === chip.value
-                  ? 'border-brand bg-brand text-white'
-                  : 'border-border/60 bg-muted/40 text-muted-foreground hover:border-brand/60 hover:text-foreground',
-              )}
-            >
-              {chip.label}
-            </button>
+            />
           ))}
-        </div>
-      </div>
+        </ChipRow>
 
-      <div className="px-5 pb-10">
         {isLoading && (
           <div className="space-y-2">
             {Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)}
@@ -174,7 +164,7 @@ export function SportsPage() {
             ))}
           </div>
         )}
-      </div>
+      </PageContainer>
     </PageShell>
   )
 }

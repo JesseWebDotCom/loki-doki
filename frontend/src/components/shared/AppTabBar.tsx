@@ -24,7 +24,7 @@ interface AppTabBarProps<T extends string> {
 export function AppTabBar<T extends string>({ tabs, value, onChange, className }: AppTabBarProps<T>) {
   return (
     <div className={cn("overflow-x-auto", className)}>
-      <div className="flex gap-0.5 rounded-2xl border border-border/50 bg-muted/30 p-1">
+      <div className="flex gap-0.5 rounded-full border border-border/50 bg-muted/30 p-1">
         {tabs.map((t) => {
           const Icon = t.icon;
           const short = t.shortLabel ?? t.label.split(" ")[0];
@@ -34,7 +34,7 @@ export function AppTabBar<T extends string>({ tabs, value, onChange, className }
               type="button"
               onClick={() => onChange(t.id)}
               className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+                "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-all",
                 value === t.id
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",

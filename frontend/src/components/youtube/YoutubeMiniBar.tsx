@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Play, Pause, Maximize2, X, Loader2, SkipBack, SkipForward } from 'lucide-react'
+import { Play, Pause, Maximize2, X, SkipBack, SkipForward } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { useRadio } from '@/context/RadioContext'
 import { useLiveRadio } from '@/context/LiveRadioContext'
@@ -16,7 +19,7 @@ import { ChannelAvatar } from '@/components/youtube/media'
 import { SeekBar } from '@/components/shared/SeekBar'
 
 /**
- * Persistent docked mini-player — shown app-wide for YouTube videos AND internet radio streams.
+ * Persistent docked mini-player, shown app-wide for YouTube videos AND internet radio streams.
  *
  * Three backends:
  *  - Online YouTube: YouTube IFrame embed (videoId, no localKind, no streamUrl)
@@ -53,7 +56,7 @@ export function YoutubeMiniBar() {
   const isLocalAudio = track?.localKind === 'audio'
 
   // When something asks to "play expanded" (e.g. a Shows/Movies trailer), pop the larger
-  // player open. Only for real YouTube videos — local audio / live streams have no video.
+  // player open. Only for real YouTube videos; local audio / live streams have no video.
   useEffect(() => {
     if (pb.expandRequest > 0 && online) setExpanded(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,7 +151,7 @@ export function YoutubeMiniBar() {
     && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
   if (showRadio) return <RadioMiniBar />
 
-  // Live internet radio — same slot, when nothing else claims it (the mediaCoordinator's
+  // Live internet radio: same slot, when nothing else claims it (the mediaCoordinator's
   // acquireAudio already guarantees only one engine plays at a time).
   const showLiveRadio = liveRadio.active && !track && !radio.active
     && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
@@ -180,7 +183,7 @@ export function YoutubeMiniBar() {
     )
   }
 
-  // Toggle native fullscreen on the actual video surface — the YouTube IFrame itself (online;
+  // Toggle native fullscreen on the actual video surface: the YouTube IFrame itself (online;
   // it carries allowfullscreen) or the <video> element (offline). Exits if already fullscreen
   // so the same button works both ways. The mini-player keeps playing.
   const goFullscreen = () => {
@@ -199,7 +202,7 @@ export function YoutubeMiniBar() {
       : (videoRef.current as FsEl | null)
     if (!el) return
     const req = el.requestFullscreen ?? el.webkitRequestFullscreen ?? el.webkitEnterFullscreen
-    try { req?.call(el) } catch { /* fullscreen denied — ignore */ }
+    try { req?.call(el) } catch { /* fullscreen denied; ignore */ }
   }
 
   const onClose = () => {
@@ -251,7 +254,7 @@ export function YoutubeMiniBar() {
     return () => clearInterval(iv)
   }, [track, playing])
 
-  // Tell the device to drop/hide its media bar when THIS tab's video stops — otherwise the
+  // Tell the device to drop/hide its media bar when THIS tab's video stops; otherwise the
   // last reported snapshot just sits there until its 5-minute staleness timeout. Only fires on
   // a true had-track→no-track transition (never on initial mount), so a fresh tab loading with
   // no track doesn't wipe out a video another tab is legitimately still playing.
@@ -327,12 +330,12 @@ export function YoutubeMiniBar() {
       {!isLocalAudio && !isStream && (
         <>
           {online
-            ? <div ref={hostRef} className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'overflow-hidden rounded-md bg-black shadow-lg')} style={posStyle} />
-            : <video ref={videoRef} playsInline className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'rounded-md bg-black object-cover shadow-lg')} style={posStyle} />}
+            ? <div ref={hostRef} className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'overflow-hidden rounded-control bg-black shadow-lg')} style={posStyle} />
+            : <video ref={videoRef} playsInline className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'rounded-control bg-black object-cover shadow-lg')} style={posStyle} />}
 
           <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
             title={expanded ? 'Drag to move • tap to shrink' : 'Pop out'}
-            className={cn(posClass, expanded && win ? 'z-[61]' : 'z-[51]', !win && 'transition-all', 'touch-none select-none cursor-pointer rounded-md')}
+            className={cn(posClass, expanded && win ? 'z-[61]' : 'z-[51]', !win && 'transition-all', 'touch-none select-none cursor-pointer rounded-control')}
             style={posStyle}>
             {!expanded && !loading && (
               <span className="absolute bottom-1 left-1/2 h-1 w-6 -translate-x-1/2 rounded-full bg-white/80 shadow-[0_0_4px_rgba(0,0,0,0.6)]" />
@@ -347,20 +350,21 @@ export function YoutubeMiniBar() {
           </div>
 
           {loading && (
-            <div className={cn(posClass, expanded && win ? 'z-[62]' : 'z-[52]', 'pointer-events-none grid place-items-center rounded-md')} style={posStyle}>
-              <Loader2 className="size-5 animate-spin text-white/80" />
+            <div className={cn(posClass, expanded && win ? 'z-[62]' : 'z-[52]', 'pointer-events-none grid place-items-center rounded-control')} style={posStyle}>
+              <Spinner className="size-5 text-white/80" />
             </div>
           )}
         </>
       )}
 
       {/* The visible bar */}
-      <div className="relative border-t border-border/60 bg-background/95 backdrop-blur-md shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+      <div className="glass-chrome relative border-t border-border/60 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
         <div className="flex items-center gap-3 px-4 py-2">
           {/* Thumbnail / station art */}
+          {/* design-ok(hand-styled-button): media thumbnail surface is the tap target */}
           <button onClick={isStream ? goWatch : toggleExpand}
             className={cn(
-              'relative shrink-0 overflow-hidden rounded-md bg-muted',
+              'relative shrink-0 overflow-hidden rounded-control bg-muted',
               isStream ? 'h-10 w-10' : 'aspect-video h-12',
             )}
             aria-label={isStream ? 'Go to radio' : 'Pop out video'}>
@@ -381,7 +385,7 @@ export function YoutubeMiniBar() {
             )}
             {isStream && loading && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                <Loader2 className="size-4 animate-spin text-white" />
+                <Spinner className="text-white" />
               </div>
             )}
           </button>
@@ -391,7 +395,7 @@ export function YoutubeMiniBar() {
             <p className="truncate text-sm font-semibold">{track!.title}</p>
             <span className="mt-0.5 flex items-center gap-1.5">
               {!isStream && <ChannelAvatar title={track!.author ?? ''} src={track!.channelThumb} className="size-4 shrink-0 text-[8px]" />}
-              {isStream && <span className="inline-flex size-1.5 animate-pulse rounded-full bg-red-500" />}
+              {isStream && <StatusDot status="error" pulse />}
               <span className="truncate text-xs text-muted-foreground">{track!.author ?? (isStream ? 'Live Radio' : 'YouTube')}</span>
             </span>
           </button>
@@ -406,29 +410,29 @@ export function YoutubeMiniBar() {
           <div className="flex flex-col items-stretch gap-1.5">
             <div className="flex items-center justify-end gap-1">
               {!isStream && (
-                <button onClick={skipPrev} className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground" aria-label="Previous">
+                <Button variant="ghost" size="icon-sm" onClick={skipPrev} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Previous">
                   <SkipBack className="size-4" />
-                </button>
+                </Button>
               )}
-              <button onClick={togglePlay} className="grid size-9 place-items-center rounded-full bg-foreground text-background hover:opacity-90" aria-label={playing ? 'Pause' : 'Play'}>
+              <Button size="icon" onClick={togglePlay} className="bg-foreground text-background hover:bg-foreground/90" aria-label={playing ? 'Pause' : 'Play'}>
                 {playing ? <Pause className="size-4 fill-current" /> : <Play className="ml-0.5 size-4 fill-current" />}
-              </button>
+              </Button>
               {!isStream && (
-                <button onClick={skipNext} disabled={!pb.hasNext} className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label="Next">
+                <Button variant="ghost" size="icon-sm" onClick={skipNext} disabled={!pb.hasNext} className="size-8 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label="Next">
                   <SkipForward className="size-4" />
-                </button>
+                </Button>
               )}
               {!isStream && (
-                <button onClick={goFullscreen} className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground" aria-label="Fullscreen">
+                <Button variant="ghost" size="icon-sm" onClick={goFullscreen} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Fullscreen">
                   <Maximize2 className="size-4" />
-                </button>
+                </Button>
               )}
-              <button onClick={onClose} className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground" aria-label="Close">
+              <Button variant="ghost" size="icon-sm" onClick={onClose} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Close">
                 <X className="size-3.5" />
-              </button>
+              </Button>
             </div>
 
-            {/* Progress bar — YouTube/offline only; streams are live */}
+            {/* Progress bar: YouTube/offline only; streams are live */}
             {!isStream && (
               <SeekBar pos={pos} total={total} onSeek={seekTo}
                 onScrubStateChange={(s) => { scrubbing.current = s }} />

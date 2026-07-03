@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Cpu } from 'lucide-react'
+import { Cpu } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { DeviceScreenDeckEditor, type DeckLocks } from '@/components/shared/DeviceScreenDeckEditor'
 import { resolveDeviceModel } from '@/lib/deviceCatalog'
 import { cn } from '@/lib/cn'
 
 // Settings → Devices: the owner-facing screen-deck editor. Reads/writes the exact same
-// device_screens rows as Admin → Devices → (device) → Display — a change made here shows
+// device_screens rows as Admin → Devices → (device) → Display; a change made here shows
 // up there and vice versa. An admin can lock screen selection and/or configuration per
 // device; this page renders read-only for whichever capability is locked (also enforced
 // server-side, so it can't be bypassed by calling the API directly).
 //
-// Screenless Pods (e.g. Atom Echo — mic/speaker only) have nothing to swipe between, so
+// Screenless Pods (e.g. Atom Echo, mic/speaker only) have nothing to swipe between, so
 // they're filtered out here entirely (mirrors the isScreen check gating the Display tab
 // in Admin → Devices).
 
@@ -43,7 +44,7 @@ export function SettingsDevicesTab() {
   }, [])
 
   if (devices === null) {
-    return <div className="flex justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+    return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   }
 
   if (devices.length === 0) {
@@ -51,7 +52,7 @@ export function SettingsDevicesTab() {
       <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
         <Cpu className="size-10 opacity-30" />
         <p className="text-sm">None of your devices have a screen to customize.</p>
-        <p className="text-xs opacity-70">Speaker-only Pods (like an Atom Echo) don't have screens to swipe between.</p>
+        <p className="text-caption opacity-70">Speaker-only Pods (like an Atom Echo) don't have screens to swipe between.</p>
       </div>
     )
   }
@@ -62,9 +63,9 @@ export function SettingsDevicesTab() {
   return (
     <div className="space-y-5 p-1">
       <div>
-        <h2 className="text-base font-semibold">Devices</h2>
+        <h2 className="text-title">Devices</h2>
         <p className="text-sm text-muted-foreground">
-          Customize which screens your device shows, in what order — including the controller's buttons.
+          Customize which screens your device shows, in what order, including the controller's buttons.
         </p>
       </div>
 
@@ -75,7 +76,7 @@ export function SettingsDevicesTab() {
               key={d.id}
               onClick={() => setSelectedId(d.id)}
               className={cn(
-                'rounded-lg border px-3 py-1.5 text-sm transition-colors',
+                'rounded-full border px-3 py-1.5 text-sm transition-colors',
                 d.id === selected.id ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 text-muted-foreground hover:bg-muted/40',
               )}
             >

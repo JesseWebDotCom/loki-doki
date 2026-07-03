@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
+import { Spinner } from '@/components/ui/spinner'
 import { DEFAULT_THRESHOLDS, RATING_META, fmtMbps, normalizeThresholds, type SpeedThresholds } from '@/lib/speedtest'
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T | null> {
@@ -62,7 +62,7 @@ export function AdminSpeedTestTab() {
             Color-code Speed Test results and the home widget against these download speed thresholds.
             Applies to all users.
           </p>
-          {saving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+          {saving && <Spinner size="sm" />}
         </div>
 
         <div className="mt-3 space-y-2">
@@ -79,8 +79,8 @@ export function AdminSpeedTestTab() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/55">Rating bands</p>
+      <div className="rounded-card border border-border/50 bg-muted/30 p-3">
+        <p className="mb-2 text-overline text-muted-foreground/55">Rating bands</p>
         <div className="space-y-1.5">
           {bands.map((b) => (
             <div key={b.rating} className="flex items-center gap-3">
@@ -99,7 +99,7 @@ function ThresholdRow({ color, label, help, value, onChange }: {
   color: string; label: string; help: string; value: string; onChange: (v: string) => void
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card p-3">
+    <div className="flex items-center gap-3 rounded-card border border-border/50 bg-card p-3">
       <span className="size-2.5 shrink-0 rounded-full" style={{ background: color }} />
       <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold">{label}</p>
@@ -111,7 +111,7 @@ function ThresholdRow({ color, label, help, value, onChange }: {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className={cn(
-            'w-20 rounded-lg border border-border/60 bg-muted/40 px-2 py-1.5 text-sm font-semibold tabular-nums text-right',
+            'w-20 rounded-control border border-border/60 bg-muted/40 px-2 py-1.5 text-sm font-semibold tabular-nums text-right',
             'transition-colors focus:border-brand/60 focus:outline-none focus:ring-1 focus:ring-brand/50',
           )}
         />

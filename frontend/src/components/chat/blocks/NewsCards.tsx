@@ -1,5 +1,6 @@
 import { ExternalLink } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import type { NewsBlockData } from './types'
 
 function relativeTime(pubDate: string): string {
@@ -26,7 +27,7 @@ export function NewsCards({ data }: { data: NewsBlockData }) {
           {data.category} News
         </p>
       )}
-      <div className="flex flex-col divide-y divide-border/40 rounded-xl border border-border/50 bg-card overflow-hidden">
+      <Card variant="surface" className="flex flex-col divide-y divide-border/40">
         {data.items.map((item, i) => (
           <a
             key={i}
@@ -53,7 +54,7 @@ export function NewsCards({ data }: { data: NewsBlockData }) {
             <ExternalLink className="size-3 shrink-0 mt-0.5 text-muted-foreground/50 group-hover:text-muted-foreground" />
           </a>
         ))}
-      </div>
+      </Card>
     </div>
   )
 }

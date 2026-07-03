@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Newspaper, RefreshCw, WifiOff, Plus, MoreHorizontal, EyeOff, Settings2, Trash2, Rss, Circle, Bookmark, Upload, Globe } from 'lucide-react'
+import { Newspaper, RefreshCw, WifiOff, Plus, MoreHorizontal, EyeOff, Settings2, Trash2, Rss, Circle, Bookmark, Upload, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -10,6 +11,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { NewsFeature, NewsRow, hostFromUrl } from '@/components/shared/NewsCard'
@@ -23,8 +25,6 @@ import {
 import { listFeeds, addFeed, deleteFeed, refreshFeedApi, importOpml, type Feed } from '@/lib/feeds/api'
 import { FeedListView, type FeedScope } from '@/components/news/FeedListView'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-
-const GRADIENT = 'linear-gradient(135deg,#1e3a5f,#0f766e)'
 
 const SCOPES: { key: FeedScope; label: string; icon: typeof Rss }[] = [
   { key: 'all', label: 'All', icon: Rss },
@@ -88,35 +88,33 @@ export function NewsPage() {
   }
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={Newspaper}>
+    <PageShell>
+      <PageContainer>
       <PageHeader
-        variant="compact"
         title="News"
-        subtitle="Global headlines, local news, and your RSS feeds — all in one place."
-        gradient={GRADIENT}
-        icon={<Newspaper className="size-7 text-white" />}
+        subtitle="Global headlines, local news, and your RSS feeds - all in one place."
         actions={
           <div className="flex items-center gap-2">
-            <div className="inline-flex max-w-[60vw] items-center gap-1 overflow-x-auto rounded-full border border-white/20 bg-black/20 p-1 backdrop-blur-sm">
+            <div className="inline-flex max-w-[60vw] items-center gap-1 overflow-x-auto rounded-full border border-border bg-secondary/50 p-1">
               {SCOPES.map((s) => (
                 <Button
                   key={s.key}
                   size="sm"
                   variant={scope === s.key ? 'default' : 'ghost'}
                   onClick={() => setSel(`scope:${s.key}`)}
-                  className={`shrink-0 gap-1.5 ${scope !== s.key ? 'text-white/70 hover:bg-white/10 hover:text-white' : ''}`}
+                  className={`shrink-0 gap-1.5 ${scope !== s.key ? 'text-muted-foreground hover:text-foreground' : ''}`}
                 >
                   <s.icon className="size-3.5" />{s.label}
                 </Button>
               ))}
-              {visible.length > 0 && <span className="mx-0.5 h-5 w-px shrink-0 bg-white/20" />}
+              {visible.length > 0 && <span className="mx-0.5 h-5 w-px shrink-0 bg-border" />}
               {visible.map((c) => (
                 <Button
                   key={c.id}
                   size="sm"
                   variant={active?.id === c.id ? 'default' : 'ghost'}
                   onClick={() => setSel(c.id)}
-                  className={`shrink-0 ${active?.id !== c.id ? 'text-white/70 hover:bg-white/10 hover:text-white' : ''}`}
+                  className={`shrink-0 ${active?.id !== c.id ? 'text-muted-foreground hover:text-foreground' : ''}`}
                 >
                   {c.name}
                 </Button>
@@ -125,7 +123,7 @@ export function NewsPage() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="size-8 shrink-0 text-white/70 hover:bg-white/10 hover:text-white" aria-label="News settings">
+                <Button size="icon" variant="ghost" className="size-8 shrink-0 text-muted-foreground hover:text-foreground" aria-label="News settings">
                   <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -179,18 +177,18 @@ export function NewsPage() {
         }
       />
 
-      <div className="px-5 pb-10">
+      <div className="pb-10">
         {scope ? <FeedListView scope={scope} /> : (<>
         {status === 'loading' && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            <Spinner size="lg" />
           </div>
         )}
 
         {status === 'empty' && (
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <Newspaper className="size-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">No categories yet — add one to start reading.</p>
+            <p className="text-sm text-muted-foreground">No categories yet - add one to start reading.</p>
             <Button size="sm" onClick={() => setAddOpen(true)}><Plus className="mr-1.5 size-4" /> New category</Button>
           </div>
         )}
@@ -199,7 +197,7 @@ export function NewsPage() {
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <WifiOff className="size-8 text-muted-foreground/40" />
             <p className="text-sm text-muted-foreground">
-              {active?.editable ? "No articles yet — add a feed to this category." : "Couldn't load news right now."}
+              {active?.editable ? "No articles yet - add a feed to this category." : "Couldn't load news right now."}
             </p>
             <div className="flex gap-2">
               {active?.editable && (
@@ -273,6 +271,7 @@ export function NewsPage() {
           setDeleting(null)
         }}
       />
+      </PageContainer>
     </PageShell>
   )
 }
@@ -292,11 +291,11 @@ function AddFeedDialog({ open, onClose, onAdded }: { open: boolean; onClose: () 
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Add a feed</DialogTitle></DialogHeader>
         <DialogDescription className="sr-only">Add an RSS or website feed.</DialogDescription>
-        <p className="text-sm text-muted-foreground">Paste a site or RSS/Atom URL — we'll find the feed automatically. It shows up under All / Unread.</p>
+        <p className="text-sm text-muted-foreground">Paste a site or RSS/Atom URL - we'll find the feed automatically. It shows up under All / Unread.</p>
         <Input autoFocus placeholder="https://example.com or .../feed.xml" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void submit() }} />
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy && <Loader2 className="mr-1.5 size-4 animate-spin" />}Add</Button>
+          <Button onClick={submit} disabled={busy}>{busy && <Spinner className="mr-1.5 text-current" />}Add</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -326,7 +325,7 @@ function AddCategoryDialog({ open, onClose, onCreated }: { open: boolean; onClos
         <Input autoFocus placeholder="e.g. Technology" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void submit() }} />
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy && <Loader2 className="mr-1.5 size-4 animate-spin" />}Create</Button>
+          <Button onClick={submit} disabled={busy}>{busy && <Spinner className="mr-1.5 text-current" />}Create</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -365,21 +364,21 @@ function ManageFeedsDialog({ category, onClose, onChanged }: { category: NewsCat
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>Manage feeds — {category.name}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Manage feeds - {category.name}</DialogTitle></DialogHeader>
         <DialogDescription className="sr-only">Add or remove feeds in this category.</DialogDescription>
 
         <div className="flex gap-2">
           <Input autoFocus placeholder="https://example.com or .../feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} />
-          <Button onClick={add} disabled={busy}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}</Button>
+          <Button onClick={add} disabled={busy}>{busy ? <Spinner className="text-current" /> : <Plus className="size-4" />}</Button>
         </div>
 
         <div className="max-h-72 space-y-1 overflow-y-auto">
-          {isLoading && <div className="py-6 text-center"><Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" /></div>}
+          {isLoading && <div className="py-6 text-center"><Spinner className="mx-auto size-5" /></div>}
           {!isLoading && feeds.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">No feeds yet. Paste a site or RSS URL above.</p>
           )}
           {feeds.map((f: Feed) => (
-            <div key={f.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50">
+            <div key={f.id} className="flex items-center gap-2 rounded-control px-2 py-1.5 hover:bg-muted/50">
               <FaviconImg domain={hostFromUrl(f.siteUrl || f.url || undefined) ?? ''} className="size-4 shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm">{f.title || f.url}</div>

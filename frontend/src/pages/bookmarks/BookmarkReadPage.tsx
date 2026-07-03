@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ExternalLink, RotateCw, Archive, Loader2, AlertTriangle, FileText, Layout, FileDown, Film, Headphones, Highlighter, History, Pause, Play, Square, X, Globe } from 'lucide-react'
+import { ArrowLeft, ExternalLink, RotateCw, Archive, AlertTriangle, FileText, Layout, FileDown, Film, Headphones, Highlighter, History, Pause, Play, Square, X, Globe } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/lib/toast'
 import { ArticleReader } from '@/components/shared/ArticleReader'
 import { BookmarkAIPanel } from '@/components/bookmarks/BookmarkAIPanel'
@@ -63,14 +64,14 @@ export function BookmarkReadPage() {
   }, [])
   const openHighlightFromMark = useCallback((_hlId: string) => setShowHighlights(true), [])
 
-  // Anchoring runs only on the LATEST reader view — historical snapshots are read-only.
+  // Anchoring runs only on the LATEST reader view - historical snapshots are read-only.
   const anchoring = useHighlightAnchoring(contentRef, highlights, {
     enabled: item?.type === 'offline' && view === 'reader' && !snapId,
     contentKey: item?.contentHtml ?? null,
     onMarkClick: openHighlightFromMark,
   })
 
-  // "Listen to this article" — narrates the latest reader content.
+  // "Listen to this article" - narrates the latest reader content.
   const narration = useArticleNarration({ id, contentHtml: item?.type === 'offline' ? item?.contentHtml : null })
 
   const addHighlight = useCallback(async (color: HighlightColor, note?: string) => {
@@ -95,7 +96,7 @@ export function BookmarkReadPage() {
   }, [item?.id])
 
   if (isLoading || !item) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="size-6 animate-spin" /></div>
+    return <div className="flex h-full items-center justify-center"><Spinner size="lg" /></div>
   }
 
   async function reArchive() {
@@ -114,16 +115,16 @@ export function BookmarkReadPage() {
   }
 
   const TopBar = (
-    <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/40 bg-background/80 px-4 py-2.5 backdrop-blur">
+    <div className="glass-chrome sticky top-0 z-10 flex items-center gap-2 border-b border-border/40 px-4 py-2.5">
       <Button variant="ghost" size="icon-sm" onClick={() => navigate(-1)} title="Back"><ArrowLeft className="size-4" /></Button>
       <span className="flex-1 truncate text-sm font-medium">{item.title || item.url}</span>
       {item.isGlobal && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-400" title="Shared with everyone">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-medium text-info" title="Shared with everyone">
           <Globe className="size-3" />Shared
         </span>
       )}
       {item.type === 'offline' && item.archiveState === 'ready' && item.snapshotPath && (
-        <div className="flex items-center rounded-md border border-border/50 p-0.5">
+        <div className="flex items-center rounded-control border border-border/50 p-0.5">
           <button
             onClick={() => setView('reader')}
             title="Reader view"
@@ -140,11 +141,11 @@ export function BookmarkReadPage() {
       )}
       {item.pdfPath && (
         <a href={archiveAssetUrl(item.id, item.pdfPath)} target="_blank" rel="noopener noreferrer" title="Download PDF"
-          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><FileDown className="size-4" /></a>
+          className="inline-flex size-7 items-center justify-center rounded-control text-muted-foreground hover:bg-accent hover:text-foreground"><FileDown className="size-4" /></a>
       )}
       {item.mediaPath && (
         <a href={archiveAssetUrl(item.id, item.mediaPath)} target="_blank" rel="noopener noreferrer" title="Captured media"
-          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Film className="size-4" /></a>
+          className="inline-flex size-7 items-center justify-center rounded-control text-muted-foreground hover:bg-accent hover:text-foreground"><Film className="size-4" /></a>
       )}
       {/* Listen to this article (offline items with reader content) */}
       {item.type === 'offline' && narration.available && (
@@ -154,7 +155,7 @@ export function BookmarkReadPage() {
             <Headphones className="size-4" />
           </Button>
         ) : (
-          <div className="flex items-center gap-0.5 rounded-md border border-border/50 px-1 py-0.5">
+          <div className="flex items-center gap-0.5 rounded-control border border-border/50 px-1 py-0.5">
             {narration.status === 'playing' ? (
               <Button variant="ghost" size="icon-sm" className="size-6" onClick={narration.pause} title="Pause"><Pause className="size-3.5" /></Button>
             ) : (
@@ -167,7 +168,7 @@ export function BookmarkReadPage() {
       )}
       {item.type === 'offline' && (
         <Button variant="ghost" size="icon-sm" onClick={() => setShowHighlights((v) => !v)} title="Highlights & notes"
-          className={cn(showHighlights && 'text-foreground', highlights.length > 0 && 'text-amber-400')}>
+          className={cn(showHighlights && 'text-foreground', highlights.length > 0 && 'text-warning')}>
           <Highlighter className="size-4" />
         </Button>
       )}
@@ -188,7 +189,7 @@ export function BookmarkReadPage() {
         <Button variant="ghost" size="icon-sm" onClick={toggleArchive} title={item.status === 'archived' ? 'Unarchive' : 'Archive'}><Archive className="size-4" /></Button>
       )}
       <a href={item.url} target="_blank" rel="noopener noreferrer" title="Open original"
-        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><ExternalLink className="size-4" /></a>
+        className="inline-flex size-7 items-center justify-center rounded-control text-muted-foreground hover:bg-accent hover:text-foreground"><ExternalLink className="size-4" /></a>
     </div>
   )
 
@@ -217,12 +218,12 @@ export function BookmarkReadPage() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {item.archiveState === 'pending' || item.archiveState === 'fetching' ? (
           <div className="flex flex-col items-center gap-3 py-24 text-muted-foreground">
-            <Loader2 className="size-7 animate-spin" />
+            <Spinner size="lg" className="size-7" />
             <p>Archiving this page for offline reading…</p>
           </div>
         ) : item.archiveState === 'failed' ? (
           <div className="flex flex-col items-center gap-3 py-24 text-muted-foreground">
-            <AlertTriangle className="size-7 text-red-400" />
+            <AlertTriangle className="size-7 text-destructive" />
             <p>Couldn't archive this page.</p>
             <div className="flex flex-wrap justify-center gap-2">
               <Button variant="outline" onClick={reArchive}>Try again</Button>
@@ -255,7 +256,7 @@ export function BookmarkReadPage() {
                       className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors',
                         snapId === s.id ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
                       {new Date(s.capturedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-                      {s.changed && <span className="rounded bg-amber-500/15 px-1 text-[10px] font-semibold text-amber-500">changed</span>}
+                      {s.changed && <span className="rounded bg-warning/15 px-1 text-[10px] font-semibold text-warning">changed</span>}
                       {/* Watched-value timeline: only meaningful when a selector scopes the
                           extract to something short (a price, a stock line). */}
                       {item.watchSelector && s.watchValue && s.watchValue.length <= 48 && (
@@ -269,14 +270,14 @@ export function BookmarkReadPage() {
             {snapId ? (
               snap ? (
                 <>
-                  <div className="flex items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/5 px-5 py-2 text-xs text-amber-600 dark:text-amber-400">
+                  <div className="flex items-center justify-between gap-2 border-b border-warning/20 bg-warning/5 px-5 py-2 text-xs text-warning">
                     <span>Viewing an archived version from {new Date(snap.capturedAt).toLocaleString()}</span>
                     <button onClick={() => setSnapId(null)} className="inline-flex items-center gap-1 hover:underline"><X className="size-3" /> Back to latest</button>
                   </div>
                   <ArticleReader title={snap.title ?? item.title} siteName={item.siteName} url={item.url} contentHtml={snap.contentHtml} />
                 </>
               ) : (
-                <div className="flex justify-center py-24 text-muted-foreground"><Loader2 className="size-6 animate-spin" /></div>
+                <div className="flex justify-center py-24"><Spinner size="lg" /></div>
               )
             ) : (
               <>

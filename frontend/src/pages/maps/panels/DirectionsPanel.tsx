@@ -3,7 +3,6 @@ import {
   BikeIcon,
   CarFrontIcon,
   FootprintsIcon,
-  Loader2Icon,
   MountainIcon,
   PlusIcon,
   Volume2Icon,
@@ -13,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/cn";
 
 import type { ViewportCenter } from "../api";
@@ -181,13 +181,13 @@ export function DirectionsPanel({
 
       {dirs.isLoading ? (
         <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2Icon className="size-3.5 animate-spin" />
+          <Spinner size="sm" />
           Routing…
         </p>
       ) : null}
 
       {dirs.unavailable ? (
-        <p className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-200">
+        <p className="rounded-card border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
           {dirs.error ?? "Routing unavailable for this region."}
         </p>
       ) : dirs.error ? (
@@ -225,7 +225,7 @@ export function DirectionsPanel({
       {routePois.length > 0 && (
         <ul className="grid gap-1">
           {routePois.map((p) => (
-            <li key={p.place_id} className="flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-xs bg-card/60 border border-border/40">
+            <li key={p.place_id} className="flex items-baseline justify-between gap-2 rounded-control px-2 py-1.5 text-xs bg-card/60 border border-border/40">
               <span className="truncate font-medium">{p.title}</span>
               <span className="shrink-0 text-muted-foreground">{p.distance_m ? `${(p.distance_m / 1000).toFixed(1)} km` : ""}</span>
             </li>
@@ -274,7 +274,7 @@ export function DirectionsPanel({
                     type="button"
                     onClick={() => handleStepClick(primary, step, key)}
                     className={cn(
-                      "grid w-full gap-0.5 rounded-2xl border border-border/60 px-3 py-2 text-left text-sm transition-colors",
+                      "grid w-full gap-0.5 rounded-control border border-border/60 px-3 py-2 text-left text-sm transition-colors",
                       selectedStepKey === key ? "bg-accent text-accent-foreground" : "bg-card/70 hover:bg-muted",
                     )}
                   >
@@ -323,7 +323,7 @@ function ModePicker({
           aria-selected={mode === opt.id}
           onClick={() => onChange(opt.id)}
           className={cn(
-            "flex flex-1 flex-col items-center gap-1 rounded-xl px-1 py-2 transition-colors",
+            "flex flex-1 flex-col items-center gap-1 rounded-control px-1 py-2 transition-colors",
             mode === opt.id
               ? "bg-primary/10 text-primary"
               : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -356,7 +356,7 @@ function AlternateRow({
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        "flex w-full items-center justify-between gap-2 rounded-2xl border px-3 py-2 text-left text-sm transition-colors",
+        "flex w-full items-center justify-between gap-2 rounded-card border px-3 py-2 text-left text-sm transition-colors",
         selected ? "border-primary bg-accent text-accent-foreground" : "border-border/60 bg-card/70 hover:bg-muted",
       )}
     >
@@ -395,7 +395,7 @@ function DifficultyPicker({
       <div className="grid grid-cols-4 gap-1">
         {levels.map((l) => (
           <button key={l.value} type="button" onClick={() => onChange(l.value)}
-            className={cn("rounded-lg border px-2 py-1 text-xs transition-colors",
+            className={cn("rounded-control border px-2 py-1 text-xs transition-colors",
               value === l.value ? "border-primary bg-primary/10 text-primary font-medium" : "border-border/60 bg-card/60 text-muted-foreground hover:text-foreground")}>
             {l.label}
           </button>

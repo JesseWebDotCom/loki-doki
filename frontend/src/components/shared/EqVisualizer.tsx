@@ -6,8 +6,8 @@ import { cn } from '@/lib/cn'
  *
  * Driven purely by REAL spectrum data: pass `getAnalyser` (the radio engine exposes a live
  * Web-Audio AnalyserNode, fed by routing each song deck through source → destination + analyser).
- * We read getByteFrequencyData every frame and map it onto log-spaced bars — bass on the left,
- * treble on the right — so the bars only ever move with the actual audio. When there's no signal
+ * We read getByteFrequencyData every frame and map it onto log-spaced bars (bass on the left,
+ * treble on the right) so the bars only ever move with the actual audio. When there's no signal
  * (paused, buffering, or no analyser) the bars settle to a calm baseline rather than animating;
  * we never fake motion. Honors prefers-reduced-motion with a static silhouette.
  */
@@ -20,7 +20,7 @@ export interface EqVisualizerProps {
   color?: string
   /** Base colour (bottom of the gradient). Falls back to `color`. */
   colorDark?: string
-  /** Overall alpha — keep low for the behind-the-player background use. */
+  /** Overall alpha; keep low for the behind-the-player background use. */
   opacity?: number
   /** Fade the left/right edges with a mask so it blends as a background. */
   fade?: boolean
@@ -30,7 +30,8 @@ export interface EqVisualizerProps {
 export function EqVisualizer({
   active = true,
   getAnalyser,
-  color = '#a855f7',
+  // design-ok(hex-in-tsx): canvas fillStyle cannot consume CSS vars; hue matches --gradient-brand-3
+  color = '#b06bff',
   colorDark,
   opacity = 1,
   fade = false,
@@ -145,7 +146,7 @@ export function EqVisualizer({
 
     resize()
     if (reduced) {
-      // Static silhouette — a calm frozen spectrum, no motion.
+      // Static silhouette: a calm frozen spectrum, no motion.
       const envelope = (i: number) => 0.55 + 0.45 * Math.cos((i / Math.max(1, count - 1)) * Math.PI * 0.5)
       for (let i = 0; i < count; i++) amps[i] = 0.2 + 0.45 * envelope(i) * (0.6 + 0.4 * Math.sin(i * 1.3))
       draw()
@@ -169,6 +170,7 @@ export function EqVisualizer({
       className={cn('pointer-events-none block size-full', className)}
       style={{
         opacity,
+        // design-ok(hex-in-tsx): mask alpha ramp, #000 is a mask value not a color
         ...(fade ? { maskImage: 'linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)', WebkitMaskImage: 'linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)' } : {}),
       }}
     />

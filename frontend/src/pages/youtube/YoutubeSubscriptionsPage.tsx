@@ -1,5 +1,11 @@
 import { useMemo } from 'react'
-import { Settings2, Loader2 } from 'lucide-react'
+import { Settings2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { SectionHeader } from '@/components/shared/SectionHeader'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { useYtFeed, useYtSubs, useYtDownloads } from '@/lib/youtube/useData'
 import { isShort, savedToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
@@ -10,7 +16,7 @@ import { useYoutubeMode, useYoutubeUI } from '@/components/youtube/YoutubeLayout
 const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 
 // Round-robin a recency-sorted list across its channels so one frequent uploader
-// doesn't bury everyone else — "Latest" leads with each channel's newest in turn.
+// doesn't bury everyone else; "Latest" leads with each channel's newest in turn.
 function interleaveByChannel(items: VideoItem[]): VideoItem[] {
   const groups = new Map<string, VideoItem[]>()
   for (const i of items) {
@@ -35,7 +41,7 @@ export function YoutubeSubscriptionsPage() {
   const { data: subs = [] } = useYtSubs()
   const { data: downloads = [] } = useYtDownloads()
 
-  // Offline mirrors online — same feed shape, sourced from the saved library.
+  // Offline mirrors online: same feed shape, sourced from the saved library.
   const offlineItems = useMemo(
     () => downloads.filter(r => r.status === 'ready').map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight))),
     [downloads],
@@ -50,43 +56,39 @@ export function YoutubeSubscriptionsPage() {
   )
 
   return (
-    <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Subscriptions</h1>
-          <p className="text-sm text-muted-foreground">
-            {subs.length} {subs.length === 1 ? 'channel' : 'channels'} you follow
-          </p>
-        </div>
-        <button onClick={openManage}
-          className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-          <Settings2 className="size-4" /> Manage
-        </button>
-      </div>
+    <PageContainer width="wide" className="pb-6">
+      <PageHeader title="Subscriptions"
+        subtitle={`${subs.length} ${subs.length === 1 ? 'channel' : 'channels'} you follow`}
+        className="pt-6 pb-5"
+        actions={
+          <Button variant="outline" onClick={openManage} className="shrink-0 gap-2 text-muted-foreground hover:text-foreground">
+            <Settings2 className="size-4" /> Manage
+          </Button>
+        } />
 
       {channels.length > 0 && <div className="mb-8"><ChannelRail title="Channels" channels={channels} /></div>}
 
       {online && loading ? (
-        <div className="flex justify-center py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+        <SkeletonCards count={8} className="xl:grid-cols-4" />
       ) : latest.length === 0 && shorts.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-10 text-center text-sm text-muted-foreground">
+        <Card variant="dashed" className="p-10 text-center text-sm text-muted-foreground">
           {subs.length === 0 ? (
             <>You haven't added any channels yet.{' '}
               <button onClick={openManage} className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</button>
               {' '}to build your feed.</>
           ) : 'No recent uploads from your subscriptions.'}
-        </div>
+        </Card>
       ) : (
         <div className="space-y-10">
           {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts} aspect="short" />}
           <section>
-            <h2 className="mb-4 text-lg font-bold tracking-tight">Latest</h2>
+            <SectionHeader title="Latest" className="mb-4" />
             <div className={GRID}>
               {latest.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}
             </div>
           </section>
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }

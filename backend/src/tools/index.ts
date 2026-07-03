@@ -130,6 +130,7 @@ import { setStatusTool } from './setStatus'
 import { sleepTool } from './sleep'
 import { displayAlertTool } from './displayAlert'
 import { rememberTool, forgetTool } from './memory'
+import { shoppingTool } from './shopping'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -174,4 +175,5 @@ export const toolRegistry: Tool[] = [
   displayAlertTool,
   rememberTool,
   forgetTool,
+  shoppingTool,
 ]

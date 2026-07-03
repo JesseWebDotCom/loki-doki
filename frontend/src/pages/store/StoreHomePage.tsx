@@ -1,7 +1,10 @@
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SectionHeader } from '@/components/shared/SectionHeader'
+import { Skeleton } from '@/components/ui/skeleton'
 import { FeaturedHero } from '@/components/store/FeaturedHero'
 import { CategoryCard } from '@/components/store/CategoryPill'
 import { StoreAppCard, StoreAppMiniCard } from '@/components/store/StoreAppCard'
-import { SectionHead, CardGridSkeleton } from '@/components/store/SectionHead'
+import { CardGridSkeleton } from '@/components/store/SectionHead'
 import { useStoreApps, STORE_CATEGORIES, categoryCounts } from '@/lib/store/useStoreApps'
 
 export function StoreHomePage() {
@@ -12,22 +15,22 @@ export function StoreHomePage() {
   const counts = categoryCounts(apps)
 
   return (
-    <div className="mx-auto max-w-6xl space-y-10 px-5 py-6 pb-20">
+    <PageContainer className="space-y-10 py-6 pb-20">
       {!isLoading && <FeaturedHero apps={apps} />}
 
       <section>
-        <SectionHead title="Categories" viewAllTo="/app-store/categories" />
+        <SectionHeader title="Categories" to="/app-store/categories" className="mb-4" />
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {STORE_CATEGORIES.map(c => <CategoryCard key={c.key} category={c} count={counts[c.key] ?? 0} />)}
         </div>
       </section>
 
       <section>
-        <SectionHead title="Recommended for you" viewAllTo="/app-store/browse" />
+        <SectionHeader title="Recommended for you" to="/app-store/browse" className="mb-4" />
         {isLoading ? (
           <div className="flex gap-4 overflow-hidden">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-32 w-56 shrink-0 animate-pulse rounded-2xl bg-card/40" />
+              <Skeleton key={i} className="h-32 w-56 shrink-0 rounded-card" />
             ))}
           </div>
         ) : (
@@ -38,7 +41,7 @@ export function StoreHomePage() {
       </section>
 
       <section>
-        <SectionHead title="All apps" viewAllTo="/app-store/browse" />
+        <SectionHeader title="All apps" count={isLoading ? undefined : apps.length} to="/app-store/browse" className="mb-4" />
         {isLoading ? (
           <CardGridSkeleton />
         ) : (
@@ -47,6 +50,6 @@ export function StoreHomePage() {
           </div>
         )}
       </section>
-    </div>
+    </PageContainer>
   )
 }

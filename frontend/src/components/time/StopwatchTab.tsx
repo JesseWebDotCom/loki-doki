@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { useTimeApp } from '@/context/TimeAlarmContext'
 import { useNow } from '@/hooks/useNow'
 import { formatStopwatch } from '@/lib/time/format'
@@ -30,7 +31,7 @@ export function StopwatchTab() {
       </div>
 
       {stopwatch.laps.length > 0 && (
-        <div className="w-full max-w-sm divide-y divide-border/60 rounded-2xl border border-border/60 bg-card">
+        <Card className="w-full max-w-sm divide-y divide-border/60 border-border/60">
           {stopwatch.laps.map((cumulative, i) => {
             const prev = i > 0 ? stopwatch.laps[i - 1]! : 0
             return (
@@ -40,7 +41,7 @@ export function StopwatchTab() {
               </div>
             )
           }).reverse()}
-        </div>
+        </Card>
       )}
     </div>
   )

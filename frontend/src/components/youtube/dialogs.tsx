@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import {
-  Loader2, Plus, Trash2, UploadCloud, Music, Video as VideoIcon, Settings2, BookmarkPlus, BookmarkCheck, Rss,
+  Plus, Trash2, UploadCloud, Music, Video as VideoIcon, Settings2, BookmarkPlus, BookmarkCheck, Rss,
   Download, PauseCircle,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
@@ -81,24 +83,24 @@ export function DownloadDialog({ target, onClose }: { target: DownloadTarget | n
         <p className="line-clamp-2 text-xs text-muted-foreground">{target?.title}</p>
         {phase === 'working' ? (
           <div className="space-y-3 py-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparing your file…</div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full bg-red-600 transition-all" style={{ width: `${pct}%` }} /></div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Preparing your file…</div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full bg-brand transition-all" style={{ width: `${pct}%` }} /></div>
             <p className="text-xs text-muted-foreground">The file saves to your device automatically when ready.</p>
           </div>
         ) : (
           <div className="space-y-3">
             {target?.savedKind && (
               <div className="space-y-1.5">
-                <button onClick={() => { triggerBrowserDownload(yt.fileUrl(target.videoId, target.savedKind!)); onClose() }}
-                  className="flex w-full items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-500 hover:bg-emerald-500/20">
+                <Button variant="outline" onClick={() => { triggerBrowserDownload(yt.fileUrl(target.videoId, target.savedKind!)); onClose() }}
+                  className="w-full justify-start gap-2 border-success/40 bg-success/10 text-success hover:bg-success/15 hover:text-success">
                   <BookmarkCheck className="size-4" /> Download saved {target.savedKind} copy
-                </button>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">or fetch a fresh copy at any quality</p>
+                </Button>
+                <p className="text-overline text-muted-foreground/60">or fetch a fresh copy at any quality</p>
               </div>
             )}
             <div className="space-y-1.5">
               {CURATED.map(c => (
-                <label key={c.key} className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
+                <label key={c.key} className="flex cursor-pointer items-center gap-2 rounded-control border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
                   <input type="radio" name="fmt" checked={choice === c.key} onChange={() => setChoice(c.key)} />
                   {c.key.startsWith('audio') ? <Music className="size-3.5 text-muted-foreground" /> : c.key === 'advanced' ? <Settings2 className="size-3.5 text-muted-foreground" /> : <VideoIcon className="size-3.5 text-muted-foreground" />}
                   {c.label}
@@ -108,10 +110,10 @@ export function DownloadDialog({ target, onClose }: { target: DownloadTarget | n
             {choice === 'advanced' && (
               <div className="space-y-1.5">
                 <input value={raw} onChange={e => setRaw(e.target.value)} placeholder="e.g. 137+140  or  bestvideo[height<=2160]+bestaudio"
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                  className="w-full rounded-control border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                 {formats === null ? <p className="text-xs text-muted-foreground">Loading available formats…</p>
                 : formats.length > 0 ? (
-                  <div className="max-h-40 overflow-auto rounded-md border border-border/50 text-[11px]">
+                  <div className="max-h-40 overflow-auto rounded-control border border-border/50 text-[11px]">
                     <table className="w-full"><tbody>
                       {formats.map(f => (
                         <tr key={f.formatId} className="cursor-pointer border-b border-border/30 last:border-0 hover:bg-muted/40" onClick={() => setRaw(f.formatId)}>
@@ -122,10 +124,10 @@ export function DownloadDialog({ target, onClose }: { target: DownloadTarget | n
                       ))}
                     </tbody></table>
                   </div>
-                ) : <p className="text-xs text-muted-foreground">Couldn't list formats — your raw string still works.</p>}
+                ) : <p className="text-xs text-muted-foreground">Couldn't list formats, but your raw string still works.</p>}
               </div>
             )}
-            <button onClick={start} className="w-full rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500">Download</button>
+            <Button onClick={start} className="w-full font-semibold">Download</Button>
           </div>
         )}
       </DialogContent>
@@ -161,7 +163,7 @@ export function SaveDialog({ target, onClose, onSaved }: { target: SaveTarget | 
       if (d.error) { toast.error(d.error); return }
       if (d.status === 'already-saved') toast.success('Already in your Offline library')
       else if (d.status === 'in-progress') toast.info('Already saving…')
-      else toast.success('Saving — find it under Offline')
+      else toast.success('Saving. Find it under Offline')
       onSaved?.(); onClose()
     } catch { toast.error('Could not save') } finally { setSaving(false) }
   }
@@ -175,25 +177,24 @@ export function SaveDialog({ target, onClose, onSaved }: { target: SaveTarget | 
         <p className="line-clamp-2 text-xs text-muted-foreground">{target?.title}</p>
         <div className="space-y-1.5">
           {videoTiers.map(t => (
-            <label key={t} className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
+            <label key={t} className="flex cursor-pointer items-center gap-2 rounded-control border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
               <input type="radio" name="save" checked={choice === `h:${t}`} onChange={() => setChoice(`h:${t}`)} />
               <VideoIcon className="size-3.5 text-muted-foreground" /> {resLabel(t)} video (MP4)
             </label>
           ))}
-          <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
+          <label className="flex cursor-pointer items-center gap-2 rounded-control border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
             <input type="radio" name="save" checked={choice === 'audio:m4a'} onChange={() => setChoice('audio:m4a')} />
             <Music className="size-3.5 text-muted-foreground" /> Audio only (M4A)
           </label>
-          <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
+          <label className="flex cursor-pointer items-center gap-2 rounded-control border border-border/60 px-3 py-2 text-sm hover:bg-muted/50">
             <input type="radio" name="save" checked={choice === 'audio:mp3'} onChange={() => setChoice('audio:mp3')} />
             <Music className="size-3.5 text-muted-foreground" /> Audio only (MP3)
           </label>
         </div>
         {cap && <p className="text-[10px] text-muted-foreground/60">Max {resLabel(cap)} set by your admin.</p>}
-        <button onClick={save} disabled={saving || !choice}
-          className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50">
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <BookmarkPlus className="size-4" />} Save offline
-        </button>
+        <Button onClick={save} disabled={saving || !choice} className="w-full font-semibold">
+          {saving ? <Spinner className="text-primary-foreground" /> : <BookmarkPlus className="size-4" />} Save offline
+        </Button>
       </DialogContent>
     </Dialog>
   )
@@ -299,15 +300,14 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
           <div className="flex gap-2">
             <input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
               placeholder="Paste @handle, channel URL, or playlist URL…"
-              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-            <button onClick={handleAdd} disabled={!input.trim() || adding}
-              className="flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-3 py-2 text-sm font-medium hover:bg-secondary/80 disabled:opacity-50">
-              {adding ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />} Add
-            </button>
+              className="flex-1 rounded-control border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+            <Button variant="secondary" onClick={handleAdd} disabled={!input.trim() || adding} className="shrink-0 gap-1.5">
+              {adding ? <Spinner size="sm" /> : <Plus className="size-3.5" />} Add
+            </Button>
           </div>
           <button onClick={() => fileInputRef.current?.click()} disabled={importing}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50">
-            {importing ? <Loader2 className="size-3.5 animate-spin" /> : <UploadCloud className="size-3.5" />} Import from Google Takeout (subscriptions.csv)
+            {importing ? <Spinner size="sm" /> : <UploadCloud className="size-3.5" />} Import from Google Takeout (subscriptions.csv)
           </button>
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) void handleCsvImport(f) }} />
@@ -315,13 +315,13 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
         </div>
         <div className="max-h-64 overflow-auto">
           {loading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
           ) : subs.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">No subscriptions yet</p>
           ) : (
             <div className="space-y-2">
               {subs.map(sub => (
-                <div key={sub.id} className="rounded-lg border border-border/60 bg-card px-3 py-2">
+                <div key={sub.id} className="rounded-control border border-border/60 bg-card px-3 py-2">
                   <div className="flex items-center gap-3">
                     {sub.thumbnailUrl
                       ? <img src={yt.ytImageProxy(sub.thumbnailUrl)} alt={sub.title} referrerPolicy="no-referrer" className="size-8 shrink-0 rounded-full object-cover" />
@@ -340,14 +340,14 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
                     <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/40 pl-11 pt-2 text-xs text-muted-foreground">
                       <span>Save as</span>
                       <select value={sub.autoSaveKind} onChange={e => void patchSub(sub.id, { autoSaveKind: e.target.value as 'audio' | 'video' })}
-                        className="rounded-md border border-border bg-background px-2 py-1 text-foreground">
+                        className="rounded-control border border-border bg-background px-2 py-1 text-foreground">
                         <option value="video">Video</option>
                         <option value="audio">Audio</option>
                       </select>
                       <span>· keep latest</span>
                       <input type="number" min={0} value={sub.autoSaveKeep ?? ''} placeholder={String(keepDefault)}
                         onChange={e => void patchSub(sub.id, { autoSaveKeep: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })}
-                        className="w-16 rounded-md border border-border bg-background px-2 py-1 text-foreground" />
+                        className="w-16 rounded-control border border-border bg-background px-2 py-1 text-foreground" />
                       <span>videos</span>
                     </div>
                   )}
@@ -363,13 +363,13 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
                 <p className="text-sm font-medium">Save quality</p>
                 <p className="text-xs text-muted-foreground">Resolution used when you Save videos offline{cap ? ` (max ${cap}p set by admin)` : ''}.</p>
               </div>
-              <select value={pref ?? cap ?? 1080} onChange={e => savePref(Number(e.target.value))} className="rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+              <select value={pref ?? cap ?? 1080} onChange={e => savePref(Number(e.target.value))} className="rounded-control border border-border bg-background px-2 py-1.5 text-sm">
                 {tiers.filter(t => cap == null || t <= cap).map(t => <option key={t} value={t}>{t}p</option>)}
               </select>
             </div>
           </div>
         )}
-        {/* Automation master switch — freezes auto-save + auto-podcast without losing per-channel settings. */}
+        {/* Automation master switch: freezes auto-save + auto-podcast without losing per-channel settings. */}
         <div className="border-t border-border/60 pt-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -387,7 +387,7 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
               <input type="number" min={1} value={keepDefault}
                 onChange={e => { const n = Math.max(1, Math.floor(Number(e.target.value) || 1)); setKeepDefault(n) }}
                 onBlur={e => void saveKeepDefault(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                className="w-20 rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+                className="w-20 rounded-control border border-border bg-background px-2 py-1.5 text-sm" />
             </div>
           )}
         </div>

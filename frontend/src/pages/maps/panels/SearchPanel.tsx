@@ -116,7 +116,7 @@ export function SearchPanel({
         <div
           role="dialog"
           aria-label="Search results"
-          className="max-h-[60vh] overflow-y-auto rounded-2xl border border-border/60 bg-popover p-2 shadow-sm"
+          className="max-h-[60vh] overflow-y-auto rounded-card border border-border/60 bg-popover p-2 shadow-sm"
         >
           <ul role="listbox" className="grid gap-1">
             {results.map((place, index) => {
@@ -129,7 +129,7 @@ export function SearchPanel({
                   aria-selected={index === cursor}
                   onMouseEnter={() => setCursor(index)}
                   className={cn(
-                    "rounded-xl transition-colors",
+                    "rounded-control transition-colors",
                     index === cursor ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
                   )}
                 >
@@ -145,7 +145,7 @@ export function SearchPanel({
                         {distance ? `${distance} · ${subtitle}` : subtitle}
                       </span>
                       {place.open_now != null ? (
-                        <span className={cn("text-[11px] font-medium", place.open_now ? "text-emerald-500" : "text-rose-500/80")}>
+                        <span className={cn("text-[11px] font-medium", place.open_now ? "text-success" : "text-destructive/80")}>
                           {place.open_now
                             ? (place.closes_at ? `Open · Closes ${place.closes_at}` : "Open now")
                             : (place.opens_at ? `Closed · Opens ${place.opens_at}` : "Closed")}
@@ -186,12 +186,12 @@ export function SearchPanel({
       {showHelper ? <p className="text-xs text-foreground/60">{helper}</p> : null}
       {userLocation.status === "granted" ? (
         <p className="inline-flex items-center gap-1.5 text-xs text-foreground/55">
-          <LocateFixedIcon className="size-3.5 text-emerald-500" />
+          <LocateFixedIcon className="size-3.5 text-success" />
           Using your location for ranking
         </p>
       ) : userLocation.status === "denied" ? (
         <p className="inline-flex items-center gap-1.5 text-xs text-foreground/55">
-          <LocateOffIcon className="size-3.5 text-amber-500" />
+          <LocateOffIcon className="size-3.5 text-warning" />
           Location off — ranking by map view
         </p>
       ) : null}

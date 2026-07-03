@@ -87,9 +87,16 @@ async function main(): Promise<void> {
   const negTotalSec = negBanks.reduce((n, b) => n + b.audio.length, 0) / SR
   console.log(`[fleet] Negative bank: ${negBanks.map(b => `${b.label}=${Math.round(b.audio.length / SR)}s`).join(' ')} (total ${Math.round(negTotalSec)}s)\n`)
 
+  // Optional: restrict to specific companion names (case-insensitive), e.g. for
+  // retrying just the ones that failed on a prior run — `bun run … Ember Astro`.
+  const nameFilter = new Set(process.argv.slice(2).map((s) => s.toLowerCase()))
+
   const rows = await db.select().from(characters)
-  const targets = rows.filter((c) => (c.wakeWordPhrase ?? '').trim() && !SKIP_CHARACTER_IDS.has(c.id))
-  console.log(`[fleet] ${targets.length} companions queued (${SKIP_CHARACTER_IDS.size} skipped as already done)\n`)
+  const targets = rows.filter((c) =>
+    (c.wakeWordPhrase ?? '').trim() &&
+    !SKIP_CHARACTER_IDS.has(c.id) &&
+    (nameFilter.size === 0 || nameFilter.has(c.name.toLowerCase())))
+  console.log(`[fleet] ${targets.length} companions queued (${SKIP_CHARACTER_IDS.size} skipped as already done${nameFilter.size ? `, filtered to: ${[...nameFilter].join(', ')}` : ''})\n`)
 
   const results: Result[] = []
 

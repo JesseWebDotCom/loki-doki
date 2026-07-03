@@ -2,6 +2,10 @@ import { useState } from 'react'
 import { ArrowLeftRight } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { cn } from '@/lib/cn'
 
@@ -106,8 +110,6 @@ function formatResult(n: number): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const GRADIENT = 'linear-gradient(135deg,#134e4a,#0d9488)'
-
 export function UnitConverterPage() {
   const [category, setCategory] = useState<Category>('length')
   const [fromIdx, setFromIdx] = useState(0)
@@ -142,45 +144,31 @@ export function UnitConverterPage() {
   }
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={ArrowLeftRight}>
-      <PageHeader
-        variant="compact"
-        title="Unit Converter"
-        subtitle="Convert length, weight, temperature, volume, and more."
-        gradient={GRADIENT}
-        icon={<ArrowLeftRight className="size-7 text-white" />}
-      />
+    <PageShell>
+      <PageContainer className="pb-10">
+        <PageHeader subtitle="Convert length, weight, temperature, volume, and more." />
 
-      {/* Category chips */}
-      <div className="px-5 pb-3">
-        <div className="flex flex-wrap gap-2">
+        {/* Category chips */}
+        <ChipRow className="flex-wrap pb-4">
           {CATEGORIES.map(({ id, label }) => (
-            <button
+            <Chip
               key={id}
+              label={label}
+              active={category === id}
               onClick={() => handleCategoryChange(id)}
-              className={cn(
-                'rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors',
-                category === id
-                  ? 'bg-brand text-white'
-                  : 'bg-foreground/8 text-foreground/70 hover:bg-foreground/12',
-              )}
-            >
-              {label}
-            </button>
+            />
           ))}
-        </div>
-      </div>
+        </ChipRow>
 
-      {/* Converter card */}
-      <div className="px-5 pb-10">
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+        {/* Converter card */}
+        <Card className="p-5">
 
           {/* Two-column layout with swap button */}
           <div className="flex items-start gap-2">
 
             {/* From column */}
             <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <label className="text-overline text-muted-foreground">
                 From
               </label>
               <input
@@ -189,7 +177,7 @@ export function UnitConverterPage() {
                 value={inputStr}
                 onChange={(e) => setInputStr(e.target.value)}
                 className={cn(
-                  'w-full rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5 text-base font-semibold',
+                  'w-full rounded-control border border-border/60 bg-muted/40 px-3 py-2.5 text-base font-semibold',
                   'focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/60',
                   'transition-colors placeholder:text-muted-foreground/50',
                 )}
@@ -199,7 +187,7 @@ export function UnitConverterPage() {
                 value={fromIdx}
                 onChange={(e) => setFromIdx(Number(e.target.value))}
                 className={cn(
-                  'w-full rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5 text-sm',
+                  'w-full rounded-control border border-border/60 bg-muted/40 px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/60',
                   'transition-colors cursor-pointer',
                 )}
@@ -214,32 +202,30 @@ export function UnitConverterPage() {
 
             {/* Swap button */}
             <div className="flex flex-col items-center pt-6 pb-0 mt-4">
-              <button
+              <Button
+                variant="secondary"
+                size="icon"
                 onClick={handleSwap}
-                className={cn(
-                  'flex size-9 items-center justify-center rounded-xl',
-                  'bg-foreground/8 hover:bg-brand/20 hover:text-brand',
-                  'transition-colors active:scale-95',
-                )}
                 title="Swap units"
+                aria-label="Swap units"
               >
                 <ArrowLeftRight className="size-4" />
-              </button>
+              </Button>
             </div>
 
             {/* To column */}
             <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <label className="text-overline text-muted-foreground">
                 To
               </label>
               <div
                 className={cn(
-                  'flex w-full items-center rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5',
+                  'flex w-full items-center rounded-control border border-border/60 bg-muted/20 px-3 py-2.5',
                   'min-h-[44px]',
                 )}
               >
                 {result !== null ? (
-                  <span className="text-3xl font-bold leading-none text-foreground">
+                  <span className="text-3xl font-semibold leading-none tabular-nums text-foreground">
                     {resultStr}
                   </span>
                 ) : (
@@ -250,7 +236,7 @@ export function UnitConverterPage() {
                 value={toIdx}
                 onChange={(e) => setToIdx(Number(e.target.value))}
                 className={cn(
-                  'w-full rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5 text-sm',
+                  'w-full rounded-control border border-border/60 bg-muted/40 px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/60',
                   'transition-colors cursor-pointer',
                 )}
@@ -266,7 +252,7 @@ export function UnitConverterPage() {
 
           {/* Result summary line */}
           {result !== null && (
-            <div className="mt-4 rounded-xl bg-muted/30 px-4 py-3 text-center">
+            <div className="mt-4 rounded-control bg-muted/30 px-4 py-3 text-center">
               <p className="text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">{inputStr}</span>
                 {' '}{fromUnit.symbol}{' '}
@@ -277,8 +263,8 @@ export function UnitConverterPage() {
               </p>
             </div>
           )}
-        </div>
-      </div>
+        </Card>
+      </PageContainer>
     </PageShell>
   )
 }

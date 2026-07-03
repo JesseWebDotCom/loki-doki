@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Bell, Check, Loader2, Plus, RefreshCw, Save, Store, Trash2,
+  Bell, Check, Plus, RefreshCw, Save, Store, Trash2,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { ToolsSection } from '@/components/admin/AdminFeaturesTab'
 import { getWidgetMeta, canonicalWidgetId } from '@/lib/homeWidgets'
@@ -58,7 +61,7 @@ interface HomeLayout {
 
 // ── Canvas rows editor (shared) ───────────────────────────────────────────────
 
-/** Append a widget to a row (or a brand-new row) — pure, returns next canvas. */
+/** Append a widget to a row (or a brand-new row): pure, returns next canvas. */
 function addWidgetToCanvas(canvas: HomeRow[], rowId: string | null, widgetId: string): HomeRow[] {
   if (rowId) {
     return canvas.map(row =>
@@ -85,21 +88,21 @@ function CanvasRowsEditor({
 
   return (
     <div className="space-y-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Canvas Widgets</p>
+      <p className="text-overline text-muted-foreground">Canvas Widgets</p>
 
       {canvas.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground/40">No widgets yet — add one below.</p>
+        <p className="text-[11px] text-muted-foreground/40">No widgets yet. Add one below.</p>
       ) : (
         <div className="space-y-2">
           {canvas.map(row => (
-            <div key={row.id} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border/40 bg-background/40 px-3 py-2">
+            <div key={row.id} className="flex flex-wrap items-center gap-1.5 rounded-control border border-border/40 bg-background/40 px-3 py-2">
               {row.cols.map(widget => {
                 const meta = getWidgetMeta(widget.toolId)
                 const Icon = meta?.icon
                 return (
                   <span
                     key={widget.toolId}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1 text-[11px] text-foreground/80"
+                    className="inline-flex items-center gap-1.5 rounded-control border border-border/60 bg-card px-2 py-1 text-[11px] text-foreground/80"
                   >
                     {Icon && (
                       <span
@@ -128,7 +131,7 @@ function CanvasRowsEditor({
                 <button
                   type="button"
                   onClick={() => setPickerTarget(row.id)}
-                  className="inline-flex items-center gap-1 rounded-md border border-dashed border-border/50 px-2 py-1 text-[11px] text-muted-foreground/50 hover:border-brand/60 hover:text-foreground/70 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-control border border-dashed border-border/50 px-2 py-1 text-[11px] text-muted-foreground/50 hover:border-brand/60 hover:text-foreground/70 transition-colors"
                 >
                   <Plus className="size-2.5" /> Add
                 </button>
@@ -141,7 +144,7 @@ function CanvasRowsEditor({
       <button
         type="button"
         onClick={() => setPickerTarget(null)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-border/40 py-2.5 text-[11px] text-muted-foreground/50 hover:border-brand/60 hover:text-foreground/70 transition-colors"
+        className="flex w-full items-center justify-center gap-1.5 rounded-control border-2 border-dashed border-border/40 py-2.5 text-[11px] text-muted-foreground/50 hover:border-brand/60 hover:text-foreground/70 transition-colors"
       >
         <Plus className="size-3" /> Add widget row
       </button>
@@ -193,13 +196,13 @@ function SectionPanel({
   title, description, children, id,
 }: { title: string; description?: string; children: React.ReactNode; id?: string; openSignal?: string; defaultOpen?: boolean }) {
   return (
-    <section id={id} className="scroll-mt-20 rounded-xl border border-border/60 bg-card overflow-hidden">
+    <Card variant="surface" id={id} className="scroll-mt-20 border-border/60">
       <div className="px-5 py-4 border-b border-border/40">
         <p className="text-sm font-semibold">{title}</p>
         {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
       </div>
       <div className="px-5 py-4">{children}</div>
-    </section>
+    </Card>
   )
 }
 
@@ -266,7 +269,7 @@ function InstallRequestsSection({ openSignal }: { openSignal?: string }) {
     >
       {loading ? (
         <div className="flex items-center gap-2 py-2">
-          <Loader2 className="size-3.5 animate-spin text-muted-foreground/40" />
+          <Spinner size="sm" className="text-muted-foreground/40" />
           <span className="text-xs text-muted-foreground/40">Loading...</span>
         </div>
       ) : notifications.length === 0 ? (
@@ -277,7 +280,7 @@ function InstallRequestsSection({ openSignal }: { openSignal?: string }) {
       ) : (
         <div className="space-y-2">
           {notifications.map(n => (
-            <div key={n.id} className="rounded-xl border border-border/50 bg-background/50 px-4 py-3">
+            <div key={n.id} className="rounded-card border border-border/50 bg-background/50 px-4 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -290,22 +293,23 @@ function InstallRequestsSection({ openSignal }: { openSignal?: string }) {
                   <p className="text-[10px] text-muted-foreground/40 mt-1">{formatTs(n.createdAt)}</p>
                 </div>
                 <div className="shrink-0 flex items-center gap-1.5">
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     disabled={acting.has(n.id)}
                     onClick={() => void handleDismiss(n)}
-                    className="rounded-lg border border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors disabled:opacity-50"
                   >
                     Dismiss
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    size="sm"
                     disabled={acting.has(n.id)}
                     onClick={() => void handleApprove(n)}
-                    className="rounded-lg bg-brand px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-brand/90 transition-colors disabled:opacity-50"
                   >
                     Approve
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -386,7 +390,7 @@ export function DefaultHomeLayoutSection({ openSignal }: { openSignal?: string }
     >
       {loading ? (
         <div className="flex items-center gap-2 py-2">
-          <Loader2 className="size-3.5 animate-spin text-muted-foreground/40" />
+          <Spinner size="sm" className="text-muted-foreground/40" />
           <span className="text-xs text-muted-foreground/40">Loading...</span>
         </div>
       ) : !layout ? (
@@ -395,7 +399,7 @@ export function DefaultHomeLayoutSection({ openSignal }: { openSignal?: string }
         <div className="space-y-5">
           {/* Header toggles */}
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Header Widgets</p>
+            <p className="text-overline text-muted-foreground">Header Widgets</p>
             <div className="space-y-2">
               {HEADER_TOGGLES.map(({ key, label }) => (
                 <div key={key} className="flex items-center justify-between gap-3">
@@ -416,27 +420,28 @@ export function DefaultHomeLayoutSection({ openSignal }: { openSignal?: string }
           {/* Save */}
           <div className="flex items-center justify-between gap-3 pt-1">
             {saved && (
-              <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+              <span className="flex items-center gap-1 text-[11px] text-success">
                 <Check className="size-3" /> Saved
               </span>
             )}
             <div className="ml-auto flex items-center gap-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={load}
-                className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
               >
                 <RefreshCw className="size-3" /> Reset
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                size="sm"
                 disabled={saving}
                 onClick={() => void save()}
-                className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand/90 transition-colors disabled:opacity-50"
               >
-                <Save className="size-3" />
-                {saving ? 'Saving...' : 'Save'}
-              </button>
+                {saving ? <Spinner size="sm" className="text-current" /> : <Save className="size-3" />}
+                Save
+              </Button>
             </div>
           </div>
         </div>
@@ -555,7 +560,7 @@ export function PerUserHomeLayoutSection() {
     >
       {usersLoading ? (
         <div className="flex items-center gap-2 py-2">
-          <Loader2 className="size-3.5 animate-spin text-muted-foreground/40" />
+          <Spinner size="sm" className="text-muted-foreground/40" />
           <span className="text-xs text-muted-foreground/40">Loading users...</span>
         </div>
       ) : (
@@ -566,7 +571,7 @@ export function PerUserHomeLayoutSection() {
             <select
               value={selectedUserId}
               onChange={e => setSelectedUserId(e.target.value)}
-              className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
+              className="w-full rounded-control border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40"
             >
               <option value="">Select a user...</option>
               {users.map(u => (
@@ -580,13 +585,13 @@ export function PerUserHomeLayoutSection() {
           {selectedUserId && (
             layoutLoading ? (
               <div className="flex items-center gap-2 py-2">
-                <Loader2 className="size-3.5 animate-spin text-muted-foreground/40" />
+                <Spinner size="sm" className="text-muted-foreground/40" />
                 <span className="text-xs text-muted-foreground/40">Loading layout...</span>
               </div>
             ) : (
               <div className="space-y-5">
                 {/* Locked toggle */}
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3 rounded-card border border-border/50 bg-background/50 px-4 py-3">
                   <div>
                     <p className="text-xs font-semibold">Lock layout</p>
                     <p className="text-[11px] text-muted-foreground">Prevent this user from changing their home layout.</p>
@@ -605,7 +610,7 @@ export function PerUserHomeLayoutSection() {
                 {effectiveLayout && (
                   <>
                     <div className="space-y-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Header Widgets</p>
+                      <p className="text-overline text-muted-foreground">Header Widgets</p>
                       <div className="space-y-2">
                         {HEADER_TOGGLES.map(({ key, label }) => (
                           <div key={key} className="flex items-center justify-between gap-3">
@@ -634,29 +639,30 @@ export function PerUserHomeLayoutSection() {
                 {/* Actions */}
                 <div className="flex items-center justify-between gap-3 pt-1">
                   {saved && (
-                    <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+                    <span className="flex items-center gap-1 text-[11px] text-success">
                       <Check className="size-3" /> Saved
                     </span>
                   )}
                   <div className="ml-auto flex items-center gap-2">
                     {defaultLayout && (
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
+                        size="sm"
                         onClick={() => void resetToDefault()}
-                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
                       >
                         <RefreshCw className="size-3" /> Reset to default
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
                       type="button"
+                      size="sm"
                       disabled={saving}
                       onClick={() => void save()}
-                      className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand/90 transition-colors disabled:opacity-50"
                     >
-                      <Save className="size-3" />
-                      {saving ? 'Saving...' : 'Save'}
-                    </button>
+                      {saving ? <Spinner size="sm" className="text-current" /> : <Save className="size-3" />}
+                      Save
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -680,7 +686,7 @@ export function AdminAppsTab({ openSignal }: { openSignal?: string } = {}) {
         <div className="flex items-center gap-2.5">
           <Store className="size-5 text-brand" />
           <div>
-            <h2 className="text-xl font-black tracking-tight">Apps</h2>
+            <h2 className="text-title">Apps</h2>
             <p className="text-xs text-muted-foreground">Manage apps and install requests.</p>
           </div>
         </div>

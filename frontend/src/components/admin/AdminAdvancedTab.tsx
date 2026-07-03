@@ -14,7 +14,7 @@ export function AdminAdvancedTab({ view = 'diagnostics' }: { view?: AdvancedView
     <div className="space-y-5 p-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-black tracking-tight">{tab === 'logs' ? 'Logs' : 'Diagnostics'}</h2>
+        <h2 className="text-title">{tab === 'logs' ? 'Logs' : 'Diagnostics'}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {tab === 'logs' ? 'Live application and ComfyUI logs.' : 'System health and queue diagnostics for troubleshooting.'}
         </p>
@@ -34,9 +34,9 @@ export function AdminAdvancedTab({ view = 'diagnostics' }: { view?: AdvancedView
                 type="button"
                 onClick={() => setLogSource(src)}
                 className={cn(
-                  'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                  'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
                   logSource === src
-                    ? 'border-violet-500/40 bg-violet-500/8 text-violet-300'
+                    ? 'border-brand/40 bg-brand/10 text-brand'
                     : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent/40',
                 )}
               >
@@ -45,7 +45,7 @@ export function AdminAdvancedTab({ view = 'diagnostics' }: { view?: AdvancedView
             ))}
           </div>
 
-          <div className="h-[560px] rounded-xl border border-border overflow-hidden">
+          <div className="h-[560px] rounded-card border border-border overflow-hidden">
             <LogViewer
               streamUrl={logSource === 'app' ? '/api/logs/stream' : '/api/logs/comfy/stream'}
               mode={logSource === 'app' ? 'json' : 'text'}

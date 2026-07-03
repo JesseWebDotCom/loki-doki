@@ -41,6 +41,10 @@ After writing or editing backend code, run `bun build --target=bun /path/to/src/
 
 If either build fails, fix the errors before reporting the task complete.
 
+After touching any frontend UI file, also run `bun run check:design-contract` from `frontend/`.
+It greps the diff's files for the mechanical Visual Language violations (em dashes, hardcoded
+`violet-*`, `window.confirm`/`window.alert`) - see Visual Language below.
+
 ---
 
 ## Tech Stack
@@ -142,24 +146,24 @@ Every app shares ONE header system so they look and behave identically. Do not h
 header, a title row, or a background tint on an app page. The pieces:
 
 **1. Breadcrumb (automatic).** `AppShell` renders the breadcrumb (`Home / Group / App`) for every
-non-home app route from the `APP_GROUPS` registry (`src/lib/appCategories.ts`) — icon, name, and
+non-home app route from the `APP_GROUPS` registry (`src/lib/appCategories.ts`), icon, name, and
 accent color all come from the registry. You get this for free; you do not render it.
 
 **2. Reload-on-click (automatic).** The app crumb (icon + name) is a button that reloads the app:
 it navigates to the app root and remounts the route (resetting tab/scroll/search/query state).
 Layout apps with a persistent rail/player (YouTube, Bookmarks, Chat) keep that rail mounted during
-normal internal navigation and only fully reload when the crumb is clicked — this works because the
+normal internal navigation and only fully reload when the crumb is clicked, this works because the
 `Outlet` is keyed by **app root**, not full pathname. Nothing to wire per page.
 
 **3. Background tint (automatic).** The app's registry `color`/`gradient` tints the right panel
 (corner fade + ghost-icon watermark), like Chat. `AppShell` paints it for standard scroller apps;
 full-bleed / chat pages get it from `PageShell`. Keep your page root transparent and it shows
-through. See `AppBackdrop` below — you rarely use it directly.
+through. See `AppBackdrop` below, you rarely use it directly.
 
 **4. Header actions (opt in via `useAppHeader`).** To add a search box, external link, admin
 settings gear, or global toggle buttons to the breadcrumb row, call **`useAppHeader(...)`** from
 `src/context/BreadcrumbSearchContext.tsx` in your page. This is the ONLY sanctioned way to populate
-the action row — never inject buttons into the breadcrumb yourself.
+the action row, never inject buttons into the breadcrumb yourself.
 
 ```ts
 useAppHeader({
@@ -174,13 +178,13 @@ useAppHeader({
 ```
 
 The config auto-clears on unmount. `useAppHeader` (and `AppHeaderConfig`, `useAppHeaderConfig`) is
-the current name; `useBreadcrumbSearch` is a back-compat alias — prefer `useAppHeader` in new code.
+the current name; `useBreadcrumbSearch` is a back-compat alias, prefer `useAppHeader` in new code.
 
 **5. Sub-tabs (use `AppTabBar`).** Tabbed apps keep their tab row in the page body (just under the
 breadcrumb) but render it via `AppTabBar` so every tabbed app looks identical. See below.
 
 **6. In-page app identity (icon tile + name).** Never hand-roll the app's icon tile with a hardcoded
-color — it drifts from the registry and the breadcrumb. The app's icon must render in its **registry
+color, it drifts from the registry and the breadcrumb. The app's icon must render in its **registry
 gradient** (`app.gradient`) with the **registry icon** (`app.icon`):
 - Layout apps with a left rail (YouTube, Bookmarks, Podcasts, Companions, App Store) use
   **`AppRailHeader`** (resolves icon+gradient from the registry by route).
@@ -193,7 +197,7 @@ gradient** (`app.gradient`) with the **registry icon** (`app.icon`):
 
 The app color-identity layer: a corner-fade tint (from the app gradient) + a faint ghost-icon
 watermark. Render as an `absolute inset-0` sibling behind `relative z-10` content. Usually applied
-for you by `AppShell` / `PageShell` — only reach for it directly on a custom full-bleed surface.
+for you by `AppShell` / `PageShell`, only reach for it directly on a custom full-bleed surface.
 
 ```ts
 { gradient?: string; GhostIcon?: LucideIcon }
@@ -327,7 +331,7 @@ onRetry?: () => void
 ### `PageShell` - `src/components/shared/PageShell.tsx`
 
 Transparent page wrapper that carries the app's color identity. Delegates the tint to `AppBackdrop`
-and, importantly, only self-tints on full-bleed / chat routes that `AppShell` does NOT cover — on
+and, importantly, only self-tints on full-bleed / chat routes that `AppShell` does NOT cover, on
 standard scroller apps the shell already paints the backdrop, so `PageShell` stays a transparent
 pass-through and the tint is applied exactly once. Existing pages can keep wrapping in `PageShell`
 unchanged; new standard apps don't need it at all (the shell tints them regardless).
@@ -383,7 +387,7 @@ TikTok-style horizontally-scrollable pill filter row. `Chip` active state uses `
 
 ### `TrackVariantGrid` - `src/components/shared/TrackVariantGrid.tsx`
 
-Variant picker grid with a shared audio player — the audio sibling of the cover-art grid. Used by the podcast `StingerPicker` (intro/outro) and the Music app's Generate/Remix tabs. Generic over any item with `{ key, label, previewUrl }`; renders play/pause + select, with optional `sublabel`, `selectedKey`, `pickingKey`, `loading`, `error`, and `columns` (1/2/3).
+Variant picker grid with a shared audio player, the audio sibling of the cover-art grid. Used by the podcast `StingerPicker` (intro/outro) and the Music app's Generate/Remix tabs. Generic over any item with `{ key, label, previewUrl }`; renders play/pause + select, with optional `sublabel`, `selectedKey`, `pickingKey`, `loading`, `error`, and `columns` (1/2/3).
 
 ```ts
 { variants: T[]; loading?: boolean; error?: string | null; selectedKey?; pickingKey?;
@@ -399,6 +403,31 @@ The shadcn `Card` now exports a `cardVariants` CVA export with four variants. Pr
 - `interactive` - surface + `cursor-pointer hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-lg active:scale-[0.99]`
 - `gradient` - `rounded-2xl text-white` (add your own gradient via `style` or `className`)
 - `dashed` - `rounded-2xl border-2 border-dashed border-border/60 bg-card/40` (empty-state prompt cards)
+
+---
+
+### `AppSettingsPage` - `src/components/shared/AppSettingsPage.tsx`
+
+The shell for every app's own settings page, reached via the breadcrumb gear
+(`useAppHeader({ settingsHref: '/{app-route}/settings' })`). Never point `settingsHref` at
+Admin - a per-app settings page is reachable by every user, not just admins, and shows only
+that app's own preferences. User content is always visible; `adminSection` (if the app has
+admin-only config) is shown in full to admins and replaced with a plain locked notice for
+everyone else. Apps with nothing to configure simply don't set a `settingsHref` - no gear
+button renders.
+
+```ts
+{
+  title?: string            // default "Settings"
+  backTo: string             // the app's root route
+  backLabel: string
+  icon: LucideIcon           // the app's registry icon
+  gradient: string           // the app's registry gradient
+  children: ReactNode        // user-facing settings content
+  adminSection?: ReactNode   // admin-only config; omit entirely if the app has none
+  adminNotice?: string       // shown to non-admins in place of adminSection
+}
+```
 
 ---
 
@@ -477,12 +506,12 @@ onChange: (slug: string | null) => void
 
 ### `BrandMark` - `src/components/shared/BrandMark.tsx`
 
-The LokiDoki app logo. Renders the canonical brand mark from `/favicon.svg` (single source of truth — update that SVG and every surface follows: browser tab, sidebar, setup wizard, boot screen). Never re-create the logo inline; always use this component.
+The LokiDoki app logo. Renders the canonical brand mark from `/favicon.svg` (single source of truth, update that SVG and every surface follows: browser tab, sidebar, setup wizard, boot screen). Never re-create the logo inline; always use this component.
 
 **Props:**
 ```ts
 className?: string   // size via `size-*` (the SVG carries its own rounded tile + gradient)
-glow?: boolean       // soft violet bloom hugging the squircle — for hero placements (boot/setup)
+glow?: boolean       // soft violet bloom hugging the squircle, for hero placements (boot/setup)
 ```
 
 ### `SpaceBackdrop` - `src/components/shared/SpaceBackdrop.tsx`
@@ -499,7 +528,46 @@ Notes:
 
 ### Toasts (app-wide) - `sonner`
 
-Toasts are mounted globally via `AppToaster` (`src/components/shared/AppToaster.tsx`, rendered once in `App.tsx`, theme-synced to light/dark). To show transient feedback after a save or destructive action, call `toast.success(...)` / `toast.error(...)` from `sonner` anywhere — do **not** build inline "Saving…/Saved" text for new code. Prefer toasts for success/error confirmation; keep optimistic UI updates as-is.
+Toasts are mounted globally via `AppToaster` (`src/components/shared/AppToaster.tsx`, rendered once in `App.tsx`, theme-synced to light/dark). To show transient feedback after a save or destructive action, call `toast.success(...)` / `toast.error(...)` from `sonner` anywhere. Do **not** build inline "Saving…/Saved" text for new code. Prefer toasts for success/error confirmation; keep optimistic UI updates as-is.
+
+---
+
+## Visual Language
+
+The reference for "does this look right" is the app's own brand mark (`public/favicon.svg`,
+rendered via `BrandMark`): a near-black rounded tile with ONE restrained diagonal accent
+gradient on a precise mark. Build the rest of the UI toward that, not toward "more color."
+
+- **Accent discipline.** `bg-brand`/`text-brand`/`border-brand`/`ring-brand` is the only accent
+  for interactive UI - buttons, active states, focus rings, links. The brand mark's multi-stop
+  gradient is for brand/hero moments only (`BrandMark`, onboarding hero panels). Never copy it
+  onto a generic button or badge. Per-app registry gradients (`appCategories.ts`) are fine for
+  sparse, larger identity moments (a breadcrumb crumb, one `PageHeader`/`AppRailHeader` tile, a
+  hero banner), but in dense, repeated contexts (a stacked nav list, a grid of category cards)
+  use `AppIconTile`'s `variant="flat"` (the app's single solid `color`) instead. A wall of
+  differently-hued multi-stop gradients reads as a sticker sheet, not a curated nav rail.
+- **Calm surfaces.** Default to `bg-card`/`bg-background`. Color is an accent, not wallpaper.
+- **No emoji as UI.** Icons are lucide-react only, full stop. This includes status glyphs,
+  presence indicators, and category icons, not just decorative icons. Emoji are fine inside
+  natural-language body copy (e.g. a generated advice string) but never stand in for an icon
+  component.
+- **One state-handling idiom per concept.** `EmptyAppState` for empty states, `sonner`
+  (`toast.success`/`toast.error`) for save/error feedback, `ConfirmDialog` for every destructive
+  action, `cardVariants` (`surface`/`interactive`/`gradient`/`dashed`) for cards. These are not
+  optional patterns among several, they are the only pattern. Do not hand-roll a "Saving.../
+  Saved" label, a second confirm-button component, or a bespoke "nothing here" block.
+- **No floating UI parked on top of content.** A persistent overlay (the companion, a mini
+  player) defaults to a corner dock, not dead-center, so it never guarantees an overlap with
+  whatever the page happens to render there.
+- **No em dashes** in documentation, UI copy, code comments, or commit messages (see Writing
+  Style above). This is the single most common violation found in an app-wide audit, more than
+  any other rule here, so treat it as the canonical thing to check a diff against.
+
+**Checking a diff against this:** run `bun run check:design-contract` (frontend/scripts, see
+Minimum Testing Requirements) before calling frontend work done. It greps for the mechanical
+violations (em dashes, hardcoded `violet-*`, `window.confirm`/`window.alert`) and is not a full
+substitute for reading the diff against the rules above, but it catches regressions on exactly
+the patterns that recur most.
 
 ---
 

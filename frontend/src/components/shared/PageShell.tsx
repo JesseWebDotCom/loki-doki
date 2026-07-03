@@ -17,7 +17,7 @@ interface PageShellProps {
  * ghost-icon watermark). For standard scroller apps the AppShell already paints this
  * backdrop, so PageShell stays a transparent pass-through there and only self-tints on
  * full-bleed / chat routes that the shell does not cover. Existing pages can keep
- * wrapping in PageShell unchanged — the tint is applied exactly once either way.
+ * wrapping in PageShell unchanged; the tint is applied exactly once either way.
  */
 export function PageShell({ gradient, GhostIcon, children, className }: PageShellProps) {
   const { pathname } = useLocation();
@@ -29,7 +29,7 @@ export function PageShell({ gradient, GhostIcon, children, className }: PageShel
 
   return (
     <div className={cn("relative min-h-full flex flex-col", className)}>
-      {/* Shell already owns the backdrop for standard scroller apps — don't double-paint. */}
+      {/* Shell already owns the backdrop for standard scroller apps; don't double-paint. */}
       {!shellBackdrop && <AppBackdrop gradient={resolvedGradient} GhostIcon={ResolvedIcon} />}
       <div className="relative z-10 flex-1 min-h-0 flex flex-col">{children}</div>
     </div>

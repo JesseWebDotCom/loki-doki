@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, Trash2, Newspaper } from 'lucide-react'
+import { Plus, Trash2, Newspaper } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { FaviconImg } from '@/components/shared/FaviconImg'
@@ -45,9 +47,9 @@ export function AdminNewsTab() {
   return (
     <div className="space-y-5 p-5">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-muted p-2"><Newspaper className="size-5 text-muted-foreground" /></div>
+        <div className="rounded-control bg-muted p-2"><Newspaper className="size-5 text-muted-foreground" /></div>
         <div className="flex-1">
-          <h2 className="text-base font-semibold">Shared News categories</h2>
+          <h2 className="text-title">Shared News categories</h2>
           <p className="text-sm text-muted-foreground">
             Curated categories everyone sees in the News app, alongside the built-in Global and Local tabs.
             Users can hide them but can't edit their feeds.
@@ -57,10 +59,10 @@ export function AdminNewsTab() {
 
       <div className="flex max-w-md gap-2">
         <Input placeholder="New category name" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void createCategory() }} />
-        <Button onClick={createCategory} disabled={busy}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}</Button>
+        <Button onClick={createCategory} disabled={busy} aria-label="Add category">{busy ? <Spinner size="sm" className="text-current" /> : <Plus className="size-4" />}</Button>
       </div>
 
-      {isLoading && <div className="py-10 text-center"><Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" /></div>}
+      {isLoading && <div className="py-10 text-center"><Spinner size="lg" className="mx-auto" /></div>}
       {!isLoading && categories.length === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">No shared categories yet.</p>
       )}
@@ -109,34 +111,34 @@ function CategoryCard({ cat, onChanged, onDelete }: { cat: SharedCategory; onCha
   }
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <Card className="p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-medium">{cat.name}</h3>
-        <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-destructive" onClick={onDelete} aria-label="Delete category">
+        <Button size="icon-sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={onDelete} aria-label="Delete category">
           <Trash2 className="size-4" />
         </Button>
       </div>
 
       <div className="mb-2 flex gap-2">
         <Input placeholder="https://example.com or .../feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addFeed() }} />
-        <Button onClick={addFeed} disabled={busy}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}</Button>
+        <Button onClick={addFeed} disabled={busy} aria-label="Add feed">{busy ? <Spinner size="sm" className="text-current" /> : <Plus className="size-4" />}</Button>
       </div>
 
       <div className="space-y-1">
         {cat.feeds.length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">No feeds yet.</p>}
         {cat.feeds.map((f) => (
-          <div key={f.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50">
+          <div key={f.id} className="flex items-center gap-2 rounded-control px-2 py-1.5 hover:bg-muted/50">
             <FaviconImg domain={hostFromUrl(f.url || undefined) ?? ''} className="size-4 shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm">{f.title || f.url}</div>
               {f.lastError && <div className="truncate text-xs text-destructive">{f.lastError}</div>}
             </div>
-            <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => removeFeed(f)} aria-label="Remove feed">
+            <Button size="icon-sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => removeFeed(f)} aria-label="Remove feed">
               <Trash2 className="size-4" />
             </Button>
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }

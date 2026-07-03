@@ -1,5 +1,6 @@
 import { ExternalLink, TrendingUp, Sparkles, Ticket } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import { FaviconImg } from '@/components/shared/FaviconImg'
 import { proxyImg } from '@/lib/img'
 import type { WhereToWatchBlockData, WhereToWatchItem, WhereToWatchProvider } from './types'
@@ -56,12 +57,12 @@ function ProviderRow({ p }: { p: WhereToWatchProvider }) {
   )
   return p.url ? (
     <a href={p.url} target="_blank" rel="noopener noreferrer"
-      className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60 transition-colors">
+      className="flex items-center justify-between gap-2 rounded-control px-2 py-1.5 hover:bg-muted/60 transition-colors">
       {inner}
       <ExternalLink className="size-3 text-muted-foreground shrink-0" />
     </a>
   ) : (
-    <div className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5">{inner}</div>
+    <div className="flex items-center justify-between gap-2 rounded-control px-2 py-1.5">{inner}</div>
   )
 }
 
@@ -74,8 +75,8 @@ function BrowseRow({ item }: { item: WhereToWatchItem }) {
   const body = (
     <div className="flex items-center gap-3 px-3 py-2">
       {item.posterUrl
-        ? <img src={proxyImg(item.posterUrl)} alt="" className="h-12 w-9 shrink-0 rounded object-cover" loading="lazy" />
-        : <div className="h-12 w-9 shrink-0 rounded bg-muted" />}
+        ? <img src={proxyImg(item.posterUrl)} alt="" className="h-12 w-9 shrink-0 rounded-card object-cover" loading="lazy" />
+        : <div className="h-12 w-9 shrink-0 rounded-card bg-muted" />}
       <div className="min-w-0 flex-1">
         <p className="truncate text-[12px] font-medium">{item.title}</p>
         {sub.length > 0 && <p className="text-[11px] text-muted-foreground">{sub.join(' · ')}</p>}
@@ -97,7 +98,7 @@ function BrowseCard({ data }: { data: WhereToWatchBlockData }) {
   const items = data.items ?? []
   const Icon = data.browseLabel === 'New' ? Sparkles : TrendingUp
   return (
-    <div className="rounded-xl border border-border/50 bg-card overflow-hidden text-sm">
+    <Card variant="surface" className="text-sm">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border/30">
         <Icon className="size-4 text-muted-foreground" />
         <p className="text-[12px] font-medium">
@@ -107,7 +108,7 @@ function BrowseCard({ data }: { data: WhereToWatchBlockData }) {
       <div className="divide-y divide-border/20">
         {items.slice(0, 8).map((it, i) => <BrowseRow key={`${it.title}-${i}`} item={it} />)}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -124,7 +125,7 @@ export function WhereToWatchCard({ data }: { data: WhereToWatchBlockData }) {
   if (data.runtimeMinutes && data.runtimeMinutes > 0) meta.push(`${data.runtimeMinutes}m`)
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card overflow-hidden text-sm">
+    <Card variant="surface" className="text-sm">
       <div className="flex gap-0">
         {data.posterUrl && (
           <div className="shrink-0 w-20 overflow-hidden">
@@ -137,23 +138,23 @@ export function WhereToWatchCard({ data }: { data: WhereToWatchBlockData }) {
             <p className="mt-0.5 text-[11px] text-muted-foreground">{meta.join(' · ')}</p>
           )}
           {theaters.length > 0 && (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-500">
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">
               <Ticket className="size-3" /> In theaters now
             </span>
           )}
         </div>
       </div>
 
-      {/* In theaters — buy tickets */}
+      {/* In theaters - buy tickets */}
       {theaters.length > 0 && (
         <div className="border-t border-border/30 px-2 py-2">
           <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">In theaters</p>
           <div className="flex flex-col">
             {theaters.slice(0, 4).map((t, i) => (
               <a key={`${t.name}-${i}`} href={t.url || undefined} target="_blank" rel="noopener noreferrer"
-                className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60 transition-colors">
+                className="flex items-center justify-between gap-2 rounded-control px-2 py-1.5 hover:bg-muted/60 transition-colors">
                 <span className="flex items-center gap-2 min-w-0">
-                  <Ticket className="size-3.5 text-amber-500 shrink-0" />
+                  <Ticket className="size-3.5 text-warning shrink-0" />
                   <span className="truncate font-medium text-[12px]">{t.name}</span>
                   <span className="text-[11px] text-muted-foreground">tickets</span>
                 </span>
@@ -174,7 +175,7 @@ export function WhereToWatchCard({ data }: { data: WhereToWatchBlockData }) {
           </div>
         ) : (
           <p className="px-2 py-1.5 text-[12px] text-muted-foreground">
-            {theaters.length > 0 ? `Not streaming yet — in theaters only.` : `Not currently streaming in ${data.country}.`}
+            {theaters.length > 0 ? `Not streaming yet - in theaters only.` : `Not currently streaming in ${data.country}.`}
           </p>
         )}
       </div>
@@ -187,6 +188,6 @@ export function WhereToWatchCard({ data }: { data: WhereToWatchBlockData }) {
           </a>
         </div>
       )}
-    </div>
+    </Card>
   )
 }

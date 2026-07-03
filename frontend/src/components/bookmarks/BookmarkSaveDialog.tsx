@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bookmark, FileText, Loader2, Plus } from 'lucide-react'
+import { Bookmark, FileText, Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -77,7 +78,7 @@ export function BookmarkSaveDialog({ open, onClose }: { open: boolean; onClose: 
             { v: 'offline', icon: FileText, label: 'Offline', hint: 'Save the full article' },
           ] as const).map(o => (
             <button key={o.v} type="button" onClick={() => setType(o.v)}
-              className={cn('flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-colors',
+              className={cn('flex flex-col items-start gap-1 rounded-card border p-3 text-left transition-colors',
                 type === o.v ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent/40')}>
               <o.icon className="size-4" />
               <span className="text-sm font-medium">{o.label}</span>
@@ -89,14 +90,14 @@ export function BookmarkSaveDialog({ open, onClose }: { open: boolean; onClose: 
         <div className="space-y-3">
           <div className="relative">
             <Input placeholder="https://…" value={url} onChange={e => setUrl(e.target.value)} autoFocus />
-            {probing && <Loader2 className="absolute right-2 top-2.5 size-4 animate-spin text-muted-foreground" />}
+            {probing && <Spinner className="absolute right-2 top-2.5" />}
           </div>
           <Input placeholder="Title (optional)" value={title} onChange={e => setTitle(e.target.value)} />
           <Input placeholder="Tags, comma-separated (optional)" value={tags} onChange={e => setTags(e.target.value)} />
           {newCollection === null ? (
             <div className="flex gap-2">
               <select value={collectionId} onChange={e => setCollectionId(e.target.value)}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                className="min-w-0 flex-1 rounded-control border border-border bg-background px-3 py-2 text-sm">
                 <option value="">No collection</option>
                 {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -116,7 +117,7 @@ export function BookmarkSaveDialog({ open, onClose }: { open: boolean; onClose: 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button onClick={save} disabled={saving}>
-            {saving && <Loader2 className="mr-1.5 size-4 animate-spin" />}Save
+            {saving && <Spinner className="mr-1.5 text-current" />}Save
           </Button>
         </DialogFooter>
       </DialogContent>

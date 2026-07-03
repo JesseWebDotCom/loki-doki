@@ -1,13 +1,14 @@
 // Tone chooser for alarms & timers. Three sources:
-//   1. Built-in synthesized tones (instant, offline) — see lib/time/tones.ts
+//   1. Built-in synthesized tones (instant, offline); see lib/time/tones.ts
 //   2. Previously-saved generated tones (music_tracks, kind 'loop')
 //   3. New tones generated on demand by the offline music engine
 // Emits the chosen tone string ("builtin:<key>" | "track:<id>") + a display name.
 
 import { useEffect, useRef, useState } from 'react'
-import { Check, Loader2, Pause, Play, Sparkles, RefreshCw } from 'lucide-react'
+import { Check, Pause, Play, Sparkles, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { TrackVariantGrid } from '@/components/shared/TrackVariantGrid'
 import { BUILTIN_TONES, previewTone, type RingHandle } from '@/lib/time/tones'
 import { generateToneVariants, saveToneVariant, type ToneVariant } from '@/lib/time/toneGen'
@@ -66,7 +67,7 @@ export function TonePicker({ value, onChange }: {
   function Row({ tone, label, selected }: { tone: string; label: string; selected: boolean }) {
     const isPlaying = previewing === tone
     return (
-      <div className={cn('flex items-center gap-2 rounded-xl border px-2.5 py-2 transition-all',
+      <div className={cn('flex items-center gap-2 rounded-control border px-2.5 py-2 transition-all',
         selected ? 'border-brand bg-brand/5' : 'border-border hover:border-border/80')}>
         <button type="button" onClick={() => preview(tone)}
           className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground hover:bg-muted/70"
@@ -84,7 +85,7 @@ export function TonePicker({ value, onChange }: {
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Built-in</p>
+        <p className="text-overline text-muted-foreground">Built-in</p>
         <div className="grid grid-cols-2 gap-2">
           {BUILTIN_TONES.map((t) => (
             <Row key={t.key} tone={`builtin:${t.key}`} label={t.label} selected={value === `builtin:${t.key}`} />
@@ -94,7 +95,7 @@ export function TonePicker({ value, onChange }: {
 
       {saved.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your tones</p>
+          <p className="text-overline text-muted-foreground">Your tones</p>
           <div className="grid grid-cols-2 gap-2">
             {saved.map((t) => (
               <Row key={t.id} tone={`track:${t.id}`} label={t.title} selected={value === `track:${t.id}`} />
@@ -109,11 +110,11 @@ export function TonePicker({ value, onChange }: {
             <Sparkles className="size-4" /> Generate a custom tone
           </Button>
         ) : (
-          <div className="space-y-2 rounded-xl border border-border/60 p-3">
+          <div className="space-y-2 rounded-control border border-border/60 p-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Generated</p>
+              <p className="text-overline text-muted-foreground">Generated</p>
               <Button type="button" variant="ghost" size="sm" disabled={genLoading} onClick={() => void runGenerate(true)}>
-                <RefreshCw className={cn('size-3.5', genLoading && 'animate-spin')} /> Regenerate
+                {genLoading ? <Spinner size="sm" /> : <RefreshCw className="size-3.5" />} Regenerate
               </Button>
             </div>
             <TrackVariantGrid<ToneVariant>

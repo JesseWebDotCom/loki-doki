@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   children: ReactNode
@@ -26,16 +27,13 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.props.fallback) return this.props.fallback
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
-        <div className="text-lg font-medium text-foreground">Something went wrong</div>
+        <div className="text-title text-foreground">Something went wrong</div>
         <p className="max-w-md text-sm text-muted-foreground">
           This page hit an unexpected error. Reloading usually fixes it.
         </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="rounded-md border border-border px-4 py-2 text-sm hover:bg-card"
-        >
+        <Button variant="outline" onClick={() => window.location.reload()}>
           Reload
-        </button>
+        </Button>
       </div>
     )
   }

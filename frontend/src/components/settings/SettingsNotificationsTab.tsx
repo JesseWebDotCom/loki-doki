@@ -14,12 +14,13 @@ import {
 } from '@/lib/notifications'
 import { ChannelsSection } from './notifications/ChannelsSection'
 import { DeliveryMatrixSection } from './notifications/DeliveryMatrixSection'
-import { TimingSection, type QuietHoursPref } from './notifications/TimingSection'
+import { TimingSection, type MorningReportPref, type QuietHoursPref } from './notifications/TimingSection'
 
 const MUTED_KEY = 'notifications.muted'
 const MATRIX_KEY = 'notifications.delivery'
 const QUIET_KEY = 'notifications.quiet'
 const DIGEST_TIME_KEY = 'notifications.digest_time'
+const MORNING_REPORT_KEY = 'notifications.morning_report'
 
 export function SettingsNotificationsTab() {
   const { user } = useAuth()
@@ -30,6 +31,7 @@ export function SettingsNotificationsTab() {
   const [matrix, setMatrix] = useState<DeliveryMatrix>({})
   const [quiet, setQuiet] = useState<QuietHoursPref>({ enabled: false, start: '22:00', end: '07:00' })
   const [digestTime, setDigestTime] = useState('18:00')
+  const [morningReport, setMorningReport] = useState<MorningReportPref>({ enabled: false, time: '07:30', channels: ['push'] })
   const [saving, setSaving] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
 
@@ -59,6 +61,14 @@ export function SettingsNotificationsTab() {
         }
         const savedDigest = data[DIGEST_TIME_KEY]
         if (typeof savedDigest === 'string') setDigestTime(savedDigest)
+        const savedReport = data[MORNING_REPORT_KEY] as Partial<MorningReportPref> | undefined
+        if (savedReport && typeof savedReport === 'object') {
+          setMorningReport({
+            enabled: !!savedReport.enabled,
+            time: savedReport.time ?? '07:30',
+            channels: Array.isArray(savedReport.channels) ? savedReport.channels : ['push'],
+          })
+        }
       })
       .catch(() => {})
   }, [user?.id, loadNotifications, refreshChannels])
@@ -94,6 +104,13 @@ export function SettingsNotificationsTab() {
 
   const changeQuiet = (q: QuietHoursPref) => { setQuiet(q); persist(QUIET_KEY, q) }
   const changeDigestTime = (t: string) => { setDigestTime(t); persist(DIGEST_TIME_KEY, t) }
+  const changeMorningReport = (m: MorningReportPref) => { setMorningReport(m); persist(MORNING_REPORT_KEY, m) }
+
+  const availableChannels: ('push' | 'telegram' | 'email')[] = [
+    ...(channels && channels.push.subscriptions > 0 ? (['push'] as const) : []),
+    ...(channels?.telegram?.linked ? (['telegram'] as const) : []),
+    ...(channels?.email?.verified ? (['email'] as const) : []),
+  ]
 
   const unreadCount = useMemo(() => notifications.filter((n) => n.readAt === null).length, [notifications])
 
@@ -113,8 +130,11 @@ export function SettingsNotificationsTab() {
       <TimingSection
         quiet={quiet}
         digestTime={digestTime}
+        morningReport={morningReport}
+        availableChannels={availableChannels}
         onQuietChange={changeQuiet}
         onDigestTimeChange={changeDigestTime}
+        onMorningReportChange={changeMorningReport}
       />
 
       {/* History */}
@@ -144,7 +164,7 @@ export function SettingsNotificationsTab() {
         </div>
 
         {notifications.length === 0 ? (
-          <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-border/60 text-sm text-muted-foreground">
+          <div className="flex h-32 items-center justify-center rounded-card border border-dashed border-border/60 text-sm text-muted-foreground">
             No notifications
           </div>
         ) : (
@@ -157,7 +177,7 @@ export function SettingsNotificationsTab() {
                   key={n.id}
                   type="button"
                   onClick={() => { if (unread) void markRead(n.id) }}
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-muted/40 transition-colors"
+                  className="flex w-full items-start gap-3 rounded-control px-3 py-2.5 text-left hover:bg-muted/40 transition-colors"
                 >
                   <NIcon className="size-4 mt-0.5 shrink-0 text-muted-foreground" />
                   <div className="flex-1 min-w-0">

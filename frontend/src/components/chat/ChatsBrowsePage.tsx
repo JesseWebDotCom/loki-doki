@@ -3,10 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search } from 'lucide-react'
 import { useChatContext } from '@/context/ChatContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { Button } from '@/components/ui/button'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ChatListRow } from '@/components/chat/ChatListRow'
 
-/** Full, searchable list of every conversation — the "View all" target for Chats. */
+/** Full, searchable list of every conversation - the "View all" target for Chats. */
 export function ChatsBrowsePage() {
   const navigate = useNavigate()
   const {
@@ -49,17 +52,17 @@ export function ChatsBrowsePage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Chats</h1>
-          <button
-            onClick={handleNewChat}
-            className="flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
-          >
-            <Plus className="size-3.5" />
-            New chat
-          </button>
-        </div>
+      <PageContainer width="narrow" className="py-6">
+        <PageHeader
+          title="Chats"
+          className="pt-0 pb-4"
+          actions={
+            <Button size="sm" onClick={handleNewChat}>
+              <Plus className="size-3.5" />
+              New chat
+            </Button>
+          }
+        />
 
         <div className="relative mb-2">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/50" />
@@ -67,7 +70,7 @@ export function ChatsBrowsePage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search chats…"
-            className="w-full rounded-xl border border-border/40 bg-card py-2.5 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-border"
+            className="w-full rounded-control border border-border/40 bg-card py-2.5 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-border"
           />
         </div>
 
@@ -89,7 +92,7 @@ export function ChatsBrowsePage() {
             ))}
           </div>
         )}
-      </div>
+      </PageContainer>
 
       <ConfirmDialog
         open={deleteConvTarget !== null}

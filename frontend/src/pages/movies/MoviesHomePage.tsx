@@ -1,8 +1,12 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Clapperboard, Loader2, Search, Bookmark, Headphones, Monitor, Settings } from 'lucide-react'
+import { Clapperboard, Search, Bookmark, Headphones, Monitor, Settings } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
@@ -10,8 +14,10 @@ import { getMoviesHome, searchMovies, movieTo, type MovieSummary } from '@/lib/m
 import { getWatchlist } from '@/lib/library/api'
 import { PlexShelves } from '@/pages/shows/ShowsHomePage'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
+import { getAppByPath } from '@/lib/appCategories'
 
-const MOVIES_GRADIENT = 'linear-gradient(135deg,#1e1b4b,#6d28d9)'
+// App identity (icon/gradient) comes from the app registry - the single source of truth.
+const MOVIES_APP = getAppByPath('/movies')
 
 function toPoster(m: MovieSummary): PosterItem {
   return {
@@ -31,7 +37,7 @@ function SearchGrid({ q }: { q: string }) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -70,7 +76,7 @@ function HomeShelves() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -80,9 +86,9 @@ function HomeShelves() {
     return (
       <EmptyAppState
         icon={Clapperboard}
-        gradient={MOVIES_GRADIENT}
+        gradient={MOVIES_APP?.gradient}
         title="Movies, watchlists & where to stream"
-        tagline="Search any film, see where to stream it, build your watchlist, and let AI produce a deep-dive audio analysis — everything in one place."
+        tagline="Search any film, see where to stream it, build your watchlist, and let AI produce a deep-dive audio analysis - everything in one place."
         features={[
           { icon: Search, title: 'Search any title', desc: 'Millions of films with posters, ratings, and genre info.' },
           { icon: Monitor, title: 'Where to stream', desc: 'JustWatch integration shows every streaming option for your region.' },
@@ -117,13 +123,16 @@ export function MoviesHomePage() {
   // A user-facing settings gear (everyone, not just admins) → Movies settings (Plex, etc.).
   const rightSlot = useMemo(
     () => (
-      <button
+      <Button
+        variant="ghost"
+        size="icon"
         onClick={() => navigate('/movies/settings')}
         title="Movies settings"
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        aria-label="Movies settings"
+        className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
       >
         <Settings className="size-4" />
-      </button>
+      </Button>
     ),
     [navigate],
   )
@@ -137,8 +146,11 @@ export function MoviesHomePage() {
   })
 
   return (
-    <PageShell gradient={MOVIES_GRADIENT} GhostIcon={Clapperboard}>
-      <div className="px-5 pb-12 pt-5">{submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}</div>
+    <PageShell>
+      <PageContainer width="wide" className="pb-12">
+        <PageHeader className="pt-5 pb-6" />
+        {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
+      </PageContainer>
     </PageShell>
   )
 }

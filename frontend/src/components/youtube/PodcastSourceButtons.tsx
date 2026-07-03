@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Mic, Plus } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
@@ -23,7 +24,7 @@ export function PodcastSourceButtons({ videos, sourceId, suggestedShowName, sour
   /** Stable key for this source, e.g. `channel:<id>` or `playlist:<id>`. */
   sourceId: string
   suggestedShowName?: string
-  /** Channel/playlist "about" text — woven into the auto-generated show description. */
+  /** Channel/playlist "about" text, woven into the auto-generated show description. */
   sourceDescription?: string
   /** Raw source photo URL (channel avatar / thumbnail) for cover art. */
   coverImageUrl?: string
@@ -37,13 +38,13 @@ export function PodcastSourceButtons({ videos, sourceId, suggestedShowName, sour
   // Light the button up when a linked show is auto-generating new episodes from this source.
   const autoGenerating = related.some(s => s.autoGenerate)
 
-  // No videos to build from — keep the button for layout balance, just disabled.
+  // No videos to build from: keep the button for layout balance, just disabled.
   if (videos.length === 0) {
     return (
-      <button type="button" disabled aria-label="Make a podcast" title="No videos available to make a podcast from"
-        className="flex size-10 cursor-not-allowed items-center justify-center rounded-full border border-border bg-background text-foreground/80 opacity-50">
+      <Button variant="outline" size="icon" disabled aria-label="Make a podcast" title="No videos available to make a podcast from"
+        className="size-10 text-foreground/80">
         <Mic className="size-4" />
-      </button>
+      </Button>
     )
   }
 
@@ -51,13 +52,13 @@ export function PodcastSourceButtons({ videos, sourceId, suggestedShowName, sour
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button aria-label="Make a podcast" title={autoGenerating ? 'Auto-generating a podcast from this channel' : 'Make a podcast from this channel'}
-            className={cn('flex size-10 items-center justify-center rounded-full transition-colors',
+          <Button size="icon" aria-label="Make a podcast" title={autoGenerating ? 'Auto-generating a podcast from this channel' : 'Make a podcast from this channel'}
+            className={cn('size-10',
               autoGenerating
                 ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]'
-                : 'border border-border bg-background text-foreground/80 hover:text-foreground')}>
+                : 'border border-border bg-background text-foreground/80 hover:bg-background hover:text-foreground')}>
             <Mic className="size-4" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onSelect={() => setOpen(true)}><Plus className="size-4" /> Create podcast</DropdownMenuItem>

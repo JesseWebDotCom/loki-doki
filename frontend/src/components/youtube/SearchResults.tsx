@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Loader2 } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SectionHeader } from '@/components/shared/SectionHeader'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { search as ytSearch, type SearchResult, type PlaylistSearchResult, type SearchType } from '@/lib/youtube/api'
 import { searchToItem, savedToItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
@@ -16,7 +21,7 @@ import { useYoutubeModeOptional } from '@/components/youtube/YoutubeLayout'
 const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 const FILTERS: [SearchType, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['playlists', 'Playlists'], ['channels', 'Channels']]
 
-/** YouTube search results — rendered on the Home route when there's a `?q=` query.
+/** YouTube search results, rendered on the Home route when there's a `?q=` query.
  *  (Formerly the Discover page; Discover was merged into Home.) */
 export function SearchResults({ q }: { q: string }) {
   const [type, setType] = useState<SearchType>('all')
@@ -68,8 +73,8 @@ export function SearchResults({ q }: { q: string }) {
 
   if (!online) {
     return (
-      <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-6 sm:px-6">
-        <h1 className="text-xl font-bold tracking-tight">Results for “{q}”</h1>
+      <PageContainer width="wide" className="space-y-6 py-6">
+        <h2 className="text-title">Results for “{q}”</h2>
         {offlineItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Search className="mb-3 size-10 opacity-30" /><p className="text-sm">Nothing saved offline matches “{q}”</p>
@@ -77,19 +82,19 @@ export function SearchResults({ q }: { q: string }) {
         ) : (
           <div className={GRID}>{offlineItems.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
         )}
-      </div>
+      </PageContainer>
     )
   }
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-6 sm:px-6">
-      <h1 className="text-xl font-bold tracking-tight">Results for “{q}”</h1>
+    <PageContainer width="wide" className="space-y-6 py-6">
+      <h2 className="text-title">Results for “{q}”</h2>
       <ChipRow>
         {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={type === k} onClick={() => setType(k)} />)}
       </ChipRow>
 
       {isLoading ? (
-        <div className="flex h-[40vh] items-center justify-center"><Loader2 className="size-7 animate-spin text-muted-foreground" /></div>
+        <SkeletonCards count={8} className="xl:grid-cols-4" />
       ) : empty ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <Search className="mb-3 size-10 opacity-30" /><p className="text-sm">No {type === 'all' ? 'results' : type} found</p>
@@ -98,7 +103,7 @@ export function SearchResults({ q }: { q: string }) {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
           {channels.map(c => (
             <Link key={c.id} to={`/youtube/channel/${encodeURIComponent(c.id)}`} state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
-              className="group flex items-center gap-3 rounded-xl border border-border/50 bg-card/40 p-3 transition hover:border-[var(--yt-accent)]">
+              className="group flex items-center gap-3 rounded-card border border-border bg-card p-3 transition hover:border-[var(--yt-accent)]">
               <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-14 shrink-0 text-xl ring-1 ring-border/40" />
               <div className="min-w-0"><p className="truncate text-sm font-semibold">{c.title}</p>{c.subtitle && <p className="truncate text-xs text-muted-foreground">{c.subtitle}</p>}</div>
             </Link>
@@ -112,14 +117,14 @@ export function SearchResults({ q }: { q: string }) {
           {type === 'all' && playlists.length > 0 && <PlaylistRail playlists={playlists} />}
           {items.length > 0 && (
             <section className="space-y-3">
-              {type === 'all' && (channels.length > 0 || playlists.length > 0) && <h2 className="text-lg font-bold tracking-tight">Videos</h2>}
+              {type === 'all' && (channels.length > 0 || playlists.length > 0) && <SectionHeader title="Videos" />}
               <div className={GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
               {cursor && (
                 <div className="flex justify-center pt-2">
-                  <button onClick={loadMore} disabled={loadingMore}
-                    className="flex items-center gap-2 rounded-full border border-border bg-card px-5 py-2.5 text-sm font-semibold transition hover:border-[var(--yt-accent)] disabled:opacity-60">
-                    {loadingMore && <Loader2 className="size-4 animate-spin" />} Load more
-                  </button>
+                  <Button variant="outline" onClick={loadMore} disabled={loadingMore}
+                    className="h-auto px-5 py-2.5 font-semibold hover:border-[var(--yt-accent)]">
+                    {loadingMore && <Spinner />} Load more
+                  </Button>
                 </div>
               )}
             </section>
@@ -127,7 +132,7 @@ export function SearchResults({ q }: { q: string }) {
         </div>
       )}
       {error ? <p className="text-sm text-destructive">Search failed.</p> : null}
-    </div>
+    </PageContainer>
   )
 }
 
@@ -135,7 +140,7 @@ export function SearchResults({ q }: { q: string }) {
 function PlaylistRail({ playlists }: { playlists: PlaylistSearchResult[] }) {
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-bold tracking-tight">Playlists</h2>
+      <SectionHeader title="Playlists" />
       <HScroll>
         {playlists.map(p => <div key={p.playlistId} className="w-60 shrink-0"><PlaylistCard p={p} /></div>)}
       </HScroll>

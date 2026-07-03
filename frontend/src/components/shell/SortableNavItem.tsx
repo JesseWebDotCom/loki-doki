@@ -3,6 +3,7 @@ import { GripVertical, PinOff } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/cn";
+import { StatusDot } from "@/components/shared/StatusDot";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
@@ -12,7 +13,7 @@ interface SortableNavItemProps {
   href: string;
   /** Lucide icon for built-in apps. Ignored if `iconNode` is provided. */
   icon?: LucideIcon;
-  /** Custom icon node (e.g. an archive favicon) — overrides `icon`. */
+  /** Custom icon node (e.g. an archive favicon) that overrides `icon`. */
   iconNode?: ReactNode;
   onUnpin: (id: string) => void;
   badge?: 'busy' | 'done' | null;
@@ -39,7 +40,11 @@ export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin
         {...attributes}
         {...listeners}
         aria-label="Drag to reorder"
-        className="shrink-0 p-1 rounded opacity-0 group-hover/item:opacity-100 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground transition-opacity focus-visible:opacity-100 focus-visible:outline-none"
+        className={cn(
+          "shrink-0 p-1 rounded-full opacity-0 group-hover/item:opacity-100 cursor-grab active:cursor-grabbing",
+          "text-muted-foreground/50 hover:text-muted-foreground transition-opacity",
+          "focus-visible:opacity-100 focus-visible:outline-none",
+        )}
       >
         <GripVertical className="size-3" aria-hidden="true" />
       </button>
@@ -50,9 +55,9 @@ export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin
         onPointerEnter={onIntent}
         onFocus={onIntent}
         className={cn(
-          "flex flex-1 items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors",
+          "flex flex-1 items-center gap-3 rounded-control px-2 py-2 text-sm transition-colors",
           active
-            ? "bg-brand/10 text-brand font-semibold"
+            ? "bg-brand/10 text-brand font-medium"
             : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
         )}
       >
@@ -61,10 +66,7 @@ export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin
         </span>
         <span className="flex-1 truncate">{label}</span>
         {badge && (
-          <span className={cn(
-            'size-1.5 rounded-full shrink-0',
-            badge === 'busy' ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500',
-          )} />
+          <StatusDot status={badge === 'busy' ? 'info' : 'ok'} pulse={badge === 'busy'} />
         )}
       </Link>
 
@@ -73,7 +75,11 @@ export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin
         type="button"
         onClick={() => onUnpin(id)}
         aria-label={`Unpin ${label}`}
-        className="shrink-0 p-1 rounded opacity-0 group-hover/item:opacity-100 text-muted-foreground hover:text-foreground transition-opacity focus-visible:opacity-100 focus-visible:outline-none"
+        className={cn(
+          "shrink-0 p-1 rounded-full opacity-0 group-hover/item:opacity-100",
+          "text-muted-foreground hover:text-foreground transition-opacity",
+          "focus-visible:opacity-100 focus-visible:outline-none",
+        )}
       >
         <PinOff className="size-3.5" aria-hidden="true" />
       </button>

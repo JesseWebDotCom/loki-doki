@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import {
   bookmarks, bookmarkHighlights, characters, homeDevices,
@@ -61,7 +61,8 @@ const bookmarksProvider: Provider = async (userId, q) => {
     ))
     .orderBy(desc(bookmarks.createdAt))
     .limit(PER_PROVIDER)
-  return rows.map((r) => ({
+
+  const hits = rows.map((r) => ({
     type: 'bookmark' as const,
     id: r.id,
     title: r.title || r.url,
@@ -70,6 +71,31 @@ const bookmarksProvider: Provider = async (userId, q) => {
     route: `/bookmarks/read/${r.id}`,
     group: 'Bookmarks',
   }))
+
+  // Thin FTS results → semantic fallback over embedded article chunks, so a
+  // paraphrased query ("that piece about the housing market") still lands.
+  // retrieveBookmarkChunks returns [] when embeddings are unavailable.
+  if (hits.length < 3) {
+    const { retrieveBookmarkChunks } = await import('@/lib/bookmarks/chunks')
+    const chunkHits = await retrieveBookmarkChunks(userId, q, 6).catch(() => [])
+    const seen = new Set(hits.map((h) => h.id))
+    const extraIds = [...new Set(chunkHits.map((h) => h.bookmarkId))].filter((id) => !seen.has(id)).slice(0, 3)
+    if (extraIds.length) {
+      const extra = await db.select().from(bookmarks).where(inArray(bookmarks.id, extraIds))
+      for (const r of extra) {
+        hits.push({
+          type: 'bookmark' as const,
+          id: r.id,
+          title: r.title || r.url,
+          subtitle: `${r.siteName || r.url} · related`,
+          icon: r.faviconUrl,
+          route: `/bookmarks/read/${r.id}`,
+          group: 'Bookmarks',
+        })
+      }
+    }
+  }
+  return hits
 }
 
 // Published companions, matched by name.

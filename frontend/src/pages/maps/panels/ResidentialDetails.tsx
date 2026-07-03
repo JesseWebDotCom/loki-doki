@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { HomeIcon, PhoneIcon, UsersIcon } from "lucide-react";
 
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusDot } from "@/components/shared/StatusDot";
 import {
   lookupProperty,
   lookupPeopleByAddress,
@@ -22,7 +24,7 @@ function fmtMoney(v: string | null): string | null {
 
 function Stat({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <div className="rounded-lg bg-muted/40 px-2.5 py-2">
+    <div className="rounded-control bg-muted/40 px-2.5 py-2">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="text-sm font-semibold leading-tight">{value}</p>
     </div>
@@ -95,12 +97,14 @@ export function ResidentialDetails({ place }: { place: PlaceResult }): JSX.Eleme
   return (
     <div className="mt-3 flex flex-col gap-3">
       {/* Property card */}
-      <section className="rounded-xl border border-border/50 bg-background/60">
+      <section className="rounded-card border border-border/50 bg-background/60">
         <header className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
           <HomeIcon className="size-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold">Property</h3>
           {loading && !property ? (
-            <span className="ml-auto text-xs text-muted-foreground animate-pulse">Looking up…</span>
+            <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <StatusDot status="info" pulse /> Looking up…
+            </span>
           ) : null}
         </header>
         <div className="p-3">
@@ -150,7 +154,7 @@ export function ResidentialDetails({ place }: { place: PlaceResult }): JSX.Eleme
               ) : null}
             </>
           ) : loading ? (
-            <div className="h-12 rounded-lg bg-muted/40 animate-pulse" />
+            <Skeleton className="h-12 rounded-control" />
           ) : (
             <p className="text-xs text-muted-foreground">No public assessor record found for this address.</p>
           )}
@@ -158,7 +162,7 @@ export function ResidentialDetails({ place }: { place: PlaceResult }): JSX.Eleme
       </section>
 
       {/* Residents card */}
-      <section className="rounded-xl border border-border/50 bg-background/60">
+      <section className="rounded-card border border-border/50 bg-background/60">
         <header className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
           <UsersIcon className="size-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold">Residents</h3>
@@ -190,7 +194,7 @@ export function ResidentialDetails({ place }: { place: PlaceResult }): JSX.Eleme
               ))}
             </ul>
           ) : loading ? (
-            <div className="h-10 rounded-lg bg-muted/40 animate-pulse" />
+            <Skeleton className="h-10 rounded-control" />
           ) : (
             <p className="text-xs text-muted-foreground">No listed residents found.</p>
           )}

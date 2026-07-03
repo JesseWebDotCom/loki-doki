@@ -16,7 +16,7 @@ import type { Station } from '@/lib/music/catalogApi'
 
 type Glyph = ComponentType<{ className?: string }>
 
-// Specific patterns first — first match wins, so sub-genres must precede their parent genre.
+// Specific patterns first - first match wins, so sub-genres must precede their parent genre.
 const NAME_ICONS: [RegExp, Glyph][] = [
   // ── Gaming ───────────────────────────────────────────────────────────────────
   [/retro gaming|classic game/, IconDiscFilled],
@@ -202,7 +202,7 @@ function glyphFor(name: string, category: string | null): Glyph {
 }
 
 /**
- * Single unified station cover tile — rich gradient + bold name + large watermark icon.
+ * Single unified station cover tile - rich gradient + bold name + large watermark icon.
  * For stations with real photo art (movie/show/YT poster), the photo fills the tile with a
  * gradient scrim so the name stays legible.
  * showName=false for hero contexts where an h1 already carries the name.
@@ -220,7 +220,7 @@ export function StationArt({ station, className, showName = true, vivid = false 
       className={cn('relative size-full overflow-hidden', className)}
       style={{ background: stationGradient(station.accent) }}
     >
-      {/* Photo fill — real art only (movie/show/YT poster). SVG placeholders are excluded
+      {/* Photo fill - real art only (movie/show/YT poster). SVG placeholders are excluded
           by the backend serializer so iconUrl is null for those stations. */}
       {station.iconUrl && (
         <img
@@ -231,17 +231,18 @@ export function StationArt({ station, className, showName = true, vivid = false 
         />
       )}
 
-      {/* Large watermark icon — oversized, anchored bottom-right, bleeds off card edges */}
+      {/* Large watermark icon - oversized, anchored bottom-right, bleeds off card edges */}
       {!station.iconUrl && (
         <Icon className={cn('pointer-events-none absolute -bottom-[14%] -right-[8%] h-[130%] w-auto', vivid ? 'text-white/30' : 'text-white/[0.13]')} />
       )}
 
-      {/* Bottom scrim — always present for legibility */}
+      {/* Bottom scrim - always present for legibility */}
       <div className="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
       {/* Name wordmark */}
       {showName && (
         <div className="absolute bottom-0 left-0 right-0 p-4 pr-12">
+          {/* design-ok(font-black): generated cover-art wordmark, part of the station art itself */}
           <p className="line-clamp-2 text-base font-black leading-tight tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]">
             {station.name}
           </p>

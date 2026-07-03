@@ -1,6 +1,6 @@
 ---
 title: News
-description: Your own news reader and RSS hub — global headlines, local stories, and your personal feeds, organized into categories you control.
+description: Your own news reader and RSS hub; global headlines, local stories, and your personal feeds, organized into categories you control.
 sidebar:
   order: 14
 ---
@@ -11,7 +11,7 @@ News is your private news reader. It pulls together global headlines, local stor
 
 The tabs across the top are **categories**:
 
-- **Global** and **Local** are built in — a broad world feed and stories near you.
+- **Global** and **Local** are built in: a broad world feed and stories near you.
 - Your admin can add **shared categories** that show up for everyone in the home.
 - You can add your **own personal categories** from any RSS feed.
 
@@ -23,11 +23,11 @@ Paste the address of any blog or site that publishes an RSS feed and News starts
 
 ## Reading
 
-Tap any story to open it in a clean reading view — just the text and images, matched to your light or dark theme — with the option to jump out to the original site. Stories refresh in the background so your tabs stay current.
+Tap any story to open it in a clean reading view (just the text and images, matched to your light or dark theme) with the option to jump out to the original site. Stories refresh in the background so your tabs stay current.
 
 ## Today dashboard
 
-The same news powers the **News** widget on your Today dashboard, alongside weather, sports, on-this-day history, and more — a quick glance at the day without opening the full app.
+The same news powers the **News** widget on your Today dashboard, alongside weather, sports, on-this-day history, and more: a quick glance at the day without opening the full app.
 
 ## Your privacy
 

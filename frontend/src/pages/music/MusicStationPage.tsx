@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Play, Download, Heart, Pencil, Share2, Copy, Trash2, Users, Mic, Loader2, Music2, CheckCircle2, Headphones, MonitorPlay, ArrowLeft } from 'lucide-react'
+import { Play, Download, Heart, Pencil, Share2, Copy, Trash2, Users, Mic, Music2, CheckCircle2, Headphones, MonitorPlay, ArrowLeft } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { SectionHeader } from '@/components/shared/SectionHeader'
@@ -37,7 +38,7 @@ export function MusicStationPage() {
   const { data: preview, isLoading: previewLoading } = useQuery({
     queryKey: ['music-station-preview', id], queryFn: () => previewStationQueue(id, 12), enabled: !!id, staleTime: 5 * 60_000,
   })
-  // Live offline-save progress — polls while a snapshot is downloading/rendering.
+  // Live offline-save progress - polls while a snapshot is downloading/rendering.
   const { data: offline } = useQuery({
     queryKey: ['music-offline-status', id], queryFn: () => getOfflineStatus(id), enabled: !!id,
     refetchInterval: q => { const d = q.state.data; return d?.saved && (d.status === 'pending' || d.status === 'partial') ? 3000 : false },
@@ -111,8 +112,8 @@ export function MusicStationPage() {
       <div className="relative overflow-hidden">
         <StationArt station={s} className="absolute inset-0" showName={false} />
         <div className="relative bg-gradient-to-t from-background via-background/60 to-transparent px-5 pb-5 pt-24">
-          <p className="text-xs font-semibold uppercase tracking-widest text-white/70">Station</p>
-          <h1 className="mt-1 text-3xl font-black tracking-tight text-white drop-shadow sm:text-4xl">{s.name}</h1>
+          <p className="text-overline text-white/70">Station</p>
+          <div className="mt-1 text-display text-white drop-shadow sm:text-display-lg">{s.name}</div>
           {s.description && !s.description.startsWith('source:') && (
             <p className="mt-1 max-w-2xl text-sm text-white/80">{s.description}</p>
           )}
@@ -137,7 +138,7 @@ export function MusicStationPage() {
         {canWatch && <Button variant="secondary" onClick={() => navigate(`/music/watch/${s.id}`)}><MonitorPlay className="size-4" /> Watch</Button>}
         <Button variant="secondary" onClick={favorite}><Heart className="size-4" /> Favorite</Button>
         <Button variant="secondary" onClick={() => setSaveOpen(true)} disabled={offBusy}>
-          {offBusy ? <Loader2 className="size-4 animate-spin" /> : offReady ? <CheckCircle2 className="size-4 text-emerald-600" /> : <Download className="size-4" />}
+          {offBusy ? <Spinner className="text-current" /> : offReady ? <CheckCircle2 className="size-4 text-success" /> : <Download className="size-4" />}
           {offBusy ? `Saving… ${offPct}%` : offReady ? 'Saved offline' : offSaved ? 'Manage offline' : 'Save offline'}
         </Button>
         {s.owned ? (
@@ -151,14 +152,14 @@ export function MusicStationPage() {
         )}
       </div>
 
-      {/* Offline-save progress — persistent, honest feedback while songs download + the DJ renders. */}
+      {/* Offline-save progress - persistent, honest feedback while songs download + the DJ renders. */}
       {offBusy && (
         <div className="px-5 pt-3">
           <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
             <span>
               Saving offline
-              {wantA ? ` — ${tDone}/${tTotal} songs${dTotal ? ` · DJ ${dDone}/${dTotal}` : ''}` : ''}
-              {wantV ? `${wantA ? ' · ' : ' — '}${vDone}/${tTotal} videos` : ''}
+              {wantA ? `: ${tDone}/${tTotal} songs${dTotal ? ` · DJ ${dDone}/${dTotal}` : ''}` : ''}
+              {wantV ? `${wantA ? ' · ' : ': '}${vDone}/${tTotal} videos` : ''}
             </span>
             <span>{offPct}%</span>
           </div>
@@ -182,7 +183,7 @@ export function MusicStationPage() {
         <div className="px-5 pb-6 pt-5">
           <SectionHeader title="Downloaded songs" />
           {offTracks?.tracks.length ? (
-            <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+            <div className="divide-y divide-border/50 rounded-card border border-border/60">
               {offTracks.tracks.map((t, i) => {
                 const aOk = !wantA || t.status === 'ready'
                 const vOk = !wantV || t.videoStatus === 'ready'
@@ -194,7 +195,7 @@ export function MusicStationPage() {
                 return (
                   <div key={t.videoId + i} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
                     <button onClick={onPlay} disabled={!ready} className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-60">
-                      <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-gradient-to-br from-brand/30 to-brand/10">
+                      <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
                         <Music2 className="absolute size-4 text-brand/60" />
                         <img src={proxyImg(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`)} alt="" loading="lazy"
                           className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
@@ -204,12 +205,12 @@ export function MusicStationPage() {
                         <p className="truncate text-sm font-medium">{t.title}</p>
                         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                           {t.artist && <span className="truncate">{t.artist}</span>}
-                          {ready && wantV && <span className="rounded bg-foreground/10 px-1 font-medium">Video</span>}
+                          {ready && wantV && <span className="rounded-full bg-foreground/10 px-1.5 font-medium">Video</span>}
                         </div>
                       </div>
-                      {ready ? <CheckCircle2 className="size-4 shrink-0 text-emerald-500/90" />
-                        : failed ? <span className="shrink-0 text-[11px] font-medium text-destructive">failed</span>
-                          : <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />}
+                      {ready ? <CheckCircle2 className="size-4 shrink-0 text-success" />
+                        : failed ? <span className="shrink-0 text-caption font-medium text-destructive">failed</span>
+                          : <Spinner className="shrink-0" />}
                     </button>
                     <AddToPlaylistButton song={{ videoId: t.videoId, title: t.title, artist: t.artist ?? undefined }} />
                     <OpenInYoutubeButton videoId={t.videoId} title={t.title} />
@@ -218,21 +219,21 @@ export function MusicStationPage() {
               })}
             </div>
           ) : (
-            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparing your downloads…</div>
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Spinner /> Preparing your downloads…</div>
           )}
         </div>
       ) : (
         <div className="px-5 pb-6 pt-5">
           <SectionHeader title="A sample of what's playing" />
           {previewLoading ? (
-            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Building a preview…</div>
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Spinner /> Building a preview…</div>
           ) : preview?.tracks.length ? (
-            <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+            <div className="divide-y divide-border/50 rounded-card border border-border/60">
               {preview.tracks.map((t, i) => (
                 <div key={t.videoId + i} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
                   <button onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist })}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                    <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-gradient-to-br from-brand/30 to-brand/10">
+                    <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
                       <Music2 className="absolute size-4 text-brand/60" />
                       <img src={proxyImg(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`)} alt="" loading="lazy"
                         className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
@@ -244,7 +245,7 @@ export function MusicStationPage() {
                   <SongDownloadButton videoId={t.videoId} title={t.title} />
                 </div>
               ))}
-              <p className="px-3 py-2 text-[11px] text-muted-foreground">The station builds a fresh mix each time you tune in — this is just a taste.</p>
+              <p className="px-3 py-2 text-caption text-muted-foreground">The station builds a fresh mix each time you tune in; this is just a taste.</p>
             </div>
           ) : (
             <p className="py-4 text-sm text-muted-foreground">Couldn't build a preview right now. Hit Play to tune in.</p>

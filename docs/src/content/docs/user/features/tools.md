@@ -1,8 +1,8 @@
 ---
 title: Handy Tools
-description: "The small, useful tools: dictionary, medical reference, recipes, where to watch, TV shows, unit converter, moon phase, and I'm bored."
+description: "The small, useful tools: dictionary, medical reference, recipes, where to watch, unit converter, moon phase, holidays, local events, and I'm bored."
 sidebar:
-  order: 15
+  order: 27
 ---
 
 Alongside the big features there is a set of small, focused tools for everyday questions. You can open each one as its own page, and your companion can reach for most of them in conversation too, so you can just ask in plain language instead of hunting for the right page.
@@ -23,11 +23,7 @@ Browse a random recipe or search by name. Each recipe shows a photo, the ingredi
 
 ## Where to Watch
 
-Type in a movie or show and find out which streaming services have it, and whether it is included, for rent, or for buy. You can also browse what is popular right now or newly added. The results come from streaming-availability services online.
-
-## TV Shows
-
-Search a TV show to see its network, status (still running or ended), seasons, genres, rating, cast, and a short summary, plus any recent renewed-or-cancelled news. The details come from an online TV database.
+Type in a movie or show and find out which streaming services have it, and whether it is included, for rent, or for buy. You can also browse what is popular right now or newly added. The results come from streaming-availability services online. For a fuller discovery experience, including trailers, reviews, and a personal watchlist, see [Shows](../shows/) and [Movies](../movies/).
 
 ## Unit Converter
 
@@ -36,6 +32,14 @@ Convert between units of length, weight, volume, temperature, and speed. Pick a 
 ## Moon Phase
 
 See tonight's moon: the phase, how illuminated it is, and the dates of the upcoming new and full moons. You can also dial up any past or future date. It is all calculated locally, so it works completely offline.
+
+## Holidays
+
+A calendar of upcoming holidays and observances, so you always know what's coming up. It draws on an online holiday database, so it needs a connection.
+
+## Local Events
+
+A feed of what's happening near you, pulled from local news coverage of your area. Set your location once in Settings and it stays current; without a location set, it prompts you to add one. It needs a connection to fetch anything new.
 
 ## I'm Bored
 

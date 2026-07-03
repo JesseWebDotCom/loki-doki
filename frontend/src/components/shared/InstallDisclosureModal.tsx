@@ -29,10 +29,10 @@ interface Props {
 }
 
 const SOURCE_META: Record<DataSource['type'], { label: string; icon: React.ComponentType<{ className?: string }>; chip: string }> = {
-  api: { label: 'API',  icon: Globe,    chip: 'bg-sky-500/15 text-sky-400' },
-  rss: { label: 'RSS',  icon: Rss,      chip: 'bg-orange-500/15 text-orange-400' },
-  web: { label: 'Web',  icon: Code,     chip: 'bg-amber-500/15 text-amber-500' },
-  cdn: { label: 'CDN',  icon: Package,  chip: 'bg-slate-500/15 text-slate-400' },
+  api: { label: 'API',  icon: Globe,    chip: 'bg-info/15 text-info' },
+  rss: { label: 'RSS',  icon: Rss,      chip: 'bg-warning/15 text-warning' },
+  web: { label: 'Web',  icon: Code,     chip: 'bg-brand/15 text-brand' },
+  cdn: { label: 'CDN',  icon: Package,  chip: 'bg-muted text-muted-foreground' },
 }
 
 export function InstallDisclosureModal({ tool, open, onClose }: Props) {
@@ -79,14 +79,14 @@ export function InstallDisclosureModal({ tool, open, onClose }: Props) {
               <p className="text-sm font-medium text-foreground/80">
                 This app connects to the following external services:
               </p>
-              <div className="space-y-2 rounded-xl border border-border/50 bg-muted/30 p-3">
+              <div className="space-y-2 rounded-card border border-border/50 bg-muted/30 p-3">
                 {tool.dataSources.map((src, i) => {
                   const meta = SOURCE_META[src.type]
                   const Icon = meta.icon
                   return (
                     <div key={i} className="flex items-start gap-2">
                       <span className={cn(
-                        'mt-0.5 flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none',
+                        'mt-0.5 flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none',
                         meta.chip,
                       )}>
                         <Icon className="size-2.5" />
@@ -106,8 +106,8 @@ export function InstallDisclosureModal({ tool, open, onClose }: Props) {
               </p>
             </>
           ) : (
-            <div className="flex items-start gap-3 rounded-xl border border-border/50 bg-muted/30 p-3">
-              <HardDrive className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+            <div className="flex items-start gap-3 rounded-card border border-border/50 bg-muted/30 p-3">
+              <HardDrive className="mt-0.5 size-4 shrink-0 text-success" />
               <div>
                 <p className="text-sm font-medium">Fully local</p>
                 <p className="text-xs text-muted-foreground leading-snug">

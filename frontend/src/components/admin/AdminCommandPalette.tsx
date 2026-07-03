@@ -28,7 +28,7 @@ export function AdminCommandPalette({ open, onOpenChange, onNavigate }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+      <DialogContent className="max-w-xl gap-0 overflow-hidden rounded-sheet p-0">
         <DialogTitle className="sr-only">Search admin settings</DialogTitle>
         <DialogDescription className="sr-only">Jump to any admin setting or section.</DialogDescription>
         <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
@@ -53,10 +53,10 @@ export function AdminCommandPalette({ open, onOpenChange, onNavigate }: Props) {
                   key={`${h.sectionId}/${h.subId ?? ''}`}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => choose(h)}
-                  className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left', i === active ? 'bg-brand/12' : 'hover:bg-foreground/6')}
+                  className={cn('flex w-full items-start gap-3 rounded-control px-3 py-2 text-left', i === active ? 'bg-brand/10' : 'hover:bg-foreground/[0.04]')}
                 >
                   {Icon && (
-                    <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground/6 text-muted-foreground">
+                    <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-control bg-secondary/50 text-muted-foreground">
                       <Icon className="size-4" />
                     </span>
                   )}

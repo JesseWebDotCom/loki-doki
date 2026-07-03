@@ -89,6 +89,24 @@ See [Boot & Feature System](../boot-features/) for the SSE event shapes.
 | Home Assistant | `/api/home-assistant` | `homeAssistant.ts` | Smart-home control via HA Assist |
 | YouTube | `/api/youtube` | `youtube.ts` | InnerTube search/browse, stream proxy, collections |
 | Podcasts | `/api/podcasts` | `podcasts.ts` | Show/episode generation + reverse-link |
+| Shows | `/api/shows` | `shows.ts` | TV discovery, watchlist, progress, Plex badge |
+| Movies | `/api/movies` | `movies.ts` | Film discovery, watchlist, Plex badge |
+| Global search | `/api/search` | `search.ts` | Cmd+K unified provider registry (bookmarks/companions/devices/youtube/etc.) |
+| Plex | `/api/plex` | `plex.ts` | Per-user linking, library feeds, watchlist/watched sync, direct-play proxy. See [Plex Integration](../subsystems/plex/) |
+
+---
+
+## Shopping, lookup & everyday tools
+
+| Group | Prefix | File | Notes |
+|---|---|---|---|
+| Shopping | `/api/shopping` | `shopping.ts` | Price tracking, deals, coupons, photo identify. See [Shopping](../subsystems/shopping/) |
+| Reverse Lookup | `/api/lookup` | `lookup.ts` | Property + people lookup (also backs the Maps residential panel) |
+| File Converter | `/api/converter` | `converter.ts` | Image/audio/video conversion, SSE progress |
+| Speed Test | `/api/speedtest` | `speedtest.ts` | Internet/server/server-internet throughput tests |
+| Skills | `/api/skills` | `skills.ts` | Personal + shared companion instruction skills |
+| Voice Memos | `/api/voice/memos` | `voiceMemos.ts` | Record, transcribe, list, delete |
+| Notifications | `/api/notify` | `notifyChannels.ts` | Per-user channel routing + Telegram self-link code |
 
 ---
 
@@ -102,7 +120,7 @@ Read-only data endpoints used by the Today/Home widgets and the daily-briefing s
 
 Admin route groups live under `/api/admin/*` and require `requireAdmin`:
 
-`adminInstall`, `adminUninstall`, `adminQueue`, `adminStorage`, `adminConnectivity`, `adminLocale`, `adminContent`, `adminMemory`, `adminCompanions`, `adminVoice`, `adminWakewords`, `adminImageLoras`, `adminArchives`, `adminMaps`, `adminBookmarks`, `adminBriefing`, `adminHomeAssistant`, plus the benchmark streams `adminChatBenchmark`, `adminRouterBenchmark`, and `adminLatencyTest` (each exposes an **SSE** `/stream`).
+`adminInstall`, `adminUninstall`, `adminQueue`, `adminStorage`, `adminConnectivity`, `adminLocale`, `adminContent`, `adminMemory`, `adminCompanions`, `adminVoice`, `adminWakewords`, `adminImageLoras`, `adminArchives`, `adminMaps`, `adminBookmarks`, `adminBriefing`, `adminHomeAssistant`, `adminNotify` (Telegram bot token + SMTP config), `adminSpeedtest` (rating thresholds), `adminFrigate`, `adminNews`, plus the benchmark streams `adminChatBenchmark`, `adminRouterBenchmark`, and `adminLatencyTest` (each exposes an **SSE** `/stream`). This list groups by area rather than naming every admin route file; see `backend/src/routes/admin*.ts` for the full set.
 
 ---
 

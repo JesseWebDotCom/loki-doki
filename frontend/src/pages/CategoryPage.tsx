@@ -7,6 +7,7 @@ import { getAppGroup, type AppItem } from "@/lib/appCategories";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
 import { PageShell } from "@/components/shared/PageShell";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { PageContainer } from "@/components/shared/PageContainer";
 import { ArchiveIcon } from "@/components/shared/ArchiveIcon";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -29,10 +30,10 @@ function AppCard({ app }: { app: AppItem }) {
   return (
     <Link
       to={app.to}
-      className="group relative overflow-hidden rounded-2xl border border-border/40 bg-card/60 p-4 shimmer-sweep transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5 active:scale-[0.98]"
+      className="group relative overflow-hidden rounded-card border border-border/40 bg-card/60 p-4 shimmer-sweep transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
     >
       <div
-        className="relative mb-3 flex size-12 items-center justify-center rounded-xl shadow-lg transition-transform duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover:scale-110 group-hover:rotate-6"
+        className="relative mb-3 flex size-12 items-center justify-center rounded-control shadow-lg transition-transform duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover:scale-110 group-hover:rotate-6"
         style={{ background: app.gradient }}
       >
         <Icon className="size-6 text-white drop-shadow-sm" />
@@ -51,10 +52,10 @@ function StoreCard({ a }: { a: InstalledArchive }) {
   return (
     <Link
       to={`/read/${a.sourceId}`}
-      className="group relative overflow-hidden rounded-2xl border border-border/40 bg-card/60 p-4 shimmer-sweep transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5 active:scale-[0.98]"
+      className="group relative overflow-hidden rounded-card border border-border/40 bg-card/60 p-4 shimmer-sweep transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
     >
       <div
-        className="relative mb-3 flex size-12 items-center justify-center rounded-xl shadow-lg transition-transform duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover:scale-110 group-hover:rotate-6"
+        className="relative mb-3 flex size-12 items-center justify-center rounded-control shadow-lg transition-transform duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover:scale-110 group-hover:rotate-6"
         style={{ background: visual.gradient }}
       >
         <ArchiveIcon zimIconUrl={a.zimIconUrl} category={a.category} className="size-6" />
@@ -118,11 +119,11 @@ export function CategoryPage() {
 
   const totalItems = visibleApps.length + archiveItems.length;
 
-  // Derive display name and visual — prefer app group info, fall back to archive data
+  // Derive display name and visual: prefer app group info, fall back to archive data
   const displayName = appGroup?.name
     ?? (archiveItems[0]?.category ?? categoryKey.charAt(0).toUpperCase() + categoryKey.slice(1));
   const visual = appGroup
-    ? { gradient: appGroup.gradient, icon: appGroup.icon, accent: "#a855f7" }
+    ? { gradient: appGroup.gradient, icon: appGroup.icon }
     : categoryVisual(archiveItems[0]?.category ?? categoryKey);
 
   const totalSize = useMemo(
@@ -143,30 +144,29 @@ export function CategoryPage() {
 
   return (
     <PageShell gradient={visual.gradient} GhostIcon={visual.icon}>
-      <PageHeader
-        variant="compact"
-        title={displayName}
-        subtitle={headerSubtitle}
-        gradient={visual.gradient}
-        icon={<HeaderIcon className="size-7 text-white" />}
-      />
+      <PageContainer className="pb-10">
+        <PageHeader
+          title={displayName}
+          subtitle={headerSubtitle}
+          gradient={visual.gradient}
+          icon={HeaderIcon}
+        />
 
-      {/* All items in a single unified grid */}
-      {totalItems > 0 && (
-        <div className="mt-5 grid grid-cols-2 gap-3 px-4 sm:grid-cols-3 lg:grid-cols-4">
-          {visibleApps.map(app => <AppCard key={app.id} app={app} />)}
-          {archiveItems.map(a => <StoreCard key={a.id} a={a} />)}
-        </div>
-      )}
+        {/* All items in a single unified grid */}
+        {totalItems > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {visibleApps.map(app => <AppCard key={app.id} app={app} />)}
+            {archiveItems.map(a => <StoreCard key={a.id} a={a} />)}
+          </div>
+        )}
 
-      {/* Empty state — only show if nothing at all */}
-      {totalItems === 0 && (
-        <div className="mt-5 px-4">
+        {/* Empty state, only shown if nothing at all */}
+        {totalItems === 0 && (
           <Link
             to="/admin/features"
-            className="group flex items-center gap-4 rounded-2xl border-2 border-dashed border-border/50 bg-card/40 px-5 py-5 transition-colors hover:border-brand/40 hover:bg-card"
+            className="group flex items-center gap-4 rounded-card border-2 border-dashed border-border/50 bg-card/40 px-5 py-5 transition-colors hover:border-brand/40 hover:bg-card"
           >
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-card bg-brand/10 text-brand">
               <Plus className="size-6" />
             </div>
             <div className="min-w-0 flex-1">
@@ -175,10 +175,8 @@ export function CategoryPage() {
             </div>
             <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
           </Link>
-        </div>
-      )}
-
-      <div className="h-10" />
+        )}
+      </PageContainer>
     </PageShell>
   );
 }

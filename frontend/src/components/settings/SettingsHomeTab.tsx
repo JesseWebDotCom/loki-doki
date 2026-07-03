@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { CalendarDays, CirclePlay, Headphones, Laugh, Loader2, Newspaper, PlaySquare, Trophy } from 'lucide-react'
+import { CalendarDays, CirclePlay, Headphones, Laugh, Newspaper, PlaySquare, Trophy } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/spinner'
+import { ListRow } from '@/components/shared/ListRow'
 import { useAuth } from '@/context/AuthContext'
 import { resolveTickerConfig, type HomeLayout, type TickerConfig, type TickerSource } from '@/hooks/useHomeLayout'
 
@@ -102,28 +104,26 @@ export function SettingsHomeTab() {
     <div className="p-4 space-y-6">
       <div>
         <div className="flex items-center justify-between mb-1">
-          <p className="text-sm font-medium">Today's Highlights</p>
-          {saving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+          <h2 className="text-section">Today's Highlights</h2>
+          {saving && <Spinner size="sm" />}
         </div>
-        <p className="text-xs text-muted-foreground mb-4">
+        <p className="text-caption text-muted-foreground mb-4">
           Choose which widgets appear on your home screen.
         </p>
         <div className="space-y-1">
           {WIDGETS.map(({ key, label, description, Icon }) => (
-            <div
+            <ListRow
               key={key}
-              className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors"
-            >
-              <Icon className="size-4 text-muted-foreground shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{label}</p>
-                <p className="text-xs text-muted-foreground">{description}</p>
-              </div>
-              <Switch
-                checked={prefs[key]}
-                onCheckedChange={() => toggle(key)}
-              />
-            </div>
+              leading={<Icon className="size-4 text-muted-foreground" />}
+              title={label}
+              meta={description}
+              trailing={
+                <Switch
+                  checked={prefs[key]}
+                  onCheckedChange={() => toggle(key)}
+                />
+              }
+            />
           ))}
         </div>
       </div>
@@ -132,33 +132,31 @@ export function SettingsHomeTab() {
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <CirclePlay className="size-4 text-muted-foreground" />
-            <p className="text-sm font-medium">Ticker</p>
+            <h2 className="text-section">Ticker</h2>
           </div>
           <div className="flex items-center gap-2">
-            {saving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+            {saving && <Spinner size="sm" />}
             <Switch checked={tickerCfg.enabled} onCheckedChange={toggleTickerEnabled} />
           </div>
         </div>
-        <p className="text-xs text-muted-foreground mb-4">
+        <p className="text-caption text-muted-foreground mb-4">
           A live scrolling bar across the top of your home screen.
         </p>
         {tickerCfg.enabled && (
           <div className="space-y-1">
             {TICKER_SOURCES.map(({ key, label, description, Icon }) => (
-              <div
+              <ListRow
                 key={key}
-                className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors"
-              >
-                <Icon className="size-4 text-muted-foreground shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{label}</p>
-                  <p className="text-xs text-muted-foreground">{description}</p>
-                </div>
-                <Switch
-                  checked={tickerCfg.sources.includes(key)}
-                  onCheckedChange={() => toggleTickerSource(key)}
-                />
-              </div>
+                leading={<Icon className="size-4 text-muted-foreground" />}
+                title={label}
+                meta={description}
+                trailing={
+                  <Switch
+                    checked={tickerCfg.sources.includes(key)}
+                    onCheckedChange={() => toggleTickerSource(key)}
+                  />
+                }
+              />
             ))}
           </div>
         )}

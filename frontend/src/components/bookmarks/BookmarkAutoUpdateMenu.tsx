@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { RefreshCw, Bell, Check, Eye } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import {
@@ -88,7 +89,7 @@ export function BookmarkAutoUpdateMenu({ item, onChanged }: { item: BookmarkItem
   function toggleAuto(next: boolean) {
     setAutoUpdate(next)
     void save({ autoUpdate: next })
-    if (next) toast.success('Auto-update on — fetching a baseline…')
+    if (next) toast.success('Auto-update on - fetching a baseline…')
   }
   function pickInterval(mins: number) {
     setIntervalMins(mins)
@@ -124,13 +125,16 @@ export function BookmarkAutoUpdateMenu({ item, onChanged }: { item: BookmarkItem
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           title="Auto-update"
-          className={cn('inline-flex size-7 items-center justify-center rounded-md transition-colors hover:bg-accent',
-            autoUpdate ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
+          aria-label="Auto-update"
+          className={cn(autoUpdate ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}
         >
+          {/* design-ok(adhoc-spinner): the refresh glyph itself spins while saving */}
           <RefreshCw className={cn('size-4', autoUpdate && saving && 'animate-spin')} />
-        </button>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 p-3">
         <div className="flex items-center justify-between gap-3">
@@ -150,7 +154,7 @@ export function BookmarkAutoUpdateMenu({ item, onChanged }: { item: BookmarkItem
                   <button
                     key={opt.mins}
                     onClick={() => pickInterval(opt.mins)}
-                    className={cn('flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent',
+                    className={cn('flex items-center justify-between rounded-control px-2 py-1.5 text-sm transition-colors hover:bg-accent',
                       intervalMins === opt.mins ? 'text-foreground' : 'text-muted-foreground')}
                   >
                     {opt.label}
@@ -206,7 +210,7 @@ export function BookmarkAutoUpdateMenu({ item, onChanged }: { item: BookmarkItem
                     <button
                       key={opt.value}
                       onClick={() => pickMode(opt.value)}
-                      className={cn('flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors hover:bg-accent',
+                      className={cn('flex items-center justify-between rounded-control px-2 py-1 text-sm transition-colors hover:bg-accent',
                         watchMode === opt.value ? 'text-foreground' : 'text-muted-foreground')}
                     >
                       {opt.label}

@@ -1,7 +1,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)"  srcset="assets/hero.svg">
   <source media="(prefers-color-scheme: light)" srcset="assets/hero.svg">
-  <img src="assets/hero.svg" width="100%" alt="LokiDoki — A full AI stack that runs in your home and stays there" />
+  <img src="assets/hero.svg" width="100%" alt="LokiDoki: A full AI stack that runs in your home and stays there" />
 </picture>
 
 <p align="center">
@@ -34,7 +34,7 @@
 
 <br/>
 
-One server. The whole family. Zero subscriptions. No corporation reads your chats, no third-party server holds your history, and no content filter decides what you can say, ask, or create. For adults: chat freely and generate what you want. For your kids: a safe, controlled space where nothing they say is harvested, profiled, or sold. When you want live information the AI fetches it — everything else runs locally with no internet required.
+One server. The whole family. Zero subscriptions. No corporation reads your chats, no third-party server holds your history, and no content filter decides what you can say, ask, or create. For adults: chat freely and generate what you want. For your kids: a safe, controlled space where nothing they say is harvested, profiled, or sold. When you want live information the AI fetches it; everything else runs locally with no internet required.
 
 <br/>
 
@@ -51,7 +51,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/private.svg" width="28" align="left" hspace="10" vspace="4"/>
   <b>Per-user accounts &amp; PIN login</b><br/>
-  Each family member gets their own profile, memory, and preferences — completely isolated from everyone else.
+  Each family member gets their own profile, memory, and preferences, completely isolated from everyone else.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
@@ -65,7 +65,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/private.svg" width="28" align="left" hspace="10" vspace="4"/>
   <b>Per-user feature access</b><br/>
-  The admin decides what each person can see and use — chat, images, voice, maps, and more.
+  The admin decides what each person can see and use: chat, images, voice, maps, and more.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
@@ -130,7 +130,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/library.svg" width="48" /><br/>
   <b>Offline Library</b><br/>
-  Full Wikipedia, repair guides, medical references, and more — all readable with no internet. AI-searchable.
+  Full Wikipedia, repair guides, medical references, and more, all readable with no internet. AI-searchable.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
@@ -172,13 +172,13 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/music.svg" width="48" /><br/>
   <b>Music</b><br/>
-  A private YouTube for music: AI radio stations built from any prompt, a full catalog to browse, synced lyrics, and offline saves — plus offline track generation and MIDI remix.
+  A private YouTube for music: AI radio stations built from any prompt, a full catalog to browse, synced lyrics, and offline saves, plus offline track generation and MIDI remix.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
   <img src="assets/icons/shows.svg" width="48" /><br/>
   <b>Shows</b><br/>
-  Discover TV series — where to stream, trailers, reviews, and a personal watchlist, with a Plex badge for what's already on your server.
+  Discover TV series: where to stream, trailers, reviews, and a personal watchlist, with a Plex badge for what's already on your server.
   <br/><br/>
 </td>
 </tr>
@@ -186,13 +186,13 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/movies.svg" width="48" /><br/>
   <b>Movies</b><br/>
-  Discover films — where to stream, showtimes playing near you, trailers and reviews, with the same Plex integration as Shows.
+  Discover films: where to stream, showtimes playing near you, trailers and reviews, with the same Plex integration as Shows.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
   <img src="assets/icons/news.svg" width="48" /><br/>
   <b>News</b><br/>
-  Your own RSS reader and news hub — global headlines, local stories, and your personal feeds, in categories you control. No algorithm.
+  Your own RSS reader and news hub: global headlines, local stories, and your personal feeds, in categories you control. No algorithm.
   <br/><br/>
 </td>
 </tr>
@@ -206,7 +206,21 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/time.svg" width="48" /><br/>
   <b>Time</b><br/>
-  World clock, alarms, timers, and a stopwatch — your companion announces alarms and timers out loud when they go off.
+  World clock, alarms, timers, and a stopwatch. Your companion announces alarms and timers out loud when they go off.
+  <br/><br/>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="assets/icons/shopping.svg" width="48" /><br/>
+  <b>Shopping</b><br/>
+  Track prices across Amazon, Walmart, Target, and more from one search box, get price-drop alerts, browse today's deals, and clip coupons.
+  <br/><br/>
+</td>
+<td width="50%" valign="top">
+  <img src="assets/icons/lookup.svg" width="48" /><br/>
+  <b>Reverse Lookup</b><br/>
+  Look up a property by address or find people by name or phone, using public records, for your own reference.
   <br/><br/>
 </td>
 </tr>
@@ -214,19 +228,19 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 
 ### 🏠 Home &amp; Cameras
 
-**Home Control** drives Home Assistant in natural language, **Home Inventory** tracks your devices and appliances with photos and manuals, and a **Frigate** integration lets your companion announce camera events — a person at the door, a car in the driveway — entirely on your own network.
+**Home Control** drives Home Assistant in natural language, **Home Inventory** tracks your devices and appliances with photos and manuals, and a **Frigate** integration lets your companion announce camera events like a person at the door or a car in the driveway, entirely on your own network.
 
 ### 🧰 Everyday Tools
 
-A **Today dashboard** (news, sports, weather, on-this-day history, holidays, local events), **Voice Memos**, **Skills** for custom companion behaviors, **Recipes**, **Dictionary**, **Medical reference**, **Reverse Lookup** (property &amp; people by address, name or phone), and **unit** + **file converters** — plus a **Links** launcher for your home network. Everything installs per household from the **App Store**, sits on a **customizable drag-and-drop home**, and respects full **multi-user** accounts where the admin controls every user's access.
+A **Today dashboard** (news, sports, weather, on-this-day history, holidays, local events), **Voice Memos**, **Skills** for custom companion behaviors, **Recipes**, **Dictionary**, **Medical reference**, a **Speed Test** for your connection, and **unit** + **file converters**, plus a **Links** launcher for your home network. Everything installs per household from the **App Store**, sits on a **customizable drag-and-drop home**, and respects full **multi-user** accounts where the admin controls every user's access.
 
 ---
 
 ## 🤖 Your Companion
 
-Most AI companion apps are designed to hook you — flattering you, creating emotional dependency, nudging you to spend more time in the app. Loki Doki's companions are different. **They are yours.**
+Most AI companion apps are designed to hook you: flattering you, creating emotional dependency, nudging you to spend more time in the app. Loki Doki's companions are different. **They are yours.**
 
-You configure the name, personality, voice, and look. The companion comes to life as an animated avatar: it breathes, tilts its head when it's thinking, and lip-syncs to its own voice. It remembers your conversations and grows with you — a genuine buddy, not a product designed to manipulate you. No subscription to keep it "alive." No company that can push an update and change its personality. It runs on your hardware, belongs to your family, and stays exactly the way you set it up.
+You configure the name, personality, voice, and look. The companion comes to life as an animated avatar: it breathes, tilts its head when it's thinking, and lip-syncs to its own voice. It remembers your conversations and grows with you: a genuine buddy, not a product designed to manipulate you. No subscription to keep it "alive." No company that can push an update and change its personality. It runs on your hardware, belongs to your family, and stays exactly the way you set it up.
 
 ---
 
@@ -238,7 +252,7 @@ cd loki-doki
 ./run.sh
 ```
 
-A browser opens at `http://localhost:5173`. The setup wizard creates your admin account and downloads models — about 10 minutes start to finish.
+A browser opens at `http://localhost:5173`. The setup wizard creates your admin account and downloads models, about 10 minutes start to finish.
 
 > **Requirements:** Windows, macOS, or Linux with a reasonably modern GPU. `run.sh` installs [Bun](https://bun.sh) automatically. [Ollama](https://ollama.com) downloads on first run. Nothing to install by hand.
 
@@ -266,5 +280,5 @@ A browser opens at `http://localhost:5173`. The setup wizard creates your admin 
 
 ## 📖 Documentation
 
-- [User Guide](https://jessewebdotcom.github.io/loki-doki/user/welcome/) — getting started, features, and settings
-- [Developer Guide](https://jessewebdotcom.github.io/loki-doki/dev/architecture/) — architecture, API, and contributing
+- [User Guide](https://jessewebdotcom.github.io/loki-doki/user/welcome/): getting started, features, and settings
+- [Developer Guide](https://jessewebdotcom.github.io/loki-doki/dev/architecture/): architecture, API, and contributing

@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { LayoutGrid, List, Search } from 'lucide-react'
+import { LayoutGrid, List, Search, ShoppingBag } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { useStoreApps } from '@/lib/store/useStoreApps'
 import { StoreAppCard } from '@/components/store/StoreAppCard'
 import { StoreAppRow } from '@/components/store/StoreAppRow'
 import { CardGridSkeleton } from '@/components/store/SectionHead'
+import { STORE_GRADIENT } from '@/components/store/StoreRail'
 
 export function StoreBrowsePage() {
   const { apps, isLoading } = useStoreApps()
@@ -17,35 +21,37 @@ export function StoreBrowsePage() {
     ? apps.filter(a =>
         a.name.toLowerCase().includes(q) ||
         a.description.toLowerCase().includes(q) ||
-        a.category.toLowerCase().includes(q),
+        a.category.toLowerCase().includes(q) ||
+        a.id.toLowerCase().includes(q) ||
+        (a.keywords ?? []).some(k => k.includes(q)),
       )
     : apps
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 px-5 py-6 pb-20">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight">{q ? 'Search' : 'Browse'}</h1>
-          <p className="text-sm text-muted-foreground">
-            {q ? `${filtered.length} result${filtered.length === 1 ? '' : 's'} for "${params.get('q')}"` : `${apps.length} apps and extensions`}
-          </p>
-        </div>
-        <div className="flex gap-1 rounded-lg border border-border/40 p-0.5">
-          {([['grid', LayoutGrid], ['list', List]] as const).map(([mode, Icon]) => (
-            <button
-              key={mode}
-              onClick={() => setView(mode)}
-              className={cn(
-                'flex size-7 items-center justify-center rounded-md transition-colors',
-                view === mode ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-              aria-label={mode}
-            >
-              <Icon className="size-4" />
-            </button>
-          ))}
-        </div>
-      </div>
+    <PageContainer className="pb-20">
+      <PageHeader
+        title={q ? 'Search' : 'Browse'}
+        eyebrow="App Store"
+        icon={ShoppingBag}
+        gradient={STORE_GRADIENT}
+        subtitle={q ? `${filtered.length} result${filtered.length === 1 ? '' : 's'} for "${params.get('q')}"` : `${apps.length} apps and extensions`}
+        actions={
+          <div className="flex gap-0.5 rounded-full border border-border p-0.5">
+            {([['grid', LayoutGrid], ['list', List]] as const).map(([mode, Icon]) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setView(mode)}
+                className={cn(view === mode ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                aria-label={mode}
+              >
+                <Icon className="size-4" />
+              </Button>
+            ))}
+          </div>
+        }
+      />
 
       {isLoading ? (
         <CardGridSkeleton />
@@ -63,6 +69,6 @@ export function StoreBrowsePage() {
           {filtered.map(app => <StoreAppRow key={app.id} app={app} />)}
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }

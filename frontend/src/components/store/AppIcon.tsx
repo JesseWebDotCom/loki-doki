@@ -3,7 +3,7 @@ import { cn } from '@/lib/cn'
 import type { StoreApp } from '@/lib/store/useStoreApps'
 
 /** Consistent gradient icon tile for an app, used across every store surface. */
-export function AppIcon({ app, className, iconClassName, rounded = 'rounded-2xl' }: {
+export function AppIcon({ app, className, iconClassName, rounded = 'rounded-card' }: {
   app: StoreApp
   className?: string
   iconClassName?: string
@@ -31,7 +31,7 @@ export function ConnectivityBadge({ app, className }: { app: StoreApp; className
     <span
       className={cn(
         'flex items-center justify-center size-6 rounded-full shadow-sm',
-        app.online ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-300',
+        app.online ? 'bg-info text-info-foreground' : 'bg-muted text-muted-foreground',
         className,
       )}
       title={app.online ? 'Connects to the internet' : 'Runs locally'}

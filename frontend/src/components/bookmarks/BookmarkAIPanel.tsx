@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Sparkles, Loader2, Send } from 'lucide-react'
+import { Sparkles, Send } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { summarizeItem, askItem } from '@/lib/bookmarks/api'
 
@@ -29,23 +31,23 @@ export function BookmarkAIPanel({ itemId }: { itemId: string }) {
   }
 
   return (
-    <div className="mx-auto mt-6 max-w-[44rem] rounded-2xl border border-border/60 bg-card/50 p-4">
+    <Card className="mx-auto mt-6 max-w-[44rem] border-border/60 bg-card/50 p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Sparkles className="size-4 text-primary" /> Ask AI about this article</div>
 
       {!summary ? (
         <Button variant="outline" size="sm" onClick={doSummarize} disabled={summarizing}>
-          {summarizing ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Sparkles className="mr-1.5 size-4" />}Summarize (TL;DR)
+          {summarizing ? <Spinner className="mr-1.5 text-current" /> : <Sparkles className="mr-1.5 size-4" />}Summarize (TL;DR)
         </Button>
       ) : (
-        <p className="mb-3 rounded-lg bg-background/60 p-3 text-sm leading-relaxed text-foreground/90">{summary}</p>
+        <p className="mb-3 rounded-control bg-background/60 p-3 text-sm leading-relaxed text-foreground/90">{summary}</p>
       )}
 
       <div className="mt-3 flex gap-2">
         <Input value={question} onChange={e => setQuestion(e.target.value)} placeholder="Ask a question about this article…"
           onKeyDown={e => { if (e.key === 'Enter') void doAsk() }} />
-        <Button onClick={doAsk} disabled={asking || !question.trim()} size="icon">{asking ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}</Button>
+        <Button onClick={doAsk} disabled={asking || !question.trim()} size="icon">{asking ? <Spinner className="text-current" /> : <Send className="size-4" />}</Button>
       </div>
-      {answer && <p className={cn('mt-3 rounded-lg bg-background/60 p-3 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap')}>{answer}</p>}
-    </div>
+      {answer && <p className={cn('mt-3 rounded-control bg-background/60 p-3 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap')}>{answer}</p>}
+    </Card>
   )
 }

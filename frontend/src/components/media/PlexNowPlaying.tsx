@@ -20,14 +20,14 @@ export function PlexNowPlaying() {
         {sessions.map((s, i) => (
           <div
             key={`${s.title}-${i}`}
-            className="flex w-[260px] shrink-0 items-center gap-3 rounded-xl bg-amber-500/10 p-2.5 ring-1 ring-amber-500/20"
+            className="flex w-[260px] shrink-0 items-center gap-3 rounded-card bg-warning/10 p-2.5 ring-1 ring-warning/20"
           >
-            <div className="relative size-14 shrink-0 overflow-hidden rounded-lg bg-muted">
+            <div className="relative size-14 shrink-0 overflow-hidden rounded-control bg-muted">
               {s.thumb && (
                 <img src={`/api/plex/img?path=${encodeURIComponent(s.thumb)}`} alt={s.title} className="size-full object-cover" />
               )}
-              <span className="absolute bottom-1 right-1 rounded-full bg-black/70 p-0.5 text-amber-300">
-                {s.state === 'paused' ? <Pause className="size-3" /> : <Play className="size-3 fill-amber-300" />}
+              <span className="absolute bottom-1 right-1 rounded-full bg-black/70 p-0.5 text-warning">
+                {s.state === 'paused' ? <Pause className="size-3" /> : <Play className="size-3 fill-warning" />}
               </span>
             </div>
             <div className="min-w-0">

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, AlertTriangle, XCircle, Loader2, ChevronRight, ChevronDown, Wrench } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, XCircle, ChevronRight, ChevronDown, Wrench } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { BrandMark } from '@/components/shared/BrandMark'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { BOOT_STEP_FEATURE_NAME } from '@/lib/features'
 
 type StepStatus = 'running' | 'ok' | 'warn' | 'error'
@@ -25,7 +27,7 @@ interface BootScreenProps {
   onComplete: () => void
 }
 
-// db, hw, ollama, llm, embed, router, image — happy-path count
+// db, hw, ollama, llm, embed, router, image, happy-path count
 const TOTAL_STEPS = 7
 
 function fmtBytes(b: number): string {
@@ -89,7 +91,7 @@ export function BootScreen({ onComplete }: BootScreenProps) {
         }
 
         doneSteps.current += 1
-        // Reconcile can emit extra steps beyond the happy-path count — clamp to 100.
+        // Reconcile can emit extra steps beyond the happy-path count, clamp to 100.
         setProgress(Math.min(100, Math.round((doneSteps.current / TOTAL_STEPS) * 100)))
         // Friendly label for ok; keep backend label for warn/error (they're descriptive)
         const friendlyLabel = featureName && incoming.status === 'ok'
@@ -181,7 +183,7 @@ export function BootScreen({ onComplete }: BootScreenProps) {
   const isRepairing = phase === 'repairing'
   const isDone      = phase === 'paused' || phase === 'done'
 
-  // Active repair — there's at most one download running at a time
+  // Active repair, there's at most one download running at a time
   const activeRepair = [...repairs.values()].find((r) => r.total > 0)
   const repairPct    = activeRepair ? Math.round((activeRepair.completed / activeRepair.total) * 100) : 0
 
@@ -195,7 +197,7 @@ export function BootScreen({ onComplete }: BootScreenProps) {
     >
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-1/2 top-2/5 -translate-x-1/2 -translate-y-1/2 size-[600px] rounded-full bg-violet-600/10 blur-[140px]" />
+        <div className="absolute left-1/2 top-2/5 -translate-x-1/2 -translate-y-1/2 size-[600px] rounded-full bg-brand/10 blur-[140px]" />
       </div>
 
       <div className="relative z-10 flex w-full max-w-[320px] flex-col items-center">
@@ -203,19 +205,20 @@ export function BootScreen({ onComplete }: BootScreenProps) {
         {/* Logo */}
         <div className="mb-10 flex flex-col items-center">
           <BrandMark glow className="size-[72px]" />
-          <h1 className="mt-3 text-2xl font-black tracking-tight">LokiDoki</h1>
+          <h1 className="mt-3 text-2xl font-bold tracking-tight">LokiDoki</h1>
           <p className="mt-1 text-xs text-muted-foreground">Your private AI home hub</p>
         </div>
 
         {/* Repair mode badge */}
         {isRepairing && (
-          <div className="mb-4 flex items-center gap-1.5 rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 animate-in fade-in duration-300">
-            <Wrench className="size-3 text-violet-400 animate-pulse" />
-            <span className="text-[11px] font-medium text-violet-400">Repairing</span>
+          <div className="mb-4 flex items-center gap-1.5 rounded-full border border-brand/20 bg-brand/10 px-3 py-1 animate-in fade-in duration-300">
+            {/* design-ok(adhoc-pulse): repair-in-progress icon, same intent as StatusDot's pulse-for-active-state */}
+            <Wrench className="size-3 text-brand animate-pulse" />
+            <span className="text-[11px] font-medium text-brand">Repairing</span>
           </div>
         )}
 
-        {/* Step log — hidden by default, shown when user expands details */}
+        {/* Step log, hidden by default, shown when user expands details */}
         {steps.length > 0 && showDetails && (
           <div className="mb-4 w-full space-y-2 animate-in fade-in duration-200">
             {steps.map((s) => (
@@ -224,8 +227,8 @@ export function BootScreen({ onComplete }: BootScreenProps) {
                 <span className={cn(
                   'text-xs min-w-0',
                   s.status === 'ok'    && 'text-foreground/60',
-                  s.status === 'warn'  && 'text-amber-400/80',
-                  s.status === 'error' && 'text-red-400/80',
+                  s.status === 'warn'  && 'text-warning/80',
+                  s.status === 'error' && 'text-destructive/80',
                 )}>
                   {s.label}
                 </span>
@@ -245,10 +248,10 @@ export function BootScreen({ onComplete }: BootScreenProps) {
             <div
               className={cn(
                 'absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out',
-                isDone && warnings.length === 0 ? 'bg-emerald-500' :
-                isDone && warnings.length > 0  ? 'bg-amber-500' :
-                isRepairing ? 'bg-violet-500' :
-                'bg-gradient-to-r from-violet-500 to-blue-400',
+                isDone && warnings.length === 0 ? 'bg-success' :
+                isDone && warnings.length > 0  ? 'bg-warning' :
+                isRepairing ? 'bg-brand' :
+                'bg-gradient-to-r from-brand to-brand-hover',
               )}
               style={{ width: `${progress}%` }}
             />
@@ -267,9 +270,9 @@ export function BootScreen({ onComplete }: BootScreenProps) {
           <div className="mt-2.5 flex items-center justify-center gap-3">
             <p className={cn(
               'text-center text-xs transition-colors duration-300',
-              isDone && warnings.length === 0 && 'text-emerald-400',
-              isDone && warnings.length > 0  && 'text-amber-400',
-              isRepairing && 'text-violet-400',
+              isDone && warnings.length === 0 && 'text-success',
+              isDone && warnings.length > 0  && 'text-warning',
+              isRepairing && 'text-brand',
               !isDone && !isRepairing && 'text-muted-foreground/60',
             )}>
               {isRepairing && activeRepair
@@ -289,20 +292,20 @@ export function BootScreen({ onComplete }: BootScreenProps) {
           </div>
         </div>
 
-        {/* Repair download details — always below the progress bar */}
+        {/* Repair download details, always below the progress bar */}
         {activeRepair && (
           <div className="mt-4 w-full space-y-1.5 animate-in fade-in duration-200">
             <div className="h-0.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-violet-500/70 transition-[width] duration-300"
+                className="h-full rounded-full bg-brand/70 transition-[width] duration-300"
                 style={{ width: `${repairPct}%` }}
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-violet-400/70 tabular-nums">
+              <span className="text-[10px] text-brand/70 tabular-nums">
                 {fmtBytes(activeRepair.completed)} / {fmtBytes(activeRepair.total)}
               </span>
-              <span className="text-[10px] text-violet-400/50 tabular-nums">
+              <span className="text-[10px] text-brand/50 tabular-nums">
                 {fmtSpeed(activeRepair.speedBps)}
                 {activeRepair.etaSeconds > 0 ? ` · ${fmtEta(activeRepair.etaSeconds)}` : ''}
               </span>
@@ -313,16 +316,16 @@ export function BootScreen({ onComplete }: BootScreenProps) {
         {/* Warning acknowledgment */}
         {phase === 'paused' && (
           <div className="mt-8 w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 space-y-2 mb-4">
-              <p className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+            <div className="rounded-card border border-warning/20 bg-warning/5 px-4 py-3 space-y-2 mb-4">
+              <p className="text-xs font-semibold text-warning flex items-center gap-1.5">
                 <AlertTriangle className="size-3.5 shrink-0" />
-                {warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`} — some features may be unavailable
+                {warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`}, some features may be unavailable
               </p>
               {warnings.some((w) => w.detail) && (
                 <ul className="space-y-1">
                   {warnings.filter((w) => w.detail).map((w) => (
                     <li key={w.key} className="text-xs text-muted-foreground leading-relaxed">
-                      <span className={cn(w.status === 'error' ? 'text-red-400' : 'text-amber-400/80')}>
+                      <span className={cn(w.status === 'error' ? 'text-destructive' : 'text-warning/80')}>
                         {w.detail}
                       </span>
                     </li>
@@ -330,13 +333,13 @@ export function BootScreen({ onComplete }: BootScreenProps) {
                 </ul>
               )}
             </div>
-            <button
+            <Button
               type="button"
               onClick={proceed}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 transition-colors"
+              className="w-full"
             >
               Continue anyway <ChevronRight className="size-4" />
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -346,9 +349,9 @@ export function BootScreen({ onComplete }: BootScreenProps) {
 
 function StepIcon({ status }: { status: StepStatus }) {
   switch (status) {
-    case 'running': return <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground/50" />
-    case 'ok':      return <CheckCircle2 className="size-3 shrink-0 text-emerald-400/70" />
-    case 'warn':    return <AlertTriangle className="size-3 shrink-0 text-amber-400/70" />
-    case 'error':   return <XCircle className="size-3 shrink-0 text-red-400/70" />
+    case 'running': return <Spinner size="sm" className="size-3 shrink-0 text-muted-foreground/50" />
+    case 'ok':      return <CheckCircle2 className="size-3 shrink-0 text-success/70" />
+    case 'warn':    return <AlertTriangle className="size-3 shrink-0 text-warning/70" />
+    case 'error':   return <XCircle className="size-3 shrink-0 text-destructive/70" />
   }
 }

@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Mic, Plus, ExternalLink } from 'lucide-react'
+import { Mic, Plus, ExternalLink } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 import {
   getShowPodcast,
   createShowPodcast,
@@ -27,11 +29,11 @@ function EpisodeMini({ ep }: { ep: PodcastEpisodeLite }) {
   return (
     <div className="flex items-center gap-2 py-1.5 text-sm">
       {ep.status === 'ready' ? (
-        <Mic className="size-3.5 shrink-0 text-emerald-500" />
+        <Mic className="size-3.5 shrink-0 text-success" />
       ) : ep.status === 'failed' ? (
-        <Mic className="size-3.5 shrink-0 text-rose-500" />
+        <Mic className="size-3.5 shrink-0 text-destructive" />
       ) : (
-        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+        <Spinner size="sm" />
       )}
       <span className="min-w-0 flex-1 truncate">{ep.title}</span>
     </div>
@@ -57,17 +59,17 @@ export function ShowPodcastSection({ showId }: { showId: number }) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">
-          Generate an AI podcast that discusses this show episode by episode — your companions host it.
+          Generate an AI podcast that discusses this show episode by episode, hosted by your companions.
         </p>
-        <button
+        <Button
           type="button"
           disabled={busy}
           onClick={() => create.mutate()}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-60"
+          className="gap-2"
         >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Mic className="size-4" />}
+          {busy ? <Spinner className="text-current" /> : <Mic className="size-4" />}
           Generate Podcast
-        </button>
+        </Button>
       </div>
     )
   }
@@ -81,22 +83,23 @@ export function ShowPodcastSection({ showId }: { showId: number }) {
           <ExternalLink className="size-3" /> Open in Podcasts
         </Link>
       </div>
-      <div className="rounded-lg border border-border/50 px-3 py-1.5">
+      <div className="rounded-control border border-border/50 px-3 py-1.5">
         {episodes.slice(0, 8).map((ep) => (
           <EpisodeMini key={ep.id} ep={ep} />
         ))}
         {episodes.length > 8 && <p className="py-1.5 text-xs text-muted-foreground">+{episodes.length - 8} more</p>}
       </div>
       {podcast.remaining > 0 && (
-        <button
+        <Button
           type="button"
+          variant="secondary"
           disabled={busy}
           onClick={() => next.mutate()}
-          className="inline-flex items-center gap-2 rounded-lg bg-foreground/10 px-4 py-2 text-sm font-medium hover:bg-foreground/15 disabled:opacity-60"
+          className="gap-2 bg-foreground/10 hover:bg-foreground/15"
         >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+          {busy ? <Spinner className="text-current" /> : <Plus className="size-4" />}
           Generate next batch ({podcast.remaining} left)
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -120,16 +123,16 @@ export function MoviePodcastSection({ title, year, overview }: { title: string; 
   if (!podcast) {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Generate an AI deep-dive podcast discussing this film — hosted by your companions.</p>
-        <button
+        <p className="text-sm text-muted-foreground">Generate an AI deep-dive podcast discussing this film, hosted by your companions.</p>
+        <Button
           type="button"
           disabled={create.isPending}
           onClick={() => create.mutate()}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-60"
+          className="gap-2"
         >
-          {create.isPending ? <Loader2 className="size-4 animate-spin" /> : <Mic className="size-4" />}
+          {create.isPending ? <Spinner className="text-current" /> : <Mic className="size-4" />}
           Generate Podcast
-        </button>
+        </Button>
       </div>
     )
   }
@@ -142,7 +145,7 @@ export function MoviePodcastSection({ title, year, overview }: { title: string; 
           <ExternalLink className="size-3" /> Open in Podcasts
         </Link>
       </div>
-      <div className="rounded-lg border border-border/50 px-3 py-1.5">
+      <div className="rounded-control border border-border/50 px-3 py-1.5">
         {podcast.episodes.map((ep) => (
           <EpisodeMini key={ep.id} ep={ep as PodcastEpisodeLite} />
         ))}

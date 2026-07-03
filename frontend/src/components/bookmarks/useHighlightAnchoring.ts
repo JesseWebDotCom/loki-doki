@@ -16,11 +16,14 @@ import type { Highlight, HighlightColor } from '@/lib/bookmarks/api'
 
 const CONTEXT_CHARS = 32
 
+// design-ok(raw-palette-semantic): user-selectable highlighter color palette (real highlighter-pen
+// hues), the fixed swatch set is itself the feature, not incidental UI chrome
 export const HIGHLIGHT_MARK_CLASS: Record<HighlightColor, string> = {
   yellow: 'bg-yellow-400/30',
   green: 'bg-emerald-400/30',
   blue: 'bg-sky-400/30',
   pink: 'bg-pink-400/30',
+  // design-ok(banned-palette): user-selectable highlighter color palette, needs a violet swatch distinct from other 4 hues and from --brand; not a UI accent
   purple: 'bg-violet-400/30',
 }
 

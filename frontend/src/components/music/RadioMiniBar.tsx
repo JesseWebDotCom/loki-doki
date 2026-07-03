@@ -1,4 +1,4 @@
-import { Pause, Play, SkipForward, X, Loader2, Mic, AudioLines, MonitorPlay } from 'lucide-react'
+import { Pause, Play, SkipForward, X, Mic, AudioLines, MonitorPlay } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { proxyImg } from '@/lib/img'
@@ -6,6 +6,8 @@ import { cn } from '@/lib/cn'
 import { fmtClock } from '@/lib/youtube/format'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { SeekBar } from '@/components/shared/SeekBar'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 
 /**
@@ -17,11 +19,12 @@ export function RadioMiniBar() {
   const radio = useRadio()
   const navigate = useNavigate()
   const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec, skipping } = radio
+  // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors
   const accent = station?.color ?? '#a855f7'
   // Songs are finite + seekable; only while a track is actually playing (not during DJ talk).
   const canSeek = phase === 'playing' && !djSpeaking && durationSec > 0
 
-  // Show the (current) song even while the DJ talks — the art/title update in sync with the DJ's
+  // Show the (current) song even while the DJ talks - the art/title update in sync with the DJ's
   // voice; the mic state is conveyed by the subtitle + a small badge on the art, not by masking it.
   const title = currentTrack?.title ?? station?.label ?? 'AI Radio'
   const subtitle = djSpeaking ? 'On the mic…' : (currentTrack?.author ?? station?.genre ?? 'Live')
@@ -29,31 +32,33 @@ export function RadioMiniBar() {
 
   return (
     <div className="relative z-40 shrink-0">
+      {/* design-ok(backdrop-blur-outside-chrome): fixed mini-player chrome, mirrors YoutubeMiniBar */}
       <div className="relative overflow-hidden border-t border-border/60 bg-background/95 backdrop-blur-md shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
-        {/* Live faux-EQ — sits subtly behind the controls, tinted to the station accent. */}
+        {/* Live faux-EQ - sits subtly behind the controls, tinted to the station accent. */}
         {radio.visualizerEnabled && (
           <div className="absolute inset-0 z-0">
             <EqVisualizer
               active={!paused && (phase === 'playing' || djSpeaking)}
               getAnalyser={radio.getAnalyser}
+              // design-ok(hex-in-tsx): canvas visualizer tint fallbacks (canvas cannot read CSS vars)
               color={station?.color ?? '#a855f7'}
-              colorDark={station?.colorDark ?? '#6d28d9'}
+              colorDark={station?.colorDark ?? '#6d28d9'} // design-ok(hex-in-tsx): canvas visualizer tint fallback
               opacity={0.2}
               fade
             />
           </div>
         )}
         <div className="relative z-10 flex items-center gap-3 px-4 py-2">
-          {/* Now-playing art — current track thumbnail, station emoji as fallback */}
+          {/* Now-playing art - current track thumbnail, station emoji as fallback */}
           <button onClick={() => navigate('/music/now-playing')}
-            className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md text-2xl leading-none"
+            className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control text-2xl leading-none"
             style={{ background: station ? `linear-gradient(135deg, ${station.color}, ${station.colorDark})` : undefined }}
             aria-label="Open AI Radio">
             {currentTrack?.thumbnail && (
               <img src={proxyImg(currentTrack.thumbnail)} alt="" className="absolute inset-0 size-full object-cover" />
             )}
             {!currentTrack?.thumbnail && <span className="relative">{station?.emoji ?? '📻'}</span>}
-            {/* DJ talking — small corner badge so the song art stays visible underneath. */}
+            {/* DJ talking - small corner badge so the song art stays visible underneath. */}
             {djSpeaking && (
               <span className="absolute bottom-0 right-0 grid size-4 place-items-center rounded-tl-md bg-black/70">
                 <Mic className="size-2.5 text-white" />
@@ -61,7 +66,7 @@ export function RadioMiniBar() {
             )}
             {busy && (
               <div className="absolute inset-0 grid place-items-center bg-black/40">
-                <Loader2 className="size-4 animate-spin text-white" />
+                <Spinner className="text-white" />
               </div>
             )}
           </button>
@@ -70,12 +75,12 @@ export function RadioMiniBar() {
           <button onClick={() => navigate('/music/now-playing')} className="min-w-0 flex-1 text-left">
             <p className="truncate text-sm font-semibold">{title}</p>
             <span className="mt-0.5 flex items-center gap-1.5">
-              <span className="inline-flex size-1.5 animate-pulse rounded-full bg-red-500" />
+              <StatusDot status="error" pulse />
               <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
             </span>
           </button>
 
-          {/* Elapsed / remaining — same readout as the YouTube mini-player. */}
+          {/* Elapsed / remaining - same readout as the YouTube mini-player. */}
           {canSeek && (
             <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
               {fmtClock(positionSec)} / {fmtClock(durationSec)}
@@ -113,16 +118,19 @@ export function RadioMiniBar() {
                 aria-label="Watch video" title="Switch to video">
                 <MonitorPlay className="size-4" />
               </button>
+              {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.togglePause}
                 className="grid size-9 place-items-center rounded-full bg-foreground text-background hover:opacity-90"
                 aria-label={paused ? 'Resume' : 'Pause'}>
                 {paused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
               </button>
+              {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.skip} disabled={phase !== 'playing' || skipping}
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-30"
                 aria-label="Skip">
-                {skipping ? <Loader2 className="size-4 animate-spin" /> : <SkipForward className="size-4" />}
+                {skipping ? <Spinner className="text-current" /> : <SkipForward className="size-4" />}
               </button>
+              {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.stop}
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
                 aria-label="Stop radio">
@@ -130,7 +138,7 @@ export function RadioMiniBar() {
               </button>
             </div>
 
-            {/* Seek bar — the same control the YouTube mini-player uses. */}
+            {/* Seek bar - the same control the YouTube mini-player uses. */}
             <SeekBar pos={positionSec} total={durationSec} onSeek={radio.seek} accent={accent} disabled={!canSeek} />
           </div>
         </div>

@@ -1,8 +1,10 @@
-import { Play, Users, ArrowDownToLine, Loader2 } from 'lucide-react'
+import { Play, Users, ArrowDownToLine } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { cn } from '@/lib/cn'
 import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
 import { StationArt } from '@/components/music/StationArt'
 import { useOfflineStationMap } from '@/lib/music/useOffline'
 import { stationToDj, type Station } from '@/lib/music/catalogApi'
@@ -27,15 +29,17 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
         {offStatus && (
           <span
             title={offStatus === 'ready' ? 'Downloaded' : 'Saving offline…'}
+            // design-ok(backdrop-blur-outside-chrome): status chip floats over station artwork
             className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-black/35 backdrop-blur-sm">
             {offStatus === 'ready'
-              ? <ArrowDownToLine className="size-3.5 text-emerald-300/90" />
-              : <Loader2 className="size-3.5 animate-spin text-amber-300/90" />}
+              ? <ArrowDownToLine className="size-3.5 text-success" />
+              : <Spinner size="sm" className="text-warning" />}
           </span>
         )}
+        {/* design-ok(backdrop-blur-outside-chrome): play control floats over station artwork */}
         <button onClick={play} aria-label={`Play ${station.name}`}
           className={cn(
-            'absolute bottom-2 right-2 flex size-11 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur transition',
+            'absolute bottom-2 right-2 flex size-11 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur transition', // design-ok(backdrop-blur-outside-chrome): over artwork
             'opacity-0 group-hover:opacity-100 hover:scale-105',
             playing && 'opacity-100 ring-2 ring-white',
           )}>
@@ -44,7 +48,7 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
       </div>
       {(station.description || station.ownerName || playing) && (
         <div className="px-3 py-2">
-          {playing && <span className="mb-1 inline-block size-1.5 animate-pulse rounded-full bg-red-500" />}
+          {playing && <StatusDot status="error" pulse className="mb-1" />}
           {station.description && !station.description.startsWith('source:') && (
             <p className="line-clamp-2 text-xs text-muted-foreground">{station.description}</p>
           )}

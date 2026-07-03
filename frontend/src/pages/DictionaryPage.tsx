@@ -2,8 +2,10 @@ import { useCallback, useState } from 'react'
 import { BookOpen, Volume2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 interface Definition { definition: string; example?: string }
@@ -24,18 +26,18 @@ async function fetchDefinition(word: string): Promise<DictionaryResult> {
 
 function SkeletonLines() {
   return (
-    <div className="space-y-5 animate-pulse pt-2">
+    <div className="space-y-5 pt-2">
       <div className="space-y-2">
-        <div className="h-9 w-48 rounded-lg bg-foreground/10" />
-        <div className="h-5 w-32 rounded-lg bg-foreground/8" />
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-5 w-32" />
       </div>
       {[0, 1].map((i) => (
         <div key={i} className="space-y-3">
-          <div className="h-5 w-20 rounded-full bg-foreground/10" />
+          <Skeleton className="h-5 w-20 rounded-full" />
           <div className="space-y-2 pl-4">
-            <div className="h-4 w-full max-w-lg rounded bg-foreground/8" />
-            <div className="h-4 w-4/5 max-w-md rounded bg-foreground/8" />
-            <div className="h-4 w-3/5 max-w-sm rounded bg-foreground/8" />
+            <Skeleton className="h-4 w-full max-w-lg" />
+            <Skeleton className="h-4 w-4/5 max-w-md" />
+            <Skeleton className="h-4 w-3/5 max-w-sm" />
           </div>
         </div>
       ))}
@@ -66,7 +68,6 @@ export function DictionaryPage() {
     placeholder: 'Enter a word...',
     loading: !!isFetching,
     externalHref: 'https://en.wiktionary.org',
-    settingsHref: '/admin/features?tool=dictionary',
   })
 
   function playAudio(url: string) {
@@ -79,14 +80,14 @@ export function DictionaryPage() {
   const showResult = !isFetching && data && !data.error
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#1e3a5f,#1d4ed8)" GhostIcon={BookOpen}>
-      <div className="flex flex-col gap-5 px-5 pt-6 pb-10">
+    <PageShell>
+      <PageContainer width="narrow" className="flex flex-col gap-5 pt-6 pb-10">
 
         {/* Empty state */}
         {showEmpty && (
           <div className="flex flex-col items-center gap-3 py-24 text-center">
-            <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-600/20">
-              <BookOpen className="size-7 text-blue-400" />
+            <div className="flex size-14 items-center justify-center rounded-card bg-brand/15">
+              <BookOpen className="size-7 text-brand" />
             </div>
             <p className="text-base font-semibold">Dictionary</p>
             <p className="max-w-xs text-sm text-muted-foreground">Search any word for definitions, phonetics, usage examples, and audio pronunciation.</p>
@@ -113,18 +114,17 @@ export function DictionaryPage() {
             {/* Word + phonetic + audio */}
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-4xl font-black tracking-tight">{data.word}</h1>
+                <h2 className="text-display text-foreground">{data.word}</h2>
                 {data.audio && (
-                  <button
+                  <Button
+                    variant="tinted"
+                    size="icon"
+                    className="size-8"
                     onClick={() => playAudio(data.audio!)}
                     aria-label="Play pronunciation"
-                    className={cn(
-                      'flex size-8 items-center justify-center rounded-full',
-                      'bg-foreground/8 text-muted-foreground transition-colors hover:bg-brand/15 hover:text-brand',
-                    )}
                   >
                     <Volume2 className="size-4" />
-                  </button>
+                  </Button>
                 )}
               </div>
               {data.phonetic && (
@@ -159,7 +159,7 @@ export function DictionaryPage() {
             </div>
           </div>
         )}
-      </div>
+      </PageContainer>
     </PageShell>
   )
 }

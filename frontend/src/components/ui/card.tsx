@@ -2,16 +2,17 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/cn";
 
-const cardVariants = cva("overflow-hidden transition-all", {
+export const cardVariants = cva("overflow-hidden transition-all", {
   variants: {
     variant: {
       surface:
-        "rounded-2xl border border-border/60 bg-card text-card-foreground",
+        "rounded-card border border-border bg-card text-card-foreground",
       interactive:
-        "rounded-2xl border border-border/60 bg-card text-card-foreground cursor-pointer hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-lg active:scale-[0.99]",
-      gradient: "rounded-2xl text-white",
+        "rounded-card border border-border bg-card text-card-foreground cursor-pointer hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md active:scale-[0.99]",
+      gradient: "rounded-card text-white",
+      flat: "rounded-card bg-secondary/50 text-card-foreground",
       dashed:
-        "rounded-2xl border-2 border-dashed border-border/60 bg-card/40 text-card-foreground",
+        "rounded-card border-2 border-dashed border-border bg-card/40 text-card-foreground",
     },
   },
   defaultVariants: {
@@ -34,7 +35,7 @@ export function CardHeader({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("flex flex-col space-y-1.5 p-6", className)} {...props} />
+    <div className={cn("flex flex-col space-y-1.5 p-5", className)} {...props} />
   );
 }
 
@@ -44,7 +45,7 @@ export function CardTitle({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("font-semibold leading-none tracking-tight", className)}
+      className={cn("text-base font-semibold leading-none tracking-tight", className)}
       {...props}
     />
   );
@@ -66,7 +67,7 @@ export function CardContent({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-6 pt-0", className)} {...props} />;
+  return <div className={cn("p-5 pt-0", className)} {...props} />;
 }
 
 export function CardFooter({
@@ -75,7 +76,7 @@ export function CardFooter({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex items-center p-6 pt-0", className)}
+      className={cn("flex items-center p-5 pt-0", className)}
       {...props}
     />
   );

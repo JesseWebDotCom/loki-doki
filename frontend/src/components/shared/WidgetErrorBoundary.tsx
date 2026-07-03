@@ -24,7 +24,7 @@ export class WidgetErrorBoundary extends Component<Props, State> {
   override render() {
     if (!this.state.error) return this.props.children
     return (
-      <div className="rounded-xl border border-dashed border-border/40 bg-card/40 p-4 h-full min-h-24 flex flex-col items-center justify-center gap-1.5 text-center">
+      <div className="rounded-card border border-dashed border-border/40 bg-card/40 p-4 h-full min-h-24 flex flex-col items-center justify-center gap-1.5 text-center">
         <p className="text-[11px] text-muted-foreground/50">This widget hit an error</p>
         <button
           onClick={() => this.setState({ error: null })}

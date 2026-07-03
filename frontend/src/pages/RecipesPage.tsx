@@ -3,13 +3,18 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  Loader2,
   RefreshCw,
-  UtensilsCrossed,
   WifiOff,
   PlayCircle,
 } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SectionHeader } from '@/components/shared/SectionHeader'
+import { Button } from '@/components/ui/button'
+import { Card, cardVariants } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { usePublishUIContext } from '@/context/UIContextProvider'
@@ -48,7 +53,7 @@ function HeroCard({ meal, onShuffle, shuffling }: { meal: Meal; onShuffle: () =>
   useEffect(() => { setInstrOpen(false) }, [meal.id])
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+    <Card>
       {meal.image && (
         <img
           src={proxyImg(meal.image)}
@@ -58,7 +63,7 @@ function HeroCard({ meal, onShuffle, shuffling }: { meal: Meal; onShuffle: () =>
       )}
       <div className="p-5 space-y-4">
         <div className="space-y-2">
-          <h2 className="text-2xl font-black leading-tight">{meal.name}</h2>
+          <h2 className="text-title leading-tight">{meal.name}</h2>
           <div className="flex flex-wrap gap-1.5">
             {meal.area && (
               <span className="rounded-full border border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
@@ -75,14 +80,14 @@ function HeroCard({ meal, onShuffle, shuffling }: { meal: Meal; onShuffle: () =>
 
         {meal.ingredients.length > 0 && (
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="mb-2 text-overline text-muted-foreground">
               Ingredients
             </p>
             <div className="grid grid-cols-2 gap-1">
               {meal.ingredients.map((ing, i) => (
                 <span
                   key={i}
-                  className="rounded-lg bg-muted/60 px-2.5 py-1 text-xs leading-snug"
+                  className="rounded-control bg-muted/60 px-2.5 py-1 text-xs leading-snug"
                 >
                   {ing}
                 </span>
@@ -93,16 +98,17 @@ function HeroCard({ meal, onShuffle, shuffling }: { meal: Meal; onShuffle: () =>
 
         {meal.instructions && (
           <div>
-            <button
+            <Button
+              variant="outline"
               onClick={() => setInstrOpen((v) => !v)}
-              className="flex w-full items-center justify-between rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm font-semibold transition-colors hover:bg-muted/60"
+              className="w-full justify-between rounded-control bg-muted/40 px-3 font-semibold hover:bg-muted/60"
             >
               Instructions
               {instrOpen
                 ? <ChevronUp className="size-4 text-muted-foreground" />
                 : <ChevronDown className="size-4 text-muted-foreground" />
               }
-            </button>
+            </Button>
             {instrOpen && (
               <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
                 {meal.instructions}
@@ -117,7 +123,7 @@ function HeroCard({ meal, onShuffle, shuffling }: { meal: Meal; onShuffle: () =>
               href={meal.source}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-1.5 text-xs font-medium transition-colors hover:border-brand/40 hover:text-brand"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-3 py-1.5 text-xs font-medium transition-colors hover:border-brand/40 hover:text-brand"
             >
               <ExternalLink className="size-3.5" />
               View Original
@@ -128,23 +134,24 @@ function HeroCard({ meal, onShuffle, shuffling }: { meal: Meal; onShuffle: () =>
               href={meal.youtube}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10"
+              className="inline-flex items-center gap-1.5 rounded-full border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               <PlayCircle className="size-3.5" />
               Watch on YouTube
             </a>
           )}
-          <button
+          <Button
+            size="sm"
             onClick={onShuffle}
             disabled={shuffling}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 active:scale-95 disabled:opacity-50 ml-auto"
+            className="ml-auto"
           >
-            <RefreshCw className={cn('size-3.5', shuffling && 'animate-spin')} />
+            {shuffling ? <Spinner size="sm" className="text-primary-foreground" /> : <RefreshCw className="size-3.5" />}
             Shuffle
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -154,7 +161,7 @@ function SearchCard({ meal, onSelect }: { meal: Meal; onSelect: (meal: Meal) => 
   return (
     <button
       onClick={() => onSelect(meal)}
-      className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card text-left transition-all hover:border-brand/40 hover:shadow-md active:scale-[0.98]"
+      className={cn(cardVariants({ variant: 'interactive' }), 'group flex flex-col text-left')}
     >
       {meal.image && (
         <img
@@ -238,7 +245,6 @@ export function RecipesPage() {
     placeholder: 'Search recipes...',
     loading: searchStatus === 'loading',
     externalHref: 'https://www.themealdb.com',
-    settingsHref: '/admin/features?tool=recipes',
   })
 
   const handleSelectResult = (meal: Meal) => {
@@ -251,61 +257,63 @@ export function RecipesPage() {
   }
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#7c2d12,#ea580c)" GhostIcon={UtensilsCrossed}>
-      <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <div>
-          <h1 className="text-xl font-black tracking-tight">Recipes</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">AI-suggested meals with ingredients and step-by-step instructions.</p>
-        </div>
-      </div>
+    <PageShell>
+      <PageContainer className="shrink-0">
+        <PageHeader subtitle="AI-suggested meals with ingredients and step-by-step instructions." />
+      </PageContainer>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-6 sm:px-5">
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer className="pb-8 space-y-6">
 
-        {/* Hero card */}
-        {heroStatus === 'loading' && !hero && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <Loader2 className="size-6 animate-spin" />
-          </div>
-        )}
+          {/* Hero card */}
+          {heroStatus === 'loading' && !hero && (
+            <Card>
+              <Skeleton className="h-56 w-full rounded-none" />
+              <div className="space-y-3 p-5">
+                <Skeleton className="h-6 w-1/2" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            </Card>
+          )}
 
-        {heroStatus === 'error' && !hero && (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-card py-16 text-center">
-            <WifiOff className="size-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Couldn't load a recipe right now.</p>
-            <button
-              onClick={() => void loadRandom()}
-              className="flex items-center gap-1.5 text-xs text-brand hover:underline"
-            >
-              <RefreshCw className="size-3" /> Try again
-            </button>
-          </div>
-        )}
+          {heroStatus === 'error' && !hero && (
+            <Card className="flex flex-col items-center gap-3 py-16 text-center">
+              <WifiOff className="size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Couldn't load a recipe right now.</p>
+              <button
+                onClick={() => void loadRandom()}
+                className="flex items-center gap-1.5 text-xs text-brand hover:underline"
+              >
+                <RefreshCw className="size-3" /> Try again
+              </button>
+            </Card>
+          )}
 
-        {hero && heroStatus !== 'loading' && (
-          <HeroCard meal={hero} onShuffle={() => void loadRandom()} shuffling={shuffling} />
-        )}
+          {hero && heroStatus !== 'loading' && (
+            <HeroCard meal={hero} onShuffle={() => void loadRandom()} shuffling={shuffling} />
+          )}
 
-        {/* Search results */}
-        {searchStatus === 'empty' && (
-          <p className="py-4 text-center text-sm text-muted-foreground">No recipes found for "{query}".</p>
-        )}
+          {/* Search results */}
+          {searchStatus === 'empty' && (
+            <p className="py-4 text-center text-sm text-muted-foreground">No recipes found for "{query}".</p>
+          )}
 
-        {searchStatus === 'error' && (
-          <p className="py-4 text-center text-sm text-destructive">Search failed. Check your connection.</p>
-        )}
+          {searchStatus === 'error' && (
+            <p className="py-4 text-center text-sm text-destructive">Search failed. Check your connection.</p>
+          )}
 
-        {searchStatus === 'ready' && searchResults && searchResults.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {searchResults.map((m) => (
-                <SearchCard key={m.id} meal={m} onSelect={handleSelectResult} />
-              ))}
+          {searchStatus === 'ready' && searchResults && searchResults.length > 0 && (
+            <div className="space-y-3">
+              <SectionHeader title="Results" count={searchResults.length} />
+              <div className="grid grid-cols-2 gap-3">
+                {searchResults.map((m) => (
+                  <SearchCard key={m.id} meal={m} onSelect={handleSelectResult} />
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </PageContainer>
       </div>
     </PageShell>
   )

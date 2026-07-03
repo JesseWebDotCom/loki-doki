@@ -28,7 +28,7 @@ export function LeftRail({
       style={{ backgroundColor: theme === "light" ? "#b5dcfb" : "#0a2745" }}
       className="flex w-full shrink-0 flex-row border-b border-border/20 md:h-full md:w-16 md:flex-col md:border-b-0 md:border-r"
     >
-      <h1 className="sr-only">Maps</h1>
+      <span className="sr-only">Maps</span>
       <nav aria-label="Maps tools" className="flex w-full flex-row md:flex-col md:py-2">
         {NAV_ITEMS.map(({ id, label, Icon, color }) => {
           const active = activePanel === id;
@@ -43,12 +43,12 @@ export function LeftRail({
                 "flex flex-1 flex-col items-center justify-center gap-1 py-3 text-[10px] font-medium leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:flex-none md:w-full md:py-2.5",
                 active
                   ? "text-white"
-                  : theme === "light" ? "text-sky-900/70 hover:text-sky-900" : "text-sky-100/60 hover:text-sky-100",
+                  : "text-foreground/70 hover:text-foreground",
               )}
             >
               <span
                 className={cn(
-                  "flex size-9 items-center justify-center rounded-xl transition-all",
+                  "flex size-9 items-center justify-center rounded-card transition-all",
                   active ? "scale-105 shadow-md" : "opacity-80 hover:opacity-100",
                 )}
                 style={{ backgroundColor: color }}

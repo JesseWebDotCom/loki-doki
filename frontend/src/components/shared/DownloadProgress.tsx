@@ -8,10 +8,10 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  Loader2,
   RefreshCw,
   HardDrive,
 } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 
 export type DownloadStatus =
   | 'idle'
@@ -67,15 +67,15 @@ function pct(done: number, total: number): number | null {
 function StatusIcon({ status }: { status: DownloadStatus }) {
   switch (status) {
     case 'pending':
-      return <Loader2 className="size-4 animate-spin text-blue-400" />
+      return <Spinner className="text-brand" />
     case 'downloading':
-      return <Download className="size-4 text-blue-400" />
+      return <Download className="size-4 text-brand" />
     case 'paused':
-      return <Pause className="size-4 text-amber-400" />
+      return <Pause className="size-4 text-warning" />
     case 'completed':
-      return <CheckCircle2 className="size-4 text-emerald-400" />
+      return <CheckCircle2 className="size-4 text-success" />
     case 'error':
-      return <AlertCircle className="size-4 text-red-400" />
+      return <AlertCircle className="size-4 text-destructive" />
     case 'cancelled':
       return <X className="size-4 text-muted-foreground" />
     default:
@@ -86,11 +86,11 @@ function StatusIcon({ status }: { status: DownloadStatus }) {
 function StatusBadge({ status }: { status: DownloadStatus }) {
   const map: Record<DownloadStatus, { label: string; className: string }> = {
     idle:        { label: 'Not installed', className: 'border-border text-muted-foreground' },
-    pending:     { label: 'Starting…',     className: 'border-blue-500/40 text-blue-400 bg-blue-500/10' },
-    downloading: { label: 'Downloading',   className: 'border-blue-500/40 text-blue-400 bg-blue-500/10' },
-    paused:      { label: 'Paused',        className: 'border-amber-500/40 text-amber-400 bg-amber-500/10' },
-    completed:   { label: 'Installed',     className: 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' },
-    error:       { label: 'Failed',        className: 'border-red-500/40 text-red-400 bg-red-500/10' },
+    pending:     { label: 'Starting…',     className: 'border-brand/40 text-brand bg-brand/10' },
+    downloading: { label: 'Downloading',   className: 'border-brand/40 text-brand bg-brand/10' },
+    paused:      { label: 'Paused',        className: 'border-warning/40 text-warning bg-warning/10' },
+    completed:   { label: 'Installed',     className: 'border-success/40 text-success bg-success/10' },
+    error:       { label: 'Failed',        className: 'border-destructive/40 text-destructive bg-destructive/10' },
     cancelled:   { label: 'Cancelled',     className: 'border-border text-muted-foreground' },
   }
   const { label, className } = map[status]
@@ -111,9 +111,9 @@ function ProgressBar({
   indeterminate: boolean
 }) {
   const fillColor =
-    status === 'paused'    ? 'bg-amber-500' :
-    status === 'completed' ? 'bg-emerald-500' :
-    status === 'error'     ? 'bg-red-500' :
+    status === 'paused'    ? 'bg-warning' :
+    status === 'completed' ? 'bg-success' :
+    status === 'error'     ? 'bg-destructive' :
     null // use gradient
 
   const isIndeterminate = indeterminate
@@ -128,7 +128,7 @@ function ProgressBar({
       aria-valuenow={isIndeterminate ? undefined : progress}
     >
       {isIndeterminate ? (
-        <div className="absolute inset-y-0 w-1/3 rounded-full bg-blue-500/60 animate-[indeterminate_1.4s_ease-in-out_infinite]" />
+        <div className="absolute inset-y-0 w-1/3 rounded-full bg-brand/60 animate-[indeterminate_1.4s_ease-in-out_infinite]" />
       ) : (
         <div
           className={cn(
@@ -138,7 +138,7 @@ function ProgressBar({
           style={{
             width: `${progress}%`,
             ...(isAnimated && !fillColor ? {
-              background: 'linear-gradient(90deg, #3b82f6, #8b5cf6, #a855f7, #8b5cf6, #3b82f6)',
+              background: 'linear-gradient(90deg, var(--gradient-brand-2), var(--gradient-brand-3), var(--gradient-brand-4), var(--gradient-brand-3), var(--gradient-brand-2))',
               backgroundSize: '200% 100%',
               animation: 'dl-gradient 2s linear infinite',
             } : {}),
@@ -204,11 +204,11 @@ export function DownloadProgress({
   return (
     <div
       className={cn(
-        'rounded-xl border bg-card p-4 shadow-sm transition-colors',
-        status === 'completed' && 'border-emerald-500/20',
-        status === 'error' && 'border-red-500/20',
-        status === 'downloading' && 'border-blue-500/20',
-        status === 'paused' && 'border-amber-500/20',
+        'rounded-card border bg-card p-4 transition-colors',
+        status === 'completed' && 'border-success/20',
+        status === 'error' && 'border-destructive/20',
+        status === 'downloading' && 'border-brand/20',
+        status === 'paused' && 'border-warning/20',
         className,
       )}
     >
@@ -250,7 +250,7 @@ export function DownloadProgress({
 
       {/* Error message */}
       {status === 'error' && error && (
-        <p className="mt-2 text-xs text-red-400">{error}</p>
+        <p className="mt-2 text-xs text-destructive">{error}</p>
       )}
 
       {/* Action buttons */}

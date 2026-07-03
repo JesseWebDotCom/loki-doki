@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Check, Heart, Lock, Loader2, Square, Volume2 } from 'lucide-react'
+import { Check, Heart, Lock, Square, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useActiveCompanion, type CompanionRecord } from '@/hooks/useActiveCompanion'
 import { isLocked } from '@/lib/companions/useCompanionStore'
 import { formatGateReason } from '@/components/shared/contentDials'
@@ -11,26 +13,24 @@ export function SelectButton({ c, full, size = 'sm' }: { c: CompanionRecord; ful
   const { activeCompanionId, setCompanion } = useActiveCompanion()
   const locked = isLocked(c)
   const active = c.id === activeCompanionId
-  const pad = size === 'md' ? 'px-5 py-2 text-sm' : 'px-3 py-1.5 text-xs'
 
   return (
-    <button
+    <Button
       type="button"
-      onClick={(e) => { e.stopPropagation(); if (!locked) setCompanion(c.id) }}
+      size={size === 'md' ? 'default' : 'sm'}
+      variant={locked ? 'secondary' : active ? 'tinted' : 'default'}
       disabled={locked}
+      onClick={(e) => { e.stopPropagation(); if (!locked) setCompanion(c.id) }}
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 rounded-full font-semibold transition-colors',
-        pad,
+        'font-semibold',
         full && 'w-full',
-        locked
-          ? 'cursor-not-allowed bg-foreground/5 text-muted-foreground'
-          : active
-            ? 'bg-brand/15 text-brand'
-            : 'bg-brand text-brand-foreground hover:bg-brand/90',
+        // Keep the locked pill legible and non-transparent to clicks (disabled buttons
+        // must swallow clicks so the surrounding card doesn't navigate).
+        locked && 'disabled:pointer-events-auto disabled:opacity-100 cursor-not-allowed bg-foreground/5 text-muted-foreground',
       )}
     >
       {locked ? <><Lock className="size-3.5" /> Locked</> : active ? <><Check className="size-3.5" /> Active</> : 'Select'}
-    </button>
+    </Button>
   )
 }
 
@@ -39,18 +39,17 @@ export function FavoriteButton({ c, className }: { c: CompanionRecord; className
   const { isFavorite, toggleFavorite } = useActiveCompanion()
   const fav = isFavorite(c.id)
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="icon"
       onClick={(e) => { e.stopPropagation(); toggleFavorite(c.id) }}
       aria-label={fav ? `Unfavorite ${c.name}` : `Favorite ${c.name}`}
       title={fav ? 'Remove from favorites' : 'Add to favorites'}
-      className={cn(
-        'flex size-8 items-center justify-center rounded-full border border-border/40 bg-background/70 transition-colors hover:bg-accent',
-        className,
-      )}
+      className={cn('size-8 bg-background/70', className)}
     >
-      <Heart className={cn('size-4', fav ? 'fill-rose-500 text-rose-500' : 'text-muted-foreground')} />
-    </button>
+      <Heart className={cn('size-4', fav ? 'fill-brand text-brand' : 'text-muted-foreground')} />
+    </Button>
   )
 }
 
@@ -81,26 +80,24 @@ export function PreviewButton({ c, variant = 'icon', className }: { c: Companion
 
   if (variant === 'pill') {
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn('inline-flex items-center justify-center gap-2 rounded-full bg-foreground/5 px-5 py-2 text-sm font-semibold transition-colors hover:bg-foreground/10', className)}
-      >
+      <Button type="button" variant="secondary" onClick={onClick} className={cn('font-semibold', className)}>
         {active ? <Square className="size-4" /> : <Volume2 className="size-4" />}
         {active ? 'Stop' : 'Preview voice'}
-      </button>
+      </Button>
     )
   }
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="icon"
       onClick={onClick}
       aria-label={`Preview ${c.name}'s voice`}
       title="Preview voice"
-      className={cn('flex size-8 items-center justify-center rounded-full border border-border/40 bg-background/70 transition-colors hover:bg-accent', className)}
+      className={cn('size-8 bg-background/70', className)}
     >
-      {active ? <Loader2 className="size-4 animate-spin text-brand" /> : <Volume2 className="size-4 text-muted-foreground" />}
-    </button>
+      {active ? <Spinner className="text-brand" /> : <Volume2 className="size-4 text-muted-foreground" />}
+    </Button>
   )
 }
 

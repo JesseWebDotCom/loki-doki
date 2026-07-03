@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
@@ -9,14 +9,14 @@ import {
   Power,
   Volume2,
   ChevronRight,
-  Loader2,
   WifiOff,
   DoorOpen,
-  Settings,
   type LucideIcon,
 } from 'lucide-react'
 import { AreaIcon } from '@/components/homeassistant/AreaIcon'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { DeviceDetailDialog, type HAEntity } from '@/components/homeassistant/DeviceDetailDialog'
 import { DeviceCard, isEntityOn, isUnavailable, type CardAction } from '@/components/homeassistant/DeviceCard'
@@ -50,7 +50,7 @@ function sortEntities(entities: HAEntity[]) {
 
 type StatKind = 'lights' | 'devices' | 'media' | 'doors'
 
-// "Devices" excludes lights — those have their own counter.
+// "Devices" excludes lights - those have their own counter.
 const ON_DEVICE_DOMAINS = new Set(['switch', 'fan'])
 const OPEN_STATES = new Set(['open', 'opening', 'unlocked'])
 
@@ -64,10 +64,12 @@ function statGroups(entities: HAEntity[]): Record<StatKind, HAEntity[]> {
 }
 
 const STAT_CFG: Record<StatKind, { Icon: LucideIcon; label: (n: number) => string; title: string; on: string; off: string; roundOn: string }> = {
-  lights:  { Icon: Lightbulb,  label: (n) => `${n} light${n !== 1 ? 's' : ''} on`,  title: 'Turn all these lights off',   on: 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25',   off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-amber-400 text-amber-950 hover:bg-amber-300' },
-  devices: { Icon: Power,      label: (n) => `${n} device${n !== 1 ? 's' : ''} on`, title: 'Turn all these devices off',  on: 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25',      off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-blue-400 text-blue-950 hover:bg-blue-300' },
-  media:   { Icon: Volume2,    label: (n) => `${n} playing`,                        title: 'Pause everything playing',    on: 'bg-purple-500/15 text-purple-300 hover:bg-purple-500/25', off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-purple-400 text-purple-950 hover:bg-purple-300' },
-  doors:   { Icon: DoorOpen,   label: (n) => `${n} open`,                           title: 'Close doors & lock locks',    on: 'bg-red-500/15 text-red-300 hover:bg-red-500/25',          off: 'bg-white/[0.06] text-muted-foreground/50', roundOn: 'bg-red-400 text-red-950 hover:bg-red-300' },
+  // design-ok(raw-palette-semantic): light-domain amber, matches DeviceCard state colors
+  lights:  { Icon: Lightbulb,  label: (n) => `${n} light${n !== 1 ? 's' : ''} on`,  title: 'Turn all these lights off',   on: 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25',   off: 'bg-muted text-muted-foreground/50', roundOn: 'bg-amber-400 text-amber-950 hover:bg-amber-300' },
+  // design-ok(raw-palette-semantic): switch/device-domain blue, matches DeviceCard state colors
+  devices: { Icon: Power,      label: (n) => `${n} device${n !== 1 ? 's' : ''} on`, title: 'Turn all these devices off',  on: 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25',      off: 'bg-muted text-muted-foreground/50', roundOn: 'bg-blue-400 text-blue-950 hover:bg-blue-300' },
+  media:   { Icon: Volume2,    label: (n) => `${n} playing`,                        title: 'Pause everything playing',    on: 'bg-brand/15 text-brand hover:bg-brand/25',                off: 'bg-muted text-muted-foreground/50', roundOn: 'bg-brand text-brand-foreground hover:bg-brand-hover' },
+  doors:   { Icon: DoorOpen,   label: (n) => `${n} open`,                           title: 'Close doors & lock locks',    on: 'bg-destructive/15 text-destructive hover:bg-destructive/25', off: 'bg-muted text-muted-foreground/50', roundOn: 'bg-destructive text-destructive-foreground hover:bg-destructive/90' },
 }
 const STAT_ORDER: StatKind[] = ['lights', 'devices', 'media', 'doors']
 
@@ -80,7 +82,7 @@ interface StatChipsProps {
   round?: boolean
 }
 
-// Always renders all four counters — zero counts show dimmed so every room
+// Always renders all four counters - zero counts show dimmed so every room
 // (dining room included) gets the same at-a-glance row as the whole home.
 function StatChips({ groups, scopeKey, onOff, busyKey, round }: StatChipsProps) {
   return (
@@ -102,12 +104,12 @@ function StatChips({ groups, scopeKey, onOff, busyKey, round }: StatChipsProps) 
               onClick={(e) => { e.stopPropagation(); onOff(scopeKey, kind, group) }}
               className={cn(
                 'relative flex size-8 shrink-0 items-center justify-center rounded-full transition-all',
-                active ? cn(cfg.roundOn, 'shadow-sm active:scale-90') : 'bg-white/[0.07] text-white/25 cursor-default',
+                active ? cn(cfg.roundOn, 'shadow-sm active:scale-90') : 'bg-muted text-muted-foreground/30 cursor-default',
               )}
             >
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <cfg.Icon className="size-3.5" strokeWidth={active ? 2.5 : 1.75} />}
+              {busy ? <Spinner size="sm" className="text-current" /> : <cfg.Icon className="size-3.5" strokeWidth={active ? 2.5 : 1.75} />}
               {active && (
-                <span className="absolute -right-1 -top-1 flex size-4 min-w-4 items-center justify-center rounded-full border border-white/20 bg-gray-900 text-[9px] font-bold leading-none text-white tabular-nums">
+                <span className="absolute -right-1 -top-1 flex size-4 min-w-4 items-center justify-center rounded-full border border-border bg-background text-[9px] font-bold leading-none text-foreground tabular-nums">
                   {n}
                 </span>
               )}
@@ -127,7 +129,7 @@ function StatChips({ groups, scopeKey, onOff, busyKey, round }: StatChipsProps) 
               active ? cn(cfg.on, 'active:scale-95') : cn(cfg.off, 'cursor-default'),
             )}
           >
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <cfg.Icon className="size-3.5" />}
+            {busy ? <Spinner size="sm" className="text-current" /> : <cfg.Icon className="size-3.5" />}
             <span className="tabular-nums">{cfg.label(n)}</span>
           </button>
         )
@@ -139,25 +141,32 @@ function StatChips({ groups, scopeKey, onOff, busyKey, round }: StatChipsProps) 
 // ── Room accents (mushroom-style tinted containers; complete class strings) ───
 
 const ACCENT_STYLES = {
+  // design-ok(raw-palette-semantic): room identity accents (mushroom-style area tints)
   green:  { card: 'bg-emerald-500/[0.07]', circle: 'bg-emerald-500/20', icon: 'text-emerald-300' },
+  // design-ok(raw-palette-semantic): room identity accents (mushroom-style area tints)
   blue:   { card: 'bg-blue-500/[0.07]',    circle: 'bg-blue-500/20',    icon: 'text-blue-300' },
+  // design-ok(raw-palette-semantic): room identity accents (mushroom-style area tints)
   orange: { card: 'bg-orange-500/[0.07]',  circle: 'bg-orange-500/20',  icon: 'text-orange-300' },
-  purple: { card: 'bg-purple-500/[0.07]',  circle: 'bg-purple-500/20',  icon: 'text-purple-300' },
+  brand:  { card: 'bg-brand/[0.07]',       circle: 'bg-brand/20',       icon: 'text-brand' },
+  // design-ok(raw-palette-semantic): room identity accents (mushroom-style area tints)
   cyan:   { card: 'bg-cyan-500/[0.07]',    circle: 'bg-cyan-500/20',    icon: 'text-cyan-300' },
+  // design-ok(raw-palette-semantic): room identity accents (mushroom-style area tints)
   rose:   { card: 'bg-rose-500/[0.07]',    circle: 'bg-rose-500/20',    icon: 'text-rose-300' },
+  // design-ok(raw-palette-semantic): room identity accents (mushroom-style area tints)
   amber:  { card: 'bg-amber-500/[0.07]',   circle: 'bg-amber-500/20',   icon: 'text-amber-300' },
+  // design-ok(raw-palette-semantic): room identity accents (mushroom-style area tints)
   teal:   { card: 'bg-teal-500/[0.07]',    circle: 'bg-teal-500/20',    icon: 'text-teal-300' },
-  slate:  { card: 'bg-white/[0.05]',       circle: 'bg-white/10',       icon: 'text-white/60' },
+  slate:  { card: 'bg-muted/40',           circle: 'bg-muted',          icon: 'text-muted-foreground' },
 } as const
 
-const ACCENT_FALLBACKS: (keyof typeof ACCENT_STYLES)[] = ['green', 'blue', 'orange', 'purple', 'cyan', 'rose', 'amber', 'teal']
+const ACCENT_FALLBACKS: (keyof typeof ACCENT_STYLES)[] = ['green', 'blue', 'orange', 'brand', 'cyan', 'rose', 'amber', 'teal']
 
 function areaAccent(name: string): (typeof ACCENT_STYLES)[keyof typeof ACCENT_STYLES] {
   const n = name.toLowerCase()
   if (/living|lounge|family|den/.test(n)) return ACCENT_STYLES.green
   if (/office|study|work/.test(n)) return ACCENT_STYLES.blue
   if (/bed|master|sleep/.test(n)) return ACCENT_STYLES.orange
-  if (/kitchen|cook/.test(n)) return ACCENT_STYLES.purple
+  if (/kitchen|cook/.test(n)) return ACCENT_STYLES.brand
   if (/bath|shower|laundry/.test(n)) return ACCENT_STYLES.cyan
   if (/dining|eat/.test(n)) return ACCENT_STYLES.rose
   if (/hall|entry|entrance|foyer|corridor/.test(n)) return ACCENT_STYLES.amber
@@ -169,7 +178,7 @@ function areaAccent(name: string): (typeof ACCENT_STYLES)[keyof typeof ACCENT_ST
   return ACCENT_STYLES[ACCENT_FALLBACKS[h % ACCENT_FALLBACKS.length]!]
 }
 
-// First thermostat reading in the room — the mushroom-style temp in the corner.
+// First thermostat reading in the room - the mushroom-style temp in the corner.
 function roomClimate(entities: HAEntity[]): { temp: number | null; humidity: number | null } {
   for (const e of entities) {
     if (e.domain !== 'climate') continue
@@ -181,7 +190,7 @@ function roomClimate(entities: HAEntity[]): { temp: number | null; humidity: num
   return { temp: null, humidity: null }
 }
 
-// ── Device grid (wide mushroom-style cards — see components/homeassistant) ────
+// ── Device grid (wide mushroom-style cards - see components/homeassistant) ────
 
 interface GridProps {
   entities: HAEntity[]
@@ -236,7 +245,7 @@ function GroupedGrid({ entities, onToggle, onOpen, onAction, errorId, favorites,
         const acc = areaAccent(g.name)
         const { temp, humidity } = roomClimate(g.entities)
         return (
-          <div key={g.name} className={cn('rounded-3xl p-3.5 sm:p-4', acc.card)}>
+          <div key={g.name} className={cn('rounded-sheet p-3.5 sm:p-4', acc.card)}>
             <div className="mb-3.5 flex w-full flex-wrap items-center gap-x-3 gap-y-2">
               <button
                 className="flex min-w-0 items-center gap-3 text-left transition-opacity hover:opacity-80"
@@ -285,8 +294,8 @@ function AreaTabBar({ areaNames, selected, onSelect }: { areaNames: string[]; se
             className={cn(
               'shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-all',
               active
-                ? 'bg-brand text-white shadow-sm'
-                : 'bg-white/10 text-muted-foreground hover:bg-white/15 hover:text-foreground',
+                ? 'bg-brand text-brand-foreground shadow-sm'
+                : 'bg-secondary text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
             {label}
@@ -304,11 +313,11 @@ function NotConfiguredCard() {
   return (
     <div className="flex flex-1 items-center justify-center px-6 py-20">
       <div className="flex max-w-sm flex-col items-center gap-5 text-center">
-        <div className="flex size-16 items-center justify-center rounded-2xl bg-white/10">
+        <div className="flex size-16 items-center justify-center rounded-card bg-muted">
           <Home className="size-8 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="text-lg font-bold tracking-tight">Connect Home Assistant</h2>
+          <h2 className="text-title">Connect Home Assistant</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Configure your Home Assistant URL and token in Admin settings to control devices.
           </p>
@@ -393,7 +402,7 @@ export function HomeAssistantPage() {
     e.entity_id in overrides ? { ...e, state: overrides[e.entity_id]! } : e,
   )
 
-  // Live entity for the sheet — re-derived every refetch so state stays fresh.
+  // Live entity for the sheet - re-derived every refetch so state stays fresh.
   const sheetEntity = sheetId ? merged.find((e) => e.entity_id === sheetId) ?? null : null
   const favoriteSet = new Set(favorites)
 
@@ -409,29 +418,15 @@ export function HomeAssistantPage() {
   const totalOn = afterUnavailable.filter(isEntityOn).length
   const areaNames = [...new Set(merged.filter((e) => e.area).map((e) => e.area!))].sort()
 
-  // A user-facing settings gear (everyone, not just admins) → Home Assistant
-  // settings (favorites + admin-locked connection/permissions).
-  const rightSlot = useMemo(
-    () => (
-      <button
-        onClick={() => navigate('/home-assistant/settings')}
-        title="Home Assistant settings"
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <Settings className="size-4" />
-      </button>
-    ),
-    [navigate],
-  )
   useAppHeader({
     query: filterQuery,
     setQuery: setFilterQuery,
     placeholder: 'Filter devices...',
     externalHref: data?.serverUrl,
-    rightSlot,
+    settingsHref: '/home-assistant/settings',
   })
 
-  // Generic device action — optimistic for simple state changes, refetch-driven
+  // Generic device action - optimistic for simple state changes, refetch-driven
   // for value actions (setpoints, volume, brightness) whose result HA reports back.
   async function callEntity(entity: HAEntity, action: string, value?: number | string) {
     const optimistic = optimisticState(action)
@@ -513,20 +508,19 @@ export function HomeAssistantPage() {
   }
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#0f0e17,#1a1625,#0f1923)" GhostIcon={Home}>
+    <PageShell>
       {/* Header */}
-      <div className="shrink-0 flex items-end justify-between px-5 pt-5 pb-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-white/30">Smart Home</p>
-          <h1 className="text-2xl font-black tracking-tight leading-none text-foreground">Home Assistant</h1>
-          <p className="mt-1 text-xs text-muted-foreground/70">Control your smart home devices and automations.</p>
-        </div>
-        {merged.length > 0 && (
-          <div className="text-right">
-            <p className="text-3xl font-black leading-none text-brand">{totalOn}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">devices on</p>
-          </div>
-        )}
+      <div className="shrink-0 px-5">
+        <PageHeader
+          subtitle="Control your smart home devices and automations."
+          className="pt-5 pb-3"
+          actions={merged.length > 0 ? (
+            <div className="text-right">
+              <p className="text-3xl font-semibold tabular-nums leading-none text-brand">{totalOn}</p>
+              <p className="text-caption text-muted-foreground mt-0.5">devices on</p>
+            </div>
+          ) : undefined}
+        />
       </div>
 
       {/* Stats row */}
@@ -539,8 +533,8 @@ export function HomeAssistantPage() {
               className={cn(
                 'ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-medium transition-all',
                 showUnavailable
-                  ? 'bg-white/15 text-foreground/80'
-                  : 'bg-white/[0.07] text-muted-foreground/70 hover:bg-white/10 hover:text-foreground/80',
+                  ? 'bg-accent text-foreground/80'
+                  : 'bg-muted text-muted-foreground/70 hover:bg-accent hover:text-foreground/80',
               )}
             >
               {showUnavailable ? 'Hide unavailable' : `${unavailableCount} unavailable`}
@@ -565,7 +559,7 @@ export function HomeAssistantPage() {
       <div className="flex-1 overflow-y-auto px-4 pb-6 pt-3 sm:px-5">
         {isLoading && (
           <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <Loader2 className="size-6 animate-spin" />
+            <Spinner size="lg" />
           </div>
         )}
 
@@ -581,7 +575,7 @@ export function HomeAssistantPage() {
         {!isLoading && !isError && data?.configured === true && (
           <>
             {data.error && (
-              <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <div className="mb-4 rounded-control border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {data.error}
               </div>
             )}
@@ -613,7 +607,7 @@ export function HomeAssistantPage() {
                       <AreaIcon name={selectedTab} className={cn('size-5', acc.icon)} />
                     </div>
                     <div className="min-w-0">
-                      <h2 className="truncate text-base font-bold leading-tight">{selectedTab}</h2>
+                      <h2 className="truncate text-base font-semibold leading-tight">{selectedTab}</h2>
                       <p className="text-[11px] text-muted-foreground">
                         {areaEntities.length} device{areaEntities.length !== 1 ? 's' : ''} · {onCount} on
                       </p>
@@ -636,7 +630,7 @@ export function HomeAssistantPage() {
               )
             })()}
 
-            {/* All tab — grouped by area */}
+            {/* All tab - grouped by area */}
             {selectedTab === ALL_TAB && visible.length > 0 && (
               <GroupedGrid entities={visible} onToggle={handleToggle} onOpen={openSheet} onAction={cardAction} errorId={errorId} favorites={favoriteSet} onAreaClick={setSelectedTab} onBulkOff={bulkOff} bulkBusy={bulkBusy} />
             )}

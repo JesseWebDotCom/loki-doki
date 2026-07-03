@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Moon } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { SpaceBackdrop } from '@/components/shared/SpaceBackdrop'
+import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 
 // ── Moon phase math (ported from backend/src/tools/moonphase.ts) ───────────────
@@ -81,7 +82,7 @@ function formatDate(d: Date): string {
 
 // ── Moon visual ───────────────────────────────────────────────────────────────
 
-// Render the phase emoji at large size — it carries accurate phase shape,
+// Render the phase emoji at large size; it carries accurate phase shape,
 // color, and surface detail far better than a flat CSS shadow circle.
 function MoonVisual({ emoji }: { emoji: string }) {
   return (
@@ -100,17 +101,15 @@ function MoonVisual({ emoji }: { emoji: string }) {
 
 function NextPhaseCard({ phase }: { phase: NextPhase }) {
   return (
-    <div className="flex flex-col items-center gap-1.5 rounded-2xl border border-border/50 bg-card px-4 py-4 text-center">
+    <Card className="flex flex-col items-center gap-1.5 border-border/50 px-4 py-4 text-center">
       <span className="text-2xl">{phase.emoji}</span>
       <p className="text-xs font-semibold text-muted-foreground">{phase.label}</p>
-      <p className="text-sm font-bold">{formatDate(phase.date)}</p>
-    </div>
+      <p className="text-sm font-semibold">{formatDate(phase.date)}</p>
+    </Card>
   )
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-
-const GRADIENT = 'linear-gradient(135deg,#0f172a,#1e293b)'
 
 export function MoonPhasePage() {
   const todayIso = toIsoDate(new Date())
@@ -130,21 +129,17 @@ export function MoonPhasePage() {
   const isToday = selectedDate === todayIso
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={Moon}>
+    <PageShell>
       {/* Space scene behind the moon. data-theme="dark" re-scopes the tokens so
           text/cards stay readable on the deep-space backdrop in either app theme. */}
       <div data-theme="dark" className="relative flex flex-1 flex-col text-foreground">
         <SpaceBackdrop className="z-0" />
-        <div className="relative z-10 flex flex-1 flex-col">
+        <PageContainer className="relative z-10 flex flex-1 flex-col">
       <PageHeader
-        variant="compact"
-        title="Moon Phase"
         subtitle={isToday ? 'Tonight' : formatDate(parsedDate)}
-        gradient={GRADIENT}
-        icon={<Moon className="size-7 text-white" />}
       />
 
-      <div className="flex flex-col items-center gap-8 px-5 pb-10">
+      <div className="flex flex-col items-center gap-8 pb-10">
 
         {/* Moon visual + phase info */}
         <div className="flex flex-col items-center gap-5 pt-2">
@@ -161,7 +156,7 @@ export function MoonPhasePage() {
 
         {/* Next phases */}
         <div className="w-full max-w-md">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="mb-3 text-overline text-muted-foreground">
             Next Phases
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -175,7 +170,7 @@ export function MoonPhasePage() {
         <div className="w-full max-w-md">
           <label
             htmlFor="moon-date"
-            className="mb-2 block text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+            className="mb-2 block text-overline text-muted-foreground"
           >
             Check a different date
           </label>
@@ -185,7 +180,7 @@ export function MoonPhasePage() {
             value={selectedDate}
             onChange={(e) => { if (e.target.value) setSelectedDate(e.target.value) }}
             className={cn(
-              'w-full rounded-xl border border-border/60 bg-card px-4 py-2.5',
+              'w-full rounded-control border border-border/60 bg-card px-4 py-2.5',
               'text-sm text-foreground outline-none',
               'focus:border-brand focus:ring-1 focus:ring-brand',
               'transition-colors',
@@ -202,7 +197,7 @@ export function MoonPhasePage() {
         </div>
 
       </div>
-        </div>
+        </PageContainer>
       </div>
     </PageShell>
   )

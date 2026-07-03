@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Play, Pause, Loader2, Clock, AlertCircle, ListPlus, MoreHorizontal, Check, RotateCw, Trash2, ArrowDownToLine } from 'lucide-react'
+import { Play, Pause, Clock, AlertCircle, ListPlus, MoreHorizontal, Check, RotateCw, Trash2, ArrowDownToLine } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { usePodcastPlayback, type PodcastTrack } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
@@ -78,19 +80,19 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
 
   return (
     <>
-    <div className={cn('group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/40', isCurrent && 'bg-accent/40')}>
+    <div className={cn('group flex items-center gap-3 rounded-control px-3 py-2.5 transition-colors hover:bg-accent/40', isCurrent && 'bg-accent/40')}>
       {/* Play / status */}
       {ready ? (
         <button onClick={handlePlay} className="relative flex size-10 shrink-0 items-center justify-center">
-          {showThumb && <ShowCover showId={show.id} title={show.name} size={40} rounded="rounded-lg" />}
-          <span className={cn('absolute inset-0 flex items-center justify-center rounded-lg bg-black/45 text-white transition-opacity',
+          {showThumb && <ShowCover showId={show.id} title={show.name} size={40} rounded="rounded-control" />}
+          <span className={cn('absolute inset-0 flex items-center justify-center rounded-control bg-black/45 text-white transition-opacity',
             isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}>
             {isCurrent && playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
           </span>
         </button>
       ) : (
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          {episode.status === 'generating' ? <Loader2 className="size-4 animate-spin text-brand" />
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-control bg-muted text-muted-foreground">
+          {episode.status === 'generating' ? <Spinner className="text-brand" />
             : episode.status === 'failed' ? <AlertCircle className="size-4 text-destructive" />
             : <Clock className="size-4" />}
         </div>
@@ -107,7 +109,7 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
           {episode.status === 'generating' && <span className="text-brand">Generating…</span>}
           {episode.status === 'pending' && <span>Queued</span>}
           {episode.status === 'failed' && <span className="text-destructive">Failed</span>}
-          {progress?.completed && <span className="inline-flex items-center gap-0.5 text-emerald-500"><Check className="size-3" /> Played</span>}
+          {progress?.completed && <span className="inline-flex items-center gap-0.5 text-success"><Check className="size-3" /> Played</span>}
           {isRss && dl?.status === 'ready' && (
             <span className="inline-flex items-center gap-0.5 rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
               <Check className="size-3" /> Downloaded
@@ -124,33 +126,33 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
       {(showMenu || isRss) && (
         <div className="flex shrink-0 items-center gap-1">
           {ready && (
-            <button onClick={() => enqueue(toTrack(episode, show))} title="Add to Up Next"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => enqueue(toTrack(episode, show))} title="Add to Up Next" aria-label="Add to Up Next"
+              className="size-8 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100">
               <ListPlus className="size-4" />
-            </button>
+            </Button>
           )}
-          {/* Offline download affordance — RSS episodes only */}
+          {/* Offline download affordance - RSS episodes only */}
           {isRss && !dl && (
-            <button onClick={() => void handleDownload()} title="Download for offline"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => void handleDownload()} title="Download for offline" aria-label="Download for offline"
+              className="size-8 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100">
               <ArrowDownToLine className="size-4" />
-            </button>
+            </Button>
           )}
           {isRss && (dl?.status === 'pending' || dl?.status === 'downloading') && (
             <span title="Downloading…" className="flex size-8 items-center justify-center text-brand">
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner className="text-current" />
             </span>
           )}
           {isRss && dl?.status === 'failed' && (
-            <button onClick={() => void handleDownload()} title="Download failed — retry"
-              className="flex size-8 items-center justify-center rounded-full text-destructive hover:bg-muted">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => void handleDownload()} title="Download failed - retry" aria-label="Retry download"
+              className="size-8 text-destructive hover:text-destructive">
               <RotateCw className="size-4" />
-            </button>
+            </Button>
           )}
           {showMenu && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><MoreHorizontal className="size-4" /></button>
+                <Button type="button" variant="ghost" size="icon-sm" className="size-8 text-muted-foreground hover:text-foreground" aria-label="Episode options"><MoreHorizontal className="size-4" /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {ready && <DropdownMenuItem onSelect={handlePlay}><Play className="size-4" /> Play</DropdownMenuItem>}

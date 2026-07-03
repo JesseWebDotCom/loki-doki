@@ -54,7 +54,7 @@ export function MapSettingsPanel({
           const on = isGroupOn(group.slugs);
           const open = expanded === group.label;
           return (
-            <div key={group.label} className="rounded-xl border border-border/60 bg-card/60 overflow-hidden">
+            <div key={group.label} className="rounded-control border border-border/60 bg-card/60 overflow-hidden">
               <div className="flex items-center justify-between px-3 py-2">
                 <button type="button" onClick={() => setExpanded(open ? null : group.label)} className="flex-1 text-left text-sm font-medium">{group.label}</button>
                 <input type="checkbox" checked={on} onChange={(e) => toggleGroup(group.slugs, e.target.checked)} className="size-4 cursor-pointer" />
@@ -84,7 +84,7 @@ export function MapSettingsPanel({
           ["showSpeedCameras", "Speed cameras"],
           ["liveIncidents", "Live road incidents (online)"],
         ] as const).map(([key, label]) => (
-          <label key={key} className="flex items-center justify-between rounded-xl border border-border/60 bg-card/60 px-3 py-2 text-sm cursor-pointer">
+          <label key={key} className="flex items-center justify-between rounded-control border border-border/60 bg-card/60 px-3 py-2 text-sm cursor-pointer">
             {label}
             <input type="checkbox" checked={Boolean(prefs[key])} onChange={(e) => onChangePref(key, e.target.checked as MapPrefs[typeof key])} className="size-4" />
           </label>
@@ -93,7 +93,7 @@ export function MapSettingsPanel({
       <div className="grid gap-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-foreground/50">Routing</p>
         {(["avoidTolls", "avoidHighways", "avoidFerries"] as const).map((key) => (
-          <label key={key} className={cn("flex items-center justify-between rounded-xl border border-border/60 bg-card/60 px-3 py-2 text-sm cursor-pointer")}>
+          <label key={key} className={cn("flex items-center justify-between rounded-control border border-border/60 bg-card/60 px-3 py-2 text-sm cursor-pointer")}>
             {key === "avoidTolls" ? "Avoid tolls" : key === "avoidHighways" ? "Avoid highways" : "Avoid ferries"}
             <input type="checkbox" checked={prefs[key]} onChange={(e) => onChangePref(key, e.target.checked)} className="size-4" />
           </label>

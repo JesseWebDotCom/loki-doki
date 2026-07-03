@@ -1,11 +1,13 @@
-// Admin → Notifications: configure the delivery layer — Telegram bot, email (SMTP),
-// web-push status, app URL for deep links, and the delivery log / channel health.
+// Admin → Notifications: configure the delivery layer (Telegram bot, email (SMTP),
+// web-push status, app URL for deep links, and the delivery log / channel health).
 // Backend: routes/adminNotify.ts.
 
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { CheckCircle2, Loader2, RefreshCw, Send, XCircle } from 'lucide-react'
+import { CheckCircle2, RefreshCw, Send, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -36,7 +38,7 @@ function StatusChip({ ok, okText, badText }: { ok: boolean; okText: string; badT
   return (
     <span className={cn(
       'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
-      ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400',
+      ok ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive',
     )}>
       {ok ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />}
       {ok ? okText : badText}
@@ -182,7 +184,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
   }
 
   if (!status) {
-    return <div className="flex h-40 items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+    return <SkeletonListRows count={4} className="p-5" />
   }
 
   return (
@@ -218,7 +220,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
               className="h-9 max-w-md font-mono text-sm"
             />
             <Button size="sm" disabled={tgBusy || !token.trim()} onClick={() => void saveToken()}>
-              {tgBusy ? <Loader2 className="size-4 animate-spin" /> : 'Save & verify'}
+              {tgBusy ? <Spinner size="sm" className="text-current" /> : 'Save & verify'}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -254,11 +256,11 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Gmail/iCloud need an <span className="font-medium">app password</span> (not your normal password) — create one in your account's security settings. Port 587 with TLS off here (STARTTLS) is the usual choice.
+            Gmail/iCloud need an <span className="font-medium">app password</span> (not your normal password). Create one in your account's security settings. Port 587 with TLS off here (STARTTLS) is the usual choice.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" disabled={smtpBusy || !smtpForm.host || !smtpForm.from} onClick={() => void saveSmtp()}>
-              {smtpBusy ? <Loader2 className="size-4 animate-spin" /> : 'Save & verify'}
+              {smtpBusy ? <Spinner size="sm" className="text-current" /> : 'Save & verify'}
             </Button>
             {status.smtp.configured && (
               <div className="flex items-center gap-2">
@@ -274,7 +276,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
 
       {/* Web push */}
       <AdminAccordion id="web-push" title="Web Push"
-        description="Browser/device notifications. Nothing to configure — users enable it per-device in their own Settings.">
+        description="Browser/device notifications. Nothing to configure: users enable it per-device in their own Settings.">
         <div className="flex flex-wrap items-center gap-3">
           <StatusChip ok={status.webPush.vapidReady} okText="Keys ready" badText="Keys missing" />
           <span className="text-sm text-muted-foreground">
@@ -291,7 +293,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
 
       {/* Health + delivery log */}
       <AdminAccordion id="log" title="Health & Delivery Log"
-        description="Recent delivery attempts across every channel — the first place to look when someone says a notification never arrived.">
+        description="Recent delivery attempts across every channel: the first place to look when someone says a notification never arrived.">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {(['push', 'telegram', 'email'] as const).map((ch) => {
             const h = status.health[ch]
@@ -300,7 +302,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
                 key={ch}
                 ok={h.ok}
                 okText={`${ch} ok`}
-                badText={`${ch}: ${h.failStreak} failure${h.failStreak === 1 ? '' : 's'}${h.lastError ? ` — ${h.lastError.slice(0, 60)}` : ''}`}
+                badText={`${ch}: ${h.failStreak} failure${h.failStreak === 1 ? '' : 's'}${h.lastError ? ` - ${h.lastError.slice(0, 60)}` : ''}`}
               />
             )
           })}
@@ -310,7 +312,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
         </div>
 
         {deliveries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No deliveries yet — they'll appear here once a notification is sent to a connected channel.</p>
+          <p className="text-sm text-muted-foreground">No deliveries yet. They'll appear here once a notification is sent to a connected channel.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -330,7 +332,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
                     <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{timeAgo(d.createdAt)}</td>
                     <td className="py-1.5 pr-3">{d.user}</td>
                     <td className="py-1.5 pr-3">{d.channel}</td>
-                    <td className={cn('py-1.5 pr-3 font-medium', d.status === 'sent' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>{d.status}</td>
+                    <td className={cn('py-1.5 pr-3 font-medium', d.status === 'sent' ? 'text-success' : 'text-destructive')}>{d.status}</td>
                     <td className="py-1.5 pr-3 max-w-64 truncate">{d.title}</td>
                     <td className="py-1.5 max-w-72 truncate text-muted-foreground">{d.error ?? ''}</td>
                   </tr>

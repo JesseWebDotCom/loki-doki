@@ -13,7 +13,7 @@ export function YouTubeEmbed({ data }: { data: YouTubeBlockData }) {
           href={video.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="group shrink-0 w-52 rounded-xl border border-border/50 bg-card overflow-hidden hover:border-border transition-colors"
+          className="group shrink-0 w-52 rounded-card border border-border/50 bg-card overflow-hidden hover:border-border transition-colors"
         >
           {/* Thumbnail */}
           <div className="relative w-full aspect-video bg-muted overflow-hidden">
@@ -24,7 +24,8 @@ export function YouTubeEmbed({ data }: { data: YouTubeBlockData }) {
               loading="lazy"
             />
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex size-9 items-center justify-center rounded-full bg-black/60 backdrop-blur-sm group-hover:bg-red-600 transition-colors">
+              {/* design-ok(backdrop-blur-outside-chrome): play-button overlay sits over video thumbnail artwork */}
+              <div className="flex size-9 items-center justify-center rounded-full bg-black/60 backdrop-blur-sm group-hover:bg-brand transition-colors">
                 <Play className="size-4 text-white fill-white ml-0.5" />
               </div>
             </div>

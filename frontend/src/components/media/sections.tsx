@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Disc3, ExternalLink, Loader2, Play, Plus, Radio, Star, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Disc3, ExternalLink, Play, Plus, Radio, Star, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
@@ -128,7 +130,7 @@ function VideoThumb({ video }: { video: VideoLink }) {
       }
       className="group block w-[220px] shrink-0 text-left"
     >
-      <div className="relative aspect-video overflow-hidden rounded-lg bg-muted ring-1 ring-border/40">
+      <div className="relative aspect-video overflow-hidden rounded-card bg-muted ring-1 ring-border/40">
         {video.thumbnailUrl && ok ? (
           <img
             src={video.thumbnailUrl}
@@ -170,9 +172,13 @@ export function VideoRow({ title, videos }: { title: string; videos: VideoLink[]
 
 // ── Soundtrack albums (Apple Music / Spotify / … via Odesli) ─────────────────────
 
+// Streaming-platform chips keep each platform's brand hue (identity data, not app accents).
 const PLATFORM_STYLE: Record<string, string> = {
+  // design-ok(raw-palette-semantic): Apple Music brand color
   'Apple Music': 'bg-pink-500/15 text-pink-300 hover:bg-pink-500/25',
+  // design-ok(raw-palette-semantic): Spotify brand color
   Spotify: 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25',
+  // design-ok(raw-palette-semantic): YouTube Music brand color
   'YouTube Music': 'bg-red-500/15 text-red-300 hover:bg-red-500/25',
 }
 
@@ -194,8 +200,8 @@ export function SoundtrackAlbums({ albums }: { albums: SoundtrackAlbum[] }) {
       <h3 className="text-sm font-semibold text-muted-foreground">Soundtrack albums</h3>
       <div className="space-y-2">
         {albums.map((al, i) => (
-          <div key={`${al.name}-${i}`} className="flex gap-3 rounded-lg border border-border/50 p-3">
-            <div className="size-16 shrink-0 overflow-hidden rounded-md bg-muted">
+          <div key={`${al.name}-${i}`} className="flex gap-3 rounded-card border border-border/50 p-3">
+            <div className="size-16 shrink-0 overflow-hidden rounded-control bg-muted">
               {al.artworkUrl ? (
                 <img src={proxyImg(al.artworkUrl)} alt={al.name} loading="lazy" className="size-full object-cover" />
               ) : (
@@ -208,12 +214,13 @@ export function SoundtrackAlbums({ albums }: { albums: SoundtrackAlbum[] }) {
               <p className="line-clamp-1 text-sm font-medium">{al.name}</p>
               {al.artist && <p className="line-clamp-1 text-xs text-muted-foreground">{al.artist}</p>}
               <div className="mt-2 flex flex-wrap gap-1.5">
-                <button
+                <Button
+                  variant="tinted"
                   onClick={() => playAlbum(al)}
-                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2.5 py-1 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/25"
+                  className="h-auto gap-1 bg-brand/15 px-2.5 py-1 text-xs font-medium hover:bg-brand/25"
                 >
                   <Radio className="size-3" /> Play in Music
-                </button>
+                </Button>
                 {al.links.map((l) => (
                   <a
                     key={l.platform}
@@ -250,7 +257,7 @@ const STATION_OPTIONS = [
       `The original orchestral score from the ${kind === 'show' ? 'show' : 'film'} ${title}, with its themes, cues, and instrumental music.`,
     prompt: (title: string, kind: 'movie' | 'show') =>
       `Original instrumental score composed for the ${kind === 'show' ? 'TV show' : 'film'} "${title}". ` +
-      `Only include music written specifically for "${title}" — themes, cues, and leitmotifs from its score. ` +
+      `Only include music written specifically for "${title}": themes, cues, and leitmotifs from its score. ` +
       `Do NOT include music from any other film, show, or artist. Every track must be from "${title}"'s score.`,
   },
   {
@@ -273,7 +280,7 @@ const STATION_OPTIONS = [
     description: (title: string, kind: 'movie' | 'show') =>
       `The complete musical world of the ${kind === 'show' ? 'show' : 'film'} ${title}, blending its orchestral score with the songs from its soundtrack.`,
     prompt: (title: string, kind: 'movie' | 'show') =>
-      `Complete music from the ${kind === 'show' ? 'TV show' : 'film'} "${title}" — both the original instrumental score AND songs from the soundtrack. ` +
+      `Complete music from the ${kind === 'show' ? 'TV show' : 'film'} "${title}", both the original instrumental score AND songs from the soundtrack. ` +
       `Every track must be music that appears in or was created for "${title}". ` +
       `Do NOT include any music from other films, shows, or unrelated artists.`,
   },
@@ -300,7 +307,7 @@ export function MediaStationButton({ title, posterUrl, kind, showId }: {
         ? `source:show:${showId}:${encodeURIComponent(title)}`
         : `source:movie:${encodeURIComponent(title)}`
       const { station } = await createStation({
-        // Plain hyphen, not an em dash — the backend also scrubs auto titles as a safety net.
+        // Plain hyphen only; the backend also scrubs auto titles as a safety net.
         name: `${title} - ${opt.label}`,
         aiPrompt: opt.prompt(title, kind),
         seedType: 'prompt',
@@ -342,17 +349,15 @@ export function MediaStationButton({ title, posterUrl, kind, showId }: {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             type="button"
+            variant={active ? 'default' : 'secondary'}
             disabled={creating}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50',
-              active ? 'bg-brand text-brand-foreground hover:opacity-90' : 'bg-foreground/10 hover:bg-foreground/15',
-            )}
+            className={cn('gap-2', !active && 'bg-foreground/10 hover:bg-foreground/15')}
           >
-            {creating ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
+            {creating ? <Spinner className="text-current" /> : <Radio className="size-4" />}
             Radio Station
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
           <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
@@ -369,7 +374,7 @@ export function MediaStationButton({ title, posterUrl, kind, showId }: {
               {s.iconUrl ? (
                 <img src={s.iconUrl} alt="" className="size-5 shrink-0 rounded object-cover" />
               ) : (
-                <Radio className="size-4 shrink-0 text-violet-400" />
+                <Radio className="size-4 shrink-0 text-brand" />
               )}
               <span className="truncate">{s.name.slice(title.length + 3)}</span>
             </DropdownMenuItem>
@@ -383,7 +388,7 @@ export function MediaStationButton({ title, posterUrl, kind, showId }: {
             <div className="mb-3 flex items-center gap-3">
               {posterUrl && (
                 <img src={mediaImg(posterUrl)} alt={title}
-                  className="size-14 shrink-0 rounded-lg object-cover shadow ring-1 ring-border/40" />
+                  className="size-14 shrink-0 rounded-control object-cover shadow ring-1 ring-border/40" />
               )}
               <div className="min-w-0">
                 <DialogTitle className="line-clamp-2 text-base leading-snug">{title}</DialogTitle>
@@ -396,7 +401,7 @@ export function MediaStationButton({ title, posterUrl, kind, showId }: {
               <button
                 key={opt.id}
                 onClick={() => launch(opt)}
-                className="flex w-full items-center gap-3 rounded-xl border border-border/50 p-3 text-left transition-colors hover:border-violet-500/40 hover:bg-violet-500/8"
+                className="flex w-full items-center gap-3 rounded-card border border-border/50 p-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/8"
               >
                 <span className="text-2xl">{opt.emoji}</span>
                 <div className="min-w-0">
@@ -422,7 +427,7 @@ export function ReviewsSection({ reviews, loading }: { reviews: ReviewDigest | n
       {reviews.scores.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {reviews.scores.map((s) => (
-            <div key={s.source} className="rounded-lg bg-foreground/8 px-3 py-2">
+            <div key={s.source} className="rounded-control bg-foreground/8 px-3 py-2">
               <p className="text-sm font-semibold">{s.value}</p>
               <p className="text-[11px] text-muted-foreground">{s.source}</p>
             </div>
@@ -436,7 +441,7 @@ export function ReviewsSection({ reviews, loading }: { reviews: ReviewDigest | n
             <div className="space-y-1.5">
               {reviews.pros.map((p, i) => (
                 <p key={i} className="flex items-start gap-2 text-sm">
-                  <ThumbsUp className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
+                  <ThumbsUp className="mt-0.5 size-3.5 shrink-0 text-success" />
                   {p}
                 </p>
               ))}
@@ -446,7 +451,7 @@ export function ReviewsSection({ reviews, loading }: { reviews: ReviewDigest | n
             <div className="space-y-1.5">
               {reviews.cons.map((c, i) => (
                 <p key={i} className="flex items-start gap-2 text-sm">
-                  <ThumbsDown className="mt-0.5 size-3.5 shrink-0 text-rose-500" />
+                  <ThumbsDown className="mt-0.5 size-3.5 shrink-0 text-destructive" />
                   {c}
                 </p>
               ))}
@@ -483,7 +488,7 @@ export function TriviaSection({ facts, loading }: { facts: string[] | undefined;
     <ul className="space-y-2.5">
       {facts.map((f, i) => (
         <li key={i} className="flex items-start gap-2.5 text-sm">
-          <Star className="mt-0.5 size-3.5 shrink-0 fill-amber-400 text-amber-400" />
+          <Star className="mt-0.5 size-3.5 shrink-0 fill-warning text-warning" />
           <span className="leading-relaxed">{f}</span>
         </li>
       ))}
@@ -498,7 +503,7 @@ function SeverityDots({ rating }: { rating?: number }) {
   return (
     <span className="inline-flex gap-0.5">
       {Array.from({ length: 5 }, (_, i) => (
-        <span key={i} className={cn('size-1.5 rounded-full', i < n ? 'bg-amber-500' : 'bg-foreground/15')} />
+        <span key={i} className={cn('size-1.5 rounded-full', i < n ? 'bg-warning' : 'bg-foreground/15')} />
       ))}
     </span>
   )
@@ -509,7 +514,7 @@ export function ParentsGuideSection({ guide }: { guide: ParentsGuide | null | un
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        {guide.ageRating && <Badge className="bg-violet-600/20 text-violet-300">{guide.ageRating}</Badge>}
+        {guide.ageRating && <Badge className="bg-brand/20 text-brand">{guide.ageRating}</Badge>}
         <a href={guide.url} target="_blank" rel="noreferrer" className="text-xs text-brand hover:underline">
           Common Sense Media
         </a>

@@ -1,6 +1,6 @@
 import {
-  Bookmark, CalendarDays, CirclePlay, CloudSun, Globe, Headphones, Home, Laugh, ListVideo,
-  Music, Network, Newspaper, PlaySquare, Radio, Server, Star, Sunrise, Trophy, Tv, type LucideIcon,
+  Bookmark, BookOpen, CalendarDays, CirclePlay, CloudSun, Globe, Headphones, Home, Laugh, ListVideo,
+  Music, Network, Newspaper, PlaySquare, Radio, Server, Star, Sunrise, Tag, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -90,10 +90,24 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     allowWide: true,
   },
   {
+    id: "price-drops", title: "Price Drops",
+    description: "Tracked products that just got cheaper",
+    icon: Tag, color: "#10b981",
+    gradient: "linear-gradient(135deg,#14532d,#0d9488)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
     id: "bookmarks-recent", title: "Bookmarks",
     description: "Recently saved articles & links",
     icon: Bookmark, color: "#8b5cf6",
     gradient: "linear-gradient(135deg,#3b0764,#7c3aed)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "bookmarks-queue", title: "Reading Queue",
+    description: "Unread articles waiting in your reading list",
+    icon: BookOpen, color: "#a855f7",
+    gradient: "linear-gradient(135deg,#4c1d95,#9333ea)",
     allowWide: true, supportsRowMode: true,
   },
   {

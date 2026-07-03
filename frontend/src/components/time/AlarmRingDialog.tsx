@@ -1,6 +1,6 @@
 // Global "ringing" dialog. Mounted once near the app root; it surfaces whenever
 // the TimeAlarmContext fires an alarm or timer, no matter the current page. The
-// sound + companion announcement are driven by the context — this is just the
+// sound + companion announcement are driven by the context; this is just the
 // Snooze/Dismiss confirmation UI. Any close (button, Escape, backdrop) dismisses.
 
 import { BellRing } from 'lucide-react'
@@ -19,6 +19,7 @@ export function AlarmRingDialog() {
           <span className="relative flex size-20 items-center justify-center">
             <span className="absolute inset-0 animate-ping rounded-full bg-brand/30" />
             <span className="relative flex size-20 items-center justify-center rounded-full bg-brand/15 text-brand">
+              {/* design-ok(adhoc-pulse): live ringing indicator */}
               <BellRing className="size-9 animate-pulse" />
             </span>
           </span>

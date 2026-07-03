@@ -72,7 +72,8 @@ export function StatusDisplay({ presence }: Props) {
         {icon}
       </div>
 
-      {/* Label */}
+      {/* Label. design-ok(font-black): full-frame BUSY-Bar-style status flood, read from
+          across a room, not a generic UI heading; keeps the bespoke oversized weight. */}
       <div
         className="text-white font-black text-[5.5rem] leading-none tracking-tight text-center px-8 drop-shadow-xl"
         style={{ textShadow: '0 4px 32px rgba(0,0,0,0.5)' }}

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Play, Star, AudioLines, SpellCheck, Plus, Trash2, ChevronDown, ChevronRight, Pencil, Check, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { speak } from '@/lib/voice/voicePlaybackStore'
 import { toast } from '@/lib/toast'
@@ -116,7 +118,7 @@ function VoicesBrowser({
   return (
     <div className="space-y-8">
       {voices.length === 0 && (
-        <p className="rounded-xl border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
+        <p className="rounded-card border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
           No voices available — check that the voice server is running.
         </p>
       )}
@@ -136,9 +138,9 @@ function VoicesBrowser({
                 <div
                   key={v.id}
                   className={cn(
-                    'group flex flex-col gap-2 rounded-xl border p-3 transition-all',
+                    'group flex flex-col gap-2 rounded-card border p-3 transition-all',
                     isDefault
-                      ? 'border-violet-500/60 bg-violet-500/[0.07] shadow-sm shadow-violet-500/10'
+                      ? 'border-brand/60 bg-brand/[0.07] shadow-sm shadow-brand/10'
                       : 'border-border hover:border-foreground/20 hover:bg-foreground/[0.02]',
                   )}
                 >
@@ -148,7 +150,7 @@ function VoicesBrowser({
                       <p className="truncate text-sm font-semibold leading-tight">{v.name}</p>
                       <p className={cn(
                         'mt-0.5 text-[11px] font-medium',
-                        gender === 'Female' ? 'text-rose-400' : gender === 'Male' ? 'text-sky-400' : 'text-muted-foreground',
+                        gender === 'Male' ? 'text-brand' : 'text-muted-foreground',
                       )}>
                         {gender === 'Female' ? '♀' : gender === 'Male' ? '♂' : ''} {gender ?? '—'}
                       </p>
@@ -159,7 +161,7 @@ function VoicesBrowser({
                         type="button"
                         onClick={() => void speak({ text: `Hi, I am ${v.name}.`, ttsVoice: kokoroId })}
                         title="Preview"
-                        className="flex size-7 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                        className="flex size-7 items-center justify-center rounded-full bg-foreground/[0.06] text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
                       >
                         <Play className="size-3 fill-current" />
                       </button>
@@ -169,11 +171,11 @@ function VoicesBrowser({
                         onClick={() => { if (!isDefault) onSetDefault(kokoroId) }}
                         disabled={isSaving}
                         title={isDefault ? 'Default voice' : 'Set as default'}
-                        className="flex size-7 items-center justify-center rounded-full bg-white/[0.06] hover:bg-white/10 disabled:opacity-40"
+                        className="flex size-7 items-center justify-center rounded-full bg-foreground/[0.06] hover:bg-foreground/10 disabled:opacity-40"
                       >
                         <Star className={cn(
                           'size-3.5 transition-colors',
-                          isDefault ? 'fill-violet-400 text-violet-400' : 'text-muted-foreground/40 hover:text-muted-foreground',
+                          isDefault ? 'fill-brand text-brand' : 'text-muted-foreground/40 hover:text-muted-foreground',
                         )} />
                       </button>
                     </div>
@@ -183,7 +185,7 @@ function VoicesBrowser({
                   {character.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {character.slice(0, 3).map((c) => (
-                        <span key={c} className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-white/45">
+                        <span key={c} className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[10px] text-muted-foreground">
                           {c}
                         </span>
                       ))}
@@ -258,11 +260,11 @@ export function VoiceDefaults() {
   }, [voices, defaultVoice])
 
   return (
-    <section className="rounded-2xl border border-border bg-card">
+    <Card variant="surface">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <AudioLines className="size-4 text-muted-foreground" />
+        <AudioLines className="size-4 text-brand" />
         <h3 className="text-sm font-semibold">Voice defaults</h3>
-        <span className="text-xs text-muted-foreground">Used by companions unless overridden</span>
+        <span className="text-caption text-muted-foreground">Used by companions unless overridden</span>
       </div>
 
       <DefaultRow
@@ -287,7 +289,7 @@ export function VoiceDefaults() {
           </div>
         </DialogContent>
       </Dialog>
-    </section>
+    </Card>
   )
 }
 
@@ -320,21 +322,21 @@ function AddRuleRow({ onAdd }: { onAdd: (term: string, replacement: string) => P
       <div className="min-w-[7rem] flex-1">
         <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Word / phrase"
           onKeyDown={(e) => { if (e.key === 'Enter') void submit() }}
-          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
+          className="w-full rounded-control border border-border bg-background px-3 py-1.5 text-sm" />
       </div>
       <div className="min-w-[7rem] flex-1">
         <input value={replacement} onChange={(e) => setReplacement(e.target.value)} placeholder="Say it like…"
           onKeyDown={(e) => { if (e.key === 'Enter') void submit() }}
-          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
+          className="w-full rounded-control border border-border bg-background px-3 py-1.5 text-sm" />
       </div>
       {replacement.trim() && (
         <button type="button" title="Preview" onClick={() => void speak({ text: `This says ${replacement.trim()}.` })}
-          className="flex size-9 items-center justify-center rounded-lg bg-foreground/5 text-muted-foreground hover:text-foreground">
+          className="flex size-9 items-center justify-center rounded-full bg-foreground/5 text-muted-foreground hover:text-foreground">
           <Play className="size-3.5 fill-current" />
         </button>
       )}
       <button type="button" onClick={() => void submit()} disabled={saving || !term.trim() || !replacement.trim()}
-        className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+        className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-50">
         <Plus className="size-3.5" /> Add
       </button>
     </div>
@@ -368,12 +370,12 @@ function ItemRow({
       <div className="flex items-center gap-2 py-1.5">
         <input ref={termRef} value={term} onChange={(e) => setTerm(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') cancel() }}
-          className="w-28 rounded border border-border bg-background px-2 py-1 text-xs font-medium" />
+          className="w-28 rounded-control border border-border bg-background px-2 py-1 text-xs font-medium" />
         <span className="text-muted-foreground">→</span>
         <input value={replacement} onChange={(e) => setReplacement(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') cancel() }}
-          className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground" />
-        <button onClick={() => void save()} className="text-emerald-500 hover:text-emerald-400"><Check className="size-3.5" /></button>
+          className="flex-1 rounded-control border border-border bg-background px-2 py-1 text-xs text-muted-foreground" />
+        <button onClick={() => void save()} className="text-success hover:text-success/80"><Check className="size-3.5" /></button>
         <button onClick={cancel} className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
       </div>
     )
@@ -469,7 +471,7 @@ function PackSection({ pack, onToggle }: { pack: PronunciationPack; onToggle: (i
           type="button" disabled={toggling} onClick={() => void handleToggle()}
           className={cn(
             'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-50',
-            pack.enabled ? 'bg-violet-600' : 'bg-foreground/20',
+            pack.enabled ? 'bg-brand' : 'bg-foreground/20',
           )}
         >
           <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transition-transform', pack.enabled ? 'translate-x-4' : 'translate-x-0')} />
@@ -545,11 +547,11 @@ export function PronunciationEditor() {
   }
 
   return (
-    <section className="rounded-2xl border border-border bg-card">
+    <Card variant="surface">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <SpellCheck className="size-4 text-muted-foreground" />
+        <SpellCheck className="size-4 text-brand" />
         <h3 className="text-sm font-semibold">Pronunciation rules</h3>
-        <span className="text-xs text-muted-foreground">Respellings applied to TTS audio everywhere</span>
+        <span className="text-caption text-muted-foreground">Respellings applied to TTS audio everywhere</span>
       </div>
 
       {/* Built-in packs */}
@@ -571,7 +573,7 @@ export function PronunciationEditor() {
         )}
         <AddRuleRow onAdd={addCustom} />
       </div>
-    </section>
+    </Card>
   )
 }
 
@@ -589,20 +591,22 @@ function DefaultRow({
 }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/5 text-muted-foreground">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-foreground/5 text-muted-foreground">
         {icon}
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="truncate text-sm font-medium">{value}</p>
       </div>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         onClick={onChange}
-        className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
       >
         Change
-      </button>
+      </Button>
     </div>
   )
 }

@@ -3,6 +3,10 @@ import { PhoneIcon, SearchIcon, UserIcon, MapPinIcon, HomeIcon } from "lucide-re
 
 import { PageShell } from "@/components/shared/PageShell";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { PageContainer } from "@/components/shared/PageContainer";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { usePublishUIContext } from "@/context/UIContextProvider";
 import { cn } from "@/lib/cn";
 import {
@@ -15,8 +19,6 @@ import {
 } from "@/lib/lookupApi";
 
 type Mode = "address" | "name" | "phone";
-
-const GRADIENT = "linear-gradient(135deg,#1e3a5f,#2563eb)";
 
 const MODES: { id: Mode; label: string; icon: typeof SearchIcon }[] = [
   { id: "address", label: "Address", icon: MapPinIcon },
@@ -32,7 +34,7 @@ function fmtMoney(v: string | null): string | null {
 
 function PersonCard({ person }: { person: PersonRecord }): JSX.Element {
   return (
-    <div className="rounded-xl border border-border/60 bg-card p-4">
+    <Card className="border-border/60 p-4">
       <p className="text-base font-semibold">{person.name}</p>
       {person.phones.length > 0 ? (
         <div className="mt-2 flex flex-col gap-1">
@@ -63,7 +65,7 @@ function PersonCard({ person }: { person: PersonRecord }): JSX.Element {
           <span className="text-foreground/70">Associated:</span> {person.associates.slice(0, 5).join(", ")}
         </p>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -88,7 +90,7 @@ function PropertyCard({ property }: { property: PropertyDetails }): JSX.Element 
   if (property.zoning) rows.push(["Zoning", property.zoning]);
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card p-4">
+    <Card className="border-border/60 p-4">
       <div className="mb-2 flex items-center gap-2">
         <HomeIcon className="size-4 text-muted-foreground" />
         <p className="text-sm font-semibold">{property.address ?? "Property record"}</p>
@@ -96,7 +98,7 @@ function PropertyCard({ property }: { property: PropertyDetails }): JSX.Element 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
         {rows.map(([k, v]) => (
           <div key={k} className="flex flex-col">
-            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{k}</dt>
+            <dt className="text-overline text-muted-foreground">{k}</dt>
             <dd className="font-medium">{v}</dd>
           </div>
         ))}
@@ -120,12 +122,12 @@ function PropertyCard({ property }: { property: PropertyDetails }): JSX.Element 
           View assessor record
         </a>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
 const inputCls = cn(
-  "w-full rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5 text-sm",
+  "w-full rounded-control border border-border/60 bg-muted/40 px-3 py-2.5 text-sm",
   "focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/60 transition-colors",
 );
 
@@ -186,41 +188,33 @@ export function ReverseLookupPage(): JSX.Element {
         : phone.replace(/\D/g, "").length >= 10;
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={SearchIcon}>
-      <PageHeader
-        variant="compact"
-        title="Reverse Lookup"
-        subtitle="Find people and property details by address, phone number, or name."
-        gradient={GRADIENT}
-        icon={<SearchIcon className="size-7 text-white" />}
-      />
+    <PageShell>
+      <PageContainer className="pb-10">
+        <PageHeader subtitle="Find people and property details by address, phone number, or name." />
 
-      <div className="px-5 pb-10">
         {/* Mode tabs */}
         <div className="mb-4 flex gap-2">
           {MODES.map(({ id, label, icon: Icon }) => (
-            <button
+            <Button
               key={id}
+              variant={mode === id ? "default" : "secondary"}
               onClick={() => {
                 setMode(id);
                 setSearched(false);
                 setPeople([]);
                 setProperty(null);
               }}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
-                mode === id ? "bg-brand text-white" : "bg-foreground/8 text-foreground/70 hover:bg-foreground/12",
-              )}
+              className="flex-1 gap-1.5 font-semibold"
             >
               <Icon className="size-4" />
               {label}
-            </button>
+            </Button>
           ))}
         </div>
 
         {/* Form */}
         <form
-          className="flex flex-col gap-2.5 rounded-2xl border border-border/60 bg-card p-4 shadow-sm"
+          className="flex flex-col gap-2.5 rounded-card border border-border/60 bg-card p-4"
           onSubmit={(e) => {
             e.preventDefault();
             if (canSearch && !loading) void runSearch();
@@ -245,17 +239,14 @@ export function ReverseLookupPage(): JSX.Element {
             <input className={inputCls} placeholder="Phone number (e.g. 203-555-0100)" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={!canSearch || loading}
-            className={cn(
-              "mt-1 flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition-opacity",
-              (!canSearch || loading) && "opacity-40",
-            )}
+            className="mt-1 w-full font-semibold"
           >
-            <SearchIcon className="size-4" />
+            {loading ? <Spinner className="text-primary-foreground" /> : <SearchIcon className="size-4" />}
             {loading ? "Searching…" : "Search"}
-          </button>
+          </Button>
         </form>
 
         {/* Results */}
@@ -271,10 +262,10 @@ export function ReverseLookupPage(): JSX.Element {
 
         <p className="mt-6 text-[11px] leading-snug text-muted-foreground/70">
           Property data from public assessor records (Vision Government Solutions). People data from the
-          ThatsThem directory. For personal reference only — not for tenant screening, employment, credit, or
+          ThatsThem directory. For personal reference only; not for tenant screening, employment, credit, or
           any other FCRA-regulated decision.
         </p>
-      </div>
+      </PageContainer>
     </PageShell>
   );
 }

@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Plus, Podcast } from 'lucide-react'
-import { cn } from '@/lib/cn'
+import { Check, Plus, Podcast } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import {
   getSubscriptions, subscribePodcast, matchSubscription, type DirectoryResult,
 } from '@/lib/podcast/api'
@@ -81,7 +83,7 @@ export function DirectoryCard({ result }: { result: DirectoryResult }) {
   )
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border/40 bg-card p-3">
+    <Card className="flex flex-col p-3">
       <Link
         to={subscribedShowId ? `/podcasts/show/${subscribedShowId}` : previewHref(result)}
         aria-label={subscribed ? result.title : `About ${result.title}`}
@@ -90,31 +92,28 @@ export function DirectoryCard({ result }: { result: DirectoryResult }) {
         {body}
       </Link>
       <div className="mt-3">
-        <button
+        <Button
+          variant={subscribed ? 'outline' : 'default'}
+          size="sm"
           onClick={() => void handleSubscribe()}
           disabled={pending || subscribed}
-          className={cn(
-            'flex w-full items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
-            subscribed
-              ? 'border border-border text-muted-foreground'
-              : 'bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-60',
-          )}
+          className="w-full gap-1.5 text-xs font-semibold"
         >
-          {pending ? <Loader2 className="size-3.5 animate-spin" />
+          {pending ? <Spinner size="sm" className="text-current" />
             : subscribed ? <Check className="size-3.5" />
             : <Plus className="size-3.5" />}
           {pending ? 'Subscribing…' : subscribed ? 'Subscribed' : 'Subscribe'}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   )
 }
 
-/** Square rounded cover — remote art through the image proxy, icon fallback. */
+/** Square rounded cover - remote art through the image proxy, icon fallback. */
 function Artwork({ url, title }: { url: string | null; title: string }) {
   const [failed, setFailed] = useState(false)
   return (
-    <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-muted">
+    <div className="relative aspect-square w-full overflow-hidden rounded-card bg-muted">
       <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/40">
         <Podcast className="size-10" />
       </div>

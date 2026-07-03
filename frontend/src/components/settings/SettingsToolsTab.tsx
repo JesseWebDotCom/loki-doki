@@ -1,34 +1,36 @@
 import { useEffect, useState } from 'react'
 import {
   ArrowLeftRight, BookOpen, Calculator, CalendarClock, ChefHat,
-  Cloud, Eye, EyeOff, Globe, Laugh, Loader2, MapPin, Newspaper,
+  Cloud, Eye, EyeOff, Globe, Laugh, MapPin, Newspaper,
   Play, Save, ShieldCheck, Trash2, Trophy, Tv, Wifi, WifiOff, Wrench,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 
 // Mirrors TOOL_ICONS in AdminFeaturesTab — same icon + chip color per tool id.
 const TOOL_ICONS: Record<string, { icon: LucideIcon; chip: string }> = {
-  weather:         { icon: Cloud,          chip: 'bg-sky-500/15 text-sky-500'      },
-  search:          { icon: Globe,          chip: 'bg-blue-500/15 text-blue-500'     },
-  news:            { icon: Newspaper,      chip: 'bg-orange-500/15 text-orange-500' },
-  dictionary:      { icon: BookOpen,       chip: 'bg-amber-500/15 text-amber-500'   },
-  calculator:      { icon: Calculator,     chip: 'bg-brand/15 text-brand'           },
-  unit_conversion: { icon: ArrowLeftRight, chip: 'bg-teal-500/15 text-teal-500'     },
-  jokes:           { icon: Laugh,          chip: 'bg-yellow-500/15 text-yellow-500' },
-  recipes:         { icon: ChefHat,        chip: 'bg-emerald-500/15 text-emerald-500'},
-  youtube:         { icon: Play,           chip: 'bg-red-500/15 text-red-500'       },
-  tvshows:         { icon: Tv,             chip: 'bg-purple-500/15 text-purple-500' },
-  onthisday:       { icon: CalendarClock,  chip: 'bg-indigo-500/15 text-indigo-500' },
-  localNews:       { icon: Newspaper,      chip: 'bg-rose-500/15 text-rose-500'     },
-  localEvents:     { icon: MapPin,         chip: 'bg-green-500/15 text-green-500'   },
-  contentRating:   { icon: ShieldCheck,    chip: 'bg-amber-500/15 text-amber-500'   },
-  sports:          { icon: Trophy,         chip: 'bg-yellow-500/15 text-yellow-600' },
+  weather:         { icon: Cloud,          chip: 'bg-info/15 text-info'            },
+  search:          { icon: Globe,          chip: 'bg-info/15 text-info'            },
+  news:            { icon: Newspaper,      chip: 'bg-warning/15 text-warning'      },
+  dictionary:      { icon: BookOpen,       chip: 'bg-warning/15 text-warning'      },
+  calculator:      { icon: Calculator,     chip: 'bg-brand/15 text-brand'          },
+  unit_conversion: { icon: ArrowLeftRight, chip: 'bg-info/15 text-info'            },
+  jokes:           { icon: Laugh,          chip: 'bg-warning/15 text-warning'      },
+  recipes:         { icon: ChefHat,        chip: 'bg-success/15 text-success'      },
+  youtube:         { icon: Play,           chip: 'bg-destructive/15 text-destructive' },
+  tvshows:         { icon: Tv,             chip: 'bg-brand/15 text-brand'          },
+  onthisday:       { icon: CalendarClock,  chip: 'bg-brand/15 text-brand'          },
+  localNews:       { icon: Newspaper,      chip: 'bg-destructive/15 text-destructive' },
+  localEvents:     { icon: MapPin,         chip: 'bg-success/15 text-success'      },
+  contentRating:   { icon: ShieldCheck,    chip: 'bg-warning/15 text-warning'      },
+  sports:          { icon: Trophy,         chip: 'bg-warning/15 text-warning'      },
 }
 
 interface ConfigField {
@@ -151,7 +153,7 @@ export function SettingsToolsTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -176,10 +178,10 @@ export function SettingsToolsTab() {
 
   return (
     <div className="p-4 space-y-3">
-      <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+      <Card variant="surface" className="border-border/60">
         <div className="flex items-center gap-3 px-4 py-3">
-          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl',
-            connectivityMode === 'offline' ? 'bg-amber-500/15 text-amber-500' : 'bg-emerald-500/15 text-emerald-500'
+          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-card',
+            connectivityMode === 'offline' ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success'
           )}>
             {connectivityMode === 'offline' ? <WifiOff className="size-5" /> : <Wifi className="size-5" />}
           </div>
@@ -191,7 +193,7 @@ export function SettingsToolsTab() {
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
                   {connectivityMode === 'offline'
-                    ? 'Internet features are off — only local tools work'
+                    ? 'Internet features are off, only local tools work'
                     : 'All tools and features can use the internet'}
                 </p>
               </div>
@@ -213,7 +215,7 @@ export function SettingsToolsTab() {
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
       <p className="text-xs text-muted-foreground pb-1">
         Your personal preferences override admin defaults.
@@ -225,10 +227,10 @@ export function SettingsToolsTab() {
         const fields = userFields(tool)
 
         return (
-          <div key={tool.id} className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+          <Card key={tool.id} variant="surface" className="border-border/60">
             {/* Tool header — same layout as Admin > Features > Tools */}
             <div className="flex items-center gap-3 px-4 py-3">
-              <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl', meta.chip)}>
+              <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-card', meta.chip)}>
                 <ToolIcon className="size-5" />
               </div>
               <div className="min-w-0 flex-1">
@@ -258,7 +260,7 @@ export function SettingsToolsTab() {
                     <div className="flex items-center gap-2">
                       <Label className="text-xs font-medium">{field.label}</Label>
                       {isSet && !isDirty && (
-                        <span className="text-[10px] font-semibold text-emerald-500">set</span>
+                        <span className="text-[10px] font-semibold text-success">set</span>
                       )}
                     </div>
                     {field.description && (
@@ -278,7 +280,7 @@ export function SettingsToolsTab() {
                             value={val}
                             onChange={e => setDrafts(d => ({ ...d, [tool.id]: { ...d[tool.id], [field.key]: e.target.value } }))}
                             placeholder={field.placeholder ?? ''}
-                            className="text-xs h-8 pr-8 rounded-lg"
+                            className="text-xs h-8 pr-8"
                           />
                           {field.type === 'secret' && (
                             <button
@@ -296,7 +298,7 @@ export function SettingsToolsTab() {
                           disabled={isSaving || (!isDirty && !val)}
                           onClick={() => saveKey(tool.id, field)}
                         >
-                          {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                          {isSaving ? <Spinner size="sm" /> : <Save className="size-3.5" />}
                         </Button>
                         {isSet && (
                           <Button
@@ -313,7 +315,7 @@ export function SettingsToolsTab() {
                 )
               })}
             </div>
-          </div>
+          </Card>
         )
       })}
     </div>

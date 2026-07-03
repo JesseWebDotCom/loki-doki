@@ -1,25 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Activity, Download, Gauge, Globe, Loader2, Network, Server, Upload, Waves, Zap,
+  Activity, Download, Globe, Network, Server, Upload, Waves, Zap,
 } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
+import { getAppByPath } from '@/lib/appCategories'
 import {
   DEFAULT_THRESHOLDS, MODE_META, RATING_META, fmtMbps, fmtMs, loadLastResults, loadThresholds,
   rateSpeed, runSpeedTest, saveLastResults,
-  type ResultsByMode, type SpeedMode, type SpeedPhase, type SpeedResult, type SpeedThresholds,
+  type ResultsByMode, type SpeedMode, type SpeedPhase, type SpeedRating, type SpeedResult, type SpeedThresholds,
 } from '@/lib/speedtest'
 
-const GRADIENT = 'linear-gradient(135deg,#0c2a52,#0891b2)'
-const UPLOAD_COLOR = '#22d3ee'
-const NEUTRAL = '#64748b'
+const GRADIENT = getAppByPath('/speed-test')?.gradient ?? ''
+const UPLOAD_COLOR = 'var(--info)'
+const NEUTRAL = 'var(--muted-foreground)'
 const MODES: SpeedMode[] = ['internet', 'server', 'server-internet']
 const MODE_ICON: Record<SpeedMode, typeof Globe> = { internet: Globe, server: Server, 'server-internet': Network }
+
+// Semantic good/ok/bad styling on the design tokens (RATING_META keeps labels).
+const RATING_STYLE: Record<SpeedRating, { color: string; text: string; bg: string }> = {
+  good: { color: 'var(--success)', text: 'text-success', bg: 'bg-success/10' },
+  ok:   { color: 'var(--warning)', text: 'text-warning', bg: 'bg-warning/10' },
+  bad:  { color: 'var(--destructive)', text: 'text-destructive', bg: 'bg-destructive/10' },
+}
 
 const NOOP = () => {}
 
@@ -38,18 +50,11 @@ export function SpeedTestPage() {
   useAppHeader({ query: '', setQuery: NOOP, searchable: false })
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={Gauge}>
-      <PageHeader
-        variant="compact"
-        title="Speed Test"
-        subtitle="Measure your real connection speed."
-        gradient={GRADIENT}
-        icon={<Gauge className="size-7 text-white" />}
-      />
-
-      <div className="px-5 pb-24 pt-2">
+    <PageShell>
+      <PageContainer className="pb-24">
+        <PageHeader subtitle="Measure your real connection speed." />
         <TestPanel userId={user?.id} />
-      </div>
+      </PageContainer>
     </PageShell>
   )
 }
@@ -123,7 +128,7 @@ function TestPanel({ userId }: { userId?: string }) {
   const newestResult = newest(results)
   const headline = running ? live.mbps : (newestResult?.downloadMbps ?? 0)
   const rating = !isUpload && headline > 0 ? rateSpeed(headline, thresholds) : null
-  const accent = isUpload ? UPLOAD_COLOR : rating ? RATING_META[rating].color : NEUTRAL
+  const accent = isUpload ? UPLOAD_COLOR : rating ? RATING_STYLE[rating].color : NEUTRAL
   const scaleMax = niceScale(Math.max(
     headline,
     results.internet?.downloadMbps ?? 0, results.server?.downloadMbps ?? 0, results['server-internet']?.downloadMbps ?? 0,
@@ -132,7 +137,7 @@ function TestPanel({ userId }: { userId?: string }) {
   ))
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[330px_1fr] lg:items-start">
+    <div className="grid gap-8 lg:grid-cols-[330px_1fr] lg:items-start">
       {/* Left: gauge + controls */}
       <div className="flex flex-col items-center gap-6">
         <SpeedGauge
@@ -142,20 +147,19 @@ function TestPanel({ userId }: { userId?: string }) {
 
         {running ? <PhaseStepper phase={phase} mode={activeMode} /> : <div className="h-7" />}
 
-        <button
+        <Button
+          size="xl"
           onClick={() => run(MODES)}
           disabled={running}
           className={cn(
-            'flex items-center gap-2.5 rounded-full px-9 py-3.5 text-sm font-bold transition-all',
-            running
-              ? 'cursor-not-allowed bg-foreground/10 text-muted-foreground'
-              : 'bg-brand text-brand-foreground shadow-lg shadow-brand/25 hover:-translate-y-0.5 hover:shadow-brand/40 active:translate-y-0 active:scale-95',
+            'px-9 text-sm font-bold',
+            !running && 'shadow-lg shadow-brand/25 hover:-translate-y-0.5 hover:shadow-brand/40 active:translate-y-0',
           )}
         >
           {running
-            ? <><Loader2 className="size-4 animate-spin" /> Testing {activeMode ? MODE_META[activeMode].label : ''}… {PHASE_LABEL[phase]}</>
+            ? <><Spinner className="text-current" /> Testing {activeMode ? MODE_META[activeMode].label : ''}… {PHASE_LABEL[phase]}</>
             : <><Zap className="size-4 fill-current" /> {newestResult ? 'Test all again' : 'Run all tests'}</>}
-        </button>
+        </Button>
       </div>
 
       {/* Right: mode cards */}
@@ -199,13 +203,13 @@ function ModeCard({ mode, result, thresholds, active, phase, live, disabled, onR
   const hasUpload = mode !== 'server-internet'
 
   return (
-    <div className={cn(
-      'flex flex-col gap-3 rounded-3xl border bg-card p-4 transition-colors',
+    <Card className={cn(
+      'flex flex-col gap-3 p-4 transition-colors',
       active ? 'border-brand/45 ring-1 ring-brand/20' : 'border-border/60',
     )}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <span className="grid size-9 place-items-center rounded-xl text-white" style={{ background: GRADIENT }}>
+          <span className="grid size-9 place-items-center rounded-control text-white" style={{ background: GRADIENT }}>
             <Icon className="size-4" />
           </span>
           <div>
@@ -213,44 +217,41 @@ function ModeCard({ mode, result, thresholds, active, phase, live, disabled, onR
             <p className="text-[10px] text-muted-foreground/60">{MODE_META[mode].tagline}</p>
           </div>
         </div>
-        <button
+        <Button
+          size="sm"
+          variant="tinted"
           onClick={onRun}
           disabled={disabled}
-          className={cn(
-            'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-all',
-            active
-              ? 'bg-brand/15 text-brand'
-              : 'bg-foreground/8 text-foreground/70 hover:bg-brand/15 hover:text-brand disabled:opacity-40 disabled:hover:bg-foreground/8 disabled:hover:text-foreground/70',
-          )}
+          className="font-bold"
         >
           {active
-            ? <><Loader2 className="size-3 animate-spin" /> {PHASE_LABEL[phase]}</>
+            ? <><Spinner size="sm" className="text-brand" /> {PHASE_LABEL[phase]}</>
             : <><Zap className="size-3 fill-current" /> {result ? 'Retest' : 'Test'}</>}
-        </button>
+        </Button>
       </div>
 
       <div className={cn('grid gap-2', hasUpload ? 'grid-cols-2' : 'grid-cols-3')}>
-        <StatTile icon={Download} label="Download" unit="Mbps" kind="mbps"
-          accent={rating ? RATING_META[rating].color : '#38bdf8'}
-          ratingClass={result ? RATING_META[rateSpeed(result.downloadMbps, thresholds)].text : undefined}
+        <SpeedStatTile icon={Download} label="Download" unit="Mbps" kind="mbps"
+          accent={rating ? RATING_STYLE[rating].color : 'var(--info)'}
+          ratingClass={result ? RATING_STYLE[rateSpeed(result.downloadMbps, thresholds)].text : undefined}
           live={dlLive} value={dlLive ? live.mbps : result?.downloadMbps ?? null} />
         {hasUpload && (
-          <StatTile icon={Upload} label="Upload" unit="Mbps" kind="mbps" accent={UPLOAD_COLOR}
+          <SpeedStatTile icon={Upload} label="Upload" unit="Mbps" kind="mbps" accent={UPLOAD_COLOR}
             live={ulLive} value={ulLive ? live.mbps : result?.uploadMbps ?? null} />
         )}
-        <StatTile icon={Activity} label="Ping" unit="ms" kind="ms" accent="#a78bfa"
+        <SpeedStatTile icon={Activity} label="Ping" unit="ms" kind="ms" accent="var(--brand)"
           value={result?.pingMs ?? null} />
-        <StatTile icon={Waves} label="Jitter" unit="ms" kind="ms" accent="#818cf8"
+        <SpeedStatTile icon={Waves} label="Jitter" unit="ms" kind="ms" accent="var(--brand)"
           value={result?.jitterMs ?? null} />
       </div>
 
       {result && rating && (
-        <div className={cn('flex items-center justify-center gap-2 rounded-xl py-1.5 text-xs font-semibold', RATING_META[rating].bg, RATING_META[rating].text)}>
-          <span className="size-2 rounded-full" style={{ background: RATING_META[rating].color }} />
+        <div className={cn('flex items-center justify-center gap-2 rounded-control py-1.5 text-xs font-semibold', RATING_STYLE[rating].bg, RATING_STYLE[rating].text)}>
+          <span className="size-2 rounded-full" style={{ background: RATING_STYLE[rating].color }} />
           Rated {RATING_META[rating].label.toLowerCase()}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -320,7 +321,7 @@ function SpeedGauge({ mbps, scaleMax, color, phase, isUpload, caption }: {
         {/* Glowing tip dot (rotates along the arc, never crosses the readout) */}
         <g style={{ transformOrigin: `${CX}px ${CY}px`, transform: `rotate(${dotAngle}deg)`, transition: 'transform 0.25s ease-out' }}>
           <circle cx={CX + R} cy={CY} r="8" fill={color} filter="url(#st-glow)" />
-          <circle cx={CX + R} cy={CY} r="3.5" fill="#fff" />
+          <circle cx={CX + R} cy={CY} r="3.5" fill="white" />
         </g>
 
         {/* Scale labels */}
@@ -338,14 +339,14 @@ function SpeedGauge({ mbps, scaleMax, color, phase, isUpload, caption }: {
       {/* Center readout */}
       <div className="absolute flex flex-col items-center">
         {pinging ? (
-          <Loader2 className="size-9 animate-spin text-muted-foreground/50" />
+          <Spinner className="size-9 text-muted-foreground/50" />
         ) : (
           <>
             <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: mbps > 0 ? color : undefined }}>
               {isUpload ? <Upload className="size-3" /> : <Download className="size-3" />}
               {isUpload ? 'Upload' : 'Download'}
             </div>
-            <span className="text-[3.4rem] font-black leading-none tabular-nums transition-colors" style={{ color: mbps > 0 ? color : undefined }}>
+            <span className="text-[3.4rem] font-semibold leading-none tabular-nums transition-colors" style={{ color: mbps > 0 ? color : undefined }}>
               {fmtMbps(mbps)}
             </span>
             <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground/55">Mbps</span>
@@ -381,13 +382,13 @@ function PhaseStepper({ phase, mode }: { phase: SpeedPhase; mode: SpeedMode | nu
             <div className={cn(
               'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors',
               state === 'active' && 'bg-brand/15 text-brand ring-1 ring-brand/30',
-              state === 'done' && 'bg-emerald-500/10 text-emerald-400',
+              state === 'done' && 'bg-success/10 text-success',
               state === 'pending' && 'text-muted-foreground/40',
             )}>
-              {state === 'active' ? <Loader2 className="size-3 animate-spin" /> : <s.icon className="size-3" />}
+              {state === 'active' ? <Spinner size="sm" className="size-3 text-brand" /> : <s.icon className="size-3" />}
               {s.label}
             </div>
-            {i < steps.length - 1 && <div className={cn('h-px w-4', cur > idx ? 'bg-emerald-500/40' : 'bg-border')} />}
+            {i < steps.length - 1 && <div className={cn('h-px w-4', cur > idx ? 'bg-success/40' : 'bg-border')} />}
           </div>
         )
       })}
@@ -419,7 +420,7 @@ function useCountUp(target: number | null, duration = 650): number {
   return val
 }
 
-function StatTile({ icon: Icon, label, value, unit, kind, accent, live, ratingClass }: {
+function SpeedStatTile({ icon: Icon, label, value, unit, kind, accent, live, ratingClass }: {
   icon: typeof Download; label: string; value: number | null; unit: string
   kind: 'mbps' | 'ms'; accent: string; live?: boolean; ratingClass?: string
 }) {
@@ -427,14 +428,15 @@ function StatTile({ icon: Icon, label, value, unit, kind, accent, live, ratingCl
   const shown = live ? (value ?? 0) : animated
   const display = value == null ? '–' : kind === 'mbps' ? fmtMbps(shown) : fmtMs(shown)
   return (
-    <div className={cn('relative flex flex-col items-center gap-0.5 overflow-hidden rounded-2xl border border-border/50 bg-background/40 px-2 py-3', live && 'border-brand/40')}>
+    <div className={cn('relative flex flex-col items-center gap-0.5 overflow-hidden rounded-card border border-border/50 bg-background/40 px-2 py-3', live && 'border-brand/40')}>
+      {/* design-ok(adhoc-pulse): live-throughput indicator strip while a test runs */}
       {live && <div className="absolute inset-x-0 top-0 h-0.5 animate-pulse" style={{ background: accent }} />}
       <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/55">
         <Icon className="size-3" style={{ color: accent }} />
         {label}
       </div>
       <div className="flex items-baseline gap-1">
-        <span className={cn('text-xl font-black tabular-nums', ratingClass)} style={!ratingClass && value != null ? { color: accent } : undefined}>
+        <span className={cn('text-xl font-semibold tabular-nums', ratingClass)} style={!ratingClass && value != null ? { color: accent } : undefined}>
           {display}
         </span>
         <span className="text-[10px] font-semibold text-muted-foreground/55">{unit}</span>

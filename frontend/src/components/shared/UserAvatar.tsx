@@ -14,12 +14,20 @@ import ThinkingDots from '@/components/companion/ThinkingDots'
 
 const STYLE_MAP = { avataaars, bottts, 'toon-head': toonHead } as const
 
+// Per-user fallback avatar colors: identity data (a stable hash of the user id picks one),
+// deliberately varied rather than brand-tinted so users stay distinguishable.
 const GRADIENTS = [
+  // design-ok(banned-palette) design-ok(raw-palette-semantic): per-user avatar identity palette data
   'from-violet-600 to-blue-500',
+  // design-ok(raw-palette-semantic): per-user avatar identity palette data
   'from-pink-600 to-rose-500',
+  // design-ok(raw-palette-semantic): per-user avatar identity palette data
   'from-emerald-600 to-teal-500',
+  // design-ok(raw-palette-semantic): per-user avatar identity palette data
   'from-amber-500 to-orange-500',
+  // design-ok(raw-palette-semantic): per-user avatar identity palette data
   'from-sky-600 to-cyan-500',
+  // design-ok(banned-palette): per-user avatar identity palette data
   'from-fuchsia-600 to-purple-500',
 ]
 
@@ -123,7 +131,7 @@ export function UserAvatar({ user, size = 32, className }: UserAvatarProps) {
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-bold text-white',
+        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white',
         gradientFor(user.id),
         className,
       )}

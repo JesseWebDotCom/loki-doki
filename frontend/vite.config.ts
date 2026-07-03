@@ -98,9 +98,33 @@ export default defineConfig({
         proxyTimeout: 0,
         timeout: 0,
       },
+      // browser-session + the boot progress feed are SSE streams every tab opens on load, but
+      // they were falling through to the generic '/api' proxy below — sharing its keep-alive
+      // socket POOL with ordinary widget fetches. When Bun's chunked SSE framing trips Node's
+      // HTTP parser ("Invalid character in chunk size"), it corrupts that pooled socket and the
+      // widget responses reusing it never make it back to the browser (backend logs 200, the
+      // browser hangs on a spinner). `agent: false` gives these streams unpooled, single-use
+      // sockets so a bad SSE frame can never poison a sibling request. Listed before '/api'.
+      '/api/browser-session': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        proxyTimeout: 0,
+        timeout: 0,
+        agent: false,
+      },
+      '/api/system/boot': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        proxyTimeout: 0,
+        timeout: 0,
+        agent: false,
+      },
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        // Belt-and-suspenders: don't reuse pooled sockets for ordinary API traffic either, so a
+        // stray chunked/streaming response can't desync a socket a later widget fetch reuses.
+        agent: false,
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {

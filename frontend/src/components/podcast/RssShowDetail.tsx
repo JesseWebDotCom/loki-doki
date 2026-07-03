@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronRight, Play, Pause, Loader2,
+  ChevronRight, Play, Pause,
   RotateCw, Rss, ExternalLink, ArrowDownToLine, AlertCircle, Check, ListPlus,
   Settings2, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import {
   EPISODE_PAGE_SIZE, ShowHero, EpisodesToolbar, EpisodeListSkeleton, EpisodeEmptyState,
@@ -28,7 +31,7 @@ import { fmtDate, fmtDuration } from '@/lib/podcast/format'
 
 const PAGE_SIZE = EPISODE_PAGE_SIZE
 
-/** Detail page for a subscribed RSS podcast — Apple-Podcasts-style hero + episode list. */
+/** Detail page for a subscribed RSS podcast - Apple-Podcasts-style hero + episode list. */
 export function RssShowDetail({ show }: { show: Show }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -117,7 +120,7 @@ export function RssShowDetail({ show }: { show: Show }) {
   const visible = sorted.slice(0, visibleCount)
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-6 pb-24">
+    <PageContainer width="narrow" className="py-6 pb-24">
       {/* Back nav */}
       <Link to="/podcasts/library" className="mb-5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
         <ChevronRight className="size-3.5 rotate-180" /> Library
@@ -125,7 +128,7 @@ export function RssShowDetail({ show }: { show: Show }) {
 
       {/* ── Hero ── */}
       <ShowHero
-        cover={<ShowCover showId={show.id} title={show.name} size={176} rounded="rounded-2xl" />}
+        cover={<ShowCover showId={show.id} title={show.name} size={176} rounded="rounded-card" />}
         badges={show.categories}
         title={show.name}
         author={show.author}
@@ -140,30 +143,29 @@ export function RssShowDetail({ show }: { show: Show }) {
         </>}
         description={show.description}
         warning={show.feedError ? (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-500">
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-warning">
             <AlertCircle className="size-3.5" /> Feed issue: {show.feedError}
           </p>
         ) : null}
         actions={<>
-          <button onClick={handlePlayLatest} disabled={!latest}
-            className="flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground hover:opacity-90 disabled:opacity-50">
+          <Button onClick={handlePlayLatest} disabled={!latest} className="gap-2 font-semibold">
             {latestIsCurrent && playing
               ? <><Pause className="size-4 fill-current" /> Pause</>
               : <><Play className="size-4 fill-current" /> {latestIsCurrent ? 'Resume' : 'Play Latest'}</>}
-          </button>
+          </Button>
 
-          <button onClick={() => void handleRefreshFeed()} disabled={refreshing} title="Refresh feed"
-            className="flex size-10 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50">
-            {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
-          </button>
+          <Button variant="outline" size="icon" onClick={() => void handleRefreshFeed()} disabled={refreshing}
+            title="Refresh feed" aria-label="Refresh feed" className="text-muted-foreground hover:text-foreground">
+            {refreshing ? <Spinner className="text-current" /> : <RotateCw className="size-4" />}
+          </Button>
 
           {show.subscription && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button title="Podcast settings"
-                  className="flex size-10 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-muted hover:text-foreground">
+                <Button variant="outline" size="icon" title="Podcast settings" aria-label="Podcast settings"
+                  className="text-muted-foreground hover:text-foreground">
                   <Settings2 className="size-4" />
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
                 <AutoDownloadSettings showId={show.id} subscription={show.subscription} />
@@ -224,7 +226,7 @@ export function RssShowDetail({ show }: { show: Show }) {
         destructive
         onConfirm={() => void handleUnsubscribe()}
       />
-    </div>
+    </PageContainer>
   )
 }
 
@@ -277,7 +279,7 @@ function AutoDownloadSettings({ showId, subscription }: {
             type="number" min={1} max={20} value={keep}
             onChange={e => setKeep(Number(e.target.value))}
             onBlur={e => void commitKeep(Number(e.target.value))}
-            className="w-14 rounded-md border border-border bg-background px-1.5 py-0.5 text-right text-xs outline-none focus:ring-1 focus:ring-brand"
+            className="w-14 rounded-control border border-border bg-background px-1.5 py-0.5 text-right text-xs outline-none focus:ring-1 focus:ring-brand"
           />
         </label>
       )}
@@ -285,7 +287,7 @@ function AutoDownloadSettings({ showId, subscription }: {
   )
 }
 
-/** One episode row — click to expand the full description inline. */
+/** One episode row - click to expand the full description inline. */
 function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle, onInvalidate }: {
   episode: Episode
   show: Pick<Show, 'id' | 'name'>
@@ -349,27 +351,27 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
         }
         rightExtras={<>
           {!dl && (
-            <button onClick={e => void handleDownload(e)} title="Download for offline"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={e => void handleDownload(e)} title="Download for offline" aria-label="Download for offline"
+              className="size-8 text-muted-foreground/60 hover:text-foreground">
               <ArrowDownToLine className="size-4" />
-            </button>
+            </Button>
           )}
           {(dl?.status === 'pending' || dl?.status === 'downloading') && (
             <span title="Downloading…" className="flex size-8 items-center justify-center text-brand">
-              <Loader2 className="size-4 animate-spin" />
+              <Spinner className="text-current" />
             </span>
           )}
           {dl?.status === 'ready' && (
-            <button onClick={() => setConfirmRemoveDl(true)} title="Downloaded — remove offline copy"
-              className="flex size-8 items-center justify-center rounded-full text-brand hover:bg-muted">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => setConfirmRemoveDl(true)} title="Downloaded - remove offline copy" aria-label="Remove offline copy"
+              className="size-8 text-brand hover:text-brand">
               <Check className="size-4" />
-            </button>
+            </Button>
           )}
           {dl?.status === 'failed' && (
-            <button onClick={e => void handleDownload(e)} title="Download failed — retry"
-              className="flex size-8 items-center justify-center rounded-full text-destructive hover:bg-muted">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={e => void handleDownload(e)} title="Download failed - retry" aria-label="Retry download"
+              className="size-8 text-destructive hover:text-destructive">
               <RotateCw className="size-4" />
-            </button>
+            </Button>
           )}
         </>}
       >
@@ -384,7 +386,7 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
           )}
           {(dl?.status === 'pending' || dl?.status === 'downloading') && (
             <span className="inline-flex items-center gap-0.5 text-brand">
-              <Loader2 className="size-3 animate-spin" /> Downloading
+              <Spinner size="sm" className="text-current" /> Downloading
             </span>
           )}
           {dl?.status === 'failed' && (
@@ -393,7 +395,7 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
             </span>
           )}
           {progress?.completed && (
-            <span className="inline-flex items-center gap-0.5 text-emerald-500"><Check className="size-3" /> Played</span>
+            <span className="inline-flex items-center gap-0.5 text-success"><Check className="size-3" /> Played</span>
           )}
         </EpisodeRowMeta>
         {episode.description && <EpisodeRowDescription text={episode.description} expanded={expanded} />}
@@ -407,34 +409,33 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
         {expanded && (
           <div className="mt-3 flex flex-wrap items-center gap-2" onClick={e => e.stopPropagation()}>
             {ready && (
-              <button onClick={handlePlay}
-                className="flex items-center gap-1.5 rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90">
+              <Button type="button" size="sm" onClick={handlePlay} className="gap-1.5 font-semibold">
                 {isCurrent && playing ? <><Pause className="size-3.5 fill-current" /> Pause</> : <><Play className="size-3.5 fill-current" /> Play</>}
-              </button>
+              </Button>
             )}
             {ready && (
-              <button onClick={() => enqueue(toTrack(episode, show))}
-                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+              <Button type="button" variant="outline" size="sm" onClick={() => enqueue(toTrack(episode, show))}
+                className="gap-1.5 text-muted-foreground hover:text-foreground">
                 <ListPlus className="size-3.5" /> Up Next
-              </button>
+              </Button>
             )}
             {!dl && (
-              <button onClick={e => void handleDownload(e)}
-                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+              <Button type="button" variant="outline" size="sm" onClick={e => void handleDownload(e)}
+                className="gap-1.5 text-muted-foreground hover:text-foreground">
                 <ArrowDownToLine className="size-3.5" /> Download
-              </button>
+              </Button>
             )}
             {dl?.status === 'failed' && (
-              <button onClick={e => void handleDownload(e)}
-                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-destructive hover:bg-muted">
+              <Button type="button" variant="outline" size="sm" onClick={e => void handleDownload(e)}
+                className="gap-1.5 text-destructive hover:text-destructive">
                 <RotateCw className="size-3.5" /> Retry download
-              </button>
+              </Button>
             )}
             {dl?.status === 'ready' && (
-              <button onClick={() => setConfirmRemoveDl(true)}
-                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+              <Button type="button" variant="outline" size="sm" onClick={() => setConfirmRemoveDl(true)}
+                className="gap-1.5 text-muted-foreground hover:text-foreground">
                 <Trash2 className="size-3.5" /> Remove download
-              </button>
+              </Button>
             )}
             {episode.link && (
               <a href={episode.link} target="_blank" rel="noreferrer"

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource-variable/inter";
 
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -73,8 +74,8 @@
 /* Shared input style for the character studio editor. */
 @layer components {
   .ld-input {
-    @apply w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors;
-    @apply focus:border-violet-500/40 placeholder:text-foreground/30;
+    @apply w-full rounded-control border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors;
+    @apply focus:border-brand/40 placeholder:text-foreground/30;
   }
 }
 
@@ -94,74 +95,109 @@
 @custom-variant data-closed (&[data-state="closed"]);
 @custom-variant data-active (&[data-active="true"]);
 
-/* ---- Light mode ---- */
+/* ---- Brand gradient (theme-invariant): the four logo stops. Hero/brand moments
+   only (BrandMark, boot, wizard hero, ai-ring, sidebar hairline) - never on
+   generic buttons or badges. Enforced by check:design-contract. ---- */
+:root {
+  --gradient-brand-1: oklch(0.852 0.111 218); /* #6fe0ff cyan */
+  --gradient-brand-2: oklch(0.679 0.17 275);  /* #7c8bff periwinkle */
+  --gradient-brand-3: oklch(0.67 0.214 303);  /* #b06bff violet */
+  --gradient-brand-4: oklch(0.74 0.211 342);  /* #ff6ad0 pink */
+  --brand-gradient: linear-gradient(
+    135deg,
+    var(--gradient-brand-1) 0%,
+    var(--gradient-brand-2) 38%,
+    var(--gradient-brand-3) 70%,
+    var(--gradient-brand-4) 100%
+  );
+}
+
+/* ---- Light mode: "gallery white" - white cards on a faintly plum canvas.
+   Brand hue 288 = the logo gradient's periwinkle->violet midpoint. ---- */
 :root,
 [data-theme="light"] {
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.095 0.008 240);
+  --background: oklch(0.985 0.004 300);
+  --foreground: oklch(0.17 0.025 300);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.095 0.008 240);
+  --card-foreground: oklch(0.17 0.025 300);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.095 0.008 240);
-  --primary: oklch(0.125 0.01 240);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.96 0.005 240);
-  --secondary-foreground: oklch(0.125 0.01 240);
-  --muted: oklch(0.96 0.005 240);
-  --muted-foreground: oklch(0.47 0.005 240);
-  --accent: oklch(0.96 0.005 240);
-  --accent-foreground: oklch(0.125 0.01 240);
-  --destructive: oklch(0.55 0.22 27);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.9 0.005 240);
-  --input: oklch(0.9 0.005 240);
-  --ring: oklch(0.65 0.005 240);
-  --sidebar: oklch(0.98 0 0);
-  --sidebar-foreground: oklch(0.26 0.006 240);
-  --sidebar-primary: oklch(0.125 0.01 240);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.96 0.005 240);
-  --sidebar-accent-foreground: oklch(0.125 0.01 240);
-  --sidebar-border: oklch(0.91 0.003 220);
-  --sidebar-ring: oklch(0.65 0.19 255);
-  --brand: oklch(0.44 0.22 290);
-  --brand-foreground: oklch(0.98 0 0);
+  --popover-foreground: oklch(0.17 0.025 300);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: oklch(0.955 0.008 300);
+  --secondary-foreground: oklch(0.25 0.03 300);
+  --muted: oklch(0.955 0.008 300);
+  --muted-foreground: oklch(0.49 0.024 295);
+  --accent: oklch(0.955 0.008 300);
+  --accent-foreground: oklch(0.25 0.03 300);
+  --destructive: oklch(0.55 0.21 22);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.55 0.15 155);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.6 0.14 75);
+  --warning-foreground: oklch(0.99 0 0);
+  --info: oklch(0.55 0.14 240);
+  --info-foreground: oklch(0.99 0 0);
+  --border: oklch(0.905 0.012 300);
+  --input: oklch(0.905 0.012 300);
+  --ring: oklch(0.5 0.21 288);
+  --overlay: oklch(0.25 0.03 300 / 0.4);
+  --sidebar: oklch(0.965 0.006 300);
+  --sidebar-foreground: oklch(0.3 0.025 300);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.94 0.01 295);
+  --sidebar-accent-foreground: oklch(0.25 0.03 300);
+  --sidebar-border: oklch(0.92 0.008 300);
+  --sidebar-ring: var(--brand);
+  --brand: oklch(0.5 0.21 288);
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-hover: oklch(0.45 0.2 288);
   --radius: 0.75rem;
 }
 
-/* ---- Dark mode ---- */
+/* ---- Dark mode: "deep plum" - every surface carries the logo tile's hue-300
+   cast at low chroma; brand is a light accent with dark text. ---- */
 [data-theme="dark"] {
   color-scheme: dark;
-  --background: oklch(0.08 0 0);
-  --foreground: oklch(0.97 0.005 262);
-  --card: oklch(0.12 0 0);
-  --card-foreground: oklch(0.97 0.005 262);
-  --popover: oklch(0.12 0 0);
-  --popover-foreground: oklch(0.97 0.005 262);
-  --primary: oklch(0.97 0.005 262);
-  --primary-foreground: oklch(0.08 0 0);
-  --secondary: oklch(0.16 0 0);
-  --secondary-foreground: oklch(0.97 0.005 262);
-  --muted: oklch(0.16 0 0);
-  --muted-foreground: oklch(0.52 0 0);
-  --accent: oklch(0.16 0 0);
-  --accent-foreground: oklch(0.97 0.005 262);
-  --destructive: oklch(0.45 0.2 22);
-  --destructive-foreground: oklch(0.97 0.04 22);
-  --border: oklch(0.19 0 0);
-  --input: oklch(0.19 0 0);
-  --ring: oklch(0.84 0.005 262);
-  --sidebar: oklch(0.08 0.012 262);
-  --sidebar-foreground: oklch(0.97 0.005 262);
-  --sidebar-primary: oklch(0.64 0.19 224);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.15 0.01 262);
-  --sidebar-accent-foreground: oklch(0.97 0.005 262);
-  --sidebar-border: oklch(0.15 0 0);
-  --sidebar-ring: oklch(0.65 0.19 255);
-  --brand: oklch(0.72 0.22 290);
-  --brand-foreground: oklch(0.07 0 0);
+  --background: oklch(0.16 0.022 300);
+  --foreground: oklch(0.965 0.008 300);
+  --card: oklch(0.2 0.024 300);
+  --card-foreground: oklch(0.965 0.008 300);
+  --popover: oklch(0.235 0.026 300);
+  --popover-foreground: oklch(0.965 0.008 300);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: oklch(0.25 0.026 300);
+  --secondary-foreground: oklch(0.965 0.008 300);
+  --muted: oklch(0.25 0.026 300);
+  --muted-foreground: oklch(0.7 0.03 295);
+  --accent: oklch(0.25 0.026 300);
+  --accent-foreground: oklch(0.965 0.008 300);
+  --destructive: oklch(0.58 0.2 22);
+  --destructive-foreground: oklch(0.985 0.005 20);
+  --success: oklch(0.72 0.17 155);
+  --success-foreground: oklch(0.16 0.022 300);
+  --warning: oklch(0.78 0.16 80);
+  --warning-foreground: oklch(0.16 0.022 300);
+  --info: oklch(0.72 0.14 230);
+  --info-foreground: oklch(0.16 0.022 300);
+  --border: oklch(0.29 0.024 300);
+  --input: oklch(0.29 0.024 300);
+  --ring: oklch(0.72 0.16 288);
+  --overlay: oklch(0.13 0.025 300 / 0.65);
+  --sidebar: oklch(0.14 0.022 300);
+  --sidebar-foreground: oklch(0.965 0.008 300);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.21 0.024 300);
+  --sidebar-accent-foreground: oklch(0.965 0.008 300);
+  --sidebar-border: oklch(0.24 0.024 300);
+  --sidebar-ring: var(--brand);
+  --brand: oklch(0.72 0.16 288);
+  --brand-foreground: oklch(0.16 0.022 300);
+  --brand-hover: oklch(0.76 0.15 288);
   --radius: 0.75rem;
 }
 
@@ -183,6 +219,14 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-overlay: var(--overlay);
+  --color-brand-hover: var(--brand-hover);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -199,8 +243,36 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Semantic radius tiers - the forward-facing scale (legacy sm-xl kept for
+     shadcn transitive deps): controls/rows | cards/tiles | overlays/heroes.
+     Buttons, badges, and search fields are rounded-full pills. */
+  --radius-control: 0.625rem;
+  --radius-card: 1.5rem;
+  --radius-sheet: 2rem;
+
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Type scale - one class per tier; text-display is the ONE page-title style. */
+  --text-display: 2.25rem;
+  --text-display--line-height: 1.08;
+  --text-display--letter-spacing: -0.025em;
+  --text-display--font-weight: 700;
+  --text-display-lg: 3rem;
+  --text-display-lg--line-height: 1.05;
+  --text-display-lg--letter-spacing: -0.03em;
+  --text-display-lg--font-weight: 700;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.02em;
+  --text-title--font-weight: 650;
+  --text-section: 1.125rem;
+  --text-section--line-height: 1.3;
+  --text-section--letter-spacing: -0.01em;
+  --text-section--font-weight: 600;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.35;
+  --text-caption--font-weight: 500;
 
   --animate-typing-dot: typing-dot-bounce 1.25s ease-out infinite;
   --animate-caret-blink: caret-blink 1.25s ease-out infinite;
@@ -297,15 +369,15 @@
   background: conic-gradient(
     from var(--ai-ring-angle),
     transparent 35%,
-    oklch(70% 0.22 300 / 90%) 55%,
-    oklch(68% 0.2  260 / 70%) 70%,
+    color-mix(in oklch, var(--gradient-brand-3) 90%, transparent) 55%,
+    color-mix(in oklch, var(--gradient-brand-2) 70%, transparent) 70%,
     transparent 85%
   );
   animation: ai-ring-spin 1s linear infinite, ai-ring-glow-pulse 2s ease-in-out infinite;
 }
 
 .stop-btn-animated {
-  background: linear-gradient(135deg, oklch(62% 0.22 340), oklch(58% 0.2 280));
+  background: linear-gradient(135deg, var(--gradient-brand-4), var(--gradient-brand-3));
   color: white;
   animation: stop-btn-pulse 2s ease-in-out infinite;
 }
@@ -314,6 +386,37 @@
   scrollbar-width: none;
   -ms-overflow-style: none;
   &::-webkit-scrollbar { display: none; }
+}
+
+/* Chrome glass - ONLY for fixed/sticky chrome that content scrolls beneath
+   (breadcrumb, tab bar, mini players, sticky bars). In-page tiles are flat. */
+@utility glass-chrome {
+  background-color: color-mix(in oklch, var(--background) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Continuous "squircle" corners on card/sheet surfaces (and the app icon tiles that
+   share rounded-card), matching Apple's OS design language: a superellipse curve
+   that blends smoothly into the straight edges, not a plain circular arc. Pure
+   progressive enhancement - @supports guards it so browsers without corner-shape
+   just keep the normal circular rounded-card/rounded-sheet corners, unchanged. Not
+   applied to rounded-control (imperceptible at that size) or rounded-full pills
+   (a stadium shape has no corner to smooth). */
+@supports (corner-shape: squircle) {
+  .rounded-card,
+  .rounded-sheet {
+    corner-shape: squircle;
+  }
+}
+
+/* Overline tier: eyebrows, sidebar section headings, widget labels. */
+@utility text-overline {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
 /* ── Sports ticker ────────────────────────────────────────────────────────── */
@@ -339,7 +442,7 @@
 
 @layer base {
   * { border-color: var(--color-border); }
-  html { font-family: var(--font-sans); scroll-behavior: smooth; overscroll-behavior: none; }
+  html { font-family: var(--font-sans); font-optical-sizing: auto; scroll-behavior: smooth; overscroll-behavior: none; }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -680,7 +783,7 @@
 }
 .admin-flash {
   animation: admin-flash 1.5s ease-out;
-  border-radius: 0.75rem;
+  border-radius: var(--radius-card);
 }
 
 /* ── Ambient device display (/display) ─────────────────────────────────────── */

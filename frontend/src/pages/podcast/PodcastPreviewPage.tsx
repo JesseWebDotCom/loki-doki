@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ChevronRight, ExternalLink, Loader2, Plus, Podcast } from 'lucide-react'
+import { AlertCircle, ChevronRight, ExternalLink, Plus, Podcast } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import { PageContainer } from '@/components/shared/PageContainer'
 import {
   EPISODE_PAGE_SIZE, ShowHero, EpisodesToolbar, EpisodeListSkeleton, EpisodeEmptyState,
   ShowMoreButton, EpisodeRowFrame, EpisodeRowTitle, EpisodeRowMeta, EpisodeRowDescription,
@@ -16,7 +20,7 @@ import { fmtDate, fmtDuration } from '@/lib/podcast/format'
 
 type PreviewEpisode = DirectoryPreview['episodes'][number]
 
-/** Full-page pre-subscribe details for a directory podcast — the RssShowDetail look,
+/** Full-page pre-subscribe details for a directory podcast - the RssShowDetail look,
  *  fed straight from the show's feed. Seed params (?title/artworkUrl/…) paint the hero
  *  instantly while the feed loads; Subscribe lands on the real show page. */
 export function PodcastPreviewPage() {
@@ -111,13 +115,13 @@ export function PodcastPreviewPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-6 pb-24">
+    <PageContainer width="narrow" className="py-6 pb-24">
       {/* Back nav */}
       <Link to="/podcasts/browse" className="mb-5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
         <ChevronRight className="size-3.5 rotate-180" /> Browse
       </Link>
 
-      {/* ── Hero — seed-painted while the feed loads ── */}
+      {/* ── Hero - seed-painted while the feed loads ── */}
       {title ? (
         <ShowHero
           cover={<PreviewCover url={artwork} title={title} />}
@@ -142,7 +146,7 @@ export function PodcastPreviewPage() {
 
       {/* ── Feed error ── */}
       {!!error && !isLoading && (
-        <div className="mt-8 flex flex-col items-center gap-3 rounded-2xl border border-border/40 bg-card py-12 text-center">
+        <div className="mt-8 flex flex-col items-center gap-3 rounded-card border border-border/40 bg-card py-12 text-center">
           <AlertCircle className="size-8 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">
             {error instanceof Error ? error.message : 'Could not load show details.'}
@@ -186,22 +190,21 @@ export function PodcastPreviewPage() {
           )}
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
 /** Brand Subscribe pill with a pending spinner. */
 function SubscribeButton({ pending, onClick }: { pending: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} disabled={pending}
-      className="flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground hover:opacity-90 disabled:opacity-60">
-      {pending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+    <Button onClick={onClick} disabled={pending} className="gap-2 font-semibold">
+      {pending ? <Spinner className="text-current" /> : <Plus className="size-4" />}
       {pending ? 'Subscribing…' : 'Subscribe'}
-    </button>
+    </Button>
   )
 }
 
-/** Read-only episode row — expands inline for the full description, no play/download. */
+/** Read-only episode row - expands inline for the full description, no play/download. */
 function PreviewEpisodeRow({ episode, expanded, onToggle }: {
   episode: PreviewEpisode
   expanded: boolean
@@ -219,11 +222,11 @@ function PreviewEpisodeRow({ episode, expanded, onToggle }: {
   )
 }
 
-/** 176px hero cover — remote art through the image proxy, icon fallback. */
+/** 176px hero cover - remote art through the image proxy, icon fallback. */
 function PreviewCover({ url, title }: { url: string | null; title: string }) {
   const [failed, setFailed] = useState(false)
   return (
-    <div className="relative size-44 overflow-hidden rounded-2xl bg-muted">
+    <div className="relative size-44 overflow-hidden rounded-card bg-muted">
       <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/40">
         <Podcast className="size-12" />
       </div>
@@ -239,12 +242,12 @@ function PreviewCover({ url, title }: { url: string | null; title: string }) {
 function HeroSkeleton() {
   return (
     <div className="flex flex-col gap-6 sm:flex-row">
-      <div className="size-44 shrink-0 animate-pulse rounded-2xl bg-muted/50" />
+      <Skeleton className="size-44 shrink-0 rounded-card" />
       <div className="min-w-0 flex-1 space-y-3 sm:pt-1">
-        <div className="h-3 w-24 animate-pulse rounded bg-muted/50" />
-        <div className="h-8 w-2/3 animate-pulse rounded bg-muted/50" />
-        <div className="h-4 w-40 animate-pulse rounded bg-muted/50" />
-        <div className="h-16 w-full max-w-2xl animate-pulse rounded bg-muted/50" />
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-8 w-2/3" />
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-16 w-full max-w-2xl" />
       </div>
     </div>
   )

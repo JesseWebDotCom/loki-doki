@@ -1,9 +1,13 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Film, Loader2, Tv, WifiOff } from 'lucide-react'
+import { Film, Tv, WifiOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { Card, cardVariants } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
@@ -13,8 +17,6 @@ import {
   type Provider,
   type TitleCard,
 } from '@/lib/whereToWatch'
-
-const GRADIENT = 'linear-gradient(135deg,#1e1b4b,#7c3aed)'
 
 // ── Provider badge ────────────────────────────────────────────────────────────
 
@@ -42,7 +44,7 @@ function TitleCardItem({ card }: { card: TitleCard }) {
 
   const inner = (
     <div className="flex gap-3 p-3">
-      <div className="relative size-16 shrink-0 overflow-hidden rounded-lg bg-muted/60">
+      <div className="relative size-16 shrink-0 overflow-hidden rounded-control bg-muted/60">
         {card.posterUrl && imgOk ? (
           <img
             src={card.posterUrl}
@@ -83,7 +85,7 @@ function TitleCardItem({ card }: { card: TitleCard }) {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="group block rounded-2xl border border-border/60 bg-card transition-all hover:border-brand/40 hover:shadow-md active:scale-[0.99]"
+        className={cn(cardVariants({ variant: 'interactive' }), 'group block')}
       >
         {inner}
       </a>
@@ -91,9 +93,9 @@ function TitleCardItem({ card }: { card: TitleCard }) {
   }
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card">
+    <Card className="border-border/60">
       {inner}
-    </div>
+    </Card>
   )
 }
 
@@ -111,22 +113,16 @@ function FilterChips({
   if (providers.length === 0) return null
 
   return (
-    <div className="flex flex-wrap gap-1.5 px-5 pb-3">
+    <ChipRow className="flex-wrap gap-1.5 pb-3">
       {['All', ...providers].map((p) => (
-        <button
+        <Chip
           key={p}
+          label={p}
+          active={(p === 'All' && !selected) || selected === p}
           onClick={() => onSelect(p === 'All' ? '' : p)}
-          className={cn(
-            'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
-            (p === 'All' && !selected) || selected === p
-              ? 'bg-brand text-white'
-              : 'bg-muted text-muted-foreground hover:bg-muted/80',
-          )}
-        >
-          {p}
-        </button>
+        />
       ))}
-    </div>
+    </ChipRow>
   )
 }
 
@@ -152,7 +148,7 @@ export function WhereToWatchPage() {
   const active = !!activeQuery
   const items: TitleCard[] = active ? (search.data ?? []) : (popular.data ?? [])
   const loading = active ? search.isLoading : popular.isLoading
-  // "error" here means nothing to show (failed fetch or empty result) — same UX as before.
+  // "error" here means nothing to show (failed fetch or empty result), same UX as before.
   const status: 'loading' | 'ready' | 'error' = loading
     ? 'loading'
     : items.length > 0 ? 'ready' : 'error'
@@ -170,7 +166,6 @@ export function WhereToWatchPage() {
     placeholder: 'Search movies & shows...',
     loading: status === 'loading',
     externalHref: 'https://www.justwatch.com',
-    settingsHref: '/admin/features?tool=where-to-watch',
   })
 
   const retry = useCallback(() => {
@@ -192,79 +187,68 @@ export function WhereToWatchPage() {
     : 'Popular Right Now'
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={Tv}>
-      <PageHeader
-        variant="compact"
-        title="Where to Watch"
-        gradient={GRADIENT}
-        icon={<Tv className="size-7 text-white" />}
-      />
+    <PageShell>
+      <PageContainer className="pb-10">
+        <PageHeader />
 
-      {/* Provider filter chips */}
-      {status === 'ready' && (
-        <FilterChips
-          providers={allProviders}
-          selected={selectedProvider}
-          onSelect={setSelectedProvider}
-        />
-      )}
+        {/* Provider filter chips */}
+        {status === 'ready' && (
+          <FilterChips
+            providers={allProviders}
+            selected={selectedProvider}
+            onSelect={setSelectedProvider}
+          />
+        )}
 
-      {/* Section header */}
-      <div className="px-5 pb-3">
-        <SectionHeader title={sectionTitle} />
-      </div>
+        {/* Section header */}
+        <SectionHeader title={sectionTitle} className="pb-3" />
 
-      {/* Loading */}
-      {status === 'loading' && (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="size-6 animate-spin text-muted-foreground" />
-        </div>
-      )}
+        {/* Loading */}
+        {status === 'loading' && <SkeletonListRows count={6} />}
 
-      {/* Error / empty */}
-      {status === 'error' && (
-        <div className="flex flex-col items-center gap-3 py-20 text-center">
-          <WifiOff className="size-8 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground">
-            {activeQuery
-              ? `Nothing found for "${activeQuery}".`
-              : 'Could not load titles right now.'}
-          </p>
-          <button
-            onClick={retry}
-            className="text-xs text-brand hover:underline"
-          >
-            Try again
-          </button>
-        </div>
-      )}
+        {/* Error / empty */}
+        {status === 'error' && (
+          <div className="flex flex-col items-center gap-3 py-20 text-center">
+            <WifiOff className="size-8 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">
+              {activeQuery
+                ? `Nothing found for "${activeQuery}".`
+                : 'Could not load titles right now.'}
+            </p>
+            <button
+              onClick={retry}
+              className="text-xs text-brand hover:underline"
+            >
+              Try again
+            </button>
+          </div>
+        )}
 
-      {/* Grid */}
-      {status === 'ready' && visibleItems.length > 0 && (
-        <div className="px-4 pb-10 sm:px-5">
+        {/* Grid */}
+        {status === 'ready' && visibleItems.length > 0 && (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {visibleItems.map((card, i) => (
               <TitleCardItem key={`${card.title}-${i}`} card={card} />
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Empty after filter */}
-      {status === 'ready' && visibleItems.length === 0 && items.length > 0 && (
-        <div className="flex flex-col items-center gap-2 py-16 text-center">
-          <Tv className="size-8 text-muted-foreground/30" />
-          <p className="text-sm text-muted-foreground">
-            No titles found on {selectedProvider}.
-          </p>
-          <button
-            onClick={() => setSelectedProvider('')}
-            className="text-xs text-brand hover:underline"
-          >
-            Show all
-          </button>
-        </div>
-      )}
+        {/* Empty after filter */}
+        {status === 'ready' && visibleItems.length === 0 && items.length > 0 && (
+          <div className="flex flex-col items-center gap-2 py-16 text-center">
+            <Tv className="size-8 text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">
+              No titles found on {selectedProvider}.
+            </p>
+            <button
+              onClick={() => setSelectedProvider('')}
+              className="text-xs text-brand hover:underline"
+            >
+              Show all
+            </button>
+          </div>
+        )}
+      </PageContainer>
     </PageShell>
   )
 }

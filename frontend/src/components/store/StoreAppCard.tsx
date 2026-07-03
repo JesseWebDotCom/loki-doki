@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/cn'
+import { cardVariants } from '@/components/ui/card'
 import { AppIcon, ConnectivityBadge } from '@/components/store/AppIcon'
 import { PrimaryAction } from '@/components/store/StoreActions'
 import type { StoreApp } from '@/lib/store/useStoreApps'
@@ -13,11 +14,7 @@ export function StoreAppCard({ app, className }: { app: StoreApp; className?: st
       tabIndex={0}
       onClick={() => navigate(`/app-store/app/${app.id}`)}
       onKeyDown={e => { if (e.key === 'Enter') navigate(`/app-store/app/${app.id}`) }}
-      className={cn(
-        'group flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4 text-left',
-        'cursor-pointer transition-colors hover:bg-accent/40 hover:border-border',
-        className,
-      )}
+      className={cn(cardVariants({ variant: 'interactive' }), 'group flex flex-col gap-3 p-4 text-left', className)}
     >
       <div className="flex items-start justify-between">
         <AppIcon app={app} className="size-16" iconClassName="size-8" />
@@ -25,8 +22,8 @@ export function StoreAppCard({ app, className }: { app: StoreApp; className?: st
       </div>
 
       <div className="flex-1">
-        <p className="text-sm font-bold leading-snug">{app.name}</p>
-        <p className="text-[11px] font-medium text-muted-foreground/70">{app.category}</p>
+        <p className="text-sm font-semibold leading-snug">{app.name}</p>
+        <p className="text-caption text-muted-foreground/70">{app.category}</p>
         <p className="mt-1 text-xs text-muted-foreground leading-relaxed line-clamp-2">{app.description}</p>
       </div>
 
@@ -46,13 +43,13 @@ export function StoreAppMiniCard({ app }: { app: StoreApp }) {
       tabIndex={0}
       onClick={() => navigate(`/app-store/app/${app.id}`)}
       onKeyDown={e => { if (e.key === 'Enter') navigate(`/app-store/app/${app.id}`) }}
-      className="flex w-56 shrink-0 cursor-pointer flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4 transition-colors hover:bg-accent/40 hover:border-border"
+      className={cn(cardVariants({ variant: 'interactive' }), 'flex w-56 shrink-0 flex-col gap-3 p-4')}
     >
       <div className="flex items-center gap-3">
         <AppIcon app={app} className="size-12" iconClassName="size-6" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold">{app.name}</p>
-          <p className="truncate text-[11px] text-muted-foreground/70">{app.category}</p>
+          <p className="truncate text-sm font-semibold">{app.name}</p>
+          <p className="truncate text-caption text-muted-foreground/70">{app.category}</p>
         </div>
       </div>
       <PrimaryAction app={app} full />

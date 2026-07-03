@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Clapperboard, ChevronDown, ChevronUp, ExternalLink, Loader2, PlayCircle, WifiOff } from 'lucide-react'
+import { Clapperboard, ChevronDown, ChevronUp, ExternalLink, PlayCircle, WifiOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
+import { Card } from '@/components/ui/card'
 import { proxyImg } from '@/lib/img'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
@@ -36,12 +40,12 @@ async function fetchShowtimes(zip: string): Promise<ShowtimesData> {
 function MovieCard({ movie }: { movie: ShowMovie }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+    <Card className="border-border/60">
       <div className="flex gap-3 p-3">
         {movie.poster_url ? (
-          <img src={proxyImg(movie.poster_url)} alt={movie.title} className="h-32 w-22 shrink-0 rounded-lg object-cover" />
+          <img src={proxyImg(movie.poster_url)} alt={movie.title} className="h-32 w-22 shrink-0 rounded-control object-cover" />
         ) : (
-          <div className="flex h-32 w-22 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <div className="flex h-32 w-22 shrink-0 items-center justify-center rounded-control bg-muted">
             <Clapperboard className="size-6 text-muted-foreground/40" />
           </div>
         )}
@@ -53,7 +57,7 @@ function MovieCard({ movie }: { movie: ShowMovie }) {
           </div>
           <div className="flex flex-wrap gap-1 pt-1">
             {movie.times.slice(0, 8).map((t, i) => (
-              <span key={i} className="rounded-md bg-muted/70 px-2 py-0.5 text-xs font-medium">{t}</span>
+              <span key={i} className="rounded-full bg-muted/70 px-2 py-0.5 text-xs font-medium">{t}</span>
             ))}
           </div>
           <div className="flex flex-wrap gap-2 pt-1.5">
@@ -64,7 +68,7 @@ function MovieCard({ movie }: { movie: ShowMovie }) {
               </a>
             )}
             <a href={movie.trailer_url} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-red-500 hover:underline">
+              className="inline-flex items-center gap-1 text-xs text-destructive hover:underline">
               <PlayCircle className="size-3" /> Trailer
             </a>
             {movie.theater_groups.length > 0 && (
@@ -84,14 +88,14 @@ function MovieCard({ movie }: { movie: ShowMovie }) {
               <p className="text-xs font-semibold">{g.theater_name}</p>
               <div className="mt-1 flex flex-wrap gap-1">
                 {g.times.map((t, j) => (
-                  <span key={j} className="rounded-md bg-card px-2 py-0.5 text-xs">{t}</span>
+                  <span key={j} className="rounded-full bg-card px-2 py-0.5 text-xs">{t}</span>
                 ))}
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -134,36 +138,34 @@ export function ShowtimesPage() {
     placeholder: 'Enter ZIP code...',
     loading: status === 'loading',
     externalHref: 'https://www.fandango.com',
-    settingsHref: '/admin/features?tool=showtimes',
   })
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#1e1b4b,#6d28d9)" GhostIcon={Clapperboard}>
-      <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <div>
-          <h1 className="text-xl font-black tracking-tight">Showtimes</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">Movie showtimes at theaters near you.</p>
-        </div>
-        {data && <span className="text-xs text-muted-foreground">{data.theater_count} theaters near {data.zip}</span>}
-      </div>
+    <PageShell>
+      <PageContainer className="shrink-0">
+        <PageHeader
+          subtitle="Movie showtimes at theaters near you."
+          actions={data ? <span className="text-xs text-muted-foreground">{data.theater_count} theaters near {data.zip}</span> : undefined}
+        />
+      </PageContainer>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-3 sm:px-5">
-        {status === 'idle' && (
-          <p className="py-16 text-center text-sm text-muted-foreground">Enter a 5-digit ZIP code to find showtimes near you.</p>
-        )}
-        {status === 'loading' && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground"><Loader2 className="size-6 animate-spin" /></div>
-        )}
-        {status === 'empty' && (
-          <p className="py-16 text-center text-sm text-muted-foreground">No showtimes found near {zip}.</p>
-        )}
-        {status === 'error' && (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <WifiOff className="size-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Couldn't load showtimes right now.</p>
-          </div>
-        )}
-        {status === 'ready' && data?.movies.map((m, i) => <MovieCard key={i} movie={m} />)}
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer className="pb-8 space-y-3">
+          {status === 'idle' && (
+            <p className="py-16 text-center text-sm text-muted-foreground">Enter a 5-digit ZIP code to find showtimes near you.</p>
+          )}
+          {status === 'loading' && <SkeletonListRows count={5} />}
+          {status === 'empty' && (
+            <p className="py-16 text-center text-sm text-muted-foreground">No showtimes found near {zip}.</p>
+          )}
+          {status === 'error' && (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <WifiOff className="size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Couldn't load showtimes right now.</p>
+            </div>
+          )}
+          {status === 'ready' && data?.movies.map((m, i) => <MovieCard key={i} movie={m} />)}
+        </PageContainer>
       </div>
     </PageShell>
   )

@@ -3,9 +3,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react'
+import { Check, Copy, ExternalLink } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
 import type { ChannelStatus } from '@/lib/notifications'
 
 interface LinkCode {
@@ -82,7 +84,7 @@ export function TelegramLinkDialog({ open, onOpenChange, onLinked }: {
           <p className="text-sm text-destructive">{error}</p>
         ) : !link ? (
           <div className="flex h-24 items-center justify-center">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            <Spinner size="lg" />
           </div>
         ) : (
           <div className="space-y-4">
@@ -94,7 +96,7 @@ export function TelegramLinkDialog({ open, onOpenChange, onLinked }: {
             <div className="flex items-center justify-center gap-3">
               <p className="font-mono text-3xl tracking-[0.3em] select-all">{link.code}</p>
               <Button variant="ghost" size="icon" className="size-8" onClick={copy} aria-label="Copy /start command">
-                {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
+                {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
               </Button>
             </div>
 
@@ -106,8 +108,8 @@ export function TelegramLinkDialog({ open, onOpenChange, onLinked }: {
               </Button>
             )}
 
-            <p className="text-center text-xs text-muted-foreground">
-              <Loader2 className="mr-1 inline size-3 animate-spin" />
+            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+              <StatusDot status="warn" pulse />
               Waiting for the bot to confirm… code expires in {mins}:{secs}
             </p>
           </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Search, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { ChromeWash } from '@/components/shared/ChromeWash'
 import { ADMIN_SECTIONS, searchSettings } from './adminRegistry'
 
@@ -28,13 +29,16 @@ export function AdminSidebar({
   if (collapsed) {
     return (
       <aside className={cn('flex w-14 shrink-0 flex-col items-center border-r border-border/40 bg-background/60 py-2', className)}>
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onToggleCollapse}
-          className="mb-1 rounded-lg p-2 text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+          className="mb-1 text-muted-foreground hover:text-foreground"
           title="Expand sidebar"
+          aria-label="Expand sidebar"
         >
           <PanelLeftOpen className="size-4" />
-        </button>
+        </Button>
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
           {ADMIN_SECTIONS.map((section) => {
             const Icon = section.icon
@@ -45,8 +49,8 @@ export function AdminSidebar({
                 onClick={() => onNavigate(section.id)}
                 title={section.label}
                 className={cn(
-                  'flex size-10 items-center justify-center rounded-lg transition-colors',
-                  active ? 'bg-brand/12 text-brand' : 'text-muted-foreground hover:bg-foreground/6 hover:text-foreground',
+                  'flex size-10 items-center justify-center rounded-control transition-colors',
+                  active ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
                 )}
               >
                 <Icon className="size-4" />
@@ -63,7 +67,7 @@ export function AdminSidebar({
     <aside className={cn('flex w-56 shrink-0 flex-col border-r border-border/40 bg-background/60', className)}>
       <div className="relative flex shrink-0 items-center gap-1.5 border-b border-border/40 p-2">
         <ChromeWash />
-        <div className="relative flex flex-1 items-center gap-2 rounded-lg border border-border/60 bg-background px-2.5 py-1.5">
+        <div className="relative flex flex-1 items-center gap-2 rounded-full border border-border bg-secondary/50 px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-ring">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             value={query}
@@ -73,29 +77,32 @@ export function AdminSidebar({
           />
         </div>
         {onToggleCollapse && (
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={onToggleCollapse}
-            className="relative hidden shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-foreground/6 hover:text-foreground md:block"
+            className="relative hidden shrink-0 text-muted-foreground hover:text-foreground md:block"
             title="Collapse sidebar"
+            aria-label="Collapse sidebar"
           >
             <PanelLeftClose className="size-4" />
-          </button>
+          </Button>
         )}
       </div>
 
       <nav className="flex-1 overflow-y-auto p-2 text-sm">
         {query.trim() ? (
           results.length === 0 ? (
-            <p className="px-2 py-3 text-xs text-muted-foreground">No settings match “{query}”.</p>
+            <p className="px-2 py-3 text-caption text-muted-foreground">No settings match “{query}”.</p>
           ) : (
             results.map((h) => (
               <button
                 key={`${h.sectionId}/${h.subId ?? ''}`}
                 onClick={() => onNavigate(h.sectionId, h.subId)}
-                className="flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left hover:bg-foreground/6"
+                className="flex w-full flex-col items-start rounded-control px-2.5 py-1.5 text-left hover:bg-foreground/[0.04]"
               >
                 <span className="font-medium">{h.label}</span>
-                <span className="text-[11px] text-muted-foreground">{h.breadcrumb}</span>
+                <span className="text-caption text-muted-foreground">{h.breadcrumb}</span>
               </button>
             ))
           )
@@ -110,8 +117,8 @@ export function AdminSidebar({
                 <button
                   onClick={() => { onNavigate(section.id); if (hasSubs) toggle(section.id) }}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors',
-                    isActiveSection && !hasSubs ? 'bg-brand/12 font-medium text-brand' : 'hover:bg-foreground/6',
+                    'flex w-full items-center gap-2 rounded-control px-2.5 py-1.5 transition-colors',
+                    isActiveSection && !hasSubs ? 'bg-brand/10 font-medium text-brand' : 'hover:bg-foreground/[0.04]',
                   )}
                 >
                   <Icon className="size-4 shrink-0" />
@@ -127,8 +134,8 @@ export function AdminSidebar({
                           key={sub.id}
                           onClick={() => onNavigate(section.id, sub.id)}
                           className={cn(
-                            'flex w-full items-center rounded-lg px-2.5 py-1.5 text-left transition-colors',
-                            active ? 'bg-brand/12 font-medium text-brand' : 'text-muted-foreground hover:bg-foreground/6 hover:text-foreground',
+                            'flex w-full items-center rounded-control px-2.5 py-1.5 text-left transition-colors',
+                            active ? 'bg-brand/10 font-medium text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
                           )}
                         >
                           {sub.label}

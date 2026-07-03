@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AlarmClock, Plus, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -53,20 +54,20 @@ export function AlarmsTab() {
       </div>
 
       {alarms.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border/60 bg-card/40 py-14 text-center">
+        <Card variant="dashed" className="flex flex-col items-center gap-3 border-border/60 py-14 text-center">
           <AlarmClock className="size-10 text-muted-foreground/60" />
           <div>
             <p className="font-semibold">No alarms</p>
             <p className="text-sm text-muted-foreground">Add an alarm with a custom tone and a companion announcement.</p>
           </div>
           <Button size="sm" variant="outline" onClick={openNew}><Plus className="size-4" /> Add alarm</Button>
-        </div>
+        </Card>
       ) : (
         <div className="space-y-2.5">
           {alarms.map((a) => {
             const t = timeLabel(a.hour, a.minute)
             return (
-              <div key={a.id} className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card px-4 py-3.5">
+              <Card key={a.id} className="group flex items-center gap-3 border-border/60 px-4 py-3.5">
                 <div className={cn('min-w-0 flex-1 space-y-1', !a.enabled && 'opacity-50')}>
                   <div className="tabular-nums">
                     <span className="text-3xl font-light tracking-tight">{t.time}</span>
@@ -84,7 +85,7 @@ export function AlarmsTab() {
                   <Trash2 className="size-4" />
                 </button>
                 <Switch checked={a.enabled} onCheckedChange={(v) => void toggleAlarm(a.id, v)} />
-              </div>
+              </Card>
             )
           })}
         </div>

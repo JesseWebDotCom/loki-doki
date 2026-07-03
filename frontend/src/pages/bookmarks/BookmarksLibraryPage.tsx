@@ -1,12 +1,17 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Globe, FileText, Bookmark, Loader2, Trash2, Archive, ExternalLink, AlertTriangle, FolderOpen, Check, Pencil, BookOpen, Download, History, Upload, Plus } from 'lucide-react'
+import { Globe, FileText, Bookmark, Trash2, Archive, ExternalLink, AlertTriangle, FolderOpen, Check, Pencil, BookOpen, Download, History, Upload, Plus } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { getAppByPath } from '@/lib/appCategories'
 import { useBookmarkUI } from '@/components/bookmarks/BookmarksLayout'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -20,7 +25,7 @@ import { listItems, deleteItem, updateItem, listCollections, type BookmarkItem, 
 
 function Favicon({ item }: { item: BookmarkItem }) {
   if (item.faviconUrl) {
-    return <img src={proxyImg(item.faviconUrl)} alt="" className="size-4 shrink-0 rounded-sm object-contain"
+    return <img src={proxyImg(item.faviconUrl)} alt="" className="size-4 shrink-0 rounded-[3px] object-contain"
       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
   }
   return <Globe className="size-4 shrink-0 text-muted-foreground" />
@@ -38,15 +43,15 @@ function thumbUrl(item: BookmarkItem): string | null {
 
 function ArchiveBadge({ item }: { item: BookmarkItem }) {
   if (item.type === 'live') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400"><Bookmark className="size-3" />Live</span>
+    return <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success"><Bookmark className="size-3" />Live</span>
   }
   if (item.archiveState === 'pending' || item.archiveState === 'fetching') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400"><Loader2 className="size-3 animate-spin" />Saving</span>
+    return <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning"><Spinner className="size-3 text-warning" />Saving</span>
   }
   if (item.archiveState === 'failed') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-400"><AlertTriangle className="size-3" />Failed</span>
+    return <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive"><AlertTriangle className="size-3" />Failed</span>
   }
-  return <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300"><FileText className="size-3" />{item.readingMins || 1} min</span>
+  return <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-medium text-brand"><FileText className="size-3" />{item.readingMins || 1} min</span>
 }
 
 // The collection an item belongs to, rendered with the collection's chosen icon/color.
@@ -101,7 +106,7 @@ export function BookmarksLibraryPage() {
 
   const heading = collectionParam ? 'Collection'
     : params.get('tag') ? `#${params.get('tag')}`
-    : params.get('status') ? params.get('status')!
+    : params.get('status') ? params.get('status')!.replace(/^\w/, (m) => m.toUpperCase())
     : params.get('type') === 'live' ? 'Live links'
     : params.get('type') === 'offline' ? 'Offline articles'
     : 'Library'
@@ -128,18 +133,18 @@ export function BookmarksLibraryPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-6">
-      <h1 className="mb-5 text-2xl font-bold capitalize">{heading}</h1>
+    <PageContainer width="wide" className="py-6">
+      <PageHeader title={heading} className="pt-0 pb-5" />
 
       {isLoading ? (
-        <div className="flex justify-center py-20 text-muted-foreground"><Loader2 className="size-6 animate-spin" /></div>
+        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : items.length === 0 ? (
         isRootView ? (
           <EmptyAppState
             icon={BookOpen}
-            gradient="linear-gradient(135deg,#14532d,#166534)"
+            gradient={getAppByPath('/bookmarks')?.gradient}
             title="Your private read-it-later & web archive"
-            tagline="Save any link, read it later distraction-free, and keep a full offline copy that's yours forever — searchable, taggable, and never disappears when the web does."
+            tagline="Save any link, read it later distraction-free, and keep a full offline copy that's yours forever - searchable, taggable, and never disappears when the web does."
             actions={
               <>
                 <Button onClick={openSave}><Plus className="mr-1.5 size-4" /> Save your first link</Button>
@@ -147,14 +152,14 @@ export function BookmarksLibraryPage() {
               </>
             }
             features={[
-              { icon: Bookmark, title: 'Live links & dashboards', desc: 'Pin services and sites — open them in a tab or embedded right here.' },
+              { icon: Bookmark, title: 'Live links & dashboards', desc: 'Pin services and sites - open them in a tab or embedded right here.' },
               { icon: FileText, title: 'Read it later', desc: 'A clean, distraction-free reader view for any article you save.' },
               { icon: Download, title: 'Offline archives + PDF', desc: 'Full-page snapshots and a printed PDF you can read with no connection.' },
-              { icon: History, title: 'Versioned captures', desc: 'Re-archive to track how a page changes — old versions stay readable.' },
+              { icon: History, title: 'Versioned captures', desc: 'Re-archive to track how a page changes - old versions stay readable.' },
               { icon: Upload, title: 'Import your stuff', desc: 'Bring bookmarks from Pocket, Pinboard, or your browser (HTML / JSON / CSV).' },
               { icon: Globe, title: 'Save from anywhere', desc: 'Drag the Save-to-Loki bookmarklet to your bar and clip any page in a click.' },
             ]}
-            footnote="Everything stays on your hardware — nothing is sent to the cloud."
+            footnote="Everything stays on your hardware - nothing is sent to the cloud."
           />
         ) : (
           <div className="py-20 text-center text-muted-foreground">
@@ -164,8 +169,8 @@ export function BookmarksLibraryPage() {
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map(item => (
-            <div key={item.id}
-              className="group relative flex flex-col rounded-2xl border border-border/60 bg-card p-4 transition-colors hover:border-border">
+            <Card key={item.id}
+              className="group relative flex flex-col border-border/60 p-4 hover:border-border">
               <button onClick={() => openItem(item)} className="flex-1 text-left">
                 {thumbUrl(item) && (
                   <div className="relative -mx-4 -mt-4 mb-3 aspect-video overflow-hidden rounded-t-2xl border-b border-border/40 bg-muted/40">
@@ -174,7 +179,7 @@ export function BookmarksLibraryPage() {
                       onError={(e) => { const el = e.currentTarget.parentElement; if (el) el.style.display = 'none' }} />
                     {item.faviconUrl && (
                       <img src={proxyImg(item.faviconUrl)} alt="" loading="lazy"
-                        className="absolute bottom-2 left-2 size-6 rounded-md border border-border/40 bg-background/90 p-0.5 shadow-sm"
+                        className="absolute bottom-2 left-2 size-6 rounded-control border border-border/40 bg-background/90 p-0.5 shadow-sm"
                         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
                     )}
                   </div>
@@ -188,7 +193,7 @@ export function BookmarksLibraryPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <ArchiveBadge item={item} />
                   {item.isGlobal && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-400" title="Shared with everyone">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-medium text-info" title="Shared with everyone">
                       <Globe className="size-3" />Shared
                     </span>
                   )}
@@ -199,17 +204,17 @@ export function BookmarksLibraryPage() {
                 </div>
               </button>
               {item.canEdit && (
-                <div className="absolute right-2 top-2 flex gap-1 rounded-lg bg-background/80 p-0.5 opacity-0 shadow-md ring-1 ring-border/60 backdrop-blur transition-opacity group-hover:opacity-100">
+                <div className="absolute right-2 top-2 flex gap-1 rounded-control bg-popover p-0.5 opacity-0 shadow-md ring-1 ring-border/60 transition-opacity group-hover:opacity-100">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button title="Move to collection"
-                        className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><FolderOpen className="size-4" /></button>
+                      <Button variant="ghost" size="icon-sm" title="Move to collection" aria-label="Move to collection"
+                        className="text-foreground/80 hover:text-foreground"><FolderOpen className="size-4" /></Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-52">
                       <DropdownMenuLabel>Move to collection</DropdownMenuLabel>
                       <DropdownMenuSeparator />
                       {collections.length === 0 && (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No collections yet — create one in the sidebar.</div>
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No collections yet - create one in the sidebar.</div>
                       )}
                       {collections.map(col => (
                         <DropdownMenuItem key={col.id} onClick={() => moveToCollection(item, col.id)}>
@@ -226,17 +231,18 @@ export function BookmarksLibraryPage() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <button onClick={() => setEditItem(item)} title="Edit"
-                    className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><Pencil className="size-4" /></button>
-                  <a href={item.url} target="_blank" rel="noopener noreferrer" title="Open original"
-                    className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><ExternalLink className="size-4" /></a>
-                  <button onClick={() => archive(item)} title="Archive"
-                    className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><Archive className="size-4" /></button>
-                  <button onClick={() => setConfirmDel(item)} title="Delete"
-                    className="rounded-md p-1.5 text-foreground/80 hover:bg-red-500/20 hover:text-red-400"><Trash2 className="size-4" /></button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setEditItem(item)} title="Edit" aria-label="Edit"
+                    className="text-foreground/80 hover:text-foreground"><Pencil className="size-4" /></Button>
+                  <Button asChild variant="ghost" size="icon-sm" className="text-foreground/80 hover:text-foreground">
+                    <a href={item.url} target="_blank" rel="noopener noreferrer" title="Open original" aria-label="Open original"><ExternalLink className="size-4" /></a>
+                  </Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => archive(item)} title="Archive" aria-label="Archive"
+                    className="text-foreground/80 hover:text-foreground"><Archive className="size-4" /></Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDel(item)} title="Delete" aria-label="Delete"
+                    className="text-foreground/80 hover:text-destructive"><Trash2 className="size-4" /></Button>
                 </div>
               )}
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -251,6 +257,6 @@ export function BookmarksLibraryPage() {
         confirmLabel="Delete"
         onConfirm={() => { if (confirmDel) void doDelete(confirmDel); setConfirmDel(null) }}
       />
-    </div>
+    </PageContainer>
   )
 }

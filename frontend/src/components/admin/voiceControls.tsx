@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Play, Download, Trash2, Mic, Square, Save, Check, Copy } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { RichOptionSelect, type RichOptionGroup } from '@/components/shared/RichOptionSelect'
 import { DownloadProgress } from '@/components/shared/DownloadProgress'
 import { speak } from '@/lib/voice/voicePlaybackStore'
@@ -45,7 +47,7 @@ export function VoicePicker({ value, onChange, previewName }: { value: string; o
       <div className="min-w-0 flex-1">
         <RichOptionSelect groups={groups} value={value} onChange={onChange} placeholder="App default voice" />
       </div>
-      <button type="button" onClick={() => void preview()} title="Preview voice" className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border hover:bg-foreground/5">
+      <button type="button" onClick={() => void preview()} title="Preview voice" className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border hover:bg-foreground/5">
         <Play className="size-4" />
       </button>
     </div>
@@ -231,7 +233,7 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
       </p>
 
       {trainInstalled === false && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
+        <p className="rounded-card border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
           "Wake Word Training" is not installed — add it in Admin → Features first (~160 MB Python venv).
         </p>
       )}
@@ -252,9 +254,11 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
               type="button"
               onClick={() => void checkPhonetics()}
               disabled={phase.tag === 'checking' || !inputPhrase.trim() || trainInstalled === false}
-              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-foreground/5 disabled:opacity-50"
+              className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs transition-colors hover:bg-foreground/5 disabled:opacity-50"
             >
-              {phase.tag === 'checking' ? <span className="animate-pulse">Checking…</span> : 'Add'}
+              {phase.tag === 'checking'
+                ? <span className="inline-flex items-center gap-1.5"><Spinner size="sm" className="text-current" />Checking…</span>
+                : 'Add'}
             </button>
           </div>
           <div className="flex items-center gap-2">
@@ -277,17 +281,17 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
 
       {/* ── confirm: pick phonetic pronunciation ── */}
       {phase.tag === 'confirm' && (
-        <div className="space-y-2 rounded-lg border border-border bg-background/50 p-3">
+        <div className="space-y-2 rounded-card border border-border bg-background/50 p-3">
           <p className="text-[11px] text-muted-foreground">
             How should <span className="font-medium text-foreground">"{phase.rawPhrase}"</span> be pronounced? Pick the closest — the TTS will train on this exact spelling.
           </p>
           <div className="space-y-1">
             {phase.options.map((opt, i) => (
-              <label key={i} className={cn('flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[11px] transition-colors', phase.selected === i && phase.custom === '' ? 'border-violet-500/50 bg-violet-500/10' : 'border-border hover:bg-foreground/5')}>
+              <label key={i} className={cn('flex cursor-pointer items-center gap-2 rounded-control border px-2 py-1.5 text-[11px] transition-colors', phase.selected === i && phase.custom === '' ? 'border-brand/50 bg-brand/10' : 'border-border hover:bg-foreground/5')}>
                 <input
                   type="radio"
                   name="phonetic"
-                  className="accent-violet-500"
+                  className="accent-brand"
                   checked={phase.selected === i && phase.custom === ''}
                   onChange={() => setPhase({ ...phase, selected: i, custom: '' })}
                 />
@@ -296,7 +300,7 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
                   type="button"
                   title="Preview"
                   onClick={() => void speak({ text: opt })}
-                  className="flex size-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                  className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
                 >
                   <Play className="size-3" />
                 </button>
@@ -317,7 +321,7 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
                   type="button"
                   title="Preview custom"
                   onClick={() => void speak({ text: phase.custom.trim() })}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border hover:bg-foreground/5"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border hover:bg-foreground/5"
                 >
                   <Play className="size-3" />
                 </button>
@@ -331,13 +335,18 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
                 const chosen = phase.custom.trim() || phase.options[phase.selected] || phase.rawPhrase
                 void startTraining(chosen, phase.rawPhrase)
               }}
-              className="flex-1 rounded-lg border border-violet-500/50 bg-violet-500/10 py-1.5 text-[11px] font-medium text-violet-300 hover:bg-violet-500/20"
+              className="flex-1 rounded-full border border-brand/50 bg-brand/10 py-1.5 text-[11px] font-medium text-brand hover:bg-brand/20"
             >
               Train with this pronunciation
             </button>
-            <button type="button" onClick={cancel} className="rounded-lg border border-border px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-foreground/5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={cancel}
+              className="h-auto px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-foreground/5 hover:text-muted-foreground"
+            >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -345,18 +354,24 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
       {/* ── training: SSE progress log ── */}
       {phase.tag === 'training' && (
         <div className="space-y-2">
-          <div className="rounded border border-border bg-background/50 p-2 font-mono text-[10px] text-muted-foreground">
+          <div className="rounded-card border border-border bg-background/50 p-2 font-mono text-[10px] text-muted-foreground">
             {phase.log.slice(-8).map((l, i) => <div key={i}>{l}</div>)}
-            {phase.error && <div className="text-rose-400">{phase.error}</div>}
+            {phase.error && <div className="text-destructive">{phase.error}</div>}
+            {/* design-ok(adhoc-pulse): typing-indicator-style activity affordance for the streaming SSE training log, not a loading skeleton */}
             {!phase.error && <div className="animate-pulse">…</div>}
           </div>
           {!phase.error && (
-            <button type="button" onClick={cancel} className="rounded-lg border border-rose-500/30 px-3 py-1 text-[11px] text-rose-400 hover:bg-rose-500/10">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={cancel}
+              className="h-auto border-destructive/30 px-3 py-1 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
               Cancel
-            </button>
+            </Button>
           )}
           {phase.error && (
-            <button type="button" onClick={() => setPhase({ tag: 'idle' })} className="rounded-lg border border-border px-3 py-1 text-[11px] text-muted-foreground hover:bg-foreground/5">
+            <button type="button" onClick={() => setPhase({ tag: 'idle' })} className="rounded-full border border-border px-3 py-1 text-[11px] text-muted-foreground hover:bg-foreground/5">
               Dismiss
             </button>
           )}
@@ -367,9 +382,9 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
       {trained.length > 0 && (
         <div className="space-y-1">
           {trained.map((t) => (
-            <div key={t.id} className={cn('flex items-center gap-2 rounded-lg border px-2 py-1.5 text-[11px]', t.installed ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5')}>
+            <div key={t.id} className={cn('flex items-center gap-2 rounded-control border px-2 py-1.5 text-[11px]', t.installed ? 'border-success/20 bg-success/5' : 'border-warning/30 bg-warning/5')}>
               <span className="flex-1 truncate font-medium">{t.label}</span>
-              {!t.installed && <span className="text-[10px] text-amber-400">model missing</span>}
+              {!t.installed && <span className="text-[10px] text-warning">model missing</span>}
               <button type="button" onClick={() => void remove(t.id)} title="Remove" className="text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
             </div>
           ))}
@@ -439,7 +454,7 @@ export function WakewordBrowser() {
   return (
     <div className="space-y-2">
       {!coreInstalled && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
+        <p className="rounded-card border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
           Install the “Wake Word” engine in the Features panel first (downloads the shared models).
         </p>
       )}
@@ -457,14 +472,14 @@ export function WakewordBrowser() {
       )}
       <div className="grid grid-cols-2 gap-1.5">
         {entries.map((e) => (
-          <div key={e.id} className={cn('flex items-center gap-2 rounded-lg border px-2 py-1.5 text-[11px]', e.installed ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-border')}>
+          <div key={e.id} className={cn('flex items-center gap-2 rounded-control border px-2 py-1.5 text-[11px]', e.installed ? 'border-success/30 bg-success/5' : 'border-border')}>
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{e.label}</div>
               <div className="truncate text-muted-foreground">{e.description}</div>
             </div>
             {e.installed
               ? <button type="button" onClick={() => void remove(e.id)} title="Remove" className="text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
-              : <button type="button" disabled={busyId !== null} onClick={() => void install(e.id)} title="Download" className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 hover:bg-foreground/5 disabled:opacity-50"><Download className="size-3" /></button>}
+              : <button type="button" disabled={busyId !== null} onClick={() => void install(e.id)} title="Download" className="flex items-center gap-1 rounded-full border border-border px-1.5 py-0.5 hover:bg-foreground/5 disabled:opacity-50"><Download className="size-3" /></button>}
           </div>
         ))}
       </div>
@@ -535,23 +550,23 @@ export function WakePhraseField({ value, onChange }: { value: string; onChange: 
         <button
           type="button"
           onClick={() => (recording ? void finish() : void record())}
-          className={cn('flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm', recording ? 'border-rose-500/50 text-rose-300' : 'border-border hover:bg-foreground/5')}
+          className={cn('flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-sm', recording ? 'border-destructive/50 text-destructive' : 'border-border hover:bg-foreground/5')}
           title="Say the phrase and see exactly what Whisper transcribes"
         >
           {recording ? <><Square className="size-3.5" /> Stop</> : <><Mic className="size-3.5" /> Test</>}
         </button>
       </div>
-      {recording && <p className="text-[11px] text-violet-300">Listening… say your wake phrase clearly.</p>}
+      {recording && <p className="text-[11px] text-brand">Listening… say your wake phrase clearly.</p>}
       {heard && (
         <div className="flex items-center gap-2 text-[11px]">
           <span className="text-muted-foreground">Whisper heard:</span>
           <span className="font-mono text-foreground/80">"{heard}"</span>
           {matches
-            ? <span className="flex items-center gap-1 text-emerald-400"><Check className="size-3" /> matches</span>
-            : heardClean && <button type="button" onClick={() => onChange(heard!.replace(/[.?!,]+$/, ''))} className="rounded border border-border px-1.5 py-0.5 hover:bg-foreground/5">Use this</button>}
+            ? <span className="flex items-center gap-1 text-success"><Check className="size-3" /> matches</span>
+            : heardClean && <button type="button" onClick={() => onChange(heard!.replace(/[.?!,]+$/, ''))} className="rounded-full border border-border px-1.5 py-0.5 hover:bg-foreground/5">Use this</button>}
         </div>
       )}
-      {error && <p className="text-[11px] text-rose-300">{error}</p>}
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
     </div>
   )
 }
@@ -725,7 +740,7 @@ export function WakewordTester({ initialModelId }: { initialModelId?: string } =
   return (
     <div className="space-y-2">
       {coreInstalled === false && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
+        <p className="rounded-card border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
           Wake word engine not installed — add it in the Features panel first.
         </p>
       )}
@@ -737,7 +752,7 @@ export function WakewordTester({ initialModelId }: { initialModelId?: string } =
         <button
           type="button"
           onClick={() => (running ? stop() : void start())}
-          className={cn('flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px]', running ? 'border-rose-500/50 text-rose-300' : 'border-emerald-500/50 text-emerald-300')}
+          className={cn('flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px]', running ? 'border-destructive/50 text-destructive' : 'border-success/50 text-success')}
         >
           {running ? <><Square className="size-3" /> Stop</> : <><Mic className="size-3" /> Test</>}
         </button>
@@ -746,16 +761,16 @@ export function WakewordTester({ initialModelId }: { initialModelId?: string } =
       {/* Mic input level */}
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
         <span className="w-10 shrink-0">Mic</span>
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full rounded-full bg-sky-400 transition-[width] duration-75" style={{ width: `${micPct}%` }} />
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
+          <div className="h-full rounded-full bg-brand transition-[width] duration-75" style={{ width: `${micPct}%` }} />
         </div>
       </div>
       {/* Wake score vs threshold */}
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
         <span className="w-10 shrink-0">Score</span>
-        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-          <div className={cn('h-full rounded-full transition-[width] duration-75', score >= threshold ? 'bg-emerald-400' : 'bg-violet-400')} style={{ width: `${scorePct}%` }} />
-          <div className="absolute top-[-2px] h-[10px] w-px bg-white/70" style={{ left: `${threshold * 100}%` }} title="threshold" />
+        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
+          <div className={cn('h-full rounded-full transition-[width] duration-75', score >= threshold ? 'bg-success' : 'bg-brand')} style={{ width: `${scorePct}%` }} />
+          <div className="absolute top-[-2px] h-[10px] w-px bg-foreground/70" style={{ left: `${threshold * 100}%` }} title="threshold" />
         </div>
         <span className="w-7 shrink-0 text-right tabular-nums">{score.toFixed(2)}</span>
       </div>
@@ -769,23 +784,23 @@ export function WakewordTester({ initialModelId }: { initialModelId?: string } =
           onClick={() => void saveThreshold()}
           disabled={saveState === 'saving'}
           title="Save this sensitivity as the model's live threshold"
-          className={cn('flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px]', saveState === 'saved' ? 'border-emerald-500/50 text-emerald-300' : 'border-border hover:bg-foreground/5')}
+          className={cn('flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]', saveState === 'saved' ? 'border-success/50 text-success' : 'border-border hover:bg-foreground/5')}
         >
           {saveState === 'saved' ? <><Check className="size-3" /> Saved</> : <><Save className="size-3" /> Save</>}
         </button>
       </div>
       <p className="text-[10px] text-muted-foreground">Raise sensitivity (→) if random speech triggers it; lower (←) if your phrase won't fire. Save to apply it to the live companion.</p>
 
-      {error && <p className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-300">{error}</p>}
+      {error && <p className="rounded-card border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">{error}</p>}
       {log.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Log</span>
-            <button type="button" onClick={() => void copyLog()} className="flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-foreground/5">
+            <button type="button" onClick={() => void copyLog()} className="flex items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-[10px] hover:bg-foreground/5">
               {copied ? <><Check className="size-3" /> Copied</> : <><Copy className="size-3" /> Copy</>}
             </button>
           </div>
-          <div className="max-h-32 overflow-y-auto rounded-md border border-border bg-black/30 p-1.5 font-mono text-[10px] text-muted-foreground">
+          <div className="max-h-32 overflow-y-auto rounded-card border border-border bg-black/30 p-1.5 font-mono text-[10px] text-muted-foreground">
             {log.map((l, i) => <div key={i} className="truncate">{l}</div>)}
           </div>
         </div>

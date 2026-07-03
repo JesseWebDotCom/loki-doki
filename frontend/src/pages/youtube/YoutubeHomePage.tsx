@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Rss, Loader2 } from 'lucide-react'
+import { Rss } from 'lucide-react'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { getHistory, getRecommended, ytPopularQueryOptions, ytTrendingQueryOptions } from '@/lib/youtube/api'
 import { useYtFeed, useYtSubs, useYtDownloads, buildChannels } from '@/lib/youtube/useData'
 import { isShort, savedToItem, historyToItem, itToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { MediaShelf, ChannelRail, ShelfSkeleton, type ChannelEntry } from '@/components/youtube/shelves'
+
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
@@ -19,7 +22,7 @@ const SHORTS_GRID = 'grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 xl:grid-col
 const FILTERS: [Filter, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['channels', 'Channels']]
 
 // Round-robin a recency-sorted list across its channels so a single frequent uploader
-// doesn't bury everyone else — "Latest" then leads with each channel's newest in turn.
+// doesn't bury everyone else; "Latest" then leads with each channel's newest in turn.
 function interleaveByChannel(items: VideoItem[]): VideoItem[] {
   const groups = new Map<string, VideoItem[]>()
   for (const i of items) {
@@ -71,7 +74,7 @@ function HomeLanding() {
   const { data: popular = [], isLoading: popularLoading } = useQuery({ ...ytPopularQueryOptions(), enabled: online })
   const { data: trending = [], isLoading: trendingLoading } = useQuery({ ...ytTrendingQueryOptions(), enabled: online })
 
-  // Offline mirrors online exactly — same layout, sourced from the saved library.
+  // Offline mirrors online exactly: same layout, sourced from the saved library.
   const offlineItems: VideoItem[] = useMemo(
     () => downloads.filter(r => r.status === 'ready').map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight))),
     [downloads],
@@ -86,7 +89,7 @@ function HomeLanding() {
       : offlineItems.filter(i => i.watch && !i.watch.completed && i.watch.positionSec > 5)
   ), [online, history, offlineItems])
   const recommendedItems = useMemo(() => (online ? recommended.map(itToItem) : regular.slice(0, 12)), [online, recommended, regular])
-  // Balanced "Latest" — newest from each channel in turn, not one uploader's backlog.
+  // Balanced "Latest": newest from each channel in turn, not one uploader's backlog.
   const latest = useMemo(() => interleaveByChannel(regular).slice(0, 16), [regular])
   const popularItems = useMemo(() => popular.map(itToItem), [popular])
   const trendingItems = useMemo(() => trending.map(itToItem), [trending])
@@ -95,7 +98,7 @@ function HomeLanding() {
   if (online && loading) return <Loading />
 
   return (
-    <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
+    <PageContainer width="wide" className="py-6">
       <ChipRow className="mb-6">
         {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={filter === k} onClick={() => setFilter(k)} />)}
       </ChipRow>
@@ -116,18 +119,23 @@ function HomeLanding() {
           {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts.slice(0, 12)} aspect="short" />}
           {regular.length > 0 ? (
             <section>
-              <h2 className="mb-3 text-lg font-bold tracking-tight">Latest from your subscriptions</h2>
+              <SectionHeader title="Latest from your subscriptions" className="mb-4" />
               <div className={GRID}>{latest.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
             </section>
           ) : (recommendedItems.length === 0 && popularItems.length === 0 && trendingItems.length === 0) ? <EmptyState online={online} /> : null}
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
 function Loading() {
-  return <div className="flex h-[60vh] items-center justify-center"><Loader2 className="size-7 animate-spin text-muted-foreground" /></div>
+  return (
+    <PageContainer width="wide" className="space-y-10 py-6">
+      <ShelfSkeleton />
+      <ShelfSkeleton />
+    </PageContainer>
+  )
 }
 
 function EmptyState({ online }: { online: boolean }) {

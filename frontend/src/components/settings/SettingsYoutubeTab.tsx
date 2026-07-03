@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Loader2, SkipForward, Wand2 } from 'lucide-react'
+import { SkipForward, Wand2 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/context/AuthContext'
 import { readDeArrowEnabled, writeDeArrowEnabled } from '@/lib/youtube/dearrow'
 
@@ -72,7 +73,7 @@ export function SettingsYoutubeTab() {
       <div>
         <div className="flex items-center justify-between mb-1">
           <p className="text-sm font-medium">Auto-skip segments</p>
-          {saving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+          {saving && <Spinner size="sm" />}
         </div>
         <p className="text-xs text-muted-foreground mb-4">
           Choose which parts of a video are skipped automatically, using community-sourced
@@ -82,7 +83,7 @@ export function SettingsYoutubeTab() {
           {ROWS.map(({ keys, label, description }) => (
             <div
               key={keys.join('+')}
-              className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors"
+              className="flex items-center gap-4 rounded-control px-3 py-3 hover:bg-muted/40 transition-colors"
             >
               <SkipForward className="size-4 text-muted-foreground shrink-0" />
               <div className="flex-1 min-w-0">
@@ -100,7 +101,7 @@ export function SettingsYoutubeTab() {
         <p className="text-xs text-muted-foreground mb-4">
           Applies everywhere in the YouTube app, not just one video.
         </p>
-        <div className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors">
+        <div className="flex items-center gap-4 rounded-control px-3 py-3 hover:bg-muted/40 transition-colors">
           <Wand2 className="size-4 text-muted-foreground shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium">Replace clickbait</p>

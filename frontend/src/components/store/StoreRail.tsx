@@ -4,6 +4,11 @@ import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 
+/** App Store identity gradient. The store isn't an APP_GROUPS entry, so its identity
+ *  lives here (matches the AppShell breadcrumb's STANDALONE_META entry).
+ *  design-ok(hex-in-tsx): identity gradient data for an app outside the registry */
+export const STORE_GRADIENT = 'linear-gradient(135deg,#4338ca,#6366f1)'
+
 function RailLink({ to, icon: Icon, label, end, badge }: {
   to: string; icon: LucideIcon; label: string; end?: boolean; badge?: number
 }) {
@@ -12,16 +17,16 @@ function RailLink({ to, icon: Icon, label, end, badge }: {
       to={to}
       end={end}
       className={({ isActive }) => cn(
-        'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+        'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium transition-colors',
         isActive
-          ? 'bg-accent text-foreground'
+          ? 'bg-brand/10 text-brand'
           : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
       )}
     >
       <Icon className="size-[18px]" />
       <span className="flex-1">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-bold text-brand">{badge}</span>
+        <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">{badge}</span>
       )}
     </NavLink>
   )
@@ -38,7 +43,7 @@ export function StoreRail({ installedCount }: { installedCount: number }) {
         title="App Store"
         description="Install apps and extensions for your hub."
         icon={ShoppingBag}
-        gradient="linear-gradient(135deg,#4338ca,#6366f1)"
+        gradient={STORE_GRADIENT}
         className="mb-4"
       />
 
@@ -46,7 +51,7 @@ export function StoreRail({ installedCount }: { installedCount: number }) {
       <RailLink to="/app-store/browse" icon={LayoutGrid} label="Browse" />
       <RailLink to="/app-store/categories" icon={Shapes} label="Categories" />
 
-      <p className="mt-6 mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Library</p>
+      <p className="mt-6 mb-1 px-3 text-overline text-muted-foreground/70">Library</p>
       <RailLink to="/app-store/installed" icon={DownloadCloud} label="Installed" badge={installedCount} />
       {isAdmin && <RailLink to="/admin/apps" icon={Inbox} label="Requests" />}
     </nav>

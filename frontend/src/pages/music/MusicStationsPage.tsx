@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, Download } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { Button } from '@/components/ui/button'
@@ -25,8 +26,8 @@ function OfflineStations() {
   const { data } = useQuery({ queryKey: ['music-offline-stations'], queryFn: listOfflineStations, refetchInterval: 5000 })
   const stations = data?.stations ?? []
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music · Offline" title="Stations"
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music · Offline" title="Stations"
         subtitle="The stations you've saved for offline play." />
       {stations.length === 0 ? (
         <div className="mt-10 flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
@@ -36,7 +37,7 @@ function OfflineStations() {
       ) : (
         <Grid stations={stations} />
       )}
-    </div>
+    </PageContainer>
   )
 }
 
@@ -77,8 +78,8 @@ export function MusicStationsPage() {
   if (mode === 'offline') return <OfflineStations />
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Stations" subtitle="Generative AI radio, built from a prompt."
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music" title="Stations" subtitle="Generative AI radio, built from a prompt."
         actions={<Button onClick={() => setEditorOpen(true)}><Plus className="size-4" /> New station</Button>} />
 
       {(buckets?.mine.length ?? 0) > 0 && (
@@ -103,6 +104,6 @@ export function MusicStationsPage() {
       )}
 
       <StationEditorDialog open={editorOpen} onOpenChange={setEditorOpen} station={null} />
-    </div>
+    </PageContainer>
   )
 }

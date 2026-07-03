@@ -118,7 +118,7 @@ export function WaypointInput({
         ) : null}
       </div>
       {open && results.length > 0 ? (
-        <ul role="listbox" className="grid gap-1 rounded-2xl border border-border/70 bg-card/95 p-1">
+        <ul role="listbox" className="grid gap-1 rounded-card border border-border/70 bg-card/95 p-1">
           {results.map((place, i) => (
             <li key={place.place_id}>
               <button
@@ -128,7 +128,7 @@ export function WaypointInput({
                 onMouseEnter={() => setCursor(i)}
                 onClick={() => pick(place)}
                 className={cn(
-                  "w-full rounded-xl px-3 py-2 text-left text-sm",
+                  "w-full rounded-control px-3 py-2 text-left text-sm",
                   i === cursor ? "bg-accent text-accent-foreground" : "hover:bg-muted",
                 )}
               >

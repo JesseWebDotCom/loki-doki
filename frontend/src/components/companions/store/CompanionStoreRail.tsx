@@ -12,14 +12,14 @@ function RailLink({ to, icon: Icon, label, end, badge }: {
       to={to}
       end={end}
       className={({ isActive }) => cn(
-        'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-        isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+        'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium transition-colors',
+        isActive ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
       )}
     >
       <Icon className="size-[18px]" />
       <span className="flex-1">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-bold text-brand">{badge}</span>
+        <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">{badge}</span>
       )}
     </NavLink>
   )
@@ -42,17 +42,17 @@ export function CompanionStoreRail({ favoritesCount }: { favoritesCount: number 
       <RailLink to="/companions/browse" icon={LayoutGrid} label="Browse" />
       <RailLink to="/companions/categories" icon={Shapes} label="Categories" />
 
-      <p className="mt-6 mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Library</p>
+      <p className="mt-6 mb-1 px-3 text-overline text-muted-foreground/70">Library</p>
       <RailLink to="/companions/favorites" icon={Heart} label="Favorites" badge={favoritesCount} />
       {isAdmin && (
         <NavLink to="/companions/studio"
           className={({ isActive }) => cn(
-            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-            isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+            'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium transition-colors',
+            isActive ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
           )}>
           <Settings2 className="size-[18px]" />
           <span className="flex-1">Studio</span>
-          <Lock className="size-3 text-amber-500/70" />
+          <Lock className="size-3 text-warning/70" />
         </NavLink>
       )}
     </nav>

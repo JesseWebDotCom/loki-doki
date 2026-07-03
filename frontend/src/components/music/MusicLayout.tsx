@@ -17,23 +17,23 @@ export function useMusicMode() {
  *  cards/pages ghost offline-only content without every caller threading it. */
 export function useMusicModeOptional(): MusicMode { return useContext(MusicModeCtx)?.mode ?? 'online' }
 
-// Online = violet identity, Offline = amber — so you always know which side you're on. The accent
-// feeds CSS variables the whole Music app can consume via `bg-[var(--music-accent)]` etc.
-const ACCENT: Record<MusicMode, { base: string; hover: string; fg: string }> = {
-  online: { base: '#7c3aed', hover: '#8b5cf6', fg: '#a78bfa' },
-  offline: { base: '#d97706', hover: '#f59e0b', fg: '#fbbf24' },
+// Online = brand identity, Offline = warning (amber) - so you always know which side you're on.
+// The accent feeds CSS variables the whole Music app can consume via `bg-[var(--music-accent)]` etc.
+const ACCENT: Record<MusicMode, { base: string; hover: string; fg: string; contrast: string }> = {
+  online: { base: 'var(--brand)', hover: 'var(--brand-hover)', fg: 'var(--brand)', contrast: 'var(--brand-foreground)' },
+  offline: { base: 'var(--warning)', hover: 'var(--warning)', fg: 'var(--warning)', contrast: 'var(--warning-foreground)' },
 }
 const MODE_KEY = 'music.mode'
 
-/** Segmented Online/Offline control — lives in the breadcrumb's right slot, mirroring YouTube. */
+/** Segmented Online/Offline control - lives in the breadcrumb's right slot, mirroring YouTube. */
 function ModeToggle({ mode, onChange }: { mode: MusicMode; onChange: (m: MusicMode) => void }) {
   return (
-    <div className="flex h-8 shrink-0 items-center rounded-md border border-border bg-background p-0.5 text-xs font-semibold">
+    <div className="flex h-8 shrink-0 items-center rounded-full border border-border bg-background p-0.5 text-xs font-semibold">
       {(['online', 'offline'] as MusicMode[]).map(m => (
         <button key={m} type="button" onClick={() => onChange(m)}
-          className={cn('rounded px-2.5 py-1 capitalize transition-colors',
+          className={cn('rounded-full px-2.5 py-1 capitalize transition-colors',
             mode === m
-              ? (m === 'online' ? 'bg-violet-600 text-white' : 'bg-amber-600 text-white')
+              ? (m === 'online' ? 'bg-brand text-brand-foreground' : 'bg-warning text-warning-foreground')
               : 'text-muted-foreground hover:text-foreground')}>
           {m}
         </button>
@@ -79,9 +79,10 @@ export function MusicLayout() {
     '--music-accent': a.base,
     '--music-accent-hover': a.hover,
     '--music-accent-fg': a.fg,
+    '--music-accent-contrast': a.contrast,
     '--music-accent-soft': `color-mix(in oklab, ${a.fg} 15%, transparent)`,
-    // A faint accent wash over the page background so Online (violet) and Offline (amber) read at
-    // a glance. Layered on top of bg-background.
+    // A faint accent wash over the page background so Online (brand) and Offline (warning) read
+    // at a glance. Layered on top of bg-background.
     backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 7%, transparent)`}, ${`color-mix(in oklab, ${a.base} 7%, transparent)`})`,
   } as CSSProperties
 

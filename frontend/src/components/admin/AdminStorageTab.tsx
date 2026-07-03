@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
-import { FolderOpen, CheckCircle2, XCircle, AlertTriangle, Loader2, HardDrive, MoveRight } from 'lucide-react'
+import { FolderOpen, CheckCircle2, XCircle, AlertTriangle, HardDrive, MoveRight } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,8 +43,8 @@ function CheckRow({ label, ok }: { label: string; ok: boolean }) {
   return (
     <div className="flex items-center gap-2 text-sm">
       {ok
-        ? <CheckCircle2 className="size-4 text-green-500 shrink-0" />
-        : <XCircle className="size-4 text-red-500 shrink-0" />}
+        ? <CheckCircle2 className="size-4 text-success shrink-0" />
+        : <XCircle className="size-4 text-destructive shrink-0" />}
       <span className={ok ? 'text-foreground' : 'text-destructive'}>{label}</span>
     </div>
   )
@@ -149,7 +151,7 @@ export function AdminStorageTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <Spinner size="lg" className="text-muted-foreground" />
       </div>
     )
   }
@@ -172,7 +174,7 @@ export function AdminStorageTab() {
 
       {/* Current location */}
       {status && (
-        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+        <div className="rounded-card border border-border bg-card p-4 space-y-4">
           <div className="flex items-start gap-3">
             <FolderOpen className="size-4 text-muted-foreground mt-0.5 shrink-0" />
             <div className="min-w-0">
@@ -220,24 +222,25 @@ export function AdminStorageTab() {
             value={candidatePath}
             onChange={e => { setCandidatePath(e.target.value); setValidation(null); setMigrateError(null) }}
             placeholder="/absolute/path/to/user-data"
-            className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            className="flex-1 rounded-control border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             onKeyDown={e => e.key === 'Enter' && handleValidate()}
           />
-          <button
+          <Button
             onClick={handleValidate}
             disabled={!candidatePath.trim() || validating}
-            className="shrink-0 rounded-md bg-secondary px-4 py-2 text-sm font-medium hover:bg-secondary/80 disabled:opacity-50 flex items-center gap-2"
+            variant="secondary"
+            className="shrink-0 gap-2"
           >
-            {validating && <Loader2 className="size-3.5 animate-spin" />}
+            {validating && <Spinner size="sm" className="text-current" />}
             Test access
-          </button>
+          </Button>
         </div>
 
         {/* Validation result */}
         {validation && (
           <div className={cn(
-            'rounded-lg border p-4 space-y-3',
-            validation.ok ? 'border-green-500/30 bg-green-500/5' : 'border-destructive/30 bg-destructive/5',
+            'rounded-card border p-4 space-y-3',
+            validation.ok ? 'border-success/30 bg-success/5' : 'border-destructive/30 bg-destructive/5',
           )}>
             <div className="grid grid-cols-2 gap-2">
               <CheckRow label="Read" ok={validation.checks.read} />
@@ -247,7 +250,7 @@ export function AdminStorageTab() {
             </div>
 
             {validation.spaceWarning && (
-              <div className="flex items-start gap-2 text-sm text-amber-600 dark:text-amber-400">
+              <div className="flex items-start gap-2 text-sm text-warning">
                 <AlertTriangle className="size-4 shrink-0 mt-0.5" />
                 <span>{validation.spaceWarning}</span>
               </div>
@@ -279,7 +282,7 @@ export function AdminStorageTab() {
           <button
             onClick={() => setShowConfirm(true)}
             disabled={migrating}
-            className="flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:bg-brand/90 disabled:opacity-50"
           >
             <MoveRight className="size-4" />
             Move data here

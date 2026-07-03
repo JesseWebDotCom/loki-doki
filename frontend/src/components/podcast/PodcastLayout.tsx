@@ -25,7 +25,7 @@ export function PodcastLayout() {
   const [editing, setEditing] = useState<Show | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   // Show detail page owns its own two-column layout (episode list + transcript),
-  // so the global NowPlaying panel would create a third column — hide it there.
+  // so the global NowPlaying panel would create a third column - hide it there.
   const onShowDetail = !!useMatch('/podcasts/show/:id')
 
   usePublishUIContext({ label: 'Podcasts', description: 'User is browsing the Podcasts app.' })
@@ -44,7 +44,7 @@ export function PodcastLayout() {
           <Outlet />
         </div>
 
-        {/* Now Playing panel — hidden on show detail page which owns its own transcript column */}
+        {/* Now Playing panel - hidden on show detail page which owns its own transcript column */}
         {track && !onShowDetail && (
           <aside className="hidden w-[340px] shrink-0 border-l border-border/40 xl:block">
             <div className="sticky top-0 h-screen">

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Library, Circle, Archive, Bookmark, FileText, Plus, FolderOpen, Tag, Upload, Download, Settings2, Pencil, type LucideIcon } from 'lucide-react'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { listCollections, listTags, importBookmarks, createCollection, type BookmarkCollection } from '@/lib/bookmarks/api'
@@ -15,7 +16,7 @@ import { CollectionEditor } from './CollectionEditor'
 function FilterLink({ to, icon: Icon, label, active }: { to: string; icon: LucideIcon; label: string; active: boolean }) {
   return (
     <Link to={to}
-      className={cn('flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+      className={cn('flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
         active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground')}>
       <Icon className="size-[18px]" /> {label}
     </Link>
@@ -23,7 +24,7 @@ function FilterLink({ to, icon: Icon, label, active }: { to: string; icon: Lucid
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1 mt-5 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">{children}</p>
+  return <p className="mb-1 mt-5 px-3 text-overline text-muted-foreground/50">{children}</p>
 }
 
 // A collection row: navigates like a FilterLink, but renders the collection's chosen icon/color
@@ -32,18 +33,18 @@ function CollectionRow({ collection, active, onEdit }: { collection: BookmarkCol
   const Icon = getIconChoice(collection.icon)?.Icon ?? FolderOpen
   const color = collection.color ? resolveProjectColor(collection.color) : undefined
   return (
-    <div className={cn('group flex items-center gap-1 rounded-xl pr-1 transition-colors',
+    <div className={cn('group flex items-center gap-1 rounded-control pr-1 transition-colors',
       active ? 'bg-accent' : 'hover:bg-accent/50')}>
       <Link to={`/bookmarks/collection/${collection.id}`}
-        className={cn('flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+        className={cn('flex min-w-0 flex-1 items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
           active ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground')}>
         <Icon className="size-[18px] shrink-0" style={color ? { color } : undefined} />
         <span className="truncate">{collection.name}</span>
       </Link>
-      <button onClick={(e) => { e.preventDefault(); onEdit() }} aria-label={`Edit ${collection.name}`}
-        className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100">
+      <Button variant="ghost" size="icon-sm" onClick={(e) => { e.preventDefault(); onEdit() }} aria-label={`Edit ${collection.name}`}
+        className="size-6 shrink-0 rounded-control text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100">
         <Pencil className="size-3.5" />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -99,10 +100,10 @@ export function BookmarksRail({ onSave }: { onSave: () => void }) {
         title="Bookmarks"
         className="mb-3"
       />
-      <button onClick={onSave}
-        className="mb-3 flex items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
+      <Button onClick={onSave}
+        className="mb-3 h-auto w-full justify-center gap-2 rounded-control px-3 py-2 text-sm font-semibold">
         <Plus className="size-4" /> Save
-      </button>
+      </Button>
 
       <FilterLink to="/bookmarks" icon={Library} label="All" active={isLibraryRoot && !status && !type && !tag} />
       <FilterLink to="/bookmarks?status=unread" icon={Circle} label="Unread" active={status === 'unread'} />
@@ -124,14 +125,14 @@ export function BookmarksRail({ onSave }: { onSave: () => void }) {
             onChange={e => setNewCollection(e.target.value)}
             onBlur={submitNewCollection}
             placeholder="Collection name…"
-            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+            className="w-full rounded-control border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
           />
         </form>
       ) : (
-        <button onClick={() => setNewCollection('')}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+        <Button variant="ghost" onClick={() => setNewCollection('')}
+          className="h-auto w-full justify-start gap-3 rounded-control px-3 py-2 text-sm font-normal text-muted-foreground hover:text-foreground">
           <Plus className="size-[18px]" /> New collection
-        </button>
+        </Button>
       )}
 
       {tags.length > 0 && <>
@@ -149,12 +150,12 @@ export function BookmarksRail({ onSave }: { onSave: () => void }) {
 
       <div className="mt-auto space-y-0.5 pt-5">
         <FilterLink to="/bookmarks/settings" icon={Settings2} label="Settings" active={pathname === '/bookmarks/settings'} />
-        <button onClick={() => fileRef.current?.click()}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+        <Button variant="ghost" onClick={() => fileRef.current?.click()}
+          className="h-auto w-full justify-start gap-3 rounded-control px-3 py-2 text-sm font-normal text-muted-foreground hover:text-foreground">
           <Upload className="size-[18px]" /> Import bookmarks
-        </button>
+        </Button>
         <a href="/api/bookmarks/export/html"
-          className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+          className="flex items-center gap-3 rounded-control px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
           <Download className="size-[18px]" /> Export bookmarks
         </a>
         <input ref={fileRef} type="file" accept=".html,.htm,.json,.csv,text/html,application/json,text/csv" className="hidden" onChange={onImportFile} />

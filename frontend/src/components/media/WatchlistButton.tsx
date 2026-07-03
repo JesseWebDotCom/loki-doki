@@ -1,5 +1,7 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { Bookmark, BookmarkCheck, Loader2 } from 'lucide-react'
+import { Bookmark, BookmarkCheck } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import {
   addToWatchlist,
@@ -63,9 +65,9 @@ export function WatchlistButton({
 
   if (isLoading) {
     return (
-      <button type="button" disabled className="inline-flex items-center gap-2 rounded-lg bg-foreground/10 px-4 py-2 text-sm font-medium">
-        <Loader2 className="size-4 animate-spin" />
-      </button>
+      <Button type="button" variant="secondary" disabled className="gap-2 bg-foreground/10" aria-label="Loading watchlist state">
+        <Spinner className="text-current" />
+      </Button>
     )
   }
 
@@ -75,24 +77,24 @@ export function WatchlistButton({
 
   if (!inList) {
     return (
-      <button
+      <Button
         type="button"
         disabled={busy}
         onClick={() => add.mutate('want')}
-        className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-foreground transition-colors hover:opacity-90 disabled:opacity-60"
+        className="gap-2"
       >
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <Bookmark className="size-4" />}
+        {busy ? <Spinner className="text-current" /> : <Bookmark className="size-4" />}
         Add to Watchlist
-      </button>
+      </Button>
     )
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-400">
+      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-success">
         <BookmarkCheck className="size-4" /> In Watchlist
       </span>
-      <div className="flex overflow-hidden rounded-lg border border-border">
+      <div className="flex overflow-hidden rounded-full border border-border">
         {STATUS_ORDER.map((s) => (
           <button
             key={s}
@@ -112,7 +114,7 @@ export function WatchlistButton({
         type="button"
         disabled={busy}
         onClick={() => remove.mutate()}
-        className="text-xs text-muted-foreground hover:text-rose-400"
+        className="text-xs text-muted-foreground hover:text-destructive"
       >
         Remove
       </button>

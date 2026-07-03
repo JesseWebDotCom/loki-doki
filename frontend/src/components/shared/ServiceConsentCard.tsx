@@ -17,18 +17,18 @@ export interface ServiceConsentCardProps {
 }
 
 const TYPE_META: Record<DataSource['type'], { label: string; icon: React.ComponentType<{ className?: string }>; chip: string }> = {
-  api: { label: 'API',  icon: Globe, chip: 'bg-sky-500/15 text-sky-400' },
-  rss: { label: 'RSS',  icon: Rss,   chip: 'bg-orange-500/15 text-orange-400' },
-  web: { label: 'Web',  icon: Code,  chip: 'bg-amber-500/15 text-amber-500' },
-  cdn: { label: 'CDN',  icon: Package, chip: 'bg-slate-500/15 text-slate-400' },
+  api: { label: 'API',  icon: Globe, chip: 'bg-info/15 text-info' },
+  rss: { label: 'RSS',  icon: Rss,   chip: 'bg-warning/15 text-warning' },
+  web: { label: 'Web',  icon: Code,  chip: 'bg-brand/15 text-brand' },
+  cdn: { label: 'CDN',  icon: Package, chip: 'bg-muted text-muted-foreground' },
 }
 
 export function ServiceConsentCard({ name, description, icon, dataSources, className }: ServiceConsentCardProps) {
   return (
-    <div className={cn('rounded-xl border border-border/60 bg-card/60 p-3 space-y-2.5', className)}>
+    <div className={cn('rounded-card border border-border/60 bg-card/60 p-3 space-y-2.5', className)}>
       <div className="flex items-start gap-2.5">
         {icon && (
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-control bg-muted text-muted-foreground">
             {icon}
           </div>
         )}
@@ -45,7 +45,7 @@ export function ServiceConsentCard({ name, description, icon, dataSources, class
             const Icon = meta.icon
             return (
               <div key={i} className="flex items-start gap-2">
-                <span className={cn('mt-0.5 flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none', meta.chip)}>
+                <span className={cn('mt-0.5 flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none', meta.chip)}>
                   <Icon className="size-2.5" />
                   {meta.label}
                 </span>

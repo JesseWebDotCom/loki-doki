@@ -26,7 +26,7 @@ interface AppBackdropProps {
  * Purely decorative — never captures input.
  */
 export function AppBackdrop({ gradient, GhostIcon }: AppBackdropProps) {
-  const fade = gradient ? toCornerFade(gradient, 0.28) : "";
+  const fade = gradient ? toCornerFade(gradient, 0.14) : "";
   return (
     <>
       {fade && (
@@ -39,7 +39,7 @@ export function AppBackdrop({ gradient, GhostIcon }: AppBackdropProps) {
       {GhostIcon && (
         <GhostIcon
           aria-hidden="true"
-          className="pointer-events-none absolute top-[55vh] right-10 size-64 rotate-[-10deg] text-white opacity-[0.06] z-0"
+          className="pointer-events-none absolute top-[55vh] right-10 size-64 rotate-[-10deg] text-foreground opacity-[0.04] z-0"
         />
       )}
     </>

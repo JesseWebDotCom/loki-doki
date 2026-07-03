@@ -45,7 +45,7 @@ function CheckRow({ label, checked, onChange }: { label: string; checked: boolea
     <button onClick={() => onChange(!checked)} className="flex w-full items-center gap-2.5 py-1 text-left">
       <span className={cn(
         'flex size-4 shrink-0 items-center justify-center rounded border transition-colors',
-        checked ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-border bg-transparent',
+        checked ? 'border-brand bg-brand text-brand-foreground' : 'border-border bg-transparent',
       )}>
         {checked && <Check className="size-3" strokeWidth={3} />}
       </span>
@@ -59,9 +59,9 @@ function RadioRow({ label, checked, onChange }: { label: string; checked: boolea
     <button onClick={onChange} className="flex w-full items-center gap-2.5 py-1 text-left">
       <span className={cn(
         'flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors',
-        checked ? 'border-emerald-500' : 'border-border',
+        checked ? 'border-brand' : 'border-border',
       )}>
-        {checked && <span className="size-2 rounded-full bg-emerald-500" />}
+        {checked && <span className="size-2 rounded-full bg-brand" />}
       </span>
       <span className="text-sm text-muted-foreground">{label}</span>
     </button>
@@ -84,9 +84,9 @@ export function FilterPanel({ filters, onChange, className }: {
 }) {
   const set = (patch: Partial<StoreFilters>) => onChange({ ...filters, ...patch })
   return (
-    <aside className={cn('w-60 shrink-0 space-y-6 rounded-2xl border border-border/40 bg-card p-5', className)}>
+    <aside className={cn('w-60 shrink-0 space-y-6 rounded-card border border-border bg-card p-5', className)}>
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-bold">Filters</h3>
+        <h3 className="text-base font-semibold">Filters</h3>
         <button onClick={() => onChange(DEFAULT_FILTERS)} className="text-xs font-medium text-brand hover:underline">
           Clear all
         </button>

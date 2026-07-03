@@ -20,7 +20,7 @@ export function MediaTabs({
 }: {
   tabs: (MediaTab | false | null | undefined)[]
   initialKey?: string
-  /** Controlled mode — pass both to drive the active tab from outside (e.g. an action button). */
+  /** Controlled mode: pass both to drive the active tab from outside (e.g. an action button). */
   active?: string
   onChange?: (key: string) => void
 }) {
@@ -33,7 +33,7 @@ export function MediaTabs({
 
   return (
     <div>
-      <div className="sticky top-0 z-20 -mx-5 mb-6 border-b border-border/50 bg-background/85 px-5 backdrop-blur">
+      <div className="glass-chrome sticky top-0 z-20 -mx-5 mb-6 border-b border-border/50 px-5">
         <div className="flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {avail.map((t) => {
             const on = current?.key === t.key

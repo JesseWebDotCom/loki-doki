@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Play, Plus, Loader2, RadioTower, Check } from 'lucide-react'
+import { Play, Plus, RadioTower, Check } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { useLiveRadio } from '@/context/LiveRadioContext'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
@@ -7,13 +8,13 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { LiveSearchStation } from '@/lib/music/liveRadioApi'
 
-/** Station favicon with a radio-tower fallback — shared by the search cards, the saved-station
+/** Station favicon with a radio-tower fallback - shared by the search cards, the saved-station
  *  grid, and the library tab. All remote art goes through the /api/img proxy. */
 export function LiveStationFavicon({ favicon, className }: { favicon?: string | null; className?: string }) {
   const [failed, setFailed] = useState(false)
   return (
-    <div className={cn('relative grid shrink-0 place-items-center overflow-hidden rounded-md bg-gradient-to-br from-amber-500/25 to-amber-700/15', className)}>
-      <RadioTower className="absolute size-1/2 text-amber-600/70" />
+    <div className={cn('relative grid shrink-0 place-items-center overflow-hidden rounded-control bg-gradient-to-br from-warning/25 to-warning/15', className)}>
+      <RadioTower className="absolute size-1/2 text-warning/70" />
       {favicon && !failed && (
         <img src={proxyImg(favicon)} alt="" loading="lazy" className="relative size-full object-cover"
           onError={() => setFailed(true)} />
@@ -29,7 +30,7 @@ export function stationTagLine(tags: string | null | undefined, country: string 
 }
 
 /** A radio-browser search result: preview-play (streams via 'rb:<uuid>' before it's saved)
- *  + add-to-library. HLS stations can't be proxied — Play/Add are disabled. */
+ *  + add-to-library. HLS stations can't be proxied - Play/Add are disabled. */
 export function LiveStationCard({ s, onAdd, adding, added }: {
   s: LiveSearchStation
   onAdd: (s: LiveSearchStation) => void
@@ -56,7 +57,7 @@ export function LiveStationCard({ s, onAdd, adding, added }: {
           disabled={s.hls}
           className={cn(
             'grid size-9 place-items-center rounded-full bg-foreground text-background transition hover:opacity-90 disabled:opacity-30',
-            playing && 'ring-2 ring-amber-500',
+            playing && 'ring-2 ring-warning',
           )}
           aria-label={`Play ${s.name}`} title={s.hls ? 'HLS streams are not supported' : 'Preview'}>
           <Play className="ml-0.5 size-4 fill-current" />
@@ -64,7 +65,7 @@ export function LiveStationCard({ s, onAdd, adding, added }: {
         <button onClick={() => onAdd(s)} disabled={s.hls || adding || added}
           className="grid size-9 place-items-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-30"
           aria-label={`Add ${s.name}`} title={s.hls ? 'HLS streams are not supported' : added ? 'In your stations' : 'Add to your stations'}>
-          {adding ? <Loader2 className="size-4 animate-spin" /> : added ? <Check className="size-4 text-emerald-500" /> : <Plus className="size-4" />}
+          {adding ? <Spinner className="text-current" /> : added ? <Check className="size-4 text-success" /> : <Plus className="size-4" />}
         </button>
       </div>
     </Card>

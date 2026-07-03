@@ -35,13 +35,13 @@ export function RequestModal({ tool, open, onClose }: { tool: AppTool | null; op
           <DialogDescription>Send an install request to your admin.</DialogDescription>
         </DialogHeader>
         {status === 'sent' ? (
-          <p className="text-sm text-emerald-500">Request sent. Your admin will review it.</p>
+          <p className="text-sm text-success">Request sent. Your admin will review it.</p>
         ) : (
           <div className="space-y-3">
             <textarea
               value={message} onChange={e => setMessage(e.target.value)}
               placeholder="Optional note for your admin..." rows={3}
-              className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none resize-none placeholder:text-muted-foreground focus-visible:border-ring"
+              className="w-full rounded-control border border-input bg-transparent px-3 py-2 text-sm outline-none resize-none placeholder:text-muted-foreground focus-visible:border-ring"
             />
             {status === 'error' && <p className="text-xs text-destructive">Something went wrong. Try again.</p>}
           </div>

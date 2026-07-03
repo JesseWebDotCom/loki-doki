@@ -2154,4 +2154,107 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status ON notification_deliveries(status, user_id);
   `)
+
+  // Shopping / price tracker — see schema.ts shoppingProducts…shoppingHostStrategies.
+  // Products/listings/history are household-wide; watches/discounts are per-user.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS shopping_products (
+      id TEXT NOT NULL PRIMARY KEY,
+      title TEXT NOT NULL,
+      brand TEXT,
+      model TEXT,
+      gtin TEXT,
+      image_url TEXT,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS shopping_products_gtin_idx ON shopping_products(gtin);
+    CREATE TABLE IF NOT EXISTS shopping_listings (
+      id TEXT NOT NULL PRIMARY KEY,
+      product_id TEXT NOT NULL REFERENCES shopping_products(id) ON DELETE CASCADE,
+      retailer TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT,
+      image_url TEXT,
+      price_cents INTEGER,
+      was_price_cents INTEGER,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      in_stock INTEGER,
+      match_confidence TEXT NOT NULL DEFAULT 'manual',
+      active INTEGER NOT NULL DEFAULT 1,
+      last_checked_at INTEGER,
+      last_changed_at INTEGER,
+      last_error TEXT,
+      fail_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      UNIQUE(retailer, external_id)
+    );
+    CREATE INDEX IF NOT EXISTS shopping_listings_product_idx ON shopping_listings(product_id);
+    CREATE TABLE IF NOT EXISTS shopping_price_points (
+      id TEXT NOT NULL PRIMARY KEY,
+      listing_id TEXT NOT NULL REFERENCES shopping_listings(id) ON DELETE CASCADE,
+      price_cents INTEGER,
+      in_stock INTEGER NOT NULL,
+      via TEXT NOT NULL DEFAULT 'direct',
+      observed_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS shopping_price_points_listing_time_idx ON shopping_price_points(listing_id, observed_at);
+    CREATE TABLE IF NOT EXISTS shopping_watches (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      product_id TEXT NOT NULL REFERENCES shopping_products(id) ON DELETE CASCADE,
+      listing_id TEXT REFERENCES shopping_listings(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      target_price_cents INTEGER,
+      percent_drop REAL,
+      use_effective_price INTEGER NOT NULL DEFAULT 1,
+      active INTEGER NOT NULL DEFAULT 1,
+      last_fired_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS shopping_watches_user_product_idx ON shopping_watches(user_id, product_id);
+    CREATE TABLE IF NOT EXISTS shopping_discounts (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      retailer TEXT NOT NULL,
+      label TEXT NOT NULL,
+      percent_off REAL NOT NULL,
+      max_discount_cents INTEGER,
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS shopping_discounts_user_retailer_idx ON shopping_discounts(user_id, retailer);
+    CREATE TABLE IF NOT EXISTS shopping_host_strategies (
+      host TEXT NOT NULL PRIMARY KEY,
+      strategy TEXT NOT NULL,
+      price_selector TEXT,
+      title_selector TEXT,
+      last_success_at INTEGER,
+      fail_count INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS shopping_saved (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      retailer TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT NOT NULL,
+      image_url TEXT,
+      price_cents INTEGER,
+      was_price_cents INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, kind, retailer, external_id)
+    );
+    CREATE INDEX IF NOT EXISTS shopping_saved_user_kind_idx ON shopping_saved(user_id, kind);
+  `)
+
+  // Product detail-page enrichment (description + star rating) — see schema.ts shoppingListings.
+  addColumn('shopping_listings', 'description', 'TEXT')
+  addColumn('shopping_listings', 'rating_value', 'REAL')
+  addColumn('shopping_listings', 'rating_count', 'INTEGER')
 }

@@ -8,9 +8,12 @@
  * progress over SSE (download → streets → routing → geocoder).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronDown, Loader2, CheckCircle2, Download, Trash2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Trash2 } from 'lucide-react'
 import { DownloadProgress, type DownloadStatus } from '@/components/shared/DownloadProgress'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 
 interface CatalogNode {
@@ -152,7 +155,7 @@ export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInst
         <div className="space-y-2">
           {loading ? (
             <div className="flex items-center gap-2 px-1 py-2">
-              <Loader2 className="size-3 animate-spin text-muted-foreground/50" />
+              <Spinner size="sm" className="text-muted-foreground/50" />
               <span className="text-xs text-muted-foreground/50">Loading…</span>
             </div>
           ) : visible.map(({ node, depth }) => {
@@ -172,43 +175,40 @@ export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInst
             const isActive = build?.status === 'downloading' || build?.status === 'pending'
             const status: DownloadStatus = build?.status ?? (node.installed ? 'completed' : 'idle')
             return (
-              <div key={node.region_id} className="rounded-xl border bg-card border-border" style={{ marginLeft: depth * 12 }}>
+              <Card key={node.region_id} variant="surface" className="border-border" style={{ marginLeft: depth * 12 }}>
                 <div className="flex items-center gap-3 px-4 py-3">
                   <div className={cn(
                     'flex size-5 shrink-0 items-center justify-center rounded-full',
-                    node.installed ? 'bg-emerald-500/15' : 'bg-muted',
+                    node.installed ? 'bg-success/15' : 'bg-muted',
                   )}>
                     {node.installed
-                      ? <CheckCircle2 className="size-3 text-emerald-400" />
+                      ? <CheckCircle2 className="size-3 text-success" />
                       : <div className="size-1.5 rounded-full bg-muted-foreground/30" />}
                   </div>
 
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold leading-tight">{node.label}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 leading-snug line-clamp-1">
-                      ~{node.sizes_mb.street} MB tiles · ~{node.sizes_mb.valhalla} MB routing
+                      ~{node.sizes_mb.street} MB tiles, ~{node.sizes_mb.valhalla} MB routing
                     </p>
                   </div>
 
                   <div className="shrink-0 flex items-center gap-1">
                     {isActive ? (
-                      <button type="button" onClick={() => cancel(node.region_id)}
-                        className="rounded-lg px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">
+                      <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => cancel(node.region_id)}>
                         Cancel
-                      </button>
+                      </Button>
                     ) : (
                       <>
                         {node.installed && (
-                          <button type="button" onClick={() => setConfirmRemoveId(node.region_id)}
-                            className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors">
+                          <Button type="button" variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10" onClick={() => setConfirmRemoveId(node.region_id)} aria-label="Remove region">
                             <Trash2 className="size-3" />
-                          </button>
+                          </Button>
                         )}
-                        <button type="button" onClick={() => download(node.region_id)}
-                          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-violet-500/50 hover:bg-violet-500/5 transition-colors">
+                        <Button type="button" variant="outline" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-brand/50 hover:bg-brand/5" onClick={() => download(node.region_id)}>
                           <Download className="size-3" />
                           {node.installed ? 'Update' : 'Add'}
-                        </button>
+                        </Button>
                       </>
                     )}
                   </div>
@@ -226,7 +226,7 @@ export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInst
                     />
                   </div>
                 )}
-              </div>
+              </Card>
             )
           })}
         </div>

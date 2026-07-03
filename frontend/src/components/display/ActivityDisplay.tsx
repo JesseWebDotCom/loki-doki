@@ -3,6 +3,8 @@
 // Falls back to a "Nothing playing" idle state when both are absent.
 
 import type { UserPresence, NowPlaying, PlexActivity } from '@/lib/presence'
+import { Card } from '@/components/ui/card'
+import { StatusDot } from '@/components/shared/StatusDot'
 
 interface Props {
   presence: UserPresence | null
@@ -42,19 +44,19 @@ function MusicView({ np }: { np: NowPlaying }) {
           <img
             src={np.cover}
             alt={np.title}
-            className="w-64 h-64 rounded-2xl shadow-2xl object-cover flex-shrink-0"
+            className="w-64 h-64 rounded-card shadow-2xl object-cover flex-shrink-0"
           />
         ) : (
-          <div className="w-64 h-64 rounded-2xl bg-white/10 flex items-center justify-center flex-shrink-0">
+          <Card variant="flat" className="w-64 h-64 flex items-center justify-center flex-shrink-0">
             <span className="text-8xl">🎵</span>
-          </div>
+          </Card>
         )}
 
         {/* Track info + progress */}
         <div className="flex flex-col gap-4 flex-1 min-w-0">
           {/* Playing indicator */}
           <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${np.playing ? 'bg-green-400 animate-pulse' : 'bg-white/40'}`} />
+            <StatusDot status={np.playing ? 'ok' : 'off'} pulse={np.playing} className="size-3" />
             <span className="text-white/60 text-2xl font-medium tracking-widest uppercase">
               {np.stationId ? 'AI Radio' : np.videoId ? 'YouTube' : 'Music'}
             </span>
@@ -110,13 +112,13 @@ function PlexView({ plex }: { plex: PlexActivity }) {
           <img
             src={thumbUrl}
             alt={plex.title}
-            className="h-[85%] rounded-2xl shadow-2xl object-cover"
+            className="h-[85%] rounded-card shadow-2xl object-cover"
             style={{ aspectRatio: plex.type === 'movie' ? '2/3' : '16/9' }}
           />
         ) : (
-          <div className="h-[85%] w-56 rounded-2xl bg-white/10 flex items-center justify-center">
+          <Card variant="flat" className="h-[85%] w-56 flex items-center justify-center">
             <span className="text-8xl">{plex.type === 'movie' ? '🎬' : '📺'}</span>
-          </div>
+          </Card>
         )}
       </div>
 
@@ -124,7 +126,7 @@ function PlexView({ plex }: { plex: PlexActivity }) {
       <div className="relative flex flex-col justify-center flex-1 px-14 gap-5">
         {/* Plex badge */}
         <div className="flex items-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${isPlaying ? 'bg-amber-400 animate-pulse' : 'bg-white/40'}`} />
+          <StatusDot status={isPlaying ? 'warn' : 'off'} pulse={isPlaying} className="size-3" />
           <span className="text-white/60 text-2xl font-medium tracking-widest uppercase">
             {plex.type === 'movie' ? 'Movie' : 'Series'} · Plex
           </span>

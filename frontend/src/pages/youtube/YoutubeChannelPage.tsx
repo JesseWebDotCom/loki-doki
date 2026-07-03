@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, HardDriveDownload, Check, Plus, Link2 } from 'lucide-react'
+import { HardDriveDownload, Check, Plus, Link2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { toast } from '@/lib/toast'
 import { useYtSubs, useYtDownloads } from '@/lib/youtube/useData'
 import {
@@ -55,7 +60,7 @@ function useChannelVideos(channelId: string, tab: ChannelVideoTab, active: boole
 
 // Merge a tab's first page + paged extras into deduped card view-models. A channel's own
 // video/short renderers omit the author + channel avatar, so default both to this channel's
-// name/thumbnail — otherwise VideoCard (which hides the avatar when author is empty) shows
+// name/thumbnail; otherwise VideoCard (which hides the avatar when author is empty) shows
 // no logo at all on the channel's own grid.
 function toItems(firstPage: { videos: ItVideo[] } | undefined, extra: ItVideo[], thumb: string | null, channelName: string): VideoItem[] {
   const seen = new Set<string>()
@@ -72,10 +77,10 @@ function toItems(firstPage: { videos: ItVideo[] } | undefined, extra: ItVideo[],
 function LoadMore({ onClick, loading }: { onClick: () => void; loading: boolean }) {
   return (
     <div className="flex justify-center pt-2">
-      <button onClick={onClick} disabled={loading}
-        className="flex items-center gap-2 rounded-full border border-border bg-card px-5 py-2.5 text-sm font-semibold transition hover:border-[var(--yt-accent)] disabled:opacity-60">
-        {loading && <Loader2 className="size-4 animate-spin" />} Load more
-      </button>
+      <Button variant="outline" onClick={onClick} disabled={loading}
+        className="h-auto px-5 py-2.5 font-semibold hover:border-[var(--yt-accent)]">
+        {loading && <Spinner />} Load more
+      </Button>
     </div>
   )
 }
@@ -105,7 +110,7 @@ export function YoutubeChannelPage() {
 
   // Videos tab is always fetched (when online): it carries the channel meta (header, available
   // tabs) and seeds the "make a podcast" source, even while another tab is on screen. Offline,
-  // none of the live tabs fetch — the page falls back to this channel's downloaded videos.
+  // none of the live tabs fetch; the page falls back to this channel's downloaded videos.
   const videos = useChannelVideos(channelId, 'videos', online)
 
   // When arriving from a search/related card the channel isn't subscribed yet, so fall
@@ -114,7 +119,7 @@ export function YoutubeChannelPage() {
   const sub = subs.find(s => s.externalId === channelId)
   const meta = videos.firstPage?.meta
 
-  // Only show tabs the channel actually publishes — otherwise Live/Playlists/Shorts silently
+  // Only show tabs the channel actually publishes; otherwise Live/Playlists/Shorts silently
   // fall back to the channel's Home content. Videos is always shown; until meta loads (or for
   // an old cache without availableTabs) we show all so nothing flickers in late.
   const available = meta?.availableTabs
@@ -152,7 +157,7 @@ export function YoutubeChannelPage() {
   // channel navigations, so a prior broken banner shouldn't suppress the next channel's).
   useEffect(() => { setBannerOk(true) }, [bannerUrl])
   // Prefer the description that arrives with the videos query (channel metadata) over the
-  // one from the slower about query — same text, but using it avoids a re-layout when about
+  // one from the slower about query; same text, but using it avoids a re-layout when about
   // resolves a beat later.
   const description = meta?.description ?? about?.description ?? sub?.description ?? null
   const subscribers = about?.subscribers ?? meta?.subscribers ?? null
@@ -205,15 +210,16 @@ export function YoutubeChannelPage() {
     }
   }
 
-  // Offline: no live fetch — just the channel header (from local sub/nav state) over a grid of
+  // Offline: no live fetch, just the channel header (from local sub/nav state) over a grid of
   // whatever's been saved from this channel. Nothing here touches the network.
   if (!online) {
     return (
-      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
+      <PageContainer width="wide" className="py-6">
         <div className="mb-6 flex items-start gap-4">
           <ChannelAvatar title={title} src={thumb} className="size-20 shrink-0 text-3xl ring-1 ring-border/40 sm:size-24" />
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-black tracking-tight sm:text-3xl">{title}</h1>
+            {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}
+            <h1 className="truncate text-display">{title}</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {offlineVideos.length} {offlineVideos.length === 1 ? 'video' : 'videos'} saved offline
             </p>
@@ -222,21 +228,21 @@ export function YoutubeChannelPage() {
         {offlineVideos.length === 0
           ? <EmptyTab label="offline videos" />
           : <div className={GRID}>{offlineVideos.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>}
-      </div>
+      </PageContainer>
     )
   }
 
-  // Until the channel's primary data lands, show a skeleton that mirrors the final layout —
+  // Until the channel's primary data lands, show a skeleton that mirrors the final layout:
   // banner, meta line, tabs and grid all arrive together from this one query, so the header
   // no longer pops in after the content and shoves it down.
   if (videos.isLoading && !videos.firstPage) return <ChannelSkeleton />
 
   return (
-    <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
+    <PageContainer width="wide" className="py-6">
       {unsubDialog}
 
       {bannerUrl && bannerOk && (
-        <div className="mb-5 overflow-hidden rounded-2xl ring-1 ring-border/40">
+        <div className="mb-5 overflow-hidden rounded-card ring-1 ring-border/40">
           <img src={ytImageProxy(bannerUrl)} alt="" referrerPolicy="no-referrer" className="aspect-[6/1] w-full object-cover" onError={() => setBannerOk(false)} />
         </div>
       )}
@@ -244,7 +250,8 @@ export function YoutubeChannelPage() {
       <div className="mb-6 flex items-start gap-4">
         <ChannelAvatar title={title} src={thumb} className="size-20 shrink-0 text-3xl ring-1 ring-border/40 sm:size-24" />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-black tracking-tight sm:text-3xl">{title}</h1>
+          {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}
+          <h1 className="truncate text-display">{title}</h1>
           {metaLine && <p className="mt-0.5 text-sm text-muted-foreground">{metaLine}</p>}
           {description && (
             <div className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted-foreground/80">
@@ -276,13 +283,13 @@ export function YoutubeChannelPage() {
           {subscribed && sub && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button size="icon"
                   aria-label={sub.autoSave ? 'Auto-save on' : 'Auto-save off'}
                   title={sub.autoSave ? `Auto-saving new ${sub.autoSaveKind}` : 'Auto-save new uploads'}
-                  className={cn('flex size-10 items-center justify-center rounded-full transition-colors',
-                    sub.autoSave ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]' : 'bg-muted text-muted-foreground hover:text-foreground')}>
+                  className={cn('size-10',
+                    sub.autoSave ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
                   <HardDriveDownload className="size-4" />
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-72 space-y-3 p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -296,7 +303,7 @@ export function YoutubeChannelPage() {
                   <>
                     <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-3">
                       <span className="text-sm text-muted-foreground">Save as</span>
-                      <div className="flex overflow-hidden rounded-md border border-border">
+                      <div className="flex overflow-hidden rounded-full border border-border">
                         {(['video', 'audio'] as const).map(k => (
                           <button key={k} onClick={() => void patchSub({ autoSaveKind: k })}
                             className={cn('px-3 py-1 text-xs font-medium capitalize transition-colors',
@@ -311,7 +318,7 @@ export function YoutubeChannelPage() {
                       <div className="flex items-center gap-1.5">
                         <input type="number" min={0} value={sub.autoSaveKeep ?? ''} placeholder="default"
                           onChange={e => void patchSub({ autoSaveKeep: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })}
-                          className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm" />
+                          className="w-16 rounded-control border border-border bg-background px-2 py-1 text-sm" />
                         <span className="text-xs text-muted-foreground">videos</span>
                       </div>
                     </div>
@@ -320,13 +327,13 @@ export function YoutubeChannelPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <button onClick={toggleSub} disabled={busy}
-            aria-label={subscribed ? 'Subscribed — click to unsubscribe' : 'Subscribe'}
-            title={subscribed ? 'Subscribed — click to unsubscribe' : 'Subscribe'}
-            className={cn('group flex size-10 items-center justify-center rounded-full transition-colors disabled:opacity-60',
-              subscribed ? 'bg-[var(--yt-accent)] text-white hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : subscribed ? <Check className="size-4" /> : <Plus className="size-4" />}
-          </button>
+          <Button size="icon" onClick={toggleSub} disabled={busy}
+            aria-label={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
+            title={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
+            className={cn('group size-10 disabled:opacity-60',
+              subscribed ? 'bg-[var(--yt-accent)] text-white hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
+            {busy ? <Spinner className="text-current" /> : subscribed ? <Check className="size-4" /> : <Plus className="size-4" />}
+          </Button>
         </div>
       </div>
 
@@ -342,7 +349,7 @@ export function YoutubeChannelPage() {
       </div>
 
       {activeTab === 'videos' && (
-        videos.isLoading ? <Spinner />
+        videos.isLoading ? <TabLoading />
           : videoItems.length === 0 ? <EmptyTab label="videos" />
           : <div className="space-y-8">
               <div className={GRID}>{videoItems.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
@@ -351,7 +358,7 @@ export function YoutubeChannelPage() {
       )}
 
       {activeTab === 'shorts' && (
-        shorts.isLoading ? <Spinner />
+        shorts.isLoading ? <TabLoading />
           : shortItems.length === 0 ? <EmptyTab label="Shorts" />
           : <div className="space-y-8">
               <div className={SHORTS_GRID}>{shortItems.map(i => <VideoCard key={i.videoId} item={i} aspect="short" />)}</div>
@@ -360,7 +367,7 @@ export function YoutubeChannelPage() {
       )}
 
       {activeTab === 'live' && (
-        live.isLoading ? <Spinner />
+        live.isLoading ? <TabLoading />
           : liveItems.length === 0 ? <EmptyTab label="live streams" />
           : <div className="space-y-8">
               <div className={GRID}>{liveItems.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
@@ -369,49 +376,49 @@ export function YoutubeChannelPage() {
       )}
 
       {activeTab === 'playlists' && (
-        playlistsQuery.isLoading ? <Spinner />
+        playlistsQuery.isLoading ? <TabLoading />
           : (playlistsQuery.data?.playlists.length ?? 0) === 0 ? <EmptyTab label="playlists" />
           : <div className={GRID}>{playlistsQuery.data!.playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
-function Spinner() {
-  return <div className="flex h-[40vh] items-center justify-center"><Loader2 className="size-7 animate-spin text-muted-foreground" /></div>
+function TabLoading() {
+  return <SkeletonCards count={8} className="xl:grid-cols-4" />
 }
 
 // Mirrors the loaded layout (header row + tab bar + video grid) so the page doesn't reflow
-// when real data arrives. No banner placeholder — many channels have none, and reserving it
+// when real data arrives. No banner placeholder; many channels have none, and reserving it
 // would itself cause a shift when they don't.
 function ChannelSkeleton() {
   return (
-    <div className="mx-auto max-w-[1500px] animate-pulse px-4 py-6 sm:px-6">
+    <PageContainer width="wide" className="py-6">
       <div className="mb-6 flex items-start gap-4">
-        <div className="size-20 shrink-0 rounded-full bg-muted sm:size-24" />
+        <Skeleton className="size-20 shrink-0 rounded-full sm:size-24" />
         <div className="min-w-0 flex-1 space-y-2 pt-1.5">
-          <div className="h-7 w-56 max-w-full rounded bg-muted" />
-          <div className="h-4 w-72 max-w-full rounded bg-muted" />
-          <div className="h-3 w-full max-w-lg rounded bg-muted" />
+          <Skeleton className="h-7 w-56 max-w-full" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+          <Skeleton className="h-3 w-full max-w-lg" />
         </div>
       </div>
       <div className="mb-6 flex gap-6 border-b border-border/60 pb-3">
-        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-4 w-16 rounded bg-muted" />)}
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-4 w-16" />)}
       </div>
       <div className={GRID}>
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="flex flex-col gap-2.5">
-            <div className="aspect-video rounded-xl bg-muted" />
+            <Skeleton className="aspect-video rounded-card" />
             <div className="flex gap-2.5">
-              <div className="mt-0.5 size-8 shrink-0 rounded-full bg-muted" />
+              <Skeleton className="mt-0.5 size-8 shrink-0 rounded-full" />
               <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="h-3.5 w-full rounded bg-muted" />
-                <div className="h-3 w-1/2 rounded bg-muted" />
+                <Skeleton className="h-3.5 w-full" />
+                <Skeleton className="h-3 w-1/2" />
               </div>
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </PageContainer>
   )
 }

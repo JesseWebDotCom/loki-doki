@@ -1,6 +1,6 @@
 ---
 title: Time
-description: World clock, alarms, timers, and a stopwatch — with spoken alarm and timer announcements from your companion.
+description: World clock, alarms, timers, and a stopwatch, with spoken alarm and timer announcements from your companion.
 sidebar:
   order: 17
 ---
@@ -13,7 +13,7 @@ Add the cities you care about and see them all at once, with the current time an
 
 ## Alarms
 
-Set one-off or recurring alarms with the days they should repeat. When an alarm fires, you get an on-screen prompt and a tone, and your companion can speak it aloud — with **snooze** and **dismiss** right there. Alarm tones use the same offline music engine as the Music app, so you can pick a sound without downloading anything.
+Set one-off or recurring alarms with the days they should repeat. When an alarm fires, you get an on-screen prompt and a tone, and your companion can speak it aloud, with **snooze** and **dismiss** right there. Alarm tones use the same offline music engine as the Music app, so you can pick a sound without downloading anything.
 
 ## Timers
 

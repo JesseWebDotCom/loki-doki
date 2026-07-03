@@ -1,7 +1,10 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Tv, Search, BookOpen, Bookmark, Headphones } from 'lucide-react'
+import { Tv, Search, BookOpen, Bookmark, Headphones } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
@@ -10,8 +13,10 @@ import { getContinueWatching, getWatchlist } from '@/lib/library/api'
 import { usePlexConfigured, plexRailQueryOptions } from '@/lib/plex/hooks'
 import { PlexNowPlaying } from '@/components/media/PlexNowPlaying'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
+import { getAppByPath } from '@/lib/appCategories'
 
-const SHOWS_GRADIENT = 'linear-gradient(135deg,#0c4a6e,#0284c7)'
+// App identity (icon/gradient) comes from the app registry - the single source of truth.
+const SHOWS_APP = getAppByPath('/shows')
 
 function toPoster(s: ShowSummary): PosterItem {
   return {
@@ -32,7 +37,7 @@ function SearchGrid({ q }: { q: string }) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -107,7 +112,7 @@ function HomeShelves() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -115,13 +120,13 @@ function HomeShelves() {
     return (
       <EmptyAppState
         icon={Tv}
-        gradient={SHOWS_GRADIENT}
+        gradient={SHOWS_APP?.gradient}
         title="Every TV show, tracked in one place"
-        tagline="Search 250,000+ series from TVMaze, add them to your watchlist, and let AI turn any episode into a podcast — no subscription required."
+        tagline="Search 250,000+ series from TVMaze, add them to your watchlist, and let AI turn any episode into a podcast - no subscription required."
         features={[
-          { icon: Search, title: 'Search any series', desc: 'Titles, cast, genres — across every network and streaming service.' },
+          { icon: Search, title: 'Search any series', desc: 'Titles, cast, genres - across every network and streaming service.' },
           { icon: BookOpen, title: 'Track your progress', desc: 'Continue Watching keeps you one tap from your next episode.' },
-          { icon: Bookmark, title: 'Watchlist', desc: 'Queue up shows before you start — never lose a recommendation.' },
+          { icon: Bookmark, title: 'Watchlist', desc: 'Queue up shows before you start - never lose a recommendation.' },
           { icon: Headphones, title: 'AI episode podcasts', desc: 'Your companion produces a full audio recap for any episode.' },
         ]}
       />
@@ -153,12 +158,14 @@ export function ShowsHomePage() {
     onSubmit,
     placeholder: 'Search shows…',
     externalHref: 'https://www.tvmaze.com',
-    settingsHref: '/admin/features?tool=tvshows',
   })
 
   return (
-    <PageShell gradient={SHOWS_GRADIENT} GhostIcon={Tv}>
-      <div className="px-5 pb-12 pt-5">{submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}</div>
+    <PageShell>
+      <PageContainer width="wide" className="pb-12">
+        <PageHeader className="pt-5 pb-6" />
+        {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
+      </PageContainer>
     </PageShell>
   )
 }

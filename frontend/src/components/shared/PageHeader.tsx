@@ -1,145 +1,112 @@
+import { useLocation } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { getAppByPath, getGroupByAppPath } from "@/lib/appCategories";
 
-interface PageHeaderPlainProps {
-  variant?: "plain";
-  eyebrow?: string;
-  title: string;
+interface PageHeaderProps {
+  /** Defaults to the registry app label for the current route. */
+  title?: string;
   subtitle?: string;
+  /** Defaults to the registry app-group name. Rendered as an overline. */
+  eyebrow?: string;
   actions?: React.ReactNode;
-  className?: string;
-}
-
-interface PageHeaderHeroProps {
-  variant: "hero";
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  gradient: string;
-  icon?: React.ReactNode;
-  GhostIcon?: LucideIcon;
+  /** Editorial hero panel (app landing pages) instead of the standard header row. */
+  hero?: boolean;
+  /** CTA row, hero only. */
   cta?: React.ReactNode;
+  /** Override for pages not in the app registry (category pages, settings shells). */
+  icon?: LucideIcon;
+  /** Override for pages not in the app registry. */
+  gradient?: string;
   className?: string;
 }
 
-interface PageHeaderCompactProps {
-  variant: "compact";
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  gradient: string;
-  icon?: React.ReactNode;
-  GhostIcon?: LucideIcon;
-  actions?: React.ReactNode;
-  className?: string;
+/** First hex stop of a registry gradient, for the hero's soft radial glow. */
+function firstStop(gradient: string): string | null {
+  const match = gradient.match(/#[0-9a-fA-F]{6}/);
+  return match ? match[0] : null;
 }
 
-type PageHeaderProps = PageHeaderPlainProps | PageHeaderHeroProps | PageHeaderCompactProps;
-
+/**
+ * The one page header. Auto-resolves title, eyebrow, icon, and gradient from
+ * the app registry (`appCategories`) so most pages pass nothing but a subtitle.
+ * The identity tile here is the page's single big app-gradient moment; the
+ * title style (`text-display`) is the only sanctioned h1 in the app.
+ */
 export function PageHeader(props: PageHeaderProps) {
-  if (props.variant === "compact") {
-    const { eyebrow, title, subtitle, gradient, icon, GhostIcon, actions, className } = props;
+  const { pathname } = useLocation();
+  const app = getAppByPath(pathname);
+  const group = getGroupByAppPath(pathname);
+
+  const title = props.title ?? app?.label ?? "";
+  const eyebrow = props.eyebrow ?? (props.title === undefined ? group?.name : undefined);
+  const Icon = props.icon ?? app?.icon;
+  const gradient = props.gradient ?? app?.gradient;
+
+  const identityTile = Icon && gradient && (
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-card shadow-sm ring-1 ring-white/10",
+        props.hero ? "size-14" : "size-12",
+      )}
+      style={{ background: gradient }}
+    >
+      <Icon className={cn("text-white", props.hero ? "size-7" : "size-6")} aria-hidden="true" />
+    </div>
+  );
+
+  if (props.hero) {
+    const glowStop = gradient ? firstStop(gradient) : null;
     return (
-      <div className={cn("relative pb-4", className)}>
-        {GhostIcon && (
-          <GhostIcon className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 size-20 rotate-[-10deg] text-white/10 z-0" />
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-sheet border border-border bg-card px-6 pt-9 pb-7 sm:px-8",
+          props.className,
         )}
-        <div className="relative z-10 flex items-center gap-3 px-5 py-3">
-          {icon && (
-            <div
-              className="flex size-14 shrink-0 items-center justify-center rounded-2xl shadow-sm ring-1 ring-white/10"
-              style={{ background: gradient }}
-            >
-              {icon}
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            {eyebrow && (
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/50 leading-none">
-                {eyebrow}
-              </p>
-            )}
-            <h1 className={cn("font-black tracking-tight text-white leading-tight", eyebrow ? "mt-0.5 text-4xl" : "text-4xl")}>
+      >
+        {/* App identity as atmosphere: a soft radial glow of the app hue, not a paint-bucket fill. */}
+        {glowStop && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: `radial-gradient(640px circle at 0% 0%, ${glowStop}2e, transparent 62%)` }}
+          />
+        )}
+        {Icon && (
+          <Icon
+            aria-hidden="true"
+            className="pointer-events-none absolute -bottom-5 -right-4 size-32 rotate-[-14deg] text-foreground opacity-[0.05]"
+          />
+        )}
+        <div className="relative flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            {identityTile && <div className="mb-5">{identityTile}</div>}
+            {eyebrow && <p className="text-overline text-muted-foreground">{eyebrow}</p>}
+            <h1 className={cn("text-display sm:text-display-lg text-foreground", eyebrow && "mt-2")}>
               {title}
             </h1>
-            {subtitle && (
-              <p className="mt-1 text-sm leading-tight text-white/60">{subtitle}</p>
+            {props.subtitle && (
+              <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">{props.subtitle}</p>
             )}
+            {props.cta && <div className="mt-6 flex items-center gap-2">{props.cta}</div>}
           </div>
-          {actions && (
-            <div className="ml-auto shrink-0">{actions}</div>
-          )}
+          {props.actions && <div className="shrink-0 flex items-center gap-2">{props.actions}</div>}
         </div>
       </div>
     );
   }
 
-  if (props.variant === "hero") {
-    const { eyebrow, title, subtitle, gradient, icon, GhostIcon, cta, className } = props;
-    return (
-      <div className={cn("mx-4 sm:mx-5", className)}>
-        <div
-          className="relative overflow-hidden rounded-3xl px-6 pt-8 pb-6"
-          style={{ background: gradient }}
-        >
-          <div className="pointer-events-none absolute -bottom-20 -right-20 size-64 rounded-full bg-white/5 blur-3xl" />
-          <div className="pointer-events-none absolute -top-12 -left-12 size-44 rounded-full bg-white/5 blur-3xl" />
-          {GhostIcon && (
-            <GhostIcon className="pointer-events-none absolute -bottom-4 -right-3 size-[100px] rotate-[-20deg] text-white/20" />
-          )}
-          {icon && (
-            <div className="relative z-10 mb-4 flex size-12 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm ring-1 ring-white/20">
-              {icon}
-            </div>
-          )}
-          {eyebrow && (
-            <p className="relative z-10 text-[10px] font-bold uppercase tracking-[0.25em] text-white/50">
-              {eyebrow}
-            </p>
-          )}
-          <h1
-            className={cn(
-              "relative z-10 font-black tracking-tight text-white",
-              eyebrow ? "mt-2 text-3xl sm:text-4xl" : "text-3xl sm:text-4xl",
-            )}
-          >
-            {title}
-          </h1>
-          {subtitle && (
-            <p className="relative z-10 mt-1.5 max-w-sm text-sm leading-relaxed text-white/60">
-              {subtitle}
-            </p>
-          )}
-          {cta && <div className="relative z-10 mt-5">{cta}</div>}
-        </div>
-      </div>
-    );
-  }
-
-  const { eyebrow, title, subtitle, actions, className } = props;
   return (
-    <div className={cn("flex items-end justify-between px-5 pt-10 pb-6", className)}>
-      <div className="min-w-0 flex-1">
-        {eyebrow && (
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            {eyebrow}
-          </p>
-        )}
-        <h1
-          className={cn(
-            "font-black tracking-tight",
-            eyebrow ? "mt-1 text-3xl sm:text-4xl" : "text-3xl sm:text-4xl",
-          )}
-        >
-          {title}
-        </h1>
-        {subtitle && (
-          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
-        )}
+    <div className={cn("flex items-end justify-between gap-4 pt-8 pb-6", props.className)}>
+      <div className="flex min-w-0 items-center gap-4">
+        {identityTile}
+        <div className="min-w-0">
+          {eyebrow && <p className="text-overline text-muted-foreground">{eyebrow}</p>}
+          <h1 className={cn("truncate text-display text-foreground", eyebrow && "mt-1.5")}>{title}</h1>
+          {props.subtitle && <p className="mt-1.5 text-sm text-muted-foreground">{props.subtitle}</p>}
+        </div>
       </div>
-      {actions && (
-        <div className="ml-4 flex shrink-0 items-center gap-2">{actions}</div>
-      )}
+      {props.actions && <div className="flex shrink-0 items-center gap-2">{props.actions}</div>}
     </div>
   );
 }

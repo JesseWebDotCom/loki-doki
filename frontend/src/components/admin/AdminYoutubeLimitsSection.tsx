@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Loader2, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 
 // Admin control for Save-quality caps: one global ceiling plus optional per-user
 // overrides. Mirrors the protections/grant admin patterns — writes go straight to
@@ -53,7 +55,7 @@ export function AdminYoutubeLimitsSection() {
   }
 
   if (!data) return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Loading save limits…</div>
+    <div className="flex items-center gap-2 text-xs text-muted-foreground"><Spinner size="sm" /> Loading save limits…</div>
   )
 
   const nonAdmins = data.users.filter(u => u.role !== 'admin')
@@ -63,7 +65,7 @@ export function AdminYoutubeLimitsSection() {
       <YtDlpStatusBlock />
 
       <div className="space-y-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Save quality limits</p>
+      <p className="text-overline text-muted-foreground/60">Save quality limits</p>
 
       {/* Global cap */}
       <div className="flex items-center justify-between gap-3">
@@ -75,7 +77,7 @@ export function AdminYoutubeLimitsSection() {
           value={data.globalCap}
           disabled={saving.global}
           onChange={e => saveGlobal(Number(e.target.value))}
-          className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+          className="rounded-control border border-border bg-background px-2 py-1.5 text-xs"
         >
           {data.tiers.map(t => <option key={t} value={t}>{t}p</option>)}
         </select>
@@ -92,7 +94,7 @@ export function AdminYoutubeLimitsSection() {
                 value={u.cap ?? ''}
                 disabled={saving[u.id]}
                 onChange={e => saveUser(u.id, e.target.value === '' ? null : Number(e.target.value))}
-                className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+                className="rounded-control border border-border bg-background px-2 py-1.5 text-xs"
               >
                 <option value="">Global default ({data.globalCap}p)</option>
                 {data.tiers.map(t => <option key={t} value={t}>{t}p</option>)}
@@ -138,10 +140,10 @@ function YtDlpStatusBlock() {
 
   return (
     <div className="space-y-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">yt-dlp engine</p>
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/40 px-3 py-2">
+      <p className="text-overline text-muted-foreground/60">yt-dlp engine</p>
+      <div className="flex items-center justify-between gap-3 rounded-control border border-border bg-background/40 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          {ok ? <CheckCircle2 className="size-4 shrink-0 text-emerald-500" /> : <AlertTriangle className="size-4 shrink-0 text-amber-500" />}
+          {ok ? <CheckCircle2 className="size-4 shrink-0 text-success" /> : <AlertTriangle className="size-4 shrink-0 text-warning" />}
           <div className="min-w-0">
             <p className="text-xs font-medium">
               {status ? (status.version ? `Version ${status.version}` : 'Not detected') : 'Loading…'}
@@ -150,11 +152,16 @@ function YtDlpStatusBlock() {
             <p className="truncate text-[10px] text-muted-foreground/60">Last checked {checkedLabel} · auto-updates weekly</p>
           </div>
         </div>
-        <button onClick={checkNow} disabled={checking}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium transition hover:bg-accent disabled:opacity-60">
-          {checking ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+        <Button
+          onClick={checkNow}
+          disabled={checking}
+          variant="outline"
+          size="sm"
+          className="shrink-0 gap-1.5 text-xs"
+        >
+          {checking ? <Spinner size="sm" /> : <RefreshCw className="size-3.5" />}
           {checking ? 'Checking…' : 'Check now'}
-        </button>
+        </Button>
       </div>
     </div>
   )

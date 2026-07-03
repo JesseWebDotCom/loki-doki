@@ -46,12 +46,10 @@ export function relativeTime(ts?: number): string | null {
 
 // Stable per-source tint for image-less placeholders (static classes for Tailwind).
 const TINTS = [
-  'from-rose-500/25 to-rose-500/5 text-rose-300',
-  'from-amber-500/25 to-amber-500/5 text-amber-300',
-  'from-emerald-500/25 to-emerald-500/5 text-emerald-300',
-  'from-sky-500/25 to-sky-500/5 text-sky-300',
-  'from-violet-500/25 to-violet-500/5 text-violet-300',
-  'from-fuchsia-500/25 to-fuchsia-500/5 text-fuchsia-300',
+  'from-brand/25 to-brand/5 text-brand',
+  'from-brand/15 to-brand/[0.03] text-brand/70',
+  'from-muted-foreground/25 to-muted-foreground/5 text-muted-foreground',
+  'from-muted-foreground/15 to-muted-foreground/[0.03] text-muted-foreground/70',
 ]
 function tintFor(seed: string): string {
   let h = 0
@@ -63,7 +61,7 @@ function tintFor(seed: string): string {
 export function SourceBadge({ item }: { item: NewsItem }) {
   const host = hostFromUrl(item.url)
   return (
-    <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-foreground/8 px-1.5 py-0.5">
+    <span className="inline-flex min-w-0 items-center gap-1 rounded-full bg-foreground/8 px-1.5 py-0.5">
       {host && <FaviconImg domain={host} className="size-3 shrink-0 rounded-[3px] object-contain" />}
       <span className="truncate text-[10px] font-bold uppercase tracking-wide text-foreground/55">{sourceLabel(item)}</span>
     </span>
@@ -117,7 +115,7 @@ function Wrap({ item, className, children }: { item: NewsItem; className?: strin
 export function NewsFeature({ item, big, className }: { item: NewsItem; big?: boolean; className?: string }) {
   return (
     <Wrap item={item} className={className}>
-      <div className="group flex h-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-card transition-all hover:border-brand/40 hover:shadow-lg hover:shadow-black/20">
+      <div className="group flex h-full flex-col overflow-hidden rounded-card border border-border/60 bg-card transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md">
         <NewsThumb item={item} className={cn('w-full', big ? 'h-48 sm:h-60' : 'h-36')} />
         <div className="flex flex-1 flex-col gap-2 p-4">
           <p
@@ -147,8 +145,8 @@ export function NewsFeature({ item, big, className }: { item: NewsItem; big?: bo
 export function NewsRow({ item, tag, tagColor }: { item: NewsItem; tag?: string; tagColor?: string }) {
   return (
     <Wrap item={item}>
-      <div className="group flex gap-3 rounded-xl p-2 transition-colors hover:bg-foreground/5">
-        <NewsThumb item={item} className="size-[60px] shrink-0 rounded-lg" />
+      <div className="group flex gap-3 rounded-control p-2 transition-colors hover:bg-foreground/5">
+        <NewsThumb item={item} className="size-[60px] shrink-0 rounded-control" />
         <div className="flex min-w-0 flex-1 flex-col">
           <p className="line-clamp-2 text-[13px] font-semibold leading-snug transition-colors group-hover:text-brand">
             {item.title}

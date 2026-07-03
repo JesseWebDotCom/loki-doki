@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Loader2, X, Plus, Minus, Globe, RefreshCw, BookOpen, Users, Mic, BarChart2, Sparkles, Trash2, Lock,
+  X, Plus, Minus, Globe, RefreshCw, BookOpen, Users, Mic, BarChart2, Sparkles, Trash2, Lock,
   type LucideIcon,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -49,7 +51,7 @@ const STYLES: { id: PodcastStyle; label: string; icon: LucideIcon }[] = [
   { id: 'story', label: 'Story', icon: Sparkles },
 ]
 
-const SEGMENT_TYPES = ['youtube', 'news', 'sports', 'weather', 'onThisDay', 'custom']
+const SEGMENT_TYPES = ['youtube', 'news', 'sports', 'weather', 'onThisDay', 'bookmarks', 'custom']
 
 // Auto-description building blocks.
 const STYLE_VERB: Record<PodcastStyle, string> = {
@@ -68,6 +70,7 @@ const STYLE_CLOSER: Record<PodcastStyle, string> = {
 const SEGMENT_TOPIC: Record<string, string> = {
   youtube: 'the latest from your subscriptions', news: 'the day’s news', sports: 'sports',
   weather: 'the weather', onThisDay: 'this day in history', custom: 'hand-picked topics',
+  bookmarks: 'the articles you saved this week',
 }
 function joinNames(list: string[]): string {
   if (list.length <= 1) return list[0] ?? ''
@@ -287,17 +290,17 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
             <Field label="Show Title">
               <input value={name} onChange={e => setName(e.target.value)} maxLength={100}
                 placeholder="Reel Talk Reviews"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand" />
+                className="w-full rounded-control border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand" />
             </Field>
 
             <Field label="Show Description">
               <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} maxLength={500}
                 placeholder="What is your show about? (leave blank to auto-generate)"
-                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand" />
+                className="w-full resize-none rounded-control border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand" />
               <button type="button" disabled={genningDesc}
                 onClick={async () => { setGenningDesc(true); try { setDescription(await generateDescription()) } finally { setGenningDesc(false) } }}
                 className="mt-1.5 flex items-center gap-1 text-xs font-medium text-brand hover:underline disabled:opacity-50">
-                {genningDesc ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                {genningDesc ? <Spinner size="sm" className="size-3 text-current" /> : <Sparkles className="size-3" />}
                 {genningDesc ? 'Writing…' : 'Generate from selection'}
               </button>
             </Field>
@@ -308,7 +311,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
                   const Icon = s.icon
                   return (
                     <button key={s.id} type="button" onClick={() => setStyle(s.id)}
-                      className={cn('flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors',
+                      className={cn('flex items-center gap-1.5 rounded-control border px-2 py-1.5 text-xs font-medium transition-colors',
                         style === s.id ? 'border-brand bg-brand/10 text-brand' : 'border-border hover:bg-muted')}>
                       <Icon className="size-3.5" /> {s.label}
                     </button>
@@ -323,7 +326,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
                 const display = targetMinutes ?? styleDefault
                 const isCustom = targetMinutes !== null
                 return (
-                  <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                  <div className="flex items-center justify-between rounded-control border border-border px-3 py-2">
                     <div className="flex flex-col">
                       <span className="text-sm font-semibold tabular-nums">{display} min</span>
                       {isCustom ? (
@@ -348,7 +351,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
 
             {ytCreate && ytMulti && (
               <Field label="Episodes this batch">
-                <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                <div className="flex items-center justify-between rounded-control border border-border px-3 py-2">
                   <span className="text-xs text-muted-foreground">Newest first · up to {MAX_BATCH}. Generate more later.</span>
                   <div className="flex items-center gap-1">
                     <StepBtn icon={Minus} disabled={batch <= 1} onClick={() => changeBatch(batch - 1)} />
@@ -364,7 +367,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
                 // Locked for YouTube-created shows: the source IS this channel/playlist.
                 // Editing it here would only affect later "New episode" generations from
                 // the Podcasts page and produce off-topic content, so it's fixed.
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 rounded-control border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                   <Lock className="size-3.5 shrink-0" />
                   <span>Sourced from this YouTube {youtube!.sourceRef?.startsWith('playlist:') ? 'playlist' : 'channel'}</span>
                 </div>
@@ -374,7 +377,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
                     <div key={i} className="flex items-center gap-2">
                       <select value={seg.type}
                         onChange={e => setSegments(prev => prev.map((s, j) => j === i ? { ...s, type: e.target.value } : s))}
-                        className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none">
+                        className="flex-1 rounded-control border border-border bg-background px-2 py-1.5 text-sm outline-none">
                         {SEGMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                       <button type="button" onClick={() => setSegments(prev => prev.filter((_, j) => j !== i))}
@@ -408,7 +411,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
 
             <button type="button" onClick={() => setVisibility(v => v === 'personal' ? 'shared' : 'personal')}
               className={cn('flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                visibility === 'shared' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-muted text-muted-foreground hover:bg-muted/80')}>
+                visibility === 'shared' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground hover:bg-muted/80')}>
               <Globe className="size-3.5" /> {visibility === 'shared' ? 'Shared with family' : 'Private'}
             </button>
           </div>
@@ -428,17 +431,16 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
 
         <div className="flex items-center justify-end gap-2 border-t border-border/40 px-5 py-3">
           {initial?.id && (
-            <button onClick={() => setConfirmDelete(true)} disabled={saving}
-              className="mr-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} disabled={saving}
+              className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive">
               <Trash2 className="size-3.5" /> Delete Show
-            </button>
+            </Button>
           )}
-          <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
-          <button onClick={handleSave} disabled={!name.trim() || saving}
-            className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-50">
-            {saving && <Loader2 className="size-3.5 animate-spin" />}
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={!name.trim() || saving}>
+            {saving && <Spinner size="sm" className="text-current" />}
             {initial?.id ? 'Save Changes' : ytCreate ? 'Create podcast' : 'Create Show'}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -467,9 +469,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function StepBtn({ icon: Icon, disabled, onClick }: { icon: LucideIcon; disabled?: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled}
-      className="flex size-7 items-center justify-center rounded-md border border-border text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30">
+    <Button type="button" variant="outline" size="icon-sm" onClick={onClick} disabled={disabled}
+      className="border-border text-foreground disabled:cursor-not-allowed">
       <Icon className="size-3.5" />
-    </button>
+    </Button>
   )
 }

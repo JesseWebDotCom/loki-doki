@@ -1,8 +1,8 @@
-import { Loader2 } from 'lucide-react'
 import { useNow } from '@/hooks/useNow'
 import { useWeatherSnapshot } from '@/hooks/useWeatherSnapshot'
 import { WeatherHeroBg } from '@/components/weather/WeatherHeroBg'
 import { FlipClock } from '@/components/display/FlipClock'
+import { Spinner } from '@/components/ui/spinner'
 import {
   heroBackground,
   weatherIconSrc,
@@ -21,7 +21,16 @@ import { cn } from '@/lib/cn'
 
 function CanvasWeather() {
   const { snapshot, status } = useWeatherSnapshot()
-  if (status === 'loading') return <Loader2 className="animate-spin text-white/40" style={{ width: '7cqmin', height: '7cqmin' }} />
+  if (status === 'loading') {
+    // design-ok(adhoc-spinner): sized in cqmin to scale with the canvas (kiosk wall
+    // display down to a settings thumbnail); Spinner's fixed sizes can't do that, so it's
+    // wrapped and stretched to fill.
+    return (
+      <span style={{ width: '7cqmin', height: '7cqmin' }} className="inline-flex">
+        <Spinner size="lg" className="!size-full text-white/40" />
+      </span>
+    )
+  }
   if (status !== 'ready' || !snapshot) return null
   const moon = moonPhaseInfo(currentMoonPhase())
   return (
@@ -38,6 +47,7 @@ function CanvasWeather() {
             </span>
           )}
         </div>
+        {/* design-ok(font-black): kiosk weather numeral, bespoke ambient readout, not UI text. */}
         <span className="font-black tabular-nums leading-none text-white drop-shadow-lg" style={{ fontSize: '13cqmin' }}>
           {snapshot.temp}°
         </span>
@@ -85,6 +95,7 @@ export function HomeDisplayCanvas({ config, className }: { config: HomeDisplayCo
               style={{ fontSize: '16cqmin' }}
             />
           ) : (
+            // design-ok(font-black): kiosk digital clock numeral, bespoke ambient display digits.
             <div className="flex items-end justify-center font-black tabular-nums leading-none text-white drop-shadow-2xl" style={{ fontSize: '26cqmin' }}>
               <span>{hh}:{mm}</span>
               {config.showSeconds && (

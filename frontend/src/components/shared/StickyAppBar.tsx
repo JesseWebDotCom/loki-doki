@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
 import { ChromeWash } from "./ChromeWash";
 
 export interface AppBarAction {
@@ -36,24 +37,26 @@ export function StickyAppBar({ name, gradient, icon: Icon, actions = [] }: Stick
           pinned ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1 pointer-events-none",
         )}
       >
-        <div className="relative flex items-center gap-3 border-b border-border/40 bg-background/70 px-6 py-3 backdrop-blur-md">
+        <div className="glass-chrome relative flex items-center gap-3 border-b border-border/40 px-6 py-3">
         <ChromeWash />
         <div
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg"
+          className="flex size-7 shrink-0 items-center justify-center rounded-control"
           style={{ background: gradient }}
         >
           <Icon className="size-3.5 text-white" />
         </div>
         <span className="flex-1 text-sm font-semibold">{name}</span>
         {actions.map(({ icon: ActionIcon, label, onClick, iconClassName }) => (
-          <button
+          <Button
             key={label}
+            variant="ghost"
+            size="icon"
             onClick={onClick}
             aria-label={label}
-            className="flex size-8 items-center justify-center rounded-xl bg-foreground/5 text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground active:scale-95"
+            className="size-8 bg-foreground/5 text-foreground/60 hover:bg-foreground/10 hover:text-foreground"
           >
             <ActionIcon className={cn('size-4', iconClassName)} />
-          </button>
+          </Button>
         ))}
         </div>
       </div>

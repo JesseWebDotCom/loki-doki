@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { FileText, Copy, Check, Download, ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import type { DocumentEditBlockData } from './types'
 
 export function DocumentEditBlock({ data }: { data: DocumentEditBlockData }) {
@@ -29,7 +31,7 @@ export function DocumentEditBlock({ data }: { data: DocumentEditBlockData }) {
   }
 
   return (
-    <div className="mt-2 max-w-md rounded-lg border border-border bg-muted/30 overflow-hidden">
+    <Card variant="surface" className="mt-2 max-w-md">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <FileText className="size-4 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
@@ -41,26 +43,17 @@ export function DocumentEditBlock({ data }: { data: DocumentEditBlockData }) {
       </div>
 
       <div className="flex items-center gap-2 px-3 py-2">
-        <button
-          onClick={download}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
+        <Button onClick={download} size="sm">
           <Download className="size-3.5" /> Download
-        </button>
-        <button
-          onClick={copy}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
-        >
-          {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+        </Button>
+        <Button onClick={copy} variant="outline" size="sm">
+          {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
           {copied ? 'Copied' : 'Copy'}
-        </button>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
+        </Button>
+        <Button onClick={() => setOpen((v) => !v)} variant="ghost" size="sm" className="ml-auto text-muted-foreground hover:text-foreground">
           {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           {open ? 'Hide' : 'Preview'}
-        </button>
+        </Button>
       </div>
 
       {open && (
@@ -68,6 +61,6 @@ export function DocumentEditBlock({ data }: { data: DocumentEditBlockData }) {
           {data.text}
         </pre>
       )}
-    </div>
+    </Card>
   )
 }

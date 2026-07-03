@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ArrowDown, BookOpen, Bug, Code2, FileText, Plus, Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
 import { ChatMessage, TypingIndicator, type Message } from "@/components/chat/ChatMessage";
 import { useChatContext } from "@/context/ChatContext";
 
@@ -12,7 +13,7 @@ interface MessageListProps {
 
 export function MessageList({ messages, isGenerating = false, className }: MessageListProps) {
   const { conversationId, regenerateMessage, editMessage } = useChatContext();
-  // Stable references passed to every ChatMessage — see the O(n²) memoization contract
+  // Stable references passed to every ChatMessage - see the O(n²) memoization contract
   // in agents.md. Both are useCallbacks in ChatContext, so these wrappers' identities
   // only change when those do, not on every render/token.
   const handleRegenerate = React.useCallback(
@@ -101,8 +102,8 @@ export function MessageList({ messages, isGenerating = false, className }: Messa
         onScroll={handleScroll}
         className="chat-scroll h-full overflow-y-auto"
       >
-        {/* Trailing padding keeps the last message clear of the floating companion bar. */}
-        <div className={cn("pb-36", messages.length === 0 && "min-h-full")}>
+        {/* Trailing padding keeps the last message clear of the static composer. */}
+        <div className={cn("pb-6", messages.length === 0 && "min-h-full")}>
           {messages.length === 0 ? (
             <EmptyState />
           ) : (
@@ -126,13 +127,15 @@ export function MessageList({ messages, isGenerating = false, className }: Messa
       </div>
 
       {showScrollBtn && (
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs shadow-md transition-opacity hover:bg-accent"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 gap-1.5 shadow-md"
         >
           <ArrowDown className="size-3" />
           Scroll to bottom
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -143,29 +146,29 @@ const STARTERS = [
     label: "Explain a concept",
     prompt: "Explain a concept",
     Icon: BookOpen,
-    bg: "bg-blue-500/15",
-    fg: "text-blue-400",
+    bg: "bg-brand/15",
+    fg: "text-brand",
   },
   {
     label: "Write a script",
     prompt: "Write a script",
     Icon: Code2,
-    bg: "bg-amber-500/15",
-    fg: "text-amber-400",
+    bg: "bg-warning/15",
+    fg: "text-warning",
   },
   {
     label: "Help me debug",
     prompt: "Help me debug",
     Icon: Bug,
-    bg: "bg-rose-500/15",
-    fg: "text-rose-400",
+    bg: "bg-destructive/15",
+    fg: "text-destructive",
   },
   {
     label: "Summarize text",
     prompt: "Summarize something",
     Icon: FileText,
-    bg: "bg-emerald-500/15",
-    fg: "text-emerald-400",
+    bg: "bg-success/15",
+    fg: "text-success",
   },
 ]
 
@@ -181,23 +184,24 @@ function EmptyState() {
 
       <div className="mt-10 grid grid-cols-2 gap-4 w-full max-w-2xl">
         {STARTERS.map(({ label, prompt, Icon, bg, fg }) => (
-          <button
+          <Button
             key={label}
+            variant="ghost"
             onClick={() => submit(undefined, prompt)}
-            className="group flex items-center gap-4 rounded-xl border border-border/40 bg-card px-5 py-4 text-left transition-all hover:border-border hover:bg-card/80 hover:shadow-sm"
+            className="group h-auto justify-start gap-4 whitespace-normal rounded-card border border-border/40 bg-card px-5 py-4 text-left transition-all hover:border-border hover:bg-card/80 hover:shadow-sm"
           >
-            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", bg)}>
+            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-control", bg)}>
               <Icon className={cn("size-5", fg)} />
             </span>
             <span className="flex-1 min-w-0">
               <span className="block text-sm font-semibold text-foreground">{label}</span>
             </span>
             <Plus className="size-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground" />
-          </button>
+          </Button>
         ))}
       </div>
 
-      <div className="mt-8 flex items-start gap-3 rounded-xl bg-muted/40 border border-border/20 px-5 py-3.5 text-left w-full max-w-2xl">
+      <div className="mt-8 flex items-start gap-3 rounded-card bg-muted/40 border border-border/20 px-5 py-3.5 text-left w-full max-w-2xl">
         <Sparkles className="size-3.5 text-primary/60 mt-0.5 shrink-0" />
         <p className="text-xs text-muted-foreground leading-relaxed">
           <span className="font-medium text-foreground/70">Tip:</span> Your companion is available

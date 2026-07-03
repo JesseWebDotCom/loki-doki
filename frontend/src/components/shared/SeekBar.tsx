@@ -20,11 +20,12 @@ export interface SeekBarProps {
   accent?: string
   /** Greys out + blocks interaction (e.g. live stream, or DJ talking on radio). */
   disabled?: boolean
-  /** Fires true on grab / false on release — lets the parent pause position polling mid-drag. */
+  /** Fires true on grab / false on release; lets the parent pause position polling mid-drag. */
   onScrubStateChange?: (scrubbing: boolean) => void
   className?: string
 }
 
+// design-ok(hex-in-tsx): per-player accent default (YouTube red), passed into inline styles
 export function SeekBar({ pos, total, onSeek, accent = '#dc2626', disabled, onScrubStateChange, className }: SeekBarProps) {
   const barRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<number | null>(null) // local fraction 0..1 while scrubbing

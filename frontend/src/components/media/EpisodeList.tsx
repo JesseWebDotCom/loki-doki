@@ -25,7 +25,7 @@ export function EpisodeList({
         const isOpen = open === group.season
         const watchedCount = watched ? group.episodes.filter((e) => watched.has(e.id)).length : 0
         return (
-          <div key={group.season} className="overflow-hidden rounded-lg border border-border/50">
+          <div key={group.season} className="overflow-hidden rounded-card border border-border/50">
             <button
               type="button"
               onClick={() => setOpen(isOpen ? -1 : group.season)}
@@ -54,8 +54,8 @@ export function EpisodeList({
                           className={cn(
                             'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors',
                             isWatched
-                              ? 'border-emerald-500 bg-emerald-500 text-white'
-                              : 'border-border text-transparent hover:border-emerald-500',
+                              ? 'border-success bg-success text-success-foreground'
+                              : 'border-border text-transparent hover:border-success',
                           )}
                         >
                           <Check className="size-3" />

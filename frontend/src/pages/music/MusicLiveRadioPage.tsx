@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Play, Search, Plus, Trash2, Loader2, CircleDot, Square, RadioTower, Link2 } from 'lucide-react'
+import { Play, Search, Plus, Trash2, CircleDot, Square, Link2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -73,8 +76,8 @@ function SavedStationCard({ st, rec, now }: { st: LiveLibraryStation; rec: LiveR
         <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-muted-foreground/70">
           {meta}
           {rec && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-1.5 py-0.5 font-medium text-red-500">
-              <span className="inline-flex size-1.5 animate-pulse rounded-full bg-red-500" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-1.5 py-0.5 font-medium text-destructive">
+              <StatusDot status="error" pulse />
               REC {fmtRemaining(remainingSec)}
             </span>
           )}
@@ -84,24 +87,24 @@ function SavedStationCard({ st, rec, now }: { st: LiveLibraryStation; rec: LiveR
         <button onClick={() => live.playLive({ id: st.id, name: st.name, favicon: st.favicon })}
           className={cn(
             'grid size-9 place-items-center rounded-full bg-foreground text-background transition hover:opacity-90',
-            playing && 'ring-2 ring-amber-500',
+            playing && 'ring-2 ring-warning',
           )}
           aria-label={`Play ${st.name}`}>
           <Play className="ml-0.5 size-4 fill-current" />
         </button>
         {rec ? (
           <button onClick={() => setConfirmStop(true)}
-            className="grid size-9 place-items-center rounded-full text-red-500 transition hover:bg-red-500/10"
+            className="grid size-9 place-items-center rounded-full text-destructive transition hover:bg-destructive/10"
             aria-label="Stop recording" title="Stop recording">
             <Square className="size-4 fill-current" />
           </button>
         ) : (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="grid size-9 place-items-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground"
                 aria-label="Record" title="Record">
                 <CircleDot className="size-4" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {RECORD_PRESETS.map(m => (
@@ -156,7 +159,7 @@ function AddByUrlDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={add} disabled={busy || !name.trim() || !url.trim()}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} Add
+            {busy ? <Spinner className="text-current" /> : <Plus className="size-4" />} Add
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -228,8 +231,8 @@ export function MusicLiveRadioPage() {
   }
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Live Radio"
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music" title="Live Radio"
         subtitle="Real stations, streaming live from around the world."
         actions={<Button onClick={() => setAddOpen(true)}><Link2 className="size-4" /> Add by URL</Button>} />
 
@@ -264,7 +267,7 @@ export function MusicLiveRadioPage() {
 
         <div className="mt-4">
           {!hasSearch && (
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Popular stations</p>
+            <p className="mb-3 text-overline text-muted-foreground">Popular stations</p>
           )}
           {searching && <p className="text-sm text-muted-foreground">Searching…</p>}
           {!searching && (results?.length ?? 0) === 0 && (
@@ -284,6 +287,6 @@ export function MusicLiveRadioPage() {
       </section>
 
       <AddByUrlDialog open={addOpen} onOpenChange={setAddOpen} />
-    </div>
+    </PageContainer>
   )
 }

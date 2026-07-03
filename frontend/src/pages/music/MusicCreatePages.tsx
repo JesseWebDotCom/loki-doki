@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Sparkles, Shuffle, Play, Pause, Upload, Loader2, Save } from 'lucide-react'
+import { Sparkles, Shuffle, Play, Pause, Upload, Save } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TrackVariantGrid } from '@/components/shared/TrackVariantGrid'
@@ -14,8 +16,6 @@ import {
 import '@/lib/music/engines'
 import { analyzeMidiFile, renderRemixVariants, renderOriginal, type ParsedMidi } from '@/lib/music/remix'
 import { saveTrack, type TrackKind } from '@/lib/music/api'
-
-const GRADIENT = 'linear-gradient(135deg,#f97316,#fb923c)'
 
 const TRACK_TYPES: { id: TrackKind; label: string; structure: Structure; bars: number; barsEditable: boolean }[] = [
   { id: 'track', label: 'Full track', structure: 'full', bars: 8, barsEditable: true },
@@ -35,15 +35,15 @@ const REMIX_LAYERS: { id: 'melody' | 'drums' | 'bass' | 'pad'; label: string }[]
 interface Variant { key: number; label: string; previewUrl: string; blob: Blob; durationSec: number; styleId: string; bpm: number; keyName: string }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="space-y-1.5"><div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>{children}</div>
+  return <div className="space-y-1.5"><div className="text-overline text-muted-foreground">{label}</div>{children}</div>
 }
 function Pills<T extends string | number>({ options, value, onChange }: { options: { id: T; label: string }[]; value: T; onChange: (v: T) => void }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map(o => (
         <button key={o.id} type="button" onClick={() => onChange(o.id)}
-          className={cn('rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors',
-            value === o.id ? 'border-brand bg-brand/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
+          className={cn('rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+            value === o.id ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:text-foreground')}>
           {o.label}
         </button>
       ))}
@@ -101,15 +101,15 @@ export function MusicGeneratePage() {
   }
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Generate" subtitle="Original music, rendered offline. Pick a style and get 6 takes." />
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music" title="Generate" subtitle="Original music, rendered offline. Pick a style and get 6 takes." />
       <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
         <div className="space-y-4">
           <Field label="Style">
             <div className="grid grid-cols-2 gap-1.5">
               {MUSIC_STYLES.map(s => (
                 <button key={s.id} type="button" onClick={() => setStyleId(s.id)}
-                  className={cn('rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors', styleId === s.id ? 'border-brand bg-brand/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>{s.label}</button>
+                  className={cn('rounded-full border px-2 py-1.5 text-xs font-medium transition-colors', styleId === s.id ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:text-foreground')}>{s.label}</button>
               ))}
             </div>
           </Field>
@@ -117,8 +117,8 @@ export function MusicGeneratePage() {
           {typeDef.barsEditable && <Field label="Length"><Pills options={[2, 4, 8, 16].map(b => ({ id: b, label: `${b} bars` }))} value={bars} onChange={setBars} /></Field>}
           <Field label={`Tempo${bpmAuto ? ' · auto' : ` · ${bpm} BPM`}`}>
             <div className="flex items-center gap-2">
-              <input type="range" min={60} max={170} value={bpm} disabled={bpmAuto} onChange={e => setBpm(Number(e.target.value))} className="h-1.5 flex-1 accent-[var(--brand,#f97316)] disabled:opacity-40" />
-              <button type="button" onClick={() => setBpmAuto(a => !a)} className={cn('rounded-md border px-2 py-1 text-[11px] font-medium', bpmAuto ? 'border-brand bg-brand/10' : 'border-border text-muted-foreground')}>Auto</button>
+              <input type="range" min={60} max={170} value={bpm} disabled={bpmAuto} onChange={e => setBpm(Number(e.target.value))} className="h-1.5 flex-1 accent-[var(--brand)] disabled:opacity-40" />
+              <button type="button" onClick={() => setBpmAuto(a => !a)} className={cn('rounded-full border px-2 py-1 text-[11px] font-medium', bpmAuto ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground')}>Auto</button>
             </div>
           </Field>
           <Field label="Key"><Pills options={[{ id: 'auto', label: 'Auto' }, ...MUSIC_KEYS.map(k => ({ id: k, label: k }))]} value={keyName} onChange={setKeyName} /></Field>
@@ -126,28 +126,28 @@ export function MusicGeneratePage() {
             <div className="flex flex-wrap gap-1.5">
               {LAYER_KEYS.map(l => (
                 <button key={l.id} type="button" onClick={() => setLayers(p => ({ ...p, [l.id]: !p[l.id] }))}
-                  className={cn('rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors', layers[l.id] ? 'border-brand bg-brand/10 text-foreground' : 'border-border text-muted-foreground line-through opacity-60')}>{l.label}</button>
+                  className={cn('rounded-full border px-2.5 py-1 text-xs font-medium transition-colors', layers[l.id] ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground line-through opacity-60')}>{l.label}</button>
               ))}
             </div>
           </Field>
-          <Button onClick={() => void generate()} disabled={busy} className="w-full" style={{ background: GRADIENT }}>
-            {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}{variants.length ? 'Regenerate' : 'Generate'}
+          <Button onClick={() => void generate()} disabled={busy} className="w-full">
+            {busy ? <Spinner className="mr-2 text-current" /> : <Sparkles className="mr-2 size-4" />}{variants.length ? 'Regenerate' : 'Generate'}
           </Button>
         </div>
         <div className="space-y-4">
           <TrackVariantGrid<Variant> variants={variants} loading={busy} error={error} selectedKey={selected} onSelect={pick} columns={2} />
           {selected != null && (
-            <div className="space-y-2 rounded-xl border border-border bg-card/40 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Save to Library</div>
+            <div className="space-y-2 rounded-card border border-border bg-card p-3">
+              <div className="text-overline text-muted-foreground">Save to Library</div>
               <div className="flex items-center gap-2">
                 <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Track title" className="flex-1" />
-                <Button onClick={save} disabled={saving} style={{ background: GRADIENT }}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />} Save</Button>
+                <Button onClick={save} disabled={saving}>{saving ? <Spinner className="mr-2 text-current" /> : <Save className="mr-2 size-4" />} Save</Button>
               </div>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </PageContainer>
   )
 }
 
@@ -194,7 +194,7 @@ export function MusicRemixPage() {
     try {
       const vs = await renderRemixVariants(parsed, { styleId, intensity, layers: { drums: rLayers.drums, bass: rLayers.bass, pad: rLayers.pad }, includeMelody: rLayers.melody })
       setVariants(vs.map(v => ({ key: v.key, label: v.label, previewUrl: v.previewUrl, blob: v.blob, durationSec: v.durationSec, bpm: v.bpm, keyName: v.keyName })))
-    } catch { setError('Remix failed — try a different MIDI file or style.'); setVariants([]) } finally { setBusy(false) }
+    } catch { setError('Remix failed. Try a different MIDI file or style.'); setVariants([]) } finally { setBusy(false) }
   }
   async function save() {
     const v = variants.find(x => x.key === selected); if (!v || !parsed) return
@@ -206,24 +206,24 @@ export function MusicRemixPage() {
   }
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Remix" subtitle="Restyle a MIDI in a new genre — your melody stays, the groove gets rebuilt." />
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music" title="Remix" subtitle="Restyle a MIDI in a new genre. Your melody stays, the groove gets rebuilt." />
       <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
         <div className="space-y-4">
-          <button type="button" onClick={() => fileRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border/60 py-6 text-muted-foreground hover:bg-muted/40">
-            {analyzing ? <Loader2 className="size-6 animate-spin" /> : <Upload className="size-6" />}
+          <button type="button" onClick={() => fileRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-border/60 py-6 text-muted-foreground hover:bg-muted/40">
+            {analyzing ? <Spinner size="lg" className="text-current" /> : <Upload className="size-6" />}
             <span className="text-sm">{parsed ? 'Choose a different .mid' : 'Drop a .mid file to remix'}</span>
           </button>
           <input ref={fileRef} type="file" accept=".mid,.midi,audio/midi" className="hidden" onChange={onFile} />
           {parsed && (
             <>
-              <div className="rounded-xl border border-border bg-card/40 p-3 text-xs">
+              <div className="rounded-card border border-border bg-card p-3 text-xs">
                 <audio ref={origRef} className="hidden" onPlay={() => setOrigPlaying(true)} onPause={() => setOrigPlaying(false)} onEnded={() => setOrigPlaying(false)} />
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => void toggleOriginal()} disabled={origLoading} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground hover:bg-muted/70 disabled:opacity-50" aria-label={origPlaying ? 'Pause original' : 'Play original'}>
-                    {origLoading ? <Loader2 className="size-3.5 animate-spin" /> : origPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+                    {origLoading ? <Spinner size="sm" className="text-current" /> : origPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
                   </button>
-                  <div className="min-w-0"><div className="truncate font-semibold">{parsed.analysis.name}</div><div className="text-[11px] text-muted-foreground">Play original</div></div>
+                  <div className="min-w-0"><div className="truncate font-semibold">{parsed.analysis.name}</div><div className="text-caption text-muted-foreground">Play original</div></div>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-1 text-muted-foreground">
                   <span>Key: {parsed.analysis.keyName} {parsed.analysis.mode}</span><span>{parsed.analysis.bpm} BPM</span>
@@ -233,47 +233,47 @@ export function MusicRemixPage() {
               <Field label="Restyle as">
                 <div className="grid grid-cols-2 gap-1.5">
                   {MUSIC_STYLES.map(s => (
-                    <button key={s.id} type="button" onClick={() => setStyleId(s.id)} className={cn('rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors', styleId === s.id ? 'border-brand bg-brand/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>{s.label}</button>
+                    <button key={s.id} type="button" onClick={() => setStyleId(s.id)} className={cn('rounded-full border px-2 py-1.5 text-xs font-medium transition-colors', styleId === s.id ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:text-foreground')}>{s.label}</button>
                   ))}
                 </div>
               </Field>
               <Field label="Build">
                 <div className="flex flex-wrap gap-1.5">
                   {REMIX_LAYERS.map(l => (
-                    <button key={l.id} type="button" onClick={() => setRLayers(p => ({ ...p, [l.id]: !p[l.id] }))} className={cn('rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors', rLayers[l.id] ? 'border-brand bg-brand/10 text-foreground' : 'border-border text-muted-foreground line-through opacity-60')}>{l.label}</button>
+                    <button key={l.id} type="button" onClick={() => setRLayers(p => ({ ...p, [l.id]: !p[l.id] }))} className={cn('rounded-full border px-2.5 py-1 text-xs font-medium transition-colors', rLayers[l.id] ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground line-through opacity-60')}>{l.label}</button>
                   ))}
                 </div>
               </Field>
               <Field label={`Quantize melody · ${intensity >= 0.85 ? '16ths' : intensity >= 0.55 ? '8ths' : 'off (original timing)'}`}>
-                <input type="range" min={0} max={1} step={0.1} value={intensity} onChange={e => setIntensity(Number(e.target.value))} className="h-1.5 w-full accent-[var(--brand,#f97316)]" />
+                <input type="range" min={0} max={1} step={0.1} value={intensity} onChange={e => setIntensity(Number(e.target.value))} className="h-1.5 w-full accent-[var(--brand)]" />
               </Field>
-              <Button onClick={generate} disabled={busy} className="w-full" style={{ background: GRADIENT }}>
-                {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Shuffle className="mr-2 size-4" />}{variants.length ? 'Regenerate' : 'Remix'}
+              <Button onClick={generate} disabled={busy} className="w-full">
+                {busy ? <Spinner className="mr-2 text-current" /> : <Shuffle className="mr-2 size-4" />}{variants.length ? 'Regenerate' : 'Remix'}
               </Button>
-              <p className="text-[11px] leading-snug text-muted-foreground">Keeps the melody and rebuilds the groove, bass, and instruments in the chosen style. For your own use — imported music may be copyrighted.</p>
+              <p className="text-caption leading-snug text-muted-foreground">Keeps the melody and rebuilds the groove, bass, and instruments in the chosen style. For your own use: imported music may be copyrighted.</p>
             </>
           )}
         </div>
         <div className="space-y-4">
           {!parsed ? (
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/50 bg-muted/10 p-10 text-center">
-              <div className="flex size-10 items-center justify-center rounded-xl" style={{ background: GRADIENT }}><Shuffle className="size-5 text-white" /></div>
-              <div><p className="font-semibold">Restyle any MIDI in a new genre</p><p className="text-xs text-muted-foreground">Drop a .mid on the left — your melody stays, everything else gets rebuilt.</p></div>
+            <div className="flex flex-col items-center gap-3 rounded-card border border-dashed border-border/50 bg-muted/10 p-10 text-center">
+              <div className="flex size-10 items-center justify-center rounded-control bg-brand/10"><Shuffle className="size-5 text-brand" /></div>
+              <div><p className="font-semibold">Restyle any MIDI in a new genre</p><p className="text-xs text-muted-foreground">Drop a .mid on the left. Your melody stays, everything else gets rebuilt.</p></div>
             </div>
           ) : (
             <TrackVariantGrid variants={variants} loading={busy} error={error} selectedKey={selected} onSelect={v => setSelected(v.key)} columns={2} />
           )}
           {selected != null && (
-            <div className="space-y-2 rounded-xl border border-border bg-card/40 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Save to Library</div>
+            <div className="space-y-2 rounded-card border border-border bg-card p-3">
+              <div className="text-overline text-muted-foreground">Save to Library</div>
               <div className="flex items-center gap-2">
                 <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Track title" className="flex-1" />
-                <Button onClick={save} disabled={saving} style={{ background: GRADIENT }}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />} Save</Button>
+                <Button onClick={save} disabled={saving}>{saving ? <Spinner className="mr-2 text-current" /> : <Save className="mr-2 size-4" />} Save</Button>
               </div>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </PageContainer>
   )
 }

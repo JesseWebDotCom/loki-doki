@@ -68,19 +68,21 @@ function ClimateBody({ entity, onAction }: { entity: HAEntity; onAction: EntityA
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-center gap-6">
+        {/* design-ok(hand-styled-button): circular thermostat nudge control */}
         <button type="button" onClick={() => nudge(-1)}
-          className="flex size-12 items-center justify-center rounded-full bg-white/10 text-foreground hover:bg-white/15 active:scale-95 transition-all">
+          className="flex size-12 items-center justify-center rounded-full bg-secondary text-foreground hover:bg-accent active:scale-95 transition-all">
           <Minus className="size-5" />
         </button>
         <div className="text-center">
-          <p className="text-5xl font-black leading-none">{setpoint !== null ? `${setpoint}°` : '—'}</p>
+          <p className="text-5xl font-semibold tabular-nums tracking-tight leading-none">{setpoint !== null ? `${setpoint}°` : '–'}</p>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {current !== null ? `Currently ${Math.round(current)}°` : entity.state}
             {hvacAction && hvacAction !== 'idle' && hvacAction !== 'off' ? ` · ${hvacAction}` : ''}
           </p>
         </div>
+        {/* design-ok(hand-styled-button): circular thermostat nudge control */}
         <button type="button" onClick={() => nudge(1)}
-          className="flex size-12 items-center justify-center rounded-full bg-white/10 text-foreground hover:bg-white/15 active:scale-95 transition-all">
+          className="flex size-12 items-center justify-center rounded-full bg-secondary text-foreground hover:bg-accent active:scale-95 transition-all">
           <Plus className="size-5" />
         </button>
       </div>
@@ -90,7 +92,8 @@ function ClimateBody({ entity, onAction }: { entity: HAEntity; onAction: EntityA
             <button key={m} type="button" onClick={() => onAction(entity, 'set_hvac_mode', m)}
               className={cn(
                 'rounded-full px-3.5 py-1.5 text-xs font-semibold capitalize transition-all',
-                entity.state === m ? 'bg-emerald-500 text-white' : 'bg-white/10 text-muted-foreground hover:bg-white/15 hover:text-foreground',
+                // design-ok(raw-palette-semantic): climate-domain emerald, matches DeviceCard state colors
+                entity.state === m ? 'bg-emerald-500 text-white' : 'bg-secondary text-muted-foreground hover:bg-accent hover:text-foreground',
               )}>
               {m.replace('_', ' ')}
             </button>
@@ -117,22 +120,28 @@ function MediaBody({ entity, onAction }: { entity: HAEntity; onAction: EntityAct
         {artist && <p className="mt-0.5 truncate text-xs text-muted-foreground">{artist}</p>}
       </div>
       <div className="flex items-center justify-center gap-5">
+        {/* design-ok(hand-styled-button): circular media transport control */}
         <button type="button" onClick={() => onAction(entity, 'media_previous')}
-          className="flex size-11 items-center justify-center rounded-full bg-white/10 hover:bg-white/15 active:scale-95 transition-all">
+          className="flex size-11 items-center justify-center rounded-full bg-secondary hover:bg-accent active:scale-95 transition-all">
           <SkipBack className="size-4.5" />
         </button>
+        {/* design-ok(hand-styled-button): circular media transport control */}
         <button type="button" onClick={() => onAction(entity, playing ? 'media_pause' : 'media_play')}
-          className="flex size-14 items-center justify-center rounded-full bg-purple-500 text-white hover:bg-purple-400 active:scale-95 transition-all">
+          className={cn(
+            // design-ok(banned-palette): media-player domain purple, matches DeviceCard state colors
+            'flex size-14 items-center justify-center rounded-full bg-purple-500 text-white hover:bg-purple-400 active:scale-95 transition-all',
+          )}>
           {playing ? <Pause className="size-6" /> : <Play className="size-6 ml-0.5" />}
         </button>
+        {/* design-ok(hand-styled-button): circular media transport control */}
         <button type="button" onClick={() => onAction(entity, 'media_next')}
-          className="flex size-11 items-center justify-center rounded-full bg-white/10 hover:bg-white/15 active:scale-95 transition-all">
+          className="flex size-11 items-center justify-center rounded-full bg-secondary hover:bg-accent active:scale-95 transition-all">
           <SkipForward className="size-4.5" />
         </button>
       </div>
       <div className="flex items-center gap-3 px-1">
         <button type="button" onClick={() => onAction(entity, muted ? 'unmute' : 'mute')}
-          className={cn('shrink-0 rounded-md p-1.5 transition-colors', muted ? 'text-red-400' : 'text-muted-foreground hover:text-foreground')}>
+          className={cn('shrink-0 rounded-control p-1.5 transition-colors', muted ? 'text-destructive' : 'text-muted-foreground hover:text-foreground')}>
           {muted ? <VolumeX className="size-4.5" /> : <Volume2 className="size-4.5" />}
         </button>
         <input
@@ -140,7 +149,10 @@ function MediaBody({ entity, onAction }: { entity: HAEntity; onAction: EntityAct
           onChange={e => setVol(Number(e.target.value))}
           onPointerUp={() => onAction(entity, 'set_volume', vol)}
           onKeyUp={() => onAction(entity, 'set_volume', vol)}
-          className="h-1.5 w-full cursor-pointer accent-purple-500"
+          className={cn(
+            // design-ok(banned-palette): media-player domain purple, matches DeviceCard state colors
+            'h-1.5 w-full cursor-pointer accent-purple-500',
+          )}
         />
         <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{vol}%</span>
       </div>
@@ -155,18 +167,22 @@ function LightBody({ entity, onAction }: { entity: HAEntity; onAction: EntityAct
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
+      <div className="flex items-center justify-between rounded-control bg-secondary/50 px-4 py-3">
         <span className="text-sm font-medium">{isOn ? 'On' : 'Off'}</span>
         <Switch checked={isOn} onCheckedChange={(v) => onAction(entity, v ? 'turn_on' : 'turn_off')} />
       </div>
       <div className="flex items-center gap-3 px-1">
+        {/* design-ok(raw-palette-semantic): light-domain amber, matches DeviceCard state colors */}
         <Lightbulb className="size-4.5 shrink-0 text-amber-300" />
         <input
           type="range" min={1} max={100} step={1} value={pct}
           onChange={e => setPct(Number(e.target.value))}
           onPointerUp={() => onAction(entity, 'set_brightness', pct)}
           onKeyUp={() => onAction(entity, 'set_brightness', pct)}
-          className="h-1.5 w-full cursor-pointer accent-amber-400"
+          className={cn(
+            // design-ok(raw-palette-semantic): light-domain amber, matches DeviceCard state colors
+            'h-1.5 w-full cursor-pointer accent-amber-400',
+          )}
         />
         <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{pct}%</span>
       </div>
@@ -193,7 +209,10 @@ function CoverBody({ entity, onAction }: { entity: HAEntity; onAction: EntityAct
             onChange={e => setPct(Number(e.target.value))}
             onPointerUp={() => onAction(entity, 'set_position', pct)}
             onKeyUp={() => onAction(entity, 'set_position', pct)}
-            className="h-1.5 w-full cursor-pointer accent-sky-400"
+            className={cn(
+              // design-ok(raw-palette-semantic): cover-domain sky, matches DeviceCard state colors
+              'h-1.5 w-full cursor-pointer accent-sky-400',
+            )}
           />
           <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{pct}%</span>
         </div>
@@ -209,7 +228,7 @@ function LockBody({ entity, onAction }: { entity: HAEntity; onAction: EntityActi
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        {locked ? <Lock className="size-4 text-emerald-400" /> : <LockOpen className="size-4 text-red-400" />}
+        {locked ? <Lock className="size-4 text-success" /> : <LockOpen className="size-4 text-destructive" />}
         {locked ? 'Locked' : entity.state === 'unlocked' ? 'Unlocked' : entity.state}
       </div>
       {locked ? (
@@ -225,7 +244,7 @@ function LockBody({ entity, onAction }: { entity: HAEntity; onAction: EntityActi
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={`Unlock ${entity.friendly_name}?`}
-        description="This opens up your home — make sure it's intentional."
+        description="This opens up your home, so make sure it's intentional."
         confirmLabel="Unlock"
         destructive
         onConfirm={() => onAction(entity, 'unlock')}
@@ -237,7 +256,7 @@ function LockBody({ entity, onAction }: { entity: HAEntity; onAction: EntityActi
 function BinaryBody({ entity, onAction }: { entity: HAEntity; onAction: EntityAction }) {
   const isOn = ON_STATES.has(entity.state)
   return (
-    <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
+    <div className="flex items-center justify-between rounded-control bg-secondary/50 px-4 py-3">
       <span className="text-sm font-medium">{isOn ? 'On' : 'Off'}</span>
       <Switch checked={isOn} onCheckedChange={(v) => onAction(entity, v ? 'turn_on' : 'turn_off')} />
     </div>
@@ -249,13 +268,13 @@ function BinaryBody({ entity, onAction }: { entity: HAEntity; onAction: EntityAc
 export function DeviceDetailDialog({ entity, onOpenChange, onAction, favorite, onToggleFavorite }: Props) {
   return (
     <Dialog open={!!entity} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-0 rounded-2xl border-border/60 p-5">
+      <DialogContent className="max-w-md gap-0 border-border/60 p-5">
         {entity && (
           <>
             <DialogHeader className="mb-4 space-y-0">
               {/* pr-7 keeps the star clear of DialogContent's built-in close X */}
               <div className="flex items-center gap-3 pr-7">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-control bg-secondary">
                   <HAIcon entity={entity} className="size-5 text-foreground/80" />
                 </div>
                 <div className="min-w-0 flex-1 text-left">
@@ -263,14 +282,14 @@ export function DeviceDetailDialog({ entity, onOpenChange, onAction, favorite, o
                   <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                     {entity.area ?? 'No room'}
                     {entity.security && (
-                      <span className="flex items-center gap-0.5 text-amber-500"><ShieldAlert className="size-3" />Security</span>
+                      <span className="flex items-center gap-0.5 text-warning"><ShieldAlert className="size-3" />Security</span>
                     )}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => onToggleFavorite(entity)}
-                  className={cn('shrink-0 rounded-lg p-2 transition-colors', favorite ? 'text-amber-400' : 'text-muted-foreground/40 hover:text-muted-foreground')}
+                  className={cn('shrink-0 rounded-control p-2 transition-colors', favorite ? 'text-warning' : 'text-muted-foreground/40 hover:text-muted-foreground')}
                   aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
                 >
                   <Star className={cn('size-5', favorite && 'fill-current')} />

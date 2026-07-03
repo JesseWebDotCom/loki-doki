@@ -11,7 +11,7 @@ import {
   SparklesIcon, StarIcon, TargetIcon, TerminalIcon, WrenchIcon, ZapIcon,
   type LucideIcon,
 } from 'lucide-react'
-import { buttonVariants } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -142,7 +142,7 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
           <div
             role="radiogroup"
             aria-label="Project icon"
-            className="grid max-h-48 grid-cols-8 gap-1 overflow-y-auto rounded-md border border-border bg-muted p-2"
+            className="grid max-h-48 grid-cols-8 gap-1 overflow-y-auto rounded-control border border-border bg-muted p-2"
           >
             {filtered.map((choice) => {
               const isSelected = choice.slug === value
@@ -155,7 +155,7 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
                   aria-label={`Select ${choice.label} icon`}
                   title={choice.label}
                   className={cn(
-                    'flex aspect-square items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground',
+                    'flex aspect-square items-center justify-center rounded-control text-muted-foreground transition hover:bg-accent hover:text-accent-foreground',
                     isSelected ? 'bg-accent text-accent-foreground ring-2 ring-primary' : '',
                   )}
                   onClick={() => { onChange(isSelected ? null : choice.slug); setOpen(false) }}
@@ -171,13 +171,15 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
             )}
           </div>
           {value !== null && (
-            <button
+            <Button
               type="button"
-              className="justify-self-start text-xs text-muted-foreground hover:text-foreground transition-colors px-1"
+              variant="ghost"
+              size="sm"
+              className="justify-self-start px-1 text-xs text-muted-foreground hover:text-foreground"
               onClick={() => { onChange(null); setOpen(false) }}
             >
               Clear icon
-            </button>
+            </Button>
           )}
         </div>
       </DropdownMenuContent>

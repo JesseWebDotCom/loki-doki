@@ -1,9 +1,12 @@
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { HOME_WIDGETS, type WidgetMeta } from "@/lib/homeWidgets";
 import { cn } from "@/lib/cn";
 
 interface Props {
-  /** Canonical ids already on the canvas — hidden from the gallery. */
+  /** Canonical ids already on the canvas - hidden from the gallery. */
   usedIds: Set<string>;
   /** Optional gate (e.g. underlying tool enabled). Defaults to always available. */
   isAvailable?: (w: WidgetMeta) => boolean;
@@ -21,28 +24,18 @@ export function WidgetGalleryModal({ usedIds, isAvailable, onPick, onClose }: Pr
     .filter(w => (isAvailable ? isAvailable(w) : true));
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-md rounded-2xl border border-border/60 bg-popover shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
-          <div>
-            <p className="text-sm font-semibold">Add Widget</p>
-            <p className="text-[11px] text-muted-foreground/50">Tap a widget to add it to your home</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground/50 hover:text-foreground/70 transition-colors"
-            aria-label="Close"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b border-border/40 px-4 py-3 text-left">
+          <DialogTitle className="text-base">Add Widget</DialogTitle>
+          <DialogDescription className="text-caption">
+            Tap a widget to add it to your home
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="p-2 max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60vh] overflow-y-auto p-2">
           {items.length === 0 ? (
-            <p className="text-[12px] text-muted-foreground/60 text-center py-8">
+            <p className="py-8 text-center text-[12px] text-muted-foreground/60">
               Every widget is already on your home.
             </p>
           ) : (
@@ -56,12 +49,12 @@ export function WidgetGalleryModal({ usedIds, isAvailable, onPick, onClose }: Pr
                     disabled={soon}
                     onClick={() => { if (!soon) { onPick(w.id); onClose(); } }}
                     className={cn(
-                      "w-full flex items-center gap-3 rounded-xl p-2.5 text-left transition-all",
+                      "w-full flex items-center gap-3 rounded-control p-2.5 text-left transition-all",
                       soon ? "opacity-50 cursor-default" : "hover:bg-accent/50 active:scale-[0.99]",
                     )}
                   >
                     <span
-                      className="flex size-11 shrink-0 items-center justify-center rounded-2xl shadow-inner"
+                      className="flex size-11 shrink-0 items-center justify-center rounded-card shadow-inner"
                       style={{ background: w.gradient }}
                     >
                       <Icon className="size-5 text-white" />
@@ -70,9 +63,9 @@ export function WidgetGalleryModal({ usedIds, isAvailable, onPick, onClose }: Pr
                       <div className="flex items-center gap-2">
                         <span className="text-[13px] font-semibold text-foreground/90">{w.title}</span>
                         {soon ? (
-                          <span className="rounded-md bg-muted px-1.5 py-px text-[9px] font-medium text-muted-foreground/60">Soon</span>
+                          <span className="rounded-full bg-muted px-1.5 py-px text-[9px] font-medium text-muted-foreground/60">Soon</span>
                         ) : w.allowWide ? (
-                          <span className="rounded-md bg-muted px-1.5 py-px text-[9px] font-medium text-muted-foreground/55">resizable</span>
+                          <span className="rounded-full bg-muted px-1.5 py-px text-[9px] font-medium text-muted-foreground/55">resizable</span>
                         ) : null}
                       </div>
                       <p className="text-[11px] text-muted-foreground/60 leading-snug truncate">{w.description}</p>
@@ -84,7 +77,7 @@ export function WidgetGalleryModal({ usedIds, isAvailable, onPick, onClose }: Pr
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

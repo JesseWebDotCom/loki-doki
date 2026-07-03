@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Radio, Download } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { StationCard } from '@/components/music/StationCard'
 import { useRadio } from '@/context/RadioContext'
@@ -17,7 +18,7 @@ function StationGrid({ stations }: { stations: Station[] }) {
   )
 }
 
-/** Offline home: station-first, only what's downloaded — no prebuilt catalog. */
+/** Offline home: station-first, only what's downloaded - no prebuilt catalog. */
 function OfflineHome() {
   const radio = useRadio()
   const { data: stationData } = useOfflineStations()
@@ -28,9 +29,9 @@ function OfflineHome() {
   const recent = (hist?.history ?? []).filter(h => readyIds.has(h.videoId)).slice(0, 12)
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music · Offline" title="Listen offline"
-        subtitle="Your downloaded stations and songs — no internet needed." />
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music · Offline" title="Listen offline"
+        subtitle="Your downloaded stations and songs, no internet needed." />
 
       {recent.length > 0 && (
         <section className="mt-2">
@@ -38,8 +39,8 @@ function OfflineHome() {
           <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
             {recent.map(h => (
               <button key={h.id} onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })}
-                className="flex w-40 shrink-0 flex-col gap-2 rounded-xl border border-border/60 bg-card p-2.5 text-left transition hover:border-brand/40">
-                <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-brand/30 to-brand/10">
+                className="flex w-40 shrink-0 flex-col gap-2 rounded-card border border-border/60 bg-card p-2.5 text-left transition hover:border-brand/40">
+                <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
                   <Radio className="absolute size-7 text-brand/60" />
                   <img src={proxyImg(`https://i.ytimg.com/vi/${h.videoId}/mqdefault.jpg`)} alt="" className="relative size-full object-cover" loading="lazy"
                     onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
@@ -60,7 +61,7 @@ function OfflineHome() {
           </div>
         )}
       </section>
-    </div>
+    </PageContainer>
   )
 }
 
@@ -75,8 +76,8 @@ export function MusicHomePage() {
   if (offline) return <OfflineHome />
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Listen" subtitle="AI stations, your library, and the whole catalog." />
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music" title="Listen" subtitle="AI stations, your library, and the whole catalog." />
 
       {recent.length > 0 && (
         <section className="mt-2">
@@ -85,8 +86,8 @@ export function MusicHomePage() {
             {recent.map(h => (
               <button key={h.id}
                 onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })}
-                className="flex w-40 shrink-0 flex-col gap-2 rounded-xl border border-border/60 bg-card p-2.5 text-left transition hover:border-brand/40">
-                <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-brand/30 to-brand/10">
+                className="flex w-40 shrink-0 flex-col gap-2 rounded-card border border-border/60 bg-card p-2.5 text-left transition hover:border-brand/40">
+                <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
                   <Radio className="absolute size-7 text-brand/60" />
                   <img src={proxyImg(`https://i.ytimg.com/vi/${h.videoId}/mqdefault.jpg`)} alt=""
                     className="relative size-full object-cover" loading="lazy"
@@ -120,6 +121,6 @@ export function MusicHomePage() {
           <StationGrid stations={buckets!.mine} />
         </section>
       )}
-    </div>
+    </PageContainer>
   )
 }

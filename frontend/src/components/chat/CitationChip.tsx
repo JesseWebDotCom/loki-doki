@@ -21,7 +21,7 @@ export function CitationChip({ n, source }: Props) {
             href={source.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center rounded bg-violet-500/15 px-1 py-0.5 text-[0.72em] font-semibold text-violet-400 no-underline transition-colors hover:bg-violet-500/25 hover:text-violet-300"
+            className="inline-flex items-center rounded-full bg-brand/15 px-1 py-0.5 text-[0.72em] font-semibold text-brand no-underline transition-colors hover:bg-brand/25 hover:text-brand-hover"
           >
             {n}
           </a>

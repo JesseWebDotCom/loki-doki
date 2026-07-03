@@ -1,21 +1,22 @@
 import { useEffect, useState } from 'react'
 import {
-  Loader2, Plus, Trash2, ChevronUp, ChevronDown, Lock, LayoutGrid, Clock, CloudSun,
+  Plus, Trash2, ChevronUp, ChevronDown, Lock, LayoutGrid, Clock, CloudSun,
   Moon, Music, MonitorPlay, AlertCircle, Settings2, ChevronRight,
 } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
-// Shared screen-deck editor — the single UI for "which screens does this device show, in
-// what order" — used by BOTH Admin → Devices (asAdmin, never lock-gated) and the owner-facing
+// Shared screen-deck editor: the single UI for "which screens does this device show, in
+// what order", used by BOTH Admin → Devices (asAdmin, never lock-gated) and the owner-facing
 // Settings → Devices page (asAdmin=false, server enforces the two lock flags). Both surfaces
 // read/write the exact same device_screens rows; there is no separate per-user override.
 //
 // Controller (the button-grid "stream deck") is deliberately just ONE screen kind here, same
-// as an analog clock or a status screen — per the unified screen-deck design.
+// as an analog clock or a status screen, per the unified screen-deck design.
 
 export interface DeckLocks { lockScreenSelection: boolean; lockScreenConfig: boolean }
 
@@ -144,7 +145,7 @@ export function DeviceScreenDeckEditor({
   }
 
   if (deck === null) {
-    return <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+    return <div className="flex justify-center py-8"><Spinner size="lg" className="size-5" /></div>
   }
 
   return (
@@ -156,17 +157,17 @@ export function DeviceScreenDeckEditor({
         </div>
       )}
       {(selectionLocked || configLocked) && !asAdmin && (
-        <p className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
+        <p className="flex items-center gap-1.5 rounded-control bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
           <Lock className="size-3.5 shrink-0" />
-          {selectionLocked && configLocked ? 'An admin has locked this device’s screens — you can’t change or reorder them.'
-            : selectionLocked ? 'An admin has locked which screens this device shows — you can still configure each one.'
-              : 'An admin has locked how each screen is configured — you can still add, remove, and reorder.'}
+          {selectionLocked && configLocked ? 'An admin has locked this device’s screens; you can’t change or reorder them.'
+            : selectionLocked ? 'An admin has locked which screens this device shows; you can still configure each one.'
+              : 'An admin has locked how each screen is configured; you can still add, remove, and reorder.'}
         </p>
       )}
 
-      <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+      <div className="divide-y divide-border/40 overflow-hidden rounded-card border border-border/50 bg-card">
         {deck.length === 0 && (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">No screens yet — add one below.</p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">No screens yet. Add one below.</p>
         )}
         {deck.map((row, i) => {
           const meta = KIND_META[row.kind] ?? { label: row.kind, icon: <Settings2 className="size-4" /> }
@@ -190,22 +191,26 @@ export function DeviceScreenDeckEditor({
                     {meta.label}{i === 0 ? ' · primary' : ''}{pending ? ' · firmware pending' : ''}
                   </p>
                 </div>
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   onClick={() => setExpanded(isOpen ? null : row.id)}
                   disabled={configLocked && row.kind !== 'clock-weather'}
-                  className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-30"
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                   aria-label="Configure"
                 >
                   <ChevronRight className={cn('size-4 transition-transform', isOpen && 'rotate-90')} />
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   onClick={() => setRemoveConfirm(row)}
                   disabled={selectionLocked || busy}
-                  className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
                   aria-label="Remove"
                 >
                   <Trash2 className="size-4" />
-                </button>
+                </Button>
               </div>
               {isOpen && (
                 <div className="border-t border-border/30 bg-muted/20 px-4 py-3">
@@ -222,12 +227,12 @@ export function DeviceScreenDeckEditor({
           <select
             value={addingKind}
             onChange={(e) => setAddingKind(e.target.value)}
-            className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="h-9 flex-1 rounded-control border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <option value="">Add a screen…</option>
             {catalog.map((c) => (
               <option key={`${c.kind}:${c.screenId}`} value={`${c.kind}::${c.screenId}`}>
-                {KIND_META[c.kind]?.label ?? c.kind} — {c.name}{!FIRMWARE_READY_KINDS.has(c.kind) ? ' (firmware pending)' : ''}
+                {KIND_META[c.kind]?.label ?? c.kind} · {c.name}{!FIRMWARE_READY_KINDS.has(c.kind) ? ' (firmware pending)' : ''}
               </option>
             ))}
           </select>
@@ -260,7 +265,7 @@ function LockChip({ label, active, onClick }: { label: string; active: boolean; 
       onClick={onClick}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
-        active ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'border-border/50 text-muted-foreground hover:bg-muted/40',
+        active ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border/50 text-muted-foreground hover:bg-muted/40',
       )}
     >
       <Lock className="size-3" /> {label}
@@ -269,7 +274,7 @@ function LockChip({ label, active, onClick }: { label: string; active: boolean; 
 }
 
 // ── Per-kind param editor ──────────────────────────────────────────────────────────
-// Kept deliberately simple (a representative config form, not a WYSIWYG builder) — matches
+// Kept deliberately simple (a representative config form, not a WYSIWYG builder); matches
 // the "representative card" preview decision. Controller button overrides + clock-weather
 // theme both defer to their existing richer editors where one already exists.
 
@@ -284,7 +289,7 @@ function ScreenParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow; rea
     return (
       <p className="text-xs text-muted-foreground">
         Colors and widget placement for this template are edited in <span className="font-medium text-foreground">Admin → Devices → Layouts</span>.
-        This deck entry only controls whether — and where — it appears in the swipe order.
+        This deck entry only controls whether (and where) it appears in the swipe order.
       </p>
     )
   }
@@ -292,7 +297,7 @@ function ScreenParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow; rea
   if (row.kind === 'controller') return <ControllerParamsEditor row={row} readOnly={readOnly} busy={busy} onSave={onSave} />
   return (
     <p className="text-xs text-muted-foreground">
-      Nothing to configure for this screen yet{!FIRMWARE_READY_KINDS.has(row.kind) ? ' — it also needs a firmware update before it renders on the device.' : '.'}
+      Nothing to configure for this screen yet{!FIRMWARE_READY_KINDS.has(row.kind) ? '; it also needs a firmware update before it renders on the device.' : '.'}
     </p>
   )
 }
@@ -300,6 +305,7 @@ function ScreenParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow; rea
 function StatusParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow; readOnly: boolean; busy: boolean; onSave: (p: Record<string, unknown>) => void }) {
   const initial = parseJson<{ label?: string; color?: string }>(row.params, {})
   const [label, setLabel] = useState(initial.label ?? 'Busy')
+  // design-ok(hex-in-tsx): device-screen default color value, not UI styling
   const [color, setColor] = useState(initial.color ?? '#dc2626')
   return (
     <div className="flex flex-wrap items-end gap-3">
@@ -309,10 +315,10 @@ function StatusParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow; rea
       </div>
       <div className="space-y-1">
         <label className="text-[11px] text-muted-foreground">Color</label>
-        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} disabled={readOnly} className="h-8 w-12 rounded border border-input bg-transparent p-0.5" />
+        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} disabled={readOnly} className="h-8 w-12 rounded-control border border-input bg-transparent p-0.5" />
       </div>
       <p className="basis-full text-[11px] text-muted-foreground">
-        The live label/color while actually busy comes from whatever your companion or an automation sets — this is just the default shown otherwise.
+        The live label/color while actually busy comes from whatever your companion or an automation sets; this is just the default shown otherwise.
       </p>
       {!readOnly && (
         <Button size="sm" disabled={busy} onClick={() => onSave({ label, color })}>Save</Button>
@@ -326,6 +332,7 @@ function ControllerParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow;
   const [overrides, setOverrides] = useState<ButtonOverride[]>(initial.buttonOverrides ?? [])
 
   function addOverride() {
+    // design-ok(hex-in-tsx): device-screen default color value, not UI styling
     setOverrides((prev) => [...prev, { pageIndex: 0, row: 0, col: 0, patch: { label: '', icon: '', bgColor: '#1e1e2e', action: { type: 'none' } } }])
   }
   function update(i: number, patch: Partial<ButtonOverride>) {
@@ -339,38 +346,38 @@ function ControllerParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow;
   return (
     <div className="space-y-3">
       <p className="text-[11px] text-muted-foreground">
-        Which controller page this device shows is picked when you added the screen. Below, override individual buttons —
-        e.g. a Home Assistant toggle, or pin an exact music station — on top of the live dashboard.
+        Which controller page this device shows is picked when you added the screen. Below, override individual buttons,
+        e.g. a Home Assistant toggle, or pin an exact music station, on top of the live dashboard.
       </p>
       {overrides.map((o, i) => {
         const action = (o.patch.action as ControllerAction | undefined) ?? { type: 'none' }
         return (
-          <div key={i} className="space-y-2 rounded-xl border border-border/50 bg-card p-3">
+          <div key={i} className="space-y-2 rounded-card border border-border/50 bg-card p-3">
             <div className="flex flex-wrap items-center gap-2">
               <MiniField label="Page">
                 <input type="number" min={0} value={o.pageIndex} disabled={readOnly}
-                  onChange={(e) => update(i, { pageIndex: Number(e.target.value) || 0 })} className="h-7 w-14 rounded border border-input bg-background px-1.5 text-xs" />
+                  onChange={(e) => update(i, { pageIndex: Number(e.target.value) || 0 })} className="h-7 w-14 rounded-control border border-input bg-background px-1.5 text-xs" />
               </MiniField>
               <MiniField label="Row">
                 <input type="number" min={0} value={o.row} disabled={readOnly}
-                  onChange={(e) => update(i, { row: Number(e.target.value) || 0 })} className="h-7 w-14 rounded border border-input bg-background px-1.5 text-xs" />
+                  onChange={(e) => update(i, { row: Number(e.target.value) || 0 })} className="h-7 w-14 rounded-control border border-input bg-background px-1.5 text-xs" />
               </MiniField>
               <MiniField label="Col">
                 <input type="number" min={0} value={o.col} disabled={readOnly}
-                  onChange={(e) => update(i, { col: Number(e.target.value) || 0 })} className="h-7 w-14 rounded border border-input bg-background px-1.5 text-xs" />
+                  onChange={(e) => update(i, { col: Number(e.target.value) || 0 })} className="h-7 w-14 rounded-control border border-input bg-background px-1.5 text-xs" />
               </MiniField>
               <MiniField label="Icon">
                 <input value={(o.patch.icon as string) ?? ''} disabled={readOnly} placeholder="🏠"
-                  onChange={(e) => updatePatch(i, 'icon', e.target.value)} className="h-7 w-16 rounded border border-input bg-background px-1.5 text-xs" />
+                  onChange={(e) => updatePatch(i, 'icon', e.target.value)} className="h-7 w-16 rounded-control border border-input bg-background px-1.5 text-xs" />
               </MiniField>
               <MiniField label="Label">
                 <input value={(o.patch.label as string) ?? ''} disabled={readOnly}
-                  onChange={(e) => updatePatch(i, 'label', e.target.value)} className="h-7 w-28 rounded border border-input bg-background px-1.5 text-xs" />
+                  onChange={(e) => updatePatch(i, 'label', e.target.value)} className="h-7 w-28 rounded-control border border-input bg-background px-1.5 text-xs" />
               </MiniField>
               {!readOnly && (
-                <button onClick={() => remove(i)} className="ml-auto rounded p-1 text-muted-foreground hover:text-destructive">
+                <Button variant="ghost" size="icon-sm" onClick={() => remove(i)} aria-label="Remove override" className="ml-auto text-muted-foreground hover:text-destructive">
                   <Trash2 className="size-3.5" />
-                </button>
+                </Button>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -378,7 +385,7 @@ function ControllerParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow;
                 <select
                   value={action.type} disabled={readOnly}
                   onChange={(e) => updatePatch(i, 'action', actionForType(e.target.value))}
-                  className="h-7 rounded border border-input bg-background px-1.5 text-xs"
+                  className="h-7 rounded-control border border-input bg-background px-1.5 text-xs"
                 >
                   <option value="none">None</option>
                   <option value="navigate">Navigate in app</option>
@@ -389,11 +396,11 @@ function ControllerParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow;
                 </select>
               </MiniField>
               {action.type === 'navigate' && (
-                <MiniField label="App"><input value={action.app} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, app: e.target.value })} placeholder="music" className="h-7 w-24 rounded border border-input bg-background px-1.5 text-xs" /></MiniField>
+                <MiniField label="App"><input value={action.app} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, app: e.target.value })} placeholder="music" className="h-7 w-24 rounded-control border border-input bg-background px-1.5 text-xs" /></MiniField>
               )}
               {action.type === 'app_action' && (
                 <MiniField label="Which">
-                  <select value={action.action} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, action: e.target.value })} className="h-7 rounded border border-input bg-background px-1.5 text-xs">
+                  <select value={action.action} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, action: e.target.value })} className="h-7 rounded-control border border-input bg-background px-1.5 text-xs">
                     <option value="play_pause">Play / Pause</option>
                     <option value="next_track">Next Track</option>
                     <option value="volume_up">Volume Up</option>
@@ -402,13 +409,13 @@ function ControllerParamsEditor({ row, readOnly, busy, onSave }: { row: DeckRow;
                 </MiniField>
               )}
               {action.type === 'play_station' && (
-                <MiniField label="Station ID"><input value={action.stationId} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, stationId: e.target.value })} placeholder="station id" className="h-7 w-40 rounded border border-input bg-background px-1.5 text-xs" /></MiniField>
+                <MiniField label="Station ID"><input value={action.stationId} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, stationId: e.target.value })} placeholder="station id" className="h-7 w-40 rounded-control border border-input bg-background px-1.5 text-xs" /></MiniField>
               )}
               {action.type === 'ha_toggle' && (
-                <MiniField label="Entity ID"><input value={action.entityId} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, entityId: e.target.value })} placeholder="light.living_room" className="h-7 w-44 rounded border border-input bg-background px-1.5 text-xs" /></MiniField>
+                <MiniField label="Entity ID"><input value={action.entityId} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, entityId: e.target.value })} placeholder="light.living_room" className="h-7 w-44 rounded-control border border-input bg-background px-1.5 text-xs" /></MiniField>
               )}
               {action.type === 'webhook' && (
-                <MiniField label="URL"><input value={action.url} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, url: e.target.value })} placeholder="https://…" className="h-7 w-48 rounded border border-input bg-background px-1.5 text-xs" /></MiniField>
+                <MiniField label="URL"><input value={action.url} disabled={readOnly} onChange={(e) => updatePatch(i, 'action', { ...action, url: e.target.value })} placeholder="https://…" className="h-7 w-48 rounded-control border border-input bg-background px-1.5 text-xs" /></MiniField>
               )}
             </div>
           </div>

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Mic, Minus, Plus } from 'lucide-react'
+import { Mic, Minus, Plus } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { RichOptionSelect } from '@/components/shared/RichOptionSelect'
 import { getShows } from '@/lib/podcast/api'
@@ -49,7 +50,7 @@ export function CreatePodcastDialog({ open, onClose, onCreated, videos, sourceLa
   const [busy, setBusy] = useState(false)
 
   // Re-seed sensible defaults each time the dialog opens (and once shows load).
-  // Default to "new" — the action is "create a podcast", so a new show is the norm.
+  // Default to "new": the action is "create a podcast", so a new show is the norm.
   useEffect(() => {
     if (!open) return
     setMode('new')
@@ -84,7 +85,7 @@ export function CreatePodcastDialog({ open, onClose, onCreated, videos, sourceLa
       const left = res.remaining ? ` · ${res.remaining} left for the next batch` : ''
       toast.success(mode === 'existing'
         ? `${eps} queued, newest first${left}.`
-        : `Podcast created — ${eps} generating, newest first${left}.`)
+        : `Podcast created: ${eps} generating, newest first${left}.`)
       onClose()
     } catch {
       toast.error('Could not start the podcast.')
@@ -97,10 +98,10 @@ export function CreatePodcastDialog({ open, onClose, onCreated, videos, sourceLa
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Mic className="size-5 text-[var(--yt-accent-fg)]" /> Create podcast</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Mic className="size-5 text-brand" /> Create podcast</DialogTitle>
           <DialogDescription>
             From <span className="font-medium text-foreground">{sourceLabel}</span> · {videos.length} {videos.length === 1 ? 'video' : 'videos'}
-            {multi ? ' — one AI episode per video, newest first.' : '. AI hosts discuss the transcript.'}
+            {multi ? '. One AI episode per video, newest first.' : '. AI hosts discuss the transcript.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -135,17 +136,17 @@ export function CreatePodcastDialog({ open, onClose, onCreated, videos, sourceLa
             </>
           )}
 
-          {/* Batch size — only meaningful when there's more than one video. */}
+          {/* Batch size: only meaningful when there's more than one video. */}
           {multi && (
-            <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
+            <div className="flex items-center justify-between rounded-control border border-border/60 px-3 py-2">
               <div>
                 <p className="text-sm font-medium">Episodes this batch</p>
                 <p className="text-xs text-muted-foreground/70">Newest first · up to {MAX_BATCH}. Generate more anytime.</p>
               </div>
               <div className="flex items-center gap-1">
-                <Stepper icon={Minus} disabled={batch <= 1} onClick={() => changeBatch(batch - 1)} />
-                <span className="w-7 text-center text-sm font-bold tabular-nums">{count}</span>
-                <Stepper icon={Plus} disabled={batch >= MAX_BATCH || batch >= videos.length} onClick={() => changeBatch(batch + 1)} />
+                <Stepper icon={Minus} label="Fewer episodes" disabled={batch <= 1} onClick={() => changeBatch(batch - 1)} />
+                <span className="w-7 text-center text-sm font-semibold tabular-nums">{count}</span>
+                <Stepper icon={Plus} label="More episodes" disabled={batch >= MAX_BATCH || batch >= videos.length} onClick={() => changeBatch(batch + 1)} />
               </div>
             </div>
           )}
@@ -154,7 +155,7 @@ export function CreatePodcastDialog({ open, onClose, onCreated, videos, sourceLa
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={!canSubmit || busy}>
-            {busy && <Loader2 className="size-4 animate-spin" />} {mode === 'new' ? 'Create podcast' : 'Add episodes'}
+            {busy && <Spinner className="text-primary-foreground" />} {mode === 'new' ? 'Create podcast' : 'Add episodes'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -165,18 +166,17 @@ export function CreatePodcastDialog({ open, onClose, onCreated, videos, sourceLa
 function TargetTab({ label, active, disabled, onClick }: { label: string; active: boolean; disabled?: boolean; onClick: () => void }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      className={cn('rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
-        active ? 'border-[var(--yt-accent)] bg-[var(--yt-accent-soft)] text-[var(--yt-accent-fg)]' : 'border-border/60 text-muted-foreground hover:text-foreground')}>
+      className={cn('rounded-control border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        active ? 'border-brand bg-brand/10 text-brand' : 'border-border/60 text-muted-foreground hover:text-foreground')}>
       {label}
     </button>
   )
 }
 
-function Stepper({ icon: Icon, disabled, onClick }: { icon: typeof Plus; disabled?: boolean; onClick: () => void }) {
+function Stepper({ icon: Icon, label, disabled, onClick }: { icon: typeof Plus; label: string; disabled?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} disabled={disabled}
-      className="flex size-7 items-center justify-center rounded-md border border-border/60 text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30">
+    <Button variant="outline" size="icon-sm" onClick={onClick} disabled={disabled} aria-label={label}>
       <Icon className="size-3.5" />
-    </button>
+    </Button>
   )
 }

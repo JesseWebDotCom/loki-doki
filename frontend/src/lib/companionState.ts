@@ -1,64 +1,31 @@
 import { useEffect, useState } from 'react'
 
-// Companion open-size + mode. UI-ephemeral, so kept in localStorage (snappy, no
-// round-trip) with a module pub/sub so the desktop overlay and mobile tab-bar
+// Companion feature preferences. UI-ephemeral, so kept in localStorage (snappy, no
+// round-trip) with a module pub/sub so the desktop dock and mobile tab-bar
 // variant stay in sync. Active character selection is DB-backed separately.
 
-export type CompanionSize = 'pill' | 'collapsed' | 'expanded'
-export type CompanionMode = 'mini' | 'docked'
 export type CaptionStyle = 'plain' | 'bold' | 'enlarge' | 'underline' | 'accent' | 'highlight'
-// Free-drag position, in viewport pixels: `x` = distance from the left edge, `y` =
-// distance from the BOTTOM edge. Bottom-anchored on purpose — the avatar lives at the
-// bottom of the overlay and captions grow upward above it, so anchoring the bottom
-// keeps the avatar stationary as captions appear/disappear. `null` = default
-// bottom-center anchor (nothing dragged yet / reset).
-export type CompanionPosition = { x: number; y: number } | null
 
 export const CAPTION_STYLES: CaptionStyle[] = ['highlight', 'bold', 'enlarge', 'underline', 'accent', 'plain']
 
-const SIZE_KEY = 'companion.size'
-const MODE_KEY = 'companion.mode'
 const CAPTIONS_KEY = 'companion.captions'
 const CAPTION_STYLE_KEY = 'companion.captionStyle'
 const VOICE_KEY = 'companion.voiceOn'
 const HANDSFREE_KEY = 'companion.handsFreeOn'
-const POSITION_KEY = 'companion.position'
 
 function read<T extends string>(key: string, fallback: T): T {
   try { return (localStorage.getItem(key) as T | null) ?? fallback } catch { return fallback }
 }
 
-function readPosition(): CompanionPosition {
-  try {
-    const raw = localStorage.getItem(POSITION_KEY)
-    if (!raw) return null
-    const p = JSON.parse(raw)
-    return (typeof p?.x === 'number' && typeof p?.y === 'number') ? { x: p.x, y: p.y } : null
-  } catch { return null }
-}
-
-let size: CompanionSize = read<CompanionSize>(SIZE_KEY, 'collapsed')
-let mode: CompanionMode = read<CompanionMode>(MODE_KEY, 'mini')
 let captions: boolean = read(CAPTIONS_KEY, 'on') === 'on'
 let captionStyle: CaptionStyle = read<CaptionStyle>(CAPTION_STYLE_KEY, 'highlight')
-// Voice (TTS read-aloud) and hands-free (wakeword/mic) both default OFF — voice
+// Voice (TTS read-aloud) and hands-free (wakeword/mic) both default OFF. Voice
 // features must be explicitly enabled (mic permission, audio autoplay).
 let voiceOn: boolean = read(VOICE_KEY, 'off') === 'on'
 let handsFreeOn: boolean = read(HANDSFREE_KEY, 'off') === 'on'
-let position: CompanionPosition = readPosition()
 const subs = new Set<() => void>()
 const notify = () => subs.forEach((fn) => fn())
 
-export function setCompanionSize(next: CompanionSize) {
-  size = next
-  try { localStorage.setItem(SIZE_KEY, next) } catch { /* ignore */ }
-  notify()
-}
-export function setCompanionMode(next: CompanionMode) {
-  mode = next
-  try { localStorage.setItem(MODE_KEY, next) } catch { /* ignore */ }
-  notify()
-}
 export function setCompanionCaptions(next: boolean) {
   captions = next
   try { localStorage.setItem(CAPTIONS_KEY, next ? 'on' : 'off') } catch { /* ignore */ }
@@ -83,20 +50,6 @@ export function setCompanionHandsFree(next: boolean) {
   try { localStorage.setItem(HANDSFREE_KEY, next ? 'on' : 'off') } catch { /* ignore */ }
   notify()
 }
-export function setCompanionPosition(next: CompanionPosition) {
-  position = next
-  try {
-    if (next) localStorage.setItem(POSITION_KEY, JSON.stringify(next))
-    else localStorage.removeItem(POSITION_KEY)
-  } catch { /* ignore */ }
-  notify()
-}
-
-const MODE_ORDER: CompanionSize[] = ['pill', 'collapsed', 'expanded']
-export function cycleCompanionSize() {
-  const i = MODE_ORDER.indexOf(size)
-  setCompanionSize(MODE_ORDER[(i + 1) % MODE_ORDER.length]!)
-}
 
 export function useCompanionState() {
   const [, force] = useState(0)
@@ -105,5 +58,5 @@ export function useCompanionState() {
     subs.add(sub)
     return () => { subs.delete(sub) }
   }, [])
-  return { size, mode, captions, captionStyle, voiceOn, handsFreeOn, position, setSize: setCompanionSize, setMode: setCompanionMode, setCaptions: setCompanionCaptions, setCaptionStyle: setCompanionCaptionStyle, cycleCaptionStyle, cycleSize: cycleCompanionSize, setVoice: setCompanionVoice, setHandsFree: setCompanionHandsFree, setPosition: setCompanionPosition }
+  return { captions, captionStyle, voiceOn, handsFreeOn, setCaptions: setCompanionCaptions, setCaptionStyle: setCompanionCaptionStyle, cycleCaptionStyle, setVoice: setCompanionVoice, setHandsFree: setCompanionHandsFree }
 }

@@ -58,7 +58,9 @@ type SearchResult = NavItem | LibraryItem | ContentHit;
 // destinations that live outside the category grid are prepended by hand.
 
 const EXTRA_NAV: NavItem[] = [
+  // design-ok(hex-in-tsx): app-identity gradient data, same shape as the APP_GROUPS registry gradients
   { kind: "nav", label: "Home",       href: "/",           icon: Home,     description: "Your dashboard", gradient: "linear-gradient(135deg,#1e293b,#475569)" },
+  // design-ok(hex-in-tsx): app-identity gradient data, same shape as the APP_GROUPS registry gradients
   { kind: "nav", label: "Companions", href: "/companions", icon: Sparkles, description: "Browse AI companions", gradient: "linear-gradient(135deg,#3a0a72,#db2777)" },
 ];
 
@@ -101,12 +103,12 @@ function NavRow({ item, selected, onSelect, onHover }: {
       onClick={onSelect}
       onMouseEnter={onHover}
       className={cn(
-        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-control text-sm transition-colors",
         selected ? "bg-foreground/8 text-foreground" : "text-foreground/60",
       )}
     >
       <div
-        className="flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-white/10"
+        className="flex size-7 shrink-0 items-center justify-center rounded-control ring-1 ring-white/10"
         style={item.gradient ? { background: item.gradient } : undefined}
       >
         <item.icon className={cn("size-3.5", item.gradient && "text-white")} />
@@ -135,11 +137,11 @@ function ContentRow({ item, selected, onSelect, onHover }: {
       onClick={onSelect}
       onMouseEnter={onHover}
       className={cn(
-        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-control text-sm transition-colors",
         selected ? "bg-foreground/8 text-foreground" : "text-foreground/60",
       )}
     >
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-foreground/5 overflow-hidden">
+      <div className="flex size-7 shrink-0 items-center justify-center rounded-control bg-foreground/5 overflow-hidden">
         {item.icon && iconOk ? (
           <img
             src={item.icon}
@@ -175,12 +177,12 @@ function LibraryRow({ item, selected, onSelect, onHover }: {
       onClick={onSelect}
       onMouseEnter={onHover}
       className={cn(
-        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-control text-sm transition-colors",
         selected ? "bg-foreground/8 text-foreground" : "text-foreground/60",
       )}
     >
       <div
-        className="flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-white/10"
+        className="flex size-7 shrink-0 items-center justify-center rounded-control ring-1 ring-white/10"
         style={{ background: visual.gradient }}
       >
         {item.faviconUrl && faviconOk ? (
@@ -337,7 +339,9 @@ export function SpotlightSearch() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer">
+        {/* Sidebar nav-row trigger: matches LeftSidebar row styling, not a ui/Button shape. */}
+        {/* design-ok(hand-styled-button): sidebar nav row affordance */}
+        <button className="flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer">
           <Search className="size-4 shrink-0" />
           <span className="flex-1 text-sm select-none">Search</span>
           <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/25 leading-none">
@@ -351,7 +355,7 @@ export function SpotlightSearch() {
         <RadixDialog.Content
           className={cn(
             "fixed left-1/2 top-[22%] z-50 w-full max-w-[480px] -translate-x-1/2",
-            "rounded-2xl border border-border bg-background shadow-2xl overflow-hidden",
+            "rounded-sheet border border-border bg-background shadow-2xl overflow-hidden",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",

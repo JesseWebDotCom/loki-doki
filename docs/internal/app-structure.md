@@ -24,18 +24,18 @@
 | `/settings/:section?` | `SettingsPage` | authenticated | |
 | `/admin/:section?` | `AdminPage` | admin only | |
 | `/login` | `ProfilePickerPage` | setup complete | |
-| `/setup` | `SetupWizard` | — | |
+| `/setup` | `SetupWizard` | n/a | |
 
 ## Iframe Page Pattern
 
 Some pages render backend-served content (ZIM archives, Starlight docs, bookmarked sites) in a full-screen `<iframe>` rather than building a React UI. All three use the same pattern: `AppBreadcrumb` header with back/forward/external buttons, `flex-1 overflow-hidden` container, `<iframe className="h-full w-full border-0">`.
 
-**When adding a new iframe page, complete ALL four steps — missing any one causes a blank or wrong page in dev:**
+**When adding a new iframe page, complete ALL four steps; missing any one causes a blank or wrong page in dev:**
 
-1. **`App.tsx`** — add `<Route path="/your-path" element={<YourPage />} />` inside `<AuthGuard>`
-2. **`appCategories.ts`** — add an `AppItem` with `to: "/your-path"` in the right `APP_GROUPS` entry
-3. **`vite.config.ts` proxy** — add `'/your-path': { target: 'http://localhost:3000', changeOrigin: true }` to `server.proxy`. **This is the one that breaks silently**: Vite has no route for non-React paths, so without a proxy it serves the React SPA fallback (the home page) inside the iframe.
-4. **`backend/src/index.ts`** — add `app.use('/your-path/*', serveStatic({ root: '../your-dist', rewriteRequestPath: ... }))` **before** the `NODE_ENV !== 'development'` block so it works in both dev and prod.
+1. **`App.tsx`**: add `<Route path="/your-path" element={<YourPage />} />` inside `<AuthGuard>`
+2. **`appCategories.ts`**: add an `AppItem` with `to: "/your-path"` in the right `APP_GROUPS` entry
+3. **`vite.config.ts` proxy**: add `'/your-path': { target: 'http://localhost:3000', changeOrigin: true }` to `server.proxy`. **This is the one that breaks silently**: Vite has no route for non-React paths, so without a proxy it serves the React SPA fallback (the home page) inside the iframe.
+4. **`backend/src/index.ts`**: add `app.use('/your-path/*', serveStatic({ root: '../your-dist', rewriteRequestPath: ... }))` **before** the `NODE_ENV !== 'development'` block so it works in both dev and prod.
 
 ## Modal Sections (not separate routes)
 Opened from the user profile context menu in the left sidebar / nav:
@@ -43,10 +43,10 @@ Opened from the user profile context menu in the left sidebar / nav:
 | Section | Access | Notes |
 |---|---|---|
 | **Settings** | all users | Personal preferences, appearance, notifications |
-| **Admin Panel** | admin role only | User management, roles, app config — tabs: Tools, Install, LoRAs |
+| **Admin Panel** | admin role only | User management, roles, app config; tabs: Tools, Install, LoRAs |
 | **Developer Tools** | admin role only | API keys, feature flags, logs, diagnostics |
 
-Implement as a tabbed modal (`Dialog` or `Sheet`) — admin-only tabs are hidden entirely for non-admin users, not just disabled. The backend enforces access; the frontend hides.
+Implement as a tabbed modal (`Dialog` or `Sheet`). Admin-only tabs are hidden entirely for non-admin users, not just disabled. The backend enforces access; the frontend hides.
 
 ---
 
@@ -54,10 +54,10 @@ Implement as a tabbed modal (`Dialog` or `Sheet`) — admin-only tabs are hidden
 
 ## Flow
 
-1. **Login page** (`/login`) — shown when no active session exists
-2. **Profile selection** — shown after session established (Netflix-style, see below)
-3. **PIN entry** — shown if selected profile has a PIN set
-4. **App shell** — normal app, profile context loaded
+1. **Login page** (`/login`): shown when no active session exists
+2. **Profile selection**: shown after session established (Netflix-style, see below)
+3. **PIN entry**: shown if selected profile has a PIN set
+4. **App shell**: normal app, profile context loaded
 
 ## Netflix-style Profile Selection Page
 
@@ -104,12 +104,12 @@ Presence of a row in `profile_pins` signals the profile is PIN-protected. The `p
 PINs are profile-level access control (secondary to account auth), not primary credentials.
 4–6 digits → ~13–20 bits of entropy. **Three mandatory layers:**
 
-**Layer 1 — Hashing: Argon2id**
+**Layer 1: Hashing: Argon2id**
 - Use `Bun.password.hash(pepperedPin, { algorithm: "argon2id", memoryCost: 65536, timeCost: 3 })`
 - Built-in to Bun; no additional dependency
 - Unique salt is auto-embedded in the PHC output string
 
-**Layer 2 — Pepper (required, not optional)**
+**Layer 2: Pepper (required, not optional)**
 - HMAC-SHA256 the PIN with `PIN_PEPPER_SECRET` env var before hashing
 - Store secret in environment / secrets manager, never in the database
 - This defeats offline brute-force of a stolen DB even when the hash search space is small
@@ -130,7 +130,7 @@ const hash = await Bun.password.hash(applyPepper(pin), { algorithm: "argon2id", 
 const valid = await Bun.password.verify(applyPepper(inputPin), storedHash);
 ```
 
-**Layer 3 — Rate limiting + lockout**
+**Layer 3: Rate limiting + lockout**
 - Lock profile after **5 consecutive failed PIN attempts**
 - Exponential backoff: 30s → 2min → 10min → 1hr
 - `locked_until` timestamp persisted in `profile_pins` (survives server restarts)
@@ -140,6 +140,6 @@ const valid = await Bun.password.verify(applyPepper(inputPin), storedHash);
 
 **What NOT to do:**
 - Do not store PINs in plaintext or with fast hashes (SHA-256, MD5, bcrypt alone)
-- Do not skip pepper — rate limiting alone does not protect a stolen database
-- Do not skip rate limiting — pepper alone does not stop online guessing
+- Do not skip pepper; rate limiting alone does not protect a stolen database
+- Do not skip rate limiting; pepper alone does not stop online guessing
 - Never return the PIN hash to the client

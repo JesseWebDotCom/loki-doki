@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { type ElementType, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { useAdminSettings } from "@/hooks/useAdminSettings";
 
@@ -140,7 +141,7 @@ export function PlaceDetailsCard({
       aria-label="Place details"
       className={cn(
         "flex flex-col min-w-0 max-w-full",
-        !flat && "rounded-3xl border border-border/70 bg-background/92 p-4 shadow-(--shadow-lg)",
+        !flat && "rounded-sheet border border-border/70 bg-background/92 p-4 shadow-(--shadow-lg)",
       )}
     >
       {/* Name + category + close */}
@@ -165,7 +166,7 @@ export function PlaceDetailsCard({
             </p>
           ) : null}
           {place.business_attrs?.stars ? (
-            <p className="text-xs text-amber-500 mt-0.5">
+            <p className="text-xs text-warning mt-0.5">
               {"★".repeat(place.business_attrs.stars)}
               {"☆".repeat(5 - place.business_attrs.stars)}
             </p>
@@ -176,14 +177,16 @@ export function PlaceDetailsCard({
             </p>
           ) : null}
         </div>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={onClose}
           aria-label="Close details"
-          className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
         >
           <XIcon className="size-4" />
-        </button>
+        </Button>
       </div>
 
       {/* Quick action buttons */}
@@ -273,17 +276,17 @@ export function PlaceDetailsCard({
             <ClockIcon className="size-4 shrink-0 text-muted-foreground" />
             {place.open_now ? (
               isClosingSoon(place.closes_at) ? (
-                <span className="font-medium text-amber-600 dark:text-amber-400">
+                <span className="font-medium text-warning">
                   Closing soon
                   {place.closes_at ? ` · ${place.closes_at}` : ""}
                 </span>
               ) : (
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="font-medium text-success">
                   {place.closes_at ? `Open · Closes ${place.closes_at}` : "Open now"}
                 </span>
               )
             ) : (
-              <span className="font-medium text-rose-600 dark:text-rose-400">
+              <span className="font-medium text-destructive">
                 {place.opens_at ? `Closed · Opens ${place.opens_at}` : "Closed"}
               </span>
             )}
@@ -339,7 +342,7 @@ export function PlaceDetailsCard({
         const url = place.wiki_url ?? fetchedDesc?.url ?? null;
         if (!text) return null;
         return (
-          <div className="mt-3 rounded-xl bg-muted/40 px-3 py-2.5 text-sm animate-in fade-in duration-500">
+          <div className="mt-3 rounded-card bg-muted/40 px-3 py-2.5 text-sm animate-in fade-in duration-500">
             <p className="text-muted-foreground line-clamp-5">{text}</p>
             {url ? (
               <a

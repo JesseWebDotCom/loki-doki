@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { LayoutGrid, Plus, Copy, Trash2, Clock, CloudSun, Mic, Volume2, Loader2, Save, X, ExternalLink } from 'lucide-react'
+import { LayoutGrid, Plus, Copy, Trash2, Clock, CloudSun, Mic, Volume2, Save, X, ExternalLink } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { DevicePreview } from '@/components/admin/DevicePreview'
 import { toast } from '@/lib/toast'
@@ -26,10 +29,11 @@ interface DraftTemplate {
   alarmToneId: string | null
 }
 
+// design-ok(hex-in-tsx): device-screen theme defaults rendered on the Pod display, not app UI
 const DEFAULT_THEME: ThemeTokens = { bg: '#0E0B1A', accent: '#7C3AED', text: '#EAEAF2', font_scale: 1 }
 const WIDGET_ICON: Record<WidgetType, typeof Clock> = { clock: Clock, weather: CloudSun, mic: Mic, mute: Volume2 }
 // The device draws its OWN native, tappable mic/mute buttons over the screen image, so
-// adding mic/mute as layout widgets just paints a non-functional duplicate — offer only
+// adding mic/mute as layout widgets just paints a non-functional duplicate, so offer only
 // the real content widgets in the editor.
 const PALETTE: WidgetType[] = ['clock', 'weather']
 const defaultSize = (t: WidgetType): WidgetSize => (t === 'clock' || t === 'weather' ? 'medium' : 'small')
@@ -63,12 +67,12 @@ export function DeviceLayoutsPanel({ id }: { id?: string }) {
   }
 
   return (
-    <section id={id} className="space-y-4 rounded-3xl border border-border/40 bg-card p-5 scroll-mt-20">
+    <section id={id} className="space-y-4 rounded-card border border-border/40 bg-card p-5 scroll-mt-20">
       <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl" style={{ backgroundImage: 'linear-gradient(135deg,#a78bfa,#7c3aed)' }}><LayoutGrid className="size-5 text-white" /></div>
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-card bg-brand/10 text-brand"><LayoutGrid className="size-5" /></div>
         <div className="flex-1">
-          <h3 className="text-sm font-semibold">Screen layouts</h3>
-          <p className="text-sm text-muted-foreground">Arrange widgets into a 3×3 grid and theme it. Assign a layout to a screen device — changing it updates the device live, no re-flash.</p>
+          <h3 className="text-section">Screen layouts</h3>
+          <p className="text-sm text-muted-foreground">Arrange widgets into a 3×3 grid and theme it. Assign a layout to a screen device: changing it updates the device live, no re-flash.</p>
         </div>
         <Button size="sm" onClick={startNew}><Plus className="size-4" /> New layout</Button>
       </div>
@@ -81,17 +85,17 @@ export function DeviceLayoutsPanel({ id }: { id?: string }) {
           // the built-in default). This is what makes "edit → device changes" make sense.
           const usedBy = devices.filter((d) => (d.layoutTemplateId ?? DEFAULT_TEMPLATE_ID) === t.id)
           return (
-            <div key={t.id} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-background/40 p-3">
-              <div className="overflow-hidden rounded-xl"><DevicePreview theme={theme} widgets={widgets} /></div>
+            <div key={t.id} className="flex flex-col gap-3 rounded-card border border-border/40 bg-background/40 p-3">
+              <div className="overflow-hidden rounded-control"><DevicePreview theme={theme} widgets={widgets} /></div>
               <div className="flex items-center gap-2">
                 <span className="flex-1 truncate text-sm font-medium">{t.name}</span>
                 {rendererForTemplateId(t.id) === 'lvgl' && (
-                  <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-300" title="Rendered natively on-device in LVGL (experiment)">LVGL</span>
+                  <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand" title="Rendered natively on-device in LVGL (experiment)">LVGL</span>
                 )}
                 {t.builtin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Built-in</span>}
               </div>
               {usedBy.length > 0
-                ? <p className="-mt-1 truncate text-[11px] font-medium text-emerald-600 dark:text-emerald-400">● On {usedBy.map((d) => d.name).join(', ')}</p>
+                ? <p className="-mt-1 flex items-center gap-1.5 text-[11px] font-medium text-success"><StatusDot status="ok" /><span className="truncate">On {usedBy.map((d) => d.name).join(', ')}</span></p>
                 : <p className="-mt-1 text-[11px] text-muted-foreground">Not on any device</p>}
               <div className="flex items-center gap-1.5">
                 <Button size="sm" variant="secondary" className="flex-1 gap-1 text-xs" onClick={() => startEdit(t)}>Edit</Button>
@@ -104,7 +108,7 @@ export function DeviceLayoutsPanel({ id }: { id?: string }) {
       </div>
 
       {/* Assignment */}
-      <div className="space-y-2 rounded-2xl border border-border/40 bg-background/40 p-4">
+      <div className="space-y-2 rounded-card border border-border/40 bg-background/40 p-4">
         <h4 className="text-sm font-semibold">Assign to devices</h4>
         <p className="text-xs text-muted-foreground">Pick which layout each screen device shows. Saving pushes it live.</p>
         {devices.length === 0 ? (
@@ -152,16 +156,16 @@ function AssignRow({ device, templates }: { device: DeviceRow; templates: Templa
     } catch { toast.error('Couldn’t update layout') } finally { setBusy(false) }
   }
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-card px-3 py-2">
+    <div className="flex flex-col gap-2 rounded-card bg-card px-3 py-2">
       <div className="flex items-center gap-2">
         <span className="flex-1 truncate text-sm">{device.name}</span>
-        {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-        <select value={value} onChange={(e) => { setValue(e.target.value); void save(e.target.value, photoUrl) }} className="h-8 rounded-md border border-input bg-background px-2 text-xs">
+        {busy && <Spinner />}
+        <select value={value} onChange={(e) => { setValue(e.target.value); void save(e.target.value, photoUrl) }} className="h-8 rounded-control border border-input bg-background px-2 text-xs">
           <option value="">Default layout</option>
           {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         {/* Preview THIS device's live layout in a browser tab (what the screen shows). */}
-        <a href={`/display?deviceId=${device.id}`} target="_blank" rel="noreferrer" title="Open this device's display" className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground">
+        <a href={`/display?deviceId=${device.id}`} target="_blank" rel="noreferrer" title="Open this device's display" className="inline-flex size-8 items-center justify-center rounded-control text-muted-foreground hover:text-foreground">
           <ExternalLink className="size-4" />
         </a>
       </div>
@@ -172,7 +176,7 @@ function AssignRow({ device, templates }: { device: DeviceRow; templates: Templa
             type="url" value={photoUrl} placeholder="https://…/photo.jpg"
             onChange={(e) => setPhotoUrl(e.target.value)}
             onBlur={() => void save(value, photoUrl)}
-            className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+            className="h-7 flex-1 rounded-control border border-input bg-background px-2 text-xs text-foreground"
           />
         </label>
       )}
@@ -205,7 +209,7 @@ function LayoutEditor({ draft, setDraft, packs, alarmTones, onClose, onSaved }: 
   function addWidget(t: WidgetType) {
     const size = defaultSize(t)
     const anchor = firstFreeAnchor(draft.widgets, size, 'horizontal')
-    if (!anchor) { toast.error('No room — remove a widget first'); return }
+    if (!anchor) { toast.error('No room, remove a widget first'); return }
     set({ widgets: [...draft.widgets, { type: t, size, anchor, orient: 'horizontal' }] }); setSelected(draft.widgets.length)
   }
   function removeSelected() { if (selected == null) return; set({ widgets: draft.widgets.filter((_, i) => i !== selected) }); setSelected(null) }
@@ -214,7 +218,7 @@ function LayoutEditor({ draft, setDraft, packs, alarmTones, onClose, onSaved }: 
     // 'full' always spans the whole grid → force its anchor to the top-left origin.
     const w: WidgetPlacement = { ...draft.widgets[selected]!, size, ...(size === 'full' ? { anchor: [0, 0] as [number, number] } : {}) }
     const others = draft.widgets.filter((_, i) => i !== selected)
-    if (validateWidgets([...others, w]) !== null) { toast.error(size === 'full' ? 'Full-screen needs an empty grid — remove the other widgets first' : 'That size collides or runs off the grid here'); return }
+    if (validateWidgets([...others, w]) !== null) { toast.error(size === 'full' ? 'Full-screen needs an empty grid: remove the other widgets first' : 'That size collides or runs off the grid here'); return }
     setWidget(selected, w)
   }
   function toggleOrient() {
@@ -245,15 +249,15 @@ function LayoutEditor({ draft, setDraft, packs, alarmTones, onClose, onSaved }: 
   const sel = selected != null ? draft.widgets[selected] : null
 
   return (
-    <section className="space-y-4 rounded-3xl border border-border/40 bg-card p-5">
+    <section className="space-y-4 rounded-card border border-border/40 bg-card p-5">
       <div className="flex items-center gap-3">
         <Input value={draft.name} onChange={(e) => set({ name: e.target.value })} className="max-w-xs font-medium" />
         <div className="ml-auto flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={onClose}><X className="size-4" /> Cancel</Button>
-          <Button size="sm" onClick={save} disabled={busy || !!error}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save</Button>
+          <Button size="sm" onClick={save} disabled={busy || !!error}>{busy ? <Spinner className="text-current" /> : <Save className="size-4" />} Save</Button>
         </div>
       </div>
-      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
+      {error && <p className="rounded-control bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(440px,1fr)_minmax(0,1fr)]">
         {/* Preview / grid editor */}
@@ -263,44 +267,44 @@ function LayoutEditor({ draft, setDraft, packs, alarmTones, onClose, onSaved }: 
             <span className="text-muted-foreground">Place:</span>
             {PALETTE.map((t) => {
               const Icon = WIDGET_ICON[t]
-              return <button key={t} onClick={() => setAddType(t)} className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 capitalize ${addType === t ? 'border-brand bg-brand/10 text-foreground' : 'border-border/50 text-muted-foreground'}`}><Icon className="size-3.5" /> {t}</button>
+              return <Button key={t} size="sm" variant="outline" onClick={() => setAddType(t)} className={cn('h-7 gap-1 px-2 text-xs capitalize', addType === t ? 'border-brand bg-brand/10 text-foreground' : 'border-border/50 text-muted-foreground')}><Icon className="size-3.5" /> {t}</Button>
             })}
             <span className="ml-2 text-muted-foreground">then tap a slot</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-muted-foreground">Preview sky:</span>
-            <select value={previewWeather} onChange={(e) => setPreviewWeather(e.target.value as WeatherCondition)} className="h-7 rounded-md border border-input bg-background px-2 text-xs">
+            <select value={previewWeather} onChange={(e) => setPreviewWeather(e.target.value as WeatherCondition)} className="h-7 rounded-control border border-input bg-background px-2 text-xs">
               {WEATHER_CONDITIONS.map((w) => <option key={w} value={w}>{w}</option>)}
             </select>
-            <button onClick={() => setPreviewNight((n) => !n)} className="rounded-lg border border-border/50 px-2 py-1">{previewNight ? '🌙 Night' : '☀️ Day'}</button>
+            <Button size="sm" variant="outline" onClick={() => setPreviewNight((n) => !n)} className="h-7 border-border/50 px-2 text-xs">{previewNight ? '🌙 Night' : '☀️ Day'}</Button>
           </div>
         </div>
 
         {/* Controls */}
         <div className="space-y-4">
           {/* Selected widget */}
-          <div className="space-y-2 rounded-2xl border border-border/40 bg-background/40 p-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected widget</h4>
+          <div className="space-y-2 rounded-card border border-border/40 bg-background/40 p-3">
+            <h4 className="text-overline text-muted-foreground">Selected widget</h4>
             {!sel ? <p className="text-sm text-muted-foreground">Tap a widget in the preview, or place one from the palette. You can also quick-add:</p> : (
               <div className="space-y-2">
                 <p className="text-sm font-medium capitalize">{sel.type} at slot [{sel.anchor.join(', ')}]</p>
                 <div className="flex items-center gap-1.5">
                   {(['small', 'medium', 'large', 'full'] as WidgetSize[]).map((s) => (
-                    <button key={s} onClick={() => changeSize(s)} className={`rounded-lg border px-2.5 py-1 text-xs capitalize ${sel.size === s ? 'border-brand bg-brand/10' : 'border-border/50 text-muted-foreground'}`}>{s}</button>
+                    <Button key={s} size="sm" variant="outline" onClick={() => changeSize(s)} className={cn('h-7 px-2.5 text-xs capitalize', sel.size === s ? 'border-brand bg-brand/10' : 'border-border/50 text-muted-foreground')}>{s}</Button>
                   ))}
-                  {sel.size === 'medium' && <button onClick={toggleOrient} className="rounded-lg border border-border/50 px-2.5 py-1 text-xs">{(sel.orient ?? 'horizontal') === 'horizontal' ? '↔ Horizontal' : '↕ Vertical'}</button>}
+                  {sel.size === 'medium' && <Button size="sm" variant="outline" onClick={toggleOrient} className="h-7 border-border/50 px-2.5 text-xs">{(sel.orient ?? 'horizontal') === 'horizontal' ? '↔ Horizontal' : '↕ Vertical'}</Button>}
                   <Button size="sm" variant="ghost" className="ml-auto gap-1 text-xs text-muted-foreground hover:text-destructive" onClick={removeSelected}><Trash2 className="size-3.5" /> Remove</Button>
                 </div>
               </div>
             )}
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {PALETTE.map((t) => { const Icon = WIDGET_ICON[t]; return <button key={t} onClick={() => addWidget(t)} className="inline-flex items-center gap-1 rounded-lg border border-border/50 px-2 py-1 text-xs capitalize text-muted-foreground hover:text-foreground"><Plus className="size-3" /><Icon className="size-3.5" /> {t}</button> })}
+              {PALETTE.map((t) => { const Icon = WIDGET_ICON[t]; return <Button key={t} size="sm" variant="outline" onClick={() => addWidget(t)} className="h-7 gap-1 border-border/50 px-2 text-xs capitalize text-muted-foreground hover:text-foreground"><Plus className="size-3" /><Icon className="size-3.5" /> {t}</Button> })}
             </div>
           </div>
 
           {/* Theme */}
-          <div className="space-y-2 rounded-2xl border border-border/40 bg-background/40 p-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Theme</h4>
+          <div className="space-y-2 rounded-card border border-border/40 bg-background/40 p-3">
+            <h4 className="text-overline text-muted-foreground">Theme</h4>
             <div className="grid grid-cols-3 gap-2">
               <ColorField label="Background" value={draft.theme.bg} onChange={(v) => set({ theme: { ...draft.theme, bg: v } })} />
               <ColorField label="Accent" value={draft.theme.accent} onChange={(v) => set({ theme: { ...draft.theme, accent: v } })} />
@@ -313,17 +317,17 @@ function LayoutEditor({ draft, setDraft, packs, alarmTones, onClose, onSaved }: 
           </div>
 
           {/* Sound */}
-          <div className="space-y-2 rounded-2xl border border-border/40 bg-background/40 p-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sound</h4>
+          <div className="space-y-2 rounded-card border border-border/40 bg-background/40 p-3">
+            <h4 className="text-overline text-muted-foreground">Sound</h4>
             <div className="grid grid-cols-2 gap-2">
               <label className="text-xs text-muted-foreground">Sound pack
-                <select value={draft.soundPackId ?? ''} onChange={(e) => set({ soundPackId: e.target.value || null })} className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground">
+                <select value={draft.soundPackId ?? ''} onChange={(e) => set({ soundPackId: e.target.value || null })} className="mt-1 h-8 w-full rounded-control border border-input bg-background px-2 text-xs text-foreground">
                   <option value="">None</option>
                   {packs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </label>
               <label className="text-xs text-muted-foreground">Default alarm tone
-                <select value={draft.alarmToneId ?? ''} onChange={(e) => set({ alarmToneId: e.target.value || null })} className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground">
+                <select value={draft.alarmToneId ?? ''} onChange={(e) => set({ alarmToneId: e.target.value || null })} className="mt-1 h-8 w-full rounded-control border border-input bg-background px-2 text-xs text-foreground">
                   {alarmTones.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </label>
@@ -346,14 +350,16 @@ function LayoutEditor({ draft, setDraft, packs, alarmTones, onClose, onSaved }: 
 
 const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  // Hold what's typed locally so an in-progress (temporarily invalid) hex like "#0E0"
-  // doesn't get committed to the theme and blank the preview to black. Only push up a
-  // valid #rgb/#rrggbb; on blur, snap back to the last good value if it's still invalid.
+  // Hold what's typed locally so an in-progress (temporarily invalid) hex like "0E0"
+  // (missing its leading hash) doesn't get committed to the theme and blank the preview
+  // to black. Only push up a valid hex color; on blur, snap back to the last good value
+  // if it's still invalid.
   const [text, setText] = useState(value)
   useEffect(() => { setText(value) }, [value])
   return (
     <label className="text-xs text-muted-foreground">{label}
-      <div className="mt-1 flex items-center gap-1.5 rounded-md border border-input bg-background px-1.5 py-1">
+      <div className="mt-1 flex items-center gap-1.5 rounded-control border border-input bg-background px-1.5 py-1">
+        {/* design-ok(hex-in-tsx): fallback value for the native color input editing device-screen theme art */}
         <input type="color" value={HEX_RE.test(value) ? value : '#000000'} onChange={(e) => { setText(e.target.value); onChange(e.target.value) }} className="size-6 cursor-pointer rounded border-0 bg-transparent p-0" />
         <input
           value={text}

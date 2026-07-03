@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { CharacterAvatar } from '@/components/companion/CharacterAvatar'
 import { type CompanionRecord } from '@/hooks/useActiveCompanion'
 import { isLocked } from '@/lib/companions/useCompanionStore'
 import { getCompanionCategory } from '@/lib/companions/companionCategories'
 import { SelectButton } from '@/components/companions/store/CompanionActions'
 
-/** Spotlight banner that rotates through a few unlocked companions. */
+/** Fallback identity gradient for companions without a category (matches "everyday").
+ *  design-ok(hex-in-tsx): identity gradient data for uncategorized companions */
+export const COMPANION_FALLBACK_GRADIENT = 'linear-gradient(135deg,#1a0533,#7c3aed)'
+
+/** Spotlight banner that rotates through a few unlocked companions. Category-gradient
+ *  fill is a sanctioned identity moment (store cards); text over artwork keeps white-alpha. */
 export function CompanionFeaturedHero({ companions }: { companions: CompanionRecord[] }) {
   const navigate = useNavigate()
   const featured = companions.filter((c) => !isLocked(c)).slice(0, 5)
@@ -22,10 +28,10 @@ export function CompanionFeaturedHero({ companions }: { companions: CompanionRec
   if (featured.length === 0) return null
   const c = featured[Math.min(index, featured.length - 1)]
   const cat = getCompanionCategory(c.category)
-  const gradient = cat?.gradient ?? 'linear-gradient(135deg,#1a0533,#7c3aed)'
+  const gradient = cat?.gradient ?? COMPANION_FALLBACK_GRADIENT
 
   return (
-    <div className="relative overflow-hidden rounded-3xl p-8 text-white shadow-lg sm:p-10" style={{ backgroundImage: gradient }}>
+    <div className="relative overflow-hidden rounded-sheet p-8 text-white shadow-lg sm:p-10" style={{ backgroundImage: gradient }}>
       <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/25 to-transparent" />
 
       {/* Oversized avatar watermark */}
@@ -34,18 +40,18 @@ export function CompanionFeaturedHero({ companions }: { companions: CompanionRec
       </div>
 
       <div className="relative max-w-lg">
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/80">Featured Companion</p>
-        <h2 className="mt-2 text-3xl font-black leading-tight drop-shadow sm:text-4xl">{c.name}</h2>
+        <p className="text-overline text-white/80">Featured Companion</p>
+        <h2 className="mt-2 text-display text-white drop-shadow sm:text-display-lg">{c.name}</h2>
         <p className="mt-3 text-sm text-white/85 sm:text-base">{c.backstory}</p>
 
         <div className="mt-6 flex items-center gap-3">
           <SelectButton c={c} size="md" />
-          <button
+          <Button
             onClick={() => navigate(`/companions/c/${c.id}`)}
-            className="inline-flex items-center justify-center rounded-full bg-white/15 px-5 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/25"
+            className="bg-white/15 text-white hover:bg-white/25"
           >
             View Details
-          </button>
+          </Button>
         </div>
       </div>
 

@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Download, Trash2, Loader2, Headphones, MonitorPlay, Layers, type LucideIcon } from 'lucide-react'
+import { Download, Trash2, Headphones, MonitorPlay, Layers, type LucideIcon } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { snapshotStation, removeOfflineStation, getVideoSaveQuality, type OfflineMedia } from '@/lib/music/catalogApi'
 
 const MEDIA: { id: OfflineMedia; label: string; icon: LucideIcon; hint: string }[] = [
-  { id: 'audio', label: 'Audio', icon: Headphones, hint: 'Listen — smallest, includes the AI DJ' },
-  { id: 'video', label: 'Video', icon: MonitorPlay, hint: 'Watch — the music videos' },
+  { id: 'audio', label: 'Audio', icon: Headphones, hint: 'Listen - smallest, includes the AI DJ' },
+  { id: 'video', label: 'Video', icon: MonitorPlay, hint: 'Watch - the music videos' },
   { id: 'both', label: 'Both', icon: Layers, hint: 'Listen and Watch offline' },
 ]
 const COUNTS = [20, 50, 100]
@@ -18,7 +19,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   return (
     <button type="button" onClick={onClick}
       className={cn('rounded-full border px-3 py-1.5 text-sm font-medium transition',
-        active ? 'border-transparent bg-[var(--music-accent)] text-white' : 'border-border text-muted-foreground hover:text-foreground')}>
+        active ? 'border-transparent bg-[var(--music-accent)] text-[var(--music-accent-contrast)]' : 'border-border text-muted-foreground hover:text-foreground')}>
       {children}
     </button>
   )
@@ -27,8 +28,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</p>{children}</div>
 }
 
-/** Pick media (audio/video/both), how many songs, and — for video — quality (governed by the shared
- *  YouTube admin cap + user default), then snapshot the station offline. Also removes an offline save. */
+/** Pick media (audio/video/both), how many songs, and (for video) quality, governed by the shared
+ *  YouTube admin cap + user default, then snapshot the station offline. Also removes an offline save. */
 export function SaveOfflineDialog({ open, onOpenChange, stationId, saved, onChanged }: {
   open: boolean; onOpenChange: (o: boolean) => void; stationId: string; saved: boolean; onChanged: () => void
 }) {
@@ -67,7 +68,7 @@ export function SaveOfflineDialog({ open, onOpenChange, stationId, saved, onChan
             <div className="grid grid-cols-3 gap-2">
               {MEDIA.map(m => (
                 <button key={m.id} type="button" onClick={() => setMedia(m.id)}
-                  className={cn('flex flex-col items-center gap-1 rounded-xl border p-3 text-center transition',
+                  className={cn('flex flex-col items-center gap-1 rounded-control border p-3 text-center transition',
                     media === m.id ? 'border-[var(--music-accent)] bg-[var(--music-accent-soft)]' : 'border-border hover:bg-accent/40')}>
                   <m.icon className="size-5" />
                   <span className="text-sm font-medium">{m.label}</span>
@@ -96,7 +97,7 @@ export function SaveOfflineDialog({ open, onOpenChange, stationId, saved, onChan
             ? <Button variant="ghost" className="text-destructive" onClick={remove} disabled={busy}><Trash2 className="size-4" /> Remove offline</Button>
             : <span />}
           <Button onClick={save} disabled={busy || (wantsVideo && !height)}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />} {saved ? 'Re-download' : 'Save offline'}
+            {busy ? <Spinner className="text-current" /> : <Download className="size-4" />} {saved ? 'Re-download' : 'Save offline'}
           </Button>
         </DialogFooter>
       </DialogContent>

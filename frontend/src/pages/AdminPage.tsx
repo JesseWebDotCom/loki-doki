@@ -1,10 +1,11 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { WifiOff } from 'lucide-react'
+import { Menu, Search, WifiOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
+import { Button } from '@/components/ui/button'
 import { findSection, findSubsection, defaultSub } from '@/components/admin/adminRegistry'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
-import { AdminHeader } from '@/components/admin/AdminHeader'
 import { AdminOverview } from '@/components/admin/AdminOverview'
 import { AdminCommandPalette } from '@/components/admin/AdminCommandPalette'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -83,6 +84,29 @@ export function AdminPage() {
   // Token handed to anchor tabs so they can expand the matching right-side item.
   const openSignal = `${sub ?? ''}#${navNonce}`
 
+  // Publish the live section/subsection into the ONE global breadcrumb (Home > Admin >
+  // System > Connectivity) instead of a second local header bar; the mobile-nav trigger
+  // and ⌘K search affordance ride along as slots on the same bar.
+  useAppHeader({
+    query: '', setQuery: () => {}, searchable: false,
+    leftSlot: (
+      <Button variant="ghost" size="icon-sm" onClick={() => setMobileNavOpen(true)} className="md:hidden" aria-label="Open navigation">
+        <Menu className="size-5" />
+      </Button>
+    ),
+    rightSlot: (
+      <Button variant="outline" size="sm" onClick={() => setPaletteOpen(true)} className="gap-1.5 text-xs text-muted-foreground">
+        <Search className="size-3.5" />
+        <span className="hidden sm:inline">Search</span>
+        <kbd className="hidden rounded border border-border/60 bg-muted px-1 font-sans text-[10px] sm:inline">⌘K</kbd>
+      </Button>
+    ),
+    extraCrumbs: [
+      { label: sectionDef?.label ?? 'Admin', onClick: subDef ? () => go(section) : undefined },
+      ...(subDef ? [{ label: subDef.label }] : []),
+    ],
+  })
+
   // Deep-link scroll: when navigating to an anchor subsection, scroll to it and flash.
   useEffect(() => {
     if (subDef?.kind !== 'anchor' || !subDef.anchorId) return
@@ -146,24 +170,17 @@ export function AdminPage() {
       </Sheet>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <AdminHeader
-          sectionId={section}
-          sectionLabel={sectionDef?.label ?? 'Admin'}
-          subLabel={subDef?.label}
-          description={subDef?.description ?? sectionDef?.description}
-          onOpenMobileNav={() => setMobileNavOpen(true)}
-          onOpenPalette={() => setPaletteOpen(true)}
-          onNavigate={go}
-        />
-
       <div ref={contentRef} className="flex-1 overflow-y-auto">
+        {(subDef?.description ?? sectionDef?.description) && (
+          <p className="px-5 pt-4 text-sm text-muted-foreground">{subDef?.description ?? sectionDef?.description}</p>
+        )}
         {globallyOffline && DOWNLOAD_SECTIONS.has(section) && (
-          <div className="mx-6 mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
+          <div className="mx-6 mt-4 flex items-start gap-3 rounded-control border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
             <WifiOff className="mt-0.5 size-4 shrink-0" />
             <span>
               {downloadsAllowed
-                ? 'Global offline mode is active — users cannot access internet features, but admin downloads are still allowed.'
-                : 'Global offline mode is active — downloads and external installs are disabled. Go to '}
+                ? 'Global offline mode is active: users cannot access internet features, but admin downloads are still allowed.'
+                : 'Global offline mode is active: downloads and external installs are disabled. Go to '}
               {!downloadsAllowed && <strong>System</strong>}
               {!downloadsAllowed && ' to enable downloads or switch back online.'}
             </span>

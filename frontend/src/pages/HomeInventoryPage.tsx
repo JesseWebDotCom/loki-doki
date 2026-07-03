@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Package, AlertTriangle, ChevronRight, Loader2, CheckCircle2, Clock, WifiOff, Camera, FileText, Wrench } from 'lucide-react'
+import { Plus, Package, AlertTriangle, ChevronRight, CheckCircle2, Clock, WifiOff, Camera, FileText, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { cardVariants } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
 import { PageShell } from '@/components/shared/PageShell'
@@ -71,13 +73,13 @@ function WarrantyBadge({ expires }: { expires: string | null }) {
   if (days === null) return null
   if (days < 0) return <Badge variant="destructive" className="text-xs">Warranty expired</Badge>
   if (days <= 30) return <Badge variant="destructive" className="text-xs">Expires in {days}d</Badge>
-  if (days <= 90) return <Badge className="text-xs bg-amber-500 hover:bg-amber-500">Expires in {days}d</Badge>
+  if (days <= 90) return <Badge className="text-xs bg-warning text-warning-foreground hover:bg-warning">Expires in {days}d</Badge>
   return null
 }
 
 function LookupStatusIcon({ status }: { status: LookupStatus }) {
   if (status === 'pending') return <Clock className="size-3 text-muted-foreground" />
-  if (status === 'complete') return <CheckCircle2 className="size-3 text-emerald-500" />
+  if (status === 'complete') return <CheckCircle2 className="size-3 text-success" />
   if (status === 'failed') return <WifiOff className="size-3 text-muted-foreground" />
   return null
 }
@@ -89,18 +91,18 @@ function DeviceCard({ device, onClick }: { device: HomeDevice; onClick: () => vo
   return (
     <button
       onClick={onClick}
-      className="group flex flex-col gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:bg-muted/50 hover:border-border/80"
+      className={cn(cardVariants({ variant: 'interactive' }), 'group flex flex-col gap-3 p-4 text-left')}
     >
       <div className="flex items-start gap-3">
         {hasPhoto ? (
           <img
             src={`/api/home/devices/${device.id}/photo`}
             alt={device.name}
-            className="size-14 shrink-0 rounded-lg object-cover bg-muted"
+            className="size-14 shrink-0 rounded-control object-cover bg-muted"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
         ) : (
-          <div className="size-14 shrink-0 rounded-lg bg-muted flex items-center justify-center text-2xl">
+          <div className="size-14 shrink-0 rounded-control bg-muted flex items-center justify-center text-2xl">
             {icon}
           </div>
         )}
@@ -144,16 +146,16 @@ function WarrantyAlerts({ devices }: { devices: HomeDevice[] }) {
   if (expiring.length === 0 && expired.length === 0) return null
 
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
-      <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+    <div className="rounded-control border border-warning/30 bg-warning/10 px-4 py-3 flex items-start gap-3">
+      <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
       <div className="text-sm">
         {expired.length > 0 && (
-          <p className="text-amber-700 dark:text-amber-400 font-medium">
+          <p className="text-warning font-medium">
             {expired.length} warranty{expired.length > 1 ? 'ies' : 'y'} expired: {expired.map(d => d.name).join(', ')}
           </p>
         )}
         {expiring.length > 0 && (
-          <p className="text-amber-700 dark:text-amber-400">
+          <p className="text-warning">
             {expiring.length} expiring soon: {expiring.map(d => `${d.name} (${warrantyDaysLeft(d.warrantyExpires)}d)`).join(', ')}
           </p>
         )}
@@ -211,7 +213,6 @@ export function HomeInventoryPage() {
     query: search,
     setQuery: handleSearch,
     placeholder: 'Search devices, brands, locations...',
-    settingsHref: '/admin/features?tool=home_inventory',
   })
 
   function handleCategory(val: string) {
@@ -256,20 +257,17 @@ export function HomeInventoryPage() {
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-muted/60 border border-border px-3 py-2 text-xs font-semibold transition-colors hover:bg-muted active:scale-95"
-        >
+        <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setShowAdd(true)}>
           <Plus className="size-3.5" />
           Add
-        </button>
+        </Button>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {loading ? (
           <div className="flex items-center justify-center h-40">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            <Spinner size="lg" />
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -278,6 +276,7 @@ export function HomeInventoryPage() {
             {devices.length === 0 ? (
               <EmptyAppState
                 icon={Package}
+                // design-ok(hex-in-tsx): registry identity fallback data
                 gradient="linear-gradient(135deg,#1e3a5f,#1d4ed8)"
                 title="Your home, fully documented"
                 tagline="Add any appliance, device, or piece of equipment. Upload a photo and we'll find the manual, support info, and warranty details automatically."
@@ -287,9 +286,9 @@ export function HomeInventoryPage() {
                   </Button>
                 }
                 features={[
-                  { icon: Camera, title: 'Photo identification', desc: 'Snap a label — AI reads the model number to find the manual.' },
+                  { icon: Camera, title: 'Photo identification', desc: 'Snap a label and AI reads the model number to find the manual.' },
                   { icon: FileText, title: 'Auto-fetched manuals', desc: 'PDF user manuals downloaded and stored locally for offline access.' },
-                  { icon: AlertTriangle, title: 'Warranty alerts', desc: 'See which warranties are expiring — never miss a claim window.' },
+                  { icon: AlertTriangle, title: 'Warranty alerts', desc: 'See which warranties are expiring so you never miss a claim window.' },
                   { icon: Wrench, title: 'Service log', desc: 'Track repairs and maintenance dates for every device you own.' },
                 ]}
               />

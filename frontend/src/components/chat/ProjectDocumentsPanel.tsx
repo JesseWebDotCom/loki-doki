@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FileText, Loader2, Upload, Trash2, Sparkles, Download } from 'lucide-react'
+import { FileText, Upload, Trash2, Sparkles, Download } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { ListRow } from '@/components/shared/ListRow'
+import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 
 interface Doc {
   id: string
@@ -68,13 +73,15 @@ function Documents({ projectId }: { projectId: string }) {
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
           {docs.length} {docs.length === 1 ? 'document' : 'documents'}
         </p>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
-          className="inline-flex items-center gap-1 text-xs text-brand hover:underline disabled:opacity-50"
+          className="h-auto gap-1 px-1.5 py-0.5 text-xs text-brand hover:bg-transparent hover:text-brand-hover"
         >
-          {uploading ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />} Add file
-        </button>
+          {uploading ? <Spinner size="sm" className="size-3" /> : <Upload className="size-3" />} Add file
+        </Button>
         <input
           ref={fileRef} type="file" hidden
           accept=".pdf,.txt,.md,.html,.htm,text/plain,text/markdown,application/pdf,text/html"
@@ -86,23 +93,34 @@ function Documents({ projectId }: { projectId: string }) {
           Add PDFs, text, or HTML to ground generated documents in your sources.
         </p>
       ) : (
-        <div className="space-y-1.5">
+        <Card variant="flat" className="divide-y divide-border/50">
           {docs.map((d) => (
-            <div key={d.id} className="flex items-center gap-2 rounded-lg border border-border/40 bg-foreground/[0.02] px-3 py-2">
-              <FileText className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-sm">{d.filename}</span>
-              <span className={cn(
-                'text-[10px] font-medium',
-                d.status === 'ready' ? 'text-emerald-600' : d.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
-              )}>
-                {d.status === 'ready' ? `${d.chunkCount} chunks` : d.status === 'failed' ? 'failed' : 'processing…'}
-              </span>
-              <button onClick={() => void remove(d.id)} className="text-muted-foreground hover:text-destructive">
-                <Trash2 className="size-3.5" />
-              </button>
-            </div>
+            <ListRow
+              key={d.id}
+              className="rounded-none"
+              leading={<FileText className="size-4 text-muted-foreground" />}
+              title={d.filename}
+              trailing={
+                <>
+                  <span className={cn(
+                    'text-[10px] font-medium',
+                    d.status === 'ready' ? 'text-success' : d.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+                  )}>
+                    {d.status === 'ready' ? `${d.chunkCount} chunks` : d.status === 'failed' ? 'failed' : 'processing…'}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => void remove(d.id)}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </>
+              }
+            />
           ))}
-        </div>
+        </Card>
       )}
     </div>
   )
@@ -172,44 +190,49 @@ function LongForm({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-2">
-      <textarea
+      <Textarea
         value={request}
         onChange={(e) => setRequest(e.target.value)}
         placeholder="Describe the document to generate from this project's sources…"
-        className="h-20 w-full rounded-xl border border-border bg-background p-3 text-sm"
+        className="h-20"
       />
       <div className="flex flex-wrap items-center gap-2">
-        <select value={preset} onChange={(e) => setPreset(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm">
+        <select value={preset} onChange={(e) => setPreset(e.target.value)} className="rounded-control border border-border bg-background px-3 py-1.5 text-sm">
           <option value="">Free-form</option>
           {presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
-        <button
+        <Button
+          size="sm"
           onClick={() => void generate()}
           disabled={running || !request.trim()}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {running ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />} Generate
-        </button>
+          {running ? <Spinner size="sm" className="text-primary-foreground" /> : <Sparkles className="size-4" />} Generate
+        </Button>
         {finalMd && (
-          <button onClick={download} className="inline-flex items-center gap-1 text-sm text-brand hover:underline">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={download}
+            className="h-auto gap-1 px-1.5 py-0.5 text-sm text-brand hover:bg-transparent hover:text-brand-hover"
+          >
             <Download className="size-4" /> Download
-          </button>
+          </Button>
         )}
       </div>
 
       {(title || sections.length > 0) && (
-        <div className="mt-2 space-y-3 rounded-xl border border-border/40 bg-foreground/[0.02] p-4">
-          {title && <h3 className="text-base font-black">{title}</h3>}
+        <Card variant="flat" className="mt-2 space-y-3 p-4">
+          {title && <h3 className="text-section">{title}</h3>}
           {sections.map((s) => (
             <div key={s.index}>
               <p className="flex items-center gap-1.5 text-sm font-bold">
                 {s.title}
-                {!s.done && running && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+                {!s.done && running && <Spinner size="sm" className="size-3" />}
               </p>
               <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{s.body}</p>
             </div>
           ))}
-        </div>
+        </Card>
       )}
     </div>
   )

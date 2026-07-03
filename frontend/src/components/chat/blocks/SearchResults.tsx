@@ -1,5 +1,5 @@
-import { ExternalLink } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import { FaviconImg } from '@/components/shared/FaviconImg'
 import type { SearchBlockData } from './types'
 
@@ -13,7 +13,7 @@ export function SearchResults({ data }: { data: SearchBlockData }) {
           <Badge variant="default" className="text-[11px]">🎬 In Theaters</Badge>
         </div>
       )}
-      <div className="flex flex-col divide-y divide-border/40 rounded-xl border border-border/50 bg-card overflow-hidden">
+      <Card variant="surface" className="flex flex-col divide-y divide-border/40">
         {data.results.map((result, i) => {
           const domain = (() => {
             try { return new URL(result.url).hostname.replace(/^www\./, '') }
@@ -48,7 +48,7 @@ export function SearchResults({ data }: { data: SearchBlockData }) {
             </a>
           )
         })}
-      </div>
+      </Card>
     </div>
   )
 }

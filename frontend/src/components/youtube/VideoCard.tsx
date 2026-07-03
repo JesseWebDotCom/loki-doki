@@ -8,12 +8,12 @@ import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 
-/** Where a card navigates — the full-page watch route, preserving offline kind. */
+/** Where a card navigates: the full-page watch route, preserving offline kind. */
 export function watchHref(i: Pick<VideoItem, 'videoId' | 'localKind'>) {
   return i.localKind ? `/youtube/watch/${i.videoId}?k=${i.localKind}` : `/youtube/watch/${i.videoId}`
 }
 
-/** Offline mode + no local copy ⇒ the card is "ghosted": shown for continuity
+/** Offline mode + no local copy means the card is "ghosted": shown for continuity
  *  (history, related rows) but greyed out and non-navigating, since it can't play.
  *  Tapping it offers to queue a download instead (saved when back online). */
 function useGhost(item: Pick<VideoItem, 'videoId' | 'title' | 'localKind'>) {
@@ -27,7 +27,7 @@ function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'vid
   const dur = fmtDur(i.durationSec)
   const progress = watchProgress(i)
   return (
-    <div className={cn('relative overflow-hidden rounded-xl bg-muted', aspect === 'short' ? 'aspect-[9/16]' : 'aspect-video')}>
+    <div className={cn('relative overflow-hidden rounded-card bg-muted', aspect === 'short' ? 'aspect-[9/16]' : 'aspect-video')}>
       <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       {i.watch?.completed && (
@@ -35,7 +35,7 @@ function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'vid
       )}
       {ghosted ? (
         <>
-          <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+          <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white">
             <CloudOff className="size-3" /> Online only
           </span>
           {/* The card itself is the button; this is just the visible "you can save it" cue. */}
@@ -46,15 +46,16 @@ function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'vid
           </div>
         </>
       ) : i.qualityBadge && (
-        <span className="absolute left-2 top-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">{i.qualityBadge}</span>
+        <span className="absolute left-2 top-2 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white">{i.qualityBadge}</span>
       )}
       {i.watch?.completed && (
-        <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 backdrop-blur-sm">
+        // design-ok(raw-palette-semantic): status tint on a theme-invariant black chip over the thumbnail
+        <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
           <CheckCircle2 className="size-3" /> Watched
         </span>
       )}
       {dur && (
-        <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
+        <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
       )}
       {(progress > 0 || i.watch?.completed) && (
         <div className="absolute inset-x-0 bottom-0 h-1 bg-black/40">
@@ -65,7 +66,7 @@ function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'vid
   )
 }
 
-/** Vertical video card — thumbnail, title, channel · age. Click → watch (or Shorts) page. */
+/** Vertical video card: thumbnail, title, channel · age. Click opens the watch (or Shorts) page. */
 export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
   const { ghosted, onClick } = useGhost(item)
@@ -107,7 +108,7 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
   )
 }
 
-/** Compact horizontal row — used in the watch page "Up next" column. */
+/** Compact horizontal row, used in the watch page "Up next" column. */
 export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
   const { ghosted, onClick } = useGhost(item)
@@ -127,14 +128,15 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
   )
   if (ghosted) {
     return (
-      <button type="button" onClick={onClick} className="group flex w-full gap-2.5 rounded-xl p-1.5 text-left transition-colors hover:bg-accent/50">
+      // design-ok(hand-styled-button): the whole media row is the tap target (card-shaped ghost row)
+      <button type="button" onClick={onClick} className="group flex w-full gap-2.5 rounded-control p-1.5 text-left transition-colors hover:bg-accent/50">
         {body}
       </button>
     )
   }
   return (
     <Link to={watchHref(item)} state={{ title, author: item.author, channelThumb: item.channelThumb }}
-      className={cn('group flex gap-2.5 rounded-xl p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')}>
+      className={cn('group flex gap-2.5 rounded-control p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')}>
       {body}
     </Link>
   )

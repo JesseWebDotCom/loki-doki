@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 
 // Staged, friendly progress for wake-word training. Mirrors the Add-a-device
 // wizard (FlashDeviceWizard): a calm done/active/pending checklist, plain-English
 // status sentences translated from the raw training log, a thin progress bar, and
-// a collapsed "Show details" technical log — so training a companion's wake word
+// a collapsed "Show details" technical log, so training a companion's wake word
 // feels as polished as flashing a device instead of a wall of mono-font log lines.
 //
 // Self-contained: it opens the /api/admin/wakewords/train SSE stream on mount and
@@ -20,7 +22,7 @@ const STAGES: { id: Stage; label: string }[] = [
   { id: 'finalize', label: 'Finishing up' },
 ]
 const ORDER = STAGES.map((s) => s.id)
-// Bar fill per stage — derived from the stage (monotonic, meaningful) rather than
+// Bar fill per stage, derived from the stage (monotonic, meaningful) rather than
 // the backend's coarse byte/length-based pct, which jumps around.
 const STAGE_PCT: Record<Stage, number> = { generate: 25, analyze: 55, train: 85, finalize: 100 }
 
@@ -43,7 +45,7 @@ const FRIENDLY: Record<Stage, string> = {
 }
 
 function friendlyError(e: string): string {
-  if (/training.*not installed|wake word training/i.test(e)) return 'Wake Word Training isn’t installed yet — add it in Admin → Features, then try again.'
+  if (/training.*not installed|wake word training/i.test(e)) return 'Wake Word Training isn’t installed yet. Add it in Admin → Features, then try again.'
   if (/core models/i.test(e)) return 'The wake-word core models aren’t installed yet. Install “Wake Word” in Admin → Features.'
   return 'Something went wrong while training. You can try again.'
 }
@@ -51,7 +53,7 @@ function friendlyError(e: string): string {
 interface Props {
   phrase: string
   characterId?: string
-  /** 'auto' (default) trains across the full diverse voice set — the reliable, speaker-independent choice. */
+  /** 'auto' (default) trains across the full diverse voice set: the reliable, speaker-independent choice. */
   trainingVoice?: string
   onComplete?: (modelId: string) => void
   onDismiss?: () => void
@@ -141,7 +143,7 @@ export function WakeTrainingProgress({ phrase, characterId, trainingVoice = 'aut
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }) }, [log])
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-background/50 p-3">
+    <div className="space-y-3 rounded-card border border-border bg-background/50 p-3">
       {!error && !done && (
         <>
           <div>
@@ -152,18 +154,18 @@ export function WakeTrainingProgress({ phrase, characterId, trainingVoice = 'aut
           <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
             <div className="h-full rounded-full bg-primary transition-all duration-700 ease-out" style={{ width: `${STAGE_PCT[stage]}%` }} />
           </div>
-          <p className="text-[11px] text-muted-foreground">This runs in the background — you can keep editing.</p>
+          <p className="text-[11px] text-muted-foreground">This runs in the background; you can keep editing.</p>
         </>
       )}
 
       {done && (
         <div className="flex flex-col items-center gap-2 py-1 text-center">
-          <span className="grid size-10 place-items-center rounded-full bg-emerald-500/10 text-emerald-500"><CheckCircle2 className="size-6" /></span>
+          <span className="grid size-10 place-items-center rounded-full bg-success/10 text-success"><CheckCircle2 className="size-6" /></span>
           <div>
-            <p className="text-sm font-semibold">Wake word ready <Sparkles className="inline size-3.5 text-amber-400" /></p>
+            <p className="text-sm font-semibold">Wake word ready <Sparkles className="inline size-3.5 text-warning" /></p>
             <p className="mt-0.5 text-xs text-muted-foreground">Your device now answers to “{phrase}”{summary ? ` · ${summary}` : ''}.</p>
           </div>
-          <button type="button" onClick={onDismiss} className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-foreground/5">Done</button>
+          <Button type="button" variant="outline" size="sm" onClick={onDismiss} className="h-7 px-3 text-xs">Done</Button>
         </div>
       )}
 
@@ -175,8 +177,8 @@ export function WakeTrainingProgress({ phrase, characterId, trainingVoice = 'aut
             <p className="mt-0.5 text-xs text-muted-foreground">{friendlyError(error)}</p>
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setRetry((r) => r + 1)} className="rounded-lg border border-violet-500/50 bg-violet-500/10 px-3 py-1 text-xs text-violet-300 hover:bg-violet-500/20">Try again</button>
-            <button type="button" onClick={onDismiss} className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-foreground/5">Dismiss</button>
+            <Button type="button" variant="tinted" size="sm" onClick={() => setRetry((r) => r + 1)} className="h-7 border border-brand/40 px-3 text-xs">Try again</Button>
+            <Button type="button" variant="outline" size="sm" onClick={onDismiss} className="h-7 px-3 text-xs text-muted-foreground">Dismiss</Button>
           </div>
         </div>
       )}
@@ -187,7 +189,11 @@ export function WakeTrainingProgress({ phrase, characterId, trainingVoice = 'aut
             {showLog ? 'Hide details' : 'Show details'}
           </button>
           {showLog && (
-            <div ref={logRef} className="mt-1 max-h-28 overflow-auto rounded-lg bg-black/90 p-2 font-mono text-[10px] leading-relaxed text-emerald-200/90">
+            <div
+              ref={logRef}
+              // design-ok(raw-palette-semantic): terminal-style green-on-black log readout
+              className="mt-1 max-h-28 overflow-auto rounded-control bg-black/90 p-2 font-mono text-[10px] leading-relaxed text-emerald-200/90"
+            >
               {log.map((l, i) => <div key={i} className="whitespace-pre-wrap break-all">{l}</div>)}
             </div>
           )}
@@ -197,7 +203,7 @@ export function WakeTrainingProgress({ phrase, characterId, trainingVoice = 'aut
   )
 }
 
-// done / in-progress / pending checklist — the calm alternative to a scrolling log.
+// done / in-progress / pending checklist: the calm alternative to a scrolling log.
 function StageList({ stage }: { stage: Stage }) {
   const active = ORDER.indexOf(stage)
   return (
@@ -205,10 +211,10 @@ function StageList({ stage }: { stage: Stage }) {
       {STAGES.map((s, i) => {
         const state = i < active ? 'done' : i === active ? 'active' : 'pending'
         return (
-          <div key={s.id} className={cn('flex items-center gap-2.5 rounded-lg px-2 py-1.5', state === 'active' && 'bg-primary/5')}>
+          <div key={s.id} className={cn('flex items-center gap-2.5 rounded-control px-2 py-1.5', state === 'active' && 'bg-primary/5')}>
             <span className="grid size-4 shrink-0 place-items-center">
-              {state === 'done' ? <CheckCircle2 className="size-4 text-emerald-500" />
-                : state === 'active' ? <Loader2 className="size-3.5 animate-spin text-primary" />
+              {state === 'done' ? <CheckCircle2 className="size-4 text-success" />
+                : state === 'active' ? <Spinner size="sm" className="text-primary" />
                 : <span className="size-1.5 rounded-full bg-muted-foreground/30" />}
             </span>
             <span className={cn('text-xs', state === 'pending' ? 'text-muted-foreground/60' : state === 'active' ? 'font-medium text-foreground' : 'text-foreground')}>

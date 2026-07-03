@@ -29,7 +29,7 @@ function modeFor(matrix: DeliveryMatrix, category: string, channel: DeliveryChan
 
 function ModeSelect({ value, onChange }: { value: DeliveryMode; onChange: (m: DeliveryMode) => void }) {
   return (
-    <div className="inline-flex rounded-lg border border-border/60 p-0.5">
+    <div className="inline-flex rounded-control border border-border/60 p-0.5">
       {MODES.map((m) => (
         <button
           key={m.value}
@@ -37,7 +37,7 @@ function ModeSelect({ value, onChange }: { value: DeliveryMode; onChange: (m: De
           title={m.hint}
           onClick={() => onChange(m.value)}
           className={cn(
-            'rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+            'rounded-control px-2 py-0.5 text-[11px] font-medium transition-colors',
             value === m.value
               ? m.value === 'off' ? 'bg-muted text-muted-foreground' : 'bg-brand text-white'
               : 'text-muted-foreground hover:text-foreground',
@@ -80,7 +80,7 @@ export function DeliveryMatrixSection({ channels, muted, matrix, onToggleMuted, 
         {NOTIF_CATEGORIES.map(({ key, label, description, types, Icon }) => {
           const inAppOn = !types.some((t) => muted.includes(t))
           return (
-            <div key={key} className="rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors">
+            <div key={key} className="rounded-control px-3 py-3 hover:bg-muted/40 transition-colors">
               <div className="flex items-center gap-4">
                 <Icon className="size-4 text-muted-foreground shrink-0" />
                 <div className="flex-1 min-w-0">

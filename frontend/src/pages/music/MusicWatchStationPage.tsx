@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { SkipForward, SkipBack, Headphones, Heart, Play, Loader2, ListVideo, PictureInPicture2, ExternalLink } from 'lucide-react'
+import { SkipForward, SkipBack, Headphones, Heart, Play, ListVideo, PictureInPicture2, ExternalLink } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
 import { VideoPlayer } from '@/components/youtube/VideoPlayer'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
@@ -13,10 +16,10 @@ import { getStation, previewStationQueue, getOfflineVideoQueue, prefetchMedia, p
 
 interface WatchTrack { videoId: string; title: string; artist: string | null }
 
-// Round bordered control button — matches the YouTube watch page's action row exactly.
+// Round bordered control button - matches the YouTube watch page's action row exactly.
 const CTRL = 'grid size-9 place-items-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
 
-/** "Watch the station" — the station's tracklist played as music videos, back-to-back, wrapped in
+/** "Watch the station" - the station's tracklist played as music videos, back-to-back, wrapped in
  *  the Now-Playing look (accent hero + station chip + up-next). The video keeps its own transport;
  *  no DJ and no visualizer in video mode. Online streams via VideoPlayer; offline plays local files. */
 export function MusicWatchStationPage() {
@@ -46,8 +49,8 @@ export function MusicWatchStationPage() {
       sec: Math.floor(radio.positionSec),
     }
   })
-  // Hand the sound to the video — stop the audio decks ONCE on mount so the two never play at
-  // once. Guarded so it can't re-fire when radio state (and thus radio.stop's identity) changes —
+  // Hand the sound to the video - stop the audio decks ONCE on mount so the two never play at
+  // once. Guarded so it can't re-fire when radio state (and thus radio.stop's identity) changes -
   // otherwise "Listen instead" would start audio and this would immediately stop it again.
   const handedOff = useRef(false)
   useEffect(() => {
@@ -173,33 +176,35 @@ export function MusicWatchStationPage() {
   // Cold open of a real station still loads; "watch current" rides the live session (radio.station).
   if (!isCurrent && !station) return <div className="px-5 pt-10 text-sm text-muted-foreground">Loading…</div>
   const headerName = station?.name ?? radio.station?.label ?? 'Now Playing'
-  const c1 = station ? stationToDj(station).color : (radio.station?.color ?? '#7c3aed')
-  const c2 = station ? stationToDj(station).colorDark : (radio.station?.colorDark ?? '#4c1d95')
+  // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - interpolated with alpha suffixes below
+  const c1 = station ? stationToDj(station).color : (radio.station?.color ?? '#a192ff')
+  const c2 = station ? stationToDj(station).colorDark : (radio.station?.colorDark ?? '#643fd1') // design-ok(hex-in-tsx): station accent fallback (brand hue)
   const emoji = station ? stationToDj(station).emoji : (radio.station?.emoji ?? '📺')
 
   return (
-    <div className="px-5 pb-8 pt-6">
+    <PageContainer width="full" className="pb-8 pt-6">
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         {/* Player wrapped in the station's accent identity (mirrors Now Playing). */}
         <div className="min-w-0 space-y-4">
-          <div className="relative overflow-hidden rounded-2xl border border-border/50 p-3 shadow-lg"
+          <div className="relative overflow-hidden rounded-sheet border border-border/50 p-3 shadow-lg"
             style={{ background: `linear-gradient(135deg, ${c1}24, ${c2}0a 65%)` }}>
             <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full opacity-25 blur-3xl" style={{ background: c1 }} />
             <div className="relative">
               <div className="mb-2.5 flex items-center gap-2">
+                {/* design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chip floats over the station-accent hero tint */}
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
                   <span>{emoji}</span> {headerName} · Video
                 </span>
               </div>
 
               {isLoading ? (
-                <div className="flex aspect-video items-center justify-center gap-2 rounded-xl bg-black/20 text-sm text-white/80"><Loader2 className="size-4 animate-spin" /> Lining up the videos…</div>
+                <div className="flex aspect-video items-center justify-center gap-2 rounded-card bg-black/20 text-sm text-white/80"><Spinner className="text-current" /> Lining up the videos…</div>
               ) : !cur ? (
-                <div className="flex aspect-video items-center justify-center rounded-xl bg-black/20 px-6 text-center text-sm text-white/80">
+                <div className="flex aspect-video items-center justify-center rounded-card bg-black/20 px-6 text-center text-sm text-white/80">
                   {offline ? 'No videos downloaded for this station yet. Save it offline as Video or Both.' : 'Couldn’t build a video queue right now.'}
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-xl ring-1 ring-white/10">
+                <div className="overflow-hidden rounded-card ring-1 ring-white/10">
                   {/* Remount per track so the player cleanly loads the next video; it keeps its own
                       transport. resumeSec resumes the hand-off song at the same spot. */}
                   <VideoPlayer key={cur.videoId} videoId={cur.videoId} localKind={localVideo ? 'video' : undefined}
@@ -210,20 +215,20 @@ export function MusicWatchStationPage() {
               {cur && (
                 <div className="relative mt-3 flex items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <h1 className="truncate text-xl font-black tracking-tight">{cur.title}</h1>
+                    <div className="truncate text-title">{cur.title}</div>
                     {cur.artist && <p className="truncate text-sm text-muted-foreground">{cur.artist}</p>}
                   </div>
-                  {/* Action row — same chrome + icons as the YouTube watch page. */}
+                  {/* Action row - same chrome + icons as the YouTube watch page. */}
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button className={CTRL} onClick={back} aria-label="Previous" title="Previous"><SkipBack className="size-4" /></button>
                     <button className={CTRL} onClick={advance} aria-label="Next" title="Next"><SkipForward className="size-4" /></button>
                     <button className={CTRL} onClick={favorite} aria-label="Favorite" title="Favorite"><Heart className="size-4" /></button>
-                    <button onClick={listen} title="Listen instead — switch to audio at the same spot"
-                      className="flex h-9 items-center gap-1.5 rounded-full border border-border/60 px-3.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                    <Button variant="outline" onClick={listen} title="Listen instead - switch to audio at the same spot"
+                      className="border-border/60 text-muted-foreground hover:text-foreground">
                       <Headphones className="size-4" /> Listen
-                    </button>
+                    </Button>
                     <button className={CTRL} onClick={() => window.open(`https://www.youtube.com/watch?v=${cur.videoId}`, '_blank', 'noopener,noreferrer')} aria-label="Open on YouTube" title="Open on YouTube"><ExternalLink className="size-4" /></button>
-                    <button className={CTRL} onClick={minimize} aria-label="Minimize to mini-player" title="Minimize — keep playing in the mini-player while you browse"><PictureInPicture2 className="size-4" /></button>
+                    <button className={CTRL} onClick={minimize} aria-label="Minimize to mini-player" title="Minimize - keep playing in the mini-player while you browse"><PictureInPicture2 className="size-4" /></button>
                   </div>
                 </div>
               )}
@@ -237,8 +242,8 @@ export function MusicWatchStationPage() {
           <div className="space-y-1">
             {tracks.map((t, i) => (
               <button key={t.videoId + i} onClick={() => go(i)}
-                className={cn('group flex w-full items-center gap-3 rounded-lg p-1.5 text-left transition hover:bg-accent/50', i === index && 'bg-accent')}>
-                <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-md bg-muted">
+                className={cn('group flex w-full items-center gap-3 rounded-control p-1.5 text-left transition hover:bg-accent/50', i === index && 'bg-brand/10')}>
+                <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-control bg-muted">
                   <img src={proxyImg(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`)} alt="" loading="lazy"
                     className="size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
                   {i === index && <span className="absolute inset-0 grid place-items-center bg-black/40"><Play className="size-4 fill-white text-white" /></span>}
@@ -249,6 +254,6 @@ export function MusicWatchStationPage() {
           </div>
         </div>
       </div>
-    </div>
+    </PageContainer>
   )
 }

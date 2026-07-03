@@ -61,7 +61,7 @@ function defaultPath(e: HAEntity): string {
 }
 
 // Full MDI set, lazy-loaded once the first custom `mdi:` icon is encountered.
-// ~10k icons — split into its own chunk so nobody pays for it until an entity
+// ~10k icons - split into its own chunk so nobody pays for it until an entity
 // actually declares a custom icon.
 let mdiAll: Record<string, string> | null = null
 let mdiLoading: Promise<void> | null = null

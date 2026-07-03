@@ -30,19 +30,19 @@ export function DeviceHelpDialog({
               </div>
             </div>
 
-            <p className="rounded-xl bg-muted/50 px-3 py-2.5 text-sm font-medium">{usage.headline}</p>
+            <p className="rounded-control bg-muted/50 px-3 py-2.5 text-sm font-medium">{usage.headline}</p>
 
             <ol className="space-y-2">
               {usage.steps.map((s, i) => (
                 <li key={i} className="flex gap-2.5 text-sm">
-                  <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">{i + 1}</span>
+                  <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-brand/15 text-[11px] font-semibold text-brand">{i + 1}</span>
                   <span className="text-muted-foreground">{s}</span>
                 </li>
               ))}
             </ol>
 
             {usage.indicators && usage.indicators.length > 0 && (
-              <div className="space-y-1.5 rounded-xl border border-border/50 p-3">
+              <div className="space-y-1.5 rounded-card border border-border/50 p-3">
                 <p className="flex items-center gap-1.5 text-xs font-medium"><CheckCircle2 className="size-3.5 text-muted-foreground" /> What the light means</p>
                 {usage.indicators.map((ind, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">

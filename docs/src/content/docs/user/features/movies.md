@@ -1,6 +1,6 @@
 ---
 title: Movies
-description: Discover films — where to stream, showtimes near you, trailers, reviews, and what's already on your Plex.
+description: Discover films; where to stream, showtimes near you, trailers, reviews, and what's already on your Plex.
 sidebar:
   order: 16
 ---
@@ -11,11 +11,11 @@ Movies is your guide to films: find where to stream a title, what's playing in t
 
 Search any movie, or browse popular and trending titles. Each film page gives you:
 
-- **Where to Watch** — which streaming services have it, and where.
-- **Showtimes** — what's playing in theaters near you, with times.
-- **Trailers &amp; media** — official trailers, clips, and stills.
-- **About &amp; Parents Guide** — synopsis, cast, ratings, runtime, and content warnings.
-- **Reviews** — critic and audience takes.
+- **Where to Watch**: which streaming services have it, and where.
+- **Showtimes**: what's playing in theaters near you, with times.
+- **Trailers &amp; media**: official trailers, clips, and stills.
+- **About &amp; Parents Guide**: synopsis, cast, ratings, runtime, and content warnings.
+- **Reviews**: critic and audience takes.
 
 ## Your watchlist
 
@@ -27,7 +27,7 @@ If you run a **Plex** server at home, Movies flags titles already in your librar
 
 ## Listen to it as a podcast
 
-Generate an **AI podcast** about a movie — a spoken deep-dive you can listen to anywhere, in voices you choose.
+Generate an **AI podcast** about a movie: a spoken deep-dive you can listen to anywhere, in voices you choose.
 
 ## Your privacy
 

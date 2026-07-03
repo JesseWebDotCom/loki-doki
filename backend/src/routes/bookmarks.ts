@@ -814,7 +814,21 @@ bookmarksRouter.post('/:id/ask', requireAuth, async (c) => {
     const noteBlock = notes.length
       ? `Reader's own notes and highlights:\n${notes.map((h) => `- ${h.quote ? `"${h.quote.slice(0, 200)}"` : ''}${h.note ? ` — ${h.note.slice(0, 300)}` : ''}`).join('\n')}\n\n`
       : ''
-    return c.json({ answer: await askArticle(item.title, `${noteBlock}${item.contentText}`, question.trim()) })
+    // Long articles: retrieve the most relevant embedded chunks instead of letting the
+    // model see only a head-truncated slab (a question about page 5 used to hit air).
+    // Falls back to the full text when chunks are absent (embeddings unavailable).
+    let contextText = item.contentText
+    if (item.contentText.length > 8000) {
+      const { retrieveBookmarkChunks } = await import('@/lib/bookmarks/chunks')
+      const chunks = await retrieveBookmarkChunks(user.id, question.trim(), 6, { bookmarkId: id }).catch(() => [])
+      if (chunks.length) {
+        contextText = chunks
+          .sort((a, b) => a.idx - b.idx) // document order reads better than score order
+          .map((ch) => ch.text)
+          .join('\n\n[…]\n\n')
+      }
+    }
+    return c.json({ answer: await askArticle(item.title, `${noteBlock}${contextText}`, question.trim()) })
   } catch (err) {
     return c.json({ error: 'Ask failed', detail: String(err) }, 503)
   }
@@ -859,11 +873,11 @@ bookmarksRouter.post('/:id/highlights', requireAuth, async (c) => {
     quote,
     prefix: (body.prefix ?? '').slice(0, 64),
     suffix: (body.suffix ?? '').slice(0, 64),
-    color: HL_COLORS.includes(body.color as typeof HL_COLORS[number]) ? body.color! : 'yellow',
+    color: HL_COLORS.includes(body.color as typeof HL_COLORS[number]) ? (body.color as typeof HL_COLORS[number]) : 'yellow',
     note: body.note?.slice(0, 4000) ?? null,
     createdAt: now,
     updatedAt: now,
-  }
+  } satisfies typeof bookmarkHighlights.$inferInsert
   await db.insert(bookmarkHighlights).values(row)
   return c.json({ item: row })
 })

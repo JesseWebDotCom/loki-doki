@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Clock, Globe, AlarmClock, Timer, Watch, type LucideIcon } from 'lucide-react'
+import { Globe, AlarmClock, Timer, Watch, type LucideIcon } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { cn } from '@/lib/cn'
 import { useTimeApp } from '@/context/TimeAlarmContext'
 import { WorldClockTab } from '@/components/time/WorldClockTab'
@@ -30,20 +32,17 @@ export function TimePage() {
   }
 
   return (
-    <PageShell GhostIcon={Clock}>
-      <div className="mx-auto w-full max-w-2xl px-5 py-8">
-        <header className="mb-6">
-          <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Time</h1>
-          <p className="mt-1 text-sm text-muted-foreground">World clock, alarms, timers, and a stopwatch.</p>
-        </header>
+    <PageShell>
+      <PageContainer width="narrow" className="py-2 pb-8">
+        <PageHeader subtitle="World clock, alarms, timers, and a stopwatch." />
 
-        <div className="mb-6 inline-flex w-full rounded-xl bg-foreground/8 p-1 sm:w-auto">
+        <div className="mb-6 inline-flex w-full rounded-full bg-foreground/8 p-1 sm:w-auto">
           {TABS.map(({ key, label, icon: Icon }) => {
             const active = tab === key
             const count = counts[key]
             return (
               <button key={key} onClick={() => setTab(key)}
-                className={cn('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors sm:flex-none',
+                className={cn('flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-colors sm:flex-none',
                   active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
                 <Icon className="size-4" />
                 <span className="hidden sm:inline">{label}</span>
@@ -62,7 +61,7 @@ export function TimePage() {
         {tab === 'alarms' && <AlarmsTab />}
         {tab === 'timers' && <TimersTab />}
         {tab === 'stopwatch' && <StopwatchTab />}
-      </div>
+      </PageContainer>
     </PageShell>
   )
 }

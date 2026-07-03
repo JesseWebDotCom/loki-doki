@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { ImageGenBlockData } from './types'
 
 type LiveState = 'building' | 'ready' | 'failed' | 'cancelled'
@@ -46,7 +47,7 @@ export function ImageBlock({ data }: { data: ImageGenBlockData }) {
           if (json.stepCurrent !== undefined) setStepCurrent(json.stepCurrent)
           if (json.stepTotal  !== undefined) setStepTotal(json.stepTotal)
         }
-      } catch { /* network glitch — retry */ }
+      } catch { /* network glitch - retry */ }
 
       timerRef.current = setTimeout(poll, POLL_MS)
     }
@@ -59,12 +60,12 @@ export function ImageBlock({ data }: { data: ImageGenBlockData }) {
     return (
       <div className="mt-2 max-w-sm">
         {!loaded && (
-          <div className="aspect-square max-w-sm rounded-lg bg-muted animate-pulse" />
+          <Skeleton className="aspect-square max-w-sm rounded-card" />
         )}
         <img
           src={`/api/image/artifacts/${imageId}`}
           alt={data.prompt}
-          className={`rounded-lg max-w-full border border-border transition-opacity duration-500 ${loaded ? 'opacity-100' : 'opacity-0 absolute'}`}
+          className={`rounded-card max-w-full border border-border transition-opacity duration-500 ${loaded ? 'opacity-100' : 'opacity-0 absolute'}`}
           onLoad={() => setLoaded(true)}
         />
         {loaded && (
@@ -82,12 +83,12 @@ export function ImageBlock({ data }: { data: ImageGenBlockData }) {
     )
   }
 
-  // building — shimmer + progress
+  // building - shimmer + progress
   const pct = stepTotal > 0 ? Math.round((stepCurrent / stepTotal) * 100) : 0
 
   return (
     <div className="mt-2 max-w-sm space-y-2">
-      <div className="aspect-square max-w-sm rounded-lg overflow-hidden bg-muted relative">
+      <div className="aspect-square max-w-sm rounded-card overflow-hidden bg-muted relative">
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.8s_linear_infinite] -translate-x-full" />
       </div>
       <div className="space-y-1">

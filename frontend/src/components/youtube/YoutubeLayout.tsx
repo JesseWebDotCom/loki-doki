@@ -32,22 +32,25 @@ export function useYoutubeModeOptional(): YoutubeMode { return useContext(Youtub
 /** UI accessor that returns null outside the provider (for shared cards). */
 export function useYoutubeUIOptional(): YoutubeUI | null { return useContext(YoutubeUICtx) }
 
-// Online = red identity, Offline = emerald — so you always know which side you're on.
+// Online = red identity, Offline = emerald, so you always know which side you're on.
 // The accent feeds CSS variables consumed by the whole app via `bg-[var(--yt-accent)]` etc.
 const ACCENT: Record<YoutubeMode, { base: string; hover: string; fg: string }> = {
+  // design-ok(hex-in-tsx): mode identity accents (YouTube brand red / offline emerald) fed into CSS vars + color-mix
   online: { base: '#dc2626', hover: '#ef4444', fg: '#f87171' },
+  // design-ok(hex-in-tsx): mode identity accents (YouTube brand red / offline emerald) fed into CSS vars + color-mix
   offline: { base: '#059669', hover: '#10b981', fg: '#34d399' },
 }
 const MODE_KEY = 'yt.mode'
 
-/** Segmented Online/Offline control — lives in the breadcrumb's right slot. */
+/** Segmented Online/Offline control that lives in the breadcrumb's right slot. */
 function ModeToggle({ mode, onChange }: { mode: YoutubeMode; onChange: (m: YoutubeMode) => void }) {
   return (
-    <div className="flex h-8 shrink-0 items-center rounded-md border border-border bg-background p-0.5 text-xs font-semibold">
+    <div className="flex h-8 shrink-0 items-center rounded-full border border-border bg-background p-0.5 text-xs font-semibold">
       {(['online', 'offline'] as YoutubeMode[]).map(m => (
         <button key={m} type="button" onClick={() => onChange(m)}
-          className={cn('rounded px-2.5 py-1 capitalize transition-colors',
+          className={cn('rounded-full px-2.5 py-1 capitalize transition-colors',
             mode === m
+              // design-ok(raw-palette-semantic): online/offline mode identity fills (YouTube brand red / offline emerald)
               ? (m === 'online' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white')
               : 'text-muted-foreground hover:text-foreground')}>
           {m}

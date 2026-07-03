@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronRight, Pencil, Sparkles, Video, Plus, Search, Loader2, Radio, ArrowUpDown,
+  ChevronRight, Pencil, Sparkles, Video, Plus, Search, Radio, ArrowUpDown,
   MoreHorizontal, Trash2, ListPlus, Music, Play, Pause, Download, Clock, AlertCircle,
   Check, RotateCw, ArrowDownToLine,
 } from 'lucide-react'
@@ -10,8 +10,13 @@ import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { createPodcast, getChannelPage, getPlaylist } from '@/lib/youtube/api'
 import { getBatchSize } from '@/lib/youtube/podcast'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { RssShowDetail } from '@/components/podcast/RssShowDetail'
+import { EpisodeEmptyState } from '@/components/podcast/ShowDetailParts'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { usePodcastUI } from '@/components/podcast/PodcastLayout'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
@@ -56,7 +61,7 @@ export function ShowDetailPage() {
   const ready = episodes.filter(e => e.status === 'ready')
   const anyGenerating = episodes.some(e => e.status === 'generating' || e.status === 'pending')
   const isYouTube = show?.segments?.some(s => s.type === 'youtube') || show?.source === 'app'
-  // Real subscribed podcast (RSS feed) — read-only episodes, no generation/editing.
+  // Real subscribed podcast (RSS feed) - read-only episodes, no generation/editing.
   const isRss = show?.source === 'rss'
 
   const sorted = useMemo(() => {
@@ -182,7 +187,7 @@ export function ShowDetailPage() {
     )
   }
 
-  // Subscribed RSS podcasts get their own layout — no transcripts/generation.
+  // Subscribed RSS podcasts get their own layout - no transcripts/generation.
   if (isRss) return <RssShowDetail show={show} />
 
   const hostNames = show.hosts
@@ -219,64 +224,74 @@ export function ShowDetailPage() {
             <ChevronRight className="size-3.5 rotate-180" /> Library
           </Link>
 
-          {/* Show header — always visible */}
-          <div className="mb-8 flex gap-5">
-            {/* Cover — clickable to edit for owners */}
-            <div className="relative shrink-0">
-              <ShowCover showId={show.id} title={show.name} size={160} rounded="rounded-2xl" />
-              {show.isOwn && !isRss && (
-                <button onClick={() => openEdit(show)}
-                  className="absolute inset-0 flex items-end justify-center rounded-2xl bg-black/0 opacity-0 transition-all hover:bg-black/40 hover:opacity-100 pb-2">
-                  <span className="flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[10px] font-semibold text-white">
-                    <Pencil className="size-2.5" /> Edit
-                  </span>
-                </button>
-              )}
-            </div>
-
-            <div className="min-w-0 flex-1 pt-1">
-              <div className="mb-1 flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">AI Podcast</span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold capitalize text-muted-foreground">{show.style}</span>
-              </div>
-              <h1 className="text-3xl font-black leading-tight tracking-tight">{show.name}</h1>
-
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                <span>{episodes.length} {episodes.length === 1 ? 'episode' : 'episodes'}</span>
-                {hostNames.length > 0 && <span>· Hosted by {hostNames.join(', ')}</span>}
-                {sourceBackLink && (
-                  <span>· <Link to={sourceBackLink.url} className="hover:text-foreground hover:underline">← {sourceBackLink.label}</Link></span>
+          {/* Show header - always visible */}
+          <div className="relative mb-8 overflow-hidden rounded-sheet border border-border bg-card p-6">
+            {/* App identity as atmosphere: soft brand glow, not a paint-bucket fill. */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{ background: 'radial-gradient(640px circle at 0% 0%, color-mix(in oklch, var(--brand) 18%, transparent), transparent 62%)' }}
+            />
+            <div className="relative flex gap-5">
+              {/* Cover - clickable to edit for owners */}
+              <div className="relative shrink-0">
+                <ShowCover showId={show.id} title={show.name} size={160} rounded="rounded-card" />
+                {show.isOwn && !isRss && (
+                  // design-ok(hand-styled-button): full-cover hover affordance is the tap target itself, not a standard button
+                  <button onClick={() => openEdit(show)}
+                    className="absolute inset-0 flex items-end justify-center rounded-card bg-black/0 opacity-0 transition-all hover:bg-black/40 hover:opacity-100 pb-2">
+                    <span className="flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[10px] font-semibold text-white">
+                      <Pencil className="size-2.5" /> Edit
+                    </span>
+                  </button>
                 )}
               </div>
 
-              {show.description && (
-                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{show.description}</p>
-              )}
+              <div className="min-w-0 flex-1 pt-1">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <span className="text-overline text-muted-foreground/60">AI Podcast</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold capitalize text-muted-foreground">{show.style}</span>
+                </div>
+                {/* design-ok(raw-h1-in-pages): bespoke detail hero (poster + badges + actions) that PageHeader can't host; title uses the sanctioned text-display style */}
+                <h1 className="text-display leading-tight">{show.name}</h1>
 
-              <div className="mt-4 flex items-center gap-2">
-                {!isRss && show.isOwn && (
-                  <>
-                    <button onClick={() => openEdit(show)}
-                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted">
-                      <Pencil className="size-3.5" /> Edit Show
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="flex size-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground">
-                          <MoreHorizontal className="size-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuItem disabled={anyGenerating} onSelect={() => void handleGenerate()}><Plus className="size-4" /> New Episode</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDeleteShow(true)}><Trash2 className="size-4" /> Delete Show</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  <span>{episodes.length} {episodes.length === 1 ? 'episode' : 'episodes'}</span>
+                  {hostNames.length > 0 && <span>· Hosted by {hostNames.join(', ')}</span>}
+                  {sourceBackLink && (
+                    <span>· <Link to={sourceBackLink.url} className="hover:text-foreground hover:underline">← {sourceBackLink.label}</Link></span>
+                  )}
+                </div>
+
+                {show.description && (
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{show.description}</p>
                 )}
-                {!isRss && !show.isOwn && show.ownerName && (
-                  <p className="text-xs text-muted-foreground">by {show.ownerName}</p>
-                )}
+
+                <div className="mt-4 flex items-center gap-2">
+                  {!isRss && show.isOwn && (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => openEdit(show)} className="gap-1.5 text-sm">
+                        <Pencil className="size-3.5" /> Edit Show
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="icon" aria-label="Show options"
+                            className="text-muted-foreground hover:text-foreground">
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem disabled={anyGenerating} onSelect={() => void handleGenerate()}><Plus className="size-4" /> New Episode</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDeleteShow(true)}><Trash2 className="size-4" /> Delete Show</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </>
+                  )}
+                  {!isRss && !show.isOwn && show.ownerName && (
+                    <p className="text-xs text-muted-foreground">by {show.ownerName}</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -286,11 +301,10 @@ export function ShowDetailPage() {
 
           {/* Episode detail + transcript */}
           {!effectiveSelectedId ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center text-muted-foreground">
-              <Radio className="size-10 opacity-25" />
-              <p className="text-sm">No episodes yet.</p>
-              {show.isOwn && <p className="text-xs">Use the panel on the right to generate your first episode.</p>}
-            </div>
+            <EpisodeEmptyState
+              primary="No episodes yet."
+              secondary={show.isOwn ? 'Use the panel on the right to generate your first episode.' : undefined}
+            />
           ) : selectedEp ? (
             <>
               {/* Episode title + meta */}
@@ -301,7 +315,7 @@ export function ShowDetailPage() {
                     : selectedEp.status === 'pending' ? 'Queued'
                     : selectedEpNumber != null ? `Episode ${selectedEpNumber} of ${sorted.length}` : 'Episode'}
                 </p>
-                <h2 className="text-2xl font-black leading-snug tracking-tight">{selectedEp.title}</h2>
+                <h2 className="text-2xl font-bold leading-snug tracking-tight">{selectedEp.title}</h2>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
                   {(selectedEp.publishedAt ?? selectedEp.generatedAt) && <span>{fmtDate(selectedEp.publishedAt ?? selectedEp.generatedAt)}</span>}
                   {selectedEp.durationSec ? <span>· {fmtDuration(selectedEp.durationSec)}</span> : null}
@@ -311,14 +325,14 @@ export function ShowDetailPage() {
                 )}
               </div>
 
-              {/* Transport — shown when this episode is the active track */}
+              {/* Transport - shown when this episode is the active track */}
               {isCurrent && selectedEp.status === 'ready' && (
-                <div className="mb-6 rounded-2xl border border-border/40 bg-card p-4">
+                <Card className="mb-6 p-4">
                   <div className="flex items-center gap-3">
-                    <button onClick={playing ? pause : resume}
-                      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground hover:opacity-90">
+                    <Button size="icon" className="size-10 shrink-0" onClick={playing ? pause : resume}
+                      aria-label={playing ? 'Pause' : 'Play'}>
                       {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current ml-0.5" />}
-                    </button>
+                    </Button>
                     <div className="min-w-0 flex-1">
                       <input
                         type="range" min={0} max={total || 100} step={1} value={pos}
@@ -330,30 +344,30 @@ export function ShowDetailPage() {
                         <span>-{fmtTime(Math.max(0, total - pos))}</span>
                       </div>
                     </div>
-                    <button onClick={() => enqueue(toTrack(selectedEp, { id, name: show.name }))} title="Add to Up Next"
-                      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
+                    <Button variant="ghost" size="icon-sm" className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => enqueue(toTrack(selectedEp, { id, name: show.name }))} title="Add to Up Next" aria-label="Add to Up Next">
                       <ListPlus className="size-4" />
-                    </button>
+                    </Button>
                   </div>
-                </div>
+                </Card>
               )}
 
               {/* Play button when not currently active */}
               {!isCurrent && selectedEp.status === 'ready' && (
                 <div className="mb-4">
-                  <button
+                  <Button
                     onClick={() => {
                       const ri = readyTracks.findIndex(t => t.episodeId === selectedEp.id)
                       if (ri >= 0) playQueue(readyTracks, ri, selectedEp.watchState?.positionSec ?? 0)
                       else play(toTrack(selectedEp, { id, name: show.name }), selectedEp.watchState?.positionSec ?? 0)
                     }}
-                    className="flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground hover:opacity-90">
+                    className="gap-2 font-semibold">
                     <Play className="size-4 fill-current" /> Play Episode
-                  </button>
+                  </Button>
                 </div>
               )}
 
-              {/* Source pills — compact, below play button */}
+              {/* Source pills - compact, below play button */}
               {detail && detail.sources.length > 0 && (
                 <SourcePills sources={detail.sources} />
               )}
@@ -365,17 +379,17 @@ export function ShowDetailPage() {
                   {detail && detail.transcript.length > 0 && (
                     <>
                       <span className="text-xs text-muted-foreground">{detail.transcript.length} turns</span>
-                      <button onClick={downloadTranscript}
-                        className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                      <Button variant="ghost" size="sm" onClick={downloadTranscript}
+                        className="ml-auto gap-1.5 text-xs text-muted-foreground hover:text-foreground">
                         <Download className="size-3.5" /> Download
-                      </button>
+                      </Button>
                     </>
                   )}
                 </div>
 
                 {detailLoading ? (
                   <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" /> Loading transcript…
+                    <Spinner /> Loading transcript…
                   </div>
                 ) : !detail || detail.transcript.length === 0 ? (
                   <p className="py-8 text-sm text-muted-foreground">
@@ -397,7 +411,7 @@ export function ShowDetailPage() {
             </>
           ) : (
             <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" /> Loading…
+              <Spinner /> Loading…
             </div>
           )}
         </div>
@@ -412,6 +426,7 @@ export function ShowDetailPage() {
             <p className="mt-0.5 font-bold">{show.name}</p>
             {isYouTube && (
               <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                {/* design-ok(raw-palette-semantic): YouTube brand-red icon, third-party source identity, not a status color */}
                 <Video className="size-3.5 text-red-500" /> From YouTube
               </p>
             )}
@@ -422,43 +437,43 @@ export function ShowDetailPage() {
           {show.isOwn && !isRss && (
             <div className="flex flex-wrap gap-1.5 border-b border-border/40 px-4 py-3">
               {ytSource && (
-                <button onClick={handleNextBatch} disabled={batching || anyGenerating}
-                  className="flex items-center gap-1 rounded-lg bg-brand px-2.5 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90 disabled:opacity-50">
-                  {(batching || anyGenerating) ? <Loader2 className="size-3 animate-spin" /> : <ListPlus className="size-3" />}
+                <Button size="sm" onClick={handleNextBatch} disabled={batching || anyGenerating}
+                  className="gap-1 px-2.5 text-xs font-semibold">
+                  {(batching || anyGenerating) ? <Spinner className="size-3 text-current" /> : <ListPlus className="size-3" />}
                   {anyGenerating && !batching ? 'Generating…' : 'Next batch'}
-                </button>
+                </Button>
               )}
-              <button onClick={handleGenerate} disabled={generating || anyGenerating}
-                className={cn('flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50',
-                  ytSource ? 'border border-border hover:bg-muted' : 'bg-brand text-brand-foreground hover:opacity-90')}>
-                {generating ? <Loader2 className="size-3 animate-spin" /> : <Plus className="size-3" />} Create
-              </button>
+              <Button size="sm" variant={ytSource ? 'outline' : 'default'} onClick={handleGenerate} disabled={generating || anyGenerating}
+                className="gap-1 px-2.5 text-xs font-semibold">
+                {generating ? <Spinner className="size-3 text-current" /> : <Plus className="size-3" />} Create
+              </Button>
               {ytSource && (
-                <label className={cn('flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
+                <label className={cn('flex cursor-pointer items-center gap-1.5 rounded-control border px-2.5 py-1.5 text-xs transition-colors',
                   autoGen ? 'border-brand/40 bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:bg-muted')}>
                   <Sparkles className="size-3" /> Auto
                   <Switch checked={autoGen} onCheckedChange={v => void toggleAutoGen(v)} className="scale-75" />
                 </label>
               )}
               {!ytSource && (
-                <button onClick={() => navigate('/youtube')}
-                  className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted">
+                <Button variant="outline" size="sm" onClick={() => navigate('/youtube')}
+                  className="gap-1 px-2.5 text-xs font-medium">
+                  {/* design-ok(raw-palette-semantic): YouTube brand-red icon, third-party source identity, not a status color */}
                   <Video className="size-3 text-red-500" /> Import YouTube
-                </button>
+                </Button>
               )}
             </div>
           )}
 
           {/* Sort + search */}
           <div className="flex items-center gap-1.5 border-b border-border/40 px-4 py-2.5">
-            <button onClick={() => setSortNewest(v => !v)}
-              className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted">
+            <Button variant="outline" size="sm" onClick={() => setSortNewest(v => !v)}
+              className="gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground">
               <ArrowUpDown className="size-3" /> {sortNewest ? 'Newest' : 'Oldest'}
-            </button>
+            </Button>
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/50" />
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search…"
-                className="w-full rounded-md border border-border bg-background py-1 pl-6 pr-2 text-xs outline-none focus:ring-1 focus:ring-brand" />
+                className="w-full rounded-control border border-border bg-background py-1 pl-6 pr-2 text-xs outline-none focus:ring-1 focus:ring-brand" />
             </div>
           </div>
 
@@ -467,7 +482,7 @@ export function ShowDetailPage() {
             {isLoading ? (
               <div className="space-y-1 p-2">
                 {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-12 animate-pulse rounded-lg bg-muted/50" />
+                  <Skeleton key={i} className="h-12 bg-muted/50" />
                 ))}
               </div>
             ) : sorted.length === 0 ? (
@@ -509,7 +524,7 @@ export function ShowDetailPage() {
   )
 }
 
-/** Compact sidebar episode row — like a YouTube playlist item. */
+/** Compact sidebar episode row - like a YouTube playlist item. */
 function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyTracks, onSelect, onInvalidate }: {
   episode: Episode
   show: { id: string; name: string }
@@ -610,7 +625,7 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
             )}
             {isRss && (dl?.status === 'pending' || dl?.status === 'downloading') && (
               <span className="flex items-center gap-0.5 text-[10px] text-brand">
-                <Loader2 className="size-2.5 animate-spin" /> Downloading
+                <Spinner className="size-2.5 text-current" /> Downloading
               </span>
             )}
             {isRss && dl?.status === 'failed' && (
@@ -620,7 +635,7 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
             )}
             {episode.status === 'generating' && (
               <span className="flex items-center gap-0.5 text-[10px] text-brand">
-                <Loader2 className="size-2.5 animate-spin" /> Generating
+                <Spinner className="size-2.5 text-current" /> Generating
               </span>
             )}
             {episode.status === 'pending' && <span className="text-[10px] text-muted-foreground">Queued</span>}
@@ -630,7 +645,7 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
               </span>
             )}
             {progress?.completed && (
-              <span className="flex items-center gap-0.5 text-[10px] text-emerald-500">
+              <span className="flex items-center gap-0.5 text-[10px] text-success">
                 <Check className="size-2.5" /> Played
               </span>
             )}
@@ -645,7 +660,7 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
         {/* Non-ready status icon */}
         {!ready && (
           <div className="shrink-0 text-muted-foreground">
-            {episode.status === 'generating' ? <Loader2 className="size-3.5 animate-spin text-brand" />
+            {episode.status === 'generating' ? <Spinner className="size-3.5 text-brand" />
               : episode.status === 'failed' ? <AlertCircle className="size-3.5 text-destructive" />
               : <Clock className="size-3.5" />}
           </div>
@@ -655,9 +670,10 @@ function SidebarEpisodeRow({ episode, show, index, isSelected, canManage, readyT
         {(ready || canManage) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-              <button className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100">
+              <Button variant="ghost" size="icon-sm" aria-label="Episode options"
+                className="size-6 shrink-0 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100">
                 <MoreHorizontal className="size-3.5" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {ready && <DropdownMenuItem onSelect={e => handlePlay(e as unknown as React.MouseEvent)}><Play className="size-4" /> Play</DropdownMenuItem>}
@@ -721,6 +737,7 @@ function SourcePills({ sources }: { sources: EpisodeSource[] }) {
     return `/movies/${encodeURIComponent(src.sourceId)}`
   }
   function sourceIcon(src: EpisodeSource) {
+    // design-ok(raw-palette-semantic): YouTube brand-red icon, third-party source identity, not a status color
     if (src.sourceType === 'youtube') return <Video className="size-3 text-red-500" />
     return <Video className="size-3 text-muted-foreground" />
   }
@@ -737,10 +754,10 @@ function SourcePills({ sources }: { sources: EpisodeSource[] }) {
           </Link>
         ))}
         {!expanded && hidden > 0 && (
-          <button onClick={() => setExpanded(true)}
-            className="rounded-full border border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+          <Button variant="outline" size="sm" onClick={() => setExpanded(true)}
+            className="border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
             +{hidden} more
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -773,10 +790,10 @@ function StingerAudition({ showId }: { showId: string }) {
     <div className="mt-2 flex items-center gap-1.5">
       <Music className="size-3 text-muted-foreground" />
       {(['intro', 'outro'] as const).map(part => (
-        <button key={part} onClick={() => play(part)}
-          className="flex items-center gap-0.5 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium capitalize text-muted-foreground hover:bg-muted hover:text-foreground">
+        <Button key={part} variant="outline" size="sm" onClick={() => play(part)}
+          className="h-auto gap-0.5 border-border px-2 py-0.5 text-[10px] font-medium capitalize text-muted-foreground hover:text-foreground">
           {playing === part ? <Pause className="size-2.5" /> : <Play className="size-2.5" />} {part}
-        </button>
+        </Button>
       ))}
       <audio ref={ref} className="hidden" onEnded={() => setPlaying(null)} />
     </div>

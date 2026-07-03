@@ -8,14 +8,14 @@ export function DeviceArt({ resolved, className, solid }: { resolved: ResolvedDe
   const Icon = resolved.icon
   if (resolved.image && !solid) {
     return (
-      <div className={`flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-muted/70 to-muted/20 ${className ?? 'size-14'}`}>
+      <div className={`flex shrink-0 items-center justify-center rounded-card bg-gradient-to-br from-muted/70 to-muted/20 ${className ?? 'size-14'}`}>
         <img src={resolved.image} alt={resolved.model} className="size-[78%] object-contain" loading="lazy" />
       </div>
     )
   }
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-2xl shadow-md ${className ?? 'size-14'}`}
+      className={`flex shrink-0 items-center justify-center rounded-card shadow-md ${className ?? 'size-14'}`}
       style={{ backgroundImage: resolved.gradient }}
     >
       <Icon className="size-1/2 text-white drop-shadow-sm" />

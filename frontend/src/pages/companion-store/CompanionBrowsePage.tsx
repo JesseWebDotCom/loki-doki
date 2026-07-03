@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { LayoutGrid, List, Search } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { useCompanionStore } from '@/lib/companions/useCompanionStore'
 import { getCompanionCategory } from '@/lib/companions/companionCategories'
 import { CompanionCard, CompanionRow } from '@/components/companions/store/CompanionCard'
@@ -22,27 +25,28 @@ export function CompanionBrowsePage() {
     : companions
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 px-5 py-6 pb-20">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight">{q ? 'Search' : 'Browse'}</h1>
-          <p className="text-sm text-muted-foreground">
-            {q ? `${filtered.length} result${filtered.length === 1 ? '' : 's'} for "${params.get('q')}"` : `${companions.length} companions`}
-          </p>
-        </div>
-        <div className="flex gap-1 rounded-lg border border-border/40 p-0.5">
-          {([['grid', LayoutGrid], ['list', List]] as const).map(([mode, Icon]) => (
-            <button
-              key={mode}
-              onClick={() => setView(mode)}
-              className={cn('flex size-7 items-center justify-center rounded-md transition-colors', view === mode ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              aria-label={mode}
-            >
-              <Icon className="size-4" />
-            </button>
-          ))}
-        </div>
-      </div>
+    <PageContainer className="pb-20">
+      <PageHeader
+        title={q ? 'Search' : 'Browse'}
+        eyebrow="Companions"
+        subtitle={q ? `${filtered.length} result${filtered.length === 1 ? '' : 's'} for "${params.get('q')}"` : `${companions.length} companions`}
+        actions={
+          <div className="flex gap-0.5 rounded-full border border-border p-0.5">
+            {([['grid', LayoutGrid], ['list', List]] as const).map(([mode, Icon]) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setView(mode)}
+                className={cn(view === mode ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                aria-label={mode}
+              >
+                <Icon className="size-4" />
+              </Button>
+            ))}
+          </div>
+        }
+      />
 
       {isLoading ? (
         <CardGridSkeleton />
@@ -56,10 +60,10 @@ export function CompanionBrowsePage() {
           {filtered.map((c) => <CompanionCard key={c.id} c={c} />)}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1">
           {filtered.map((c) => <CompanionRow key={c.id} c={c} />)}
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }

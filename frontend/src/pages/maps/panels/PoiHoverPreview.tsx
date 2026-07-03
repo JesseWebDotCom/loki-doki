@@ -122,10 +122,10 @@ export function PoiHoverPreview({
         </div>
         {place.open_now != null ? (
           <div className={cn(
-            "rounded-lg px-2 py-1 text-xs font-medium",
+            "rounded-control px-2 py-1 text-xs font-medium",
             place.open_now
-              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+              ? "bg-success/10 text-success"
+              : "bg-destructive/10 text-destructive",
           )}>
             {place.open_now
               ? (place.closes_at ? `Open · Closes ${place.closes_at}` : "Open now")

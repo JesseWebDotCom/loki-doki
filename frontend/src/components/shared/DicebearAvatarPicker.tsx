@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Shuffle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import RiggedDicebearAvatar from '@/components/companion/RiggedDicebearAvatar'
 import { coerceStyle } from '@/components/companion/styles'
 import type { HeadTiltState } from '@/components/companion/useHeadTilt'
@@ -31,7 +32,7 @@ function ColorDot({ active, hex, onClick }: { active: boolean; hex: string; onCl
           : 'border-border hover:scale-110',
       )}
       style={isTransparent
-        ? { backgroundImage: 'linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%),linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%)', backgroundSize: '6px 6px', backgroundPosition: '0 0,3px 3px' }
+        ? { backgroundImage: 'linear-gradient(45deg,var(--border) 25%,transparent 25%,transparent 75%,var(--border) 75%),linear-gradient(45deg,var(--border) 25%,transparent 25%,transparent 75%,var(--border) 75%)', backgroundSize: '6px 6px', backgroundPosition: '0 0,3px 3px' }
         : { background: `#${hex}` }}
     />
   )
@@ -92,7 +93,7 @@ export function DicebearAvatarPicker({ style, seed, config, onChange, vertical }
   const preview = (
     <div className={cn('flex flex-col items-center gap-1.5', !vertical && 'shrink-0')}>
       <div
-        className="overflow-hidden rounded-2xl border border-border bg-card"
+        className="overflow-hidden rounded-card border border-border bg-card"
         style={{ width: avatarSize, height: avatarSize }}
       >
         <RiggedDicebearAvatar
@@ -119,13 +120,9 @@ export function DicebearAvatarPicker({ style, seed, config, onChange, vertical }
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        onClick={shuffle}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-white/20 bg-white/5 hover:bg-white/10 text-xs font-medium transition-colors"
-      >
+      <Button type="button" variant="outline" size="sm" onClick={shuffle} className="gap-1.5">
         <Shuffle className="size-3.5" /> Shuffle
-      </button>
+      </Button>
     </div>
   )
 

@@ -1,4 +1,5 @@
 import { Droplets, Wind } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 import type { WeatherBlockData } from './types'
 
@@ -52,7 +53,7 @@ function dayAbbr(dateStr: string): string {
 
 export function WeatherCard({ data }: { data: WeatherBlockData }) {
   return (
-    <div className="rounded-xl border border-border/50 bg-card overflow-hidden text-card-foreground text-sm">
+    <Card variant="surface" className="text-card-foreground text-sm">
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-border/30">
         <p className="text-xs text-muted-foreground mb-1">{data.location}</p>
@@ -93,6 +94,6 @@ export function WeatherCard({ data }: { data: WeatherBlockData }) {
           ))}
         </div>
       )}
-    </div>
+    </Card>
   )
 }

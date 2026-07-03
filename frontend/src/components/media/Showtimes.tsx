@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Clock, Loader2, MapPin, Ticket } from 'lucide-react'
+import { Clock, MapPin, Ticket } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 import { getMovieShowtimes } from '@/lib/movies/api'
 
 const ZIP_KEY = 'showtimes.lastZip'
@@ -54,22 +56,23 @@ export function ShowtimesPanel({ title }: { title: string }) {
             onKeyDown={(e) => e.key === 'Enter' && submit()}
             placeholder="ZIP code"
             inputMode="numeric"
-            className="w-full rounded-lg border border-border bg-background py-2 pl-8 pr-3 text-sm outline-none focus:border-brand"
+            className="w-full rounded-control border border-border bg-background py-2 pl-8 pr-3 text-sm outline-none focus:border-brand"
           />
         </div>
-        <button
+        <Button
           type="button"
+          variant="secondary"
           onClick={submit}
-          className="rounded-lg bg-foreground/10 px-3 py-2 text-sm font-medium hover:bg-foreground/15"
+          className="bg-foreground/10 hover:bg-foreground/15"
         >
           Find
-        </button>
+        </Button>
       </div>
 
       {!valid && <p className="text-sm text-muted-foreground">Enter a ZIP code to see local showtimes.</p>}
       {valid && isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Checking theaters near {zip}…
+          <Spinner className="text-current" /> Checking theaters near {zip}…
         </div>
       )}
       {valid && !isLoading && !data && (
@@ -88,13 +91,13 @@ export function ShowtimesPanel({ title }: { title: string }) {
             </a>
           )}
           {data.theater_groups.map((g, i) => (
-            <div key={`${g.theater_name}-${i}`} className="rounded-lg border border-border/50 p-3">
+            <div key={`${g.theater_name}-${i}`} className="rounded-card border border-border/50 p-3">
               <p className="text-sm font-medium">{g.theater_name}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {g.times.map((t, j) => (
                   <span
                     key={j}
-                    className="inline-flex items-center gap-1 rounded-md bg-foreground/8 px-2 py-1 text-xs"
+                    className="inline-flex items-center gap-1 rounded-full bg-foreground/8 px-2 py-1 text-xs"
                   >
                     <Clock className="size-3 text-muted-foreground" />
                     {t}

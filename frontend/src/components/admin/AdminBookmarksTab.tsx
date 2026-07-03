@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Globe, Pencil, Plus, Trash2, Loader2, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
+import { Globe, Pencil, Plus, Trash2, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -40,7 +41,7 @@ function BookmarkFavicon({ icon, className }: { icon: string | null; className?:
     return (
       <img
         src={icon}
-        className={cn('shrink-0 rounded-sm object-contain', className)}
+        className={cn('shrink-0 rounded object-contain', className)}
         alt=""
         onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
       />
@@ -145,9 +146,9 @@ function BookmarkFormDialog({
               />
               <span className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-5">
                 {probing
-                  ? <Loader2 className="size-3.5 text-muted-foreground animate-spin" />
+                  ? <Spinner size="sm" />
                   : form.icon?.startsWith('http')
-                    ? <img src={proxyImg(form.icon)} className="size-4 rounded-sm object-contain" alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                    ? <img src={proxyImg(form.icon)} className="size-4 rounded object-contain" alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
                     : null
                 }
               </span>
@@ -158,7 +159,7 @@ function BookmarkFormDialog({
             <Input value={form.category} onChange={field('category')} placeholder="Media" />
           </div>
 
-          <div className="rounded-lg border divide-y">
+          <div className="rounded-control border divide-y">
             <div className="flex items-center justify-between px-3 py-2.5">
               <div>
                 <Label>Embed in app</Label>
@@ -173,12 +174,12 @@ function BookmarkFormDialog({
                   <div className={cn(
                     'flex items-center gap-2 px-3 py-2 text-xs',
                     !probeResult.reachable && 'text-destructive',
-                    probeResult.reachable && probeResult.framesBlocked && 'text-yellow-600 dark:text-yellow-400',
-                    probeResult.reachable && !probeResult.framesBlocked && 'text-green-600 dark:text-green-500',
+                    probeResult.reachable && probeResult.framesBlocked && 'text-warning',
+                    probeResult.reachable && !probeResult.framesBlocked && 'text-success',
                   )}>
                     {!probeResult.reachable && <><XCircle className="size-3 shrink-0" /><span>Server can't reach this URL</span></>}
-                    {probeResult.reachable && probeResult.framesBlocked && <><AlertTriangle className="size-3 shrink-0" /><span>Blocks embedding — proxy mode enabled below</span></>}
-                    {probeResult.reachable && !probeResult.framesBlocked && <><CheckCircle2 className="size-3 shrink-0" /><span>Embeds directly — no proxy needed</span></>}
+                    {probeResult.reachable && probeResult.framesBlocked && <><AlertTriangle className="size-3 shrink-0" /><span>Blocks embedding: proxy mode enabled below</span></>}
+                    {probeResult.reachable && !probeResult.framesBlocked && <><CheckCircle2 className="size-3 shrink-0" /><span>Embeds directly, no proxy needed</span></>}
                   </div>
                 )}
                 <div className="flex items-center justify-between px-3 py-2.5">
@@ -256,7 +257,7 @@ export function AdminBookmarksTab() {
     <div className="space-y-6 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">Global Links</h2>
+          <h2 className="text-title">Global Links</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             Links shared with all users. Each user can also add their own personal links.
           </p>
@@ -267,7 +268,7 @@ export function AdminBookmarksTab() {
       </div>
 
       {bookmarks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center border rounded-lg bg-muted/20">
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center border rounded-card bg-muted/20">
           <Globe className="size-8 text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">No global links yet. Add one to share with all users.</p>
         </div>
@@ -275,25 +276,25 @@ export function AdminBookmarksTab() {
         <div className="space-y-4">
           {categories.map(cat => (
             <div key={cat}>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 mb-2">{cat}</p>
-              <div className="space-y-1">
+              <p className="text-overline text-muted-foreground mb-2">{cat}</p>
+              <div className="overflow-hidden rounded-card border bg-card divide-y divide-border/50">
                 {bookmarks
                   .filter(b => b.category === cat)
                   .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label))
                   .map(bm => (
-                    <div key={bm.id} className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
+                    <div key={bm.id} className="flex items-center gap-3 px-4 py-3">
                       <BookmarkFavicon icon={bm.icon} className="size-5 text-muted-foreground" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium leading-tight">{bm.label}</p>
-                        <p className="text-xs text-muted-foreground truncate">{bm.url}</p>
+                        <p className="text-caption text-muted-foreground truncate">{bm.url}</p>
                       </div>
                       <Badge variant="secondary" className="text-[10px] shrink-0">{bm.category}</Badge>
                       <div className="flex gap-1 shrink-0">
-                        <Button variant="ghost" size="icon" className="size-8"
+                        <Button variant="ghost" size="icon" className="size-8" aria-label="Edit link"
                           onClick={() => { setEditingId(bm.id); setDialogOpen(true) }}>
                           <Pencil className="size-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive"
+                        <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" aria-label="Delete link"
                           onClick={() => setConfirmDeleteId(bm.id)}>
                           <Trash2 className="size-3.5" />
                         </Button>

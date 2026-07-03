@@ -1,48 +1,45 @@
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/cn'
+import { cardVariants } from '@/components/ui/card'
+import { AppIconTile } from '@/components/shared/AppIconTile'
 import type { CompanionCategory } from '@/lib/companions/companionCategories'
 
-/** Icon + label chip linking to a category page (home Categories row). */
+/** Icon + label chip linking to a category page (home Categories row).
+ *  Mirrors the App Store's CategoryPill idiom. */
 export function CompanionCategoryPill({ category, className }: { category: CompanionCategory; className?: string }) {
-  const Icon = category.icon
   return (
     <Link
       to={`/companions/category/${category.key}`}
       className={cn(
-        'group relative flex items-center gap-3 overflow-hidden rounded-2xl border px-4 py-3.5',
-        'transition-all hover:scale-[1.01] hover:brightness-110',
+        'group flex items-center gap-3 rounded-card border border-border bg-card px-4 py-3.5',
+        'transition-colors hover:border-brand/40',
         className,
       )}
-      style={{
-        borderColor: `color-mix(in oklab, ${category.color} 45%, transparent)`,
-        backgroundImage: `linear-gradient(135deg, color-mix(in oklab, ${category.color} 22%, transparent), color-mix(in oklab, ${category.color} 7%, transparent))`,
-      }}
     >
-      <span
-        className="flex size-9 shrink-0 items-center justify-center rounded-xl shadow-sm"
-        style={{ backgroundImage: category.gradient }}
-      >
-        <Icon className="size-5 text-white" />
-      </span>
+      <AppIconTile icon={category.icon} gradient={category.gradient} color={category.color} variant="flat" size="md" />
       <span className="text-sm font-semibold">{category.name}</span>
     </Link>
   )
 }
 
-/** Large gradient category card for the Categories index page. */
+/** Category card for the Categories index page - a calm neutral surface with a
+ *  flat-colored icon tile (mirrors the App Store's CategoryCard). */
 export function CompanionCategoryCard({ category, count }: { category: CompanionCategory; count: number }) {
   const Icon = category.icon
   return (
     <Link
       to={`/companions/category/${category.key}`}
-      className="group relative flex h-36 flex-col justify-between overflow-hidden rounded-2xl p-5 text-white shadow-md transition-transform hover:scale-[1.015]"
-      style={{ backgroundImage: category.gradient }}
+      className={cn(cardVariants({ variant: 'interactive' }), 'flex h-36 flex-col justify-between p-5')}
     >
-      <div className="absolute inset-0 bg-black/10 transition-colors group-hover:bg-black/0" />
-      <Icon className="relative size-7 drop-shadow" />
-      <div className="relative">
-        <p className="text-lg font-bold drop-shadow">{category.name}</p>
-        <p className="text-xs font-medium text-white/80">{count} {count === 1 ? 'companion' : 'companions'}</p>
+      <span
+        className="flex size-11 shrink-0 items-center justify-center rounded-control"
+        style={{ backgroundColor: `color-mix(in oklch, ${category.color} 18%, transparent)` }}
+      >
+        <Icon className="size-5" style={{ color: category.color }} />
+      </span>
+      <div>
+        <p className="text-base font-semibold">{category.name}</p>
+        <p className="text-caption text-muted-foreground">{count} {count === 1 ? 'companion' : 'companions'}</p>
       </div>
     </Link>
   )

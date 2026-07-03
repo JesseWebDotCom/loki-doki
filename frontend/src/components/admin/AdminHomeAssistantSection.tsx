@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, RefreshCw, Plus, X, Check, Lock } from 'lucide-react'
-import { cn } from '@/lib/cn'
+import { RefreshCw, Plus, X, Check, Lock } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 interface HAUser { id: string; nickname?: string; firstName?: string }
 interface Grant { domain: string; areaId: string }
@@ -34,6 +37,7 @@ export function AdminHomeAssistantSection({ users }: { users: HAUser[] }) {
   const [syncing, setSyncing] = useState(false)
   const [savingUser, setSavingUser] = useState<Record<string, boolean>>({})
   const [savedUser, setSavedUser]   = useState<Record<string, boolean>>({})
+  const [confirmRemove, setConfirmRemove] = useState<{ userId: string; idx: number; label: string } | null>(null)
 
   const load = useCallback(async () => {
     const [st, cat, gr] = await Promise.all([
@@ -88,28 +92,32 @@ export function AdminHomeAssistantSection({ users }: { users: HAUser[] }) {
       {/* Status */}
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs">
-          <p className="font-semibold uppercase tracking-wider text-muted-foreground/60">Connection</p>
+          <p className="text-overline text-muted-foreground/60">Connection</p>
           {!status?.configured ? (
             <p className="text-muted-foreground/70 mt-0.5">Enter the URL + token above, then sync.</p>
           ) : connected ? (
-            <p className="text-emerald-400 mt-0.5">
+            <p className="flex items-center gap-1.5 text-success mt-0.5">
+              <StatusDot status="ok" />
               Connected · {status.entities} entities · {status.areas} rooms · synced {timeAgo(status.lastSyncMs)}
             </p>
           ) : (
-            <p className="text-red-400 mt-0.5">Not connected{status.lastError ? `: ${status.lastError}` : ''}</p>
+            <p className="flex items-center gap-1.5 text-destructive mt-0.5">
+              <StatusDot status="error" />
+              Not connected{status.lastError ? `: ${status.lastError}` : ''}
+            </p>
           )}
         </div>
-        <button type="button" onClick={sync} disabled={syncing}
-          className="shrink-0 flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-50">
-          {syncing ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+        <Button type="button" variant="outline" size="sm" onClick={sync} disabled={syncing}
+          className="shrink-0 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+          {syncing ? <Spinner size="sm" /> : <RefreshCw className="size-3" />}
           {syncing ? 'Syncing…' : 'Sync now'}
-        </button>
+        </Button>
       </div>
 
       {/* Per-user grants */}
       <div className="space-y-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-          Control permissions <span className="font-normal normal-case text-muted-foreground/40">— who can control which devices, by area</span>
+        <p className="text-overline text-muted-foreground/60">
+          Control permissions <span className="font-normal normal-case tracking-normal text-muted-foreground/40">: who can control which devices, by area</span>
         </p>
         {users.length === 0 && <p className="text-[11px] text-muted-foreground/50">No non-admin users. Admins can control everything.</p>}
         {users.map(u => {
@@ -118,60 +126,61 @@ export function AdminHomeAssistantSection({ users }: { users: HAUser[] }) {
           const security = ug.map((g, i) => [g, i] as const).filter(([g]) => g.domain === SECURITY)
           const generalDomains = domains.filter(d => d !== 'lock' && d !== SECURITY)
           return (
-            <div key={u.id} className="rounded-xl border border-border/60 bg-background/40 p-2.5 space-y-2">
+            <div key={u.id} className="rounded-card border border-border/60 bg-background/40 p-2.5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium">{u.nickname || u.firstName || u.id}</span>
                 <div className="flex items-center gap-1.5">
-                  <button type="button" onClick={() => addGrant(u.id)}
-                    className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40">
+                  <Button type="button" variant="outline" size="sm" onClick={() => addGrant(u.id)}
+                    className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground">
                     <Plus className="size-3" /> Grant
-                  </button>
-                  <button type="button" onClick={() => saveGrants(u.id)} disabled={savingUser[u.id]}
-                    className="flex items-center gap-1 rounded-md bg-brand px-2 py-1 text-[11px] text-brand-foreground hover:opacity-90 disabled:opacity-50">
-                    {savingUser[u.id] ? <Loader2 className="size-3 animate-spin" /> : savedUser[u.id] ? <Check className="size-3" /> : null}
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => saveGrants(u.id)} disabled={savingUser[u.id]}
+                    className="h-7 gap-1 px-2 text-[11px]">
+                    {savingUser[u.id] ? <Spinner size="sm" className="text-current" /> : savedUser[u.id] ? <Check className="size-3" /> : null}
                     Save
-                  </button>
+                  </Button>
                 </div>
               </div>
               {general.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground/50">No grants — this user can’t control anything.</p>
+                <p className="text-[11px] text-muted-foreground/50">No grants, this user can’t control anything.</p>
               ) : (
                 <div className="space-y-1.5">
                   {general.map(([g, i]) => (
                     <div key={i} className="flex items-center gap-1.5">
                       <select value={g.domain} onChange={e => updateGrant(u.id, i, { domain: e.target.value })}
-                        className="rounded-md border border-border bg-background px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand/40">
+                        className="rounded-control border border-border bg-background px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand/40">
                         <option value={ALL}>All devices</option>
                         {generalDomains.map(d => <option key={d} value={d}>{d}</option>)}
-                        {g.domain === 'lock' && <option value="lock">lock (legacy — use Security)</option>}
+                        {g.domain === 'lock' && <option value="lock">lock (legacy, use Security)</option>}
                       </select>
                       <span className="text-[11px] text-muted-foreground/50">in</span>
                       <select value={g.areaId} onChange={e => updateGrant(u.id, i, { areaId: e.target.value })}
-                        className="rounded-md border border-border bg-background px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand/40">
+                        className="rounded-control border border-border bg-background px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand/40">
                         <option value={ALL}>All rooms</option>
                         {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                       </select>
-                      <button type="button" onClick={() => removeGrant(u.id, i)}
-                        className={cn('rounded-md p-1 text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10')}>
+                      <Button type="button" variant="ghost" size="icon-sm"
+                        onClick={() => setConfirmRemove({ userId: u.id, idx: i, label: g.domain === ALL ? 'All devices' : g.domain })}
+                        className="text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10" aria-label="Remove grant">
                         <X className="size-3" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
               )}
-              {/* Security — locks + entry doors, explicit-only (never in "All devices") */}
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 space-y-1.5">
+              {/* Security: locks + entry doors, explicit-only (never in "All devices") */}
+              <div className="rounded-card border border-warning/30 bg-warning/5 p-2 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-amber-500">
-                    <Lock className="size-3" /> Security — locks &amp; entry doors
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-warning">
+                    <Lock className="size-3" /> Security, locks &amp; entry doors
                   </span>
-                  <button type="button" onClick={() => addSecurityGrant(u.id)}
-                    className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40">
+                  <Button type="button" variant="outline" size="sm" onClick={() => addSecurityGrant(u.id)}
+                    className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground">
                     <Plus className="size-3" /> Add
-                  </button>
+                  </Button>
                 </div>
                 {security.length === 0 ? (
-                  <p className="text-[10px] text-muted-foreground/50">Not granted — "All devices" never includes these.</p>
+                  <p className="text-[10px] text-muted-foreground/50">Not granted. "All devices" never includes these.</p>
                 ) : (
                   <div className="space-y-1.5">
                     {security.map(([g, i]) => (
@@ -179,14 +188,15 @@ export function AdminHomeAssistantSection({ users }: { users: HAUser[] }) {
                         <span className="text-[11px]">Locks &amp; entry doors</span>
                         <span className="text-[11px] text-muted-foreground/50">in</span>
                         <select value={g.areaId} onChange={e => updateGrant(u.id, i, { areaId: e.target.value })}
-                          className="rounded-md border border-border bg-background px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand/40">
+                          className="rounded-control border border-border bg-background px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand/40">
                           <option value={ALL}>All rooms</option>
                           {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                         </select>
-                        <button type="button" onClick={() => removeGrant(u.id, i)}
-                          className={cn('rounded-md p-1 text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10')}>
+                        <Button type="button" variant="ghost" size="icon-sm"
+                          onClick={() => setConfirmRemove({ userId: u.id, idx: i, label: 'locks & entry doors' })}
+                          className="text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10" aria-label="Remove security grant">
                           <X className="size-3" />
-                        </button>
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -196,6 +206,16 @@ export function AdminHomeAssistantSection({ users }: { users: HAUser[] }) {
           )
         })}
       </div>
+
+      <ConfirmDialog
+        open={!!confirmRemove}
+        onOpenChange={(o) => { if (!o) setConfirmRemove(null) }}
+        title="Remove this grant?"
+        description={confirmRemove ? `This revokes access to ${confirmRemove.label}. Remember to hit Save to apply the change.` : undefined}
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => { if (confirmRemove) removeGrant(confirmRemove.userId, confirmRemove.idx); setConfirmRemove(null) }}
+      />
     </div>
   )
 }

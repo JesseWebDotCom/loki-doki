@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Loader2, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, PackageOpen, RefreshCw, Library, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, PackageOpen, RefreshCw, Library, X } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { fmtBytes } from '@/lib/youtube/format'
 import { useSetupProgress, type JobInfo, type JobGroup } from '@/context/SetupProgressContext'
@@ -9,8 +11,8 @@ import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { useRadio } from '@/context/RadioContext'
 
 // Corner card stack showing the background download queue. Two independent tracks:
-//   • Setup    — runtimes/models/components the app needs (finishes in minutes)
-//   • Library  — optional ZIM/map content that can be many GB (downloads honestly, never blocks)
+//   • Setup: runtimes/models/components the app needs (finishes in minutes)
+//   • Library: optional ZIM/map content that can be many GB (downloads honestly, never blocks)
 // Splitting them stops a 140 GB library download from masquerading as "Setting up your apps … 87%"
 // and making a fully-usable app look broken for hours.
 
@@ -49,7 +51,7 @@ export function BackgroundSetupWidget() {
 
   // Setup has its own inline progress; nothing to show before login or when idle/clean.
   if (!status || pathname.startsWith('/setup') || pathname.startsWith('/login')) return null
-  // The admin's post-boot welcome wizard is a full-screen takeover — don't overlap it.
+  // The admin's post-boot welcome wizard is a full-screen takeover; do not overlap it.
   if (user?.role === 'admin' && welcomeComplete === false) return null
 
   const setup = status.setup
@@ -64,15 +66,16 @@ export function BackgroundSetupWidget() {
   if (minimized) {
     const allDone = status.active === 0 && status.counts.failed === 0
     return (
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={() => setMinimized(false)}
-        className={cn('fixed right-4 z-[120] transition-[bottom] duration-200 flex items-center gap-2 rounded-full border border-border/60 bg-card px-3.5 py-2 text-sm font-medium shadow-lg hover:bg-muted', bottomClass)}
+        className={cn('fixed right-4 z-[120] transition-[bottom] duration-200 gap-2 border-border/60 bg-card shadow-lg hover:bg-muted', bottomClass)}
       >
-        {allDone ? <CheckCircle2 className="size-4 text-emerald-400" /> : <Loader2 className="size-4 animate-spin text-violet-400" />}
+        {allDone ? <CheckCircle2 className="size-4 text-success" /> : <Spinner className="text-brand" />}
         {showLibrary && !showSetup ? 'Downloading library' : 'Setting up'} · {status.pct}%
         <ChevronUp className="size-3.5 text-muted-foreground" />
-      </button>
+      </Button>
     )
   }
 
@@ -90,7 +93,7 @@ export function BackgroundSetupWidget() {
 
 function CardShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl animate-in slide-in-from-bottom-2">
+    <div className="overflow-hidden rounded-card border border-border/60 bg-card shadow-xl animate-in slide-in-from-bottom-2">
       {children}
     </div>
   )
@@ -101,29 +104,32 @@ function FailureBlock({ jobs, retrying, onRetry, onDismiss }: { jobs: JobInfo[];
   const shown = names.slice(0, 2).join(', ')
   const extra = names.length > 2 ? ` +${names.length - 2} more` : ''
   return (
-    <div className="space-y-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5">
-      <p className="flex items-start gap-1.5 text-xs text-amber-400">
+    <div className="space-y-2 rounded-control border border-warning/25 bg-warning/5 p-2.5">
+      <p className="flex items-start gap-1.5 text-xs text-warning">
         <AlertTriangle className="size-3.5 shrink-0 mt-px" />
-        <span>Couldn&apos;t reach <span className="font-medium">{shown}{extra}</span> — retrying automatically.</span>
+        <span>Couldn&apos;t reach <span className="font-medium">{shown}{extra}</span>. Retrying automatically.</span>
       </p>
       <div className="flex items-center gap-2">
-        <button
+        <Button
           type="button"
+          size="sm"
           disabled={retrying}
           onClick={onRetry}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-amber-500/15 px-2 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 disabled:opacity-50 transition-colors"
+          className="flex-1 gap-1.5 bg-warning/15 font-semibold text-warning hover:bg-warning/25"
         >
-          <RefreshCw className={cn('size-3.5', retrying && 'animate-spin')} />
+          {retrying ? <Spinner size="sm" className="text-warning" /> : <RefreshCw className="size-3.5" />}
           {retrying ? 'Retrying…' : 'Retry now'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={onDismiss}
-          className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
           title="Stop trying and hide this"
         >
           Dismiss
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -146,7 +152,7 @@ function SetupCard({ group, onMinimize, retrying, onRetry, onDismiss }: { group:
     <CardShell>
       <div className="flex items-center justify-between gap-2 border-b border-border/50 px-4 py-2.5">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <PackageOpen className="size-4 text-violet-400" />
+          <PackageOpen className="size-4 text-brand" />
           {allDone ? 'Setup finished' : 'Setting up your apps'}
         </div>
         <button type="button" onClick={onMinimize} className="text-muted-foreground hover:text-foreground" aria-label="Minimize">
@@ -159,16 +165,16 @@ function SetupCard({ group, onMinimize, retrying, onRetry, onDismiss }: { group:
           <span className="font-semibold text-foreground">{group.pct}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 ? 'bg-amber-500' : 'bg-gradient-to-r from-violet-500 to-blue-400')} style={{ width: `${group.pct}%` }} />
+          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 ? 'bg-warning' : 'bg-brand')} style={{ width: `${group.pct}%` }} />
         </div>
 
         {running.length > 0 && (
           <div className="space-y-1.5 pt-0.5">
             {running.slice(0, 3).map((j) => (
               <div key={j.id} className="flex items-center gap-2 text-xs">
-                <Loader2 className="size-3 shrink-0 animate-spin text-violet-400" />
+                <Spinner size="sm" className="size-3 shrink-0 text-brand" />
                 <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
-                  <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-violet-500/15 text-violet-300 leading-none">{jobTypeTag(j)}</span>
+                  <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-brand/15 text-brand leading-none">{jobTypeTag(j)}</span>
                   <span className="truncate text-foreground/80">{j.label}</span>
                 </div>
                 <span className="shrink-0 tabular-nums text-muted-foreground">{rowLabel(j)}</span>
@@ -180,7 +186,7 @@ function SetupCard({ group, onMinimize, retrying, onRetry, onDismiss }: { group:
         {pending > 0 && !allDone && <p className="text-xs text-muted-foreground">{pending} more queued…</p>}
         {failed > 0 && <FailureBlock jobs={group.jobs.filter((j) => j.status === 'failed')} retrying={retrying} onRetry={onRetry} onDismiss={onDismiss} />}
         {allDone && (
-          <p className="flex items-center gap-1.5 text-xs text-emerald-400">
+          <p className="flex items-center gap-1.5 text-xs text-success">
             <CheckCircle2 className="size-3.5 shrink-0" /> Everything is ready.
           </p>
         )}
@@ -217,7 +223,7 @@ function LibraryCard({ group, onCancel, retrying, onRetry, onDismiss, showMinimi
     <CardShell>
       <div className="flex items-center justify-between gap-2 border-b border-border/50 px-4 py-2.5">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <Library className="size-4 text-violet-400" />
+          <Library className="size-4 text-brand" />
           {allDone ? 'Library ready' : 'Downloading library'}
         </div>
         {showMinimize && (
@@ -232,7 +238,7 @@ function LibraryCard({ group, onCancel, retrying, onRetry, onDismiss, showMinimi
           <span className="font-semibold text-foreground">{group.pct}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 ? 'bg-amber-500' : 'bg-gradient-to-r from-violet-500 to-blue-400')} style={{ width: `${group.pct}%` }} />
+          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 ? 'bg-warning' : 'bg-brand')} style={{ width: `${group.pct}%` }} />
         </div>
 
         {!allDone && (sizeLine || speedLine || etaLine) && (
@@ -247,20 +253,22 @@ function LibraryCard({ group, onCancel, retrying, onRetry, onDismiss, showMinimi
           <div className="space-y-1.5 pt-0.5">
             {running.slice(0, 3).map((j) => (
               <div key={j.id} className="flex items-center gap-2 text-xs group">
-                <Loader2 className="size-3 shrink-0 animate-spin text-violet-400" />
+                <Spinner size="sm" className="size-3 shrink-0 text-brand" />
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <div className="truncate text-foreground/80">{j.label}</div>
                   <div className="truncate text-[10px] text-muted-foreground tabular-nums">{rowDetail(j)}</div>
                 </div>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-sm"
                   onClick={() => { void onCancel(j.id) }}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted"
+                  className="size-5 shrink-0 text-muted-foreground/60 hover:text-foreground"
                   aria-label={`Cancel ${j.label}`}
                   title="Cancel this download"
                 >
                   <X className="size-3.5" />
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -269,7 +277,7 @@ function LibraryCard({ group, onCancel, retrying, onRetry, onDismiss, showMinimi
         {pending > 0 && !allDone && <p className="text-xs text-muted-foreground">{pending} more queued…</p>}
         {failed > 0 && <FailureBlock jobs={group.jobs.filter((j) => j.status === 'failed')} retrying={retrying} onRetry={onRetry} onDismiss={onDismiss} />}
         {allDone && (
-          <p className="flex items-center gap-1.5 text-xs text-emerald-400">
+          <p className="flex items-center gap-1.5 text-xs text-success">
             <CheckCircle2 className="size-3.5 shrink-0" /> Library downloads finished.
           </p>
         )}

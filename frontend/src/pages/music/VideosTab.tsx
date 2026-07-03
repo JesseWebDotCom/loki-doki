@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Search, Music, Film, Tv, Loader2, ExternalLink, ChevronRight, ListMusic } from 'lucide-react'
+import { Search, Music, Film, Tv, ExternalLink, ChevronRight, ListMusic } from 'lucide-react'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { ListRow } from '@/components/shared/ListRow'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { toast } from '@/lib/toast'
@@ -28,7 +31,7 @@ function fmtDur(sec: number | null): string {
 
 function ArtistCard({ info }: { info: ArtistInfo }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card/60">
+    <div className="overflow-hidden rounded-card border border-border bg-card">
       {info.image && (
         <div className="relative aspect-video w-full overflow-hidden">
           <img src={proxyImg(info.image)} alt={info.title} className="size-full object-cover" />
@@ -38,8 +41,8 @@ function ArtistCard({ info }: { info: ArtistInfo }) {
       )}
       {!info.image && (
         <div className="flex items-center gap-3 border-b border-border/50 bg-muted/30 px-4 py-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-orange-500/15">
-            <Music className="size-5 text-orange-500" />
+          <div className="flex size-10 items-center justify-center rounded-control bg-brand/10">
+            <Music className="size-5 text-brand" />
           </div>
           <p className="font-bold">{info.title}</p>
         </div>
@@ -48,7 +51,7 @@ function ArtistCard({ info }: { info: ArtistInfo }) {
         <p className="line-clamp-5 text-sm leading-relaxed text-muted-foreground">{info.extract}</p>
         {info.url && (
           <a href={info.url} target="_blank" rel="noreferrer"
-            className="mt-3 flex items-center gap-1.5 text-xs text-orange-500 hover:text-orange-400 transition-colors">
+            className="mt-3 flex items-center gap-1.5 text-xs font-medium text-brand hover:text-brand-hover transition-colors">
             <ExternalLink className="size-3" /> Read on Wikipedia
           </a>
         )}
@@ -59,17 +62,17 @@ function ArtistCard({ info }: { info: ArtistInfo }) {
 
 function AppearanceCard({ a, onClick }: { a: SoundtrackAppearance; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-card/60 px-3 py-2.5 text-left transition-all hover:border-orange-500/40 hover:bg-orange-500/5">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        {a.type === 'show' ? <Tv className="size-3.5" /> : <Film className="size-3.5" />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{a.title}</p>
-        {a.year && <p className="text-[11px] text-muted-foreground">{a.year} · {a.type === 'show' ? 'TV Show' : 'Film'}</p>}
-      </div>
-      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-    </button>
+    <ListRow
+      onClick={onClick}
+      leading={
+        <span className="flex size-8 items-center justify-center rounded-control bg-muted text-muted-foreground">
+          {a.type === 'show' ? <Tv className="size-3.5" /> : <Film className="size-3.5" />}
+        </span>
+      }
+      title={a.title}
+      meta={a.year ? `${a.year} · ${a.type === 'show' ? 'TV Show' : 'Film'}` : undefined}
+      trailing={<ChevronRight className="size-3.5 text-muted-foreground" />}
+    />
   )
 }
 
@@ -166,28 +169,28 @@ export function VideosTab() {
           <Input value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="Search artist, song, or album…" className="pl-9" />
         </div>
-        <button type="submit" disabled={loading}
-          className="flex items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
-          {loading ? <Loader2 className="size-4 animate-spin" /> : 'Search'}
-        </button>
+        <Button type="submit" variant="outline" disabled={loading} className="text-muted-foreground hover:text-foreground">
+          {loading ? <Spinner className="text-current" /> : 'Search'}
+        </Button>
       </form>
 
       {videos.length === 0 && !loading && (
         <EmptyAppState
           icon={Music}
-          gradient="linear-gradient(135deg,#f97316,#ea580c)"
+          // design-ok(hex-in-tsx): app identity gradient (registry value)
+          gradient="linear-gradient(135deg,#f97316,#fb923c)"
           title="Music videos with artist context"
-          tagline="Search any artist or song — play the video while the app pulls up a Wikipedia bio and shows you where their music has appeared in films and TV shows."
+          tagline="Search any artist or song, and play the video while the app pulls up a Wikipedia bio and shows you where their music has appeared in films and TV shows."
           features={[
             { icon: Search, title: 'Any artist or song', desc: 'Search by name, song title, or album to find official music videos.' },
-            { icon: Film, title: 'Soundtrack links', desc: 'See which movies and shows a song appeared in — tap to jump there.' },
+            { icon: Film, title: 'Soundtrack links', desc: 'See which movies and shows a song appeared in - tap to jump there.' },
             { icon: ExternalLink, title: 'Artist bio', desc: 'Wikipedia artist panel loads automatically alongside the video.' },
-            { icon: ListMusic, title: 'Queue playback', desc: 'All search results queue up — press next to keep the music going.' },
+            { icon: ListMusic, title: 'Queue playback', desc: 'All search results queue up - press next to keep the music going.' },
           ]}
         />
       )}
 
-      {loading && <div className="flex justify-center py-16"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>}
+      {loading && <div className="flex justify-center py-16"><Spinner size="lg" /></div>}
 
       {videos.length > 0 && (
         <div className={cn('grid gap-6', showInfo && 'lg:grid-cols-[1fr_300px]')}>
@@ -198,15 +201,15 @@ export function VideosTab() {
               return (
                 <button key={v.videoId} type="button" onClick={() => selectVideo(v)}
                   className={cn(
-                    'group overflow-hidden rounded-xl border text-left transition-all hover:border-orange-500/40',
-                    isActive ? 'border-orange-500/50 shadow-md shadow-orange-500/10' : 'border-border',
+                    'group overflow-hidden rounded-card border text-left transition-all hover:border-brand/40',
+                    isActive ? 'border-brand/50 shadow-md shadow-brand/10' : 'border-border',
                   )}>
                   <div className="relative aspect-video overflow-hidden">
                     <img src={ytImageProxy(v.thumbnail)} alt={v.title}
                       className="size-full object-cover transition-transform duration-200 group-hover:scale-105" />
                     {isActive && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-orange-500/20">
-                        <div className="rounded-full bg-orange-500/90 p-2">
+                      <div className="absolute inset-0 flex items-center justify-center bg-brand/20">
+                        <div className="rounded-full bg-brand/90 p-2">
                           <div className="flex items-end gap-[2px]">
                             {[3, 5, 4].map((h, i) => (
                               <div key={i} className="w-[2px] rounded-full bg-white"
@@ -218,7 +221,7 @@ export function VideosTab() {
                       </div>
                     )}
                     {v.durationSec && (
-                      <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
                         {fmtDur(v.durationSec)}
                       </span>
                     )}
@@ -232,23 +235,23 @@ export function VideosTab() {
             })}
           </div>
 
-          {/* Info panel — slides in when artist info is available */}
+          {/* Info panel - slides in when artist info is available */}
           {showInfo && (
             <div className="space-y-4">
               {infoLoading && (
-                <div className="flex items-center justify-center rounded-2xl border border-dashed border-border/50 py-12">
-                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                <div className="flex items-center justify-center rounded-card border border-dashed border-border/50 py-12">
+                  <Spinner size="lg" />
                 </div>
               )}
 
               {!infoLoading && artistInfo && <ArtistCard info={artistInfo} />}
 
               {!infoLoading && appearances.length > 0 && (
-                <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+                <div className="overflow-hidden rounded-card border border-border bg-card">
                   <div className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
                     <Film className="size-4 text-muted-foreground" />
                     <p className="text-sm font-semibold">Featured In</p>
-                    <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{appearances.length}</span>
+                    <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground">{appearances.length}</span>
                   </div>
                   <div className="space-y-1.5 p-3">
                     {appearances.map((a, i) => (

@@ -62,7 +62,7 @@ export function useCompanionVoice(opts: {
   // instance? Off-chat, `companion.response` persists after it finishes, so without
   // this guard a remount or a voice/owner/character toggle would re-speak the whole
   // finished reply from scratch — the "greeting repeats every time I open Maps" bug.
-  // Mirrors the chat path's `sawLiveGen` guard in CompanionOverlay.
+  // Mirrors the chat path's `sawLiveGen` guard in CompanionEngineContext.
   const sawStreaming = useRef(false)
   // The tone (rate/gain) established by the first sentiment-bearing sentence of a reply,
   // carried across its later neutral sentences so the WHOLE reply is shaded.

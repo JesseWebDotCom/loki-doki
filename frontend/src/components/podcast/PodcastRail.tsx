@@ -1,6 +1,7 @@
 import { NavLink, Link } from 'react-router-dom'
 import { Home, Compass, Library, Plus, Settings2, Lock, type LucideIcon } from 'lucide-react'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
@@ -10,7 +11,7 @@ function RailLink({ to, icon: Icon, label, end }: { to: string; icon: LucideIcon
   return (
     <NavLink to={to} end={end}
       className={({ isActive }) => cn(
-        'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+        'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium transition-colors',
         isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
       )}>
       <Icon className="size-[18px]" />
@@ -35,28 +36,28 @@ export function PodcastRail({ shows, onCreate }: { shows: Show[]; onCreate: () =
       {user?.role === 'admin' && (
         <NavLink to="/podcasts/admin"
           className={({ isActive }) => cn(
-            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+            'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium transition-colors',
             isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
           )}>
           <Settings2 className="size-[18px]" />
           <span className="flex-1">Manage</span>
-          <Lock className="size-3 text-amber-500/70" />
+          <Lock className="size-3 text-warning/70" />
         </NavLink>
       )}
 
-      <button onClick={onCreate}
-        className="mt-2 flex items-center gap-3 rounded-xl bg-brand/10 px-3 py-2.5 text-sm font-semibold text-brand transition-colors hover:bg-brand/15">
+      <Button variant="tinted" onClick={onCreate}
+        className="mt-2 h-auto w-full justify-start gap-3 rounded-control px-3 py-2.5 text-sm font-semibold">
         <Plus className="size-[18px]" /> Create New
-      </button>
+      </Button>
 
       {myShows.length > 0 && (
         <>
-          <p className="mb-1 mt-6 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Your Shows</p>
+          <p className="mb-1 mt-6 px-3 text-overline text-muted-foreground/50">Your Shows</p>
           <div className="space-y-0.5">
             {myShows.slice(0, 8).map(s => (
               <Link key={s.id} to={`/podcasts/show/${s.id}`}
-                className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
-                <ShowCover showId={s.id} title={s.name} size={28} rounded="rounded-md" />
+                className="flex items-center gap-2.5 rounded-control px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+                <ShowCover showId={s.id} title={s.name} size={28} rounded="rounded-control" />
                 <span className="truncate">{s.name}</span>
               </Link>
             ))}

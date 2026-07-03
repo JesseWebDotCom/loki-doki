@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useChatContext } from '@/context/ChatContext'
 
 /**
- * QueueBanner — shown when the user's generation is waiting for a concurrency slot.
+ * QueueBanner - shown when the user's generation is waiting for a concurrency slot.
  * Reads queuePosition from ChatContext; only renders when position > 0.
  * Dismissable per session (re-appears if position changes).
  */
@@ -21,13 +21,13 @@ export function QueueBanner() {
     : `You\'re #${queuePosition} in line`
 
   return (
-    <div className="shrink-0 flex items-center gap-3 border-b border-border/40 bg-amber-500/8 px-4 py-2">
-      <Clock className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+    <div className="shrink-0 flex items-center gap-3 border-b border-border/40 bg-warning/8 px-4 py-2">
+      <Clock className="size-3.5 text-warning shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-amber-700 dark:text-amber-300">
-          <span className="font-medium">{posLabel}</span>
-          {' — '}
-          the system is finishing another generation first. Hang tight.
+        <p className="text-xs text-warning">
+          <span className="font-medium">{posLabel}.</span>
+          {' '}
+          The system is finishing another generation first. Hang tight.
         </p>
       </div>
       <button

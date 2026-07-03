@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useCompanionState } from '@/lib/companionState'
-import { CompanionOverlay } from '@/components/shell/CompanionOverlay'
+import { CompanionDock } from '@/components/shell/CompanionDock'
+import { CompanionEngineProvider } from '@/components/shell/CompanionEngineContext'
 import { DeviceLayoutDisplay, type Descriptor } from '@/components/display/DeviceLayoutDisplay'
 import { ControllerDisplay, type ControllerPage } from '@/components/display/ControllerDisplay'
 import { StatusDisplay } from '@/components/display/StatusDisplay'
@@ -13,8 +14,8 @@ import type { UserPresence } from '@/lib/presence'
 // point the device's browser at /display. Chrome-less by design — it renders the
 // device's assigned SLOT LAYOUT (the unified Layouts system: clock/weather/mic/mute
 // widgets in a themed grid) with live clock + weather. The server screenshots this
-// exact page into the JPEG it streams to the firmware. The CompanionOverlay is mounted
-// for browser viewers so the wake-word toggle engages the mic.
+// exact page into the JPEG it streams to the firmware. The companion engine + dock are
+// mounted for browser viewers so the wake-word toggle engages the mic.
 //
 // Views (selected by ?view= param, set per-device by Admin or by the user):
 //   (default)   — ambient clock/weather layout (DeviceLayoutDisplay)
@@ -115,7 +116,7 @@ export function DisplayPage() {
   }, [deviceId])
 
   return (
-    <div className="fixed inset-0 z-0 select-none overflow-hidden bg-[#05080c]">
+    <div className="fixed inset-0 z-0 select-none overflow-hidden bg-background">
       {/* Controller button-grid */}
       {isController && controllerPage && <ControllerDisplay page={controllerPage} interactive={!isDeviceRender} deviceId={deviceId} />}
 
@@ -147,9 +148,17 @@ export function DisplayPage() {
         return <AlertDisplay key={a.expiresAt} alert={a} onExpired={dismissAlert} />
       })()}
 
-      {/* The companion's floating chat UI is for browser viewers; on the device the
-          screen is an ambient display (the companion talks via the satellite). */}
-      {!isDeviceRender && <CompanionOverlay />}
+      {/* The companion's chat UI is for browser viewers; on the device the
+          screen is an ambient display (the companion talks via the satellite).
+          /display renders outside AppShell, so it hosts its own engine + a
+          collapsed dock puck in the corner (flyouts flip left automatically). */}
+      {!isDeviceRender && (
+        <CompanionEngineProvider>
+          <div className="pointer-events-auto fixed bottom-6 right-6 z-[9999]">
+            <CompanionDock collapsed />
+          </div>
+        </CompanionEngineProvider>
+      )}
     </div>
   )
 }

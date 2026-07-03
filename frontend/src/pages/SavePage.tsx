@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Bookmark, FileText, Video, Music, Clock, Check, Loader2, ExternalLink } from 'lucide-react'
+import { Bookmark, FileText, Video, Music, Clock, Check, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { detectSaveTarget } from '@/lib/saveTarget'
 import { createItem } from '@/lib/bookmarks/api'
 import { useAuth } from '@/context/AuthContext'
@@ -17,12 +21,16 @@ const J = { 'Content-Type': 'application/json' }
 
 function ActionButton({ icon: Icon, label, onClick, busy, done }: { icon: typeof Bookmark; label: string; onClick: () => void; busy?: boolean; done?: boolean }) {
   return (
-    <button onClick={onClick} disabled={busy || done}
-      className={cn('flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors',
-        done ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-border hover:bg-accent/50 disabled:opacity-60')}>
-      {done ? <Check className="size-5 shrink-0" /> : busy ? <Loader2 className="size-5 shrink-0 animate-spin" /> : <Icon className="size-5 shrink-0" />}
+    <Button
+      variant="outline"
+      onClick={onClick}
+      disabled={busy || done}
+      className={cn('h-auto w-full justify-start gap-3 rounded-control px-4 py-3 text-left text-sm font-medium',
+        done && 'border-success/40 bg-success/10 text-success disabled:opacity-100')}
+    >
+      {done ? <Check className="size-5 shrink-0" /> : busy ? <Spinner className="size-5 shrink-0" /> : <Icon className="size-5 shrink-0" />}
       <span>{label}</span>
-    </button>
+    </Button>
   )
 }
 
@@ -68,9 +76,9 @@ export function SavePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-5">
-      <div className="mx-auto max-w-md">
-        <h1 className="mb-1 text-lg font-bold">Save to Loki</h1>
+    <div className="min-h-screen bg-background pb-8">
+      <PageContainer width="narrow" className="max-w-md">
+        <PageHeader title="Save to Loki" className="pt-6 pb-4" />
         <a href={rawUrl} target="_blank" rel="noopener noreferrer" className="mb-4 flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground">
           <ExternalLink className="size-3 shrink-0" /><span className="truncate">{rawUrl}</span>
         </a>
@@ -78,7 +86,7 @@ export function SavePage() {
         <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="mb-4" />
 
         {isAdmin && (
-          <label className="mb-4 flex items-start gap-2 rounded-lg border border-border bg-card/50 p-3 text-sm">
+          <label className="mb-4 flex items-start gap-2 rounded-control border border-border bg-card/50 p-3 text-sm">
             <input type="checkbox" checked={makeGlobal} onChange={e => setMakeGlobal(e.target.checked)} className="mt-0.5 size-4 rounded border-border" />
             <span>
               <span className="font-medium">Share with everyone</span>
@@ -102,7 +110,7 @@ export function SavePage() {
             </>
           )}
         </div>
-      </div>
+      </PageContainer>
     </div>
   )
 }

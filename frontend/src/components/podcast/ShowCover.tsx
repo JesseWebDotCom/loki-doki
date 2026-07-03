@@ -5,7 +5,7 @@ import { fallbackTheme, paletteBg, emojiUrl } from '@/lib/podcast/cover'
 
 /**
  * The one cover primitive. Renders the show's uploaded/generated PNG; if none
- * exists (404) it falls back to instant CSS art — a themed gradient with the
+ * exists (404) it falls back to instant CSS art - a themed gradient with the
  * show's topic OpenMoji glyph (small thumbs) or glyph + title (larger), keyed
  * deterministically off the show so every show looks intentional.
  *
@@ -13,7 +13,7 @@ import { fallbackTheme, paletteBg, emojiUrl } from '@/lib/podcast/cover'
  * controls dimensions (e.g. `w-full aspect-square`). `size` still acts as the
  * scale hint in fill mode.
  */
-export function ShowCover({ showId, title, size = 96, fill, rounded = 'rounded-2xl', className }: {
+export function ShowCover({ showId, title, size = 96, fill, rounded = 'rounded-card', className }: {
   showId: string
   title: string
   size?: number
@@ -43,7 +43,7 @@ export function ShowCover({ showId, title, size = 96, fill, rounded = 'rounded-2
             <img src={emojiUrl(emojiHex)} alt="" style={{ width: '22%' }} />
           </div>
           <span
-            className="font-black uppercase leading-none"
+            className="font-bold uppercase leading-none"
             style={{ color: palette.fg, fontSize, letterSpacing: -0.5, overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
           >
             {title}

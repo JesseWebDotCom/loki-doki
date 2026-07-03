@@ -4,7 +4,7 @@ import { categoryVisual } from '@/lib/archiveCategories'
 interface Props {
   zimIconUrl: string | null
   category: string
-  /** Applied to both the img and the fallback icon — use a size class like "size-3.5" */
+  /** Applied to both the img and the fallback icon; use a size class like "size-3.5" */
   className?: string
 }
 

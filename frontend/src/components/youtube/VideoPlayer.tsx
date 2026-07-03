@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Play, Pause, Volume2, VolumeX, Maximize, Music, ShieldCheck, Settings, Check, Loader2 } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Music, ShieldCheck, Settings, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Spinner } from '@/components/ui/spinner'
 import { fmtClock } from '@/lib/youtube/format'
 import { fileUrl, proxyStreamUrl, saveWatchState, type SkipSegment, type WatchMeta, type StreamQuality } from '@/lib/youtube/api'
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
@@ -48,7 +49,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // embed, so the browser never contacts Google. Ignored for offline (local) playback.
   privacyProxy?: boolean
   // Audio-only: stream just the audio (through our server) and show the video's
-  // thumbnail as a static poster — saves bandwidth, keeps the visual context.
+  // thumbnail as a static poster; saves bandwidth, keeps the visual context.
   audioOnly?: boolean
   // SponsorBlock segments to auto-skip + mark on the scrubber.
   skipSegments?: SkipSegment[]
@@ -57,14 +58,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   chapters?: Chapter[]
   // Fires with current playback time (~2×/sec) so callers can follow along (transcript).
   onTime?: (sec: number) => void
-  // Fires (~2×/sec) with the play/pause state — lets the watch page decide whether to
+  // Fires (~2×/sec) with the play/pause state, letting the watch page decide whether to
   // hand off to the docked mini-player on navigate-away.
   onPlaying?: (playing: boolean) => void
   // Metadata persisted with watch-state so the video appears in History even when it
   // was never in a subscription feed.
   videoMeta?: WatchMeta
   // Frame shape: 'video' self-sizes to 16:9; 'short' fills its parent (the parent
-  // sizes the 9:16 box) — used by the vertical Shorts feed.
+  // sizes the 9:16 box); used by the vertical Shorts feed.
   aspect?: 'video' | 'short'
 }>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -73,7 +74,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const ytRef = useRef<any>(null)
   const lastSave = useRef(0)
   const lastSkip = useRef<string | null>(null)
-  // Last known position — used to restore the spot after a quality switch reloads the
+  // Last known position, used to restore the spot after a quality switch reloads the
   // <video> element (and to resume above the initial resumeSec).
   const posRef = useRef(resumeSec)
 
@@ -97,7 +98,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Audio-only streams just the audio through our server, with the thumbnail as poster.
   const onlineAudio = audioOnly && !localKind && !proxyFailed
   const usingProxy = privacyProxy && !localKind && !proxyFailed && !onlineAudio
-  // Native <video>/<audio> source — an offline file, the privacy proxy, or audio-only.
+  // Native <video>/<audio> source: an offline file, the privacy proxy, or audio-only.
   const nativeVideoSrc =
     localKind === 'video' ? localSrc
     : usingProxy ? proxyStreamUrl(videoId, 'video', proxyQuality)
@@ -190,7 +191,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
       setPosition(s.t); posRef.current = s.t; if (s.d) setDuration(s.d); setPlaying(s.playing)
       onTime?.(s.t); onPlaying?.(s.playing)
 
-      // The embed only exposes its quality levels once playback has started — refresh
+      // The embed only exposes its quality levels once playback has started; refresh
       // them here so the Quality menu isn't stuck showing just "Auto". (Best-effort:
       // YouTube may still ignore setPlaybackQuality and keep auto.)
       const y = ytRef.current
@@ -237,7 +238,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const toggle = () => {
     const m = mediaRef.current, y = ytRef.current
     if (m) { m.paused ? void m.play()?.catch(() => {}) : m.pause() }
-    // Call the IFrame API methods *on* the player — pulling them off into a ternary
+    // Call the IFrame API methods *on* the player; pulling them off into a ternary
     // loses `this` and the postMessage silently throws, so play/pause would no-op.
     else if (y) { try { if (y.getPlayerState?.() === 1) y.pauseVideo?.(); else y.playVideo?.() } catch { /* noop */ } }
   }
@@ -259,7 +260,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     try { (el?.requestFullscreen ?? el?.webkitRequestFullscreen)?.call(el) } catch { /* noop */ }
   }
 
-  // Apply an embed quality level (best-effort — modern YouTube often ignores this and
+  // Apply an embed quality level (best-effort; modern YouTube often ignores this and
   // keeps auto, but the API still accepts the hint).
   const pickEmbedQuality = (level: string) => {
     const y = ytRef.current
@@ -301,7 +302,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 
   return (
     <div ref={wrapRef} onMouseLeave={() => setMenu(null)}
-      className={cn('group relative overflow-hidden rounded-2xl bg-black',
+      className={cn('group relative overflow-hidden rounded-card bg-black',
         aspect === 'short' ? 'size-full' : 'aspect-video w-full')}>
       <div ref={frameRef} className="size-full">
         {nativeVideoSrc ? (
@@ -318,11 +319,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
               <>
                 <VideoThumb videoId={videoId} title="" quality="maxres" className="size-full object-cover opacity-90" />
                 <div className="absolute inset-0 bg-black/30" />
+                {/* design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): status badge on a theme-invariant chip floating over the video surface */}
                 <span className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-semibold text-sky-300 opacity-0 backdrop-blur transition group-hover:opacity-100">
                   <Music className="size-3.5" /> Audio only
                 </span>
               </>
             ) : (
+              // design-ok(raw-palette-semantic): theme-invariant dark audio placeholder inside the black player
               <div className="flex size-full flex-col items-center justify-center bg-gradient-to-br from-zinc-900 to-black">
                 <Music className="size-20 text-white/20" />
               </div>
@@ -339,16 +342,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 
       {/* Privacy badge when streaming through our proxy */}
       {usingProxy && (
+        // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): status badge on a theme-invariant chip floating over the video surface
         <div className="absolute left-3 top-3 z-30 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 opacity-0 backdrop-blur transition group-hover:opacity-100">
           <ShieldCheck className="size-3.5" /> Private stream
         </div>
       )}
 
-      {/* Buffering / loading spinner — covers the dead time while the privacy proxy
+      {/* Buffering / loading spinner covers the dead time while the privacy proxy
           resolves a stream (several seconds) or the embed/native player is loading. */}
       {buffering && (
         <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/20">
-          <Loader2 className="size-10 animate-spin text-white/90" />
+          <Spinner className="size-10 text-white/90" />
           {usingProxy && <span className="text-xs font-medium text-white/80">Starting private stream…</span>}
         </div>
       )}
@@ -360,6 +364,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
         <div onClick={scrub} className="relative mb-3 h-1 cursor-pointer rounded-full bg-white/25">
           {/* SponsorBlock segment markers */}
           {segMarks.map((s, i) => (
+            // design-ok(raw-palette-semantic): SponsorBlock warning marks on the scrubber over the video surface
             <span key={i} className="absolute top-0 h-full rounded-full bg-amber-400/80"
               style={{ left: `${s.left}%`, width: `${s.width}%` }} title={`SponsorBlock: ${s.category}`} />
           ))}
@@ -391,7 +396,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             </button>
 
             {menu && (
-              <div className="absolute bottom-full right-0 mb-3 w-44 overflow-hidden rounded-xl border border-white/10 bg-zinc-900/95 text-sm text-white shadow-xl backdrop-blur">
+              // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): theme-invariant dark settings menu floating over the video surface
+              <div className="absolute bottom-full right-0 mb-3 w-44 overflow-hidden rounded-card border border-white/10 bg-zinc-900/95 text-sm text-white shadow-xl backdrop-blur">
                 {menu === 'main' && (
                   <>
                     <MenuRow label="Playback speed" value={rate === 1 ? 'Normal' : `${rate}×`} onClick={() => setMenu('speed')} />
@@ -433,10 +439,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 
       {/* Click anywhere on the video to toggle play/pause; shows a play badge when paused.
           Covers the whole surface (z-10) but sits below the control bar (z-30), which
-          only captures pointer events on hover — so taps on the video always toggle. */}
+          only captures pointer events on hover, so taps on the video always toggle. */}
       <button onClick={() => { if (menu) { setMenu(null); return } toggle() }} aria-label={playing ? 'Pause' : 'Play'}
         className="absolute inset-0 z-10 flex items-center justify-center">
         {!playing && !buffering && (
+          // design-ok(backdrop-blur-outside-chrome): play badge floats over the video surface
           <span className="flex size-16 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur">
             <Play className="size-7 fill-current" />
           </span>
@@ -449,6 +456,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 // A row in the settings menu that opens a sub-menu (shows current value).
 function MenuRow({ label, value, onClick }: { label: string; value: string; onClick: () => void }) {
   return (
+    // design-ok(hand-styled-button) design-ok(glass-on-plain-bg): player settings row over the video surface (white-alpha styling)
     <button onClick={onClick} className="flex w-full items-center justify-between px-3 py-2.5 text-left transition hover:bg-white/10">
       <span>{label}</span>
       <span className="ml-3 truncate text-white/60">{value}</span>
@@ -459,6 +467,7 @@ function MenuRow({ label, value, onClick }: { label: string; value: string; onCl
 function Submenu({ title, onBack, children }: { title: string; onBack: () => void; children: React.ReactNode }) {
   return (
     <>
+      {/* design-ok(hand-styled-button) design-ok(glass-on-plain-bg): player settings row over the video surface (white-alpha styling) */}
       <button onClick={onBack} className="flex w-full items-center gap-2 border-b border-white/10 px-3 py-2 text-left font-semibold transition hover:bg-white/10">
         <span className="text-white/60">‹</span> {title}
       </button>
@@ -469,6 +478,7 @@ function Submenu({ title, onBack, children }: { title: string; onBack: () => voi
 
 function OptionRow({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
+    // design-ok(hand-styled-button) design-ok(glass-on-plain-bg): player settings row over the video surface (white-alpha styling)
     <button onClick={onClick} className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-white/10">
       <Check className={cn('size-4 shrink-0', active ? 'text-[var(--yt-accent-fg)]' : 'opacity-0')} />
       {label}

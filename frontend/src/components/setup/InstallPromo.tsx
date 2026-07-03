@@ -35,23 +35,25 @@ export function InstallPromo({ className }: { className?: string }) {
 
   return (
     <div
-      className={cn('overflow-hidden rounded-2xl border border-border/60 bg-card', className)}
+      className={cn('overflow-hidden rounded-sheet border border-border/60 bg-card', className)}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
       {/* Hero */}
       <div className="relative px-6 py-7 text-white" style={{ background: slide.gradient }}>
-        {/* Soft glow accent */}
+        {/* Soft glow accent. design-ok(glass-on-plain-bg): white glow over the slide's own
+            rotating gradient artwork, not a plain surface. */}
         <div className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full bg-white/10 blur-2xl" />
 
         <div key={heroIdx} className="relative animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="mb-4 flex items-center gap-4">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur-sm">
+            {/* design-ok(backdrop-blur-outside-chrome): icon chip glass sits over the gradient artwork, not a plain surface. */}
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-control bg-white/15 backdrop-blur-sm">
               <Icon className="size-6" />
             </div>
             <div>
               <p className="mb-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-white/75">{slide.app}</p>
-              <h3 className="text-lg font-black tracking-tight leading-tight">{slide.headline}</h3>
+              <h3 className="text-lg font-bold tracking-tight leading-tight">{slide.headline}</h3>
             </div>
           </div>
           {/* Fixed floor for blurb so rotating slides don't resize the card. */}
@@ -79,7 +81,7 @@ export function InstallPromo({ className }: { className?: string }) {
 
       {/* Tips ticker */}
       <div className="flex items-center gap-2.5 px-5 py-3">
-        <Lightbulb className="size-4 shrink-0 text-amber-400" />
+        <Lightbulb className="size-4 shrink-0 text-brand" />
         <p key={tipIdx} className="min-w-0 flex-1 truncate text-xs text-muted-foreground animate-in fade-in duration-500">
           <span className="font-semibold text-foreground/70">Did you know?</span>{' '}
           {PROMO_TIPS[tipIdx]}

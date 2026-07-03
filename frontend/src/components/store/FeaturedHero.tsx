@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { PrimaryAction } from '@/components/store/StoreActions'
 import type { StoreApp } from '@/lib/store/useStoreApps'
 
@@ -16,7 +17,8 @@ function pickFeatured(apps: StoreApp[]): StoreApp[] {
   return [...picked, ...extra].slice(0, 5)
 }
 
-/** Auto-rotating front-page hero banner. */
+/** Auto-rotating front-page hero banner. App-gradient fill is a sanctioned identity
+ *  moment (App Store cards); text over artwork keeps white-alpha. */
 export function FeaturedHero({ apps }: { apps: StoreApp[] }) {
   const navigate = useNavigate()
   const featured = pickFeatured(apps)
@@ -34,7 +36,7 @@ export function FeaturedHero({ apps }: { apps: StoreApp[] }) {
 
   return (
     <div
-      className="relative overflow-hidden rounded-3xl p-8 text-white shadow-lg sm:p-10"
+      className="relative overflow-hidden rounded-sheet p-8 text-white shadow-lg sm:p-10"
       style={app.gradient ? { backgroundImage: app.gradient } : undefined}
     >
       <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/25 to-transparent" />
@@ -43,18 +45,18 @@ export function FeaturedHero({ apps }: { apps: StoreApp[] }) {
       <Icon className="pointer-events-none absolute -right-6 top-1/2 size-64 -translate-y-1/2 text-white/10" />
 
       <div className="relative max-w-lg">
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/80">Featured</p>
-        <h2 className="mt-2 text-3xl font-black leading-tight drop-shadow sm:text-4xl">{app.name}</h2>
+        <p className="text-overline text-white/80">Featured</p>
+        <h2 className="mt-2 text-display text-white drop-shadow sm:text-display-lg">{app.name}</h2>
         <p className="mt-3 text-sm text-white/85 sm:text-base">{app.description}</p>
 
         <div className="mt-6 flex items-center gap-3">
           <PrimaryAction app={app} size="md" />
-          <button
+          <Button
             onClick={() => navigate(`/app-store/app/${app.id}`)}
-            className="inline-flex items-center justify-center rounded-full bg-white/15 px-5 py-2 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/25"
+            className="bg-white/15 text-white hover:bg-white/25"
           >
             View Details
-          </button>
+          </Button>
         </div>
       </div>
 

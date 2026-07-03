@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link2, Loader2, Plus, Search, Sparkles, Users } from 'lucide-react'
-import { cn } from '@/lib/cn'
+import { Link2, Plus, Search, Sparkles, Users } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import {
   getShows, getSuggestions, acceptSuggestion, dismissSuggestion,
@@ -16,6 +15,11 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 
 export function PodcastBrowsePage() {
   const qc = useQueryClient()
@@ -64,14 +68,12 @@ export function PodcastBrowsePage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-9 px-6 py-7 pb-24">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-black tracking-tight">Browse</h1>
-        <button onClick={() => setAddOpen(true)}
-          className="flex items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">
+    <PageContainer width="wide" className="space-y-9 py-6 pb-24">
+      <PageHeader title="Browse" className="pt-0 pb-0" actions={
+        <Button variant="outline" onClick={() => setAddOpen(true)} className="gap-1.5 font-semibold">
           <Link2 className="size-4" /> Add by RSS URL
-        </button>
-      </div>
+        </Button>
+      } />
 
       {/* Directory search */}
       <div className="relative">
@@ -80,7 +82,7 @@ export function PodcastBrowsePage() {
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder="Search podcasts…"
-          className="w-full rounded-xl border border-border bg-background py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-1 focus:ring-brand"
+          className="w-full rounded-full border border-border bg-background py-2.5 pl-9 pr-4 text-sm outline-none focus:ring-1 focus:ring-brand"
         />
       </div>
 
@@ -90,7 +92,7 @@ export function PodcastBrowsePage() {
           {searching ? (
             <CardGridSkeleton />
           ) : searchResults.length === 0 ? (
-            <p className="rounded-xl border border-border/40 bg-card p-6 text-center text-sm text-muted-foreground/70">
+            <p className="rounded-card border border-border/40 bg-card p-6 text-center text-sm text-muted-foreground/70">
               No podcasts found for "{q}".
             </p>
           ) : (
@@ -103,21 +105,15 @@ export function PodcastBrowsePage() {
         <section>
           <SectionHead title="Top Podcasts" />
           {/* Genre chips */}
-          <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          <ChipRow className="mb-4 pb-1">
             {[{ id: null as number | null, name: 'Top Podcasts' }, ...(charts?.genres ?? [])].map(g => (
-              <button key={g.id ?? 'all'} onClick={() => setGenreId(g.id)}
-                className={cn('shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                  genreId === g.id
-                    ? 'border-brand/40 bg-brand/10 text-brand'
-                    : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground')}>
-                {g.name}
-              </button>
+              <Chip key={g.id ?? 'all'} label={g.name} active={genreId === g.id} onClick={() => setGenreId(g.id)} />
             ))}
-          </div>
+          </ChipRow>
           {chartsLoading ? (
             <CardGridSkeleton />
           ) : !charts || charts.results.length === 0 ? (
-            <p className="rounded-xl border border-border/40 bg-card p-6 text-center text-sm text-muted-foreground/70">
+            <p className="rounded-card border border-border/40 bg-card p-6 text-center text-sm text-muted-foreground/70">
               Charts are unavailable right now. Search for a podcast or add one by RSS URL.
             </p>
           ) : (
@@ -133,23 +129,23 @@ export function PodcastBrowsePage() {
         {isLoading ? (
           <CardGridSkeleton count={3} />
         ) : suggestions.length === 0 ? (
-          <p className="rounded-xl border border-border/40 bg-card p-6 text-center text-sm text-muted-foreground/70">
+          <p className="rounded-card border border-border/40 bg-card p-6 text-center text-sm text-muted-foreground/70">
             No suggestions right now. Create your own from the Library.
           </p>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {suggestions.map(sg => (
-              <div key={sg.id} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
+              <Card key={sg.id} className="flex flex-col gap-3 p-4">
                 <div className="flex items-center gap-2 text-xs font-semibold text-brand"><Sparkles className="size-3.5" /> Suggested</div>
-                <p className="text-sm font-bold">{sg.title}</p>
+                <p className="text-sm font-semibold">{sg.title}</p>
                 {sg.description && <p className="line-clamp-2 text-xs text-muted-foreground">{sg.description}</p>}
                 <div className="mt-auto flex items-center gap-2 pt-1">
-                  <button onClick={() => accept(sg.id)} className="flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90">
+                  <Button size="sm" onClick={() => accept(sg.id)} className="gap-1 text-xs font-semibold">
                     <Plus className="size-3.5" /> Add Show
-                  </button>
+                  </Button>
                   <button onClick={() => dismiss(sg.id)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
@@ -171,7 +167,7 @@ export function PodcastBrowsePage() {
       )}
 
       <AddRssDialog open={addOpen} onOpenChange={setAddOpen} />
-    </div>
+    </PageContainer>
   )
 }
 
@@ -221,7 +217,7 @@ function AddRssDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (op
         <DialogFooter className="mt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={() => void handleSubscribe()} disabled={pending || !url.trim()}>
-            {pending && <Loader2 className="size-4 animate-spin" />} Subscribe
+            {pending && <Spinner className="text-current" />} Subscribe
           </Button>
         </DialogFooter>
       </DialogContent>

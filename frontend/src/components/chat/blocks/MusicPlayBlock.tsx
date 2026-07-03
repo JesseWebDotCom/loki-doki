@@ -2,6 +2,7 @@ import { Music, Play, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { proxyImg } from '@/lib/img'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
+import { Card } from '@/components/ui/card'
 import type { PlayMusicBlockData, PlayMusicVideo } from './types'
 
 function fmtDur(sec: number | null): string {
@@ -29,10 +30,10 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card/60">
+    <Card variant="surface" className="bg-card/60">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
-        <div className="flex size-6 items-center justify-center rounded-md bg-orange-500/10 text-orange-500">
+        <div className="flex size-6 items-center justify-center rounded-control bg-brand/10 text-brand">
           <Music className="size-3.5" />
         </div>
         <span className="text-xs font-semibold text-muted-foreground">Music</span>
@@ -49,10 +50,10 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
             <img
               src={proxyImg(top.thumbnail)}
               alt={top.title}
-              className="h-12 w-[85px] rounded-md object-cover"
+              className="h-12 w-[85px] rounded-card object-cover"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
             />
-            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/30 opacity-0 transition-opacity hover:opacity-100">
+            <div className="absolute inset-0 flex items-center justify-center rounded-card bg-black/30 opacity-0 transition-opacity hover:opacity-100">
               <Play className="size-4 fill-white text-white" />
             </div>
           </div>
@@ -78,7 +79,7 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
               <img
                 src={proxyImg(v.thumbnail)}
                 alt={v.title}
-                className="h-8 w-14 shrink-0 rounded object-cover"
+                className="h-8 w-14 shrink-0 rounded-control object-cover"
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
               />
               <div className="min-w-0 flex-1">
@@ -102,6 +103,6 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
           Open in Music app
         </button>
       </div>
-    </div>
+    </Card>
   )
 }

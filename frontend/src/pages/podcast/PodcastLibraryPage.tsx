@@ -5,6 +5,9 @@ import { getShows, type Show } from '@/lib/podcast/api'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { usePodcastUI } from '@/components/podcast/PodcastLayout'
 import { SectionHead, CardGridSkeleton } from '@/components/store/SectionHead'
+import { Button } from '@/components/ui/button'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 
 export function PodcastLibraryPage() {
   const { data: shows = [], isLoading } = useQuery({ queryKey: ['podcast-shows'], queryFn: getShows })
@@ -14,13 +17,12 @@ export function PodcastLibraryPage() {
   const mine = shows.filter(s => s.isOwn && s.source !== 'rss')
 
   return (
-    <div className="mx-auto max-w-5xl space-y-9 px-6 py-7 pb-24">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black tracking-tight">Library</h1>
-        <button onClick={openCreate} className="flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90">
+    <PageContainer width="wide" className="space-y-9 py-6 pb-24">
+      <PageHeader title="Library" className="pt-0 pb-0" actions={
+        <Button onClick={openCreate} className="gap-1.5 font-semibold">
           <Plus className="size-4" /> Create New
-        </button>
-      </div>
+        </Button>
+      } />
 
       {isLoading ? (
         <CardGridSkeleton />
@@ -46,7 +48,7 @@ export function PodcastLibraryPage() {
           )}
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }
 

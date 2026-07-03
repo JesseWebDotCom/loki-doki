@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Brain, Camera, Check, ChevronRight, KeyRound, Loader2, MessageSquare, Search, Trash2, Users as UsersIcon, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Brain, Camera, Check, ChevronRight, KeyRound, MessageSquare, Search, Trash2, Users as UsersIcon, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
@@ -219,7 +223,7 @@ function ConfirmButton({ label, onConfirm, className }: {
       onBlur={() => setStep((s) => s === 'confirm' ? 'idle' : s)}
     >
       {step === 'loading'
-        ? <Loader2 className="h-3 w-3 animate-spin" />
+        ? <Spinner size="sm" className="h-3 w-3 text-current" />
         : step === 'confirm' ? 'Confirm?' : label}
     </Button>
   )
@@ -228,12 +232,12 @@ function ConfirmButton({ label, onConfirm, className }: {
 // ── Tier / status chips ───────────────────────────────────────────────────────
 
 const TIER_STYLE: Record<string, string> = {
-  durable:  'bg-emerald-500/15 text-emerald-600',
-  episodic: 'bg-sky-500/15 text-sky-600',
+  durable:  'bg-success/10 text-success',
+  episodic: 'bg-info/10 text-info',
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  superseded: 'bg-amber-500/15 text-amber-600',
+  superseded: 'bg-warning/10 text-warning',
   archived:   'bg-muted text-muted-foreground',
 }
 
@@ -249,7 +253,7 @@ function ScopeSection({ scope, userId, onChanged }: {
   const total = scope.memories.length + scope.entities.length + scope.episodes.length
 
   return (
-    <div className="rounded-md border">
+    <div className="rounded-control border">
       <div className="flex items-center gap-2 px-3 py-2">
         <button
           onClick={() => setOpen((o) => !o)}
@@ -274,7 +278,7 @@ function ScopeSection({ scope, userId, onChanged }: {
           {/* Memories */}
           {scope.memories.length > 0 && (
             <div className="p-3 space-y-1">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="mb-2 text-overline text-muted-foreground">
                 Memories
               </p>
               {scope.memories.map((m) => (
@@ -309,7 +313,7 @@ function ScopeSection({ scope, userId, onChanged }: {
           {/* Entities */}
           {scope.entities.length > 0 && (
             <div className="p-3 space-y-1">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="mb-2 text-overline text-muted-foreground">
                 Entities
               </p>
               {scope.entities.map((e) => {
@@ -334,7 +338,7 @@ function ScopeSection({ scope, userId, onChanged }: {
           {/* Episodes */}
           {scope.episodes.length > 0 && (
             <div className="p-3 space-y-1.5">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="mb-2 text-overline text-muted-foreground">
                 Episodes
               </p>
               {scope.episodes.map((ep) => (
@@ -377,7 +381,7 @@ function UserMemoryDetail({ userId, onMemoryChange }: {
   if (loading) {
     return (
       <div className="flex justify-center py-6">
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <Spinner className="h-4 w-4" />
       </div>
     )
   }
@@ -500,25 +504,27 @@ function UserGeneralTab({ user, onUpdate }: {
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="relative block h-[72px] w-[72px] overflow-hidden rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="relative block h-[72px] w-[72px] overflow-hidden rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               title="Change photo"
             >
-              <UserAvatar user={user} className="h-[72px] w-[72px] rounded-2xl text-xl" />
-              <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+              <UserAvatar user={user} className="h-[72px] w-[72px] rounded-card text-xl" />
+              <div className="absolute inset-0 flex items-center justify-center rounded-card bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
                 {uploading
-                  ? <Loader2 className="h-5 w-5 text-white animate-spin" />
+                  ? <Spinner className="h-5 w-5 text-white" />
                   : <Camera className="h-5 w-5 text-white" />}
               </div>
             </button>
             {user.avatarUrl && !uploading && (
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={handleAvatarRemove}
-                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background shadow-sm text-muted-foreground hover:border-destructive hover:text-destructive transition-colors"
+                className="absolute -right-1.5 -top-1.5 h-5 w-5 p-0 shadow-sm text-muted-foreground hover:border-destructive hover:text-destructive"
                 title="Remove photo"
+                aria-label="Remove photo"
               >
                 <X className="h-3 w-3" />
-              </button>
+              </Button>
             )}
           </div>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
@@ -544,18 +550,18 @@ function UserGeneralTab({ user, onUpdate }: {
             <div className="flex items-center gap-2">
               <Badge
                 variant="outline"
-                className={cn('text-[10px] px-1.5 py-0', user.role === 'admin' ? 'border-amber-500/40 text-amber-600' : '')}
+                className={cn('text-[10px] px-1.5 py-0', user.role === 'admin' ? 'border-warning/40 text-warning' : '')}
               >
                 {user.role}
               </Badge>
               <span className="text-xs text-muted-foreground">
-                Joined {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
+                Joined {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'}
               </span>
             </div>
             {dirty && (
               <Button size="sm" onClick={handleSave} disabled={saving} className="h-7 text-xs">
                 {saving
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  ? <Spinner size="sm" className="h-3 w-3 text-current" />
                   : saved
                     ? <><Check className="h-3 w-3 mr-1" />Saved</>
                     : 'Save'}
@@ -571,7 +577,7 @@ function UserGeneralTab({ user, onUpdate }: {
       <div className="space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-muted">
               <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
             <div>
@@ -612,7 +618,7 @@ function UserGeneralTab({ user, onUpdate }: {
                 autoFocus
               />
               <Button size="sm" className="h-8 text-xs" onClick={handleSetPin} disabled={pinSaving}>
-                {pinSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                {pinSaving ? <Spinner size="sm" className="h-3 w-3 text-current" /> : 'Save'}
               </Button>
               <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setPinMode('idle'); setPinInput(''); setPinError('') }}>
                 Cancel
@@ -628,7 +634,7 @@ function UserGeneralTab({ user, onUpdate }: {
       {/* ── Clear chats ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-muted">
             <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           <div>
@@ -686,7 +692,7 @@ function UserContentCeiling({ userId }: { userId: string }) {
   const pendingOpen = pending ? CONTENT_DIALS.filter((d) => pending.dials[d.key] === 'unrestricted').map((d) => d.label) : []
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card/50 p-3 space-y-2">
+    <div className="rounded-card border border-border/50 bg-card/50 p-3 space-y-2">
       <div>
         <p className="text-sm font-medium leading-tight">Content profile</p>
         <p className="text-xs text-muted-foreground mt-0.5">
@@ -697,7 +703,7 @@ function UserContentCeiling({ userId }: { userId: string }) {
       <select
         value={assigned ?? ''}
         onChange={(e) => choose(e.target.value)}
-        className="w-full rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60"
+        className="w-full rounded-control border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60"
       >
         {assigned === null && <option value="" disabled>Loading…</option>}
         {profiles.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
@@ -710,7 +716,7 @@ function UserContentCeiling({ userId }: { userId: string }) {
       <ConfirmDialog
         open={!!pending}
         onOpenChange={(o) => { if (!o) setPending(null) }}
-        title={`Assign "${pending?.name}" — fully unrestricted categories`}
+        title={`Assign "${pending?.name}": fully unrestricted categories`}
         description={`This profile sets these categories to 100% (no limit): ${pendingOpen.join(', ')}. The user and their companions will be able to discuss these topics without restriction. Only sexual content involving minors and mass-casualty weapons remain blocked. Continue?`}
         confirmLabel="Assign anyway"
         onConfirm={() => { if (pending) void commit(pending.slug); setPending(null) }}
@@ -754,7 +760,7 @@ function UserProtectionsTab({ userId }: { userId: string }) {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-8"><Loader2 className="size-4 animate-spin text-muted-foreground" /></div>
+    return <div className="flex justify-center py-8"><Spinner /></div>
   }
 
   if (!data) {
@@ -774,7 +780,7 @@ function UserProtectionsTab({ userId }: { userId: string }) {
   return (
     <div className="p-4 space-y-3">
       {saving && <p className="text-xs text-muted-foreground">Saving…</p>}
-      {saved && <p className="text-xs text-emerald-500">Saved</p>}
+      {saved && <p className="text-xs text-success">Saved</p>}
 
       <UserContentCeiling userId={userId} />
 
@@ -789,29 +795,29 @@ function UserProtectionsTab({ userId }: { userId: string }) {
       ))}
 
       {/* Confirmation modal for disabling uncensored LLM block */}
-      {uncensoredWarning && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border rounded-xl p-5 max-w-sm mx-4 space-y-3">
-            <div className="flex items-center gap-2 text-amber-500">
+      <Dialog open={uncensoredWarning} onOpenChange={(o) => { if (!o) setUncensoredWarning(false) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm text-warning">
               <AlertTriangle className="size-4 shrink-0" />
-              <p className="text-sm font-semibold">Enable uncensored LLM?</p>
-            </div>
-            <p className="text-sm text-muted-foreground">
+              Enable uncensored LLM?
+            </DialogTitle>
+            <DialogDescription>
               This removes all content filtering on AI responses for this user. Uncensored models can produce explicit, harmful, or offensive content.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <Button size="sm" variant="outline" onClick={() => setUncensoredWarning(false)}>Cancel</Button>
-              <Button
-                size="sm"
-                className="bg-amber-500 hover:bg-amber-600 text-white"
-                onClick={() => { setUncensoredWarning(false); applyToggle('blockUncensoredLlm', false) }}
-              >
-                Allow uncensored
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => setUncensoredWarning(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-warning text-warning-foreground hover:bg-warning/90"
+              onClick={() => { setUncensoredWarning(false); applyToggle('blockUncensoredLlm', false) }}
+            >
+              Allow uncensored
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -828,7 +834,7 @@ function SegmentedControl<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div className="flex rounded-md border border-border overflow-hidden text-[11px]">
+    <div className="flex rounded-control border border-border overflow-hidden text-[11px]">
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -871,7 +877,7 @@ function UserStyleTab({ userId }: { userId: string }) {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-8"><Loader2 className="size-4 animate-spin text-muted-foreground" /></div>
+    return <div className="flex justify-center py-8"><Spinner /></div>
   }
 
   if (!data) {
@@ -883,7 +889,7 @@ function UserStyleTab({ userId }: { userId: string }) {
   return (
     <div className="p-4 space-y-5">
       {saving && <p className="text-xs text-muted-foreground">Saving…</p>}
-      {saved && <p className="text-xs text-emerald-500">Saved</p>}
+      {saved && <p className="text-xs text-success">Saved</p>}
 
       <div className="space-y-2">
         <div>
@@ -945,7 +951,7 @@ function UserListRow({ user, selected, onSelect, onMemoryChange, onUserUpdate }:
   const hasMemory = user.memories + user.entities + user.episodes > 0
 
   return (
-    <div className="rounded-lg border">
+    <div className="rounded-control border">
       <div className="flex items-center gap-3 px-3 py-2.5">
         {/* Checkbox */}
         <input
@@ -967,7 +973,7 @@ function UserListRow({ user, selected, onSelect, onMemoryChange, onUserUpdate }:
 
         <Badge
           variant="outline"
-          className={cn('text-[10px] px-1.5 shrink-0', user.role === 'admin' ? 'border-amber-500/40 text-amber-600' : '')}
+          className={cn('text-[10px] px-1.5 shrink-0', user.role === 'admin' ? 'border-warning/40 text-warning' : '')}
         >
           {user.role}
         </Badge>
@@ -1095,7 +1101,7 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
         <div className="space-y-3">
           {/* Toolbar: search-within + sort */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/60 bg-background px-2.5 py-1.5">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-control border border-border/60 bg-background px-2.5 py-1.5">
               <Search className="size-3.5 shrink-0 text-muted-foreground" />
               <input
                 value={q}
@@ -1143,7 +1149,7 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
                   onBlur={() => setBulkStep('idle')}
                 >
                   {bulkClearing
-                    ? <><Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> Clearing…</>
+                    ? <><Spinner size="sm" className="mr-1.5 h-3 w-3" /> Clearing…</>
                     : bulkStep === 'confirm'
                       ? 'Confirm clear?'
                       : `Clear memory (${selected.size})`}
@@ -1160,7 +1166,7 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
           <div className="space-y-2">
             {loading ? (
               Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+                <div key={i} className="flex items-center gap-3 rounded-control border px-3 py-2.5">
                   <Skeleton className="size-7 rounded-full" />
                   <Skeleton className="h-4 w-32" />
                   <Skeleton className="ml-auto h-5 w-12 rounded-full" />
@@ -1168,7 +1174,7 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
               ))
             ) : visible.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-10 text-center">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
+                <div className="flex size-12 items-center justify-center rounded-card bg-muted">
                   <UsersIcon className="size-6 text-muted-foreground" />
                 </div>
                 <p className="text-sm font-medium">{q.trim() ? 'No matching users' : 'No users yet'}</p>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Globe, MapPin, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
@@ -19,7 +20,7 @@ const browserTimezone = (() => {
 export function WorldClockTab() {
   const { locations, addLocation, removeLocation } = useTimeApp()
   // Home clock uses the same default location the rest of the app reads
-  // (`user.location` preference — set in onboarding/settings, shared with maps,
+  // (`user.location` preference, set in onboarding/settings, shared with maps,
   // briefing, chat tools). Falls back to the device timezone when unset.
   const { location } = useUserLocation()
   const home = {
@@ -53,8 +54,8 @@ export function WorldClockTab() {
 
   return (
     <div className="space-y-4">
-      {/* Home clock — the user's default location (or device timezone). */}
-      <div className="flex items-center justify-between rounded-2xl border border-brand/30 bg-brand/5 px-4 py-4">
+      {/* Home clock: the user's default location (or device timezone). */}
+      <Card className="flex items-center justify-between border-brand/30 bg-brand/5 px-4 py-4">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-brand">
             <MapPin className="size-3.5" /> {home.pinned ? 'Home' : 'Local'}
@@ -66,24 +67,24 @@ export function WorldClockTab() {
           <span className="text-4xl font-light tracking-tight">{homeParts.time}</span>
           <span className="ml-1 text-sm font-medium text-muted-foreground">{homeParts.ampm}</span>
         </div>
-      </div>
+      </Card>
 
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Other cities</p>
+        <p className="text-overline text-muted-foreground">Other cities</p>
         <Button size="sm" onClick={openAdd}><Plus className="size-4" /> Add city</Button>
       </div>
 
       {locations.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border/60 bg-card/40 py-10 text-center">
+        <Card variant="dashed" className="flex flex-col items-center gap-3 border-border/60 py-10 text-center">
           <Globe className="size-9 text-muted-foreground/60" />
           <p className="text-sm text-muted-foreground">Add a city to see its local time.</p>
-        </div>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {locations.map((loc) => {
             const p = zoneParts(nowDate, loc.timezone)
             return (
-              <div key={loc.id} className="group flex items-center justify-between rounded-2xl border border-border/60 bg-card px-4 py-3.5">
+              <Card key={loc.id} className="group flex items-center justify-between border-border/60 px-4 py-3.5">
                 <div className="min-w-0">
                   <p className="truncate text-lg font-semibold">{loc.label}</p>
                   <p className="text-xs text-muted-foreground">{p.dayLabel ? `${p.dayLabel} · ` : ''}{p.offset}</p>
@@ -99,7 +100,7 @@ export function WorldClockTab() {
                     <Trash2 className="size-4" />
                   </button>
                 </div>
-              </div>
+              </Card>
             )
           })}
         </div>

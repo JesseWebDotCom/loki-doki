@@ -5,6 +5,7 @@ import {
   PanelLeftOpen, Pencil, Plus, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { ProjectEditor } from '@/components/chat/ProjectEditor'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { resolveProjectColor } from '@/components/shared/ColorPicker'
@@ -86,28 +87,32 @@ export function ChatLayout() {
     <div className="flex h-full flex-col">
       {/* New chat */}
       <div className="shrink-0 px-3 pt-4 pb-2">
-        <button
+        <Button
+          variant="ghost"
           onClick={handleNewChat}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="w-full justify-start gap-2.5 rounded-control px-3 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Plus className="size-4 shrink-0" />
           New chat
-        </button>
+        </Button>
       </div>
 
       {/* Projects section */}
       <div className="shrink-0">
         <div className="flex items-center justify-between px-3 pt-3 pb-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <span className="text-overline text-muted-foreground/60">
             Projects
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={() => setCreatingProject(true)}
             title="New project"
-            className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+            aria-label="New project"
+            className="size-6 rounded-control text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             <Plus className="size-3.5" />
-          </button>
+          </Button>
         </div>
 
         <div className="px-2 space-y-0.5">
@@ -136,16 +141,19 @@ export function ChatLayout() {
 
       {/* Chats section */}
       <div className="flex items-center justify-between px-3 pb-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+        <span className="text-overline text-muted-foreground/60">
           Chats
         </span>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={handleNewChat}
           title="New chat"
-          className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+          aria-label="New chat"
+          className="size-6 rounded-control text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Plus className="size-3.5" />
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-2 space-y-0.5 pb-2">
@@ -174,12 +182,12 @@ export function ChatLayout() {
     <PageShell className="flex-1 min-h-0 overflow-hidden">
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* Sidebar — desktop */}
+        {/* Sidebar - desktop */}
         <div className="hidden md:flex w-64 shrink-0 flex-col border-r border-border/30 bg-sidebar">
           {sidebarContent}
         </div>
 
-        {/* Sidebar — mobile sheet */}
+        {/* Sidebar - mobile sheet */}
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent side="left" className="w-72 p-0 flex flex-col">
             {sidebarContent}
@@ -189,12 +197,15 @@ export function ChatLayout() {
         {/* Main pane */}
         <div className="flex flex-1 min-h-0 flex-col">
           <div className="md:hidden shrink-0 flex items-center gap-2 border-b border-border/20 px-3 py-2">
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setSheetOpen(true)}
-              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors"
+              aria-label="Open chat sidebar"
+              className="rounded-control text-muted-foreground hover:text-foreground"
             >
               <PanelLeftOpen className="size-4" />
-            </button>
+            </Button>
           </div>
           <Outlet />
         </div>
@@ -238,13 +249,14 @@ export function ChatLayout() {
 
 function ViewAllRow({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
+    <Button
+      variant="ghost"
       onClick={onClick}
-      className="flex w-full items-center gap-1 rounded-lg px-2.5 py-2 text-sm text-muted-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+      className="w-full justify-start gap-1 rounded-control px-2.5 font-normal text-muted-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
     >
       {label}
       <ChevronRight className="size-3" />
-    </button>
+    </Button>
   )
 }
 
@@ -269,22 +281,23 @@ function ProjectRow({
 
   return (
     <div className={cn(
-      'group/proj relative flex items-center rounded-lg transition-colors',
-      isActive ? 'bg-foreground/10' : 'hover:bg-foreground/5',
+      'group/proj relative flex items-center rounded-control transition-colors',
+      isActive ? 'bg-brand/10' : 'hover:bg-foreground/5',
     )}>
+      {/* design-ok(hand-styled-button): headless row hotspot - row styling lives on the parent */}
       <button
         onClick={onSelect}
         className="flex flex-1 min-w-0 items-center gap-2 px-2 py-2 text-left"
       >
         <span
-          className="flex size-5 shrink-0 items-center justify-center rounded-md"
+          className="flex size-5 shrink-0 items-center justify-center rounded-control"
           style={tintStyle}
         >
           <Icon className="size-3" />
         </span>
         <span className={cn(
           'truncate text-sm',
-          isActive ? 'text-foreground font-medium' : 'text-muted-foreground',
+          isActive ? 'text-brand font-medium' : 'text-muted-foreground',
         )}>
           {project.name}
         </span>
@@ -292,12 +305,15 @@ function ProjectRow({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={(e) => e.stopPropagation()}
-            className="relative mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 group-hover/proj:opacity-100 hover:bg-foreground/10 hover:text-foreground transition-all data-[state=open]:opacity-100"
+            aria-label="Project options"
+            className="relative mr-1 size-5 shrink-0 rounded-control text-muted-foreground/60 opacity-0 group-hover/proj:opacity-100 hover:bg-foreground/10 hover:text-foreground data-[state=open]:opacity-100"
           >
             <MoreHorizontal className="size-3" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="start" className="w-36">
           <DropdownMenuItem onClick={onEdit}>
@@ -332,36 +348,40 @@ function ConversationRow({
   return (
     <div
       className={cn(
-        'group relative flex items-center rounded-lg transition-colors',
-        isActive ? 'bg-foreground/10' : 'hover:bg-foreground/5',
+        'group relative flex items-center rounded-control transition-colors',
+        isActive ? 'bg-brand/10' : 'hover:bg-foreground/5',
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {/* design-ok(hand-styled-button): headless row hotspot - row styling lives on the parent */}
       <button
         onClick={onSelect}
         className="flex flex-1 min-w-0 items-center gap-2 px-2.5 py-2 text-left"
       >
         <MessageSquare className={cn(
           'size-3.5 shrink-0',
-          isActive ? 'text-foreground/60' : 'text-muted-foreground/60',
+          isActive ? 'text-brand/70' : 'text-muted-foreground/60',
         )} />
         <span className={cn(
           'truncate text-sm',
-          isActive ? 'text-foreground font-medium' : 'text-muted-foreground',
+          isActive ? 'text-brand font-medium' : 'text-muted-foreground',
         )}>
           {title}
         </span>
       </button>
 
       {hovered && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onDelete}
           title="Delete conversation"
-          className="absolute right-1.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          aria-label="Delete conversation"
+          className="absolute right-1.5 size-5 shrink-0 rounded-control text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive"
         >
           <Trash2 className="size-3" />
-        </button>
+        </Button>
       )}
     </div>
   )

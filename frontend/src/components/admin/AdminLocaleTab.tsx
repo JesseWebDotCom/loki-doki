@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Save, Check } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 
 interface LocaleSettings {
   measurement: 'metric' | 'imperial'
@@ -9,23 +11,23 @@ interface LocaleSettings {
 }
 
 const CURRENCIES = [
-  { value: 'USD', label: 'USD — US Dollar' },
-  { value: 'EUR', label: 'EUR — Euro' },
-  { value: 'GBP', label: 'GBP — British Pound' },
-  { value: 'CAD', label: 'CAD — Canadian Dollar' },
-  { value: 'AUD', label: 'AUD — Australian Dollar' },
-  { value: 'JPY', label: 'JPY — Japanese Yen' },
-  { value: 'CHF', label: 'CHF — Swiss Franc' },
-  { value: 'CNY', label: 'CNY — Chinese Yuan' },
-  { value: 'INR', label: 'INR — Indian Rupee' },
-  { value: 'MXN', label: 'MXN — Mexican Peso' },
-  { value: 'BRL', label: 'BRL — Brazilian Real' },
-  { value: 'KRW', label: 'KRW — South Korean Won' },
+  { value: 'USD', label: 'USD - US Dollar' },
+  { value: 'EUR', label: 'EUR - Euro' },
+  { value: 'GBP', label: 'GBP - British Pound' },
+  { value: 'CAD', label: 'CAD - Canadian Dollar' },
+  { value: 'AUD', label: 'AUD - Australian Dollar' },
+  { value: 'JPY', label: 'JPY - Japanese Yen' },
+  { value: 'CHF', label: 'CHF - Swiss Franc' },
+  { value: 'CNY', label: 'CNY - Chinese Yuan' },
+  { value: 'INR', label: 'INR - Indian Rupee' },
+  { value: 'MXN', label: 'MXN - Mexican Peso' },
+  { value: 'BRL', label: 'BRL - Brazilian Real' },
+  { value: 'KRW', label: 'KRW - South Korean Won' },
 ]
 
 const selectCls = [
-  'w-full rounded-xl border border-border bg-card px-4 py-2.5 text-sm',
-  'focus:outline-none focus:ring-2 focus:ring-violet-500/40',
+  'w-full rounded-control border border-border bg-card px-4 py-2.5 text-sm',
+  'focus:outline-none focus:ring-2 focus:ring-ring',
   'transition-all',
 ].join(' ')
 
@@ -42,7 +44,7 @@ function OptionGroup<T extends string>({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-overline text-muted-foreground">{label}</p>
       <div className="flex gap-2">
         {options.map(opt => (
           <button
@@ -50,9 +52,9 @@ function OptionGroup<T extends string>({
             type="button"
             onClick={() => onChange(opt.value)}
             className={[
-              'flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all',
+              'flex-1 rounded-control border px-4 py-2.5 text-sm font-medium transition-all',
               value === opt.value
-                ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                ? 'border-brand/50 bg-brand/10 text-brand'
                 : 'border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground',
             ].join(' ')}
           >
@@ -103,7 +105,7 @@ export function AdminLocaleTab() {
   }
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+    return <SkeletonListRows count={4} className="p-6" />
   }
 
   return (
@@ -146,7 +148,7 @@ export function AdminLocaleTab() {
         />
 
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Currency</p>
+          <p className="text-overline text-muted-foreground">Currency</p>
           <select
             value={settings.currency}
             onChange={e => setSettings(s => ({ ...s, currency: e.target.value }))}
@@ -159,16 +161,15 @@ export function AdminLocaleTab() {
         </div>
       </div>
 
-      <button
+      <Button
         type="button"
         onClick={save}
         disabled={saving}
-        className="flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-50 transition-colors"
       >
         {saved
           ? <><Check className="size-4" /> Saved</>
           : <><Save className="size-4" /> Save</>}
-      </button>
+      </Button>
     </div>
   )
 }

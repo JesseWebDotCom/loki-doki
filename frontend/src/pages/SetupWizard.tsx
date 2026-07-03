@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Loader2, Sparkles, Lock, Package, Download, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Settings2,
+  Sparkles, Lock, Package, Download, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Settings2,
   Bot, Eye, Database, Wand2, Mic, Server, Route, ScanFace, Film, Eraser, Library,
   Map as MapIcon, Ear, MessageSquare, Image as ImageIcon, Users, Home, Lightbulb, Cpu,
   MapPin, Navigation, ShieldCheck, WifiOff, Lock as LockIcon, AlertTriangle, Globe,
@@ -21,6 +21,8 @@ import { useUserLocation } from '@/hooks/useUserLocation'
 import { DicebearAvatarPicker } from '@/components/shared/DicebearAvatarPicker'
 import { randomSeed } from '@/components/companion/styleSchemas'
 import { MIN_DIALS, MAX_DIALS } from '@/components/shared/contentDials'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 
 // ── Types (mirroring backend catalog) ────────────────────────────────────────
 
@@ -94,13 +96,11 @@ const STEP_META: Record<Step, { icon: React.ComponentType<{ className?: string }
 // ── Input style ───────────────────────────────────────────────────────────────
 
 const inputCls = [
-  'w-full rounded-xl border border-border bg-card px-4 py-3 text-sm',
+  'w-full rounded-control border border-border bg-card px-4 py-3 text-sm',
   'placeholder:text-muted-foreground/50',
-  'focus:outline-none focus:ring-2 focus:ring-violet-500/40',
+  'focus:outline-none focus:ring-2 focus:ring-brand/40',
   'transition-all',
 ].join(' ')
-
-const primaryBtn = 'flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-50 transition-colors'
 
 // ── Role labels ───────────────────────────────────────────────────────────────
 
@@ -144,24 +144,24 @@ interface Capability {
 // “Base Applications” heading so it's clear they're part of the core install.
 // Non-base capabilities are enqueued to the background job manager after boot.
 const CAPABILITIES: Capability[] = [
-  { id: 'tesseract',     label: 'Home Inventory',     description: 'Snap a photo — AI identifies your devices and tracks warranties (Tesseract OCR)', bytes: 30_000_000,  defaultOn: true,  requires: [],             base: true, icon: Home },
-  { id: 'searxng',       label: 'Web Search',          description: 'High-quality web search via a local SearXNG metasearch engine — aggregates Google, Brave & Startpage so search works where direct scraping is blocked', bytes: 300_000_000, defaultOn: true,  requires: [],             icon: Globe },
+  { id: 'tesseract',     label: 'Home Inventory',     description: 'Snap a photo - AI identifies your devices and tracks warranties (Tesseract OCR)', bytes: 30_000_000,  defaultOn: true,  requires: [],             base: true, icon: Home },
+  { id: 'searxng',       label: 'Web Search',          description: 'High-quality web search via a local SearXNG metasearch engine - aggregates Google, Brave & Startpage so search works where direct scraping is blocked', bytes: 300_000_000, defaultOn: true,  requires: [],             icon: Globe },
   { id: 'voice-core',   label: 'Voice',               description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                        bytes: 320_000_000, defaultOn: false, requires: [],             icon: Mic },
   { id: 'wakeword-core', label: 'Wake Word',          description: 'Hands-free “Hey Jarvis” activation',                                                bytes: 6_000_000,   defaultOn: false, requires: ['voice-core'], icon: Ear },
-  { id: 'esphome',       label: 'Devices',             description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.). Adds the ESP32 toolchain (~1 GB) — install later if you have devices.', bytes: 1_000_000_000, defaultOn: false, requires: [],             icon: Cpu },
+  { id: 'esphome',       label: 'Devices',             description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.). Adds the ESP32 toolchain (~1 GB) - install later if you have devices.', bytes: 1_000_000_000, defaultOn: false, requires: [],             icon: Cpu },
 ]
 
 // ── Feature showcase (welcome step + left panel) ────────────────────────────────
 
 const FEATURES: { icon: React.ComponentType<{ className?: string }>; name: string; blurb: string; chip: string }[] = [
-  { icon: MessageSquare, name: 'Chat',          blurb: 'An AI that remembers you and looks things up - privately', chip: 'bg-blue-500/15 text-blue-400' },
-  { icon: ImageIcon,     name: 'Images & Video', blurb: 'Generate anything. No filters, no refusals for adults',    chip: 'bg-fuchsia-500/15 text-fuchsia-400' },
-  { icon: Users,         name: 'Companions',     blurb: 'An animated buddy with its own voice and personality',     chip: 'bg-violet-500/15 text-violet-400' },
-  { icon: Mic,           name: 'Voice',          blurb: 'Say a wakeword and just talk - it listens and speaks back', chip: 'bg-teal-500/15 text-teal-400' },
-  { icon: Library,       name: 'Offline Library', blurb: 'Full Wikipedia & references with no internet',            chip: 'bg-amber-500/15 text-amber-400' },
-  { icon: MapIcon,       name: 'Offline Maps',   blurb: 'Maps and turn-by-turn directions, no data plan',           chip: 'bg-green-500/15 text-green-400' },
-  { icon: Home,          name: 'Home Inventory', blurb: 'Snap a photo - the AI tracks your devices & warranties',   chip: 'bg-orange-500/15 text-orange-400' },
-  { icon: Lightbulb,     name: 'Home Control',   blurb: '“Turn off the office lights” - controls your smart home',  chip: 'bg-yellow-500/15 text-yellow-500' },
+  { icon: MessageSquare, name: 'Chat',          blurb: 'An AI that remembers you and looks things up - privately', chip: 'bg-info/15 text-info' },
+  { icon: ImageIcon,     name: 'Images & Video', blurb: 'Generate anything. No filters, no refusals for adults',    chip: 'bg-brand/15 text-brand' },
+  { icon: Users,         name: 'Companions',     blurb: 'An animated buddy with its own voice and personality',     chip: 'bg-brand/15 text-brand' },
+  { icon: Mic,           name: 'Voice',          blurb: 'Say a wakeword and just talk - it listens and speaks back', chip: 'bg-info/15 text-info' },
+  { icon: Library,       name: 'Offline Library', blurb: 'Full Wikipedia & references with no internet',            chip: 'bg-warning/15 text-warning' },
+  { icon: MapIcon,       name: 'Offline Maps',   blurb: 'Maps and turn-by-turn directions, no data plan',           chip: 'bg-success/15 text-success' },
+  { icon: Home,          name: 'Home Inventory', blurb: 'Snap a photo - the AI tracks your devices & warranties',   chip: 'bg-success/15 text-success' },
+  { icon: Lightbulb,     name: 'Home Control',   blurb: '“Turn off the office lights” - controls your smart home',  chip: 'bg-warning/15 text-warning' },
 ]
 
 const VALUE_PROPS: { icon: React.ComponentType<{ className?: string }>; text: string }[] = [
@@ -180,19 +180,21 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background">
-      {/* Ambient glow */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-20 top-1/4 size-[600px] rounded-full bg-violet-600/10 blur-[150px]" />
-        <div className="absolute right-0 bottom-0 size-[500px] rounded-full bg-blue-600/8 blur-[140px]" />
+      {/* Ambient glow: absolute (not fixed) so it stays contained to this full-screen shell,
+          same decorative treatment as BootScreen. */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-20 top-1/4 size-[600px] rounded-full bg-brand/10 blur-[150px]" />
+        <div className="absolute right-0 bottom-0 size-[500px] rounded-full bg-brand/6 blur-[140px]" />
       </div>
 
       {/* Left brand / showcase panel */}
-      <aside className="relative z-10 hidden w-[42%] max-w-md shrink-0 flex-col justify-between overflow-hidden border-r border-border/50 bg-gradient-to-b from-violet-950/30 via-background to-background px-10 py-10 lg:flex">
+      <aside className="relative z-10 hidden w-[42%] max-w-md shrink-0 flex-col justify-between overflow-hidden border-r border-border/50 bg-gradient-to-b from-brand/[0.08] via-background to-background px-10 py-10 lg:flex">
         <div>
           <div className="flex items-center gap-3">
             <BrandMark glow className="size-10" />
             <div>
-              <h1 className="text-xl font-black tracking-tight leading-none">LokiDoki</h1>
+              {/* design-ok(raw-h1-in-pages): compact brand wordmark next to the logo mark, mirrors BootScreen */}
+              <h1 className="text-xl font-bold tracking-tight leading-none">LokiDoki</h1>
               <p className="text-xs text-muted-foreground mt-0.5">Your private AI home hub</p>
             </div>
           </div>
@@ -203,7 +205,7 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
           <div className="space-y-2.5">
             {VALUE_PROPS.map(vp => (
               <div key={vp.text} className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                <vp.icon className="size-4 shrink-0 text-violet-400" />
+                <vp.icon className="size-4 shrink-0 text-brand" />
                 <span>{vp.text}</span>
               </div>
             ))}
@@ -222,14 +224,14 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
             return (
               <button key={s} type="button" disabled={!clickable} onClick={() => clickable && onNavigate!(s)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors',
-                  active && 'bg-violet-500/10',
+                  'flex w-full items-center gap-3 rounded-control px-3 py-2 text-left transition-colors',
+                  active && 'bg-brand/10',
                   clickable ? 'cursor-pointer hover:bg-accent/40' : 'cursor-default',
                 )}>
                 <div className={cn(
                   'flex size-7 shrink-0 items-center justify-center rounded-full transition-all',
-                  done && 'bg-emerald-500 text-white',
-                  active && 'bg-violet-500 text-white shadow-lg shadow-violet-500/30',
+                  done && 'bg-success text-success-foreground',
+                  active && 'bg-brand text-brand-foreground shadow-lg shadow-brand/30',
                   !done && !active && 'bg-muted text-muted-foreground',
                 )}>
                   {done ? <CheckCircle2 className="size-4" /> : <Icon className="size-3.5" />}
@@ -249,7 +251,7 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
         {/* Mobile header */}
         <div className="flex items-center gap-2 border-b border-border/50 px-6 py-4 lg:hidden">
           <BrandMark className="size-8" />
-          <span className="font-black tracking-tight">LokiDoki</span>
+          <span className="font-bold tracking-tight">LokiDoki</span>
           <span className="ml-auto text-xs text-muted-foreground tabular-nums">{Math.max(1, idx)} / {railSteps.length}</span>
         </div>
 
@@ -275,11 +277,13 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="w-full space-y-7 animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="space-y-3">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs font-semibold text-violet-300">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">
           <Sparkles className="size-3.5" /> Welcome to your home AI
         </span>
-        <h2 className="text-3xl font-black tracking-tight sm:text-4xl">
-          A full AI stack that runs <span className="bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">in your home</span> and stays there.
+        <h2 className="text-display sm:text-display-lg">
+          A full AI stack that runs{' '}
+          {/* The wizard's one sanctioned brand-gradient moment (hero text accent). */}
+          <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'var(--brand-gradient)' }}>in your home</span> and stays there.
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed">
           Private, uncensored, and free. Everything below runs on your own hardware - your conversations, images, and your family's data belong to no one but you. Let's set it up.
@@ -288,8 +292,8 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {FEATURES.map(f => (
-          <div key={f.name} className="flex items-start gap-3 rounded-xl border border-border bg-card/60 px-4 py-3">
-            <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', f.chip)}>
+          <div key={f.name} className="flex items-start gap-3 rounded-card border border-border bg-card/60 px-4 py-3">
+            <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-control', f.chip)}>
               <f.icon className="size-5" />
             </div>
             <div className="min-w-0">
@@ -300,9 +304,9 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         ))}
       </div>
 
-      <button type="button" onClick={onNext} className={cn(primaryBtn, 'w-full')}>
+      <Button type="button" onClick={onNext} size="xl" className="w-full">
         Let's get started <ChevronRight className="size-4" />
-      </button>
+      </Button>
       <p className="text-center text-xs text-muted-foreground/60">You choose what to install</p>
     </div>
   )
@@ -362,7 +366,7 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
     if (!editMode && !birthdate) { setError('Date of birth is required.'); return }
     setLoading(true); setError('')
     try {
-      // Editing an existing account (navigated back) — update in place, don't re-create.
+      // Editing an existing account (navigated back) - update in place, don't re-create.
       if (editMode && initial) {
         const patch: Record<string, unknown> = { firstName: firstName.trim(), lastName: lastName.trim() }
         if (birthdate) patch['birthdate'] = birthdate
@@ -406,7 +410,7 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
         {/* ── Left: form fields ── */}
         <div className="space-y-4">
           <div>
-            <h2 className="text-2xl font-black tracking-tight">{editMode ? 'Edit your profile' : 'Create your profile'}</h2>
+            <h2 className="text-title">{editMode ? 'Edit your profile' : 'Create your profile'}</h2>
             <p className="mt-1 text-sm text-muted-foreground">You're the admin, this account controls the whole household.</p>
           </div>
 
@@ -428,8 +432,8 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
             </label>
             <input type="date" className={inputCls} value={birthdate} onChange={(e) => setBirthdate(e.target.value)} />
             <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-              <ShieldCheck className="size-3 shrink-0 text-violet-400" />
-              Stays on your server — used only for age-appropriate content.
+              <ShieldCheck className="size-3 shrink-0 text-brand" />
+              Stays on your server - used only for age-appropriate content.
             </p>
           </div>
 
@@ -439,12 +443,12 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
               {([false, true] as const).map(val => (
                 <button key={String(val)} type="button" onClick={() => setSafeMode(val)}
                   className={cn(
-                    'flex flex-1 items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+                    'flex flex-1 items-center gap-2 rounded-control border px-3 py-2 text-left text-sm transition-colors',
                     safeMode === val
-                      ? 'border-violet-500/60 bg-violet-500/10 font-semibold text-foreground'
+                      ? 'border-brand/60 bg-brand/10 font-semibold text-foreground'
                       : 'border-border text-muted-foreground hover:border-border/80',
                   )}>
-                  <span className={cn('size-2 shrink-0 rounded-full', safeMode === val ? 'bg-violet-400' : 'bg-muted-foreground/30')} />
+                  <span className={cn('size-2 shrink-0 rounded-full', safeMode === val ? 'bg-brand' : 'bg-muted-foreground/30')} />
                   {val ? 'Safe' : 'Uncensored'}
                 </button>
               ))}
@@ -453,7 +457,7 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
         </div>
 
         {/* ── Right: avatar ── */}
-        <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="min-w-0 overflow-hidden rounded-card border border-border bg-card p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your avatar</span>
             <ToggleGroup
@@ -476,17 +480,16 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
                 {photoPreview ? <img src={photoPreview} alt="" className="size-full object-cover" /> : <ImageIcon className="size-7 text-muted-foreground/50" />}
               </div>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickPhoto} />
-              <button type="button" onClick={() => fileRef.current?.click()}
-                className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent/40 transition-colors">
+              <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
                 {photoFile ? 'Change photo' : 'Choose photo'}
-              </button>
+              </Button>
               <p className="text-xs text-muted-foreground">Stored on your server only.</p>
             </div>
           )}
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <button type="submit" disabled={loading} className={cn(primaryBtn, 'w-full')}>
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <>Continue <ChevronRight className="size-4" /></>}
-          </button>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" disabled={loading} size="xl" className="w-full">
+            {loading ? <Spinner className="text-current" /> : <>Continue <ChevronRight className="size-4" /></>}
+          </Button>
         </div>
 
       </div>
@@ -516,7 +519,7 @@ function PinStep({ userId, onNext, onSkip, canSkip = true }: { userId: string; o
   return (
     <div className="flex w-full flex-col items-center animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="mb-6 text-center">
-        <h2 className="text-2xl font-black tracking-tight">Secure your profile</h2>
+        <h2 className="text-title">Secure your profile</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {canSkip
             ? 'Add a PIN to protect your profile. You can skip and add one later.'
@@ -525,16 +528,16 @@ function PinStep({ userId, onNext, onSkip, canSkip = true }: { userId: string; o
       </div>
       {done ? (
         <div className="flex flex-col items-center gap-3 py-8">
-          <CheckCircle2 className="size-12 text-emerald-400" />
-          <p className="text-sm font-medium text-emerald-400">PIN saved</p>
+          <CheckCircle2 className="size-12 text-success" />
+          <p className="text-sm font-medium text-success">PIN saved</p>
         </div>
       ) : (
         <PinPad mode="set" onComplete={handleComplete} error={error} loading={loading} />
       )}
       {canSkip && (
-        <button type="button" onClick={onSkip} className="mt-6 text-sm text-muted-foreground hover:text-foreground transition-colors">
+        <Button type="button" variant="ghost" size="sm" onClick={onSkip} className="mt-6 text-muted-foreground">
           Skip for now
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -560,7 +563,7 @@ interface ConsentResponse { consents: ConsentState; definitions: ConsentDefiniti
 function ConsentToggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" onClick={() => onChange(!checked)}
-      className={cn('relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors', checked ? 'bg-violet-500' : 'bg-muted')}>
+      className={cn('relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors', checked ? 'bg-brand' : 'bg-muted')}>
       <span className={cn('pointer-events-none inline-block size-5 transform rounded-full bg-white shadow-lg ring-0 transition-transform', checked ? 'translate-x-5' : 'translate-x-0')} />
     </button>
   )
@@ -604,12 +607,12 @@ function ConsentStep({ onNext }: { onNext: () => void }) {
   if (loading) {
     return (
       <div className="flex w-full flex-col items-center justify-center gap-3 py-16">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
         <p className="text-sm text-muted-foreground">Loading permissions…</p>
       </div>
     )
   }
-  if (!consents) return <p className="text-sm text-red-400 py-8">{error || 'Permissions unavailable.'}</p>
+  if (!consents) return <p className="text-sm text-destructive py-8">{error || 'Permissions unavailable.'}</p>
 
   // Liability is presented as a required acceptance, separate from the capability toggles.
   const toggles = (['uncensored', 'internet', 'companions'] as ConsentKey[])
@@ -620,7 +623,7 @@ function ConsentStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="w-full space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
-        <h2 className="text-2xl font-black tracking-tight">What you allow</h2>
+        <h2 className="text-title">What you allow</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           You're in control. Leaving any of these off keeps that feature in its safe default - you can change them anytime in Admin → Security.
         </p>
@@ -628,7 +631,7 @@ function ConsentStep({ onNext }: { onNext: () => void }) {
 
       <div className="space-y-3">
         {toggles.map((def) => (
-          <div key={def.key} className="flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
+          <div key={def.key} className="flex items-start gap-3 rounded-card border border-border bg-card px-4 py-3.5">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold leading-tight">{def.label}</p>
               <p className="mt-1 text-xs text-muted-foreground leading-snug">{def.risk}</p>
@@ -641,11 +644,11 @@ function ConsentStep({ onNext }: { onNext: () => void }) {
 
       {liability && (
         <button type="button" onClick={() => set('liability', !consents.liability)}
-          className={cn('flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors',
-            consents.liability ? 'border-violet-500/40 bg-violet-500/10' : 'border-amber-500/40 bg-amber-500/5')}>
-          <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border-2 transition-all',
-            consents.liability ? 'border-violet-500 bg-violet-500' : 'border-amber-500/60 bg-transparent')}>
-            {consents.liability && <CheckCircle2 className="size-3.5 text-white" />}
+          className={cn('flex w-full items-start gap-3 rounded-card border px-4 py-3.5 text-left transition-colors',
+            consents.liability ? 'border-brand/40 bg-brand/10' : 'border-warning/40 bg-warning/5')}>
+          <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-control border-2 transition-all',
+            consents.liability ? 'border-brand bg-brand' : 'border-warning/60 bg-transparent')}>
+            {consents.liability && <CheckCircle2 className="size-3.5 text-brand-foreground" />}
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold leading-tight">{liability.label}</p>
@@ -655,11 +658,11 @@ function ConsentStep({ onNext }: { onNext: () => void }) {
         </button>
       )}
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex items-center justify-end">
-        <button type="button" onClick={continueNext} disabled={saving || !consents.liability} className={primaryBtn}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <>Continue <ChevronRight className="size-4" /></>}
-        </button>
+        <Button type="button" onClick={continueNext} disabled={saving || !consents.liability} size="xl">
+          {saving ? <Spinner className="text-current" /> : <>Continue <ChevronRight className="size-4" /></>}
+        </Button>
       </div>
       {!consents.liability && (
         <p className="text-right text-[11px] text-muted-foreground/70 -mt-3">
@@ -690,9 +693,9 @@ function ToggleGroup<T extends string>({ options, value, onChange }: {
     <div className="flex gap-2">
       {options.map(opt => (
         <button key={opt.value} type="button" onClick={() => onChange(opt.value)}
-          className={cn('flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all',
+          className={cn('flex-1 rounded-control border px-4 py-2.5 text-sm font-medium transition-all',
             value === opt.value
-              ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+              ? 'border-brand/50 bg-brand/10 text-brand'
               : 'border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground')}>
           {opt.label}
         </button>
@@ -731,7 +734,7 @@ function AreaStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="w-full space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
-        <h2 className="text-2xl font-black tracking-tight">Your area</h2>
+        <h2 className="text-title">Your area</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Powers local weather, news, maps, and your daily briefing. Stored only on your server.
         </p>
@@ -741,34 +744,32 @@ function AreaStep({ onNext }: { onNext: () => void }) {
       <div className="space-y-2.5">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Location</p>
         {location ? (
-          <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
-            <MapPin className="size-4 shrink-0 text-emerald-400" />
+          <div className="flex items-center gap-3 rounded-card border border-success/30 bg-success/5 px-4 py-3">
+            <MapPin className="size-4 shrink-0 text-success" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">{location.displayName}</p>
               <p className="text-xs text-muted-foreground">Saved · you can change this anytime in Settings</p>
             </div>
-            <button type="button" onClick={() => clear()} className="text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0">
+            <Button type="button" variant="ghost" size="sm" onClick={() => clear()} className="shrink-0 text-muted-foreground">
               Change
-            </button>
+            </Button>
           </div>
         ) : (
           <>
-            <button type="button" onClick={detect} disabled={detecting}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-500/40 bg-violet-500/10 px-4 py-3 text-sm font-semibold text-violet-300 hover:bg-violet-500/15 disabled:opacity-50 transition-colors">
-              {detecting ? <Loader2 className="size-4 animate-spin" /> : <Navigation className="size-4" />}
+            <Button type="button" variant="tinted" size="xl" onClick={detect} disabled={detecting} className="w-full">
+              {detecting ? <Spinner className="text-current" /> : <Navigation className="size-4" />}
               Use my current location
-            </button>
+            </Button>
             <div className="flex items-center gap-3 text-xs text-muted-foreground/50">
               <div className="h-px flex-1 bg-border" /> or enter it <div className="h-px flex-1 bg-border" />
             </div>
             <form onSubmit={(e) => { e.preventDefault(); if (query.trim()) setManual(query.trim()) }} className="flex gap-2">
               <input className={inputCls} placeholder="City or ZIP code" value={query} onChange={e => setQuery(e.target.value)} />
-              <button type="submit" disabled={detecting || !query.trim()}
-                className="shrink-0 rounded-xl border border-border bg-card px-4 text-sm font-medium hover:border-border/80 disabled:opacity-50 transition-colors">
+              <Button type="submit" variant="outline" disabled={detecting || !query.trim()} className="shrink-0">
                 Set
-              </button>
+              </Button>
             </form>
-            {locError && <p className="text-xs text-amber-400/80">{locError}</p>}
+            {locError && <p className="text-xs text-warning/80">{locError}</p>}
           </>
         )}
       </div>
@@ -800,12 +801,12 @@ function AreaStep({ onNext }: { onNext: () => void }) {
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex items-center justify-between">
-        <button type="button" onClick={onNext} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Skip location</button>
-        <button type="button" onClick={continueNext} disabled={saving} className={primaryBtn}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <>Continue <ChevronRight className="size-4" /></>}
-        </button>
+        <Button type="button" variant="ghost" size="sm" onClick={onNext} className="text-muted-foreground">Skip location</Button>
+        <Button type="button" onClick={continueNext} disabled={saving} size="xl">
+          {saving ? <Spinner className="text-current" /> : <>Continue <ChevronRight className="size-4" /></>}
+        </Button>
       </div>
     </div>
   )
@@ -954,12 +955,12 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
   if (loading) {
     return (
       <div className="flex w-full flex-col items-center justify-center gap-3 py-16">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
         <p className="text-sm text-muted-foreground">Detecting hardware…</p>
       </div>
     )
   }
-  if (error || !catalog) return <p className="text-sm text-red-400 py-8">{error || 'Catalog unavailable.'}</p>
+  if (error || !catalog) return <p className="text-sm text-destructive py-8">{error || 'Catalog unavailable.'}</p>
 
   const tierModels = ROLE_ORDER
     .filter((role) => !LLM_ROLES.includes(role))
@@ -987,35 +988,35 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
     const hasAlts     = (allModels?.length ?? 0) > 1
     const requiresLabel = blocked && model.requires?.length ? catalog?.models.find(m => m.id === model.requires![0])?.label ?? null : null
     return (
-      <div className={cn('rounded-xl border bg-card transition-colors', blocked ? 'border-border opacity-50' : checked ? 'border-violet-500/30' : 'border-border')}>
+      <div className={cn('rounded-card border bg-card transition-colors', blocked ? 'border-border opacity-50' : checked ? 'border-brand/30' : 'border-border')}>
         <div className="flex items-center gap-3 px-4 py-3">
           <button type="button" onClick={() => toggle(model)} disabled={(required && !radio) || blocked}
             className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all',
-              checked ? 'border-violet-500 bg-violet-500' : 'border-border bg-transparent hover:border-violet-400',
+              checked ? 'border-brand bg-brand' : 'border-border bg-transparent hover:border-brand/60',
               ((required && !radio) || blocked) && 'cursor-not-allowed')}>
-            {radio ? checked && <div className="size-2 rounded-full bg-white" /> : checked && <CheckCircle2 className="size-3 text-white" />}
+            {radio ? checked && <div className="size-2 rounded-full bg-brand-foreground" /> : checked && <CheckCircle2 className="size-3 text-brand-foreground" />}
           </button>
           {Icon && <Icon className="size-4 shrink-0 text-muted-foreground" />}
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2 flex-wrap">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">{label}</span>
-              {required && <span className="text-[10px] font-semibold text-violet-400 shrink-0">Required</span>}
-              {radio && <span className="text-[10px] font-semibold text-violet-400 shrink-0">Choose one</span>}
+              {required && <span className="text-[10px] font-semibold text-brand shrink-0">Required</span>}
+              {radio && <span className="text-[10px] font-semibold text-brand shrink-0">Choose one</span>}
             </div>
             <p className="text-sm font-semibold leading-tight truncate">{model.label}</p>
-            {requiresLabel && <p className="text-[10px] text-amber-400/70 mt-0.5">Requires {requiresLabel}</p>}
+            {requiresLabel && <p className="text-[10px] text-warning/80 mt-0.5">Requires {requiresLabel}</p>}
           </div>
           <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">~{formatBytes(model.approxBytes)}</span>
           <div className="flex w-28 shrink-0 items-center justify-end gap-1">
             <button type="button" onClick={() => toggleDetails(roleKey)}
-              className={cn('flex items-center gap-0.5 rounded-lg px-2 py-1 text-xs transition-colors',
+              className={cn('flex items-center gap-0.5 rounded-control px-2 py-1 text-xs transition-colors',
                 detailsOpen ? 'bg-foreground/10 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5')}>
               details <ChevronDown className={cn('size-3 transition-transform', detailsOpen && 'rotate-180')} />
             </button>
             {hasAlts && (
               <button type="button" onClick={() => toggleChange(roleKey)}
-                className={cn('rounded-lg px-2 py-1 text-xs transition-colors',
-                  changeOpen ? 'bg-violet-500/20 text-violet-300' : 'text-muted-foreground hover:text-violet-300 hover:bg-violet-500/10')}>
+                className={cn('rounded-control px-2 py-1 text-xs transition-colors',
+                  changeOpen ? 'bg-brand/20 text-brand' : 'text-muted-foreground hover:text-brand hover:bg-brand/10')}>
                 change
               </button>
             )}
@@ -1038,8 +1039,8 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
               const isAltActive = selectedIds.includes(alt.id)
               return (
                 <button key={alt.id} type="button" onClick={() => { toggle(alt); if (radio) setExpandedChange(null) }}
-                  className={cn('w-full rounded-lg border px-3 py-2.5 text-left transition-all',
-                    isAltActive ? 'border-violet-500/40 bg-violet-500/8' : 'border-border bg-background/50 hover:border-border/80 hover:bg-accent/30')}>
+                  className={cn('w-full rounded-control border px-3 py-2.5 text-left transition-all',
+                    isAltActive ? 'border-brand/40 bg-brand/8' : 'border-border bg-background/50 hover:border-border/80 hover:bg-accent/30')}>
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold">{alt.label}</p>
@@ -1047,7 +1048,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span className="text-xs tabular-nums text-muted-foreground">~{formatBytes(alt.approxBytes)}</span>
-                      {isAltActive && <CheckCircle2 className="size-3.5 text-violet-400" />}
+                      {isAltActive && <CheckCircle2 className="size-3.5 text-brand" />}
                     </div>
                   </div>
                 </button>
@@ -1065,43 +1066,42 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
 
   return (
     <div className="w-full space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div ref={titleRef} className="sticky top-0 z-20 -mx-6 bg-background/95 px-6 pb-3 pt-1 backdrop-blur sm:-mx-10 sm:px-10">
-        <h2 className="text-2xl font-black tracking-tight">Choose your AI</h2>
+      <div ref={titleRef} className="sticky top-0 z-20 -mx-6 glass-chrome px-6 pb-3 pt-1 sm:-mx-10 sm:px-10">
+        <h2 className="text-title">Choose your AI</h2>
         <p className="mt-1 text-sm text-muted-foreground">Pick the models and features to install. You can add more anytime from Admin → Features.</p>
       </div>
 
       {needsOllama && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3.5">
-          <AlertTriangle className="size-5 shrink-0 text-amber-400 mt-0.5" />
+        <div className="flex items-start gap-3 rounded-card border border-warning/40 bg-warning/10 px-4 py-3.5">
+          <AlertTriangle className="size-5 shrink-0 text-warning mt-0.5" />
           <div className="min-w-0 flex-1 space-y-2">
-            <p className="text-sm font-semibold text-amber-300">Ollama is required</p>
+            <p className="text-sm font-semibold text-warning">Ollama is required</p>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              On Windows, Ollama must be installed manually. Download and run the installer — it starts
+              On Windows, Ollama must be installed manually. Download and run the installer, it starts
               automatically, and this page will detect it within a few seconds.
             </p>
             <a href="https://ollama.com/download" target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/30 transition-colors">
+              className="inline-flex items-center gap-1.5 rounded-control bg-warning/20 px-3 py-1.5 text-xs font-semibold text-warning hover:bg-warning/30 transition-colors">
               <Globe className="size-3.5" /> Get Ollama
             </a>
           </div>
           <span className="shrink-0 inline-flex items-center gap-1.5 self-center text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Waiting…
+            <Spinner size="sm" /> Waiting…
           </span>
         </div>
       )}
 
       {/* Compact summary (default) */}
       {!customizing && (
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-card border border-border bg-card p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold">What you'll install</p>
               <p className="text-xs text-muted-foreground">Tuned for your {catalog.hardware.totalRamGb} GB{catalog.hardware.isAppleSilicon ? ' Apple Silicon' : ''} computer. Tweak anything if you like.</p>
             </div>
-            <button type="button" onClick={() => setCustomizing(true)}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent/40 transition-colors">
+            <Button type="button" variant="outline" size="sm" onClick={() => setCustomizing(true)} className="shrink-0">
               <Settings2 className="size-3.5" /> Customize
-            </button>
+            </Button>
           </div>
           {(() => {
             const items: { label: string; note?: string }[] = [{ label: 'Chat' }]
@@ -1114,7 +1114,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
               <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
                 {items.map((it) => (
                   <div key={it.label} className="flex items-baseline gap-2 text-sm">
-                    <CheckCircle2 className="size-3.5 shrink-0 translate-y-0.5 text-emerald-400" />
+                    <CheckCircle2 className="size-3.5 shrink-0 translate-y-0.5 text-success" />
                     <span className="font-medium">{it.label}</span>
                     {it.note && <span className="truncate text-xs text-muted-foreground">{it.note}</span>}
                   </div>
@@ -1130,14 +1130,14 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">Customize models &amp; features</p>
-          <button type="button" onClick={() => setCustomizing(false)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">Done</button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setCustomizing(false)} className="text-muted-foreground">Done</Button>
         </div>
 
         {/* Model size */}
-        <div className="space-y-1.5 rounded-xl border border-border bg-card px-4 py-3">
+        <div className="space-y-1.5 rounded-card border border-border bg-card px-4 py-3">
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Model size</label>
           <select value={selectedTier} onChange={(e) => onTierChange(e.target.value)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/40">
+            className="w-full rounded-control border border-border bg-background px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand/40">
             {catalog.tiers.map((t) => (
               <option key={t.id} value={t.id}>{t.label}{t.id === catalog.recommendedTier ? ' (recommended for you)' : ''}</option>
             ))}
@@ -1146,7 +1146,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
         </div>
 
         <div className="space-y-2">
-          <p style={{ top: titleH }} className="sticky z-10 -mx-6 bg-background/95 px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 backdrop-blur sm:-mx-10 sm:px-10">Chat &amp; Intelligence</p>
+          <p style={{ top: titleH }} className="sticky z-10 -mx-6 glass-chrome px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 sm:-mx-10 sm:px-10">Chat &amp; Intelligence</p>
           {(() => {
             const ollamaEntry: CatalogEntry = {
               id: 'ollama-runtime', role: 'runtime', label: ollamaRunning ? 'Ollama · running' : 'Ollama',
@@ -1164,10 +1164,10 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
               checked={selectedIds.includes(m.id)} required={m.required || m.role === 'embeddings' || m.role === 'router'} icon={ROLE_ICONS[m.role]} />
           ))}
           {activeLlm?.builtinVision && (
-            <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 flex items-start gap-3">
-              <Eye className="size-4 shrink-0 text-violet-400 mt-0.5" />
+            <div className="rounded-card border border-brand/20 bg-brand/5 px-4 py-3 flex items-start gap-3">
+              <Eye className="size-4 shrink-0 text-brand mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-violet-300">Vision built in</p>
+                <p className="text-sm font-semibold text-brand">Vision built in</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{activeLlm.label} understands images natively - no separate vision model needed. Saves ~3.3 GB.</p>
               </div>
             </div>
@@ -1176,8 +1176,8 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
 
         {imageModels.length > 0 && (
           <div className="space-y-2">
-            <p style={{ top: titleH }} className="sticky z-10 -mx-6 bg-background/95 px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 backdrop-blur sm:-mx-10 sm:px-10">Image Generation</p>
-            <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-2.5">
+            <p style={{ top: titleH }} className="sticky z-10 -mx-6 glass-chrome px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 sm:-mx-10 sm:px-10">Image Generation</p>
+            <div className="flex items-center gap-3 rounded-card border border-border/50 bg-muted/30 px-4 py-2.5">
               <Server className="size-4 shrink-0 text-muted-foreground/60" />
               <div className="min-w-0 flex-1">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">Runtime</span>
@@ -1195,7 +1195,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
 
         {voiceModels.length > 0 && (
           <div className="space-y-2">
-            <p style={{ top: titleH }} className="sticky z-10 -mx-6 bg-background/95 px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 backdrop-blur sm:-mx-10 sm:px-10">Voice</p>
+            <p style={{ top: titleH }} className="sticky z-10 -mx-6 glass-chrome px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 sm:-mx-10 sm:px-10">Voice</p>
             {voiceModels.map((m) => (
               <ModelRow key={m.role} roleKey={m.role} label={ROLE_LABELS[m.role]} model={m}
                 allModels={catalog.models.filter((c) => c.role === m.role && c.tiers.includes(selectedTier))}
@@ -1213,18 +1213,18 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
             const Icon    = cap.icon
             const requiresLabel = blocked ? CAPABILITIES.find((c) => c.id === cap.requires[0])?.label ?? null : null
             return (
-              <div className={cn('rounded-xl border bg-card transition-colors', blocked ? 'border-border opacity-50' : checked ? 'border-violet-500/30' : 'border-border')}>
+              <div className={cn('rounded-card border bg-card transition-colors', blocked ? 'border-border opacity-50' : checked ? 'border-brand/30' : 'border-border')}>
                 <div className="flex items-center gap-3 px-4 py-3">
                   <button type="button" onClick={() => toggleComponent(cap)} disabled={blocked}
                     className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all',
-                      checked ? 'border-violet-500 bg-violet-500' : 'border-border bg-transparent hover:border-violet-400', blocked && 'cursor-not-allowed')}>
-                    {checked && <CheckCircle2 className="size-3 text-white" />}
+                      checked ? 'border-brand bg-brand' : 'border-border bg-transparent hover:border-brand/60', blocked && 'cursor-not-allowed')}>
+                    {checked && <CheckCircle2 className="size-3 text-brand-foreground" />}
                   </button>
                   <Icon className="size-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold leading-tight">{cap.label}</p>
                     <p className="text-xs text-muted-foreground leading-tight truncate">{cap.description}</p>
-                    {requiresLabel && <p className="text-[10px] text-amber-400/70 mt-0.5">Requires {requiresLabel}</p>}
+                    {requiresLabel && <p className="text-[10px] text-warning/80 mt-0.5">Requires {requiresLabel}</p>}
                   </div>
                   <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">~{formatBytes(cap.bytes)}</span>
                 </div>
@@ -1234,11 +1234,11 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
           return (
             <>
               <div className="space-y-2">
-                <p style={{ top: titleH }} className="sticky z-10 -mx-6 bg-background/95 px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 backdrop-blur sm:-mx-10 sm:px-10">Base Applications</p>
+                <p style={{ top: titleH }} className="sticky z-10 -mx-6 glass-chrome px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 sm:-mx-10 sm:px-10">Base Applications</p>
                 {baseApps.map(cap => <CapRow key={cap.id} cap={cap} />)}
               </div>
               <div className="space-y-2">
-                <p style={{ top: titleH }} className="sticky z-10 -mx-6 bg-background/95 px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 backdrop-blur sm:-mx-10 sm:px-10">More capabilities</p>
+                <p style={{ top: titleH }} className="sticky z-10 -mx-6 glass-chrome px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 sm:-mx-10 sm:px-10">More capabilities</p>
                 <p className="px-1 text-xs text-muted-foreground/70 -mt-1">Optional - you can also add these later from Admin → Features.</p>
                 {extraCaps.map(cap => <CapRow key={cap.id} cap={cap} />)}
               </div>
@@ -1256,7 +1256,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
         const notEnough  = freeBytes > 0 && toDownloadBytes > freeBytes * 0.95
         const canProceed = selectedIds.length > 0 && !notEnough && !needsOllama
         return (
-          <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
+          <div className="rounded-card border border-border bg-card px-4 py-4 space-y-3">
             {customizing ? (
               <ResourceBars totalRamGb={catalog.hardware.totalRamGb} hotModelBytes={hotModelBytes} hotModelLabel={hotModelLabel}
                 diskTotalBytes={catalog.disk.totalBytes} diskFreeBytes={freeBytes} toDownloadBytes={toDownloadBytes} />
@@ -1265,17 +1265,17 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
                 <span className="text-muted-foreground"><span className="font-semibold text-foreground tabular-nums">{formatBytes(toDownloadBytes)}</span> to download</span>
                 <span className="text-muted-foreground/40">·</span>
                 <span className="text-muted-foreground"><span className="font-semibold text-foreground tabular-nums">{formatBytes(Math.max(0, freeBytes - toDownloadBytes))}</span> free afterward</span>
-                <span className={cn('ml-auto inline-flex items-center gap-1 text-xs font-medium', notEnough ? 'text-amber-400' : 'text-emerald-400')}>
+                <span className={cn('ml-auto inline-flex items-center gap-1 text-xs font-medium', notEnough ? 'text-warning' : 'text-success')}>
                   {notEnough ? <><AlertTriangle className="size-3.5" /> Not enough space</> : <><CheckCircle2 className="size-3.5" /> Enough space</>}
                 </span>
               </div>
             )}
             <div className="flex justify-end pt-1">
-              <button type="button" onClick={() => {
+              <Button type="button" onClick={() => {
                 onNext(selectedIds, selectedComponents, selectedTier, ollamaRunning)
-              }} disabled={!canProceed} className={primaryBtn}>
+              }} disabled={!canProceed} size="xl">
                 Continue <ChevronRight className="size-4" />
-              </button>
+              </Button>
             </div>
           </div>
         )
@@ -1391,7 +1391,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
     })
   }
 
-  // NOTE: ZIMs and maps no longer download in the wizard — only the essentials install
+  // NOTE: ZIMs and maps no longer download in the wizard - only the essentials install
   // here (Ollama + chat LLM + embeddings + router). The backend enqueues everything else
   // to the background download-job manager, which runs after the app boots and is surfaced
   // by the global BackgroundSetupWidget. See plans/background-downloads/README.md.
@@ -1423,7 +1423,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
       })
       if (!res.ok || !res.body) {
         const r = noteFail('setup-request')
-        setDl('setup-request', { role: 'runtime', label: 'Setup', status: 'error', error: r ? 'Request failed' : `Request failed — skipped after ${MAX_ITEM_ATTEMPTS} tries` })
+        setDl('setup-request', { role: 'runtime', label: 'Setup', status: 'error', error: r ? 'Request failed' : `Request failed - skipped after ${MAX_ITEM_ATTEMPTS} tries` })
         return
       }
       const reader  = res.body.getReader()
@@ -1448,7 +1448,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
               else if (currentEvent === 'start') setDl(d.id, { id: d.id, role: d.role, label: d.label, status: 'downloading', completed: 0, total: 0, speedBps: 0, etaSeconds: 0 })
               else if (currentEvent === 'progress') setDl(d.id, { status: 'downloading', completed: d.completed ?? 0, total: d.total ?? 0, speedBps: d.speedBps ?? 0, etaSeconds: d.etaSeconds ?? 0, note: d.status ?? undefined })
               else if (currentEvent === 'complete') setDl(d.id, { status: 'completed' })
-              else if (currentEvent === 'error') { const r = noteFail(d.id); setDl(d.id, { status: 'error', error: r ? d.error : `${d.error ?? 'Failed'} — skipped after ${MAX_ITEM_ATTEMPTS} tries` }) }
+              else if (currentEvent === 'error') { const r = noteFail(d.id); setDl(d.id, { status: 'error', error: r ? d.error : `${d.error ?? 'Failed'} - skipped after ${MAX_ITEM_ATTEMPTS} tries` }) }
               else if (currentEvent === 'cancelled') { streamCancelled = true; return }
               else if (currentEvent === 'done') return
             } catch { /* malformed */ }
@@ -1459,7 +1459,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
 
     async function runAll() {
       try {
-        // Essentials only — Ollama + chat LLM + embeddings + router. Everything else
+        // Essentials only - Ollama + chat LLM + embeddings + router. Everything else
         // (extra models, ZIMs, maps, components) is enqueued by the backend to the
         // background job manager and finishes after the app boots.
         await runModelStream()
@@ -1527,7 +1527,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
   const totalCount  = allItems.length
   const completedCount = allItems.filter((d) => d.status === 'completed').length
   const cancelled      = allItems.some((d) => d.status === 'cancelled')
-  // Items we've permanently given up on (past the retry cap) — they no longer drive
+  // Items we've permanently given up on (past the retry cap) - they no longer drive
   // any "retrying" messaging; they're reported once at the end as "couldn't download".
   const skippedCount   = allItems.filter((d) => d.status === 'error' && !isRetriable(d.id)).length
   // Only show genuinely-moving rows: hide the split-second pre-connection limbo.
@@ -1536,7 +1536,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
   // smoothly as items download (in parallel) instead of jumping a whole step.
   const activeFraction = activeItems.reduce((s, d) => s + (d.total > 0 ? Math.min(1, d.completed / d.total) : 0), 0)
   const rawPct     = totalCount > 0 ? Math.round(((completedCount + activeFraction) / totalCount) * 100) : 0
-  // Cap at 99 until the server fires 'done' — prevents the brief "1 of 1 completed"
+  // Cap at 99 until the server fires 'done' - prevents the brief "1 of 1 completed"
   // window (between Ollama finishing and the first model's 'start' event) from locking
   // at 100% before the real items have been added.
   const overallPct = (allDone && skippedCount === 0) ? 100 : Math.min(rawPct, 99)
@@ -1544,9 +1544,9 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
   return (
     <div className="w-full space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
-        <h2 className="text-2xl font-black tracking-tight">Installing your AI</h2>
+        <h2 className="text-title">Installing your AI</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Downloading everything you selected. Large models like image generation can take a while — grab a coffee.
+          Downloading everything you selected. Large models like image generation can take a while - grab a coffee.
         </p>
       </div>
 
@@ -1562,30 +1562,38 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
           </span>
         </div>
         <div className="relative h-4 w-full overflow-hidden rounded-full bg-muted">
-          <div className={cn('absolute inset-y-0 left-0 rounded-full transition-[width] duration-500',
-            allDone ? (llmFailed ? 'bg-red-500' : skippedCount > 0 ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-gradient-to-r from-violet-500 to-blue-400')}
-            style={{ width: `${overallPct}%` }} />
+          <div
+            className={cn('absolute inset-y-0 left-0 rounded-full transition-[width] duration-500',
+              allDone ? (llmFailed ? 'bg-destructive' : skippedCount > 0 ? 'bg-warning' : 'bg-success') : undefined)}
+            style={{
+              width: `${overallPct}%`,
+              // Mirrors DownloadProgress's own animated fill for a consistent in-progress treatment.
+              ...(!allDone ? {
+                background: 'linear-gradient(90deg, var(--gradient-brand-2), var(--gradient-brand-3), var(--gradient-brand-4), var(--gradient-brand-3), var(--gradient-brand-2))',
+                backgroundSize: '200% 100%',
+                animation: 'dl-gradient 2s linear infinite',
+              } : {}),
+            }}
+          />
         </div>
         {allDone && (
           llmFailed ? (
             <div className="space-y-3 animate-in fade-in">
-              <p className="flex items-center gap-2 text-sm font-medium text-red-400">
+              <p className="flex items-center gap-2 text-sm font-medium text-destructive">
                 <AlertTriangle className="size-4 shrink-0" />
                 The AI model couldn't download. Check your internet connection and try again.
               </p>
               <div className="flex items-center gap-4">
-                <button type="button" onClick={resume}
-                  className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 transition-colors">
+                <Button type="button" onClick={resume}>
                   Try again <ChevronRight className="size-4" />
-                </button>
-                <button type="button" onClick={onComplete}
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={onComplete} className="text-muted-foreground">
                   Skip and open anyway
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
-            <div className={cn('flex items-center gap-2 text-sm font-medium animate-in fade-in', skippedCount > 0 ? 'text-amber-400' : 'text-emerald-400')}>
+            <div className={cn('flex items-center gap-2 text-sm font-medium animate-in fade-in', skippedCount > 0 ? 'text-warning' : 'text-success')}>
               <CheckCircle2 className="size-4" />
               {skippedCount > 0
                 ? `Done - ${skippedCount} item${skippedCount === 1 ? '' : 's'} couldn't download (add them later in Admin). Opening app…`
@@ -1633,23 +1641,23 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
 
       <div className="flex items-center justify-between">
         {!allDone && cancelled ? (
-          // Only a manual cancel needs a button — errors recover on their own.
-          <button type="button" onClick={resume} className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 transition-colors">
+          // Only a manual cancel needs a button - errors recover on their own.
+          <Button type="button" onClick={resume}>
             Resume <ChevronRight className="size-4" />
-          </button>
+          </Button>
         ) : !allDone && serverDown ? (
-          <p className="flex items-center gap-2 text-sm text-amber-400">
-            <Loader2 className="size-4 animate-spin" />
-            Can't reach the server. Make sure the backend is running — reconnecting…
+          <p className="flex items-center gap-2 text-sm text-warning">
+            <Spinner className="text-current" />
+            Can't reach the server. Make sure the backend is running, reconnecting…
           </p>
         ) : !allDone && autoRetrying ? (
-          // Only while a retry is actually scheduled — NOT for already-given-up items.
+          // Only while a retry is actually scheduled - NOT for already-given-up items.
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin text-violet-400" />
+            <Spinner className="text-brand" />
             Hit a snag, retrying automatically...
           </p>
         ) : <div />}
-        {!allDone && !cancelled && <button type="button" onClick={cancel} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>}
+        {!allDone && !cancelled && <Button type="button" variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">Cancel</Button>}
       </div>
     </div>
   )

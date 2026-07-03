@@ -1,4 +1,6 @@
 import { AdminSection } from '@/components/shared/AdminGate'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { SettingsSaveToLokiTab } from '@/components/settings/SettingsSaveToLokiTab'
 import { AdminBookmarksTab } from '@/components/admin/AdminBookmarksTab'
 
@@ -7,16 +9,16 @@ import { AdminBookmarksTab } from '@/components/admin/AdminBookmarksTab'
 // block simply doesn't render for non-admins.
 export function BookmarksSettingsPage() {
   return (
-    <div className="mx-auto h-full max-w-3xl space-y-8 overflow-y-auto p-6">
-      <h1 className="text-2xl font-bold">Bookmarks settings</h1>
+    <PageContainer width="narrow" className="h-full space-y-8 overflow-y-auto py-6">
+      <PageHeader title="Bookmarks settings" className="py-0" />
 
-      {/* User section — capturing pages into Bookmarks */}
+      {/* User section - capturing pages into Bookmarks */}
       <SettingsSaveToLokiTab />
 
-      {/* Admin section — links shared with every user */}
+      {/* Admin section - links shared with every user */}
       <AdminSection title="Global links" description="shared with everyone">
         <AdminBookmarksTab />
       </AdminSection>
-    </div>
+    </PageContainer>
   )
 }

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Shuffle, ExternalLink, Loader2 } from 'lucide-react'
+import { Shuffle, ExternalLink } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
+import { cardVariants } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useChatContext } from '@/context/ChatContext'
 import { cn } from '@/lib/cn'
@@ -27,21 +33,13 @@ const CATEGORY_LABEL: Record<ActivityCategory, string> = {
   article: 'Learn', recipe: 'Cook', joke: 'Laugh', idea: 'Do', create: 'Create',
 }
 
-const CATEGORY_ACCENT: Record<ActivityCategory, string> = {
-  article: 'text-sky-400',
-  recipe:  'text-orange-400',
-  joke:    'text-amber-400',
-  idea:    'text-emerald-400',
-  create:  'text-violet-400',
-}
-
 function CardInner({ a }: { a: Activity }) {
   const [imgOk, setImgOk] = useState(true)
   useEffect(() => { setImgOk(true) }, [a.image, a.zimIconUrl])
   return (
     <div className="flex h-full flex-col gap-2 p-4">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted/60 text-xl">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-control bg-muted/60 text-xl">
           {a.zimIconUrl && imgOk ? (
             <img src={a.zimIconUrl} alt="" className="size-6 object-contain" loading="lazy" onError={() => setImgOk(false)} />
           ) : a.image && imgOk ? (
@@ -50,7 +48,7 @@ function CardInner({ a }: { a: Activity }) {
             <span>{a.icon}</span>
           )}
         </div>
-        <span className={cn('text-[10px] font-semibold uppercase tracking-wider', CATEGORY_ACCENT[a.category])}>
+        <span className="text-overline text-brand">
           {CATEGORY_LABEL[a.category]}
         </span>
       </div>
@@ -70,25 +68,24 @@ function CardInner({ a }: { a: Activity }) {
 }
 
 function ActivityCard({ a, onChatPrompt }: { a: Activity; onChatPrompt: (prompt: string) => void }) {
-  const navigate = useNavigate()
-  const base = 'group rounded-2xl border border-border/60 bg-card transition-all hover:border-brand/40 hover:shadow-md active:scale-[0.99]'
+  const interactive = cardVariants({ variant: 'interactive' })
 
   // Activities with a chat prompt kick off a conversation directly
   if (a.prompt) {
     return (
-      <button onClick={() => onChatPrompt(a.prompt!)} className={cn(base, 'block w-full text-left cursor-pointer')}>
+      <button onClick={() => onChatPrompt(a.prompt!)} className={cn(interactive, 'block w-full text-left')}>
         <CardInner a={a} />
       </button>
     )
   }
   if (a.href) {
-    return <Link to={a.href} className={cn(base, 'block')}><CardInner a={a} /></Link>
+    return <Link to={a.href} className={cn(interactive, 'block')}><CardInner a={a} /></Link>
   }
   if (a.url) {
-    return <a href={a.url} target="_blank" rel="noopener noreferrer" className={cn(base, 'block')}><CardInner a={a} /></a>
+    return <a href={a.url} target="_blank" rel="noopener noreferrer" className={cn(interactive, 'block')}><CardInner a={a} /></a>
   }
-  // Real-world suggestion — no in-app action
-  return <div className={base}><CardInner a={a} /></div>
+  // Real-world suggestion with no in-app action
+  return <div className={cardVariants({ variant: 'surface' })}><CardInner a={a} /></div>
 }
 
 export function BoredPage() {
@@ -127,42 +124,33 @@ export function BoredPage() {
 
   return (
     <PageShell>
-      {/* Title row */}
-      <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <div>
-          <h1 className="text-xl font-black tracking-tight">I'm Bored</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">Curated activity suggestions for any mood or energy level.</p>
-        </div>
-        <button
-          onClick={() => void load()}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-foreground/8 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-foreground/12 active:scale-95 disabled:opacity-50"
-        >
-          <Shuffle className={cn('size-3.5', loading && 'animate-spin')} />
-          Surprise me
-        </button>
-      </div>
+      <PageContainer className="pb-8">
+        <PageHeader
+          subtitle="Curated activity suggestions for any mood or energy level."
+          actions={
+            <Button variant="tinted" size="sm" onClick={() => void load()} disabled={loading}>
+              {loading ? <Spinner size="sm" className="text-brand" /> : <Shuffle className="size-3.5" />}
+              Surprise me
+            </Button>
+          }
+        />
 
-      {/* Content */}
-      <div className="px-4 pb-5 sm:px-6">
         {error && (
-          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <div className="mb-4 rounded-control border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
         {loading && activities.length === 0 ? (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <Loader2 className="size-6 animate-spin" />
-          </div>
+          <SkeletonCards count={6} className="sm:grid-cols-2 lg:grid-cols-3 grid-cols-1 gap-3" />
         ) : activities.length === 0 && !error ? (
-          <div className="py-20 text-center text-sm text-muted-foreground">No suggestions right now — try again.</div>
+          <div className="py-20 text-center text-sm text-muted-foreground">No suggestions right now. Try again.</div>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {activities.map((a) => <ActivityCard key={a.id} a={a} onChatPrompt={handleChatPrompt} />)}
           </div>
         )}
-      </div>
+      </PageContainer>
     </PageShell>
   )
 }

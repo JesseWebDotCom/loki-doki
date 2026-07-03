@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ArrowDownToLine, Check, Loader2 } from 'lucide-react'
+import { ArrowDownToLine, Check } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
@@ -28,16 +29,15 @@ export function SongDownloadButton({ videoId, title, className }: { videoId: str
     finally { setBusy(false) }
   }
 
-  const Icon = busy || pending ? Loader2 : ready ? Check : ArrowDownToLine
   // Idle downloads reveal on row hover; an active/finished state stays visible (parent must be `group`).
   const vis = ready || pending || busy ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
   return (
     <button type="button" onClick={onClick} aria-label={ready ? 'Remove download' : 'Download for offline'}
-      title={ready ? 'Downloaded — tap to remove' : pending ? 'Downloading…' : 'Download for offline'}
+      title={ready ? 'Downloaded - tap to remove' : pending ? 'Downloading…' : 'Download for offline'}
       className={cn('flex size-8 shrink-0 items-center justify-center rounded-full transition',
-        ready ? 'text-emerald-500 hover:text-destructive' : 'text-muted-foreground hover:text-foreground hover:bg-accent/60',
+        ready ? 'text-success hover:text-destructive' : 'text-muted-foreground hover:text-foreground hover:bg-accent/60',
         vis, className)}>
-      <Icon className={cn('size-4', (busy || pending) && 'animate-spin')} />
+      {busy || pending ? <Spinner className="text-current" /> : ready ? <Check className="size-4" /> : <ArrowDownToLine className="size-4" />}
     </button>
   )
 }

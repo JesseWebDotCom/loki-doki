@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Spinner } from '@/components/ui/spinner'
 import { PinPad } from '@/components/shared/PinPad'
 import { UserAvatar } from '@/components/shared/UserAvatar'
 import { BrandMark } from '@/components/shared/BrandMark'
@@ -20,7 +20,7 @@ interface Profile {
 }
 
 function Avatar({ profile, size = 'lg' }: { profile: Profile; size?: 'lg' | 'sm' }) {
-  const dim = size === 'lg' ? 'size-24 rounded-2xl' : 'size-14 rounded-xl'
+  const dim = size === 'lg' ? 'size-24 rounded-card' : 'size-14 rounded-card'
   const px = size === 'lg' ? 96 : 56
   return <UserAvatar user={profile} size={px} className={cn(dim)} />
 }
@@ -70,7 +70,7 @@ function PinEntry({ profile, onSuccess, onBack }: PinEntryProps) {
     }
   }
 
-  const subtitle = locked > 0 ? `Locked — try again in ${locked}s` : undefined
+  const subtitle = locked > 0 ? `Locked: try again in ${locked}s` : undefined
 
   return (
     <div className="flex flex-col items-center">
@@ -134,27 +134,28 @@ export function ProfilePickerPage() {
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-background">
       {/* Ambient glow */}
+      {/* design-ok(raw-overlay): full-screen login flow ambient backdrop, pointer-events-none decoration */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute left-1/4 top-1/3 size-[500px] rounded-full bg-violet-600/8 blur-[140px]" />
-        <div className="absolute right-1/4 bottom-1/3 size-[400px] rounded-full bg-blue-600/8 blur-[120px]" />
+        <div className="absolute left-1/4 top-1/3 size-[500px] rounded-full bg-brand/8 blur-[140px]" />
+        <div className="absolute right-1/4 bottom-1/3 size-[400px] rounded-full bg-info/8 blur-[120px]" />
       </div>
 
       <div className="relative z-10 flex flex-col items-center px-6 py-12">
-        {/* Brand lockup — the glowing logo + wordmark + tagline from boot/setup */}
+        {/* Brand lockup: the glowing logo + wordmark + tagline from boot/setup */}
         <div className="mb-10 flex flex-col items-center">
           <BrandMark glow className="size-16" />
-          <h1 className="mt-3 text-2xl font-black tracking-tight">LokiDoki</h1>
+          <h2 className="mt-3 text-display">LokiDoki</h2>
           <p className="mt-1 text-xs text-muted-foreground">Your private AI home hub</p>
         </div>
 
         {!selected ? (
           <>
-            <h2 className="text-xl font-black tracking-tight">Who's there?</h2>
+            <h2 className="text-title">Who's there?</h2>
             <p className="mt-1 text-sm text-muted-foreground">Choose your profile to continue</p>
 
             {loading ? (
               <div className="mt-16">
-                <Loader2 className="size-8 animate-spin text-muted-foreground" />
+                <Spinner size="lg" />
               </div>
             ) : (
               <div className="mt-12 flex flex-wrap justify-center gap-6">
@@ -163,7 +164,7 @@ export function ProfilePickerPage() {
                     key={profile.id}
                     onClick={() => selectProfile(profile)}
                     disabled={selecting}
-                    className="group flex flex-col items-center gap-3 transition-opacity disabled:opacity-60"
+                    className="group flex flex-col items-center gap-3 rounded-card transition-opacity disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <div className="relative transition-transform duration-150 group-hover:scale-105 group-active:scale-95">
                       <Avatar profile={profile} />

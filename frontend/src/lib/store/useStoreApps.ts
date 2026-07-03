@@ -41,9 +41,11 @@ export interface StoreApp {
   route?: string
   dataSources: DataSource[]
   examples: string[]
+  /** Extra lowercase search terms so natural words find the app (e.g. "shop" → Price Tracker). */
+  keywords?: string[]
 }
 
-/** Store category — reuses the app catalog groups for nav/visuals. */
+/** Store category - reuses the app catalog groups for nav/visuals. */
 export interface StoreCategory {
   key: string
   name: string
@@ -85,34 +87,37 @@ export const TOOL_ROUTES: Record<string, string> = {
   jokes:            '/jokes',
   unit_conversion:  '/unit-converter',
   time:             '/time',
+  shopping:         '/shopping',
 }
 
 // ── Fallback meta for tools not represented in APP_GROUPS ──────────────────────
+// colorClass gradients stay on design tokens (nearest semantic hue family) so
+// fallback icon tiles never reintroduce the raw Tailwind palette.
 interface FallbackMeta { icon: LucideIcon; colorClass: string; category: string }
 const APP_META: Record<string, FallbackMeta> = {
-  weather:          { icon: Cloud,       colorClass: 'from-sky-400 to-blue-600',      category: 'Navigation'   },
-  search:           { icon: Search,      colorClass: 'from-violet-400 to-purple-600', category: 'Tools'        },
-  calculator:       { icon: Calculator,  colorClass: 'from-orange-400 to-amber-600',  category: 'Tools'        },
-  unit_conversion:  { icon: Wrench,      colorClass: 'from-slate-400 to-slate-600',   category: 'Tools'        },
-  jokes:            { icon: Star,        colorClass: 'from-yellow-400 to-orange-500', category: 'Entertainment'},
-  news:             { icon: Newspaper,   colorClass: 'from-red-500 to-rose-600',      category: 'Today'        },
-  recipes:          { icon: BookOpen,    colorClass: 'from-emerald-400 to-green-600', category: 'Entertainment'},
-  dictionary:       { icon: BookOpen,    colorClass: 'from-teal-400 to-cyan-600',     category: 'Knowledge'    },
-  youtube:          { icon: Play,        colorClass: 'from-red-600 to-red-700',       category: 'Entertainment'},
-  tvshows:          { icon: Tv,          colorClass: 'from-purple-400 to-indigo-600', category: 'Entertainment'},
-  datetime:         { icon: Clock,       colorClass: 'from-blue-400 to-indigo-600',   category: 'Tools'        },
-  moonphase:        { icon: Moon,        colorClass: 'from-slate-500 to-slate-800',   category: 'Today'        },
-  image_gen:        { icon: ImageIcon,   colorClass: 'from-pink-400 to-fuchsia-600',  category: 'AI'           },
-  medical:          { icon: Stethoscope, colorClass: 'from-green-400 to-emerald-600', category: 'Knowledge'    },
-  'where-to-watch': { icon: Play,        colorClass: 'from-amber-400 to-orange-600',  category: 'Entertainment'},
-  holidays:         { icon: Calendar,    colorClass: 'from-red-400 to-pink-500',      category: 'Today'        },
-  home_inventory:   { icon: Home,        colorClass: 'from-cyan-400 to-blue-600',     category: 'Tools'        },
-  onthisday:        { icon: CalendarDays,colorClass: 'from-amber-500 to-yellow-600',  category: 'Today'        },
-  localEvents:      { icon: MapPin,      colorClass: 'from-lime-400 to-green-600',     category: 'Today'        },
-  localNews:        { icon: Newspaper,   colorClass: 'from-rose-400 to-red-600',      category: 'Today'        },
-  contentRating:    { icon: ShieldCheck, colorClass: 'from-slate-400 to-slate-600',   category: 'Tools'        },
-  sports:           { icon: Zap,         colorClass: 'from-green-400 to-teal-600',     category: 'Today'        },
-  homeAssistant:    { icon: Package,     colorClass: 'from-blue-500 to-indigo-700',   category: 'Tools'        },
+  weather:          { icon: Cloud,       colorClass: 'from-info to-info/60',                         category: 'Navigation'   },
+  search:           { icon: Search,      colorClass: 'from-brand to-brand/60',                       category: 'Tools'        },
+  calculator:       { icon: Calculator,  colorClass: 'from-warning to-warning/60',                   category: 'Tools'        },
+  unit_conversion:  { icon: Wrench,      colorClass: 'from-muted-foreground to-muted-foreground/60', category: 'Tools'        },
+  jokes:            { icon: Star,        colorClass: 'from-warning to-warning/60',                   category: 'Entertainment'},
+  news:             { icon: Newspaper,   colorClass: 'from-destructive to-destructive/60',           category: 'Today'        },
+  recipes:          { icon: BookOpen,    colorClass: 'from-success to-success/60',                   category: 'Entertainment'},
+  dictionary:       { icon: BookOpen,    colorClass: 'from-info to-info/60',                         category: 'Knowledge'    },
+  youtube:          { icon: Play,        colorClass: 'from-destructive to-destructive/70',           category: 'Entertainment'},
+  tvshows:          { icon: Tv,          colorClass: 'from-brand to-brand/60',                       category: 'Entertainment'},
+  datetime:         { icon: Clock,       colorClass: 'from-info to-info/60',                         category: 'Tools'        },
+  moonphase:        { icon: Moon,        colorClass: 'from-muted-foreground to-muted-foreground/60', category: 'Today'        },
+  image_gen:        { icon: ImageIcon,   colorClass: 'from-brand to-brand/60',                       category: 'AI'           },
+  medical:          { icon: Stethoscope, colorClass: 'from-success to-success/60',                   category: 'Knowledge'    },
+  'where-to-watch': { icon: Play,        colorClass: 'from-warning to-warning/60',                   category: 'Entertainment'},
+  holidays:         { icon: Calendar,    colorClass: 'from-destructive to-destructive/60',           category: 'Today'        },
+  home_inventory:   { icon: Home,        colorClass: 'from-info to-info/60',                         category: 'Tools'        },
+  onthisday:        { icon: CalendarDays,colorClass: 'from-warning to-warning/60',                   category: 'Today'        },
+  localEvents:      { icon: MapPin,      colorClass: 'from-success to-success/60',                   category: 'Today'        },
+  localNews:        { icon: Newspaper,   colorClass: 'from-destructive to-destructive/60',           category: 'Today'        },
+  contentRating:    { icon: ShieldCheck, colorClass: 'from-muted-foreground to-muted-foreground/60', category: 'Tools'        },
+  sports:           { icon: Zap,         colorClass: 'from-success to-success/60',                   category: 'Today'        },
+  homeAssistant:    { icon: Package,     colorClass: 'from-info to-info/60',                         category: 'Tools'        },
 }
 
 // ── Lookups from APP_GROUPS (by app id, toolId, and route) ─────────────────────
@@ -134,6 +139,19 @@ function resolveCatalog(id: string, route?: string): CatalogEntry | undefined {
 
 function categoryByName(name: string): StoreCategory {
   return STORE_CATEGORIES.find(c => c.name === name) ?? DEFAULT_CATEGORY
+}
+
+const STOP_WORDS = new Set(['this', 'that', 'the', 'a', 'an', 'my', 'me', 'for', 'is', 'on', 'of', 'to', 'any', 'what', 's', 'i', 'im', 'are', 'do', 'get', 'you'])
+
+/** Lowercase content words pulled from a tool's example prompts, for search matching. */
+function keywordsFromExamples(examples: string[]): string[] {
+  const words = new Set<string>()
+  for (const ex of examples) {
+    for (const w of ex.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)) {
+      if (w.length > 2 && !STOP_WORDS.has(w)) words.add(w)
+    }
+  }
+  return [...words]
 }
 
 /** Build the enriched record for a single backend tool. */
@@ -161,6 +179,7 @@ function fromTool(tool: AppTool): StoreApp {
     route,
     dataSources: tool.dataSources ?? [],
     examples: (tool as AppTool & { examples?: string[] }).examples ?? [],
+    keywords: keywordsFromExamples((tool as AppTool & { examples?: string[] }).examples ?? []),
   }
 }
 
@@ -191,15 +210,22 @@ async function fetchTools(): Promise<AppTool[]> {
   return res.json() as Promise<AppTool[]>
 }
 
-/** Merge backend tools with built-in app pages, deduped by destination route. */
+/** Merge backend tools with built-in app pages, deduped by destination route and id. */
 function mergeApps(apiTools: AppTool[]): StoreApp[] {
   const fromTools = apiTools.map(fromTool)
   const taken = new Set(fromTools.map(t => t.route).filter(Boolean))
+  // Belt-and-suspenders id dedup: route-based dedup above only catches builtins
+  // pointing at a route a tool already covers. Two builtin entries across different
+  // APP_GROUPS could still share an id (a registry data collision), which route
+  // dedup wouldn't catch, and React needs a unique id/key regardless of the cause.
+  const seenIds = new Set(fromTools.map(t => t.id))
   const extras: StoreApp[] = []
   for (const group of APP_GROUPS) {
     for (const item of group.apps) {
       if (item.toolId) continue          // tool-backed apps already come from /api/tools
       if (taken.has(item.to)) continue   // route already represented
+      if (seenIds.has(item.id)) continue // id already represented
+      seenIds.add(item.id)
       extras.push(fromBuiltin(item, group))
     }
   }

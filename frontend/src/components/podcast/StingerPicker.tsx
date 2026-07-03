@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, RefreshCw, Upload, Check, Music, ListMusic } from 'lucide-react'
+import { RefreshCw, Upload, Check, Music, ListMusic } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import {
   generateStingerVariants, renderStingerOutro, fileToStingerWav,
   type StingerVariant, type StingerSelection,
@@ -11,7 +13,7 @@ import { listTracks, trackAudioUrl, fetchTrackBlob, type MusicTrack } from '@/li
 type Tab = 'generated' | 'library' | 'upload'
 
 /**
- * Stinger chooser — the audio sibling of CoverPicker. Offers auto-generated
+ * Stinger chooser - the audio sibling of CoverPicker. Offers auto-generated
  * musical styles (rendered offline), a track from the Music app library, or an
  * uploaded clip, and reports the chosen intro+outro pair (24 kHz mono WAV) for the
  * editor to PUT. Like the cover, one is always selected: the first style is
@@ -73,7 +75,7 @@ export function StingerPicker({ onChange, autoSelect = true }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
-  // Pick a library track — used as both intro and outro (like an uploaded clip).
+  // Pick a library track - used as both intro and outro (like an uploaded clip).
   const chooseTrack = useCallback(async (t: MusicTrack) => {
     setSelected(t.id); setUploadName(null); setPicking(t.id)
     try {
@@ -114,11 +116,11 @@ export function StingerPicker({ onChange, autoSelect = true }: {
             onSelect={(v) => void choose(v)} columns={2}
             error={error ? 'Couldn’t prepare the music engine. Make sure the SoundFont finished downloading, then Regenerate.' : null}
           />
-          <button type="button" disabled={loading}
+          <Button type="button" variant="outline" disabled={loading}
             onClick={() => { const n = offset + 1; setOffset(n); void regenerate(n) }}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-border/60 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-50">
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Regenerate
-          </button>
+            className="w-full text-muted-foreground">
+            {loading ? <Spinner className="text-current" /> : <RefreshCw className="size-4" />} Regenerate
+          </Button>
         </>
       )}
 
@@ -132,7 +134,7 @@ export function StingerPicker({ onChange, autoSelect = true }: {
             sublabel={(t) => [t.kind !== 'track' ? t.kind : null, t.styleId, t.bpm ? `${t.bpm} BPM` : null].filter(Boolean).join(' · ')}
           />
         ) : (
-          <p className="rounded-lg border border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">
+          <p className="rounded-control border border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">
             No saved tracks yet. Create some in the Music app, then pick one here.
           </p>
         )
@@ -141,14 +143,14 @@ export function StingerPicker({ onChange, autoSelect = true }: {
       {tab === 'upload' && (
         <div className="space-y-3">
           {uploadName ? (
-            <div className="flex items-center gap-2 rounded-xl border border-brand bg-brand/5 px-3 py-3 text-sm">
+            <div className="flex items-center gap-2 rounded-card border border-brand bg-brand/5 px-3 py-3 text-sm">
               <Music className="size-4 text-brand" /> <span className="flex-1 truncate">{uploadName}</span>
-              {picking === 'upload' ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4 text-brand" />}
+              {picking === 'upload' ? <Spinner /> : <Check className="size-4 text-brand" />}
             </div>
           ) : (
             <button type="button" onClick={() => fileRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border/60 py-8 text-muted-foreground hover:bg-muted/40">
-              {picking === 'upload' ? <Loader2 className="size-6 animate-spin" /> : <Upload className="size-6" />}
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-border/60 py-8 text-muted-foreground hover:bg-muted/40">
+              {picking === 'upload' ? <Spinner size="lg" /> : <Upload className="size-6" />}
               <span className="text-sm">Click to upload an audio clip (mp3/wav, ≤6s used)</span>
             </button>
           )}

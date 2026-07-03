@@ -3,24 +3,16 @@ import { useGenerationContext } from "@/context/GenerationContext";
 import { usePrivacy } from "@/context/PrivacyContext";
 import { useBusyAppPaths } from "@/context/SetupProgressContext";
 import {
-  BookMarked,
   ChevronLeft,
   ChevronRight,
-  Clapperboard,
-  Cloud,
+  ChevronsUpDown,
+  Circle,
   Home,
-  Lightbulb,
-  Map as MapIcon,
-  MessageCircle,
-  Newspaper,
-  Package,
-  Pin,
-  PinOff,
-  ShoppingBag,
-  Sparkles,
+  LayoutGrid,
+  LogOut,
+  MoreHorizontal,
   Settings,
   ShieldCheck,
-  LogOut,
   Wifi,
   WifiOff,
   type LucideIcon,
@@ -41,13 +33,14 @@ import {
 import { cn } from "@/lib/cn";
 import { ScrollFade } from "@/components/shared/ScrollFade";
 import { categoryVisual } from "@/lib/archiveCategories";
-import { APP_GROUPS, getAppByPath } from "@/lib/appCategories";
+import { APP_GROUPS } from "@/lib/appCategories";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
 import { useAppFeatures } from "@/hooks/useAppFeatures";
 import { useInstalledArchives } from "@/hooks/useInstalledArchives";
 import { AppIconTile } from "@/components/shared/AppIconTile";
 import { ArchiveIcon } from "@/components/shared/ArchiveIcon";
 import { BrandMark } from "@/components/shared/BrandMark";
+import { StatusDot } from "@/components/shared/StatusDot";
 import { useAuth } from "@/context/AuthContext";
 import { SpotlightSearch } from "@/components/shared/SpotlightSearch";
 import {
@@ -58,6 +51,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SortableNavItem } from "./SortableNavItem";
+import { AppLauncher } from "./AppLauncher";
+import { CompanionDock } from "./CompanionDock";
 import { useNavPreferences } from "@/hooks/useNavPreferences";
 import { useIntentPrefetch } from "@/lib/prefetch/useIntentPrefetch";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -73,24 +68,31 @@ interface AppEntry {
   href: string;
   icon: LucideIcon;
   gradient?: string;
+  color?: string;
   feature?: string;
+  toolId?: string;
 }
 
 const ALL_APPS: AppEntry[] = APP_GROUPS.flatMap(g =>
-  g.apps.map(a => ({ id: a.id, label: a.label, href: a.to, icon: a.icon, gradient: a.gradient, feature: a.feature }))
+  g.apps.map(a => ({ id: a.id, label: a.label, href: a.to, icon: a.icon, gradient: a.gradient, color: a.color, feature: a.feature, toolId: a.toolId }))
 );
+
+/** Sidebar Favorites soft cap: overflow moves into the app launcher. */
+const FAVORITES_CAP = 6;
 
 function SectionHeading({ label, count }: { label: string; count?: number }) {
   return (
-    <div className="flex items-center px-3 pt-3 pb-0.5 select-none">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex-1">
-        {label}
-      </p>
+    <div className="flex items-center px-3 pt-3 pb-1 select-none">
+      <p className="text-overline text-muted-foreground/70 flex-1">{label}</p>
       {count !== undefined && (
-        <span className="text-[10px] tabular-nums text-muted-foreground/40">{count}</span>
+        <span className="text-caption tabular-nums text-muted-foreground/40">{count}</span>
       )}
     </div>
   );
+}
+
+function AppBadgeDot({ badge }: { badge: 'busy' | 'done' }) {
+  return <StatusDot status={badge === 'busy' ? 'info' : 'ok'} pulse={badge === 'busy'} />;
 }
 
 function NavIconLink({
@@ -100,6 +102,7 @@ function NavIconLink({
   exact,
   badge,
   gradient,
+  color,
   onIntent,
 }: {
   href: string;
@@ -108,6 +111,7 @@ function NavIconLink({
   exact?: boolean;
   badge?: 'busy' | 'done' | null;
   gradient?: string;
+  color?: string;
   onIntent?: () => void;
 }) {
   const { pathname } = useLocation();
@@ -120,7 +124,7 @@ function NavIconLink({
         onPointerEnter={onIntent}
         onFocus={onIntent}
         className={cn(
-          "relative flex size-10 items-center justify-center rounded-lg transition-colors",
+          "relative flex size-10 items-center justify-center rounded-control transition-colors",
           active
             ? "bg-brand/10"
             : "hover:bg-foreground/5",
@@ -128,16 +132,49 @@ function NavIconLink({
         )}
       >
         {gradient
-          ? <AppIconTile icon={Icon} gradient={gradient} />
+          ? <AppIconTile icon={Icon} gradient={gradient} color={color} variant="flat" />
           : <Icon className="size-4" />}
         {badge && (
-          <span className={cn(
-            "absolute top-1.5 right-1.5 size-1.5 rounded-full",
-            badge === 'busy' ? "bg-blue-500 animate-pulse" : "bg-emerald-500",
-          )} />
+          <span className="absolute top-1.5 right-1.5">
+            <AppBadgeDot badge={badge} />
+          </span>
         )}
       </Link>
-      <span className="pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 z-50 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md ring-1 ring-border/20 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-100 delay-300">
+      <span className="pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 z-50 whitespace-nowrap rounded-control bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md ring-1 ring-border/20 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-100 delay-300">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function NavIconButton({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div className="group/tip relative flex justify-center">
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "flex size-10 items-center justify-center rounded-control transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          active
+            ? "bg-brand/10 text-brand"
+            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+        )}
+      >
+        <Icon className="size-4" aria-hidden="true" />
+        <span className="sr-only">{label}</span>
+      </button>
+      <span className="pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 z-50 whitespace-nowrap rounded-control bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md ring-1 ring-border/20 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-100 delay-300">
         {label}
       </span>
     </div>
@@ -165,9 +202,9 @@ function NavWideLink({
     <Link
       to={href}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+        "flex w-full items-center gap-3 rounded-control px-3 py-2 text-sm transition-colors",
         active
-          ? "bg-brand/10 font-semibold"
+          ? "bg-brand/10 font-medium"
           : "hover:bg-foreground/5",
         !gradient && (active ? "text-brand" : "text-muted-foreground hover:text-foreground"),
         gradient && (active ? "text-foreground" : "text-muted-foreground hover:text-foreground"),
@@ -177,76 +214,42 @@ function NavWideLink({
         ? <AppIconTile icon={Icon} gradient={gradient} />
         : <Icon className="size-4 shrink-0" />}
       <span className="flex-1 truncate">{label}</span>
-      {badge && (
-        <span className={cn(
-          "size-1.5 rounded-full shrink-0",
-          badge === 'busy' ? "bg-blue-500 animate-pulse" : "bg-emerald-500",
-        )} />
-      )}
+      {badge && <AppBadgeDot badge={badge} />}
     </Link>
   );
 }
 
-function NavItemWithPin({
-  app,
-  pinned,
-  onPin,
-  onUnpin,
-  badge,
-  onIntent,
+function NavWideButton({
+  icon: Icon,
+  label,
+  active,
+  onClick,
 }: {
-  app: AppEntry;
-  pinned: boolean;
-  onPin: (id: string) => void;
-  onUnpin: (id: string) => void;
-  badge?: 'busy' | 'done' | null;
-  onIntent?: () => void;
+  icon: LucideIcon;
+  label: string;
+  active?: boolean;
+  onClick: () => void;
 }) {
-  const { pathname } = useLocation();
-  const active = pathname === app.href || pathname.startsWith(app.href + "/");
   return (
-    <div className="relative flex group/item w-full items-center py-0.5">
-      <Link
-        to={app.href}
-        onPointerEnter={onIntent}
-        onFocus={onIntent}
-        className={cn(
-          "flex flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-          active
-            ? "bg-brand/10 text-brand font-semibold"
-            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
-        )}
-      >
-        {app.gradient
-          ? <AppIconTile icon={app.icon} gradient={app.gradient} />
-          : <app.icon className="size-4 shrink-0" />}
-        <span className="flex-1 truncate">{app.label}</span>
-        {badge && (
-          <span className={cn(
-            "size-1.5 rounded-full shrink-0",
-            badge === 'busy' ? "bg-blue-500 animate-pulse" : "bg-emerald-500",
-          )} />
-        )}
-      </Link>
-      <button
-        type="button"
-        onClick={() => (pinned ? onUnpin(app.id) : onPin(app.id))}
-        aria-label={pinned ? `Unpin ${app.label}` : `Pin ${app.label}`}
-        className="absolute right-1 shrink-0 p-1 rounded opacity-0 group-hover/item:opacity-100 text-muted-foreground hover:text-foreground transition-opacity focus-visible:opacity-100 focus-visible:outline-none"
-      >
-        {pinned ? (
-          <PinOff className="size-3.5" aria-hidden="true" />
-        ) : (
-          <Pin className="size-3.5" aria-hidden="true" />
-        )}
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-control px-3 py-2 text-sm transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active
+          ? "bg-brand/10 text-brand font-medium"
+          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+      )}
+    >
+      <Icon className="size-4 shrink-0" aria-hidden="true" />
+      <span className="flex-1 truncate text-left">{label}</span>
+    </button>
   );
 }
 
-// A recently-opened offline-library archive (the app-store "apps"). Resolved from
-// a `read:<sourceId>` recent key + the installed-archives list.
-interface RecentArchive {
+// An installed offline-library archive resolved from a `read:<sourceId>` pin key.
+interface PinnedArchive {
   sourceId: string;
   label: string;
   href: string;
@@ -254,18 +257,15 @@ interface RecentArchive {
   category: string;
 }
 
-type RecentEntry =
-  | { kind: "app"; app: AppEntry }
-  | { kind: "archive"; archive: RecentArchive };
-
 type PinnedEntry =
   | { id: string; kind: "app"; app: AppEntry }
-  | { id: string; kind: "archive"; archive: RecentArchive };
+  | { id: string; kind: "archive"; archive: PinnedArchive };
 
-function ArchiveFavicon({ archive }: { archive: RecentArchive }) {
+function ArchiveFavicon({ archive }: { archive: PinnedArchive }) {
   const visual = categoryVisual(archive.category);
   return (
     <span
+      // design-ok(radius-off-scale): matches AppIconTile's size-5 tile radius
       className="flex size-5 shrink-0 items-center justify-center rounded-md"
       style={{ background: visual.gradient }}
     >
@@ -274,36 +274,7 @@ function ArchiveFavicon({ archive }: { archive: RecentArchive }) {
   );
 }
 
-function ArchiveRecentRow({ archive, onPin }: { archive: RecentArchive; onPin: (id: string) => void }) {
-  const { pathname } = useLocation();
-  const active = pathname === archive.href;
-  return (
-    <div className="relative flex group/item w-full items-center py-0.5">
-      <Link
-        to={archive.href}
-        className={cn(
-          "flex flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-          active
-            ? "bg-brand/10 text-brand font-semibold"
-            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
-        )}
-      >
-        <ArchiveFavicon archive={archive} />
-        <span className="flex-1 truncate">{archive.label}</span>
-      </Link>
-      <button
-        type="button"
-        onClick={() => onPin(`read:${archive.sourceId}`)}
-        aria-label={`Pin ${archive.label}`}
-        className="absolute right-1 shrink-0 p-1 rounded opacity-0 group-hover/item:opacity-100 text-muted-foreground hover:text-foreground transition-opacity focus-visible:opacity-100 focus-visible:outline-none"
-      >
-        <Pin className="size-3.5" aria-hidden="true" />
-      </button>
-    </div>
-  );
-}
-
-function ArchiveIconLink({ archive }: { archive: RecentArchive }) {
+function ArchiveIconLink({ archive }: { archive: PinnedArchive }) {
   const { pathname } = useLocation();
   const active = pathname === archive.href;
   return (
@@ -311,13 +282,13 @@ function ArchiveIconLink({ archive }: { archive: RecentArchive }) {
       <Link
         to={archive.href}
         className={cn(
-          "flex size-10 items-center justify-center rounded-lg transition-colors",
+          "flex size-10 items-center justify-center rounded-control transition-colors",
           active ? "bg-brand/10 text-brand" : "hover:bg-foreground/5",
         )}
       >
         <ArchiveFavicon archive={archive} />
       </Link>
-      <span className="pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 z-50 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md ring-1 ring-border/20 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-100 delay-300">
+      <span className="pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 z-50 whitespace-nowrap rounded-control bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md ring-1 ring-border/20 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-100 delay-300">
         {archive.label}
       </span>
     </div>
@@ -325,12 +296,14 @@ function ArchiveIconLink({ archive }: { archive: RecentArchive }) {
 }
 
 // ── Quick status switcher ───────────────────────────────────────────────────
+// Hex values are presence-state data rendered via inline styles, not UI accents.
+// design-ok(hex-in-tsx): status preset color data
 const STATUS_PRESETS = [
-  { state: 'available', label: 'Available', color: '#22c55e', icon: '🟢' },
-  { state: 'busy',      label: 'Busy',      color: '#ef4444', icon: '🔴' },
-  { state: 'focusing',  label: 'Focusing',  color: '#3b82f6', icon: '🔵' },
-  { state: 'dnd',       label: 'DND',       color: '#7c3aed', icon: '🟣' },
-  { state: 'brb',       label: 'BRB',       color: '#eab308', icon: '🟡' },
+  { state: 'available', label: 'Available', color: '#22c55e' },
+  { state: 'busy',      label: 'Busy',      color: '#ef4444' },
+  { state: 'focusing',  label: 'Focusing',  color: '#3b82f6' },
+  { state: 'dnd',       label: 'DND',       color: '#7c3aed' },
+  { state: 'brb',       label: 'BRB',       color: '#eab308' },
 ] as const
 
 function StatusQuickSwitcher({ userId }: { userId: string }) {
@@ -367,22 +340,23 @@ function StatusQuickSwitcher({ userId }: { userId: string }) {
 
   return (
     <div className="px-2 py-1">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5 px-1">Status</p>
+      <p className="text-overline text-muted-foreground/70 mb-1.5 px-1">Status</p>
       <div className="flex flex-wrap gap-1">
         {STATUS_PRESETS.map((p) => (
           <button
             key={p.state}
             disabled={busy}
             onClick={() => setStatus(current === p.state ? null : p.state)}
-            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-60 ${
+            className={cn(
+              "flex items-center gap-1 rounded-full px-2 py-0.5 text-caption transition-colors disabled:opacity-60",
               current === p.state
-                ? 'text-white shadow-sm'
-                : 'bg-muted/60 text-muted-foreground hover:bg-muted'
-            }`}
+                ? "text-white shadow-sm"
+                : "bg-muted/60 text-muted-foreground hover:bg-muted",
+            )}
             style={current === p.state ? { backgroundColor: p.color } : undefined}
             title={current === p.state ? 'Click to clear' : `Set status to ${p.label}`}
           >
-            <span>{p.icon}</span>
+            <Circle className="size-2 shrink-0 fill-current" style={{ color: current === p.state ? undefined : p.color }} />
             <span>{p.label}</span>
           </button>
         ))}
@@ -398,7 +372,7 @@ function StatusQuickSwitcher({ userId }: { userId: string }) {
 function BadgeCount({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <span className="absolute top-1 right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 pointer-events-none">
+    <span className="absolute top-1 right-1 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 pointer-events-none">
       {count > 99 ? "99+" : count}
     </span>
   );
@@ -418,6 +392,7 @@ export function LeftSidebar() {
 
   const connectivity = useConnectivity()
   const [confirmOffline, setConfirmOffline] = useState(false)
+  const [launcherOpen, setLauncherOpen] = useState(false)
   const { unreadCount, notifications, loadNotifications, markRead, markAllRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
 
@@ -426,7 +401,7 @@ export function LeftSidebar() {
     if (open) void loadNotifications()
   }, [loadNotifications])
 
-  // Fire toasts when device network state changes (only in Standard mode — Local only users already expect no internet)
+  // Fire toasts when device network state changes (only in Standard mode, Local only users already expect no internet)
   const prevHasNetworkRef = useRef<boolean | null>(null)
   useEffect(() => {
     const hasNetwork = connectivity?.hasNetwork ?? true
@@ -484,11 +459,11 @@ export function LeftSidebar() {
       isAppVisible(a.toolId, enabledToolIds),
   );
 
-  // Installed archives → map for resolving `read:<sourceId>` recents to a label
+  // Installed archives → map for resolving `read:<sourceId>` pins to a label
   // + favicon. The shared query refetches on focus so newly-installed archives resolve.
   const { data: installedArchives } = useInstalledArchives();
   const archiveMap = useMemo(() => {
-    const m = new Map<string, RecentArchive>();
+    const m = new Map<string, PinnedArchive>();
     for (const a of installedArchives ?? []) {
       m.set(a.sourceId, {
         sourceId: a.sourceId,
@@ -507,10 +482,10 @@ export function LeftSidebar() {
   const isWide = !collapsed;
 
   const appById = new Map(APPS.map((a) => [a.id, a]));
-  const pinnedIdSet = new Set(pinnedIds);
 
-  // Pinned = built-in apps OR pinned offline-library archives (`read:<sourceId>`),
-  // in saved order. Anything can be pinned — including archives from Recent.
+  // Favorites = pinned built-in apps OR pinned offline-library archives
+  // (`read:<sourceId>`), in saved order. Soft-capped in the sidebar; the
+  // overflow lives in the app launcher.
   const pinnedEntries: PinnedEntry[] = pinnedIds
     .map((id): PinnedEntry | null => {
       if (id.startsWith("read:")) {
@@ -522,22 +497,8 @@ export function LeftSidebar() {
     })
     .filter((e): e is PinnedEntry => !!e);
 
-  // Recent = the last 3 unique things the user opened (most-recent first):
-  // built-in apps OR offline-library archives. Anything already pinned is
-  // skipped here so it doesn't appear twice.
-  const recentEntries: RecentEntry[] = [];
-  const recentIdSet = new Set<string>();
-  for (const id of recentIds) {
-    if (recentEntries.length >= 3) break;
-    if (pinnedIdSet.has(id)) continue;
-    if (id.startsWith("read:")) {
-      const archive = archiveMap.get(id.slice(5));
-      if (archive) { recentEntries.push({ kind: "archive", archive }); recentIdSet.add(id); }
-    } else {
-      const app = appById.get(id);
-      if (app) { recentEntries.push({ kind: "app", app }); recentIdSet.add(id); }
-    }
-  }
+  const visiblePinned = pinnedEntries.slice(0, FAVORITES_CAP);
+  const overflowCount = pinnedEntries.length - visiblePinned.length;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -546,11 +507,16 @@ export function LeftSidebar() {
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const ids = pinnedEntries.map((e) => e.id);
-    const oldIdx = ids.indexOf(String(active.id));
-    const newIdx = ids.indexOf(String(over.id));
+    const visibleIds = visiblePinned.map((e) => e.id);
+    const oldIdx = visibleIds.indexOf(String(active.id));
+    const newIdx = visibleIds.indexOf(String(over.id));
     if (oldIdx === -1 || newIdx === -1) return;
-    reorder(arrayMove(ids, oldIdx, newIdx));
+    // Reorder within the visible window; keep everything past the cap (and any
+    // pins that didn't resolve, e.g. an uninstalled archive) in saved order.
+    const moved = arrayMove(visibleIds, oldIdx, newIdx);
+    const visibleSet = new Set(visibleIds);
+    const rest = pinnedIds.filter((id) => !visibleSet.has(id));
+    reorder([...moved, ...rest]);
   }
 
   async function handleLogout() {
@@ -563,12 +529,12 @@ export function LeftSidebar() {
     <aside
         style={{ width: isWide ? "13rem" : "3.5rem" }}
         className={cn(
-          "group relative z-20 hidden md:flex shrink-0 flex-col border-r transition-[width,background-color,border-color] duration-300 ease-out",
+          "group relative z-20 hidden md:flex shrink-0 flex-col border-r bg-sidebar transition-[width,background-color,border-color] duration-300 ease-out",
           connectivity?.appMode === 'local'
-            ? "border-amber-500/25 bg-gradient-to-b from-amber-950/30 via-background to-background"
+            ? "border-warning/15"
             : connectivity && !connectivity.hasNetwork
-            ? "border-red-500/25 bg-gradient-to-b from-red-950/30 via-background to-background"
-            : "border-border/30 bg-gradient-to-b from-violet-950/30 via-background to-background",
+            ? "border-destructive/15"
+            : "border-sidebar-border",
         )}
       >
         {/* Hover-reveal collapse pill */}
@@ -593,247 +559,78 @@ export function LeftSidebar() {
           )}
         </button>
 
-        {/* App branding — mirrors the setup wizard's dark violet brand panel:
-            glowing logo, bold wordmark, and tagline over a soft violet wash. */}
+        {/* Brand block: glowing mark + wordmark over a whisper of brand glow.
+            Connectivity states tint the glow amber (local only) or red (offline). */}
         <div
           className={cn(
             "relative flex shrink-0 items-center pt-5 pb-4",
             isWide ? "gap-2.5 px-4" : "justify-center px-0",
           )}
         >
-          {/* Status-tinted wash behind the mark — the "dark left column" glow from setup */}
           <div className={cn(
             "pointer-events-none absolute inset-x-0 -top-6 h-28 bg-gradient-to-b to-transparent",
             connectivity?.appMode === 'local'
-              ? "from-amber-600/15 via-amber-600/[0.04]"
+              ? "from-warning/[0.08] via-warning/[0.02]"
               : connectivity && !connectivity.hasNetwork
-              ? "from-red-600/15 via-red-600/[0.04]"
-              : "from-violet-600/15 via-violet-600/[0.04]",
+              ? "from-destructive/[0.08] via-destructive/[0.02]"
+              : "from-brand/[0.08] via-brand/[0.02]",
           )} />
           <BrandMark glow className={cn("relative", isWide ? "size-8" : "size-7")} />
           {isWide && (
             <div className="relative min-w-0">
-              <h1 className="text-base font-black tracking-tight leading-none truncate">LokiDoki</h1>
+              <p className="text-sm font-semibold tracking-tight leading-none truncate text-foreground">LokiDoki</p>
               <p className="mt-1 text-[11px] leading-none text-muted-foreground truncate">Your private AI home hub</p>
             </div>
           )}
         </div>
 
-        {/* Search — wide only */}
-        {isWide && (
-          <div className="shrink-0 px-2 mb-1">
-            <SpotlightSearch />
-          </div>
-        )}
+        {/* Prestige edge: the one sanctioned brand-gradient hairline. The profile
+            card rests directly on it, so it reads as the card's top edge. */}
+        <div
+          aria-hidden
+          className={cn("h-px shrink-0", isWide ? "mx-2" : "mx-1")}
+          style={{ background: "var(--brand-gradient)", opacity: 0.5 }}
+        />
 
-        {/* Nav: fixed top, scrollable pinned middle, fixed recent bottom */}
-        <nav className="flex-1 min-h-0 flex flex-col overflow-hidden px-2 py-1">
-          {isWide ? (
-            <>
-              {/* Home + App Store — always visible */}
-              <div className="shrink-0 py-0.5">
-                <NavWideLink href="/" icon={Home} label="Home" exact />
-              </div>
-              <div className="shrink-0 py-0.5">
-                <NavWideLink href="/app-store" icon={ShoppingBag} label="App Store" />
-              </div>
-
-              {/* Pinned heading — always visible */}
-              {pinnedEntries.length > 0 && (
-                <div className="shrink-0">
-                  <SectionHeading label="Pinned" count={pinnedEntries.length} />
-                </div>
-              )}
-
-              {/* Pinned items — scrollable, takes remaining space.
-                  ScrollFade adds top/bottom fade hints when the list overflows. */}
-              <ScrollFade>
-                {pinnedEntries.length > 0 && (
-                  <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                    <SortableContext
-                      items={pinnedEntries.map((e) => e.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      {pinnedEntries.map((e) =>
-                        e.kind === "app" ? (
-                          <SortableNavItem
-                            key={e.id}
-                            id={e.id}
-                            label={e.app.label}
-                            href={e.app.href}
-                            icon={e.app.gradient ? undefined : e.app.icon}
-                            iconNode={e.app.gradient ? <AppIconTile icon={e.app.icon} gradient={e.app.gradient} /> : undefined}
-                            onUnpin={unpin}
-                            badge={getAppBadge(e.app.href)}
-                            onIntent={() => prefetch(e.app.href)}
-                          />
-                        ) : (
-                          <SortableNavItem
-                            key={e.id}
-                            id={e.id}
-                            label={e.archive.label}
-                            href={e.archive.href}
-                            iconNode={<ArchiveFavicon archive={e.archive} />}
-                            onUnpin={unpin}
-                          />
-                        ),
-                      )}
-                    </SortableContext>
-                  </DndContext>
-                )}
-              </ScrollFade>
-
-              {/* Recent — always visible at bottom (header + count always shown):
-                  last 3 opened, excluding anything already pinned */}
-              <div className="shrink-0">
-                <SectionHeading label="Recent" count={recentEntries.length} />
-                {recentEntries.map((e) =>
-                  e.kind === "app" ? (
-                    <NavItemWithPin
-                      key={e.app.id}
-                      app={e.app}
-                      pinned={false}
-                      onPin={pin}
-                      onUnpin={unpin}
-                      badge={getAppBadge(e.app.href)}
-                      onIntent={() => prefetch(e.app.href)}
-                    />
-                  ) : (
-                    <ArchiveRecentRow key={`read:${e.archive.sourceId}`} archive={e.archive} onPin={pin} />
-                  ),
-                )}
-              </div>
-            </>
-          ) : (
-            // Narrow mode: Home + App Store fixed, pinned scrollable, recent fixed
-            <>
-              <div className="shrink-0 flex justify-center py-0.5">
-                <NavIconLink href="/" icon={Home} label="Home" exact />
-              </div>
-              <div className="shrink-0 flex justify-center py-0.5">
-                <NavIconLink href="/app-store" icon={ShoppingBag} label="App Store" />
-              </div>
-              <ScrollFade>
-                {pinnedEntries.map((e) => (
-                  <div key={e.id} className="flex justify-center py-0.5">
-                    {e.kind === "app" ? (
-                      <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} label={e.app.label} badge={getAppBadge(e.app.href)} onIntent={() => prefetch(e.app.href)} />
-                    ) : (
-                      <ArchiveIconLink archive={e.archive} />
-                    )}
-                  </div>
-                ))}
-              </ScrollFade>
-              <div className="shrink-0">
-                {recentEntries.map((e) => (
-                  <div key={e.kind === "app" ? e.app.id : `read:${e.archive.sourceId}`} className="flex justify-center py-0.5">
-                    {e.kind === "app" ? (
-                      <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} label={e.app.label} badge={getAppBadge(e.app.href)} onIntent={() => prefetch(e.app.href)} />
-                    ) : (
-                      <ArchiveIconLink archive={e.archive} />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </nav>
-
-        {/* Bottom: Admin + Connectivity + Profile */}
-        <div className={cn("shrink-0 px-2 pb-5 pt-2", isWide ? "space-y-0.5" : "flex flex-col items-center gap-0.5")}>
-          {user?.role === "admin" && (
-            <>
-              {isWide ? (
-                <NavWideLink href="/admin" icon={ShieldCheck} label="Admin" />
-              ) : (
-                <NavIconLink href="/admin" icon={ShieldCheck} label="Admin" />
-              )}
-            </>
-          )}
-
-          {/* Connectivity status + toggle */}
-          {user && connectivity && (
-            isWide ? (
-              <button
-                type="button"
-                onClick={toggleConnectivity}
-                title={
-                  connectivity.appMode === 'local' && connectivity.forcedByAdmin
-                    ? 'Your admin has set local-only mode for all users'
-                    : connectivity.appMode === 'local'
-                    ? 'Local only — news, weather, and search are off. Click to switch to Standard.'
-                    : !connectivity.hasNetwork
-                    ? 'No internet connection — features requiring the network are unavailable.'
-                    : 'Standard — internet features are on. Click to switch to Local only.'
-                }
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  connectivity.appMode === 'local'
-                    ? "text-amber-500 hover:bg-amber-500/10"
-                    : !connectivity.hasNetwork
-                    ? "text-red-500 hover:bg-red-500/10"
-                    : "text-emerald-500 hover:bg-emerald-500/10",
-                  connectivity.forcedByAdmin && "cursor-default",
-                )}
-              >
-                {connectivity.appMode === 'local' || !connectivity.hasNetwork
-                  ? <WifiOff className="size-4 shrink-0" />
-                  : <Wifi className="size-4 shrink-0" />}
-                <span className="flex-1 text-left font-medium">
-                  {connectivity.appMode === 'local' ? 'Local only' : !connectivity.hasNetwork ? 'No connection' : 'Standard'}
-                </span>
-                {connectivity.forcedByAdmin && (
-                  <span className="text-[10px] font-semibold opacity-60 shrink-0">Admin</span>
-                )}
-              </button>
-            ) : (
-              <div className="group/tip relative flex justify-center">
-                <button
-                  type="button"
-                  onClick={toggleConnectivity}
-                  className={cn(
-                    "size-10 rounded-lg flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    connectivity.appMode === 'local'
-                      ? "text-amber-500 hover:bg-amber-500/10"
-                      : !connectivity.hasNetwork
-                      ? "text-red-500 hover:bg-red-500/10"
-                      : "text-emerald-500 hover:bg-emerald-500/10",
-                  )}
-                >
-                  {connectivity.appMode === 'local' || !connectivity.hasNetwork
-                    ? <WifiOff className="size-5" />
-                    : <Wifi className="size-5" />}
-                </button>
-                <span className="pointer-events-none absolute left-full top-1/2 ml-3 -translate-y-1/2 z-50 max-w-52 whitespace-normal rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md ring-1 ring-border/20 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-100 delay-300">
-                  {connectivity.appMode === 'local' && connectivity.forcedByAdmin
-                    ? 'Local only · set by your admin'
-                    : connectivity.appMode === 'local'
-                    ? 'Local only · click to switch to Standard'
-                    : !connectivity.hasNetwork
-                    ? 'No connection · switch to Local only or wait for signal'
-                    : 'Standard · click to switch to Local only'}
-                </span>
-              </div>
-            )
-          )}
-
-          {/* Profile + Notifications dropdown */}
-          {user && (
+        {/* Profile card, shadcn NavUser style: avatar + name + role with the
+            notifications/status/settings dropdown. Lives under the brand block
+            so the sidebar footer belongs to the companion. */}
+        {user && (
+          <div className={cn("shrink-0", isWide ? "px-2" : "px-1 flex justify-center")}>
             <DropdownMenu open={notifOpen} onOpenChange={handleNotifOpen}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
                   className={cn(
-                    "relative flex items-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    isWide ? "w-full gap-3 px-3 py-2 text-sm" : "size-10 justify-center",
+                    "relative flex items-center rounded-control text-left transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    isWide
+                      ? "w-full gap-2.5 rounded-t-none bg-secondary/60 p-2 hover:bg-secondary"
+                      : "size-10 justify-center hover:bg-foreground/5",
                   )}
                 >
-                  <UserAvatar user={user} size={24} className="size-6 shrink-0 rounded-full" />
-                  {isWide && <span className="truncate">{user.nickname || user.firstName}</span>}
+                  <UserAvatar
+                    user={user}
+                    size={isWide ? 32 : 28}
+                    className={cn("shrink-0 rounded-control", isWide ? "size-8" : "size-7")}
+                  />
+                  {isWide && (
+                    <>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold leading-tight">
+                          {user.nickname || user.firstName}
+                        </span>
+                        <span className="block truncate text-caption leading-tight text-muted-foreground">
+                          {user.role === "admin" ? "Administrator" : "Member"}
+                        </span>
+                      </span>
+                      <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    </>
+                  )}
                   <BadgeCount count={unreadCount} />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="right" align="end" className="w-72">
+              <DropdownMenuContent side="right" align="start" className="w-72">
                 {/* Notifications section */}
                 <div className="flex items-center justify-between px-2 py-1.5">
                   <span className="text-xs font-semibold text-foreground">Notifications</span>
@@ -841,7 +638,7 @@ export function LeftSidebar() {
                     <button
                       type="button"
                       onClick={() => void markAllRead()}
-                      className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                      className="text-caption text-muted-foreground hover:text-foreground transition-colors"
                     >
                       Mark all read
                     </button>
@@ -888,6 +685,47 @@ export function LeftSidebar() {
                     Settings
                   </Link>
                 </DropdownMenuItem>
+                {user.role === "admin" && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin" className="flex items-center gap-2">
+                      <ShieldCheck className="size-4" />
+                      Admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {connectivity && (
+                  <DropdownMenuItem
+                    onClick={toggleConnectivity}
+                    disabled={connectivity.forcedByAdmin}
+                    title={
+                      connectivity.appMode === 'local' && connectivity.forcedByAdmin
+                        ? 'Your admin has set local-only mode for all users'
+                        : connectivity.appMode === 'local'
+                        ? 'Local only, news, weather, and search are off. Click to switch to Standard.'
+                        : !connectivity.hasNetwork
+                        ? 'No internet connection, features requiring the network are unavailable.'
+                        : 'Standard, internet features are on. Click to switch to Local only.'
+                    }
+                    className={cn(
+                      "flex items-center gap-2",
+                      connectivity.appMode === 'local'
+                        ? "text-warning focus:text-warning"
+                        : !connectivity.hasNetwork
+                        ? "text-destructive focus:text-destructive"
+                        : "text-success focus:text-success",
+                    )}
+                  >
+                    {connectivity.appMode === 'local' || !connectivity.hasNetwork
+                      ? <WifiOff className="size-4" />
+                      : <Wifi className="size-4" />}
+                    <span className="flex-1">
+                      {connectivity.appMode === 'local' ? 'Local only' : !connectivity.hasNetwork ? 'No connection' : 'Standard'}
+                    </span>
+                    {connectivity.forcedByAdmin && (
+                      <span className="text-overline opacity-60">Admin</span>
+                    )}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleLogout}
@@ -898,14 +736,147 @@ export function LeftSidebar() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+        )}
+
+        {/* Search, wide only */}
+        {isWide && (
+          <div className="shrink-0 px-2 mt-2 mb-1">
+            <SpotlightSearch />
+          </div>
+        )}
+
+        {/* Nav: Home + Apps fixed on top, Favorites scrollable below */}
+        <nav className={cn("flex-1 min-h-0 flex flex-col overflow-hidden px-2 py-1", !isWide && "mt-2")}>
+          {isWide ? (
+            <>
+              <div className="shrink-0 py-0.5">
+                <NavWideLink href="/" icon={Home} label="Home" exact />
+              </div>
+              <div className="shrink-0 py-0.5">
+                <NavWideButton
+                  icon={LayoutGrid}
+                  label="Apps"
+                  active={launcherOpen}
+                  onClick={() => setLauncherOpen(true)}
+                />
+              </div>
+
+              {visiblePinned.length > 0 && (
+                <>
+                  <div className="shrink-0">
+                    <SectionHeading label="Favorites" count={pinnedEntries.length} />
+                  </div>
+
+                  {/* Favorites, scrollable, takes remaining space.
+                      ScrollFade adds top/bottom fade hints when the list overflows. */}
+                  <ScrollFade>
+                    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                      <SortableContext
+                        items={visiblePinned.map((e) => e.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {visiblePinned.map((e) =>
+                          e.kind === "app" ? (
+                            <SortableNavItem
+                              key={e.id}
+                              id={e.id}
+                              label={e.app.label}
+                              href={e.app.href}
+                              icon={e.app.gradient ? undefined : e.app.icon}
+                              iconNode={e.app.gradient ? <AppIconTile icon={e.app.icon} gradient={e.app.gradient} color={e.app.color} variant="flat" /> : undefined}
+                              onUnpin={unpin}
+                              badge={getAppBadge(e.app.href)}
+                              onIntent={() => prefetch(e.app.href)}
+                            />
+                          ) : (
+                            <SortableNavItem
+                              key={e.id}
+                              id={e.id}
+                              label={e.archive.label}
+                              href={e.archive.href}
+                              iconNode={<ArchiveFavicon archive={e.archive} />}
+                              onUnpin={unpin}
+                            />
+                          ),
+                        )}
+                      </SortableContext>
+                    </DndContext>
+                    {overflowCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setLauncherOpen(true)}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-control px-3 py-2 text-sm transition-colors",
+                          "text-muted-foreground/70 hover:bg-foreground/5 hover:text-foreground",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        )}
+                      >
+                        <MoreHorizontal className="size-4 shrink-0" aria-hidden="true" />
+                        <span className="flex-1 truncate text-left">{overflowCount} more…</span>
+                      </button>
+                    )}
+                  </ScrollFade>
+                </>
+              )}
+            </>
+          ) : (
+            // Narrow mode: Home + Apps fixed, favorites scrollable icon rail
+            <>
+              <div className="shrink-0 flex justify-center py-0.5">
+                <NavIconLink href="/" icon={Home} label="Home" exact />
+              </div>
+              <div className="shrink-0 flex justify-center py-0.5">
+                <NavIconButton
+                  icon={LayoutGrid}
+                  label="Apps"
+                  active={launcherOpen}
+                  onClick={() => setLauncherOpen(true)}
+                />
+              </div>
+              <ScrollFade>
+                {visiblePinned.map((e) => (
+                  <div key={e.id} className="flex justify-center py-0.5">
+                    {e.kind === "app" ? (
+                      <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} color={e.app.color} label={e.app.label} badge={getAppBadge(e.app.href)} onIntent={() => prefetch(e.app.href)} />
+                    ) : (
+                      <ArchiveIconLink archive={e.archive} />
+                    )}
+                  </div>
+                ))}
+                {overflowCount > 0 && (
+                  <div className="flex justify-center py-0.5">
+                    <NavIconButton
+                      icon={MoreHorizontal}
+                      label={`${overflowCount} more in Apps`}
+                      onClick={() => setLauncherOpen(true)}
+                    />
+                  </div>
+                )}
+              </ScrollFade>
+            </>
           )}
+        </nav>
+
+        {/* Companion dock: the sidebar footer. The buddy lives bottom-left on a
+            soft plum wash echoing the logo tile, set off by a hairline. */}
+        <div className="shrink-0 border-t border-sidebar-border bg-gradient-to-t from-brand/[0.07] via-brand/[0.02] to-transparent">
+          <CompanionDock collapsed={!isWide} />
         </div>
       </aside>
+      <AppLauncher
+        open={launcherOpen}
+        onOpenChange={setLauncherOpen}
+        pinnedIds={pinnedIds}
+        recentIds={recentIds}
+        onPin={pin}
+        onUnpin={unpin}
+      />
       <ConfirmDialog
         open={confirmOffline}
         onOpenChange={setConfirmOffline}
         title="Switch to Local only?"
-        description="Internet features will be disabled — news, weather, search tools, and other external services won't work until you switch back to Standard."
+        description="Internet features will be disabled, news, weather, search tools, and other external services won't work until you switch back to Standard."
         confirmLabel="Switch to Local only"
         onConfirm={() => applyConnectivity('offline')}
         destructive

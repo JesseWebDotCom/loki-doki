@@ -1,5 +1,8 @@
 import { useRef, useState } from 'react'
-import { Loader2, Check, Play, Pause } from 'lucide-react'
+import { Check, Play, Pause } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 
 export interface VariantItem {
@@ -9,7 +12,7 @@ export interface VariantItem {
 }
 
 /**
- * Variant picker grid with a shared audio player — the generated/remixed sibling of
+ * Variant picker grid with a shared audio player; the generated/remixed sibling of
  * the cover-art grid. Extracted from StingerPicker so the podcast intro/outro picker
  * and the Music app's Generate/Remix tabs render takes identically.
  */
@@ -42,12 +45,12 @@ export function TrackVariantGrid<T extends VariantItem>({
   if (loading) {
     return (
       <div className={cn('grid gap-2', grid)}>
-        {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-muted/60" />)}
+        {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-card bg-muted/60" />)}
       </div>
     )
   }
   if (error) {
-    return <p className="rounded-lg border border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">{error}</p>
+    return <p className="rounded-control border border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">{error}</p>
   }
 
   return (
@@ -61,19 +64,19 @@ export function TrackVariantGrid<T extends VariantItem>({
           const sub = sublabel?.(v)
           return (
             <div key={v.key}
-              className={cn('relative flex items-center gap-2 rounded-xl border px-2.5 py-2 transition-all',
+              className={cn('relative flex items-center gap-2 rounded-card border px-2.5 py-2 transition-all',
                 isSel ? 'border-brand bg-brand/5' : 'border-border hover:border-border/80')}>
-              <button type="button" onClick={() => togglePlay(v)}
-                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-foreground hover:bg-muted/70"
+              <Button type="button" variant="secondary" size="icon" onClick={() => togglePlay(v)}
+                className="size-8 shrink-0 bg-muted text-foreground hover:bg-muted/70"
                 aria-label={isPlaying ? 'Pause' : 'Play'}>
                 {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-              </button>
+              </Button>
               <button type="button" onClick={() => onSelect(v)} className="min-w-0 flex-1 text-left">
                 <div className="truncate text-sm font-medium">{v.label}</div>
                 {sub ? <div className="truncate text-xs text-muted-foreground">{sub}</div> : null}
               </button>
               {isPicking
-                ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                ? <Spinner className="size-4 shrink-0" />
                 : isSel && <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground"><Check className="size-3" strokeWidth={3} /></span>}
             </div>
           )

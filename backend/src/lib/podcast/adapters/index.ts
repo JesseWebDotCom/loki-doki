@@ -286,6 +286,34 @@ async function movieAdapter(params?: Record<string, unknown>): Promise<SegmentCo
   return { label: title || 'Movie', items }
 }
 
+// ── Bookmarks / "Your Reading Week" ────────────────────────────────────────────
+// Recaps the articles the user saved recently (params.days window, default 7) so a show
+// can carry a weekly reading-digest segment. Excerpts are often the AI TL;DR persisted
+// by the bookmarks summarize action; falls back to the article head.
+async function bookmarksAdapter(userId: string, userFirstName: string, params?: Record<string, unknown>): Promise<SegmentContent> {
+  const { db: database } = await import('@/db')
+  const { bookmarks } = await import('@/db/schema')
+  const { and, desc, eq, gt, isNull, or } = await import('drizzle-orm')
+  const days = Math.max(1, Math.min(31, Number(params?.days) || 7))
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+  const rows = await database.select().from(bookmarks)
+    .where(and(
+      or(isNull(bookmarks.ownerId), eq(bookmarks.ownerId, userId)),
+      eq(bookmarks.type, 'offline'),
+      gt(bookmarks.createdAt, cutoff),
+    ))
+    .orderBy(desc(bookmarks.createdAt))
+    .limit(8)
+  const items = rows.map((r) => {
+    const gist = r.excerpt?.trim() || r.contentText?.slice(0, 400)?.trim() || ''
+    return `${r.title}${r.siteName ? ` (${r.siteName}${r.readingMins ? `, ${r.readingMins} min` : ''})` : ''}${gist ? `: ${gist}` : ''}`
+  })
+  if (items.length) {
+    items.unshift(`Articles ${userFirstName} saved over the last ${days === 7 ? 'week' : `${days} days`} — recap each briefly and call out which are most worth reading first.`)
+  }
+  return { label: 'Your Reading Week', items }
+}
+
 export async function runAdapter(segment: ShowSegment, userId: string, userFirstName: string): Promise<SegmentContent> {
   try {
     switch (segment.type) {
@@ -297,6 +325,7 @@ export async function runAdapter(segment: ShowSegment, userId: string, userFirst
       case 'custom':    return await customAdapter(userId, segment.params)
       case 'tvshow':    return await tvshowAdapter(segment.params)
       case 'movie':     return await movieAdapter(segment.params)
+      case 'bookmarks': return await bookmarksAdapter(userId, userFirstName, segment.params)
       default:          return { label: segment.label ?? segment.type, items: [] }
     }
   } catch {

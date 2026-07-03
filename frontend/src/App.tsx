@@ -1,6 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { ThemeProvider } from '@/context/ThemeContext'
 import { AppToaster } from '@/components/shared/AppToaster'
@@ -21,6 +20,7 @@ import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
 import { BackgroundSetupWidget } from '@/components/shared/BackgroundSetupWidget'
+import { Spinner } from '@/components/ui/spinner'
 import { AppShell } from '@/components/shell/AppShell'
 import { BootScreen } from '@/components/shell/BootScreen'
 import { SetupWizard } from '@/pages/SetupWizard'
@@ -29,6 +29,7 @@ import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
 import { WeatherPage } from '@/pages/WeatherPage'
+import { WeatherSettingsPage } from '@/pages/WeatherSettingsPage'
 import { TimePage } from '@/pages/TimePage'
 import { ChatLayout } from '@/components/chat/ChatLayout'
 import { ConversationView } from '@/components/chat/ConversationView'
@@ -39,7 +40,6 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { CategoryPage } from '@/pages/CategoryPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
-import { AllAppsPage } from '@/pages/AllAppsPage'
 import { BookmarksLayout } from '@/components/bookmarks/BookmarksLayout'
 import { BookmarksLibraryPage } from '@/pages/bookmarks/BookmarksLibraryPage'
 import { BookmarkReadPage } from '@/pages/bookmarks/BookmarkReadPage'
@@ -67,6 +67,8 @@ import { VoiceMemosPage } from '@/pages/VoiceMemosPage'
 import { JokePage } from '@/pages/JokePage'
 import { UnitConverterPage } from '@/pages/UnitConverterPage'
 import { SpeedTestPage } from '@/pages/SpeedTestPage'
+import { ShoppingPage } from '@/pages/shopping/ShoppingPage'
+import { ProductDetailPage } from '@/pages/shopping/ProductDetailPage'
 import { CamerasPage } from '@/pages/CamerasPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
@@ -136,7 +138,7 @@ const YoutubeSettingsPage = lazy(() => import('@/pages/youtube/YoutubeSettingsPa
 function AppLoading() {
   return (
     <div className="flex h-screen items-center justify-center bg-background">
-      <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      <Spinner size="lg" className="size-8" />
     </div>
   )
 }
@@ -294,6 +296,7 @@ export default function App() {
                 </Route>
                 <Route path="/maps" element={<MapsPage />} />
                 <Route path="/weather" element={<WeatherPage />} />
+                <Route path="/weather/settings" element={<WeatherSettingsPage />} />
                 <Route path="/imaging" element={<ImagingPage />} />
                 <Route path="/music" element={<MusicLayout />}>
                   <Route index element={<MusicHomePage />} />
@@ -312,7 +315,6 @@ export default function App() {
                 </Route>
                 <Route path="/video" element={<VideoPage />} />
                 <Route path="/read/:sourceId" element={<ReaderPage />} />
-                <Route path="/apps" element={<AllAppsPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
                 <Route path="/category/:category" element={<CategoryPage />} />
                 <Route path="/bookmarks" element={<BookmarksLayout />}>
@@ -369,6 +371,8 @@ export default function App() {
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
                 <Route path="/speed-test" element={<SpeedTestPage />} />
+                <Route path="/shopping" element={<ShoppingPage />} />
+                <Route path="/shopping/product/:retailer/:encodedId" element={<ProductDetailPage />} />
                 <Route path="/cameras" element={<CamerasPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />

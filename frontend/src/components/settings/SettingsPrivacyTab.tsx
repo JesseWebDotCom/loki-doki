@@ -119,7 +119,7 @@ export function SettingsPrivacyTab() {
             type="button"
             onClick={() => applyPreset(id)}
             className={cn(
-              'flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-colors',
+              'flex flex-col items-start gap-1 rounded-control border p-3 text-left transition-colors',
               preset === id ? 'border-brand bg-brand/5' : 'border-border/60 hover:bg-muted/50',
             )}
           >
@@ -131,7 +131,7 @@ export function SettingsPrivacyTab() {
       </div>
 
       {/* Dials */}
-      <div className="rounded-xl border border-border/50 bg-card p-4">
+      <div className="rounded-card border border-border/50 bg-card p-4">
         <ContentDialGroup
           values={dials}
           ceiling={ceiling}

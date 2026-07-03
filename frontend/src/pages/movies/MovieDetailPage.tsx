@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Clapperboard, ExternalLink, Loader2, Mic, Music, Play, Search } from 'lucide-react'
+import { ArrowLeft, Clapperboard, ExternalLink, Mic, Music, Play, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Spinner } from '@/components/ui/spinner'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
@@ -29,41 +30,48 @@ import {
 import { mediaImg } from '@/lib/shows/api'
 import { fetchShowSoundtrack } from '@/lib/music/musicInfo'
 
-const MOVIES_GRADIENT = 'linear-gradient(135deg,#1e1b4b,#6d28d9)'
-
 function Hero({ bundle, actions }: { bundle: MovieCore; actions?: React.ReactNode }) {
   const d = bundle.details
   const [ok, setOk] = useState(true)
   return (
-    <div className="flex flex-col gap-5 sm:flex-row">
-      <div className="mx-auto w-[160px] shrink-0 sm:mx-0">
-        <div className="aspect-[2/3] overflow-hidden rounded-xl bg-muted shadow-lg ring-1 ring-border/40">
-          {d.poster && ok ? (
-            <img src={mediaImg(d.poster)} alt={d.title} className="size-full object-cover" onError={() => setOk(false)} />
-          ) : (
-            <div className="flex size-full items-center justify-center">
-              <Clapperboard className="size-8 text-muted-foreground/40" />
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div>
-          <h1 className="text-2xl font-bold leading-tight sm:text-3xl">{d.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {[d.year, d.runtimeMinutes ? `${d.runtimeMinutes} min` : null].filter(Boolean).join(' · ')}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {d.ageCertification && <Badge variant="outline">{d.ageCertification}</Badge>}
-          {bundle.inTheaters && <Badge className="border-0 bg-violet-600/20 text-violet-300">In Theaters</Badge>}
+    // Detail-hero idiom: calm bg-card sheet over the backdrop artwork, with a soft brand glow.
+    <div className="relative overflow-hidden rounded-sheet border border-border bg-card">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'radial-gradient(640px circle at 0% 0%, color-mix(in oklch, var(--brand) 18%, transparent), transparent 62%)' }}
+      />
+      <div className="relative flex flex-col gap-5 p-6 sm:flex-row sm:p-8">
+        <div className="mx-auto w-[160px] shrink-0 sm:mx-0">
+          <div className="aspect-[2/3] overflow-hidden rounded-card bg-muted shadow-lg ring-1 ring-border/40">
+            {d.poster && ok ? (
+              <img src={mediaImg(d.poster)} alt={d.title} className="size-full object-cover" onError={() => setOk(false)} />
+            ) : (
+              <div className="flex size-full items-center justify-center">
+                <Clapperboard className="size-8 text-muted-foreground/40" />
+              </div>
+            )}
+          </div>
         </div>
 
-        {d.summary && <p className="text-sm leading-relaxed text-muted-foreground">{d.summary}</p>}
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div>
+            {/* design-ok(raw-h1-in-pages): bespoke detail hero (poster + badges + actions) that PageHeader can't host; title uses the sanctioned text-display style */}
+            <h1 className="text-display">{d.title}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {[d.year, d.runtimeMinutes ? `${d.runtimeMinutes} min` : null].filter(Boolean).join(' · ')}
+            </p>
+          </div>
 
-        {actions && <div className="mt-auto pt-2">{actions}</div>}
+          <div className="flex flex-wrap items-center gap-2">
+            {d.ageCertification && <Badge variant="outline">{d.ageCertification}</Badge>}
+            {bundle.inTheaters && <Badge className="border-0 bg-brand/15 text-brand">In Theaters</Badge>}
+          </div>
+
+          {d.summary && <p className="text-sm leading-relaxed text-muted-foreground">{d.summary}</p>}
+
+          {actions && <div className="mt-auto pt-2">{actions}</div>}
+        </div>
       </div>
     </div>
   )
@@ -99,7 +107,7 @@ function SoundtrackSection({ movieTitle }: { movieTitle: string }) {
         {data.songs.map((song, i) => (
           <button key={i} type="button"
             onClick={() => navigate(`/music/browse?q=${encodeURIComponent(song.title)}`)}
-            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/40">
+            className="flex w-full items-center gap-3 rounded-control px-2 py-2 text-left transition-colors hover:bg-muted/40">
             <span className="w-5 shrink-0 text-right text-xs text-muted-foreground">{i + 1}</span>
             <Music className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-sm">{song.title}</span>
@@ -165,7 +173,7 @@ function DetailBody({ title, year }: { title: string; year: number | null }) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -205,7 +213,7 @@ function DetailBody({ title, year }: { title: string; year: number | null }) {
     <div className="space-y-8">
       {mediaLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Finding trailers…
+          <Spinner /> Finding trailers…
         </div>
       ) : videos.length > 0 ? (
         <VideoRow title="Trailers & clips" videos={videos} />
@@ -320,7 +328,7 @@ export function MovieDetailPage() {
   })
 
   return (
-    <PageShell gradient={MOVIES_GRADIENT} GhostIcon={Clapperboard}>
+    <PageShell>
       <Backdrop url={betterBackdrop ?? core?.backdrop} />
       <div className="relative px-5 pb-12 pt-4">
         <button

@@ -3,21 +3,22 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
+import { Button } from '@/components/ui/button'
 import { StoreActionsProvider } from '@/components/store/StoreActions'
 import { StoreRail } from '@/components/store/StoreRail'
 import { useStoreApps } from '@/lib/store/useStoreApps'
 
-/** Back/forward history nav — lives in the breadcrumb's left slot. */
+/** Back/forward history nav - lives in the breadcrumb's left slot. */
 function NavButtons() {
   const navigate = useNavigate()
   return (
     <div className="flex shrink-0 gap-1">
-      <button onClick={() => navigate(-1)} className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Back">
+      <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Back">
         <ArrowLeft className="size-4" />
-      </button>
-      <button onClick={() => navigate(1)} className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Forward">
+      </Button>
+      <Button variant="ghost" size="icon" onClick={() => navigate(1)} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Forward">
         <ArrowRight className="size-4" />
-      </button>
+      </Button>
     </div>
   )
 }

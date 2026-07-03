@@ -7,9 +7,9 @@ export function SettingsPlexTab() {
   return (
     <div className="mx-auto max-w-xl space-y-5 py-2">
       <header className="space-y-1">
-        <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <MonitorPlay className="size-5 text-amber-400" /> Plex
-        </h1>
+        <h2 className="flex items-center gap-2 text-title">
+          <MonitorPlay className="size-5 text-warning" /> Plex
+        </h2>
         <p className="text-sm text-muted-foreground">
           Link your Plex account to sync your watchlist and progress, and play your library in the Shows and Movies apps.
         </p>

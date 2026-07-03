@@ -107,6 +107,7 @@ function domainLook(e: HAEntity): DomainLook {
         line: 'from-transparent via-cyan-300/90 to-transparent',
         cardOn: 'bg-gradient-to-r from-cyan-400/15 to-cyan-400/[0.04] shadow-[0_0_28px_-8px_rgba(34,211,238,0.4)]' }
     case 'media_player':
+      // design-ok(banned-palette): HA domain-state semantic (media_player=purple), see DeviceCard canonical precedent
       return { circleOn: 'bg-purple-400/25', iconOn: 'text-purple-300', glow: 'bg-purple-400/50', stateOn: 'text-purple-200/80',
         line: 'from-transparent via-purple-300/90 to-transparent',
         cardOn: 'bg-gradient-to-r from-purple-400/15 to-purple-400/[0.04] shadow-[0_0_28px_-8px_rgba(192,132,252,0.4)]' }
@@ -141,8 +142,8 @@ function domainLook(e: HAEntity): DomainLook {
 
 export type CardAction = (entity: HAEntity, action: string, value?: number | string) => void
 
-const strip = 'flex flex-1 items-center justify-between rounded-xl bg-white/[0.08] px-1.5 py-1'
-const stripBtn = 'flex size-8 items-center justify-center rounded-lg text-foreground/80 transition-all hover:bg-white/15 active:scale-90'
+const strip = 'flex flex-1 items-center justify-between rounded-full bg-white/[0.08] px-1.5 py-1'
+const stripBtn = 'flex size-8 items-center justify-center rounded-full text-foreground/80 transition-all hover:bg-white/15 active:scale-90'
 const roundBtn = 'flex size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.08] transition-all hover:bg-white/15 active:scale-90'
 
 function LightStrip({ entity, onAction }: { entity: HAEntity; onAction: CardAction }) {
@@ -238,6 +239,7 @@ function MediaStrip({ entity, onAction }: { entity: HAEntity; onAction: CardActi
           type="button"
           onClick={() => onAction(entity, playing ? 'media_pause' : 'media_play')}
           aria-label={playing ? 'Pause' : 'Play'}
+          // design-ok(banned-palette): HA domain-state semantic (media_player=purple), see DeviceCard canonical precedent
           className={cn(stripBtn, playing && 'bg-purple-400/90 text-purple-950 hover:bg-purple-300')}
         >
           {playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}
@@ -275,6 +277,7 @@ function CoverStrip({ entity, onAction }: { entity: HAEntity; onAction: CardActi
           <ChevronDown className="size-4" />
         </button>
       </div>
+      {/* design-ok(glass-on-plain-bg): HA mushroom-card glass system, matches surrounding white/[0.0x] card treatment */}
       <div className="relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
         <div
           className="h-full rounded-full bg-sky-400/80 transition-[width] duration-500"
@@ -297,7 +300,7 @@ function LockStrip({ entity, onAction }: { entity: HAEntity; onAction: CardActio
         onClick={() => onAction(entity, 'lock')}
         disabled={locked}
         className={cn(
-          'flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-all active:scale-[0.97]',
+          'flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-semibold transition-all active:scale-[0.97]',
           locked ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/[0.08] text-foreground/80 hover:bg-white/15',
         )}
       >
@@ -308,7 +311,7 @@ function LockStrip({ entity, onAction }: { entity: HAEntity; onAction: CardActio
         onClick={() => setConfirmOpen(true)}
         disabled={!locked}
         className={cn(
-          'flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-all active:scale-[0.97]',
+          'flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-semibold transition-all active:scale-[0.97]',
           !locked ? 'bg-red-400/20 text-red-300' : 'bg-white/[0.08] text-foreground/80 hover:bg-white/15',
         )}
       >
@@ -369,7 +372,7 @@ export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favori
       onClick={() => { if (unavail) return; if (binary) onToggle(entity, !isOn); else onOpen(entity) }}
       onKeyDown={(e) => { if (unavail) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (binary) onToggle(entity, !isOn); else onOpen(entity) } }}
       className={cn(
-        'group relative flex w-full cursor-pointer flex-col justify-center overflow-hidden rounded-2xl px-3 py-2.5 text-left transition-all duration-300 hover:-translate-y-px active:scale-[0.99]',
+        'group relative flex w-full cursor-pointer flex-col justify-center overflow-hidden rounded-card px-3 py-2.5 text-left transition-all duration-300 hover:-translate-y-px active:scale-[0.99]',
         showArea && 'pb-6',
         cardActive ? look.cardOn : 'bg-white/[0.06] hover:bg-white/[0.09]',
         unavail && 'cursor-not-allowed opacity-30',
@@ -384,6 +387,7 @@ export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favori
             <img
               src={art}
               alt=""
+              // design-ok(banned-palette): HA domain-state semantic (media_player=purple), see DeviceCard canonical precedent
               className={cn('relative size-12 rounded-full object-cover ring-2 transition-all duration-500', playing ? 'ring-purple-400/60' : 'ring-white/15 opacity-70')}
               draggable={false}
             />
@@ -419,6 +423,7 @@ export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favori
         <div className="flex shrink-0 items-center gap-1.5">
           {playing && (
             <div className="flex h-4 items-end gap-[3px]" aria-hidden>
+              {/* design-ok(banned-palette): HA domain-state semantic (media_player=purple), see DeviceCard canonical precedent */}
               {[0, 1, 2].map((i) => (
                 <span key={i} className="ha-eq-bar w-[3px] rounded-full bg-purple-300" style={{ height: '100%', animationDelay: `${i * 0.18}s` }} />
               ))}
@@ -433,7 +438,7 @@ export function DeviceCard({ entity, onToggle, onOpen, onAction, errorId, favori
             type="button"
             aria-label="Device details"
             onClick={(e) => { e.stopPropagation(); if (!unavail) onOpen(entity) }}
-            className="-mr-1 rounded-md p-1 text-white/25 opacity-60 transition-all hover:text-white/60 group-hover:opacity-100"
+            className="-mr-1 rounded-full p-1 text-white/25 opacity-60 transition-all hover:text-white/60 group-hover:opacity-100"
           >
             <MoreHorizontal className="size-4" />
           </button>

@@ -3,8 +3,9 @@
 // per-user (domain × area) access grants.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Home, RefreshCw, Plus, X, Check, Lock } from 'lucide-react'
+import { Home, RefreshCw, Plus, X, Check, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -24,7 +25,7 @@ interface Status  {
 }
 
 const ALL = '*'
-// Pseudo-domain for locks + entry doors — never covered by 'All devices'.
+// Pseudo-domain for locks + entry doors: never covered by 'All devices'.
 const SECURITY = 'security'
 const opts: RequestInit = { credentials: 'include' }
 
@@ -92,7 +93,7 @@ export function AdminHomeAssistantTab() {
     try {
       await saveToolConfig('base_url', baseUrl.trim())
       if (apiToken.trim()) await saveToolConfig('api_token', apiToken.trim())
-      toast.success('Connection saved — syncing…')
+      toast.success('Connection saved, syncing…')
       setApiToken('')
       await sync()
     } catch { toast.error('Failed to save') } finally { setSavingConn(false) }
@@ -141,13 +142,13 @@ export function AdminHomeAssistantTab() {
     <div className="flex flex-col max-w-3xl">
       {/* Page header */}
       <div className="flex items-start gap-3 p-5 pb-5">
-        <div className="rounded-lg bg-muted p-2 shrink-0">
+        <div className="rounded-control bg-muted p-2 shrink-0">
           <Home className="size-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="text-base font-semibold">Home Assistant</h2>
+          <h2 className="text-title">Home Assistant</h2>
           <p className="text-sm text-muted-foreground">
-            Control smart-home devices — lights, switches, locks, thermostats, media players, and scenes — via the companion.
+            Control smart-home devices (lights, switches, locks, thermostats, media players, and scenes) via the companion.
             Configure the connection here and grant users access to specific devices and rooms.
           </p>
         </div>
@@ -172,7 +173,7 @@ export function AdminHomeAssistantTab() {
             <div className="space-y-1.5">
               <Label>
                 Long-Lived Access Token{' '}
-                {tokenSet && <span className="text-muted-foreground font-normal">(set — leave blank to keep)</span>}
+                {tokenSet && <span className="text-muted-foreground font-normal">(set, leave blank to keep)</span>}
               </Label>
               <Input
                 value={apiToken}
@@ -182,7 +183,7 @@ export function AdminHomeAssistantTab() {
               />
             </div>
             <Button onClick={saveConnection} disabled={savingConn || !baseUrl.trim()}>
-              {savingConn ? <Loader2 className="size-4 animate-spin mr-1.5" /> : null}
+              {savingConn ? <Spinner className="text-current mr-1.5" /> : null}
               Save &amp; connect
             </Button>
           </CardContent>
@@ -197,18 +198,18 @@ export function AdminHomeAssistantTab() {
                 {!status?.configured ? (
                   'Enter the URL and token above, then save.'
                 ) : connected ? (
-                  <span className="text-emerald-500">
+                  <span className="text-success">
                     Connected · {status.entities} entities · {status.areas} rooms · synced {timeAgo(status.lastSyncMs)}
                   </span>
                 ) : (
-                  <span className="text-red-400">
+                  <span className="text-destructive">
                     Not connected{status?.lastError ? `: ${status.lastError}` : ''}
                   </span>
                 )}
               </CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={sync} disabled={syncing} className="shrink-0">
-              {syncing ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <RefreshCw className="size-3.5 mr-1.5" />}
+              {syncing ? <Spinner size="sm" className="text-current mr-1.5" /> : <RefreshCw className="size-3.5 mr-1.5" />}
               {syncing ? 'Syncing…' : 'Sync now'}
             </Button>
           </CardHeader>
@@ -230,11 +231,11 @@ export function AdminHomeAssistantTab() {
                 const ug = grants[u.id] ?? []
                 const general = ug.map((g, i) => [g, i] as const).filter(([g]) => g.domain !== SECURITY)
                 const security = ug.map((g, i) => [g, i] as const).filter(([g]) => g.domain === SECURITY)
-                // 'lock' grants are inert under the security model — hide the option
+                // 'lock' grants are inert under the security model; hide the option
                 // for new rows but keep legacy rows editable/removable.
                 const generalDomains = domains.filter(d => d !== 'lock' && d !== SECURITY)
                 return (
-                  <div key={u.id} className="rounded-xl border border-border bg-background/40 p-3 space-y-3">
+                  <div key={u.id} className="rounded-card border border-border bg-background/40 p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{u.nickname || u.firstName || u.id}</span>
                       <div className="flex items-center gap-2">
@@ -242,31 +243,31 @@ export function AdminHomeAssistantTab() {
                           <Plus className="size-3.5 mr-1" />Grant
                         </Button>
                         <Button size="sm" onClick={() => saveGrants(u.id)} disabled={savingUser[u.id]}>
-                          {savingUser[u.id] ? <Loader2 className="size-3.5 animate-spin mr-1" /> : savedUser[u.id] ? <Check className="size-3.5 mr-1" /> : null}
+                          {savingUser[u.id] ? <Spinner size="sm" className="text-current mr-1" /> : savedUser[u.id] ? <Check className="size-3.5 mr-1" /> : null}
                           Save
                         </Button>
                       </div>
                     </div>
                     {general.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No grants — this user can't control anything.</p>
+                      <p className="text-xs text-muted-foreground">No grants: this user can't control anything.</p>
                     ) : (
                       <div className="space-y-2">
                         {general.map(([g, i]) => (
                           <div key={i} className="flex items-center gap-2 flex-wrap">
                             <select value={g.domain} onChange={e => updateGrant(u.id, i, { domain: e.target.value })}
-                              className="rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
+                              className="rounded-control border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
                               <option value={ALL}>All devices</option>
                               {generalDomains.map(d => <option key={d} value={d}>{d}</option>)}
                               {g.domain === 'lock' && <option value="lock">lock (legacy — use Security below)</option>}
                             </select>
                             <span className="text-xs text-muted-foreground">in</span>
                             <select value={g.areaId} onChange={e => updateGrant(u.id, i, { areaId: e.target.value })}
-                              className="rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
+                              className="rounded-control border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
                               <option value={ALL}>All rooms</option>
                               {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                             </select>
                             <button type="button" onClick={() => removeGrant(u.id, i)}
-                              className={cn('rounded-md p-1.5 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10 transition-colors')}>
+                              className={cn('rounded-control p-1.5 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors')}>
                               <X className="size-3.5" />
                             </button>
                           </div>
@@ -274,9 +275,9 @@ export function AdminHomeAssistantTab() {
                       </div>
                     )}
                     {/* Security — locks + entry doors, explicit-only */}
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 space-y-2">
+                    <div className="rounded-card border border-warning/30 bg-warning/5 p-2.5 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-xs font-medium text-amber-500">
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-warning">
                           <Lock className="size-3.5" />Security
                         </span>
                         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => addSecurityGrant(u.id)}>
@@ -293,12 +294,12 @@ export function AdminHomeAssistantTab() {
                               <span className="text-sm">Locks &amp; entry doors</span>
                               <span className="text-xs text-muted-foreground">in</span>
                               <select value={g.areaId} onChange={e => updateGrant(u.id, i, { areaId: e.target.value })}
-                                className="rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
+                                className="rounded-control border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
                                 <option value={ALL}>All rooms</option>
                                 {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                               </select>
                               <button type="button" onClick={() => removeGrant(u.id, i)}
-                                className={cn('rounded-md p-1.5 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10 transition-colors')}>
+                                className={cn('rounded-control p-1.5 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors')}>
                                 <X className="size-3.5" />
                               </button>
                             </div>

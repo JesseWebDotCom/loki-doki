@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, CheckCircle2, XCircle, Server, ExternalLink, UserCheck, UserX } from 'lucide-react'
+import { CheckCircle2, XCircle, Server, ExternalLink, UserCheck, UserX } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -53,7 +55,7 @@ export function AdminPlexTab() {
         const r = await savePlexConfig(patch)
         setConnOk(r.ok)
         setServerName(r.serverName)
-        toast.success(r.ok ? `Connected to ${r.serverName ?? 'Plex'}` : 'Saved — but could not reach the server')
+        toast.success(r.ok ? `Connected to ${r.serverName ?? 'Plex'}` : 'Saved, but could not reach the server')
         await load()
       } finally {
         setSaving(false)
@@ -89,22 +91,18 @@ export function AdminPlexTab() {
   }, [save])
 
   if (!cfg) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
+    return <SkeletonListRows count={4} className="p-5" />
   }
 
   return (
     <div className="flex flex-col max-w-3xl">
       {/* Page header */}
       <div className="flex items-start gap-3 p-5 pb-5">
-        <div className="rounded-lg bg-muted p-2 shrink-0">
+        <div className="rounded-control bg-muted p-2 shrink-0">
           <Server className="size-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="text-base font-semibold">Plex</h2>
+          <h2 className="text-title">Plex</h2>
           <p className="text-sm text-muted-foreground">
             Configure the shared Plex Media Server. Each user then links their own Plex account in
             Settings → Plex so their watchlist and progress stay personal.
@@ -115,10 +113,10 @@ export function AdminPlexTab() {
       <div className="px-5 space-y-5">
         {/* Connection status */}
         {(connOk !== null || cfg.hasToken) && (
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+          <div className="flex items-center gap-2 rounded-card border border-border bg-card px-4 py-3 text-sm">
             {connOk === false
-              ? <XCircle className="size-4 text-red-400 shrink-0" />
-              : <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />}
+              ? <XCircle className="size-4 text-destructive shrink-0" />
+              : <CheckCircle2 className="size-4 text-success shrink-0" />}
             <span>
               {connOk === false
                 ? 'Saved, but the server could not be reached.'
@@ -135,11 +133,11 @@ export function AdminPlexTab() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Sign in with Plex</CardTitle>
-            <CardDescription>Approve a code on plex.tv — no token to copy.</CardDescription>
+            <CardDescription>Approve a code on plex.tv, no token to copy.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {pin ? (
-              <div className="space-y-2 rounded-xl border border-border bg-muted/50 px-4 py-3">
+              <div className="space-y-2 rounded-card border border-border bg-muted/50 px-4 py-3">
                 <p className="text-sm">
                   Enter code{' '}
                   <span className="font-mono text-lg font-bold tracking-widest">{pin.code}</span>{' '}
@@ -150,19 +148,19 @@ export function AdminPlexTab() {
                   </a>
                 </p>
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" /> Waiting for approval…
+                  <Spinner size="sm" className="text-current" /> Waiting for approval…
                 </p>
               </div>
             ) : (
               <Button variant="outline" onClick={beginLink} disabled={linking}>
-                {linking ? <Loader2 className="size-4 animate-spin mr-1.5" /> : <Server className="size-4 mr-1.5" />}
+                {linking ? <Spinner size="sm" className="text-current mr-1.5" /> : <Server className="size-4 mr-1.5" />}
                 Sign in with Plex
               </Button>
             )}
             {servers.length > 1 && (
               <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">Multiple servers found — choose one:</p>
-                <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+                <p className="text-xs text-muted-foreground">Multiple servers found, choose one:</p>
+                <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
                   {servers.map(s => (
                     <button key={s.uri} onClick={() => save({ baseUrl: s.uri, token })}
                       className="flex w-full items-center justify-between px-4 py-2.5 text-sm hover:bg-muted transition-colors text-left">
@@ -190,14 +188,14 @@ export function AdminPlexTab() {
             <div className="space-y-1.5">
               <Label>
                 X-Plex-Token{' '}
-                {cfg.hasToken && <span className="text-muted-foreground font-normal">(set — leave blank to keep)</span>}
+                {cfg.hasToken && <span className="text-muted-foreground font-normal">(set, leave blank to keep)</span>}
               </Label>
               <Input value={token} onChange={e => setToken(e.target.value)} placeholder="xxxxxxxxxxxxxxxxxxxx" type="password" />
             </div>
             <Button
               onClick={() => save({ baseUrl, ...(token ? { token } : {}) })}
               disabled={saving || !baseUrl.trim()}>
-              {saving ? <Loader2 className="size-4 animate-spin mr-1.5" /> : null}
+              {saving ? <Spinner size="sm" className="text-current mr-1.5" /> : null}
               Save &amp; test
             </Button>
           </CardContent>
@@ -212,12 +210,12 @@ export function AdminPlexTab() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+            <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
               {cfg.users.map(u => (
                 <div key={u.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                   <span>{u.name}</span>
                   {u.linked ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-success">
                       <UserCheck className="size-3.5" /> Linked
                     </span>
                   ) : (

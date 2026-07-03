@@ -99,6 +99,7 @@ import { musicPlaylists } from '@/routes/musicPlaylists'
 import { musicLibrary } from '@/routes/musicLibrary'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
+import { shopping } from '@/routes/shopping'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
@@ -131,7 +132,7 @@ import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
 import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
-import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
+import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
 import { reconcileBuiltinPronunciationPacks } from '@/lib/voice/pronunciation'
 import { cleanupStaleTrainingTmp } from '@/lib/voice/wakewordTrainer'
@@ -250,7 +251,14 @@ if (firstBoot) {
   listHealthyArchivePaths()
     .then(({ valid, quarantined }) => {
       if (quarantined.length) logger.warn(`[archives] quarantined ${quarantined.length} corrupt archive(s) at boot: ${quarantined.join(', ')}`)
-      if (valid.length > 0) maybeSpawnKiwix(valid)
+      if (valid.length > 0) {
+        maybeSpawnKiwix(valid)
+        // Self-heal: if the attempt above didn't result in a running server (missing
+        // engine, a spawn that silently failed, or state stuck from a prior crash),
+        // this makes one more try instead of leaving readers dead for the rest of
+        // the process's life with no diagnostic trail.
+        scheduleKiwixBootHeal(valid)
+      }
     })
     .catch(() => {})
   
@@ -265,6 +273,7 @@ if (firstBoot) {
   // Notification delivery layer: deferred/digest flush + daily reports (lib/notify),
   // and the Telegram two-way bridge long-poll loop (lib/telegram).
   import('@/lib/notify/scheduler').then((m) => m.startNotifyScheduler()).catch(() => {})
+  import('@/lib/digest/morningReport').then((m) => m.registerMorningReport()).catch(() => {})
   import('@/lib/telegram/poller').then((m) => m.startTelegramPoller()).catch(() => {})
   // Feeds: seed curated News as system feeds, kick an initial fetch, then poll on an interval.
   void seedSystemFeeds().then(() => refreshSystemFeeds()).catch(() => {})
@@ -318,6 +327,9 @@ if (firstBoot) {
   // Bookmarks auto-update: periodically re-archive items the user marked for monitoring, and alert
   // on content changes. Rides the download queue, so it's bounded the same way archiving is.
   import('@/lib/bookmarks/autoUpdate').then((m) => m.startBookmarkAutoUpdatePoller()).catch(() => {})
+  // Shopping price tracker: re-check tracked listings on a jittered ~4h cadence and fire
+  // price-drop/back-in-stock alerts through the notification matrix.
+  import('@/lib/shopping/poller').then((m) => m.startShoppingPoller()).catch(() => {})
 } else {
   // Hot reload: module-level caches reset with the new graph even though the old
   // timers/sockets keep running. Re-seed the cheap ones the request path depends on.
@@ -501,6 +513,7 @@ app.route('/api/music/playlists', musicPlaylists)
 app.route('/api/music/library', musicLibrary)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
+app.route('/api/shopping', shopping)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)
 app.route('/api/recipes', recipesRoute)

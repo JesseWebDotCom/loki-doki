@@ -18,6 +18,15 @@ export interface AppHeaderConfig {
   leftSlot?: ReactNode
   /** Optional node rendered to the RIGHT of the search input (e.g. a mode toggle). */
   rightSlot?: ReactNode
+  /**
+   * Extra crumbs appended after the page's own crumb (e.g. a panel app's current
+   * section/subsection: Admin > System > Connectivity). Omit `onClick` on the
+   * last one so it renders as the non-interactive current page, matching the
+   * chat conversation-title crumb convention. This is the sanctioned way for a
+   * panel page to surface its internal navigation state in the ONE global
+   * breadcrumb instead of building a second local header bar.
+   */
+  extraCrumbs?: { label: string; onClick?: () => void }[]
 }
 
 type SetFn = (c: AppHeaderConfig | null) => void
@@ -61,7 +70,7 @@ export function useAppHeader(config: AppHeaderConfig) {
   const setQuery = useCallback((q: string) => configRef.current.setQuery(q), [])
   const onSubmit = useCallback(() => configRef.current.onSubmit?.(), [])
 
-  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable } = config
+  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs } = config
   const hasSubmit = !!config.onSubmit
 
   useLayoutEffect(() => {
@@ -74,11 +83,12 @@ export function useAppHeader(config: AppHeaderConfig) {
       leftSlot,
       rightSlot,
       searchable,
+      extraCrumbs,
       setQuery,
       onSubmit: hasSubmit ? onSubmit : undefined,
     })
     return () => _set(null)
-  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, hasSubmit, setQuery, onSubmit, _set])
+  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs, hasSubmit, setQuery, onSubmit, _set])
 }
 
 // ── Back-compat aliases ────────────────────────────────────────────────────────

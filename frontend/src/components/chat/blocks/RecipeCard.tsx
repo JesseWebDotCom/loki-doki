@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, Play } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import type { RecipeBlockData } from './types'
@@ -9,11 +10,10 @@ export function RecipeCard({ data }: { data: RecipeBlockData }) {
   const [showAll, setShowAll] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const visibleIngredients = showAll ? data.ingredients : data.ingredients.slice(0, 8)
-  const preview = data.instructions.slice(0, 240).trimEnd()
   const hasMore = data.instructions.length > 240
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card overflow-hidden text-sm">
+    <Card variant="surface" className="text-sm">
       {/* Thumbnail + header */}
       <div className="flex gap-0">
         {data.thumbnail && (
@@ -38,7 +38,7 @@ export function RecipeCard({ data }: { data: RecipeBlockData }) {
                 href={data.youtube}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[11px] text-red-500 hover:text-red-400 transition-colors"
+                className="flex items-center gap-1 text-[11px] text-brand hover:text-brand-hover transition-colors"
               >
                 <Play className="size-3 fill-current" /> Watch
               </a>
@@ -98,6 +98,6 @@ export function RecipeCard({ data }: { data: RecipeBlockData }) {
           )}
         </div>
       )}
-    </div>
+    </Card>
   )
 }

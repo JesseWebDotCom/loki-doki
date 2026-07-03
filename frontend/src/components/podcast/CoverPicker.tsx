@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, RefreshCw, Upload, Check, Sparkles } from 'lucide-react'
+import { RefreshCw, Upload, Check, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { generateThemedVariants, coverBlob, type CoverVariant } from '@/lib/podcast/cover'
 
 type Tab = 'designed' | 'upload'
@@ -69,12 +72,12 @@ export function CoverPicker({ title, topicText = '', imageUrl, onChange }: {
       {tab === 'designed' ? (
         <>
           {loading ? (
-            <div className="grid grid-cols-3 gap-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="aspect-square animate-pulse rounded-xl bg-muted/60" />)}</div>
+            <div className="grid grid-cols-3 gap-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-card" />)}</div>
           ) : (
             <div className="grid grid-cols-3 gap-2">
               {variants.map((v, i) => (
                 <button key={v.key} type="button" onClick={() => void pickVariant(i)}
-                  className={cn('relative aspect-square overflow-hidden rounded-xl ring-2 transition-all',
+                  className={cn('relative aspect-square overflow-hidden rounded-card ring-2 transition-all',
                     selected === i ? 'ring-brand' : 'ring-transparent hover:ring-border')}>
                   <img src={v.dataUrl} alt="" className="size-full object-cover" />
                   {selected === i && <span className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-brand text-brand-foreground"><Check className="size-3" strokeWidth={3} /></span>}
@@ -82,19 +85,19 @@ export function CoverPicker({ title, topicText = '', imageUrl, onChange }: {
               ))}
             </div>
           )}
-          <button type="button" disabled={loading}
+          <Button type="button" variant="outline" disabled={loading}
             onClick={() => { const n = offset + 6; setOffset(n); void regenerate(n) }}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-border/60 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-50">
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Regenerate Covers
-          </button>
+            className="w-full text-muted-foreground">
+            {loading ? <Spinner className="text-current" /> : <RefreshCw className="size-4" />} Regenerate Covers
+          </Button>
         </>
       ) : (
         <div className="space-y-3">
           {uploadPreview ? (
-            <img src={uploadPreview} alt="" className="mx-auto aspect-square w-40 rounded-xl object-cover" />
+            <img src={uploadPreview} alt="" className="mx-auto aspect-square w-40 rounded-card object-cover" />
           ) : (
             <button type="button" onClick={() => fileRef.current?.click()}
-              className="flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border/60 text-muted-foreground hover:bg-muted/40">
+              className="flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-border/60 text-muted-foreground hover:bg-muted/40">
               <Upload className="size-6" /><span className="text-sm">Click to upload an image</span>
             </button>
           )}

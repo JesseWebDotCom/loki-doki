@@ -1,5 +1,6 @@
 // Phase maps-skill chunk-06: top navigation banner — next maneuver + distance.
 import { XIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 
 export function NavigationBanner({
@@ -22,10 +23,10 @@ export function NavigationBanner({
         <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{dist}</p>
         <p className="truncate text-sm font-semibold">{text}</p>
       </div>
-      <button type="button" onClick={onStop} aria-label="End navigation"
-        className="rounded-full p-1 hover:bg-white/20">
+      <Button type="button" variant="ghost" size="icon" onClick={onStop} aria-label="End navigation"
+        className="size-8 text-primary-foreground hover:bg-white/20 hover:text-primary-foreground">
         <XIcon className="size-5" />
-      </button>
+      </Button>
     </div>
   );
 }

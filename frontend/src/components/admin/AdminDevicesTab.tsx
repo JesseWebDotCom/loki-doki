@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Loader2, Plus, Cpu, Copy, Check, Radio, Usb, Volume2, Settings2,
+  Plus, Cpu, Copy, Check, Radio, Usb, Volume2, Settings2,
   AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, LayoutGrid, Wifi,
   Monitor, Pointer, Camera, Clock, Trash2, Save, HelpCircle, Smartphone, KeyRound, User,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot, type StatusDotStatus } from '@/components/shared/StatusDot'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { FlashDeviceWizard } from '@/components/admin/FlashDeviceWizard'
 import { DeviceGroupsPanel } from '@/components/admin/DeviceGroupsPanel'
@@ -22,9 +26,9 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
 // Admin → Devices: physical ESP32 voice satellites. Three top-level tabs:
-//   Devices  — fleet overview and per-device full-page detail
-//   Layouts  — display and controller layout templates
-//   Sounds   — sound packs, earcons, and centralised alarms
+//   Devices  - fleet overview and per-device full-page detail
+//   Layouts  - display and controller layout templates
+//   Sounds   - sound packs, earcons, and centralised alarms
 
 interface DeviceRow {
   id: string
@@ -72,7 +76,7 @@ interface GatewayStatus { enabled: boolean; listening: boolean; port: number; er
 
 // Wyoming gateway health banner. The gateway is the TCP listener every Pod connects
 // to; if it's down (e.g. a `bun --hot` reload dropped the listener), devices silently
-// can't connect — so make it visible and one-click restartable.
+// can't connect, so make it visible and one-click restartable.
 function GatewayBanner() {
   const qc = useQueryClient()
   const { data } = useQuery({
@@ -94,25 +98,25 @@ function GatewayBanner() {
     } catch { toast.error("Couldn't restart the gateway") } finally { setRestarting(false) }
   }
 
-  if (up) return null  // healthy gateway is the norm — stay quiet, only surface problems
+  if (up) return null  // healthy gateway is the norm: stay quiet, only surface problems
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-      <AlertTriangle className="size-5 shrink-0 text-red-500" />
+    <div className="flex items-center gap-3 rounded-card border border-destructive/30 bg-destructive/10 px-4 py-3">
+      <AlertTriangle className="size-5 shrink-0 text-destructive" />
       <div className="min-w-0 text-sm">
-        <p className="font-semibold text-red-600 dark:text-red-400">Device gateway is down</p>
-        <p className="text-xs text-muted-foreground">
-          Pods can't connect on port {data.port}{data.error ? ` — ${data.error}` : ''}. Voice, mode switching, and camera all need this. It self-heals, or restart it now.
+        <p className="font-semibold text-destructive">Device gateway is down</p>
+        <p className="text-caption text-muted-foreground">
+          Pods can't connect on port {data.port}{data.error ? `: ${data.error}` : ''}. Voice, mode switching, and camera all need this. It self-heals, or restart it now.
         </p>
       </div>
       <Button size="sm" variant="destructive" className="ml-auto gap-1.5" onClick={restart} disabled={restarting}>
-        {restarting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Restart gateway
+        {restarting ? <Spinner className="text-current" /> : <RefreshCw className="size-4" />} Restart gateway
       </Button>
     </div>
   )
 }
 
 // Developer pre-flight: validate a device's firmware config (esphome config) from the app
-// — no compile, no flash. Catches YAML / shared-component errors after a firmware edit, so
+// (no compile, no flash). Catches YAML / shared-component errors after a firmware edit, so
 // you don't have to be at a CLI. Streams the ESPHome output and shows pass/fail.
 function FirmwareValidateCard() {
   const [model, setModel] = useState('tab5')
@@ -151,32 +155,32 @@ function FirmwareValidateCard() {
       }
       setResult(ok ? 'ok' : 'fail')
       if (ok) toast.success('Firmware config is valid')
-      else toast.error('Firmware config is invalid — see the log')
+      else toast.error('Firmware config is invalid, see the log')
     } catch {
       setResult('fail'); toast.error('Validation could not run (is ESPHome installed?)')
     } finally { setBusy(false) }
   }
 
   return (
-    <div className="max-w-2xl space-y-3 rounded-2xl border border-border/40 bg-card/40 p-4">
+    <Card className="max-w-2xl space-y-3 p-4">
       <div>
         <h4 className="text-sm font-semibold">Validate firmware config</h4>
-        <p className="text-xs text-muted-foreground">Runs <code className="rounded bg-muted px-1">esphome config</code> on a device's firmware (no compile, no flash) to catch YAML / component errors before flashing.</p>
+        <p className="text-caption text-muted-foreground">Runs <code className="rounded bg-muted px-1">esphome config</code> on a device's firmware (no compile, no flash) to catch YAML / component errors before flashing.</p>
       </div>
       <div className="flex items-center gap-2">
         <Select value={model} onChange={setModel}>
           {DEVICE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.make} {m.model}</option>)}
         </Select>
         <Button onClick={validate} disabled={busy}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Validate
+          {busy ? <Spinner className="text-current" /> : <Check className="size-4" />} Validate
         </Button>
-        {result === 'ok' && <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">● Valid</span>}
-        {result === 'fail' && <span className="text-xs font-medium text-red-600 dark:text-red-400">● Invalid</span>}
+        {result === 'ok' && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success"><StatusDot status="ok" /> Valid</span>}
+        {result === 'fail' && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive"><StatusDot status="error" /> Invalid</span>}
       </div>
       {lines.length > 0 && (
-        <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/50 p-2 text-[11px] leading-snug text-muted-foreground">{lines.join('\n')}</pre>
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-control bg-muted/50 p-2 text-[11px] leading-snug text-muted-foreground">{lines.join('\n')}</pre>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -191,7 +195,7 @@ const SCREEN_KINDS = ['tablet', 'show']
 
 // ── Main export ─────────────────────────────────────────────────────────────────
 // `view` comes from the admin URL (/admin/devices/:view) so the breadcrumb and the
-// left sidebar stay in sync — overview | layouts | sounds | settings.
+// left sidebar stay in sync: overview | layouts | sounds | settings.
 export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
   const qc = useQueryClient()
   const { data: devices = [], isLoading } = useQuery({ queryKey: ['pod-devices'], queryFn: () => getJSON<DeviceRow[]>('/api/pod/devices'), refetchInterval: 2000 })
@@ -248,7 +252,7 @@ export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
         body: JSON.stringify({ name: name.trim(), kind, model: deviceType, userId, characterId: characterId || null, wakeWord: wakeWord || null }),
       })
       if (!r.ok) throw new Error('Failed')
-      toast.success('Device created — share its pairing code')
+      toast.success('Device created, share its pairing code')
       setName(''); setCharacterId(''); setWakeWord(''); invalidate()
     } catch { toast.error('Failed to create device') } finally { setBusy(false) }
   }
@@ -300,11 +304,11 @@ export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
       {activeTab === 'devices' && (
         <div className="space-y-6 p-5">
           <div className="flex items-start gap-3">
-            <DeviceTile gradient="linear-gradient(135deg,#a78bfa,#7c3aed)" className="size-10 rounded-xl">
-              <Cpu className="size-5 text-white" />
-            </DeviceTile>
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-card bg-brand shadow-md">
+              <Cpu className="size-5 text-brand-foreground" />
+            </div>
             <div className="flex-1">
-              <h2 className="text-base font-semibold">Devices</h2>
+              <h2 className="text-title">Devices</h2>
               <p className="text-sm text-muted-foreground">
                 Your voice devices around the home. Add a new one and it'll show up here, ready in a couple of minutes.
               </p>
@@ -321,13 +325,13 @@ export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
             reflash={reflashDevice ? { name: reflashDevice.name, model: reflashDevice.model } : null}
           />
 
-          {/* Unclaimed devices — powered-on satellites not bound to anyone yet */}
+          {/* Unclaimed devices: powered-on satellites not bound to anyone yet */}
           {discovered.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center gap-2">
-                <Radio className="size-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">Ready to set up</h3>
-                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">{discovered.length}</span>
+                <Radio className="size-4 text-warning" />
+                <h3 className="text-section">Ready to set up</h3>
+                <span className="rounded-full bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning">{discovered.length}</span>
               </div>
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
                 {discovered.map((d) => (
@@ -339,16 +343,16 @@ export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
 
           {/* Your devices */}
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold">Your devices</h3>
+            <h3 className="text-section">Your devices</h3>
             {isLoading ? (
-              <div className="py-10 text-center"><Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" /></div>
+              <SkeletonCards count={4} />
             ) : devices.length === 0 ? (
               <button
                 onClick={() => { setReflashDevice(null); setFlashOpen(true) }}
-                className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/60 bg-card/40 p-10 text-center text-muted-foreground transition-colors hover:border-brand/40 hover:text-foreground"
+                className={cn('flex w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-border bg-card/40 p-10 text-center text-muted-foreground transition-colors hover:border-brand/40 hover:text-foreground')}
               >
                 <Usb className="size-6" />
-                <span className="text-sm font-medium">No devices yet — add your first one</span>
+                <span className="text-sm font-medium">No devices yet, add your first one</span>
               </button>
             ) : (
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
@@ -427,7 +431,7 @@ export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
       {/* ── Settings tab (fleet-wide tools, kept off the device list) ── */}
       {activeTab === 'settings' && (
         <div className="space-y-6 p-5">
-          {/* Central settings, grouped (dimming, …) — deployed live over the gateway */}
+          {/* Central settings, grouped (dimming, …), deployed live over the gateway */}
           <DeviceGroupsPanel />
 
           {/* Server-drives-the-screen camera test */}
@@ -437,12 +441,12 @@ export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
           <FirmwareValidateCard />
 
           {/* Advanced: manual create with a pairing code (for screened devices like the Tab5) */}
-          <details className="max-w-2xl rounded-2xl border border-border/40 bg-card/40">
+          <details className="max-w-2xl rounded-card border border-border bg-card/40">
             <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
               Add manually with a pairing code
             </summary>
             <div className="space-y-2 border-t border-border/40 p-4">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-caption text-muted-foreground">
                 For a device with a screen that can show/enter a code (e.g. Tab5). Most devices should use "Add a device" on the Devices tab instead.
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -463,7 +467,7 @@ export function AdminDevicesTab({ view = 'overview' }: { view?: string }) {
                   {(wakewords?.detectors ?? []).map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
                 </Select>
                 <Button onClick={createDevice} disabled={busy || !name.trim() || !userId}>
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : <><Plus className="size-4" /> Create</>}
+                  {busy ? <Spinner className="text-current" /> : <><Plus className="size-4" /> Create</>}
                 </Button>
               </div>
             </div>
@@ -559,9 +563,9 @@ function DeviceDetailPage({
   const companionName = companions.find((c) => c.id === device.characterId)?.name
 
   const status = !device.paired
-    ? { label: 'Needs setup', dot: 'bg-amber-500', cls: 'text-amber-600 dark:text-amber-400' }
+    ? { label: 'Needs setup', status: 'warn' as StatusDotStatus, cls: 'text-warning' }
     : !device.online
-      ? { label: 'Offline', dot: 'bg-muted-foreground/50', cls: 'text-muted-foreground' }
+      ? { label: 'Offline', status: 'off' as StatusDotStatus, cls: 'text-muted-foreground' }
       : ACTIVITY[device.activity] ?? ACTIVITY.idle
 
   async function save() {
@@ -578,7 +582,7 @@ function DeviceDetailPage({
     } catch { toast.error("Couldn't save changes") } finally { setSaving(false) }
   }
 
-  // Orientation applies instantly (live to the device + re-renders the JPEG) — it lives
+  // Orientation applies instantly (live to the device + re-renders the JPEG). It lives
   // on the Display tab, away from the Identity save bar, so persist it on click.
   async function changeOrientation(deg: number) {
     if (deg === orientation) return
@@ -589,7 +593,7 @@ function DeviceDetailPage({
         ...opts, method: 'PATCH', headers: J, body: JSON.stringify({ orientation: deg }),
       })
       if (!r.ok) throw new Error()
-      toast.success(device.online ? `Rotated to ${deg}°` : `Orientation set to ${deg}° — applies when the device reconnects`)
+      toast.success(device.online ? `Rotated to ${deg}°` : `Orientation set to ${deg}°, applies when the device reconnects`)
       onChanged()
     } catch { setOrientation(prev); toast.error("Couldn't change orientation") }
   }
@@ -602,7 +606,7 @@ function DeviceDetailPage({
         body: JSON.stringify({ groupId: next === 'default' ? null : next }),
       })
       if (!r.ok) throw new Error()
-      toast.success(device.online ? 'Group updated — settings sent to the device' : 'Group updated — will apply when the device is online')
+      toast.success(device.online ? 'Group updated, settings sent to the device' : 'Group updated, will apply when the device is online')
       onChanged()
     } catch { toast.error("Couldn't change group") }
   }
@@ -616,7 +620,7 @@ function DeviceDetailPage({
       const r = await fetch(`/api/pod/devices/${device.id}/mode`, { ...opts, method: 'POST', headers: J, body: JSON.stringify({ mode: next }) })
       if (!r.ok) throw new Error()
       const d = (await r.json()) as { online?: boolean }
-      toast.success(d.online ? `Switched to ${MODE_LABEL[next]}` : `${MODE_LABEL[next]} set — applies when the device reconnects`)
+      toast.success(d.online ? `Switched to ${MODE_LABEL[next]}` : `${MODE_LABEL[next]} set, applies when the device reconnects`)
     } catch { setMode(prev); toast.error("Couldn't switch mode") } finally { setModeBusy(false) }
   }
 
@@ -636,7 +640,7 @@ function DeviceDetailPage({
     try {
       const r = await fetch(`/api/pod/devices/${device.id}/pair-code`, { ...opts, method: 'POST', headers: J, body: '{}' })
       if (!r.ok) throw new Error()
-      toast.success('New pairing code issued — enter it on the device')
+      toast.success('New pairing code issued, enter it on the device')
       onChanged()
     } catch { toast.error("Couldn't re-issue a pairing code") } finally { setReissuing(false) }
   }
@@ -652,35 +656,37 @@ function DeviceDetailPage({
   return (
     <div className="p-5">
       {/* Back link */}
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={onBack}
-        className="mb-4 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        className="mb-4 -ml-2 gap-1.5 text-muted-foreground hover:text-foreground"
       >
         <ChevronLeft className="size-4" /> Back to Devices
-      </button>
+      </Button>
 
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* ── Left rail: device summary + section nav + actions ── */}
         <aside className="w-full shrink-0 space-y-4 lg:w-64">
           {/* Device summary */}
-          <div className="rounded-2xl border border-border/50 bg-card p-4">
+          <Card className="p-4">
             <div className="flex items-center gap-3">
-              <DeviceArt resolved={art} solid className="size-12 shrink-0 rounded-2xl" />
+              <DeviceArt resolved={art} solid className="size-12 shrink-0 rounded-card" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold leading-tight">{device.name}</p>
-                <p className="truncate text-xs text-muted-foreground">{deviceModelName(device.model, device.kind)}</p>
+                <p className="truncate text-caption text-muted-foreground">{deviceModelName(device.model, device.kind)}</p>
               </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <span className={`inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium ${status.cls}`}>
-                <span className={`size-1.5 rounded-full ${status.dot} ${device.online && device.activity !== 'idle' ? 'animate-pulse' : ''}`} />
+                <StatusDot status={status.status} pulse={device.online && device.activity !== 'idle'} />
                 {status.label}
               </span>
               {companionName && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{companionName}</span>
               )}
             </div>
-          </div>
+          </Card>
 
           {/* Section nav */}
           <nav className="space-y-1">
@@ -689,7 +695,7 @@ function DeviceDetailPage({
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  'flex w-full items-center gap-2.5 rounded-control px-3 py-2 text-sm font-medium transition-colors',
                   activeTab === t.id
                     ? 'bg-brand/10 text-brand'
                     : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
@@ -703,7 +709,7 @@ function DeviceDetailPage({
           {/* Quick actions */}
           <div className="space-y-1.5 border-t border-border/40 pt-3">
             <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={testSound} disabled={testing || !device.online}>
-              {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Volume2 className="size-3.5" />} Test sound
+              {testing ? <Spinner size="sm" className="text-current" /> : <Volume2 className="size-3.5" />} Test sound
             </Button>
             <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={onHelp}>
               <HelpCircle className="size-3.5" /> Help
@@ -720,7 +726,7 @@ function DeviceDetailPage({
           {/* Identity */}
           <section className="space-y-1.5">
             <SectionLabel>Identity</SectionLabel>
-            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+            <div className="divide-y divide-border/40 overflow-hidden rounded-card border border-border/50 bg-card">
               <FieldRow label="Name">
                 <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8 w-44 text-right text-sm" />
               </FieldRow>
@@ -738,9 +744,9 @@ function DeviceDetailPage({
               <FieldRow label="Wake word">
                 <DetailPicker value={wakeWord} onChange={setWakeWord}>
                   {companionPhrase
-                    ? <option value="">{companionPhrase} — {selectedCompanion?.name}'s wake word</option>
+                    ? <option value="">{companionPhrase} ({selectedCompanion?.name}'s wake word)</option>
                     : <option value="">App default (Hey Jarvis)</option>}
-                  <option value="hey_jarvis">Hey Jarvis — always reliable</option>
+                  <option value="hey_jarvis">Hey Jarvis (always reliable)</option>
                   {wakewords
                     .filter((d) => d.id !== 'hey_jarvis' && d.id !== selectedCompanion?.wakeWordModelId)
                     .map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
@@ -756,7 +762,7 @@ function DeviceDetailPage({
                   Discard
                 </Button>
                 <Button size="sm" className="gap-1.5" onClick={save} disabled={saving}>
-                  {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save changes
+                  {saving ? <Spinner size="sm" className="text-current" /> : <Save className="size-3.5" />} Save changes
                 </Button>
               </div>
             )}
@@ -765,7 +771,7 @@ function DeviceDetailPage({
           {/* Settings */}
           <section className="space-y-1.5">
             <SectionLabel>Settings</SectionLabel>
-            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+            <div className="divide-y divide-border/40 overflow-hidden rounded-card border border-border/50 bg-card">
               <FieldRow label="Group">
                 <DetailPicker value={groupId} onChange={assignGroup}>
                   {groups.length === 0 && <option value="default">Default</option>}
@@ -773,7 +779,7 @@ function DeviceDetailPage({
                 </DetailPicker>
               </FieldRow>
             </div>
-            <p className="px-1 text-[11px] text-muted-foreground">Changing the group deploys settings to the device immediately.</p>
+            <p className="px-1 text-caption text-muted-foreground">Changing the group deploys settings to the device immediately.</p>
           </section>
         </div>
       )}
@@ -781,11 +787,11 @@ function DeviceDetailPage({
       {/* ── Display tab (screen devices only) ── */}
       {activeTab === 'display' && isScreen && (
         <div className="space-y-5">
-          {/* Live preview — compact thumbnail, CSS-rotated to match how the user sees the device */}
+          {/* Live preview: compact thumbnail, CSS-rotated to match how the user sees the device */}
           {device.hwid && (
             <section className="space-y-1.5">
               <SectionLabel>Live preview</SectionLabel>
-              <div className="w-56 overflow-hidden rounded-xl border border-border/50 bg-black aspect-video flex items-center justify-center">
+              <div className="w-56 overflow-hidden rounded-card border border-border/50 bg-black aspect-video flex items-center justify-center">
                 <img
                   src={`/api/pod/display/${device.hwid}?t=${Date.now()}`}
                   alt="Device screen"
@@ -800,10 +806,10 @@ function DeviceDetailPage({
           {/* Orientation */}
           <section className="space-y-1.5">
             <SectionLabel>Orientation</SectionLabel>
-            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+            <div className="divide-y divide-border/40 overflow-hidden rounded-card border border-border/50 bg-card">
               <FieldRow label="Rotation">
                 <div className="w-full space-y-1">
-                  <div className="grid grid-cols-2 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <div className="grid grid-cols-2 gap-1 text-center text-overline text-muted-foreground/60">
                     <span>Landscape</span>
                     <span>Portrait</span>
                   </div>
@@ -822,7 +828,7 @@ function DeviceDetailPage({
                           onClick={() => changeOrientation(deg)}
                           title={`${portrait ? 'Portrait' : 'Landscape'} ${label} (${deg}°)`}
                           className={cn(
-                            'flex flex-col items-center gap-1 rounded-lg border px-1 py-2 text-center transition-colors',
+                            'flex flex-col items-center gap-1 rounded-control border px-1 py-2 text-center transition-colors',
                             active ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 text-muted-foreground hover:bg-muted/40',
                           )}
                         >
@@ -837,7 +843,7 @@ function DeviceDetailPage({
             </div>
           </section>
 
-          {/* Screen deck — the ordered list of screens this device swipes between.
+          {/* Screen deck: the ordered list of screens this device swipes between.
               Controller is just one screen kind here, alongside clock/weather/status/etc.
               The owner can edit this SAME deck from Settings → Devices, unless locked below. */}
           <section className="space-y-1.5">
@@ -853,14 +859,14 @@ function DeviceDetailPage({
           {/* Mode */}
           <section className="space-y-1.5">
             <SectionLabel>Mode</SectionLabel>
-            <div className="overflow-hidden rounded-2xl border border-border/50 bg-card">
+            <div className="overflow-hidden rounded-card border border-border/50 bg-card">
               {/* Display vs Controller toggle */}
               <div className="grid grid-cols-2 gap-2 p-3">
                 <button
                   onClick={() => changeMode('normal')}
                   disabled={modeBusy}
                   className={cn(
-                    'flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors disabled:opacity-60',
+                    'flex flex-col items-center gap-2 rounded-card border p-4 text-center transition-colors disabled:opacity-60',
                     !isController ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40',
                   )}
                 >
@@ -874,7 +880,7 @@ function DeviceDetailPage({
                   onClick={() => changeMode('stream-deck')}
                   disabled={modeBusy}
                   className={cn(
-                    'flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors disabled:opacity-60',
+                    'flex flex-col items-center gap-2 rounded-card border p-4 text-center transition-colors disabled:opacity-60',
                     isController ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40',
                   )}
                 >
@@ -890,7 +896,7 @@ function DeviceDetailPage({
               {!isController && (
                 <>
                   <div className="border-t border-border/40 px-4 pb-1 pt-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Testing</p>
+                    <p className="text-overline text-muted-foreground">Testing</p>
                   </div>
                   <div className="grid grid-cols-3 gap-2 px-3 pb-3">
                     {MODES.map((m) => {
@@ -901,7 +907,7 @@ function DeviceDetailPage({
                           onClick={() => changeMode(m.id)}
                           disabled={modeBusy}
                           className={cn(
-                            'flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-colors disabled:opacity-60',
+                            'flex flex-col items-center gap-1.5 rounded-card border p-3 text-center transition-colors disabled:opacity-60',
                             active ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40',
                           )}
                         >
@@ -912,10 +918,10 @@ function DeviceDetailPage({
                       )
                     })}
                   </div>
-                  <p className="px-4 pb-3 text-[11px] text-muted-foreground">
+                  <p className="px-4 pb-3 text-caption text-muted-foreground">
                     {device.online
                       ? 'Camera test streams a public feed (no Frigate needed). Touch test draws a pink dot wherever you press.'
-                      : 'Device is offline — the chosen mode will apply when it reconnects.'}
+                      : 'Device is offline. The chosen mode will apply when it reconnects.'}
                   </p>
                 </>
               )}
@@ -930,10 +936,10 @@ function DeviceDetailPage({
           {/* Hardware info */}
           <section className="space-y-1.5">
             <SectionLabel>Hardware</SectionLabel>
-            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+            <div className="divide-y divide-border/40 overflow-hidden rounded-card border border-border/50 bg-card">
               <InfoRow label="Model" value={deviceModelName(device.model, device.kind)} />
               {device.hwid && <InfoRow label="HWID" value={<code className="font-mono text-xs">{device.hwid}</code>} />}
-              <InfoRow label="Paired" value={device.paired ? 'Yes' : 'No — needs setup'} />
+              <InfoRow label="Paired" value={device.paired ? 'Yes' : 'No, needs setup'} />
               {device.lastSeenAt && !device.online && (
                 <InfoRow label="Last seen" value={new Date(device.lastSeenAt).toLocaleString()} />
               )}
@@ -943,27 +949,27 @@ function DeviceDetailPage({
           {/* Advanced: firmware + pairing maintenance */}
           <section className="space-y-1.5">
             <SectionLabel>Advanced</SectionLabel>
-            <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">
+            <div className="divide-y divide-border/40 overflow-hidden rounded-card border border-border/50 bg-card">
               <button
                 onClick={onReflash}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40"
+                className={cn('flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40')}
               >
                 <Wifi className="size-4 shrink-0 text-muted-foreground" />
                 <span className="flex-1">
                   <span className="block font-medium">Reflash firmware</span>
-                  <span className="block text-[11px] text-muted-foreground">Re-run the flash wizard to update or recover this device.</span>
+                  <span className="block text-caption text-muted-foreground">Re-run the flash wizard to update or recover this device.</span>
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
               </button>
               <button
                 onClick={reissuePairing}
                 disabled={reissuing}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40 disabled:opacity-60"
+                className={cn('flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40 disabled:opacity-60')}
               >
-                {reissuing ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : <KeyRound className="size-4 shrink-0 text-muted-foreground" />}
+                {reissuing ? <Spinner className="shrink-0" /> : <KeyRound className="size-4 shrink-0 text-muted-foreground" />}
                 <span className="flex-1">
                   <span className="block font-medium">Re-issue pairing code</span>
-                  <span className="block text-[11px] text-muted-foreground">Generate a fresh code to set this device up again.</span>
+                  <span className="block text-caption text-muted-foreground">Generate a fresh code to set this device up again.</span>
                 </span>
               </button>
             </div>
@@ -972,15 +978,15 @@ function DeviceDetailPage({
           {/* Danger zone */}
           <section className="space-y-1.5 lg:col-span-2">
             <SectionLabel>Danger zone</SectionLabel>
-            <div className="overflow-hidden rounded-2xl border border-destructive/20 bg-card">
+            <div className="overflow-hidden rounded-card border border-destructive/20 bg-card">
               <button
                 onClick={onDelete}
-                className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5"
+                className={cn('flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5')}
               >
                 <Trash2 className="size-4" /> Remove this device
               </button>
             </div>
-            <p className="px-1 text-[11px] text-muted-foreground">This will unpair the device and revoke its token. It can be re-added at any time.</p>
+            <p className="px-1 text-caption text-muted-foreground">This will unpair the device and revoke its token. It can be re-added at any time.</p>
           </section>
         </div>
       )}
@@ -994,31 +1000,31 @@ function DeviceDetailPage({
 
 function ControllerLayoutsPlaceholder() {
   return (
-    <section className="space-y-4 rounded-3xl border border-border/40 bg-card p-5">
+    <Card className="space-y-4 p-5">
       <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl" style={{ backgroundImage: 'linear-gradient(135deg,#60a5fa,#3b82f6)' }}>
-          <LayoutGrid className="size-5 text-white" />
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-card bg-brand shadow-md">
+          <LayoutGrid className="size-5 text-brand-foreground" />
         </div>
         <div className="flex-1">
           <h3 className="text-sm font-semibold">Controller moved into each device's Screen deck</h3>
           <p className="text-sm text-muted-foreground">
-            The controller (button grid) is now just one screen kind, alongside clock, weather, and status —
+            The controller (button grid) is now just one screen kind, alongside clock, weather, and status:
             per-device, ordered, and swipeable like everything else.
           </p>
         </div>
       </div>
-      <div className="rounded-2xl border border-dashed border-border/60 bg-background/40 px-6 py-10 text-center">
+      <div className="rounded-card border border-dashed border-border bg-background/40 px-6 py-10 text-center">
         <LayoutGrid className="mx-auto mb-2 size-8 text-muted-foreground/40" />
         <p className="text-sm font-medium text-muted-foreground">Open Devices → pick a device → Display tab</p>
-        <p className="mt-1 text-xs text-muted-foreground/70">
+        <p className="mt-1 text-caption text-muted-foreground/70">
           Add, remove, reorder, and configure the controller screen (including button overrides) from its Screen deck there.
         </p>
       </div>
-    </section>
+    </Card>
   )
 }
 
-// ── Device card — looks like the device itself ───────────────────────────────────
+// ── Device card: looks like the device itself ────────────────────────────────────
 // Screen devices (Tab5) show a live thumbnail of what's actually on their screen
 // (server-rendered JPEG at /api/pod/display/:hwid). Speakers show the device's own
 // illustration. Name + owner sit underneath. Click anywhere to manage.
@@ -1038,17 +1044,17 @@ function DeviceCard({ d, userName, templateName, onManage }: { d: DeviceRow; use
     return () => clearInterval(i)
   }, [hasScreen])
 
-  const dot = !d.paired ? 'bg-amber-500'
-    : !d.online ? 'bg-muted-foreground/40'
-      : (ACTIVITY[d.activity] ?? ACTIVITY.idle).dot
+  const dot: StatusDotStatus = !d.paired ? 'warn'
+    : !d.online ? 'off'
+      : (ACTIVITY[d.activity] ?? ACTIVITY.idle).status
   const dotLabel = !d.paired ? 'Setup' : !d.online ? 'Offline' : (ACTIVITY[d.activity] ?? ACTIVITY.idle).label
 
   return (
     <button
       onClick={onManage}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-border/50 bg-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn('group flex flex-col overflow-hidden rounded-card border border-border/50 bg-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}
     >
-      {/* Device visual — the whole screen fits (letterboxed), never cropped */}
+      {/* Device visual: the whole screen fits (letterboxed), never cropped */}
       <div className={cn('relative flex aspect-video items-center justify-center overflow-hidden', hasScreen ? 'bg-black' : 'bg-gradient-to-br from-muted/60 to-muted/20')}>
         {hasScreen ? (
           <img
@@ -1061,18 +1067,18 @@ function DeviceCard({ d, userName, templateName, onManage }: { d: DeviceRow; use
         ) : art.image ? (
           <img src={art.image} alt={art.model} className="size-[46%] object-contain drop-shadow-md" loading="lazy" />
         ) : (
-          <DeviceArt resolved={art} solid className="size-16 rounded-2xl" />
+          <DeviceArt resolved={art} solid className="size-16 rounded-card" />
         )}
 
         {/* Status pill, top-right */}
-        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/45 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-sm">
-          <span className={cn('size-1.5 rounded-full', dot, d.online && d.activity !== 'idle' ? 'animate-pulse' : '')} />
+        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white">
+          <StatusDot status={dot} pulse={d.online && d.activity !== 'idle'} />
           {dotLabel}
         </span>
 
         {/* Pairing code overlay for unpaired devices */}
         {!d.paired && d.pairingCode && (
-          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-lg bg-black/55 px-2 py-1.5 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-control bg-black/70 px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
             <span className="text-[9px] text-white/70">Code</span>
             <code className="font-mono text-xs font-semibold tracking-widest text-white">{d.pairingCode}</code>
             <CopyButton value={d.pairingCode} />
@@ -1115,20 +1121,20 @@ function UnclaimedCard({ d, users, companions, onClaimed }: { d: DiscoveredDevic
         body: JSON.stringify({ hwid: d.hwid, model: d.model, name: name.trim(), userId, characterId: characterId || null }),
       })
       if (!r.ok) throw new Error('Failed')
-      toast.success("Device claimed — it's online now")
+      toast.success("Device claimed, it's online now")
       onClaimed()
     } catch { toast.error('Failed to claim device') } finally { setBusy(false) }
   }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-card">
+    <Card className="flex flex-col border-warning/30">
       {/* Device visual */}
-      <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-gradient-to-br from-amber-500/10 to-muted/20">
+      <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-gradient-to-br from-warning/10 to-muted/20">
         {art.image
           ? <img src={art.image} alt={art.model} className="size-[46%] object-contain drop-shadow-md" loading="lazy" />
-          : <DeviceArt resolved={art} solid className="size-16 rounded-2xl" />}
-        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-medium text-white">
-          <span className="size-1.5 animate-pulse rounded-full bg-white" /> New
+          : <DeviceArt resolved={art} solid className="size-16 rounded-card" />}
+        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-warning px-1.5 py-0.5 text-[9px] font-medium text-warning-foreground">
+          <StatusDot status="warn" pulse className="bg-warning-foreground" /> New
         </span>
       </div>
 
@@ -1154,32 +1160,24 @@ function UnclaimedCard({ d, users, companions, onClaimed }: { d: DiscoveredDevic
             </Select>
             <div className="flex gap-2">
               <Button className="flex-1" onClick={claim} disabled={busy || !name.trim() || !userId}>
-                {busy ? <Loader2 className="size-4 animate-spin" /> : <><Check className="size-4" /> Claim</>}
+                {busy ? <Spinner className="text-current" /> : <><Check className="size-4" /> Claim</>}
               </Button>
               <Button variant="ghost" onClick={() => setExpanded(false)} disabled={busy}>Cancel</Button>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
 // ── Shared bits ─────────────────────────────────────────────────────────────────
 
-function DeviceTile({ gradient, className, children }: { gradient: string; className?: string; children: React.ReactNode }) {
-  return (
-    <div className={`flex shrink-0 items-center justify-center shadow-md ${className ?? 'size-14 rounded-2xl'}`} style={{ backgroundImage: gradient }}>
-      {children}
-    </div>
-  )
-}
-
-const ACTIVITY: Record<string, { label: string; dot: string; cls: string; pulse?: boolean }> = {
-  idle: { label: 'Ready', dot: 'bg-emerald-500', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
-  listening: { label: 'Listening', dot: 'bg-green-500', cls: 'bg-green-500/15 text-green-600 dark:text-green-400', pulse: true },
-  thinking: { label: 'Thinking', dot: 'bg-blue-500', cls: 'bg-blue-500/15 text-blue-600 dark:text-blue-400', pulse: true },
-  talking: { label: 'Speaking', dot: 'bg-cyan-500', cls: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400', pulse: true },
+const ACTIVITY: Record<string, { label: string; status: StatusDotStatus; cls: string; pulse?: boolean }> = {
+  idle: { label: 'Ready', status: 'ok', cls: 'text-success' },
+  listening: { label: 'Listening', status: 'ok', cls: 'text-success', pulse: true },
+  thinking: { label: 'Thinking', status: 'info', cls: 'text-info', pulse: true },
+  talking: { label: 'Speaking', status: 'info', cls: 'text-info', pulse: true },
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -1192,7 +1190,7 @@ function CopyButton({ value }: { value: string }) {
         try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { toast.error('Copy failed') }
       }}
     >
-      {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+      {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
     </Button>
   )
 }
@@ -1202,7 +1200,7 @@ function Select({ value, onChange, children }: { value: string; onChange: (v: st
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="h-9 rounded-control border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {children}
     </select>
@@ -1215,7 +1213,7 @@ function DetailPicker({ value, onChange, children }: { value: string; onChange: 
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 max-w-[12rem] rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="h-8 max-w-[12rem] rounded-control border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {children}
     </select>
@@ -1241,5 +1239,5 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{children}</p>
+  return <p className="px-1 text-overline text-muted-foreground">{children}</p>
 }

@@ -11,7 +11,7 @@ import { DEFAULT_ALARM_TONE, toneDisplayName } from '@/lib/time/tones'
 import { WEEKDAYS } from '@/lib/time/format'
 import type { ClockAlarm } from '@/lib/time/api'
 
-const SELECT_CLS = 'rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand'
+const SELECT_CLS = 'rounded-control border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand'
 const SNOOZE_OPTS = [1, 3, 5, 9, 10, 15]
 
 function to24(h12: number, ampm: 'AM' | 'PM'): number {
@@ -128,7 +128,7 @@ export function AlarmEditorDialog({ open, onOpenChange, alarm }: {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Sound — {toneDisplayName(tone, toneName)}</Label>
+            <Label>Sound · {toneDisplayName(tone, toneName)}</Label>
             <TonePicker value={tone} onChange={(t, n) => { setTone(t); setToneName(n) }} />
           </div>
         </div>

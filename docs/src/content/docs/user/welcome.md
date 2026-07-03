@@ -59,6 +59,7 @@ Everything that can run locally does. Chat, image and video generation, voice, m
 - **[Make podcasts](../features/podcasts/)**: turn an article or video into an AI-generated audio show in voices you choose
 - **[Generate music](../features/music/)**: render tracks and stingers entirely offline in the browser
 - **[Open the Today dashboard](../features/today/)**: news, sports, weather, on-this-day history, holidays, and local events in one place
+- **[Track prices](../features/shopping/)**: watch products across Amazon, Walmart, Target, and more, with price-drop alerts, a deals feed, and coupons
 - **[Add and remove apps](../features/app-store/)**: the admin installs exactly the apps your household wants, with install-time disclosure instead of hidden data collection
 
 ## Getting Started

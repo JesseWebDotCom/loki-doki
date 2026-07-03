@@ -14,13 +14,13 @@ type DotVariant = 'system' | 'ai' | 'amber' | 'warn' | 'free' | 'used' | 'dl'
 
 function LegendDot({ label, value, variant }: { label: string; value: string; variant: DotVariant }) {
   const dot: Record<DotVariant, string> = {
-    system: 'bg-zinc-500/70',
-    used:   'bg-zinc-500/70',
-    ai:     'bg-violet-500',
-    dl:     'bg-violet-500',
-    amber:  'bg-amber-500',
-    warn:   'bg-red-500',
-    free:   'border border-white/10 bg-transparent',
+    system: 'bg-muted-foreground/50',
+    used:   'bg-muted-foreground/50',
+    ai:     'bg-brand',
+    dl:     'bg-brand',
+    amber:  'bg-warning',
+    warn:   'bg-destructive',
+    free:   'border border-border bg-transparent',
   }
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -33,7 +33,7 @@ function LegendDot({ label, value, variant }: { label: string; value: string; va
 
 export interface ResourceBarsProps {
   totalRamGb: number
-  // Only the LLM (+ separate vision if not builtinVision) — what's simultaneously
+  // Only the LLM (+ separate vision if not builtinVision): what's simultaneously
   // loaded during active inference. FLUX and XTTS run in separate processes on demand.
   hotModelBytes: number
   hotModelLabel: string  // e.g. "Gemma 4 12B" or "Llama 3.1 8B + Vision"
@@ -65,14 +65,14 @@ export function ResourceBars({
   const memGood  = fitRatio <= 0.70
   const memTight = fitRatio <= 0.88
 
-  const modelColor = memGood ? 'bg-violet-500' : memTight ? 'bg-amber-500' : 'bg-red-500'
+  const modelColor = memGood ? 'bg-brand' : memTight ? 'bg-warning' : 'bg-destructive'
   const dotVariant: DotVariant = memGood ? 'ai' : memTight ? 'amber' : 'warn'
 
   const memStatus = memGood
-    ? { Icon: CheckCircle2,  color: 'text-emerald-400', text: 'Fits comfortably' }
+    ? { Icon: CheckCircle2,  color: 'text-success', text: 'Fits comfortably' }
     : memTight
-    ? { Icon: AlertTriangle, color: 'text-amber-400',   text: `Tight — ${fmt(freeRam)} free for apps` }
-    : { Icon: AlertCircle,   color: 'text-red-400',     text: `Too large for ${totalRamGb} GB — choose a smaller model` }
+    ? { Icon: AlertTriangle, color: 'text-warning',   text: `Tight: ${fmt(freeRam)} free for apps` }
+    : { Icon: AlertCircle,   color: 'text-destructive',     text: `Too large for ${totalRamGb} GB, choose a smaller model` }
 
   const pct = (n: number, total: number) => (total > 0 ? Math.min(100, (n / total) * 100) : 0)
   const modelPct = pct(modelSeg, totalRam)
@@ -95,14 +95,14 @@ export function ResourceBars({
             <span className="text-xs font-medium text-muted-foreground">Memory</span>
             <span className="text-xs tabular-nums text-muted-foreground">{totalRamGb} GB</span>
           </div>
-          <div className="relative h-[7px] w-full rounded-full overflow-hidden bg-white/[0.06]">
+          <div className="relative h-[7px] w-full rounded-full overflow-hidden bg-foreground/10">
             <div className="absolute inset-y-0 left-0 flex h-full">
               <div
                 className={cn('h-full transition-[width] duration-500', modelColor)}
                 style={{ width: `${modelPct}%` }}
               />
               <div
-                className="h-full bg-zinc-500/70 transition-[width] duration-500"
+                className="h-full bg-muted-foreground/50 transition-[width] duration-500"
                 style={{ width: `${sysPct}%` }}
               />
             </div>
@@ -126,16 +126,16 @@ export function ResourceBars({
             <span className="text-xs font-medium text-muted-foreground">Storage</span>
             <span className="text-xs tabular-nums text-muted-foreground">{fmt(diskTotalBytes)}</span>
           </div>
-          <div className="relative h-[7px] w-full rounded-full overflow-hidden bg-white/[0.06]">
+          <div className="relative h-[7px] w-full rounded-full overflow-hidden bg-foreground/10">
             <div className="absolute inset-y-0 left-0 flex h-full">
               <div
-                className="h-full bg-zinc-500/70 transition-[width] duration-500"
+                className="h-full bg-muted-foreground/50 transition-[width] duration-500"
                 style={{ width: `${usedPct}%` }}
               />
               <div
                 className={cn(
                   'h-full transition-[width] duration-500',
-                  diskWarn ? 'bg-red-500' : 'bg-violet-500',
+                  diskWarn ? 'bg-destructive' : 'bg-brand',
                 )}
                 style={{ width: `${dlPct}%` }}
               />
@@ -149,12 +149,12 @@ export function ResourceBars({
             <LegendDot label="Free after" value={fmt(freeAfter)} variant="free" />
           </div>
           {diskWarn ? (
-            <div className="flex items-center gap-1.5 text-xs text-red-400 pt-0.5">
+            <div className="flex items-center gap-1.5 text-xs text-destructive pt-0.5">
               <AlertCircle className="size-3 shrink-0" />
-              Not enough space — free up at least {fmt(toDownloadBytes - diskFreeBytes + 1_073_741_824)} more
+              Not enough space: free up at least {fmt(toDownloadBytes - diskFreeBytes + 1_073_741_824)} more
             </div>
           ) : toDownloadBytes > 0 ? (
-            <div className="flex items-center gap-1.5 text-xs text-emerald-400 pt-0.5">
+            <div className="flex items-center gap-1.5 text-xs text-success pt-0.5">
               <CheckCircle2 className="size-3 shrink-0" />
               Enough space
             </div>

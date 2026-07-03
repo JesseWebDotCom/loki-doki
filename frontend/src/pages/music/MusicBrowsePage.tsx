@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Music2, Play, Search, ArrowDownToLine, Loader2 } from 'lucide-react'
+import { Music2, Play, Search, ArrowDownToLine } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { Spinner } from '@/components/ui/spinner'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -15,7 +17,8 @@ import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffli
 
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex w-32 shrink-0 flex-col items-center gap-2 rounded-xl p-2 text-center transition hover:bg-accent/50">
+    // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
+    <button onClick={onClick} className="flex w-32 shrink-0 flex-col items-center gap-2 rounded-card p-2 text-center transition hover:bg-accent/50">
       <ArtistAvatar name={a.name} mbid={a.mbid} className="size-24 rounded-full" />
       <div><p className="truncate text-sm font-medium">{a.name}</p>{a.disambiguation && <p className="truncate text-[11px] text-muted-foreground">{a.disambiguation}</p>}</div>
     </button>
@@ -24,8 +27,9 @@ function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
 
 function AlbumCard({ al, onClick }: { al: CatalogAlbum; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex w-40 shrink-0 flex-col gap-2 rounded-xl p-2 text-left transition hover:bg-accent/50">
-      <AlbumCover coverUrl={al.coverUrl} className="aspect-square w-full rounded-lg" />
+    // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
+    <button onClick={onClick} className="flex w-40 shrink-0 flex-col gap-2 rounded-card p-2 text-left transition hover:bg-accent/50">
+      <AlbumCover coverUrl={al.coverUrl} className="aspect-square w-full rounded-control" />
       <div><p className="truncate text-sm font-medium">{al.title}</p><p className="truncate text-[11px] text-muted-foreground">{al.artistName}{al.year ? ` · ${al.year}` : ''}</p></div>
     </button>
   )
@@ -33,7 +37,7 @@ function AlbumCard({ al, onClick }: { al: CatalogAlbum; onClick: () => void }) {
 
 /** Download control for a catalog (search) song: resolve it to a YouTube id on click, then save
  *  offline. Catalog rows have no videoId up front, so this can't show a persistent "downloaded"
- *  state the way SongDownloadButton does — it just kicks off the save. */
+ *  state the way SongDownloadButton does - it just kicks off the save. */
 function SongDownloadSearchButton({ song }: { song: CatalogSong }) {
   const [busy, setBusy] = useState(false)
   const onClick = async (e: React.MouseEvent) => {
@@ -49,16 +53,17 @@ function SongDownloadSearchButton({ song }: { song: CatalogSong }) {
     finally { setBusy(false) }
   }
   return (
+    // design-ok(hand-styled-button): row-hover reveal icon affordance inside a track row
     <button type="button" onClick={onClick} aria-label="Download for offline" title="Download for offline"
       className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition hover:bg-accent/60 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100">
-      {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDownToLine className="size-4" />}
+      {busy ? <Spinner className="text-current" /> : <ArrowDownToLine className="size-4" />}
     </button>
   )
 }
 
 const GENRES = ['Pop', 'Rock', 'Hip-Hop', 'Jazz', 'Electronic', 'Country', 'R&B', 'Metal', 'Classical', 'Indie', 'Reggae', 'Soul']
 
-/** Offline browse: no catalog (that's a network call) — just substring-filter the stations and
+/** Offline browse: no catalog (that's a network call) - just substring-filter the stations and
  *  songs you've downloaded. Mirrors the YouTube offline-search pattern (SearchResults.tsx). */
 function OfflineBrowse({ q }: { q: string }) {
   const navigate = useNavigate()
@@ -84,8 +89,8 @@ function OfflineBrowse({ q }: { q: string }) {
   )
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow={q ? 'Offline · Search' : 'Music · Offline'}
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow={q ? 'Offline · Search' : 'Music · Offline'}
         title={q ? `“${q}”` : 'Browse offline'} subtitle={q ? undefined : 'Everything you’ve saved for offline play.'} />
       {SearchBar}
 
@@ -99,7 +104,7 @@ function OfflineBrowse({ q }: { q: string }) {
 
       {songs.length > 0 && (
         <section className="mt-6 mb-4"><SectionHeader title="Songs" />
-          <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+          <div className="divide-y divide-border/50 rounded-card border border-border/60">
             {songs.map(s => (
               <button key={s.videoId} onClick={() => radio.playTrack({ videoId: s.videoId, title: s.title })}
                 className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-accent/40">
@@ -115,7 +120,7 @@ function OfflineBrowse({ q }: { q: string }) {
       {!stations.length && !songs.length && (
         <p className="mt-4 text-sm text-muted-foreground">{q ? `Nothing offline matches “${q}”.` : 'No offline content yet. Save a station to play it without internet.'}</p>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
@@ -133,7 +138,7 @@ export function MusicBrowsePage() {
 
   const search = (value: string) => { const t = value.trim(); if (t) navigate(`/music/browse?q=${encodeURIComponent(t)}`) }
   const playSong = async (s: CatalogSong) => {
-    // Browse songs are catalog entries (no videoId yet) — resolve to a playable id, then play
+    // Browse songs are catalog entries (no videoId yet) - resolve to a playable id, then play
     // it directly for instant, YouTube-like playback.
     const r = await resolveSong({ mbid: s.mbid, title: s.title, artist: s.artistName, durationSec: s.durationSec })
     if (r) radio.playTrack({ videoId: r.videoId, title: r.title, author: r.artist })
@@ -153,21 +158,21 @@ export function MusicBrowsePage() {
   if (mode === 'offline') return <OfflineBrowse q={q} />
 
   if (!q) return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Browse" subtitle="Search the catalog for any artist, album, or song." />
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Music" title="Browse" subtitle="Search the catalog for any artist, album, or song." />
       {SearchBar}
-      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">Browse by genre</p>
+      <p className="mb-2 text-overline text-muted-foreground/60">Browse by genre</p>
       <div className="flex flex-wrap gap-2">
         {GENRES.map(g => (
           <button key={g} onClick={() => search(g)} className="rounded-full bg-foreground/8 px-4 py-2 text-sm font-medium transition hover:bg-foreground/15">{g}</button>
         ))}
       </div>
-    </div>
+    </PageContainer>
   )
 
   return (
-    <div className="px-5 pt-6">
-      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Search" title={`“${q}”`} />
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader eyebrow="Search" title={`“${q}”`} />
       {SearchBar}
       {isLoading && <p className="text-sm text-muted-foreground">Searching…</p>}
 
@@ -201,7 +206,7 @@ export function MusicBrowsePage() {
 
       {(data?.songs.length ?? 0) > 0 && (
         <section className="mt-6 mb-4"><SectionHeader title="Songs" />
-          <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+          <div className="divide-y divide-border/50 rounded-card border border-border/60">
             {data!.songs.map(s => (
               <div key={s.mbid} className="group flex w-full items-center gap-2 px-3 py-2.5 transition hover:bg-accent/40">
                 <button onClick={() => playSong(s)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
@@ -219,6 +224,6 @@ export function MusicBrowsePage() {
       {data && !data.artists.length && !data.albums.length && !data.songs.length && !data.stations.length && !isLoading && (
         <p className="mt-4 text-sm text-muted-foreground">No results for “{q}”.</p>
       )}
-    </div>
+    </PageContainer>
   )
 }

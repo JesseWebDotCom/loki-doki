@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Music, Plus, Play, Trash2, Copy, Loader2, Save, X, Bell } from 'lucide-react'
+import { Music, Plus, Play, Trash2, Copy, Save, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from '@/lib/toast'
 import {
   SOUND_EVENTS, SOUND_EVENT_HELP, audioUrl, opts, JSON_HEADERS, getJSON, parse,
@@ -32,26 +34,26 @@ export function DeviceSoundsPanel({ id }: { id?: string }) {
   const chimeName = (cid: string | null) => (cid ? chimes.find((c) => c.id === cid)?.name ?? cid : 'Silent')
 
   return (
-    <section id={id} className="space-y-4 rounded-3xl border border-border/40 bg-card p-5 scroll-mt-20">
+    <section id={id} className="space-y-4 rounded-card border border-border/40 bg-card p-5 scroll-mt-20">
       <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl" style={{ backgroundImage: 'linear-gradient(135deg,#34d399,#059669)' }}><Music className="size-5 text-white" /></div>
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-card bg-brand/10 text-brand"><Music className="size-5" /></div>
         <div className="flex-1">
-          <h3 className="text-sm font-semibold">Sound packs & chimes</h3>
-          <p className="text-sm text-muted-foreground">UI earcons (wake, success, …) and alarm tones. Packs map each event to a chime; design custom chimes below — the server renders them to audio.</p>
+          <h3 className="text-section">Sound packs & chimes</h3>
+          <p className="text-sm text-muted-foreground">UI earcons (wake, success, …) and alarm tones. Packs map each event to a chime; design custom chimes below and the server renders them to audio.</p>
         </div>
       </div>
 
       {/* Packs */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Packs</h4>
+          <h4 className="text-overline text-muted-foreground">Packs</h4>
           <Button size="sm" variant="secondary" className="gap-1 text-xs" onClick={() => setEditPack({ id: '', name: 'New pack', builtin: false, events: '{}' })}><Plus className="size-3.5" /> New pack</Button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {packs.map((p) => {
             const events = parse<SoundEventMap>(p.events, {})
             return (
-              <div key={p.id} className="space-y-2 rounded-2xl border border-border/40 bg-background/40 p-3">
+              <div key={p.id} className="space-y-2 rounded-card border border-border/40 bg-background/40 p-3">
                 <div className="flex items-center gap-2"><span className="flex-1 truncate text-sm font-medium">{p.name}</span>{p.builtin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Built-in</span>}</div>
                 <ul className="space-y-0.5 text-[11px] text-muted-foreground">
                   {SOUND_EVENTS.map((ev) => <li key={ev} className="flex justify-between gap-2"><span className="capitalize">{ev}</span><span className="truncate text-foreground/70">{chimeName(events[ev] ?? null)}</span></li>)}
@@ -69,7 +71,7 @@ export function DeviceSoundsPanel({ id }: { id?: string }) {
       {/* Chime library */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Chime library</h4>
+          <h4 className="text-overline text-muted-foreground">Chime library</h4>
           <Button size="sm" variant="secondary" className="gap-1 text-xs" onClick={() => setEditChime('new')}><Plus className="size-3.5" /> New chime</Button>
         </div>
         <div className="grid gap-3 lg:grid-cols-2">
@@ -86,11 +88,11 @@ export function DeviceSoundsPanel({ id }: { id?: string }) {
 
 function ChimeList({ title, icon: Icon, items, onPlay, onEdit }: { title: string; icon?: typeof Bell; items: ChimeRow[]; onPlay: (c: ChimeRow) => void; onEdit: (c: ChimeRow) => void }) {
   return (
-    <div className="space-y-1.5 rounded-2xl border border-border/40 bg-background/40 p-3">
+    <div className="space-y-1.5 rounded-card border border-border/40 bg-background/40 p-3">
       <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">{Icon && <Icon className="size-3.5" />} {title}</p>
       {items.map((c) => (
-        <div key={c.id} className="flex items-center gap-2 rounded-lg bg-card px-2 py-1.5">
-          <button onClick={() => onPlay(c)} className="flex size-7 items-center justify-center rounded-full bg-brand/15 text-brand hover:bg-brand/25"><Play className="size-3.5" /></button>
+        <div key={c.id} className="flex items-center gap-2 rounded-control bg-card px-2 py-1.5">
+          <Button size="icon-sm" variant="tinted" aria-label={`Play ${c.name}`} onClick={() => onPlay(c)}><Play className="size-3.5" /></Button>
           <span className="flex-1 truncate text-sm">{c.name}</span>
           {c.builtin ? <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Built-in</span>
             : <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onEdit(c)}>Edit</Button>}
@@ -124,16 +126,16 @@ function PackEditor({ pack, chimes, player, onClose, onSaved }: { pack: SoundPac
       <Input value={name} onChange={(e) => setName(e.target.value)} className="max-w-xs" placeholder="Pack name" />
       <div className="space-y-2">
         {SOUND_EVENTS.map((ev) => (
-          <div key={ev} className="flex items-center gap-2 rounded-lg bg-background/40 px-3 py-2">
+          <div key={ev} className="flex items-center gap-2 rounded-control bg-background/40 px-3 py-2">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium capitalize">{ev}</p>
               <p className="truncate text-[11px] text-muted-foreground">{SOUND_EVENT_HELP[ev]}</p>
             </div>
-            <select value={events[ev] ?? ''} onChange={(e) => setEvents({ ...events, [ev]: e.target.value || null })} className="h-8 rounded-md border border-input bg-background px-2 text-xs">
+            <select value={events[ev] ?? ''} onChange={(e) => setEvents({ ...events, [ev]: e.target.value || null })} className="h-8 rounded-control border border-input bg-background px-2 text-xs">
               <option value="">Silent</option>
               {optionsFor(ev).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            {events[ev] && <button onClick={() => player.playUrl(audioUrl(events[ev]!)!)} className="flex size-7 items-center justify-center rounded-full bg-brand/15 text-brand"><Play className="size-3.5" /></button>}
+            {events[ev] && <Button size="icon-sm" variant="tinted" aria-label="Play chime" onClick={() => player.playUrl(audioUrl(events[ev]!)!)}><Play className="size-3.5" /></Button>}
           </div>
         ))}
       </div>
@@ -176,10 +178,10 @@ function ChimeEditor({ chime, player, onClose, onSaved }: { chime: ChimeRow | nu
     <Overlay title={isNew ? 'New chime' : 'Edit chime'} onClose={onClose} onSave={save} busy={busy} extra={<Button size="sm" variant="secondary" className="gap-1" onClick={preview}><Play className="size-4" /> Preview</Button>}>
       <div className="flex flex-wrap items-center gap-2">
         <Input value={name} onChange={(e) => setName(e.target.value)} className="max-w-[200px]" placeholder="Chime name" />
-        <select value={category} onChange={(e) => setCategory(e.target.value as 'earcon' | 'alarm')} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+        <select value={category} onChange={(e) => setCategory(e.target.value as 'earcon' | 'alarm')} className="h-9 rounded-control border border-input bg-background px-2 text-sm">
           <option value="earcon">Earcon</option><option value="alarm">Alarm tone (loops)</option>
         </select>
-        <select value={recipe.waveform ?? 'sine'} onChange={(e) => setRecipe({ ...recipe, waveform: e.target.value as ChimeRecipe['waveform'] })} className="h-9 rounded-md border border-input bg-background px-2 text-sm capitalize">
+        <select value={recipe.waveform ?? 'sine'} onChange={(e) => setRecipe({ ...recipe, waveform: e.target.value as ChimeRecipe['waveform'] })} className="h-9 rounded-control border border-input bg-background px-2 text-sm capitalize">
           {WAVES.map((w) => <option key={w} value={w}>{w}</option>)}
         </select>
       </div>
@@ -195,7 +197,7 @@ function ChimeEditor({ chime, player, onClose, onSaved }: { chime: ChimeRow | nu
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notes</p>
+          <p className="text-overline text-muted-foreground">Notes</p>
           <Button size="sm" variant="ghost" className="gap-1 text-xs" onClick={() => setRecipe({ ...recipe, notes: [...notes, { freq: 880, start_ms: 0, dur_ms: 120, gain: 0.8 }] })}><Plus className="size-3.5" /> Add note</Button>
         </div>
         <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-1.5 text-[11px] text-muted-foreground">
@@ -214,12 +216,12 @@ function ChimeEditor({ chime, player, onClose, onSaved }: { chime: ChimeRow | nu
 
 function NoteRow({ n, onChange, onRemove }: { n: { freq: number; start_ms: number; dur_ms: number; gain?: number }; onChange: (p: Partial<{ freq: number; start_ms: number; dur_ms: number; gain: number }>) => void; onRemove: () => void }) {
   const numInput = (val: number, k: 'freq' | 'start_ms' | 'dur_ms' | 'gain', step = 1) => (
-    <input type="number" step={step} value={val} onChange={(e) => onChange({ [k]: Number(e.target.value) } as never)} className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground" />
+    <input type="number" step={step} value={val} onChange={(e) => onChange({ [k]: Number(e.target.value) } as never)} className="h-8 rounded-control border border-input bg-background px-2 text-xs text-foreground" />
   )
   return (
     <>
       {numInput(n.freq, 'freq')}{numInput(n.start_ms, 'start_ms')}{numInput(n.dur_ms, 'dur_ms')}{numInput(n.gain ?? 0.8, 'gain', 0.05)}
-      <button onClick={onRemove} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
+      <Button size="icon-sm" variant="ghost" aria-label="Remove note" onClick={onRemove} className="size-8 text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></Button>
     </>
   )
 }
@@ -232,21 +234,20 @@ function Range({ label, unit, min, max, step, value, onChange }: { label: string
   )
 }
 
-// Simple modal overlay (no extra deps).
+// Simple modal overlay on the shared dialog.
 function Overlay({ title, children, onClose, onSave, busy, extra }: { title: string; children: React.ReactNode; onClose: () => void; onSave: () => void; busy?: boolean; extra?: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-3xl border border-border/50 bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center gap-2">
-          <h3 className="text-base font-semibold">{title}</h3>
-          <div className="ml-auto flex items-center gap-2">
-            {extra}
-            <Button variant="ghost" size="sm" onClick={onClose}><X className="size-4" /></Button>
-            <Button size="sm" onClick={onSave} disabled={busy}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save</Button>
-          </div>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
         <div className="space-y-4">{children}</div>
-      </div>
-    </div>
+        <DialogFooter className="items-center gap-2">
+          {extra}
+          <Button size="sm" onClick={onSave} disabled={busy}>{busy ? <Spinner className="text-current" /> : <Save className="size-4" />} Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

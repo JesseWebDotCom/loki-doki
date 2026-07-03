@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, Mic, Square, Trash2, Mic2 } from 'lucide-react'
+import { Mic, Square, Trash2 } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
@@ -105,35 +110,33 @@ export function VoiceMemosPage() {
   }, [])
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#0c4a6e,#0891b2)" GhostIcon={Mic2}>
-      <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <div>
-          <h1 className="text-xl font-black tracking-tight">Voice Memos</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">Record, save, and transcribe audio notes offline.</p>
-        </div>
-      </div>
+    <PageShell>
+      <PageContainer className="shrink-0">
+        <PageHeader subtitle="Record, save, and transcribe audio notes offline." />
+      </PageContainer>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-8 sm:px-5">
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer className="pb-8">
         {/* Record control */}
-        <div className="mb-5 flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-card py-8">
+        <Card className="mb-5 flex flex-col items-center gap-3 border-border/60 py-8">
           <button
             onClick={recording ? stopRecording : () => void startRecording()}
             disabled={uploading}
+            aria-label={recording ? 'Stop recording' : 'Record a memo'}
             className={cn(
               'flex size-20 items-center justify-center rounded-full text-white shadow-lg transition-all active:scale-95 disabled:opacity-50',
-              recording ? 'bg-red-500 animate-pulse' : 'bg-brand',
+              // design-ok(adhoc-pulse): live recording indicator on the record control
+              recording ? 'bg-destructive animate-pulse' : 'bg-brand',
             )}
           >
-            {uploading ? <Loader2 className="size-8 animate-spin" /> : recording ? <Square className="size-7" /> : <Mic className="size-8" />}
+            {uploading ? <Spinner className="size-8 text-white" /> : recording ? <Square className="size-7" /> : <Mic className="size-8" />}
           </button>
           <p className="text-sm text-muted-foreground">
             {uploading ? 'Saving…' : recording ? 'Recording… tap to stop' : 'Tap to record a memo'}
           </p>
-        </div>
+        </Card>
 
-        {status === 'loading' && (
-          <div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="size-6 animate-spin" /></div>
-        )}
+        {status === 'loading' && <SkeletonListRows count={4} />}
         {status === 'error' && <p className="py-8 text-center text-sm text-destructive">Couldn't load memos.</p>}
         {status === 'ready' && memos?.length === 0 && (
           <p className="py-8 text-center text-sm text-muted-foreground">No memos yet.</p>
@@ -141,18 +144,19 @@ export function VoiceMemosPage() {
 
         <div className="space-y-3">
           {memos?.map((m) => (
-            <div key={m.id} className="rounded-xl border border-border/60 bg-card p-3">
+            <Card key={m.id} className="border-border/60 p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-muted-foreground">{fmtDate(m.createdAt)} · {fmtDuration(m.durationMs)}</span>
-                <button onClick={() => setDeleteId(m.id)} className="text-muted-foreground hover:text-destructive">
+                <button onClick={() => setDeleteId(m.id)} className="text-muted-foreground hover:text-destructive" aria-label="Delete memo">
                   <Trash2 className="size-4" />
                 </button>
               </div>
               <audio controls preload="none" src={`/api/voice/memos/${m.id}`} className="mt-2 h-9 w-full" />
               {m.transcript && <p className="mt-2 text-sm leading-relaxed">{m.transcript}</p>}
-            </div>
+            </Card>
           ))}
         </div>
+        </PageContainer>
       </div>
 
       <ConfirmDialog

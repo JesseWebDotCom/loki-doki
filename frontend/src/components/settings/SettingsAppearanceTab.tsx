@@ -14,23 +14,23 @@ export function SettingsAppearanceTab() {
   return (
     <div className="p-4 space-y-6">
       <div>
-        <p className="text-sm font-medium mb-1">Theme</p>
-        <p className="text-xs text-muted-foreground mb-3">Choose how the app looks.</p>
+        <h2 className="text-section mb-1">Theme</h2>
+        <p className="text-caption text-muted-foreground mb-3">Choose how the app looks.</p>
         <div className="grid grid-cols-3 gap-3">
           {OPTIONS.map(({ id, label, Icon, note }) => (
             <button
               key={id}
               onClick={() => setTheme(id)}
               className={cn(
-                'flex flex-col items-center gap-2.5 rounded-xl border p-4 text-sm transition-all',
+                'flex flex-col items-center gap-2.5 rounded-card border p-4 text-sm transition-all',
                 theme === id
-                  ? 'border-primary ring-1 ring-primary/20 text-foreground bg-primary/5'
+                  ? 'border-brand bg-brand/10 text-brand'
                   : 'border-border/50 text-muted-foreground hover:border-border hover:bg-muted/30',
               )}
             >
               <Icon className="size-5" />
               <span className="font-medium">{label}</span>
-              <span className="text-xs text-muted-foreground">{note}</span>
+              <span className={cn('text-caption', theme === id ? 'text-brand/80' : 'text-muted-foreground')}>{note}</span>
             </button>
           ))}
         </div>

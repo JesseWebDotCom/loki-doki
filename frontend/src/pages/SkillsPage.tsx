@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Sparkles, Trash2, Pencil } from 'lucide-react'
+import { Plus, Trash2, Pencil } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
@@ -116,13 +121,13 @@ function SkillEditor({
         </DialogHeader>
 
         {loading ? (
-          <div className="flex justify-center py-10"><Loader2 className="size-5 animate-spin" /></div>
+          <div className="flex justify-center py-10"><Spinner size="lg" /></div>
         ) : raw ? (
           <textarea
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
             spellCheck={false}
-            className="h-72 w-full rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs"
+            className="h-72 w-full rounded-control border border-border bg-muted/30 p-3 font-mono text-xs"
             placeholder={'---\nname: my-skill\ndescription: ...\n---\n\nInstructions...'}
           />
         ) : (
@@ -134,7 +139,7 @@ function SkillEditor({
                 onChange={(e) => setName(e.target.value.toLowerCase())}
                 disabled={isEdit}
                 placeholder="e.g. concise-replies"
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm disabled:opacity-60"
+                className="mt-1 w-full rounded-control border border-border bg-background px-3 py-2 font-mono text-sm disabled:opacity-60"
               />
             </div>
             <div>
@@ -142,8 +147,8 @@ function SkillEditor({
               <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="One line — what this skill does"
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                placeholder="One line: what this skill does"
+                className="mt-1 w-full rounded-control border border-border bg-background px-3 py-2 text-sm"
               />
             </div>
             <div>
@@ -152,7 +157,7 @@ function SkillEditor({
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 placeholder="How the companion should behave when this skill is active…"
-                className="mt-1 h-40 w-full rounded-lg border border-border bg-background p-3 text-sm"
+                className="mt-1 h-40 w-full rounded-control border border-border bg-background p-3 text-sm"
               />
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -178,7 +183,7 @@ function SkillEditor({
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
             <Button size="sm" onClick={() => void save()} disabled={saving}>
-              {saving && <Loader2 className="size-4 animate-spin" />} Save
+              {saving && <Spinner className="text-primary-foreground" />} Save
             </Button>
           </div>
         </DialogFooter>
@@ -233,25 +238,25 @@ export function SkillsPage() {
   }, [load])
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#312e81,#7c3aed)" GhostIcon={Sparkles}>
-      <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <div>
-          <h1 className="text-xl font-black tracking-tight">Skills</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">Custom instructions that shape how your companion responds.</p>
-        </div>
-        <Button size="sm" onClick={() => setEditor({ editing: null })}>
-          <Plus className="size-4" /> Author a skill
-        </Button>
-      </div>
+    <PageShell>
+      <PageContainer className="shrink-0">
+        <PageHeader
+          subtitle="Custom instructions that shape how your companion responds."
+          actions={
+            <Button size="sm" onClick={() => setEditor({ editing: null })}>
+              <Plus className="size-4" /> Author a skill
+            </Button>
+          }
+        />
+      </PageContainer>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-8 sm:px-5">
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer className="pb-8">
         <p className="mb-4 text-sm text-muted-foreground">
           Skills are reusable instructions that shape how your companion replies. Toggle one on and it applies to your chats.
         </p>
 
-        {status === 'loading' && (
-          <div className="flex justify-center py-16 text-muted-foreground"><Loader2 className="size-6 animate-spin" /></div>
-        )}
+        {status === 'loading' && <SkeletonListRows count={5} />}
         {status === 'error' && <p className="py-10 text-center text-sm text-destructive">Couldn't load skills.</p>}
         {status === 'ready' && skills?.length === 0 && (
           <p className="py-10 text-center text-sm text-muted-foreground">No skills yet. Author one to get started.</p>
@@ -259,7 +264,7 @@ export function SkillsPage() {
 
         <div className="space-y-2">
           {skills?.map((s) => (
-            <div key={s.name} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3">
+            <Card key={s.name} className="flex items-center gap-3 border-border/60 p-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-semibold">{s.name}</span>
@@ -270,7 +275,7 @@ export function SkillsPage() {
                     {s.scope === 'user' ? 'Your skill' : 'Shared'}
                   </span>
                   {s.alwaysActive && (
-                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600">Always on</span>
+                    <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning">Always on</span>
                   )}
                 </div>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{s.description}</p>
@@ -294,9 +299,10 @@ export function SkillsPage() {
                   s.enabled ? 'translate-x-5' : 'translate-x-0.5',
                 )} />
               </button>
-            </div>
+            </Card>
           ))}
         </div>
+        </PageContainer>
       </div>
 
       {editor && (

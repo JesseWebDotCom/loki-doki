@@ -1,4 +1,5 @@
 import { Globe, LocateFixed } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 
 export function MapControls({
@@ -22,23 +23,25 @@ export function MapControls({
   return (
     <div className="absolute bottom-6 right-3 z-20 flex flex-col items-center gap-2">
       {onGlobe ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
           onClick={onGlobe}
           aria-label="Globe view"
           title="Globe view"
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/40 bg-background/90 shadow-md transition-colors hover:bg-accent"
+          className="h-10 w-10 p-0 border-border/40 bg-background/90 shadow-md"
         >
           <Globe className="size-5" />
-        </button>
+        </Button>
       ) : null}
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={onResetNorth}
         aria-label="Reset to north"
         title="Reset to north"
         className={cn(
-          "flex h-10 w-10 items-center justify-center rounded-full border border-border/40 bg-background/90 shadow-md text-sm transition-all hover:bg-accent",
+          "h-10 w-10 p-0 border-border/40 bg-background/90 shadow-md text-sm",
           showCompass ? "opacity-100" : "opacity-0 pointer-events-none",
         )}
       >
@@ -49,39 +52,42 @@ export function MapControls({
         >
           ↑
         </span>
-      </button>
+      </Button>
       {onLocate ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
           onClick={onLocate}
           aria-label="Show my location"
           title="Show my location"
           className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-full border border-border/40 bg-background/90 shadow-md transition-colors hover:bg-accent",
-            locateActive && "text-violet-500",
+            "h-10 w-10 p-0 border-border/40 bg-background/90 shadow-md",
+            locateActive && "text-brand",
           )}
         >
           <LocateFixed className="size-5" />
-        </button>
+        </Button>
       ) : null}
-      <div className="flex flex-col overflow-hidden rounded-xl border border-border/40 bg-background/90 shadow-md">
-        <button
+      <div className="flex flex-col overflow-hidden rounded-control border border-border/40 bg-background/90 shadow-md">
+        <Button
           type="button"
+          variant="ghost"
           onClick={onZoomIn}
           aria-label="Zoom in"
-          className="flex h-10 w-10 items-center justify-center text-xl font-light hover:bg-accent transition-colors"
+          className="h-10 w-10 rounded-none p-0 text-xl font-light"
         >
           +
-        </button>
+        </Button>
         <div className="h-px mx-2 bg-border/40" />
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={onZoomOut}
           aria-label="Zoom out"
-          className="flex h-10 w-10 items-center justify-center text-xl font-light hover:bg-accent transition-colors"
+          className="h-10 w-10 rounded-none p-0 text-xl font-light"
         >
           −
-        </button>
+        </Button>
       </div>
     </div>
   );

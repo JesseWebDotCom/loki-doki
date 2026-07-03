@@ -20,14 +20,21 @@ export interface ColorChoice {
   className: string
 }
 
+// Swatch palette data: the picker's whole job is to offer these raw hues.
 export const COLOR_CHOICES: ColorChoice[] = [
   { slug: 'accent',  label: 'Accent',  className: 'bg-primary' },
   { slug: 'muted',   label: 'Muted',   className: 'bg-muted-foreground' },
+  // design-ok(raw-palette-semantic): user-selectable swatch palette data
   { slug: 'blue',    label: 'Blue',    className: 'bg-blue-500' },
+  // design-ok(raw-palette-semantic): user-selectable swatch palette data
   { slug: 'green',   label: 'Green',   className: 'bg-emerald-500' },
+  // design-ok(raw-palette-semantic): user-selectable swatch palette data
   { slug: 'amber',   label: 'Amber',   className: 'bg-amber-500' },
+  // design-ok(raw-palette-semantic): user-selectable swatch palette data
   { slug: 'rose',    label: 'Rose',    className: 'bg-rose-500' },
+  // design-ok(banned-palette): user-selectable swatch palette data
   { slug: 'violet',  label: 'Violet',  className: 'bg-violet-500' },
+  // design-ok(raw-palette-semantic): user-selectable swatch palette data
   { slug: 'slate',   label: 'Slate',   className: 'bg-slate-500' },
 ]
 
@@ -92,7 +99,7 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
                       aria-label={`Select ${choice.label} color`}
                       onClick={() => { onChange(isSelected ? null : choice.slug); setOpen(false) }}
                       className={cn(
-                        'flex items-center justify-center rounded-md border border-transparent p-2 transition hover:bg-accent',
+                        'flex items-center justify-center rounded-control border border-transparent p-2 transition hover:bg-accent',
                         isSelected ? 'border-border bg-accent' : 'bg-transparent',
                       )}
                     >

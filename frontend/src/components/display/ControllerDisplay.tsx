@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, Pause, SkipForward, SkipBack, Radio, Mic, Film, Plus, Loader2, type LucideIcon } from 'lucide-react'
+import { Play, Pause, SkipForward, SkipBack, Radio, Mic, Film, Plus, type LucideIcon } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { ytImageProxy } from '@/lib/youtube/api'
 import { useRadio } from '@/context/RadioContext'
 import { djStationById } from '@/lib/music/catalogApi'
 import { StationArt } from '@/components/music/StationArt'
+import { Spinner } from '@/components/ui/spinner'
 
 // Server-rendered controller (button-grid) page — also a live, interactive control
 // surface in a browser (clicking a tile drives this tab's player; the tile reflects live
@@ -275,7 +276,12 @@ function Tile({ left, top, cellW, cellH, bg, img, Glyph, label, station, active,
           {/* Loading: spinner over a dim scrim while the tapped station starts. */}
           {loading && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.45)' }}>
-              <Loader2 className="animate-spin" size={Math.round(S * 0.32)} color="#fff" strokeWidth={2.5} />
+              {/* design-ok(adhoc-spinner): keycap size (S) is computed per-frame from the grid
+                  layout; Spinner's fixed sm/default/lg sizes can't express it, so it's sized via
+                  a pixel wrapper and stretched to fill. */}
+              <span style={{ width: Math.round(S * 0.32), height: Math.round(S * 0.32) }} className="inline-flex">
+                <Spinner size="lg" className="!size-full text-white" />
+              </span>
             </div>
           )}
         </div>

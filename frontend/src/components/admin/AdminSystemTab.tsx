@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, Cpu, MemoryStick, RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { RichOptionSelect } from '@/components/shared/RichOptionSelect'
 
@@ -59,7 +60,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T | null
 
 function LoadBar({ value, max = 1 }: { value: number; max?: number }) {
   const pct = Math.min(100, Math.round((value / max) * 100))
-  const color = pct > 75 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'
+  const color = pct > 75 ? 'bg-destructive' : pct > 50 ? 'bg-warning' : 'bg-success'
   return (
     <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
       <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
@@ -83,15 +84,15 @@ function SlotCounter({
         {Array.from({ length: limit }).map((_, i) => (
           <div
             key={i}
-            className={`h-2 flex-1 rounded-sm transition-colors ${
-              i < running ? 'bg-violet-500' : 'bg-muted'
+            className={`h-2 flex-1 rounded-full transition-colors ${
+              i < running ? 'bg-brand' : 'bg-muted'
             }`}
           />
         ))}
         {queued > 0 && (
           <div className="flex gap-1 pl-1 border-l border-border">
             {Array.from({ length: Math.min(queued, 4) }).map((_, i) => (
-              <div key={i} className="h-2 w-2 rounded-sm bg-amber-400" />
+              <div key={i} className="h-2 w-2 rounded-full bg-warning" />
             ))}
             {queued > 4 && <span className="text-xs text-muted-foreground">+{queued - 4}</span>}
           </div>
@@ -179,7 +180,7 @@ export function AdminSystemTab() {
   return (
     <div className="space-y-3 p-4">
 
-      <section className="rounded-lg border border-border/50 p-3 space-y-2">
+      <Card variant="surface" className="border-border/50 p-3 space-y-2">
         <h3 className="text-sm font-semibold">Global connectivity</h3>
         <p className="text-xs text-muted-foreground">
           Forcing local-only mode overrides all user settings — no one can access internet features.
@@ -188,9 +189,9 @@ export function AdminSystemTab() {
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2">
             {globalMode === 'offline' ? (
-              <WifiOff className="size-4 text-amber-500" />
+              <WifiOff className="size-4 text-warning" />
             ) : (
-              <Wifi className="size-4 text-emerald-500" />
+              <Wifi className="size-4 text-success" />
             )}
             <span className="text-sm font-medium">
               {globalMode === 'offline' ? 'Local only — forced for all users' : 'Standard (users control their own mode)'}
@@ -214,7 +215,7 @@ export function AdminSystemTab() {
           />
         </div>
         {globalMode === 'offline' && (
-          <div className="flex items-center justify-between pt-1 pl-6 border-l-2 border-amber-500/30 ml-1">
+          <div className="flex items-center justify-between pt-1 pl-6 border-l-2 border-warning/30 ml-1">
             <div className="space-y-0.5">
               <span className="text-sm font-medium">Allow downloads</span>
               <p className="text-xs text-muted-foreground">
@@ -237,12 +238,12 @@ export function AdminSystemTab() {
             />
           </div>
         )}
-      </section>
+      </Card>
 
       {/* Device health + live queue side by side */}
       <div className="grid grid-cols-2 gap-3">
         {sys && (
-          <section className="rounded-lg border border-border/50 p-3 space-y-2">
+          <Card variant="surface" className="border-border/50 p-3 space-y-2">
             <h3 className="text-xs font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
               <Activity className="size-3" />
               Device health
@@ -259,10 +260,10 @@ export function AdminSystemTab() {
                 <p className="text-xs text-muted-foreground">{sys.freeRamGb} GB free / {sys.totalRamGb} GB total</p>
               </div>
             </div>
-          </section>
+          </Card>
         )}
         {status && (
-          <section className="rounded-lg border border-border/50 p-3 space-y-2">
+          <Card variant="surface" className="border-border/50 p-3 space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Active requests</h3>
               <Badge variant="secondary" className="text-xs">
@@ -275,12 +276,12 @@ export function AdminSystemTab() {
               <SlotCounter label="Image" running={status.running.image} queued={status.queued.image} limit={effectiveLimits.image} />
               <SlotCounter label="Vision" running={status.running.vision} queued={status.queued.vision} limit={effectiveLimits.vision} />
             </div>
-          </section>
+          </Card>
         )}
       </div>
 
       {/* Mode selector */}
-      <section className="rounded-lg border border-border/50 p-3 space-y-2">
+      <Card variant="surface" className="border-border/50 p-3 space-y-2">
         <h3 className="text-sm font-semibold">How requests are handled</h3>
         <RichOptionSelect
           groups={[{
@@ -307,29 +308,29 @@ export function AdminSystemTab() {
           onChange={(v) => setMode(v as 'manual' | 'suggested' | 'dynamic')}
           placeholder="Select mode…"
         />
-      </section>
+      </Card>
 
       {/* Suggested limits (read-only display) */}
       {config && (
-        <section className="rounded-lg border border-border/50 p-3 space-y-2">
+        <Card variant="surface" className="border-border/50 p-3 space-y-2">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
             Recommended for this device
             <span className="ml-2 font-normal normal-case">(based on your RAM and CPU)</span>
           </h3>
           <div className="grid grid-cols-3 gap-2">
             {(['chat', 'image', 'vision'] as const).map(type => (
-              <div key={type} className="rounded-md bg-muted/50 p-2 text-center">
+              <div key={type} className="rounded-control bg-muted/50 p-2 text-center">
                 <div className="text-xl font-bold tabular-nums">{config.limits.suggested[type]}</div>
                 <div className="text-xs text-muted-foreground capitalize">{type} slots</div>
               </div>
             ))}
           </div>
-        </section>
+        </Card>
       )}
 
       {/* Manual limits (editable when mode = manual) */}
       {mode === 'manual' && (
-        <section className="rounded-lg border border-border/50 p-3 space-y-2">
+        <Card variant="surface" className="border-border/50 p-3 space-y-2">
           <h3 className="text-sm font-semibold">Custom limits</h3>
           <div className="grid grid-cols-3 gap-3">
             {(['chat', 'image', 'vision'] as const).map(type => (
@@ -338,14 +339,14 @@ export function AdminSystemTab() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setManualLimits(p => ({ ...p, [type]: Math.max(1, p[type] - 1) }))}
-                    className="size-7 rounded-md border border-border bg-background hover:bg-muted flex items-center justify-center text-sm font-bold transition-colors"
+                    className="size-7 rounded-full border border-border bg-background hover:bg-muted flex items-center justify-center text-sm font-bold transition-colors"
                   >
                     −
                   </button>
                   <span className="w-8 text-center tabular-nums text-sm font-medium">{manualLimits[type]}</span>
                   <button
                     onClick={() => setManualLimits(p => ({ ...p, [type]: Math.min(type === 'chat' ? 8 : 4, p[type] + 1) }))}
-                    className="size-7 rounded-md border border-border bg-background hover:bg-muted flex items-center justify-center text-sm font-bold transition-colors"
+                    className="size-7 rounded-full border border-border bg-background hover:bg-muted flex items-center justify-center text-sm font-bold transition-colors"
                   >
                     +
                   </button>
@@ -353,12 +354,12 @@ export function AdminSystemTab() {
               </div>
             ))}
           </div>
-        </section>
+        </Card>
       )}
 
       {/* Dynamic watermarks (editable when mode = dynamic) */}
       {mode === 'dynamic' && (
-        <section className="rounded-lg border border-border/50 p-3 space-y-2">
+        <Card variant="surface" className="border-border/50 p-3 space-y-2">
           <h3 className="text-sm font-semibold">Adaptive settings</h3>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
@@ -386,7 +387,7 @@ export function AdminSystemTab() {
               </div>
             </div>
           </div>
-        </section>
+        </Card>
       )}
 
       {/* Save */}

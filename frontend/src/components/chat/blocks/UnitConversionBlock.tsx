@@ -1,10 +1,11 @@
 import { ArrowRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import type { UnitConversionBlockData } from './types'
 
 export function UnitConversionBlock({ data }: { data: UnitConversionBlockData }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card px-4 py-3 text-sm">
+    <Card variant="surface" className="flex items-center gap-3 px-4 py-3 text-sm">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-mono font-semibold text-[15px]">
           {data.value} <span className="text-muted-foreground text-sm font-normal">{data.fromUnit}</span>
@@ -19,6 +20,6 @@ export function UnitConversionBlock({ data }: { data: UnitConversionBlockData })
           {data.category}
         </Badge>
       )}
-    </div>
+    </Card>
   )
 }

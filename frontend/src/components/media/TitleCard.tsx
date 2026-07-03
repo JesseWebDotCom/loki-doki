@@ -25,7 +25,7 @@ export function TitleCard({ item, fluid, className }: { item: PosterItem; fluid?
         className,
       )}
     >
-      <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-muted shadow-sm ring-1 ring-border/40 transition-transform group-hover:scale-[1.03] group-active:scale-[0.99]">
+      <div className="relative aspect-[2/3] overflow-hidden rounded-card bg-muted shadow-sm ring-1 ring-border/40 transition-transform group-hover:scale-[1.03] group-active:scale-[0.99]">
         {item.poster && ok ? (
           <img
             src={mediaImg(item.poster)}
@@ -40,13 +40,13 @@ export function TitleCard({ item, fluid, className }: { item: PosterItem; fluid?
           </div>
         )}
         {item.badge && (
-          <span className="absolute left-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+          <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
             {item.badge}
           </span>
         )}
         {item.rating != null && item.rating > 0 && (
-          <span className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
-            <Star className="size-2.5 fill-amber-300" />
+          <span className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+            <Star className="size-2.5 fill-warning" />
             {item.rating.toFixed(1)}
           </span>
         )}

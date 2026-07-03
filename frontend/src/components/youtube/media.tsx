@@ -34,11 +34,11 @@ export function VideoThumb({ videoId, title, quality = 'mq', className, override
 }
 
 // Distinct per-channel avatar: the channel thumbnail when present, else a coloured
-// circle with the channel's initial — so subscription lists aren't a wall of clones.
+// circle with the channel's initial, so subscription lists aren't a wall of clones.
 const AVATAR_COLORS = [
-  'bg-rose-500/20 text-rose-400', 'bg-amber-500/20 text-amber-400', 'bg-emerald-500/20 text-emerald-400',
-  'bg-sky-500/20 text-sky-400', 'bg-violet-500/20 text-violet-400', 'bg-fuchsia-500/20 text-fuchsia-400',
-  'bg-teal-500/20 text-teal-400', 'bg-orange-500/20 text-orange-400',
+  'bg-rose-500/20 text-rose-400', 'bg-amber-500/20 text-amber-400', 'bg-emerald-500/20 text-emerald-400', // design-ok(raw-palette-semantic): deterministic letter-avatar palette (channel identity data, not UI accents)
+  'bg-sky-500/20 text-sky-400', 'bg-brand/15 text-brand', 'bg-pink-500/20 text-pink-400', // design-ok(raw-palette-semantic): deterministic letter-avatar palette (channel identity data, not UI accents)
+  'bg-teal-500/20 text-teal-400', 'bg-orange-500/20 text-orange-400', // design-ok(raw-palette-semantic): deterministic letter-avatar palette (channel identity data, not UI accents)
 ]
 
 export function ChannelAvatar({ title, src, className }: { title: string; src?: string | null; className?: string }) {

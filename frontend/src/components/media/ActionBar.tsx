@@ -25,9 +25,9 @@ export function ActionButton({
   title?: string
 }) {
   const cls = cn(
-    'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50',
+    'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50',
     variant === 'primary'
-      ? 'bg-brand text-brand-foreground hover:opacity-90'
+      ? 'bg-brand text-brand-foreground hover:bg-brand-hover'
       : 'bg-foreground/10 hover:bg-foreground/15',
   )
   if (href) {
@@ -55,7 +55,7 @@ export function ActionIcon({ icon: Icon, href, title }: { icon: LucideIcon; href
       rel="noreferrer"
       title={title}
       aria-label={title}
-      className="inline-flex size-9 items-center justify-center rounded-lg bg-foreground/10 text-muted-foreground transition-colors hover:bg-foreground/15 hover:text-foreground"
+      className="inline-flex size-9 items-center justify-center rounded-full bg-foreground/10 text-muted-foreground transition-colors hover:bg-foreground/15 hover:text-foreground"
     >
       <Icon className="size-4" />
     </a>

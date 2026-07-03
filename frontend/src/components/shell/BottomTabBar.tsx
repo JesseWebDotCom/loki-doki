@@ -9,12 +9,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useChatContext } from "@/context/ChatContext";
-import { useActiveCompanion } from "@/hooks/useActiveCompanion";
-import { useCompanionStream } from "@/hooks/useCompanionStream";
-import { useUIContext } from "@/context/UIContextProvider";
 import { CharacterAvatar } from "@/components/companion/CharacterAvatar";
 import { CompanionComposer } from "./CompanionComposer";
+import { useCompanionEngine } from "./CompanionEngineContext";
 import { ChromeWash } from "@/components/shared/ChromeWash";
 import { stripEmotes } from "@/lib/emoteParser";
 
@@ -42,7 +39,7 @@ function Tab({ item }: { item: TabItem }) {
       to={item.href}
       className={cn(
         "flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] transition-colors",
-        active ? "text-brand" : "text-muted-foreground hover:text-foreground",
+        active ? "text-brand font-medium" : "text-muted-foreground hover:text-foreground",
       )}
     >
       <item.icon className={cn("size-5", active && "stroke-[2.5]")} />
@@ -53,20 +50,15 @@ function Tab({ item }: { item: TabItem }) {
 
 export function BottomTabBar() {
   const { pathname } = useLocation();
-  const chat = useChatContext();
-  const companion = useCompanionStream();
-  const { companion: character, companions: characters } = useActiveCompanion();
-  const { getContextBlock } = useUIContext();
+  // Mobile keeps the tab-bar puck as its companion home; the shared engine
+  // provides the same brain (routing, stop interception, voice priming) as the
+  // desktop sidebar dock.
+  const engine = useCompanionEngine();
+  const { character, avatarProps, thinking, replyText } = engine;
   const [open, setOpen] = useState(false);
 
   const isOnChat = pathname.startsWith("/chat");
-  const last = chat.messages[chat.messages.length - 1];
-  const chatAssistant = last?.role === "assistant" ? (last?.content ?? "") : "";
-  const replyText = isOnChat ? chatAssistant : companion.response;
-  const streaming = isOnChat ? chat.isGenerating : companion.streaming;
-  const speaking = streaming && replyText.length > 0;
-  const thinking = streaming && replyText.length === 0;
-  // Strip <action>…</action> emote tags from the visible caption (they drive the
+  // Strip <action>...</action> emote tags from the visible caption (they drive the
   // mood overlay, not the text); also drop a dangling partial tag mid-stream so it
   // doesn't flash before the closing tag arrives.
   const captionText = useMemo(
@@ -74,34 +66,32 @@ export function BottomTabBar() {
     [replyText],
   );
 
-  const handleSend = useCallback((text: string) => {
-    const charId = character?.id ?? characters[0]?.id;
-    if (isOnChat) {
-      chat.submit(charId, text);
-      setOpen(false);
-    } else if (charId) {
-      // Ephemeral buddy reply — stays in the sheet, nothing saved, no navigation.
-      companion.submit(text, charId, getContextBlock());
-    }
-  }, [character, characters, chat, companion, isOnChat, getContextBlock]);
+  const handleSend = useCallback((text: string, files?: File[]) => {
+    engine.handleSend(text, files);
+    // On chat the reply lands in the message stream; close the sheet so it's visible.
+    // Off chat the ephemeral reply renders inside the sheet, so keep it open.
+    if (isOnChat) setOpen(false);
+  }, [engine, isOnChat]);
 
   return (
     <>
       {/* Expanding companion sheet above the bar */}
       {open && (
         <>
+          {/* design-ok(raw-overlay): mobile companion sheet dismiss-scrim; deliberately not ui/dialog
+              (no focus-trap/ESC — would fight hands-free voice UX), same rationale as PlexPlayer/PrivacyOverlay */}
           <div className="md:hidden fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
-          <div className="md:hidden fixed inset-x-3 bottom-[68px] z-[9999] rounded-2xl border border-border/40 bg-background/95 p-2 shadow-2xl backdrop-blur-xl pb-safe">
-            {/* Ephemeral reply caption (off the chat app — not saved) */}
+          <div className="md:hidden fixed inset-x-3 bottom-[68px] z-[9999] rounded-sheet border border-border/40 bg-background/95 p-2 shadow-2xl backdrop-blur-xl pb-safe">
+            {/* Ephemeral reply caption (off the chat app, not saved) */}
             {!isOnChat && (captionText || thinking) && (
-              <p className="mb-2 max-h-24 overflow-y-auto rounded-xl bg-muted/60 px-3 py-1.5 text-sm">
+              <p className="mb-2 max-h-24 overflow-y-auto rounded-card bg-muted/60 px-3 py-1.5 text-sm">
                 {captionText || "…"}
               </p>
             )}
             <div className="flex items-center gap-2">
               <div className="size-14 shrink-0 overflow-hidden rounded-full">
                 {character ? (
-                  <CharacterAvatar character={character} streaming={speaking} thinking={thinking} size={56} viewPreset="head" />
+                  <CharacterAvatar character={character} streaming={avatarProps.streaming} thinking={thinking} size={56} viewPreset="head" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center rounded-full border border-border bg-muted">
                     <Bot className="size-6 text-muted-foreground" />
@@ -111,8 +101,9 @@ export function BottomTabBar() {
               <div className="min-w-0 flex-1">
                 <CompanionComposer
                   onSend={handleSend}
-                  onStop={isOnChat ? chat.stop : companion.cancel}
-                  isGenerating={streaming}
+                  onStop={engine.onStop}
+                  isGenerating={engine.busy}
+                  isThinking={thinking}
                   autoFocus
                   placeholder={character ? `Ask ${character.name}…` : "Message LokiDoki…"}
                 />
@@ -123,7 +114,7 @@ export function BottomTabBar() {
         </>
       )}
 
-      <nav className="md:hidden relative shrink-0 flex items-center border-t border-border/40 bg-background/70 backdrop-blur-2xl pb-safe">
+      <nav className="md:hidden relative shrink-0 flex items-center glass-chrome border-t border-border/50 pb-safe">
         <ChromeWash />
         {LEFT_TABS.map((item) => <Tab key={item.href} item={item} />)}
 
@@ -139,7 +130,7 @@ export function BottomTabBar() {
             open && "scale-110",
           )}>
             {character ? (
-              <CharacterAvatar character={character} streaming={speaking} thinking={thinking} size={48} viewPreset="head" />
+              <CharacterAvatar character={character} streaming={avatarProps.streaming} thinking={thinking} size={48} viewPreset="head" />
             ) : (
               <Bot className="size-6 text-muted-foreground" />
             )}

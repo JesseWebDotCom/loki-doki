@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect } from 'react'
-import { Camera, Check, KeyRound, Loader2 } from 'lucide-react'
+import { Camera, Check, KeyRound } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 import { DicebearAvatarPicker } from '@/components/shared/DicebearAvatarPicker'
@@ -154,29 +155,29 @@ export function SettingsProfileTab() {
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">First name</label>
+              <label className="text-overline text-muted-foreground">First name</label>
               <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} className="h-8 text-sm" />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Last name</label>
+              <label className="text-overline text-muted-foreground">Last name</label>
               <Input value={lastName} onChange={(e) => setLastName(e.target.value)} className="h-8 text-sm" />
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Nickname</label>
+            <label className="text-overline text-muted-foreground">Nickname</label>
             <Input value={nickname} onChange={(e) => setNickname(e.target.value)} className="h-8 text-sm" />
           </div>
           <div className="flex items-center justify-between pt-0.5">
             <Badge
               variant="outline"
-              className={cn('text-[10px] px-1.5 py-0', user.role === 'admin' ? 'border-amber-500/40 text-amber-600' : '')}
+              className={cn('text-[10px] px-1.5 py-0', user.role === 'admin' ? 'border-warning/40 text-warning' : '')}
             >
               {user.role}
             </Badge>
             {dirty && (
               <Button size="sm" onClick={handleSave} disabled={saving} className="h-7 text-xs">
                 {saving
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  ? <Spinner size="sm" className="text-current" />
                   : saved
                     ? <><Check className="h-3 w-3 mr-1" />Saved</>
                     : 'Save'}
@@ -192,7 +193,7 @@ export function SettingsProfileTab() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium">Profile picture</p>
-          <div className="ml-auto flex rounded-md border border-border overflow-hidden text-[11px]">
+          <div className="ml-auto flex rounded-control border border-border overflow-hidden text-[11px]">
             {(['photo', 'avatar'] as AvatarMode[]).map((mode) => (
               <button
                 key={mode}
@@ -221,7 +222,7 @@ export function SettingsProfileTab() {
               disabled={uploading}
             >
               {uploading
-                ? <Loader2 className="h-3 w-3 animate-spin" />
+                ? <Spinner size="sm" className="text-current" />
                 : <Camera className="h-3.5 w-3.5" />}
               {user.avatarUrl ? 'Change photo' : 'Upload photo'}
             </Button>
@@ -252,7 +253,7 @@ export function SettingsProfileTab() {
                 </Button>
               )}
               <Button size="sm" className="h-8 text-xs" onClick={handleSaveAvatar} disabled={avatarSaving}>
-                {avatarSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Apply avatar'}
+                {avatarSaving ? <Spinner size="sm" className="text-current" /> : 'Apply avatar'}
               </Button>
             </div>
           </div>
@@ -265,7 +266,7 @@ export function SettingsProfileTab() {
       <div className="space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-muted">
               <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
             <div>
@@ -309,7 +310,7 @@ export function SettingsProfileTab() {
                 autoFocus
               />
               <Button size="sm" className="h-8 text-xs" onClick={handleSetPin} disabled={pinSaving}>
-                {pinSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                {pinSaving ? <Spinner size="sm" className="text-current" /> : 'Save'}
               </Button>
               <Button size="sm" variant="ghost" className="h-8 text-xs"
                 onClick={() => { setPinMode('idle'); setPinInput(''); setPinError('') }}>
@@ -350,7 +351,7 @@ function StyleSegmented<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div className="flex rounded-md border border-border overflow-hidden text-[11px]">
+    <div className="flex rounded-control border border-border overflow-hidden text-[11px]">
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -408,12 +409,12 @@ function InteractionStyleSection({ userId }: { userId: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium">Interaction style</p>
-        {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-        {saved && <Check className="h-3 w-3 text-emerald-500" />}
+        {saving && <Spinner size="sm" />}
+        {saved && <Check className="h-3 w-3 text-success" />}
       </div>
 
       <div className="space-y-1.5">
-        <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Language</p>
+        <p className="text-overline text-muted-foreground">Language</p>
         <StyleSegmented
           options={[
             { value: 'simple', label: 'Simple & clear' },
@@ -426,7 +427,7 @@ function InteractionStyleSection({ userId }: { userId: string }) {
       </div>
 
       <div className="space-y-1.5">
-        <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Response depth</p>
+        <p className="text-overline text-muted-foreground">Response depth</p>
         <StyleSegmented
           options={[
             { value: 'brief', label: 'Brief-first' },

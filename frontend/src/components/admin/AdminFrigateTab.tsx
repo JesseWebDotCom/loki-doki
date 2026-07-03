@@ -1,8 +1,9 @@
 // Admin → Integrations → Frigate. Four tabs: Connection, Announcements, Plate Log, Events.
 
 import { useEffect, useState } from 'react'
-import { Loader2, Camera, Copy, Check, KeyRound, Wifi, WifiOff, Car, ListVideo } from 'lucide-react'
+import { Camera, Copy, Check, KeyRound, Wifi, WifiOff, Car, ListVideo } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -140,7 +141,7 @@ export function AdminFrigateTab() {
     const bytes = new Uint8Array(16)
     crypto.getRandomValues(bytes)
     setShimToken('fg_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''))
-    toast.success('Token generated — click Save to store it')
+    toast.success('Token generated. Click Save to store it')
   }
 
   async function runTest() {
@@ -171,7 +172,7 @@ genai:
   provider: openai
   api_key: ${tokenForYaml}
   base_url: ${shimBaseUrl}
-  model: gpt-4o          # any value — this app ignores it and uses your local vision model
+  model: gpt-4o          # any value; this app ignores it and uses your local vision model
 
 # 2) Turn descriptions on for each camera you want (repeat per camera):
 cameras:
@@ -182,7 +183,7 @@ cameras:
 
   if (loading) return (
     <div className="flex items-center justify-center p-10">
-      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      <Spinner size="lg" />
     </div>
   )
 
@@ -192,9 +193,9 @@ cameras:
     <div className="flex flex-col max-w-3xl">
       {/* Page header */}
       <div className="flex items-start gap-3 p-5 pb-0">
-        <div className="rounded-lg bg-muted p-2 shrink-0"><Camera className="size-5 text-muted-foreground" /></div>
+        <div className="rounded-control bg-muted p-2 shrink-0"><Camera className="size-5 text-muted-foreground" /></div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-base font-semibold">Frigate NVR</h2>
+          <h2 className="text-title">Frigate NVR</h2>
           <p className="text-sm text-muted-foreground">
             Use this app's local vision model as Frigate's GenAI provider, and turn camera events into
             notifications and companion announcements.
@@ -266,24 +267,24 @@ cameras:
                 <Input
                   value={shimToken}
                   onChange={e => setShimToken(e.target.value)}
-                  placeholder={shimTokenSet ? '•••••• — a token is set; paste or generate to replace' : 'fg_… paste your existing token, or generate →'}
+                  placeholder={shimTokenSet ? '•••••• a token is set; paste or generate to replace' : 'fg_… paste your existing token, or generate →'}
                   className="font-mono text-xs"
                 />
                 <Button variant="outline" size="sm" onClick={genToken} className="shrink-0">
                   <KeyRound className="size-4 mr-1.5" />Generate
                 </Button>
                 <Button variant="outline" size="sm" onClick={copyToken} disabled={!shimToken} className="shrink-0" aria-label="Copy token">
-                  {copiedToken ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+                  {copiedToken ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
                 </Button>
               </div>
               {shimTokenSet && !shimToken && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Check className="size-3.5 text-green-500" />A token is already set — leave blank to keep it.
+                  <Check className="size-3.5 text-success" />A token is already set; leave blank to keep it.
                 </p>
               )}
               {shimToken && (
-                <p className="text-xs text-amber-600 dark:text-amber-500">
-                  Keep a copy — it isn't shown again after you leave this page.
+                <p className="text-xs text-warning">
+                  Keep a copy; it isn't shown again after you leave this page.
                 </p>
               )}
             </CardContent>
@@ -291,19 +292,19 @@ cameras:
 
           <div className="flex items-center gap-2">
             <Button onClick={save} disabled={saving}>
-              {saving ? <Loader2 className="size-4 animate-spin mr-1.5" /> : null}Save
+              {saving ? <Spinner className="text-current mr-1.5" /> : null}Save
             </Button>
             <Button variant="outline" onClick={runTest} disabled={testing}>
-              {testing ? <Loader2 className="size-4 animate-spin mr-1.5" /> : null}Test connection
+              {testing ? <Spinner className="text-current mr-1.5" /> : null}Test connection
             </Button>
             {test && (
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1">
-                  {test.frigate.ok ? <Wifi className="size-3.5 text-green-500" /> : <WifiOff className="size-3.5 text-red-500" />}
+                  {test.frigate.ok ? <Wifi className="size-3.5 text-success" /> : <WifiOff className="size-3.5 text-destructive" />}
                   Frigate {test.frigate.ok ? `ok${test.frigate.version ? ` (v${test.frigate.version})` : ''}` : (test.frigate.error ?? 'unreachable')}
                 </span>
                 <span className="flex items-center gap-1">
-                  {test.mqtt.connected ? <Wifi className="size-3.5 text-green-500" /> : <WifiOff className="size-3.5 text-amber-500" />}
+                  {test.mqtt.connected ? <Wifi className="size-3.5 text-success" /> : <WifiOff className="size-3.5 text-warning" />}
                   MQTT {test.mqtt.connected ? 'connected' : (test.mqtt.configured ? 'connecting…' : 'not set')}
                 </span>
               </div>
@@ -314,15 +315,15 @@ cameras:
             <CardHeader className="flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-sm">Paste into Frigate</CardTitle>
-                <CardDescription>Your token and this app's address are pre-filled — copy into Frigate's <code>config.yaml</code>.</CardDescription>
+                <CardDescription>Your token and this app's address are pre-filled; copy into Frigate's <code>config.yaml</code>.</CardDescription>
               </div>
               <Button variant="ghost" size="sm" onClick={copyYaml} className="shrink-0">
-                {copied ? <Check className="size-4 mr-1.5 text-green-500" /> : <Copy className="size-4 mr-1.5" />}
+                {copied ? <Check className="size-4 mr-1.5 text-success" /> : <Copy className="size-4 mr-1.5" />}
                 {copied ? 'Copied' : 'Copy all'}
               </Button>
             </CardHeader>
             <CardContent>
-              <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre leading-relaxed">{yaml}</pre>
+              <pre className="rounded-control bg-muted p-3 text-xs overflow-x-auto whitespace-pre leading-relaxed">{yaml}</pre>
             </CardContent>
           </Card>
         </>}
@@ -341,7 +342,7 @@ cameras:
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="font-medium">Enable spoken announcements</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Master toggle — off means no TTS for any camera event.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Master toggle: off means no TTS for any camera event.</p>
                 </div>
                 <Switch checked={announceEnabled} onCheckedChange={setAnnounceEnabled} />
               </div>
@@ -394,7 +395,7 @@ cameras:
             </CardHeader>
             <CardContent>
               <textarea
-                className="w-full min-h-24 rounded-md border bg-transparent px-3 py-2 text-sm font-mono"
+                className="w-full min-h-24 rounded-control border bg-transparent px-3 py-2 text-sm font-mono"
                 placeholder={"ABC1234 = Mom's car\nXYZ7890 = Dad's truck"}
                 value={platesText}
                 onChange={e => setPlatesText(e.target.value)}
@@ -403,7 +404,7 @@ cameras:
           </Card>
 
           <Button onClick={save} disabled={saving}>
-            {saving ? <Loader2 className="size-4 animate-spin mr-1.5" /> : null}Save
+            {saving ? <Spinner className="text-current mr-1.5" /> : null}Save
           </Button>
         </>}
 
@@ -413,18 +414,18 @@ cameras:
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">All detected license plates, most recent first.</p>
               <Button variant="outline" size="sm" onClick={() => void loadLog('plate')} disabled={loadingLog}>
-                {loadingLog ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : null}Refresh
+                {loadingLog ? <Spinner size="sm" className="text-current mr-1.5" /> : null}Refresh
               </Button>
             </div>
             {loadingLog && plates.length === 0 ? (
-              <div className="flex justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+              <div className="flex justify-center py-12"><Spinner size="lg" /></div>
             ) : plates.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-12 text-center">
                 <Car className="size-8 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">No plates detected yet.</p>
               </div>
             ) : (
-              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+              <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
                 {plates.map(ev => (
                   <div key={ev.id} className="flex items-center gap-3 px-4 py-3">
                     {ev.snapshotUrl ? (
@@ -435,7 +436,7 @@ cameras:
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-mono font-semibold">{ev.plate ?? '—'}</p>
+                      <p className="text-sm font-mono font-semibold">{ev.plate ?? '-'}</p>
                       {ev.plateName && <p className="text-xs text-brand">{ev.plateName}</p>}
                       <p className="text-xs text-muted-foreground truncate">
                         {ev.camera?.replace(/[_-]+/g, ' ') ?? 'unknown camera'}
@@ -455,18 +456,18 @@ cameras:
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">Recent detections from all cameras, most recent first.</p>
               <Button variant="outline" size="sm" onClick={() => void loadLog()} disabled={loadingLog}>
-                {loadingLog ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : null}Refresh
+                {loadingLog ? <Spinner size="sm" className="text-current mr-1.5" /> : null}Refresh
               </Button>
             </div>
             {loadingLog && events.length === 0 ? (
-              <div className="flex justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+              <div className="flex justify-center py-12"><Spinner size="lg" /></div>
             ) : events.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-12 text-center">
                 <ListVideo className="size-8 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">No events recorded yet.</p>
               </div>
             ) : (
-              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+              <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
                 {events.map(ev => (
                   <div key={ev.id} className="flex items-center gap-3 px-4 py-2.5">
                     {ev.snapshotUrl ? (

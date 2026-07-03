@@ -65,7 +65,7 @@ export function RichOptionSelect({
           aria-expanded={open}
           aria-haspopup="listbox"
           className={cn(
-            "flex h-10 w-full items-center justify-between gap-2 rounded-md border bg-background px-3 py-2 text-sm",
+            "flex h-10 w-full items-center justify-between gap-2 rounded-control border bg-background px-3 py-2 text-sm",
             "hover:bg-accent hover:text-accent-foreground",
             "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
             "disabled:cursor-not-allowed disabled:opacity-50",
@@ -93,7 +93,7 @@ export function RichOptionSelect({
       <Popover.Portal>
         <Popover.Content
           className={cn(
-            "z-50 w-[var(--radix-popover-trigger-width)] rounded-md border bg-popover shadow-md outline-none",
+            "z-50 w-[var(--radix-popover-trigger-width)] rounded-control border bg-popover shadow-md outline-none",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -134,7 +134,7 @@ export function RichOptionSelect({
                       setQuery("");
                     }}
                     className={cn(
-                      "flex w-full cursor-pointer items-start gap-3 rounded-sm px-2 py-2.5 text-left text-sm outline-none transition-colors",
+                      "flex w-full cursor-pointer items-start gap-3 rounded-control px-2 py-2.5 text-left text-sm outline-none transition-colors",
                       "hover:bg-accent hover:text-accent-foreground",
                       "focus:bg-accent focus:text-accent-foreground",
                       "disabled:pointer-events-none disabled:opacity-50",

@@ -1,6 +1,6 @@
 // Highlights & notes side panel for the bookmarks reader: list, click-to-scroll,
 // note editing, color change, delete, and orphan badges (quote no longer found in the
-// current archive — the text changed under it).
+// current archive - the text changed under it).
 
 import { useState } from 'react'
 import { Highlighter, Trash2 } from 'lucide-react'
@@ -10,19 +10,31 @@ import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import type { Highlight, HighlightColor } from '@/lib/bookmarks/api'
 
+// Swatch palette data: these five hues ARE the highlight-color product feature
+// (the user picks between them), not decorative accents - keep the raw hues.
 const EDGE_CLASS: Record<HighlightColor, string> = {
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   yellow: 'border-l-yellow-400',
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   green: 'border-l-emerald-400',
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   blue: 'border-l-sky-400',
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   pink: 'border-l-pink-400',
+  // design-ok(banned-palette): user-selectable highlight-color swatch data
   purple: 'border-l-violet-400',
 }
 
 const DOT_CLASS: Record<HighlightColor, string> = {
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   yellow: 'bg-yellow-400',
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   green: 'bg-emerald-400',
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   blue: 'bg-sky-400',
+  // design-ok(raw-palette-semantic): user-selectable highlight-color swatch data
   pink: 'bg-pink-400',
+  // design-ok(banned-palette): user-selectable highlight-color swatch data
   purple: 'bg-violet-400',
 }
 
@@ -57,7 +69,7 @@ export function HighlightsPanel({ highlights, orphanedIds, onJump, onUpdate, onD
         return (
           <div
             key={h.id}
-            className={cn('rounded-lg border border-border/50 border-l-2 bg-card/60 p-2.5', EDGE_CLASS[h.color] ?? 'border-l-yellow-400')}
+            className={cn('rounded-control border border-border/50 border-l-2 bg-card/60 p-2.5', EDGE_CLASS[h.color] ?? 'border-l-yellow-400')}
           >
             {h.quote && (
               <button
@@ -69,8 +81,8 @@ export function HighlightsPanel({ highlights, orphanedIds, onJump, onUpdate, onD
               </button>
             )}
             {orphaned && (
-              <span className="mt-1 inline-block rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
-                outdated — the article text changed
+              <span className="mt-1 inline-block rounded-control bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+                outdated - the article text changed
               </span>
             )}
 

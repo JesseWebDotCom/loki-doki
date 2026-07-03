@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Play, Pause, RotateCcw, RotateCw, Moon, GripVertical, X, Download } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { getEpisodeDetail, type EpisodeDetail } from '@/lib/podcast/api'
@@ -38,7 +39,7 @@ export function NowPlaying() {
   if (!track) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
-        <div className="flex size-16 items-center justify-center rounded-2xl bg-muted/50"><Play className="size-7 opacity-40" /></div>
+        <div className="flex size-16 items-center justify-center rounded-card bg-muted/50"><Play className="size-7 opacity-40" /></div>
         <p className="text-sm">Pick an episode to start listening.</p>
       </div>
     )
@@ -54,7 +55,7 @@ export function NowPlaying() {
   return (
     <div className="flex h-full flex-col overflow-y-auto p-5">
       {/* Cover + meta */}
-      <ShowCover showId={track.showId ?? ''} title={track.showName} size={248} fill rounded="rounded-2xl" className="mx-auto aspect-square w-full max-w-[248px]" />
+      <ShowCover showId={track.showId ?? ''} title={track.showName} size={248} fill rounded="rounded-card" className="mx-auto aspect-square w-full max-w-[248px]" />
       <div className="mt-4">
         {track.showId
           ? <Link to={`/podcasts/show/${track.showId}`} className="text-xs font-semibold text-brand hover:underline">{track.showName}</Link>
@@ -80,9 +81,9 @@ export function NowPlaying() {
       <div className="mt-3 flex items-center justify-between">
         <button onClick={cycleRate} className="w-10 text-sm font-semibold text-muted-foreground hover:text-foreground">{rate}x</button>
         <button onClick={() => seek(Math.max(0, positionSec - 15))} className="text-muted-foreground hover:text-foreground"><RotateCcw className="size-6" /></button>
-        <button onClick={playing ? pause : resume} className="flex size-14 items-center justify-center rounded-full bg-brand text-brand-foreground hover:opacity-90">
+        <Button type="button" size="icon" onClick={playing ? pause : resume} className="size-14" aria-label={playing ? 'Pause' : 'Play'}>
           {playing ? <Pause className="size-6 fill-current" /> : <Play className="size-6 fill-current ml-0.5" />}
-        </button>
+        </Button>
         <button onClick={() => seek(positionSec + 15)} className="text-muted-foreground hover:text-foreground"><RotateCw className="size-6" /></button>
         <button onClick={cycleSleep} className={cn('flex w-10 flex-col items-center text-muted-foreground hover:text-foreground', sleepMin > 0 && 'text-brand')} title="Sleep timer">
           <Moon className="size-5" />
@@ -109,7 +110,7 @@ export function NowPlaying() {
                 const active = positionSec >= ch.startSec && (chapters[i + 1] == null || positionSec < chapters[i + 1].startSec)
                 return (
                   <button key={i} onClick={() => seek(ch.startSec)}
-                    className={cn('flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted',
+                    className={cn('flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted',
                       active ? 'text-brand font-semibold' : 'text-muted-foreground')}>
                     <span className="tabular-nums text-xs">{fmtTime(ch.startSec)}</span>
                     <span className="truncate">{ch.title}</span>
@@ -144,7 +145,7 @@ export function NowPlaying() {
                     a.click()
                     URL.revokeObjectURL(url)
                   }}
-                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  className="flex items-center gap-1.5 rounded-control px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                   title="Download transcript"
                 >
                   <Download className="size-3.5" />
@@ -168,8 +169,8 @@ export function NowPlaying() {
             {track.description && <p className="pb-3 text-muted-foreground leading-relaxed">{track.description}</p>}
             {[
               ['Show', track.showName],
-              ['Published', detail?.generatedAt ? fmtDate(detail.generatedAt) : '—'],
-              ['Duration', total ? fmtTime(total) : '—'],
+              ['Published', detail?.generatedAt ? fmtDate(detail.generatedAt) : '-'],
+              ['Duration', total ? fmtTime(total) : '-'],
               ['Chapters', String(chapters.length)],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between py-2"><dt className="text-muted-foreground">{k}</dt><dd className="font-medium">{v}</dd></div>
@@ -187,7 +188,7 @@ export function NowPlaying() {
               Autoplay
               <button
                 role="switch" aria-checked={autoplay} onClick={() => setAutoplay(!autoplay)}
-                className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-emerald-500' : 'bg-muted')}>
+                className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-success' : 'bg-muted')}>
                 <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
               </button>
             </label>
@@ -199,10 +200,10 @@ export function NowPlaying() {
               {upNext.map((t) => {
                 const realIndex = queue.findIndex(q => q.episodeId === t.episodeId)
                 return (
-                  <div key={t.episodeId} className="group flex items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-muted">
+                  <div key={t.episodeId} className="group flex items-center gap-2 rounded-control px-1.5 py-1.5 hover:bg-muted">
                     <GripVertical className="size-3.5 shrink-0 text-muted-foreground/40" />
                     <button onClick={() => playQueue(queue, realIndex)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                      <ShowCover showId={t.showId ?? ''} title={t.showName} size={36} rounded="rounded-md" />
+                      <ShowCover showId={t.showId ?? ''} title={t.showName} size={36} rounded="rounded-control" />
                       <div className="min-w-0">
                         <p className="truncate text-xs font-medium">{t.title}</p>
                         <p className="truncate text-[11px] text-muted-foreground">{t.showName}</p>

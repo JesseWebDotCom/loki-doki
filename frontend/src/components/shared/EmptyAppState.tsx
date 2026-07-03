@@ -15,6 +15,7 @@ export function EmptyAppState({
   title,
   tagline,
   features,
+  // design-ok(hex-in-tsx): registry identity fallback data
   gradient = 'linear-gradient(135deg,#1e3a5f,#0f766e)',
   actions,
   footnote,
@@ -29,18 +30,18 @@ export function EmptyAppState({
 }) {
   return (
     <div className="mx-auto flex max-w-3xl flex-col items-center px-4 py-12 text-center sm:py-16">
-      <div className="mb-5 flex size-16 items-center justify-center rounded-2xl shadow-lg" style={{ background: gradient }}>
+      <div className="mb-5 flex size-16 items-center justify-center rounded-card shadow-lg" style={{ background: gradient }}>
         <Icon className="size-8 text-white" />
       </div>
-      <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+      <h2 className="text-title">{title}</h2>
       <p className="mt-2 max-w-xl text-balance text-muted-foreground">{tagline}</p>
 
       {actions && <div className="mt-6 flex flex-wrap items-center justify-center gap-2">{actions}</div>}
 
       <div className="mt-10 grid w-full gap-3 sm:grid-cols-2">
         {features.map((f) => (
-          <div key={f.title} className="flex items-start gap-3 rounded-xl border border-border/60 bg-card/50 p-4 text-left">
-            <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60">
+          <div key={f.title} className="flex items-start gap-3 rounded-card bg-secondary/50 p-4 text-left">
+            <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-control bg-muted/60">
               <f.icon className="size-[18px] text-foreground/80" />
             </div>
             <div className="min-w-0">

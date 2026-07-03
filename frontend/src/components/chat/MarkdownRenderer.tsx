@@ -24,7 +24,8 @@ function CodeBlock({ language, children }: { language: string; children: string 
   }
 
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-border/20 text-[13px]">
+    <div className="my-3 rounded-card overflow-hidden border border-border/20 text-[13px]">
+      {/* design-ok(hex-in-tsx): code-block chrome, fixed dark background matches syntax highlighter theme, not app theme */}
       <div className="flex items-center justify-between px-4 py-1.5 bg-[#1e1e1e] border-b border-white/5">
         <span className="font-mono text-[11px] text-white/30">{language || 'plaintext'}</span>
         <button
@@ -38,6 +39,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
         language={language || 'text'}
         style={vscDarkPlus}
         PreTag="div"
+        // design-ok(hex-in-tsx): code-block chrome, fixed dark background matches syntax highlighter theme, not app theme
         customStyle={{ margin: 0, borderRadius: 0, background: '#1e1e1e', padding: '14px 16px', fontSize: '13px', lineHeight: '1.6' }}
         wrapLongLines
       >
@@ -48,7 +50,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
 }
 
 // ── Paragraph-level memoization ───────────────────────────────────────────────
-// Completed blocks are frozen — only the trailing incomplete block re-renders
+// Completed blocks are frozen - only the trailing incomplete block re-renders
 // on each streaming token, keeping rendering O(1) not O(n²).
 // sourcesLen triggers one re-render when sources arrive so citation chips appear.
 
@@ -125,17 +127,17 @@ export function MarkdownRenderer({ content, isStreaming, sources = [], className
         )
       }
 
-      // Citation chip — injected by transformCitations as `CITE:N`
+      // Citation chip - injected by transformCitations as `CITE:N`
       const citeMatch = /^CITE:(\d+)$/.exec(String(children).trim())
       if (citeMatch) {
         const n = parseInt(citeMatch[1], 10)
         const source = sources[n - 1]
-        return source ? <CitationChip n={n} source={source} /> : <sup className="text-violet-400 text-[0.75em]">[{n}]</sup>
+        return source ? <CitationChip n={n} source={source} /> : <sup className="text-brand text-[0.75em]">[{n}]</sup>
       }
 
       // Regular inline code
       return (
-        <code className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[0.85em] text-foreground/90">
+        <code className="rounded-control bg-muted/60 px-1.5 py-0.5 font-mono text-[0.85em] text-foreground/90">
           {children}
         </code>
       )
@@ -168,7 +170,7 @@ export function MarkdownRenderer({ content, isStreaming, sources = [], className
     a({ href, children }: { href?: string; children?: React.ReactNode }) {
       return (
         <a href={href} target="_blank" rel="noopener noreferrer"
-          className="text-violet-400 underline underline-offset-2 hover:text-violet-300 transition-colors">
+          className="text-brand underline underline-offset-2 hover:text-brand-hover transition-colors">
           {children}
         </a>
       )
@@ -177,7 +179,7 @@ export function MarkdownRenderer({ content, isStreaming, sources = [], className
     // GFM tables
     table({ children }: { children?: React.ReactNode }) {
       return (
-        <div className="my-3 overflow-x-auto rounded-lg border border-border/50">
+        <div className="my-3 overflow-x-auto rounded-card border border-border/50">
           <table className="min-w-full divide-y divide-border/50 text-[13px]">{children}</table>
         </div>
       )
@@ -194,7 +196,7 @@ export function MarkdownRenderer({ content, isStreaming, sources = [], className
 
   const plugins = useMemo(() => ({ remark: [remarkGfm, remarkMath], rehype: [rehypeKatex] }), [])
 
-  // Apply citation transform — backtick-wraps [N] markers for the `code` component to intercept
+  // Apply citation transform - backtick-wraps [N] markers for the `code` component to intercept
   const processedContent = useMemo(
     () => sources.length > 0 ? transformCitations(content, sources) : content,
     [content, sources],

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Clapperboard, Film, ImagePlus, Loader2, Palette, Sparkles, Wand2, X, Download, Trash2, Search, ArrowRight } from 'lucide-react'
+import { Clapperboard, Film, ImagePlus, Palette, Sparkles, Wand2, X, Download, Trash2, Search, ArrowRight } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useGenerationContext } from '@/context/GenerationContext'
@@ -71,7 +74,7 @@ function LoraPicker({ loras, selected, onToggle, disabled }: {
             onKeyDown={e => { if (e.key === 'Enter') submit() }}
             placeholder="Search styles…"
             disabled={disabled}
-            className="w-full h-7 pl-7 pr-6 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+            className="w-full h-7 pl-7 pr-6 text-xs rounded-control border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
           />
           {searchInput && (
             <button onClick={clear} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -79,14 +82,18 @@ function LoraPicker({ loras, selected, onToggle, disabled }: {
             </button>
           )}
         </div>
-        <button
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon-sm"
           onClick={submit}
           disabled={disabled}
-          className="flex items-center justify-center size-7 rounded-lg bg-muted hover:bg-muted/80 active:scale-95 text-muted-foreground hover:text-foreground transition-all shrink-0 disabled:opacity-50"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
           title="Search"
+          aria-label="Search styles"
         >
           <ArrowRight className="size-3.5" />
-        </button>
+        </Button>
       </div>
       {filtered.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2 text-center">No styles match "{query}"</p>
@@ -101,15 +108,15 @@ function LoraPicker({ loras, selected, onToggle, disabled }: {
                 onClick={() => onToggle(l.id)}
                 disabled={disabled}
                 className={cn(
-                  'flex flex-col items-center gap-1 w-full rounded-xl border-2 p-1 transition-colors',
+                  'flex flex-col items-center gap-1 w-full rounded-card border-2 p-1 transition-colors',
                   selected.has(l.id) ? 'border-brand' : 'border-transparent hover:border-border',
                   disabled && 'opacity-50 cursor-not-allowed',
                 )}
               >
                 {l.thumbnailUrl ? (
-                  <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-square rounded-lg object-cover" />
+                  <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-square rounded-control object-cover" />
                 ) : (
-                  <div className="w-full aspect-square rounded-lg bg-muted flex items-center justify-center">
+                  <div className="w-full aspect-square rounded-control bg-muted flex items-center justify-center">
                     <Palette className="size-5 text-muted-foreground" />
                   </div>
                 )}
@@ -118,12 +125,12 @@ function LoraPicker({ loras, selected, onToggle, disabled }: {
                 </span>
               </button>
               {hoveredId === l.id && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-xl bg-zinc-900 border border-white/10 shadow-2xl z-50 overflow-hidden pointer-events-none">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-card bg-popover border border-border shadow-2xl z-50 overflow-hidden pointer-events-none">
                   {l.thumbnailUrl && <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-[3/4] object-cover" />}
                   <div className="p-2.5 space-y-1">
-                    <p className="text-[11px] font-semibold text-white leading-tight">{l.name}</p>
-                    {l.description && <p className="text-[10px] text-white/50 leading-snug line-clamp-4">{l.description}</p>}
-                    {l.triggerTokens.length > 0 && <p className="text-[10px] text-sky-400/70 font-mono leading-tight">{l.triggerTokens.join(', ')}</p>}
+                    <p className="text-[11px] font-semibold text-popover-foreground leading-tight">{l.name}</p>
+                    {l.description && <p className="text-[10px] text-muted-foreground leading-snug line-clamp-4">{l.description}</p>}
+                    {l.triggerTokens.length > 0 && <p className="text-[10px] text-brand/80 font-mono leading-tight">{l.triggerTokens.join(', ')}</p>}
                   </div>
                 </div>
               )}
@@ -140,8 +147,6 @@ interface ImageStatus {
   i2vAvailable?: boolean
   ok?: boolean
 }
-
-const GRADIENT = 'linear-gradient(135deg,#6d28d9,#db2777)'
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -160,14 +165,14 @@ function NumberStepper({ label, value, min, max, step = 1, onChange, disabled }:
   label: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void; disabled?: boolean
 }) {
   return (
-    <div className={cn('flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-card px-3 py-2', disabled && 'opacity-50')}>
+    <div className={cn('flex items-center justify-between gap-3 rounded-control border border-border/50 bg-card px-3 py-2', disabled && 'opacity-50')}>
       <span className="text-sm text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2">
-        <button onClick={() => onChange(Math.max(min, value - step))} disabled={disabled}
-          className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-sm hover:bg-muted disabled:cursor-not-allowed">−</button>
+        <button onClick={() => onChange(Math.max(min, value - step))} disabled={disabled} aria-label="Decrease"
+          className="flex size-7 items-center justify-center rounded-full bg-muted/60 text-sm hover:bg-muted disabled:cursor-not-allowed">−</button>
         <span className="w-12 text-center text-sm font-semibold tabular-nums">{value}</span>
-        <button onClick={() => onChange(Math.min(max, value + step))} disabled={disabled}
-          className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-sm hover:bg-muted disabled:cursor-not-allowed">+</button>
+        <button onClick={() => onChange(Math.min(max, value + step))} disabled={disabled} aria-label="Increase"
+          className="flex size-7 items-center justify-center rounded-full bg-muted/60 text-sm hover:bg-muted disabled:cursor-not-allowed">+</button>
       </div>
     </div>
   )
@@ -217,7 +222,7 @@ export function VideoPage() {
           // Reconnect to an orphaned job (full SSE re-attach)
           video.reconnect(d.id, d.steps, d.isAdult, d.prompt)
         } else if (currentStatus === 'generating' && currentImageId === d.id) {
-          // Already tracking it — just make sure isAdult is correct
+          // Already tracking it - just make sure isAdult is correct
           video.setIsAdult(d.isAdult)
         }
       })
@@ -332,23 +337,22 @@ export function VideoPage() {
 
           {/* Canvas */}
           <div className="flex-1 relative p-4 min-h-[280px] lg:min-h-0 lg:max-h-[480px]">
-            <div className="relative w-full h-full rounded-2xl overflow-hidden bg-muted border border-border flex items-center justify-center">
+            <div className="relative w-full h-full rounded-card overflow-hidden bg-muted border border-border flex items-center justify-center">
 
-              {/* Generating — visible */}
+              {/* Generating - visible */}
               {generating && !activeIsAdult && (
                 <>
                   {state.previewUrl ? (
                     <img src={state.previewUrl} alt="preview"
                       className="absolute inset-0 w-full h-full object-contain" />
                   ) : (
-                    <div className="absolute inset-0 animate-pulse"
-                      style={{ background: 'linear-gradient(135deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.1) 50%, hsl(var(--muted)) 100%)' }} />
+                    <Skeleton className="absolute inset-0 rounded-none" />
                   )}
                   <div className="absolute inset-0 bg-black/30" />
                   <div className="absolute inset-x-0 bottom-0 p-6">
                     <div className="h-1.5 w-full rounded-full bg-black/40 overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${Math.max(4, pct)}%`, background: GRADIENT }} />
+                      <div className="h-full rounded-full bg-brand transition-all duration-500"
+                        style={{ width: `${Math.max(4, pct)}%` }} />
                     </div>
                     <p className="text-xs text-white/60 mt-2 text-center">
                       Generating… {pct}% · {(state.elapsedMs / 1000).toFixed(0)}s
@@ -357,10 +361,10 @@ export function VideoPage() {
                 </>
               )}
 
-              {/* Generating — adult hidden */}
+              {/* Generating - adult hidden */}
               {generating && activeIsAdult && (
                 <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                  <div className="size-8 rounded-full border-2 border-muted-foreground/30 border-t-foreground animate-spin" />
+                  <Spinner size="lg" />
                   <p className="text-sm opacity-60">Generating…</p>
                 </div>
               )}
@@ -370,12 +374,12 @@ export function VideoPage() {
                 <div className="relative w-full h-full group">
                   <img src={resultSrc ?? lastResultSrc!} alt="result"
                     className="absolute inset-0 w-full h-full object-contain" />
-                  <div className="absolute bottom-3 left-3 rounded-lg px-2 py-1 bg-black/50 text-xs text-white/70 pointer-events-none">
+                  <div className="absolute bottom-3 left-3 rounded-full px-2 py-1 bg-black/50 text-xs text-white/70 pointer-events-none">
                     {frames} frames @ {fps} fps
                   </div>
                   <div className="absolute bottom-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <a href={resultSrc ?? lastResultSrc!} download
-                      className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 text-white transition-colors">
+                      className="p-1.5 rounded-control bg-black/60 hover:bg-black/80 text-white transition-colors">
                       <Download className="size-4" />
                     </a>
                   </div>
@@ -400,11 +404,11 @@ export function VideoPage() {
             </div>
           </div>
 
-          {/* Thumbnail strip — privacy-filtered */}
+          {/* Thumbnail strip - privacy-filtered */}
           {visibleHistory.length > 0 && (
             <div className="flex gap-2 px-4 pb-4 overflow-x-auto shrink-0">
               {visibleHistory.map(item => (
-                <div key={item.id} className="group relative shrink-0 w-24 aspect-video rounded-xl overflow-hidden bg-muted border border-border/50">
+                <div key={item.id} className="group relative shrink-0 w-24 aspect-video rounded-control overflow-hidden bg-muted border border-border/50">
                   <img
                     src={`/api/image/artifacts/${item.id}`}
                     alt={item.prompt}
@@ -423,8 +427,8 @@ export function VideoPage() {
                       className="p-1 rounded bg-black/60 hover:bg-black/80 text-white">
                       <Download className="size-3" />
                     </a>
-                    <button onClick={() => setConfirmDeleteId(item.id)}
-                      className="p-1 rounded bg-black/60 hover:bg-red-600/80 text-white">
+                    <button onClick={() => setConfirmDeleteId(item.id)} aria-label="Delete video"
+                      className="p-1 rounded bg-black/60 hover:bg-destructive/80 text-white">
                       <Trash2 className="size-3" />
                     </button>
                   </div>
@@ -441,11 +445,11 @@ export function VideoPage() {
           <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
             {/* Mode switch */}
-            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-muted/50 p-1">
+            <div className="grid grid-cols-2 gap-2 rounded-full bg-muted/50 p-1">
               {([['t2v', 'Text to Video', Wand2], ['i2v', 'Image to Video', Film]] as const).map(([m, label, Icon]) => (
                 <button key={m} onClick={() => setMode(m)} disabled={generating}
                   className={cn(
-                    'flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-colors',
+                    'flex items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition-colors',
                     mode === m ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
                     generating && 'opacity-50 cursor-not-allowed',
                   )}>
@@ -456,8 +460,8 @@ export function VideoPage() {
 
             {/* Not installed banner */}
             {status && available === false && (
-              <div className="flex items-center gap-3 rounded-xl border border-dashed border-border bg-card/40 px-4 py-4">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
+              <div className="flex items-center gap-3 rounded-card border border-dashed border-border bg-card/40 px-4 py-4">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-control bg-brand/10 text-brand">
                   <Sparkles className="size-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -467,7 +471,7 @@ export function VideoPage() {
                   <p className="text-xs text-muted-foreground">Install from Admin → Features</p>
                 </div>
                 <Link to="/admin/features"
-                  className="shrink-0 rounded-lg bg-foreground/10 px-3 py-1.5 text-xs font-semibold hover:bg-foreground/15">
+                  className="shrink-0 rounded-full bg-foreground/10 px-3 py-1.5 text-xs font-semibold hover:bg-foreground/15">
                   Install
                 </Link>
               </div>
@@ -481,7 +485,7 @@ export function VideoPage() {
                   {!activeIsAdult && <span className="text-[10px] text-muted-foreground">{prompt.length}/500</span>}
                 </div>
                 {activeIsAdult ? (
-                  <div className="h-[104px] flex items-center justify-center rounded-xl border border-border/60 bg-muted/30">
+                  <div className="h-[104px] flex items-center justify-center rounded-control border border-border/60 bg-muted/30">
                     <span className="text-xs text-muted-foreground">Unlock to view prompt</span>
                   </div>
                 ) : (
@@ -489,10 +493,10 @@ export function VideoPage() {
                     value={prompt}
                     onChange={e => setPrompt(e.target.value)}
                     readOnly={generating}
-                    placeholder='Describe the clip — e.g. "a paper boat sailing down a rainy street, cinematic"'
+                    placeholder='Describe the clip, e.g. "a paper boat sailing down a rainy street, cinematic"'
                     rows={4}
                     maxLength={500}
-                    className={cn('w-full resize-none rounded-xl border border-border/60 bg-card px-4 py-3 text-sm outline-none focus:border-brand/60', generating && 'opacity-60 cursor-not-allowed')}
+                    className={cn('w-full resize-none rounded-control border border-border/60 bg-card px-4 py-3 text-sm outline-none focus:border-brand/60', generating && 'opacity-60 cursor-not-allowed')}
                   />
                 )}
               </div>
@@ -505,7 +509,7 @@ export function VideoPage() {
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
                   onChange={e => void onPickFile(e.target.files?.[0])} />
                 {imagePreview ? (
-                  <div className="relative overflow-hidden rounded-xl border border-border/60">
+                  <div className="relative overflow-hidden rounded-control border border-border/60">
                     <img src={imagePreview} alt="source" className="max-h-48 w-full object-contain bg-black/20" />
                     <button onClick={() => { setImageBase64(null); setImagePreview(null) }}
                       className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70">
@@ -514,7 +518,7 @@ export function VideoPage() {
                   </div>
                 ) : (
                   <button onClick={() => fileInputRef.current?.click()}
-                    className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border/60 bg-card/40 py-10 text-muted-foreground hover:border-brand/40 hover:text-foreground">
+                    className="flex w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-border/60 bg-card/40 py-10 text-muted-foreground hover:border-brand/40 hover:text-foreground">
                     <ImagePlus className="size-7" />
                     <span className="text-sm font-medium">Upload a photo to animate</span>
                   </button>
@@ -522,7 +526,7 @@ export function VideoPage() {
               </div>
             )}
 
-            {/* LoRA picker — t2v only; filter adult styles when privacy locked */}
+            {/* LoRA picker - t2v only; filter adult styles when privacy locked */}
             {mode === 't2v' && (
               <LoraPicker
                 loras={privacyEnabled && !adultVisible ? loras.filter(l => !l.isAdult) : loras}
@@ -543,7 +547,7 @@ export function VideoPage() {
             </div>
 
             {state.status === 'error' && (
-              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <div className="rounded-control border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {state.error ?? 'Generation failed'}
               </div>
             )}
@@ -552,19 +556,18 @@ export function VideoPage() {
           {/* ── Pinned generate button ─────────────────────────────────────── */}
           <div className="shrink-0 p-4 border-t border-border">
             {generating ? (
-              <button onClick={() => state.imageId && cancel(state.imageId)}
-                className="w-full h-12 flex items-center justify-center gap-2 rounded-2xl bg-destructive/15 text-sm font-semibold text-destructive hover:bg-destructive/25 transition-colors">
+              <Button variant="tinted" size="xl"
+                onClick={() => state.imageId && cancel(state.imageId)}
+                className="w-full h-12 bg-destructive/15 text-destructive hover:bg-destructive/25">
                 <X className="size-4" /> Cancel
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button size="xl"
                 onClick={() => void handleGenerate()}
                 disabled={available === false || (mode === 't2v' ? !prompt.trim() : !imageBase64) || pending}
-                className="w-full h-12 flex items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-                style={{ background: GRADIENT }}
-              >
-                {pending ? <Loader2 className="size-5 animate-spin" /> : <Clapperboard className="size-5" />} Generate video
-              </button>
+                className="w-full h-12">
+                {pending ? <Spinner size="lg" className="text-current" /> : <Clapperboard className="size-5" />} Generate video
+              </Button>
             )}
           </div>
         </div>

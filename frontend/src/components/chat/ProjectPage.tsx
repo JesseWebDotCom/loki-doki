@@ -3,7 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, FolderIcon, MoreHorizontal, Pencil, Plus, Trash2,
 } from 'lucide-react'
-import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { useChatContext } from '@/context/ChatContext'
 import type { Project } from '@/context/ChatContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
@@ -90,7 +93,7 @@ export function ProjectPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <PageContainer width="narrow" className="py-6">
         <button
           onClick={() => navigate('/chat/projects')}
           className="mb-5 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
@@ -99,61 +102,56 @@ export function ProjectPage() {
           All projects
         </button>
 
-        {/* Header */}
-        <div className="flex items-start gap-3">
-          <span
-            className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl"
-            style={{ backgroundColor: `color-mix(in oklch, ${color} 16%, transparent)`, color }}
-          >
-            <Icon className="size-4.5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold leading-tight">{project.name}</h1>
-            {project.description && (
-              <p className="mt-1 text-sm text-muted-foreground">{project.description}</p>
-            )}
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground">
-                <MoreHorizontal className="size-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-36">
-              <DropdownMenuItem onClick={() => setEditing(true)}>
-                <Pencil className="size-3.5" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setConfirmDelete(true)}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="size-3.5" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <PageHeader
+          title={project.name}
+          subtitle={project.description ?? undefined}
+          icon={Icon}
+          gradient={color}
+          className="pt-0 pb-5"
+          actions={
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="Project options" className="shrink-0 text-muted-foreground hover:text-foreground">
+                  <MoreHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuItem onClick={() => setEditing(true)}>
+                  <Pencil className="size-3.5" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
+        />
 
         {/* New chat */}
-        <button
+        <Button
+          variant="outline"
           onClick={handleNewChat}
-          className="mt-5 flex w-full items-center gap-2 rounded-xl border border-border/40 bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+          className="mt-5 w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
         >
           <Plus className="size-4" />
           New chat in this project
-        </button>
+        </Button>
 
         {/* Instructions */}
         {project.instructions && (
-          <div className="mt-5 rounded-xl border border-border/30 bg-foreground/[0.02] p-4">
+          <Card variant="flat" className="mt-5 p-4">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
               Instructions
             </p>
             <p className="mt-1.5 whitespace-pre-wrap text-sm text-muted-foreground">
               {project.instructions}
             </p>
-          </div>
+          </Card>
         )}
 
         {/* Documents + long-form generation */}
@@ -169,7 +167,7 @@ export function ProjectPage() {
               No chats in this project yet.
             </p>
           ) : (
-            <div className={cn('rounded-xl')}>
+            <div className="rounded-card">
               {projConvs.map((conv) => (
                 <ChatListRow
                   key={conv.id}
@@ -182,7 +180,7 @@ export function ProjectPage() {
             </div>
           )}
         </div>
-      </div>
+      </PageContainer>
 
       {/* Modals */}
       <ProjectEditor

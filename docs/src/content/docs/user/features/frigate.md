@@ -1,11 +1,11 @@
 ---
 title: Frigate Cameras
-description: Connect your Frigate NVR so your companion describes and announces camera events — on your own network, with your own AI.
+description: Connect your Frigate NVR so your companion describes and announces camera events, on your own network, with your own AI.
 sidebar:
   order: 18
 ---
 
-If you run [Frigate](https://frigate.video) for your security cameras, Loki Doki connects to it so your companion can describe what the cameras see and announce events out loud — a person at the front door, a car in the driveway — without anything leaving your network or relying on a cloud service.
+If you run [Frigate](https://frigate.video) for your security cameras, Loki Doki connects to it so your companion can describe what the cameras see and announce events out loud (a person at the front door, a car in the driveway) without anything leaving your network or relying on a cloud service.
 
 ## How it works
 

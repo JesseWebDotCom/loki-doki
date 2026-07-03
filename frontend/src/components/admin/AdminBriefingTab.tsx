@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
-import { RefreshCw, Loader2, Newspaper } from 'lucide-react'
+import { RefreshCw, Newspaper } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 
 // ── Types (mirror backend lib/briefing/settings.ts) ──────────────────────────────
 type SourceId = 'weather' | 'worldNews' | 'localNews' | 'localEvents' | 'sports' | 'onThisDay' | 'notableDeaths' | 'holidays'
@@ -34,7 +37,7 @@ const SOURCE_LABELS: Record<SourceId, string> = {
 }
 const SOURCE_ORDER: SourceId[] = ['weather', 'localNews', 'localEvents', 'sports', 'worldNews', 'notableDeaths', 'onThisDay', 'holidays']
 
-const inputCls = 'rounded-xl border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/40'
+const inputCls = 'rounded-control border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
 
 function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -58,7 +61,7 @@ function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: 
 function SectionHeader({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 mb-3 mt-4">
-      <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground/40 shrink-0">{label}</span>
+      <span className="text-overline text-muted-foreground shrink-0">{label}</span>
       <div className="h-px flex-1 bg-border/40" />
     </div>
   )
@@ -110,7 +113,7 @@ export function AdminBriefingTab() {
   }, [load])
 
   if (!settings) {
-    return <div className="flex items-center gap-2 text-sm text-muted-foreground p-4"><Loader2 className="size-4 animate-spin" /> Loading…</div>
+    return <SkeletonListRows count={4} className="p-4" />
   }
 
   const s = settings
@@ -121,10 +124,10 @@ export function AdminBriefingTab() {
       {/* Header row with title + enable toggle */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-violet-500/15 text-violet-500 p-2"><Newspaper className="size-5" /></div>
+          <div className="rounded-control bg-brand/10 text-brand p-2"><Newspaper className="size-5" /></div>
           <div>
-            <h2 className="text-lg font-semibold">Daily Briefing</h2>
-            <p className="text-xs text-muted-foreground">Ambient world &amp; local context woven into companion replies.</p>
+            <h2 className="text-title">Daily Briefing</h2>
+            <p className="text-caption text-muted-foreground">Ambient world &amp; local context woven into companion replies.</p>
           </div>
         </div>
         <Toggle checked={s.enabled} onChange={(v) => { update({ enabled: v }); void put('enabled', v) }} />
@@ -135,7 +138,7 @@ export function AdminBriefingTab() {
         {/* Left: sources */}
         <div>
           <SectionHeader label="Sources" />
-          <div className="rounded-xl border border-border divide-y divide-border/60">
+          <div className="rounded-card border border-border divide-y divide-border/60">
             {SOURCE_ORDER.map((id) => (
               <div key={id} className="flex items-center justify-between px-4 py-2.5">
                 <span className="text-sm">{SOURCE_LABELS[id]}</span>
@@ -193,22 +196,21 @@ export function AdminBriefingTab() {
           </div>
 
           <SectionHeader label="Preview" />
-          <button
+          <Button
             type="button"
             onClick={() => void refreshNow()}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 rounded-xl bg-brand text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
           >
-            {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            {refreshing ? <Spinner size="sm" className="text-current" /> : <RefreshCw className="size-4" />}
             Refresh now
-          </button>
+          </Button>
           {preview && (
             <div className="mt-3">
               {preview.degraded.length > 0 && (
-                <div className="text-xs text-amber-500 mb-1">Degraded this run: {preview.degraded.join(', ')}</div>
+                <div className="text-caption text-warning mb-1">Degraded this run: {preview.degraded.join(', ')}</div>
               )}
-              <pre className="whitespace-pre-wrap rounded-xl border border-border bg-card p-3 text-xs text-muted-foreground">
-                {preview.block || '(empty — briefing disabled or nothing to show)'}
+              <pre className="whitespace-pre-wrap rounded-card border border-border bg-card p-3 text-xs text-muted-foreground">
+                {preview.block || '(empty: briefing disabled or nothing to show)'}
               </pre>
             </div>
           )}
@@ -216,12 +218,12 @@ export function AdminBriefingTab() {
           {cached.length > 0 && (
             <>
               <SectionHeader label="Cached locations" />
-              <div className="rounded-xl border border-border divide-y divide-border/60 text-xs">
+              <div className="rounded-card border border-border divide-y divide-border/60 text-xs">
                 {cached.map((c) => (
                   <div key={c.key} className="flex items-center justify-between px-4 py-2">
                     <span className="font-medium">{c.location ?? c.key}</span>
                     <span className="text-muted-foreground">
-                      {c.generatedAt ? new Date(c.generatedAt).toLocaleTimeString() : '—'} · {c.blockChars} chars
+                      {c.generatedAt ? new Date(c.generatedAt).toLocaleTimeString() : '–'} · {c.blockChars} chars
                       {c.degraded.length ? ` · degraded: ${c.degraded.join(',')}` : ''}
                     </span>
                   </div>

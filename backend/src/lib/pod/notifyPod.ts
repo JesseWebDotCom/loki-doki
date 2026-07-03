@@ -7,7 +7,7 @@
 
 import { setUserAlert } from '@/lib/pod/presence'
 
-type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert'
+type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert' | 'price_alert'
 
 interface Spec {
   emoji: string
@@ -46,6 +46,11 @@ function specFor(type: NotifType, payload: Record<string, unknown>): Spec | null
       const msg = String(payload['message'] ?? '')
       if (!msg) return null
       return { emoji: '👀', message: msg, color: '#d97706', ttlSec: 25 }
+    }
+    case 'price_alert': {
+      const msg = String(payload['message'] ?? '')
+      if (!msg) return null
+      return { emoji: '🏷️', message: msg, color: '#16a34a', ttlSec: 25 }
     }
     default:
       return null

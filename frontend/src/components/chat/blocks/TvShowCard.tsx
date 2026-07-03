@@ -1,5 +1,6 @@
 import { ExternalLink } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import { FaviconImg } from '@/components/shared/FaviconImg'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
@@ -60,7 +61,7 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
 
 export function TvShowCard({ data }: { data: TvShowBlockData }) {
   return (
-    <div className="rounded-xl border border-border/50 bg-card overflow-hidden text-sm">
+    <Card variant="surface" className="text-sm">
       {/* Header */}
       <div className="flex gap-0">
         {data.image && (
@@ -150,6 +151,6 @@ export function TvShowCard({ data }: { data: TvShowBlockData }) {
           </div>
         </div>
       )}
-    </div>
+    </Card>
   )
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { formatRelativeTime } from '@/lib/relativeTime'
 
 /** A full-width conversation row used by the project landing page and the Chats browse page. */
@@ -17,13 +18,13 @@ export function ChatListRow({
 
   return (
     <div
-      className="group relative flex items-center border-b border-border/15 last:border-0"
+      className="group relative flex items-center border-b border-border/15 transition-colors last:border-0 hover:bg-foreground/[0.03]"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       <button
         onClick={onSelect}
-        className="flex flex-1 min-w-0 items-center gap-3 py-3 pl-1 pr-2 text-left transition-colors hover:bg-foreground/[0.03]"
+        className="flex flex-1 min-w-0 items-center gap-3 py-3 pl-1 pr-2 text-left"
       >
         <span className="flex-1 min-w-0 truncate text-sm text-foreground">{title}</span>
         {projectName && (
@@ -40,13 +41,16 @@ export function ChatListRow({
       </button>
 
       {hovered && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onDelete}
           title="Delete conversation"
-          className="absolute right-1 flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Delete conversation"
+          className="absolute right-1 shrink-0 rounded-control text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive"
         >
           <Trash2 className="size-3.5" />
-        </button>
+        </Button>
       )}
     </div>
   )

@@ -1,3 +1,5 @@
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { SettingsYoutubeTab } from '@/components/settings/SettingsYoutubeTab'
 
 // Standard per-app Settings home for YouTube. Currently user-scoped only (SponsorBlock /
@@ -5,9 +7,11 @@ import { SettingsYoutubeTab } from '@/components/settings/SettingsYoutubeTab'
 // admin-specific settings later, add an <AdminSection> here.
 export function YoutubeSettingsPage() {
   return (
-    <div className="mx-auto h-full max-w-3xl space-y-8 overflow-y-auto p-6">
-      <h1 className="text-2xl font-bold">YouTube settings</h1>
-      <SettingsYoutubeTab />
+    <div className="h-full overflow-y-auto">
+      <PageContainer width="narrow" className="pb-8">
+        <PageHeader title="YouTube settings" className="pt-6 pb-5" />
+        <SettingsYoutubeTab />
+      </PageContainer>
     </div>
   )
 }

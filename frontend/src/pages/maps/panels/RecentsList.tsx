@@ -75,7 +75,7 @@ export function RecentsList({
                   type="button"
                   onClick={() => onPick?.(entry)}
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2 pr-9 text-left",
+                    "flex w-full min-w-0 items-center gap-3 rounded-control px-3 py-2 pr-9 text-left",
                     "hover:bg-muted/60",
                   )}
                 >
@@ -113,7 +113,7 @@ export function RecentsList({
             clearRecents();
             setPlaces([]);
           }}
-          className="justify-self-start px-3 py-1 text-xs font-medium text-sky-500 hover:text-sky-400"
+          className="justify-self-start px-3 py-1 text-xs font-medium text-brand hover:text-brand-hover"
         >
           Clear Recents
         </button>
@@ -137,7 +137,7 @@ export function RecentsList({
               type="button"
               onClick={() => onPickDirections?.(entry)}
               className={cn(
-                "grid w-full min-w-0 gap-0.5 rounded-2xl border border-border/50 bg-card/60 px-3 py-2 text-left",
+                "grid w-full min-w-0 gap-0.5 rounded-control border border-border/50 bg-card/60 px-3 py-2 text-left",
                 "hover:bg-muted",
               )}
             >

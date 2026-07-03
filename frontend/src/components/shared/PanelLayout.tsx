@@ -19,7 +19,7 @@ export function PanelLayout({ sections, activeSection, onSection, children }: Pa
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
       {/* Horizontal pill tab strip */}
-      <div className="relative shrink-0 border-b border-border/40 bg-background/70 backdrop-blur-md">
+      <div className="glass-chrome relative shrink-0 border-b border-border/40">
         <ChromeWash />
         <div className="relative flex items-center gap-1 overflow-x-auto px-4 py-2.5 no-scrollbar">
           {sections.map(s => (

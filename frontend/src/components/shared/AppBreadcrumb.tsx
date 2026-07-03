@@ -30,7 +30,7 @@ export function AppBreadcrumb({ crumbs, children, className }: AppBreadcrumbProp
   return (
     <div
       className={cn(
-        "relative shrink-0 flex h-12 items-center gap-1.5 border-b border-border/40 bg-background/70 px-4 backdrop-blur-md",
+        "relative shrink-0 flex h-12 items-center gap-1.5 glass-chrome border-b border-border/50 px-4",
         className,
       )}
     >

@@ -1,8 +1,8 @@
-# Image Stack — v3
+# Image Stack: v3
 
 ## Runtime
 
-**ComfyUI headless** — port 8188. Bun backend POSTs workflow JSON to `/prompt`, polls `/history/{id}`.
+**ComfyUI headless**: port 8188. Bun backend POSTs workflow JSON to `/prompt`, polls `/history/{id}`.
 
 ---
 
@@ -18,7 +18,7 @@
 
 **Total download: ~9.2 GB**
 
-CivitAI public models download without authentication — direct HTTP to `https://civitai.com/api/download/models/{versionId}`.
+CivitAI public models download without authentication: direct HTTP to `https://civitai.com/api/download/models/{versionId}`.
 
 ---
 
@@ -35,7 +35,7 @@ CivitAI public models download without authentication — direct HTTP to `https:
 
 ### Windows deploy (CUDA, 8 GB VRAM, Ollama on CPU)
 
-VRAM is the binding constraint — system RAM (32 GB) is irrelevant for GPU inference.
+VRAM is the binding constraint; system RAM (32 GB) is irrelevant for GPU inference.
 Use the RTX 3070 eGPU as the primary image gen device (`CUDA_VISIBLE_DEVICES=1` or by PCIe slot index).
 
 | Operation | VRAM (fp8) | Fits 8 GB? |
@@ -44,7 +44,7 @@ Use the RTX 3070 eGPU as the primary image gen device (`CUDA_VISIBLE_DEVICES=1` 
 | + AnimateDiff (video) | ~4.4 GB | ✓ |
 | + FaceID (face identity) | ~5.2 GB | ✓ |
 
-fp8 fits comfortably. fp16 baseline (~6.5 GB) is borderline — add `--medvram` flag as fallback.
+fp8 fits comfortably. fp16 baseline (~6.5 GB) is borderline: add `--medvram` flag as fallback.
 
 ---
 
@@ -59,7 +59,7 @@ fp8 fits comfortably. fp16 baseline (~6.5 GB) is borderline — add `--medvram` 
 | `--medvram` | n/a | fallback if fp16 |
 | `CUDA_VISIBLE_DEVICES` | n/a | target 3070 slot |
 
-fp8 requires NVIDIA Tensor Cores — MPS has no dequantization path for it. Checkpoint loading must be platform-conditional in the ComfyUI spawn config.
+fp8 requires NVIDIA Tensor Cores; MPS has no dequantization path for it. Checkpoint loading must be platform-conditional in the ComfyUI spawn config.
 
 ---
 
@@ -74,7 +74,7 @@ fp8 requires NVIDIA Tensor Cores — MPS has no dequantization path for it. Chec
 | VAE tiling | prevents OOM | Bounds peak VRAM during hi-res upscale regardless of resolution |
 | Ollama LLM unload (Mac, optional) | −5 GB | `OLLAMA_KEEP_ALIVE=0`; n/a on Windows where VRAM is separate |
 
-**ComfyUI-MLX** (thoddnn/ComfyUI-MLX) — Mac-only, 30% less memory + 35% faster, SDXL support experimental. Revisit when stable.
+**ComfyUI-MLX** (thoddnn/ComfyUI-MLX): Mac-only, 30% less memory + 35% faster, SDXL support experimental. Revisit when stable.
 
 ---
 

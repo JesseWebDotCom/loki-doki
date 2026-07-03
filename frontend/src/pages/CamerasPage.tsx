@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, Loader2, Play, Video, VideoOff } from 'lucide-react'
+import { Camera, Play, Video, VideoOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { getFrigateStatus, listEvents, type FrigateEvent } from '@/lib/frigate/api'
-
-const GRADIENT = 'linear-gradient(135deg,#1c1917,#3f3f46)'
 
 function relTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime()
@@ -57,7 +58,7 @@ function EventDialog({ event, onOpenChange }: { event: FrigateEvent | null; onOp
             <DialogHeader>
               <DialogTitle>{event.camera ?? 'Camera'} · {event.label ?? 'Activity'}</DialogTitle>
             </DialogHeader>
-            <div className="overflow-hidden rounded-lg bg-black">
+            <div className="overflow-hidden rounded-control bg-black">
               {playing && event.clipUrl ? (
                 // eslint-disable-next-line jsx-a11y/media-has-caption -- Frigate clips carry no captions
                 <video src={event.clipUrl} controls autoPlay className="aspect-video w-full" />
@@ -70,10 +71,9 @@ function EventDialog({ event, onOpenChange }: { event: FrigateEvent | null; onOp
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span>{relTime(event.createdAt)}</span>
               {event.clipUrl && !playing && (
-                <button type="button" onClick={() => setPlaying(true)}
-                  className="flex items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground">
+                <Button type="button" size="sm" onClick={() => setPlaying(true)} className="gap-1.5 font-semibold">
                   <Play className="size-3.5 fill-current" /> Play clip
-                </button>
+                </Button>
               )}
             </div>
           </>
@@ -113,12 +113,12 @@ export function CamerasPage() {
   }, [events, cameraFilter])
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={Camera}>
-      <PageHeader variant="compact" title="Cameras" subtitle="Recent activity from your home cameras." />
+    <PageShell>
+      <PageContainer className="pb-10">
+        <PageHeader subtitle="Recent activity from your home cameras." />
 
-      <div className="px-5 pb-10">
         {!enabled ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/60 bg-card/40 py-20 text-center">
+          <Card variant="dashed" className="flex flex-col items-center justify-center gap-3 py-20 text-center">
             <Video className="size-8 text-muted-foreground/40" />
             <p className="text-sm font-medium text-muted-foreground">No cameras set up yet.</p>
             <p className="max-w-sm text-xs text-muted-foreground/70">
@@ -126,7 +126,7 @@ export function CamerasPage() {
                 ? 'Connect a Frigate NVR in Admin → Frigate to see live activity and clips here.'
                 : 'Ask an admin to connect your camera system to see activity here.'}
             </p>
-          </div>
+          </Card>
         ) : (
           <>
             {cameras.length > 1 && (
@@ -138,7 +138,7 @@ export function CamerasPage() {
               </ChipRow>
             )}
             {isLoading ? (
-              <div className="flex justify-center py-16"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+              <SkeletonCards count={8} className="grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" />
             ) : !filtered.length ? (
               <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
                 <Camera className="size-8 opacity-40" /><p className="text-sm">No activity yet.</p>
@@ -150,7 +150,7 @@ export function CamerasPage() {
             )}
           </>
         )}
-      </div>
+      </PageContainer>
 
       <EventDialog event={active} onOpenChange={(open) => { if (!open) setActive(null) }} />
     </PageShell>

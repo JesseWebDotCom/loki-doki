@@ -2,7 +2,8 @@ import { useNavigate } from 'react-router-dom'
 import { PrimaryAction } from '@/components/store/StoreActions'
 import type { StoreApp } from '@/lib/store/useStoreApps'
 
-/** Large tinted 3-up card for a category's Featured strip. */
+/** Large tinted 3-up card for a category's Featured strip. App-gradient fill is a
+ *  sanctioned identity moment (App Store cards); text over artwork keeps white-alpha. */
 export function FeaturedCard({ app }: { app: StoreApp }) {
   const navigate = useNavigate()
   const Icon = app.icon
@@ -12,18 +13,18 @@ export function FeaturedCard({ app }: { app: StoreApp }) {
       tabIndex={0}
       onClick={() => navigate(`/app-store/app/${app.id}`)}
       onKeyDown={e => { if (e.key === 'Enter') navigate(`/app-store/app/${app.id}`) }}
-      className="group relative flex cursor-pointer flex-col gap-4 overflow-hidden rounded-2xl border border-border/40 p-5"
+      className="group relative flex cursor-pointer flex-col gap-4 overflow-hidden rounded-card ring-1 ring-white/10 p-5"
       style={app.gradient ? { backgroundImage: app.gradient } : undefined}
     >
       {/* Darkening scrim so text stays legible over the gradient */}
       <div className="absolute inset-0 bg-black/35 transition-colors group-hover:bg-black/25" />
 
       <div className="relative flex items-center gap-3">
-        <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur">
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-control bg-white/15">
           <Icon className="size-6 text-white drop-shadow" />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-base font-bold text-white drop-shadow">{app.name}</p>
+          <p className="truncate text-base font-semibold text-white drop-shadow">{app.name}</p>
           <p className="truncate text-xs text-white/80">{app.category}</p>
         </div>
       </div>

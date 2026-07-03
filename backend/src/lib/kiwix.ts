@@ -412,7 +412,16 @@ export async function stopKiwix(): Promise<void> {
 
 export async function maybeSpawnKiwix(zimPaths: string[]): Promise<void> {
   if (state.current === 'starting' || state.current === 'ready') return
-  if (!isKiwixInstalled()) return
+  if (!isKiwixInstalled()) {
+    // Archives are installed but the ZIM engine itself isn't. This used to be a
+    // silent no-op that left state stuck at 'idle' forever with no diagnostic trail.
+    // Surface it loudly so a missing/incomplete install is visible in logs instead
+    // of only discovered when a user opens a reader and gets a dead page.
+    if (zimPaths.length > 0) {
+      logger.warn(`[kiwix] ${zimPaths.length} archive(s) installed but the ZIM engine isn't, reinstall from Admin -> Features`)
+    }
+    return
+  }
   const valid = zimPaths.filter(existsSync)
   if (valid.length === 0) return
 
@@ -422,6 +431,22 @@ export async function maybeSpawnKiwix(zimPaths: string[]): Promise<void> {
   } catch { /* not running */ }
 
   spawnKiwix(valid)
+}
+
+// Boot-time self-heal: verify the spawn attempt above actually reached 'ready' after
+// its own startup window, and make one more attempt if not (covers state getting
+// stuck at 'idle'/'failed' with no supervisor yet to catch it - the post-ready
+// liveness probe only starts once markReady() has fired once). Call once at boot,
+// well after maybeSpawnKiwix's own 60s health-poll deadline would have elapsed.
+export function scheduleKiwixBootHeal(zimPaths: string[]): void {
+  setTimeout(() => {
+    if (state.current === 'ready') return
+    const valid = zimPaths.filter(existsSync)
+    if (valid.length === 0) return
+    logger.warn(`[kiwix] not ready 90s after boot (state=${state.current}${state.error ? `, ${state.error}` : ''}), retrying`)
+    state.current = 'idle'  // clear a stale 'failed'/'starting' so maybeSpawnKiwix doesn't short-circuit
+    void maybeSpawnKiwix(valid)
+  }, 90_000)
 }
 
 // ── Health poll ───────────────────────────────────────────────────────────────

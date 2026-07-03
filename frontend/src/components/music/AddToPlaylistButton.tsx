@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ListPlus, Plus, Loader2 } from 'lucide-react'
+import { ListPlus, Plus } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -60,7 +61,7 @@ export function AddToPlaylistButton({ song, className }: { song: Song; className
           {mine.length > 0 && <DropdownMenuSeparator />}
           {mine.map(p => (
             <DropdownMenuItem key={p.id} disabled={busyId === p.id} onClick={() => void addTo(p.id)}>
-              {busyId === p.id ? <Loader2 className="size-4 animate-spin" /> : <ListPlus className="size-4" />} {p.name}
+              {busyId === p.id ? <Spinner className="text-current" /> : <ListPlus className="size-4" />} {p.name}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

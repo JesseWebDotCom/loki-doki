@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronUp, ChevronDown, Heart, Clock, Maximize2, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { useYtFeed } from '@/lib/youtube/useData'
@@ -12,7 +13,7 @@ import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 
 const AUTOPLAY_KEY = 'yt.shorts.autoplay'
 
-/** Vertical, swipe-through Shorts feed — scroll / arrows / swipe to move between shorts. */
+/** Vertical, swipe-through Shorts feed: scroll / arrows / swipe to move between shorts. */
 export function YoutubeShortsPage() {
   const { videoId = '' } = useParams()
   const navigate = useNavigate()
@@ -101,7 +102,7 @@ export function YoutubeShortsPage() {
       {/* 9:16 player with the channel + title overlay. Keyed so each short replays the
           direction-aware slide-in animation. */}
       <div key={videoId}
-        className={cn('relative aspect-[9/16] h-full max-h-[82vh] overflow-hidden rounded-2xl bg-black',
+        className={cn('relative aspect-[9/16] h-full max-h-[82vh] overflow-hidden rounded-card bg-black',
           navState.dir === 1 ? 'yt-short-up' : navState.dir === -1 ? 'yt-short-down' : '')}>
         <VideoPlayer ref={playerRef} key={videoId} videoId={videoId} aspect="short"
           onEnded={() => { if (autoplay && queue.length > 1) go(1); else playerRef.current?.seek(0) }}
@@ -142,8 +143,8 @@ export function YoutubeShortsPage() {
 
       {/* Prev / next. */}
       <div className="flex flex-col gap-3 self-center">
-        <NavArrow icon={ChevronUp} disabled={!hasPrev} onClick={() => go(-1)} />
-        <NavArrow icon={ChevronDown} disabled={!hasNext} onClick={() => go(1)} />
+        <NavArrow icon={ChevronUp} label="Previous short" disabled={!hasPrev} onClick={() => go(-1)} />
+        <NavArrow icon={ChevronDown} label="Next short" disabled={!hasNext} onClick={() => go(1)} />
       </div>
     </div>
   )
@@ -161,11 +162,11 @@ function RailBtn({ icon: Icon, label, active, onClick }: { icon: LucideIcon; lab
   )
 }
 
-function NavArrow({ icon: Icon, disabled, onClick }: { icon: LucideIcon; disabled?: boolean; onClick: () => void }) {
+function NavArrow({ icon: Icon, label, disabled, onClick }: { icon: LucideIcon; label: string; disabled?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} disabled={disabled}
-      className="flex size-10 items-center justify-center rounded-full bg-muted text-foreground transition hover:bg-muted/70 disabled:cursor-default disabled:opacity-30">
+    <Button variant="secondary" size="icon" onClick={onClick} disabled={disabled} aria-label={label}
+      className="size-10 bg-muted text-foreground hover:bg-muted/70 disabled:opacity-30">
       <Icon className="size-5" />
-    </button>
+    </Button>
   )
 }

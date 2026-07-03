@@ -938,7 +938,7 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert'] }).notNull(),
+  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   // Delivery routing (lib/notify): 'urgent' breaks through quiet hours; 'info' is
   // bell-only fodder. Priority lives as a real column (not payload) because the
@@ -1879,3 +1879,130 @@ export const showWatchedEpisodes = sqliteTable('show_watched_episodes', {
   number: integer('number'),
   watchedAt: integer('watched_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userEpUnique: unique().on(t.userId, t.episodeId) }))
+
+// ─── Shopping / price tracker ───────────────────────────────────────────────────
+// A shopping_products row is the household-wide "comparison group" for one real-world
+// item; each retailer listing links to it (the podcastShows/podcastSubscriptions split:
+// products+listings+history are shared so an item is scraped once regardless of how
+// many people watch it, while watches and discounts below are per-user).
+export const shoppingProducts = sqliteTable('shopping_products', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  brand: text('brand'),
+  model: text('model'),               // MPN / manufacturer model number
+  gtin: text('gtin'),                 // normalized GTIN-13 (UPC-A padded with a leading 0)
+  imageUrl: text('image_url'),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ gtinIdx: index('shopping_products_gtin_idx').on(t.gtin) }))
+
+// One retailer listing per product. retailer='generic' for any-URL tracks (externalId is
+// then the normalized URL). Latest observation is denormalized here for fast list views;
+// the append-only history lives in shoppingPricePoints.
+export const shoppingListings = sqliteTable('shopping_listings', {
+  id: text('id').primaryKey(),
+  productId: text('product_id').notNull().references(() => shoppingProducts.id, { onDelete: 'cascade' }),
+  retailer: text('retailer').notNull(),
+  externalId: text('external_id').notNull(),
+  url: text('url').notNull(),
+  title: text('title'),
+  imageUrl: text('image_url'),
+  priceCents: integer('price_cents'),        // null = never seen or currently unavailable
+  wasPriceCents: integer('was_price_cents'), // strikethrough/list price when shown
+  currency: text('currency').notNull().default('USD'),
+  inStock: integer('in_stock', { mode: 'boolean' }),
+  // Best-effort product detail-page enrichment — populated opportunistically per adapter
+  // (Amazon feature bullets + star rating, JSON-LD description/aggregateRating for stores
+  // that expose it); null when a retailer doesn't surface it. Never blocks a price check.
+  description: text('description'),
+  ratingValue: real('rating_value'),
+  ratingCount: integer('rating_count'),
+  matchConfidence: text('match_confidence', { enum: ['gtin', 'model', 'fuzzy', 'manual'] }).notNull().default('manual'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  lastCheckedAt: integer('last_checked_at', { mode: 'timestamp' }),
+  lastChangedAt: integer('last_changed_at', { mode: 'timestamp' }),
+  lastError: text('last_error'),
+  failCount: integer('fail_count').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  retailerItemUnique: unique().on(t.retailer, t.externalId),
+  productIdx: index('shopping_listings_product_idx').on(t.productId),
+}))
+
+// Append-only price history. A point is written only when price/stock changed or the
+// newest point is >24h old, so a stable listing costs ~1 row/day. priceCents null = out
+// of stock at that observation. `via` records which provider produced the observation.
+export const shoppingPricePoints = sqliteTable('shopping_price_points', {
+  id: text('id').primaryKey(),
+  listingId: text('listing_id').notNull().references(() => shoppingListings.id, { onDelete: 'cascade' }),
+  priceCents: integer('price_cents'),
+  inStock: integer('in_stock', { mode: 'boolean' }).notNull(),
+  via: text('via').notNull().default('direct'), // 'direct' | 'pricewatchpro' | 'backfill'
+  observedAt: integer('observed_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ listingTimeIdx: index('shopping_price_points_listing_time_idx').on(t.listingId, t.observedAt) }))
+
+// Per-user alert rules. listingId null = watch every listing of the product (alerts use
+// the cheapest). Prices compared in the user's effective terms (their discounts applied)
+// when useEffectivePrice is set.
+export const shoppingWatches = sqliteTable('shopping_watches', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  productId: text('product_id').notNull().references(() => shoppingProducts.id, { onDelete: 'cascade' }),
+  listingId: text('listing_id').references(() => shoppingListings.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['target_price', 'percent_drop', 'any_drop', 'back_in_stock'] }).notNull(),
+  targetPriceCents: integer('target_price_cents'),
+  percentDrop: real('percent_drop'),
+  useEffectivePrice: integer('use_effective_price', { mode: 'boolean' }).notNull().default(true),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  lastFiredAt: integer('last_fired_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userProductIdx: index('shopping_watches_user_product_idx').on(t.userId, t.productId) }))
+
+// Per-user per-retailer standing discounts ("Military 10%", "RedCard 5%"). Multiple
+// active rows for one retailer compound in creation order; never stored into prices —
+// effective prices are computed at read/alert time.
+export const shoppingDiscounts = sqliteTable('shopping_discounts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  retailer: text('retailer').notNull(),
+  label: text('label').notNull(),
+  percentOff: real('percent_off').notNull(),      // 0–100
+  maxDiscountCents: integer('max_discount_cents'),
+  notes: text('notes'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userRetailerIdx: index('shopping_discounts_user_retailer_idx').on(t.userId, t.retailer) }))
+
+// Generic-adapter memory: the extraction strategy that last worked for a store host, so
+// any-URL tracking pays the discovery ladder once per site, not per check (PriceBuddy's
+// "tunable strategies" idea). Re-laddered after two consecutive failures.
+export const shoppingHostStrategies = sqliteTable('shopping_host_strategies', {
+  host: text('host').primaryKey(),
+  strategy: text('strategy', { enum: ['jsonld', 'selector', 'llm'] }).notNull(),
+  priceSelector: text('price_selector'),
+  titleSelector: text('title_selector'),
+  lastSuccessAt: integer('last_success_at', { mode: 'timestamp' }),
+  failCount: integer('fail_count').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Per-user saved items for the Shop landing — favorites (starred, kept) and recents (browse
+// history, pruned to the newest N). Per-user so they sync across a person's devices; a light
+// snapshot of the item (not a tracked product) so it renders without a live scrape.
+export const shoppingSaved = sqliteTable('shopping_saved', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['favorite', 'recent'] }).notNull(),
+  retailer: text('retailer').notNull(),
+  externalId: text('external_id').notNull(),
+  url: text('url').notNull(),
+  title: text('title').notNull(),
+  imageUrl: text('image_url'),
+  priceCents: integer('price_cents'),
+  wasPriceCents: integer('was_price_cents'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  itemUnique: unique().on(t.userId, t.kind, t.retailer, t.externalId),
+  userKindIdx: index('shopping_saved_user_kind_idx').on(t.userId, t.kind),
+}))

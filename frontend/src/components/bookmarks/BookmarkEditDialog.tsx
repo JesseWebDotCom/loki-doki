@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
 import { updateItem, listCollections, createCollection, type BookmarkItem } from '@/lib/bookmarks/api'
 import { useAuth } from '@/context/AuthContext'
 
 // Edit an existing bookmark: title, tags, collection, and (for live links) whether it
-// opens inside Loki or in a new tab. The URL is identity and can't be changed here — re-save
+// opens inside Loki or in a new tab. The URL is identity and can't be changed here - re-save
 // to capture a different page.
 export function BookmarkEditDialog({ item, open, onClose }: { item: BookmarkItem | null; open: boolean; onClose: () => void }) {
   const qc = useQueryClient()
@@ -79,7 +80,7 @@ export function BookmarkEditDialog({ item, open, onClose }: { item: BookmarkItem
           {newCollection === null ? (
             <div className="flex gap-2">
               <select value={collectionId} onChange={e => setCollectionId(e.target.value)}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                className="min-w-0 flex-1 rounded-control border border-border bg-background px-3 py-2 text-sm">
                 <option value="">No collection</option>
                 {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -118,7 +119,7 @@ export function BookmarkEditDialog({ item, open, onClose }: { item: BookmarkItem
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button onClick={save} disabled={saving}>
-            {saving && <Loader2 className="mr-1.5 size-4 animate-spin" />}Save
+            {saving && <Spinner className="mr-1.5 text-current" />}Save
           </Button>
         </DialogFooter>
       </DialogContent>

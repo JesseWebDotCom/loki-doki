@@ -3,16 +3,17 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  ArrowLeft, ListMusic, Play, Trash2, Pencil, Check, X, Share2, Copy, GripVertical, Loader2,
+  ArrowLeft, ListMusic, Play, Trash2, Pencil, Check, X, Share2, Copy, GripVertical,
 } from 'lucide-react'
 import {
   DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent,
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -26,7 +27,7 @@ const fmtDur = (s: number | null) => !s ? '' : `${Math.floor(s / 60)}:${String(M
 
 function SongThumb({ videoId }: { videoId: string }) {
   return (
-    <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-gradient-to-br from-brand/30 to-brand/10">
+    <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
       <ListMusic className="absolute size-4 text-brand/60" />
       <img src={proxyImg(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)} alt="" loading="lazy"
         className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
@@ -58,7 +59,7 @@ function TrackRow({ track, editable, onRemoved }: { track: PlaylistTrack; editab
         className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <div className="relative shrink-0">
           <SongThumb videoId={track.videoId} />
-          <span className="absolute inset-0 grid place-items-center rounded-md bg-black/45 opacity-0 transition group-hover:opacity-100">
+          <span className="absolute inset-0 grid place-items-center rounded-control bg-black/45 opacity-0 transition group-hover:opacity-100">
             <Play className="size-4 fill-white text-white" />
           </span>
         </div>
@@ -71,7 +72,7 @@ function TrackRow({ track, editable, onRemoved }: { track: PlaylistTrack; editab
       {editable && (
         <button type="button" onClick={() => void remove()} disabled={removing} aria-label="Remove from playlist"
           className="shrink-0 rounded-full p-2 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100">
-          {removing ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          {removing ? <Spinner className="text-current" /> : <Trash2 className="size-4" />}
         </button>
       )}
     </div>
@@ -146,17 +147,17 @@ export function MusicPlaylistPage() {
     catch { toast.error('Could not save the new order'); invalidate() }
   }
 
-  if (isLoading) return <div className="flex justify-center py-16"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+  if (isLoading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   if (!playlist) return <div className="px-5 pt-10 text-center text-sm text-muted-foreground">Playlist not found.</div>
 
   return (
-    <div className="px-5 pt-6 pb-10">
+    <PageContainer width="wide" className="pt-6 pb-10">
       <button onClick={() => navigate('/music/library?tab=playlists')} className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> Library
       </button>
 
       <div className="mb-6 flex items-start gap-4">
-        <div className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand/30 to-brand/10">
+        <div className="flex size-20 shrink-0 items-center justify-center rounded-card bg-gradient-to-br from-brand/30 to-brand/10">
           <ListMusic className="size-9 text-brand" />
         </div>
         <div className="min-w-0 flex-1">
@@ -164,13 +165,13 @@ export function MusicPlaylistPage() {
             <div className="flex items-center gap-1.5">
               <Input value={name} onChange={e => setName(e.target.value)} autoFocus
                 onKeyDown={e => { if (e.key === 'Enter') void saveName(); if (e.key === 'Escape') setEditingName(false) }}
-                className="h-9 text-xl font-black" />
+                className="h-9 text-xl font-semibold" />
               <button type="button" onClick={() => void saveName()} className="text-brand"><Check className="size-5" /></button>
               <button type="button" onClick={() => setEditingName(false)} className="text-muted-foreground"><X className="size-5" /></button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-2xl font-black tracking-tight">{playlist.name}</h1>
+              <div className="truncate text-display">{playlist.name}</div>
               {editable && (
                 <button type="button" onClick={startEdit} aria-label="Rename playlist" className="shrink-0 text-muted-foreground hover:text-foreground">
                   <Pencil className="size-4" />
@@ -195,7 +196,7 @@ export function MusicPlaylistPage() {
               </>
             ) : (
               <Button variant="outline" size="sm" onClick={() => void doClone()} disabled={cloning}>
-                {cloning ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />} Clone to my library
+                {cloning ? <Spinner className="text-current" /> : <Copy className="size-4" />} Clone to my library
               </Button>
             )}
           </div>
@@ -210,13 +211,14 @@ export function MusicPlaylistPage() {
       ) : editable ? (
         <DndContext sensors={sensors} onDragEnd={e => void onDragEnd(e)}>
           <SortableContext items={tracks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-            <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+            {/* dnd-sortable list: plain rows on a resting surface, no hover-translate (drag-safe) */}
+            <div className="divide-y divide-border/50 rounded-card border border-border/60">
               {tracks.map(t => <TrackRow key={t.id} track={t} editable onRemoved={invalidate} />)}
             </div>
           </SortableContext>
         </DndContext>
       ) : (
-        <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+        <div className="divide-y divide-border/50 rounded-card border border-border/60">
           {tracks.map(t => <TrackRow key={t.id} track={t} editable={false} onRemoved={invalidate} />)}
         </div>
       )}
@@ -224,6 +226,6 @@ export function MusicPlaylistPage() {
       <ConfirmDialog open={confirmDel} onOpenChange={setConfirmDel} title="Delete this playlist?"
         description={`“${playlist.name}” and its ${tracks.length} track${tracks.length === 1 ? '' : 's'} will be permanently removed.`}
         destructive confirmLabel="Delete" onConfirm={() => void doDelete()} />
-    </div>
+    </PageContainer>
   )
 }

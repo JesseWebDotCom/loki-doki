@@ -9,6 +9,9 @@ import { SectionHead, CardGridSkeleton } from '@/components/store/SectionHead'
 import { toTrack } from '@/lib/podcast/api'
 import { fmtTime } from '@/lib/podcast/format'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { getAppByPath } from '@/lib/appCategories'
 
 export function ListenNowPage() {
   const { data, isLoading } = usePodcastFeed()
@@ -19,15 +22,16 @@ export function ListenNowPage() {
   const shows = data?.shows ?? []
 
   return (
-    <div className="mx-auto max-w-5xl space-y-9 px-6 py-7 pb-24">
+    <PageContainer width="wide" className="space-y-9 py-6 pb-24">
+      <PageHeader title="Listen Now" className="pt-0 pb-0" />
       {isLoading ? (
         <CardGridSkeleton count={4} />
       ) : data && data.all.length === 0 ? (
         <EmptyAppState
           icon={Headphones}
-          gradient="linear-gradient(135deg,#6d28d9,#db2777)"
+          gradient={getAppByPath('/podcasts')?.gradient}
           title="AI-produced podcasts from anything you watch"
-          tagline="Your companion writes, narrates, and produces a full podcast episode for any show, movie, or YouTube content — with music, stingers, and chapters — entirely offline."
+          tagline="Your companion writes, narrates, and produces a full podcast episode for any show, movie, or YouTube content - with music, stingers, and chapters - entirely offline."
           actions={
             <Link to="/podcasts/library">
               <Button><Mic className="mr-1.5 size-4" />Create your first show</Button>
@@ -41,7 +45,7 @@ export function ListenNowPage() {
             { icon: Play, title: 'Continuous playback', desc: 'A persistent mini player keeps your episode going as you navigate.' },
             { icon: Download, title: 'Take it offline', desc: 'Download episodes to your device and listen anywhere.' },
           ]}
-          footnote="All narration and music runs on your local hardware — no external APIs required."
+          footnote="All narration and music runs on your local hardware - no external APIs required."
         />
       ) : (
         <>
@@ -82,7 +86,7 @@ export function ListenNowPage() {
           )}
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
@@ -96,13 +100,14 @@ function ContinueCard({ item, onPlay }: { item: FeedEpisode; onPlay: () => void 
     <div className="w-56 shrink-0">
       <button onClick={onPlay} className="group relative block w-56">
         <ShowCover showId={show.id} title={show.name} size={224} className="w-56" />
+        {/* design-ok(backdrop-blur-outside-chrome): over artwork */}
         <span className="absolute bottom-2 left-2 flex size-10 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
           <Play className="size-5 fill-current" />
         </span>
       </button>
       <p className="mt-2 truncate text-xs font-medium text-muted-foreground">{show.name}</p>
       <p className="truncate text-sm font-semibold">{episode.title}</p>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} /></div>
       {remain > 0 && <p className="mt-1 text-[11px] text-muted-foreground">{fmtTime(remain)} left</p>}
     </div>
   )

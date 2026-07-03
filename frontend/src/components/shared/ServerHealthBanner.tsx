@@ -1,4 +1,5 @@
-import { Loader2, ServerOff } from 'lucide-react'
+import { ServerOff } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { useLocation } from 'react-router-dom'
 import { useServerHealth } from '@/context/ServerHealthContext'
 
@@ -17,13 +18,13 @@ export function ServerHealthBanner() {
   return (
     <div
       role="status"
-      className={`fixed inset-x-0 top-0 z-[200] flex items-center justify-center bg-amber-500 text-center text-amber-950 shadow-lg animate-in slide-in-from-top-2 ${
+      className={`fixed inset-x-0 top-0 z-[200] flex items-center justify-center bg-warning text-center text-warning-foreground shadow-lg animate-in slide-in-from-top-2 ${
         onDisplay ? 'gap-4 px-6 py-6 text-4xl font-bold' : 'gap-2 px-4 py-2 text-sm font-medium'
       }`}
     >
       <ServerOff className={onDisplay ? 'size-9 shrink-0' : 'size-4 shrink-0'} />
       <span>{onDisplay ? 'Server unreachable' : "Can't reach the server. Make sure the backend is running."}</span>
-      <Loader2 className={`${onDisplay ? 'size-8' : 'size-3.5'} shrink-0 animate-spin opacity-80`} />
+      <Spinner className={`${onDisplay ? 'size-8' : 'size-3.5'} shrink-0 text-current opacity-80`} />
       {!onDisplay && <span className="opacity-70">reconnecting…</span>}
     </div>
   )

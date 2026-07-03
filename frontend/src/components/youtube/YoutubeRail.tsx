@@ -4,6 +4,7 @@ import {
   Home, Clock, Heart, History, Download, Settings2, SlidersHorizontal, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { getSubscriptions } from '@/lib/youtube/api'
@@ -12,7 +13,7 @@ function RailLink({ to, icon: Icon, label, end }: { to: string; icon: LucideIcon
   return (
     <NavLink to={to} end={end}
       className={({ isActive }) => cn(
-        'flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+        'flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
         isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
       )}>
       <Icon className="size-[18px]" /> {label}
@@ -27,7 +28,7 @@ function LibTab({ tab, icon: Icon, label }: { tab: string; icon: LucideIcon; lab
   const active = pathname.startsWith('/youtube/library') && (params.get('tab') ?? 'history') === tab
   return (
     <Link to={`/youtube/library?tab=${tab}`}
-      className={cn('flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+      className={cn('flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
         active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground')}>
       <Icon className="size-[18px]" /> {label}
     </Link>
@@ -35,7 +36,7 @@ function LibTab({ tab, icon: Icon, label }: { tab: string; icon: LucideIcon; lab
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1 mt-5 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">{children}</p>
+  return <p className="mb-1 mt-5 px-3 text-overline text-muted-foreground/60">{children}</p>
 }
 
 export function YoutubeRail({ onManage }: { onManage: () => void }) {
@@ -58,34 +59,35 @@ export function YoutubeRail({ onManage }: { onManage: () => void }) {
 
       <div className="mb-1 mt-5 flex items-center justify-between px-3">
         <Link to="/youtube/subscriptions"
-          className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 transition-colors hover:text-foreground">
+          className="text-overline text-muted-foreground/60 transition-colors hover:text-foreground">
           Subscriptions
         </Link>
-        <button onClick={onManage} title="Manage channels" aria-label="Manage channels"
-          className="flex items-center rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground">
+        <Button variant="ghost" size="icon-sm" onClick={onManage} title="Manage channels" aria-label="Manage channels"
+          className="text-muted-foreground/70 hover:text-foreground">
           <Settings2 className="size-3.5" />
-        </button>
+        </Button>
       </div>
       {subs.length > 0 ? (
         <div className="space-y-0.5">
           {subs.slice(0, 8).map(s => (
             <Link key={s.id} to={`/youtube/channel/${encodeURIComponent(s.externalId)}`}
-              className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+              className="flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
               <ChannelAvatar title={s.title} src={s.thumbnailUrl} className="size-6 text-[10px] ring-1 ring-border/40" />
               <span className="truncate">{s.title}</span>
             </Link>
           ))}
           {subs.length > 8 && (
             <Link to="/youtube/subscriptions"
-              className="block rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground">
+              className="block rounded-control px-2.5 py-1.5 text-xs font-medium text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground">
               Show all ({subs.length})
             </Link>
           )}
         </div>
       ) : (
-        <button onClick={onManage} className="px-3 py-1.5 text-left text-xs text-muted-foreground/70 hover:text-foreground">
+        <Button variant="ghost" size="sm" onClick={onManage}
+          className="justify-start px-3 font-normal text-xs text-muted-foreground/70 hover:text-foreground">
           + Add channels &amp; playlists
-        </button>
+        </Button>
       )}
     </nav>
   )

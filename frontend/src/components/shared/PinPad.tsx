@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, Loader2 } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫']
@@ -7,11 +8,11 @@ const MAX = 6
 const MIN_SUBMIT = 4
 
 export interface PinPadProps {
-  /** 'set' — enter then confirm (two passes, mismatch error). 'verify' — single entry, calls onComplete immediately. */
+  /** 'set' = enter then confirm (two passes, mismatch error). 'verify' = single entry, calls onComplete immediately. */
   mode: 'set' | 'verify'
   /** Called with the PIN when entry is complete. In verify mode, caller is responsible for actual verification. */
   onComplete: (pin: string) => void
-  /** External error to display (e.g. "Wrong PIN — 3 attempts left"). Cleared on next key press. */
+  /** External error to display (e.g. "Wrong PIN, 3 attempts left"). Cleared on next key press. */
   error?: string
   loading?: boolean
   onBack?: () => void
@@ -58,7 +59,7 @@ export function PinPad({
       return
     }
 
-    // 'set' mode — two-pass
+    // 'set' mode: two-pass
     if (stage === 'enter') {
       setStage('confirm')
       return
@@ -68,7 +69,7 @@ export function PinPad({
     if (value === pin) {
       onComplete(pin)
     } else {
-      setError("PINs don't match — try again.")
+      setError("PINs don't match. Try again.")
       setPin('')
       setConfirm('')
       setStage('enter')
@@ -152,7 +153,7 @@ export function PinPad({
       </div>
 
       {error && (
-        <p className="mt-3 text-xs text-red-400 text-center max-w-[200px] animate-in fade-in">
+        <p className="mt-3 text-xs text-destructive text-center max-w-[200px] animate-in fade-in">
           {error}
         </p>
       )}
@@ -189,7 +190,7 @@ export function PinPad({
                 k === '⌫' && 'text-base',
               )}
             >
-              {loading && k === '⌫' ? <Loader2 className="size-4 animate-spin" /> : k}
+              {loading && k === '⌫' ? <Spinner className="text-current" /> : k}
             </button>
           ),
         )}

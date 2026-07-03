@@ -9,8 +9,8 @@ function RailLink({ to, icon: Icon, label, end }: { to: string; icon: LucideIcon
   return (
     <NavLink to={to} end={end}
       className={({ isActive }) => cn(
-        'flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
-        isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+        'flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
+        isActive ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
       )}>
       <Icon className="size-[18px]" /> {label}
     </NavLink>
@@ -24,15 +24,15 @@ function LibTab({ tab, icon: Icon, label }: { tab: string; icon: LucideIcon; lab
   const active = pathname.startsWith('/music/library') && (params.get('tab') ?? 'favorites') === tab
   return (
     <Link to={`/music/library?tab=${tab}`}
-      className={cn('flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
-        active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground')}>
+      className={cn('flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
+        active ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground')}>
       <Icon className="size-[18px]" /> {label}
     </Link>
   )
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1 mt-5 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">{children}</p>
+  return <p className="mb-1 mt-5 px-3 text-overline text-muted-foreground/60">{children}</p>
 }
 
 export function MusicRail() {
@@ -44,12 +44,12 @@ export function MusicRail() {
       <RailLink to="/music" icon={Home} label="Home" end />
       <RailLink to="/music/stations" icon={Radio} label="Stations" />
       <RailLink to="/music/browse" icon={Search} label="Browse" />
-      {/* Live radio streams need the internet — hide it offline (recordings stay reachable
+      {/* Live radio streams need the internet - hide it offline (recordings stay reachable
           via the library's Radio tab below). */}
       {!offline && <RailLink to="/music/live" icon={RadioTower} label="Live Radio" />}
       {radio.active && <RailLink to="/music/now-playing" icon={Disc3} label="Now Playing" />}
 
-      {/* Create needs the internet (LLM + generators) — hide it offline. */}
+      {/* Create needs the internet (LLM + generators) - hide it offline. */}
       {!offline && <>
         <SectionLabel>Create</SectionLabel>
         <RailLink to="/music/generate" icon={Sparkles} label="Generate" />

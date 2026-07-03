@@ -10,9 +10,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Pencil, Trash2, RefreshCw, ExternalLink, Phone, FileText, Upload,
-  Send, Loader2, Plus, X, CheckCircle2, WifiOff, Clock, Star, Sparkles, Link2,
+  Send, Plus, X, CheckCircle2, WifiOff, Star, Sparkles, Link2,
   ChevronDown, ScanText,
 } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import type { HomeDevice, DeviceCategory } from '../HomeInventoryPage'
@@ -78,8 +79,8 @@ function formatBytes(bytes: number | null): string {
 }
 
 function LookupStatusBadge({ status }: { status: HomeDevice['lookupStatus'] }) {
-  if (status === 'complete') return <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300"><CheckCircle2 className="size-3 mr-1" />Found</Badge>
-  if (status === 'pending') return <Badge variant="outline" className="text-xs"><Clock className="size-3 mr-1 animate-pulse" />Looking up…</Badge>
+  if (status === 'complete') return <Badge variant="outline" className="text-xs text-success border-success/40"><CheckCircle2 className="size-3 mr-1" />Found</Badge>
+  if (status === 'pending') return <Badge variant="outline" className="text-xs"><Spinner size="sm" className="mr-1 text-current" />Looking up…</Badge>
   if (status === 'failed') return <Badge variant="outline" className="text-xs text-muted-foreground"><WifiOff className="size-3 mr-1" />Lookup failed</Badge>
   return null
 }
@@ -138,9 +139,9 @@ function OverviewTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-4">
         {photoUrl ? (
-          <img src={photoUrl} alt={device.name} className="size-24 rounded-xl object-cover bg-muted shrink-0" />
+          <img src={photoUrl} alt={device.name} className="size-24 rounded-card object-cover bg-muted shrink-0" />
         ) : (
-          <div className="size-24 rounded-xl bg-muted flex items-center justify-center text-4xl shrink-0">
+          <div className="size-24 rounded-card bg-muted flex items-center justify-center text-4xl shrink-0">
             {({ appliance: '🏠', electronics: '📱', vehicle: '🚗', tool: '🔧', furniture: '🛋️', other: '📦' } as Record<string, string>)[device.category] ?? '📦'}
           </div>
         )}
@@ -183,7 +184,7 @@ function OverviewTab({
               <select
                 value={form.category}
                 onChange={e => setForm(f => ({ ...f, category: e.target.value as DeviceCategory }))}
-                className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                className="mt-1 flex h-9 w-full rounded-control border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
               >
                 {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
@@ -231,7 +232,7 @@ function OverviewTab({
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}Save
+              {saving && <Spinner size="sm" className="mr-1 text-current" />}Save
             </Button>
             <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
           </div>
@@ -333,8 +334,9 @@ function LinksTab({ device }: { device: HomeDevice }) {
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Auto-found</p>
           <div className="flex flex-col gap-1.5">
             {autoLinks.map(l => (
-              <div key={l.key} className="flex items-center justify-between rounded-lg border p-3">
+              <div key={l.key} className="flex items-center justify-between rounded-control border p-3">
                 <div className="flex items-center gap-2 text-sm">
+                  {/* design-ok(raw-palette-semantic): PDF file-type icon convention (red = PDF), not a status color */}
                   {l.icon === 'pdf' && <FileText className="size-4 text-red-500 shrink-0" />}
                   {l.icon === 'link' && <ExternalLink className="size-4 text-muted-foreground shrink-0" />}
                   {l.icon === 'phone' && <Phone className="size-4 text-muted-foreground shrink-0" />}
@@ -357,8 +359,9 @@ function LinksTab({ device }: { device: HomeDevice }) {
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{CAT_LABELS[cat]}</p>
             <div className="flex flex-col gap-1.5">
               {catLinks.map(l => (
-                <div key={l.id} className="flex items-center justify-between rounded-lg border p-3">
+                <div key={l.id} className="flex items-center justify-between rounded-control border p-3">
                   <div className="flex items-center gap-2 text-sm min-w-0">
+                    {/* design-ok(raw-palette-semantic): YouTube brand mark icon, not a status color */}
                     {cat === 'video'
                       ? <svg className="size-4 shrink-0 text-red-500" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
                       : <Link2 className="size-4 text-muted-foreground shrink-0" />
@@ -381,7 +384,7 @@ function LinksTab({ device }: { device: HomeDevice }) {
       })}
 
       {autoLinks.length === 0 && links.length === 0 && !loading && device.lookupStatus !== 'pending' && (
-        <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+        <div className="rounded-control border border-dashed p-4 text-center text-sm text-muted-foreground">
           {device.lookupStatus === 'pending'
             ? 'Searching for links…'
             : 'No links found automatically. Add some below.'}
@@ -389,14 +392,14 @@ function LinksTab({ device }: { device: HomeDevice }) {
       )}
 
       {addForm ? (
-        <div className="rounded-lg border p-3 flex flex-col gap-2">
+        <div className="rounded-control border p-3 flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Category</Label>
               <select
                 value={addForm.category}
                 onChange={e => setAddForm(f => f ? { ...f, category: e.target.value } : f)}
-                className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                className="mt-1 flex h-8 w-full rounded-control border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
               >
                 <option value="manual">Manual</option>
                 <option value="support">Support</option>
@@ -416,7 +419,7 @@ function LinksTab({ device }: { device: HomeDevice }) {
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={addLink} disabled={saving || !addForm.label.trim() || !addForm.url.trim()}>
-              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}Add
+              {saving && <Spinner size="sm" className="mr-1 text-current" />}Add
             </Button>
             <Button size="sm" variant="outline" onClick={() => setAddForm(null)}>Cancel</Button>
           </div>
@@ -517,7 +520,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{photos.length} photo{photos.length !== 1 ? 's' : ''}</p>
         <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-          {uploading ? <Loader2 className="size-3 animate-spin mr-1" /> : <Upload className="size-3 mr-1" />}
+          {uploading ? <Spinner size="sm" className="mr-1 text-current" /> : <Upload className="size-3 mr-1" />}
           Upload
         </Button>
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
@@ -525,14 +528,14 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+        <div className="flex justify-center py-8"><Spinner size="lg" /></div>
       ) : photos.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8">No photos yet. Upload one or run a lookup to find product images.</p>
       ) : (
         <>
           {/* Selected photo detail */}
           {selected && (
-            <div className="rounded-xl border border-border overflow-hidden">
+            <div className="rounded-card border border-border overflow-hidden">
               <img
                 src={`/api/home/devices/${device.id}/files/${selected.id}`}
                 alt={selected.label}
@@ -546,7 +549,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
                   <span className={cn(
                     'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
                     selected.source === 'user'
-                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                      ? 'bg-info/10 text-info'
                       : 'bg-brand/10 text-brand'
                   )}>
                     {selected.source === 'user' ? 'Your photo' : 'AI found'}
@@ -558,7 +561,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
                 {editingComment ? (
                   <div className="flex flex-col gap-1.5">
                     <textarea
-                      className="w-full text-xs rounded-md border border-input bg-background px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                      className="w-full text-xs rounded-control border border-input bg-background px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
                       rows={2}
                       placeholder="Add a note about this photo…"
                       value={commentDraft}
@@ -567,7 +570,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
                     />
                     <div className="flex gap-1.5">
                       <Button size="sm" className="h-6 text-xs" onClick={saveComment} disabled={savingComment}>
-                        {savingComment && <Loader2 className="size-3 mr-1 animate-spin" />}Save
+                        {savingComment && <Spinner size="sm" className="mr-1 text-current" />}Save
                       </Button>
                       <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingComment(false)}>Cancel</Button>
                     </div>
@@ -584,7 +587,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
                 {/* Actions */}
                 {!isMain && (
                   <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={setMainPhoto} disabled={settingMain}>
-                    {settingMain ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Star className="size-3 mr-1" />}
+                    {settingMain ? <Spinner size="sm" className="mr-1 text-current" /> : <Star className="size-3 mr-1" />}
                     Make cover photo
                   </Button>
                 )}
@@ -599,7 +602,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
               <div className="grid grid-cols-4 gap-1.5">
                 {userPhotos.map(photo => (
                   <button key={photo.id} onClick={() => selectPhoto(photo)}
-                    className={cn('relative aspect-square rounded-lg overflow-hidden border-2 transition-all',
+                    className={cn('relative aspect-square rounded-control overflow-hidden border-2 transition-all',
                       selected?.id === photo.id ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30')}>
                     <img src={`/api/home/devices/${device.id}/files/${photo.id}`} alt={photo.label}
                       className="w-full h-full object-cover" />
@@ -621,7 +624,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
               <div className="grid grid-cols-4 gap-1.5">
                 {aiPhotos.map(photo => (
                   <button key={photo.id} onClick={() => selectPhoto(photo)}
-                    className={cn('relative aspect-square rounded-lg overflow-hidden border-2 transition-all',
+                    className={cn('relative aspect-square rounded-control overflow-hidden border-2 transition-all',
                       selected?.id === photo.id ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30')}>
                     <img src={`/api/home/devices/${device.id}/files/${photo.id}`} alt={photo.label}
                       className="w-full h-full object-cover" />
@@ -640,6 +643,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
 
       {/* Fullscreen lightbox */}
       {fullscreen && (
+        // design-ok(raw-overlay): full-screen photo lightbox surface
         <div
           className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
           onClick={() => setFullscreen(null)}
@@ -647,9 +651,10 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
           <img
             src={`/api/home/devices/${device.id}/files/${fullscreen.id}`}
             alt={fullscreen.label}
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            className="max-w-full max-h-full object-contain rounded-card shadow-2xl"
             onClick={e => e.stopPropagation()}
           />
+          {/* design-ok(hand-styled-button): close control floating over the lightbox image */}
           <button
             className="absolute top-4 right-4 text-white/70 hover:text-white bg-black/40 rounded-full p-1.5"
             onClick={() => setFullscreen(null)}
@@ -657,7 +662,7 @@ function PhotosTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: H
             <X className="size-5" />
           </button>
           {fullscreen.comment && (
-            <p className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/80 text-sm bg-black/50 rounded-lg px-4 py-2 max-w-sm text-center">
+            <p className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/80 text-sm bg-black/50 rounded-card px-4 py-2 max-w-sm text-center">
               {fullscreen.comment}
             </p>
           )}
@@ -741,11 +746,11 @@ function SpecsTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: Ho
         <div className="flex gap-2">
           {dirty && (
             <Button size="sm" onClick={save} disabled={saving}>
-              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}Save
+              {saving && <Spinner size="sm" className="mr-1 text-current" />}Save
             </Button>
           )}
           <Button size="sm" variant="outline" onClick={generate} disabled={generating || !device.brand || !device.model}>
-            {generating ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Sparkles className="size-3 mr-1" />}
+            {generating ? <Spinner size="sm" className="mr-1 text-current" /> : <Sparkles className="size-3 mr-1" />}
             Generate
           </Button>
         </div>
@@ -808,7 +813,8 @@ function SpecsTab({ device, onUpdated }: { device: HomeDevice; onUpdated: (d: Ho
 function ScanTextCollapsible({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="mt-2 border border-border/50 rounded-lg overflow-hidden">
+    <div className="mt-2 border border-border/50 rounded-control overflow-hidden">
+      {/* design-ok(hand-styled-button): full-bleed disclosure row inside its bordered card */}
       <button
         className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 transition-colors"
         onClick={() => setOpen(o => !o)}
@@ -879,7 +885,7 @@ function ServiceTab({ deviceId }: { deviceId: string }) {
       </div>
 
       {showForm && (
-        <div className="rounded-lg border p-3 flex flex-col gap-2">
+        <div className="rounded-control border p-3 flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Date</Label>
@@ -890,7 +896,7 @@ function ServiceTab({ deviceId }: { deviceId: string }) {
               <select
                 value={form.type}
                 onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
-                className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring capitalize"
+                className="mt-1 flex h-8 w-full rounded-control border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring capitalize"
               >
                 {SERVICE_TYPES.map(t => <option key={t} value={t} className="capitalize">{t}</option>)}
               </select>
@@ -910,7 +916,7 @@ function ServiceTab({ deviceId }: { deviceId: string }) {
           </div>
           <div className="flex gap-2 mt-1">
             <Button size="sm" onClick={addEntry} disabled={saving || !form.description.trim()}>
-              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}Save
+              {saving && <Spinner size="sm" className="mr-1 text-current" />}Save
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
           </div>
@@ -918,13 +924,13 @@ function ServiceTab({ deviceId }: { deviceId: string }) {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+        <div className="flex justify-center py-8"><Spinner size="lg" /></div>
       ) : entries.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8">No service records yet.</p>
       ) : (
         <div className="flex flex-col gap-2">
           {entries.map(entry => (
-            <div key={entry.id} className="rounded-lg border p-3 text-sm">
+            <div key={entry.id} className="rounded-control border p-3 text-sm">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">{entry.date}</span>
@@ -998,7 +1004,7 @@ function FilesTab({ deviceId }: { deviceId: string }) {
       <div className="flex gap-2">
         <Input placeholder="Label (optional)" value={label} onChange={e => setLabel(e.target.value)} className="h-8 text-sm" />
         <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-          {uploading ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3 mr-1" />}
+          {uploading ? <Spinner size="sm" className="text-current" /> : <Upload className="size-3 mr-1" />}
           Upload
         </Button>
         <input
@@ -1011,13 +1017,13 @@ function FilesTab({ deviceId }: { deviceId: string }) {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+        <div className="flex justify-center py-8"><Spinner size="lg" /></div>
       ) : files.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8">No files attached. Upload manuals, receipts, or warranty cards.</p>
       ) : (
         <div className="flex flex-col gap-2">
           {files.map(f => (
-            <div key={f.id} className="flex items-center gap-3 rounded-lg border p-3">
+            <div key={f.id} className="flex items-center gap-3 rounded-control border p-3">
               <span className="text-xl">{f.fileType === 'pdf' ? '📄' : '📎'}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{f.label}</p>
@@ -1092,7 +1098,7 @@ function AskAITab({ device }: { device: HomeDevice }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">Ask anything about this device — error codes, maintenance, compatibility, etc.</p>
+      <p className="text-sm text-muted-foreground">Ask anything about this device: error codes, maintenance, compatibility, etc.</p>
       <div className="flex gap-2">
         <Input
           placeholder="e.g. What does error E5 mean?"
@@ -1102,11 +1108,11 @@ function AskAITab({ device }: { device: HomeDevice }) {
           disabled={asking}
         />
         <Button size="icon" onClick={ask} disabled={asking || !question.trim()}>
-          {asking ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+          {asking ? <Spinner className="text-current" /> : <Send className="size-4" />}
         </Button>
       </div>
       {answer && (
-        <div className="rounded-lg bg-muted/50 p-3 text-sm whitespace-pre-wrap">{answer}</div>
+        <div className="rounded-control bg-muted/50 p-3 text-sm whitespace-pre-wrap">{answer}</div>
       )}
     </div>
   )
@@ -1134,7 +1140,7 @@ function InsightsTab({ device }: { device: HomeDevice }) {
     return <p className="text-sm text-muted-foreground">Add a brand and model to get AI insights.</p>
   }
   if (isLoading) {
-    return <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Looking up device info…</div>
+    return <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Spinner /> Looking up device info…</div>
   }
   const digest = data?.digest
   if (!digest) {
@@ -1144,7 +1150,7 @@ function InsightsTab({ device }: { device: HomeDevice }) {
   return (
     <div className="flex flex-col gap-5">
       {digest.hasRecall && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="flex items-start gap-2 rounded-control border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           <span className="mt-0.5 shrink-0">⚠️</span>
           <span>A recall or safety notice may affect this product. Review the Recalls section below.</span>
         </div>
@@ -1160,7 +1166,7 @@ function InsightsTab({ device }: { device: HomeDevice }) {
           <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Common Issues</p>
           <ul className="space-y-1.5">
             {digest.commonIssues.map((issue, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 shrink-0 text-amber-500">•</span>{issue}</li>
+              <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 shrink-0 text-warning">•</span>{issue}</li>
             ))}
           </ul>
         </div>
@@ -1180,7 +1186,7 @@ function InsightsTab({ device }: { device: HomeDevice }) {
           <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Care Tips</p>
           <ul className="space-y-1.5">
             {digest.careTips.map((tip, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 shrink-0 text-emerald-500">✓</span>{tip}</li>
+              <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 shrink-0 text-success">✓</span>{tip}</li>
             ))}
           </ul>
         </div>
@@ -1225,14 +1231,14 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdated, onDeleted }
             <SheetTitle className="truncate">{device.name}</SheetTitle>
           </SheetHeader>
 
-          {/* Tab bar — horizontally scrollable so all 7 tabs fit */}
+          {/* Tab bar - horizontally scrollable so all 7 tabs fit */}
           <div className="flex gap-0.5 px-3 pt-2 border-b shrink-0 overflow-x-auto scrollbar-none">
             {TABS.map(t => (
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
                 className={cn(
-                  'px-2.5 py-2 text-sm font-medium rounded-t-md border-b-2 transition-colors whitespace-nowrap shrink-0',
+                  'px-2.5 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0',
                   activeTab === t.id
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground'

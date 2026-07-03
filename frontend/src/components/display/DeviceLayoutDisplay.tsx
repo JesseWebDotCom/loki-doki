@@ -71,7 +71,7 @@ export function LayoutContent({ descriptor }: { descriptor: Descriptor }) {
           const span = spanOf(w)
           const [r, c] = w.anchor
           return (
-            <div key={i} className="absolute overflow-hidden rounded-3xl" style={{
+            <div key={i} className="absolute overflow-hidden rounded-card" style={{
               left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER,
               width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
             }}>
@@ -147,9 +147,11 @@ function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: Them
     <div className="relative h-full w-full" style={{ color: theme.text }}>
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="flex items-end leading-none" style={{ fontSize: big }}>
+          {/* design-ok(font-black): kiosk clock numeral, bespoke ambient display digits, not UI text. */}
           <span className="font-black tabular-nums">{hh}:{mm}</span>
           {size === 'large' ? (
             <div className="flex flex-col items-start leading-none" style={{ marginLeft: 16, marginBottom: big * 0.05 }}>
+              {/* design-ok(font-black): kiosk clock numeral (seconds), same bespoke digit face. */}
               <span className="font-black tabular-nums" style={{ fontSize: big * 0.34, color: theme.accent }}>:{ss}</span>
               {ampm && <span style={{ fontSize: big * 0.3, opacity: 0.7, marginTop: 6 }}>{ampm}</span>}
             </div>
@@ -194,6 +196,7 @@ function LiveWeather({ size, theme, bg }: { size: WidgetPlacement['size']; theme
       <div className="relative h-full w-full" style={{ color: theme.text }}>
         <div className="absolute inset-0 flex items-center justify-center" style={{ gap: 8 }}>
           {!bg && icon}
+          {/* design-ok(font-black): kiosk weather numeral, bespoke ambient readout, not UI text. */}
           <span className="font-black tabular-nums" style={{ fontSize: 260 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
         </div>
         {/* Description + apparel sit just BELOW the (centred) temp. */}
@@ -213,6 +216,7 @@ function LiveWeather({ size, theme, bg }: { size: WidgetPlacement['size']; theme
     return (
       <div className="relative h-full w-full" style={{ color: theme.text }}>
         <div className="absolute inset-0 flex items-center justify-center">
+          {/* design-ok(font-black): kiosk weather numeral, bespoke ambient readout, not UI text. */}
           <span className="font-black tabular-nums" style={{ fontSize: tempFont, lineHeight: 1 }}>{snapshot!.temp}°</span>
         </div>
         {/* Description + apparel sit just BELOW the (centred) temp, following it down. */}
@@ -226,6 +230,7 @@ function LiveWeather({ size, theme, bg }: { size: WidgetPlacement['size']; theme
   return (
     <div className="flex h-full w-full flex-col items-center justify-center" style={{ color: theme.text }}>
       {icon}
+      {/* design-ok(font-black): kiosk weather numeral, bespoke ambient readout, not UI text. */}
       <span className="font-black tabular-nums" style={{ fontSize: tempFont, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
       {size !== 'small' && <span style={{ fontSize: (size === 'large' ? 44 : 40) * fs, opacity: 0.88, marginTop: 4 }}>{snapshot!.info.desc}</span>}
       {size === 'large' && <span style={{ fontSize: 28 * fs, opacity: 0.65 }}>{snapshot!.location}</span>}

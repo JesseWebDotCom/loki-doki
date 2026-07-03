@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Gift, ChevronLeft, ChevronRight, WifiOff } from 'lucide-react'
+import { ChevronLeft, ChevronRight, WifiOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
@@ -60,7 +64,7 @@ interface DaysPillProps {
 function DaysPill({ diff }: DaysPillProps) {
   if (diff === 0) {
     return (
-      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+      <span className="rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
         Today!
       </span>
     )
@@ -95,7 +99,7 @@ function HolidayRow({ item, diff, isClosest }: HolidayRowProps) {
   return (
     <div
       className={cn(
-        'flex items-center gap-3 rounded-xl px-4 py-3 transition-colors',
+        'flex items-center gap-3 rounded-control px-4 py-3 transition-colors',
         isClosest && 'bg-brand/5 ring-1 ring-brand/20',
         isPast && 'opacity-50',
       )}
@@ -170,38 +174,38 @@ export function HolidaysPage() {
   const closestIdx = sorted.findIndex((h) => diffDays(today, parseLocalDate(h.date)) >= 0)
 
   return (
-    <PageShell gradient="linear-gradient(135deg,#881337,#be123c)" GhostIcon={Gift}>
+    <PageShell>
       {/* Header row */}
-      <div className="flex flex-col gap-3 px-5 pt-5 pb-3 shrink-0">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-black tracking-tight">Holidays</h1>
-            <p className="mt-0.5 text-xs text-muted-foreground">Public holidays and observances by country and year.</p>
-          </div>
-          {/* Year selector */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setYear((y) => y - 1)}
-              className="flex size-7 items-center justify-center rounded-lg bg-foreground/8 transition-colors hover:bg-foreground/12 active:scale-95"
-              aria-label="Previous year"
-            >
-              <ChevronLeft className="size-4" />
-            </button>
-            <span className="w-12 text-center text-sm font-semibold tabular-nums">{year}</span>
-            <button
-              type="button"
-              onClick={() => setYear((y) => y + 1)}
-              className="flex size-7 items-center justify-center rounded-lg bg-foreground/8 transition-colors hover:bg-foreground/12 active:scale-95"
-              aria-label="Next year"
-            >
-              <ChevronRight className="size-4" />
-            </button>
-          </div>
-        </div>
+      <PageContainer className="shrink-0">
+        <PageHeader
+          subtitle="Public holidays and observances by country and year."
+          actions={
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon-sm"
+                onClick={() => setYear((y) => y - 1)}
+                aria-label="Previous year"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="w-12 text-center text-sm font-semibold tabular-nums">{year}</span>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon-sm"
+                onClick={() => setYear((y) => y + 1)}
+                aria-label="Next year"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          }
+        />
 
         {/* Country chips */}
-        <ChipRow>
+        <ChipRow className="pb-3">
           {COUNTRIES.map((c) => (
             <Chip
               key={c}
@@ -211,54 +215,56 @@ export function HolidaysPage() {
             />
           ))}
         </ChipRow>
-      </div>
 
-      {/* Offline notice */}
-      {data?.offline && (
-        <div className="mx-5 mb-3 flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
-          <WifiOff className="size-4 shrink-0" />
-          Showing offline US holidays (fixed dates only)
-        </div>
-      )}
+        {/* Offline notice */}
+        {data?.offline && (
+          <div className="mb-3 flex items-center gap-2 rounded-card border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+            <WifiOff className="size-4 shrink-0" />
+            Showing offline US holidays (fixed dates only)
+          </div>
+        )}
+      </PageContainer>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-3 pb-6">
-        {loading && (
-          <div className="flex flex-col">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3">
-                <div className="h-4 w-14 animate-pulse rounded bg-muted" />
-                <div className="h-4 flex-1 animate-pulse rounded bg-muted" />
-                <div className="h-4 w-12 animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer className="pb-6">
+          {loading && (
+            <div className="flex flex-col">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="h-4 w-14" />
+                  <Skeleton className="h-4 flex-1" />
+                  <Skeleton className="h-4 w-12" />
+                </div>
+              ))}
+            </div>
+          )}
 
-        {error && (
-          <div className="mx-2 mt-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
+          {error && (
+            <div className="mt-4 rounded-control border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
 
-        {!loading && !error && sorted.length === 0 && (
-          <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
-            No holidays found for {COUNTRY_LABELS[country]} in {year}.
-          </div>
-        )}
+          {!loading && !error && sorted.length === 0 && (
+            <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+              No holidays found for {COUNTRY_LABELS[country]} in {year}.
+            </div>
+          )}
 
-        {!loading && !error && sorted.length > 0 && (
-          <div className="flex flex-col">
-            {sorted.map((item, idx) => (
-              <HolidayRow
-                key={`${item.date}-${item.localName}`}
-                item={item}
-                diff={diffDays(today, parseLocalDate(item.date))}
-                isClosest={idx === closestIdx}
-              />
-            ))}
-          </div>
-        )}
+          {!loading && !error && sorted.length > 0 && (
+            <div className="flex flex-col">
+              {sorted.map((item, idx) => (
+                <HolidayRow
+                  key={`${item.date}-${item.localName}`}
+                  item={item}
+                  diff={diffDays(today, parseLocalDate(item.date))}
+                  isClosest={idx === closestIdx}
+                />
+              ))}
+            </div>
+          )}
+        </PageContainer>
       </div>
     </PageShell>
   )

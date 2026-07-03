@@ -59,6 +59,7 @@ export const DEVICE_MODELS: DeviceModel[] = [
         'Or hold the top button to talk without the wake word (release when done).',
         'Plug it into any USB power around the house — it reconnects on its own.',
       ],
+      // design-ok(raw-palette-semantic): documents fixed physical device LED colors, not app UI
       indicators: [
         { color: 'bg-amber-500', meaning: 'Amber, breathing — connecting' },
         { color: 'bg-white/70', meaning: 'Dim white — ready, waiting for “Hey Jarvis”' },
@@ -137,6 +138,7 @@ const GENERIC_USAGE: DeviceUsage = {
     'Say “Hey Jarvis”, pause, then your question.',
     'Keep it powered; it reconnects on its own.',
   ],
+  // design-ok(raw-palette-semantic): documents fixed physical device LED colors, not app UI
   indicators: [
     { color: 'bg-emerald-500', meaning: 'Green — listening' },
     { color: 'bg-blue-500', meaning: 'Blue — thinking' },

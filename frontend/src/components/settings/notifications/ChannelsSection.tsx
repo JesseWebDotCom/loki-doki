@@ -3,10 +3,11 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Loader2, Mail, MonitorSmartphone, Send } from 'lucide-react'
+import { Mail, MonitorSmartphone, Send } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useAuth } from '@/context/AuthContext'
 import { getPushSubscription, pushSupported, subscribeToPush, unsubscribeFromPush } from '@/lib/push'
@@ -56,7 +57,7 @@ function TelegramCompanionPicker() {
       <select
         value={value}
         onChange={(e) => change(e.target.value)}
-        className="h-7 rounded-md border border-border/60 bg-transparent px-1.5 text-xs text-foreground"
+        className="h-7 rounded-control border border-border/60 bg-transparent px-1.5 text-xs text-foreground"
       >
         <option value="">Assistant (no character)</option>
         {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -76,7 +77,7 @@ function ChannelRow({ icon, title, status, children }: {
   children?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-4 rounded-xl px-3 py-3 hover:bg-muted/40 transition-colors">
+    <div className="flex items-center gap-4 rounded-control px-3 py-3 hover:bg-muted/40 transition-colors">
       <div className="text-muted-foreground shrink-0">{icon}</div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">{title}</p>
@@ -191,7 +192,7 @@ export function ChannelsSection({ channels, onRefresh }: {
 
   const runTest = (channel: 'push' | 'telegram' | 'email') => {
     void testChannel(channel)
-      .then(() => toast.success('Test sent — check the channel'))
+      .then(() => toast.success('Test sent, check the channel'))
       .catch((e: Error) => toast.error(e.message))
   }
 
@@ -215,7 +216,7 @@ export function ChannelsSection({ channels, onRefresh }: {
                 ? 'On iPhone or iPad, add this app to your Home Screen first (Share → Add to Home Screen), then come back here.'
                 : 'Not supported in this browser')
               : checking ? 'Checking…'
-              : subscribed ? 'Enabled — notifications arrive even when the app is closed'
+              : subscribed ? 'Enabled, notifications arrive even when the app is closed'
               : 'Off'
           }
         >
@@ -225,7 +226,7 @@ export function ChannelsSection({ channels, onRefresh }: {
             </Button>
           )}
           {checking || pushBusy
-            ? <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ? <Spinner />
             : <Switch checked={subscribed} disabled={!supported} onCheckedChange={(v) => void togglePush(v)} />}
         </ChannelRow>
 
@@ -236,9 +237,9 @@ export function ChannelsSection({ channels, onRefresh }: {
             title="Telegram"
             status={
               !channels ? 'Loading…'
-              : tg?.linked ? <>Linked{tg.label ? <> as <span className="font-medium text-foreground">{tg.label}</span></> : ''} — you can also chat with your companion there</>
+              : tg?.linked ? <>Linked{tg.label ? <> as <span className="font-medium text-foreground">{tg.label}</span></> : ''}, you can also chat with your companion there</>
               : channels.telegramAvailable ? 'Get notifications and chat with your companion from anywhere'
-              : 'Not available yet — ask your admin to set up the Telegram bot'
+              : 'Not available yet, ask your admin to set up the Telegram bot'
             }
           >
             {tg?.linked ? (
@@ -264,9 +265,9 @@ export function ChannelsSection({ channels, onRefresh }: {
           status={
             !channels ? 'Loading…'
             : email?.verified ? <span className="font-medium text-foreground">{email.address}</span>
-            : email ? `Code sent to ${email.address} — enter it here to confirm`
+            : email ? `Code sent to ${email.address}, enter it here to confirm`
             : channels.emailAvailable ? 'Good for daily summaries and reports'
-            : 'Not available yet — ask your admin to set up email (SMTP)'
+            : 'Not available yet, ask your admin to set up email (SMTP)'
           }
         >
           {email?.verified ? (
@@ -288,7 +289,7 @@ export function ChannelsSection({ channels, onRefresh }: {
                 className="h-8 w-28 text-sm"
               />
               <Button size="sm" className="h-8 text-xs" disabled={emailBusy || codeInput.trim().length !== 6} onClick={() => void verifyEmail()}>
-                {emailBusy ? <Loader2 className="size-3 animate-spin" /> : 'Verify'}
+                {emailBusy ? <Spinner size="sm" className="text-current" /> : 'Verify'}
               </Button>
             </div>
           ) : channels?.emailAvailable ? (
@@ -301,7 +302,7 @@ export function ChannelsSection({ channels, onRefresh }: {
                 className="h-8 w-44 text-sm"
               />
               <Button size="sm" className="h-8 text-xs" disabled={emailBusy || !emailInput.includes('@')} onClick={() => void saveEmail()}>
-                {emailBusy ? <Loader2 className="size-3 animate-spin" /> : 'Save'}
+                {emailBusy ? <Spinner size="sm" className="text-current" /> : 'Save'}
               </Button>
             </div>
           ) : null}

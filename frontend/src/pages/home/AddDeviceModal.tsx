@@ -5,7 +5,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Camera, Loader2, Sparkles, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { Camera, Sparkles, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import type { HomeDevice, DeviceCategory } from '../HomeInventoryPage'
 
@@ -114,7 +115,7 @@ export function AddDeviceModal({ open, onOpenChange, onAdded }: AddDeviceModalPr
         manufacturedDate: d.manufacturedDate ?? f.manufacturedDate,
       }))
 
-      // Kick off web lookup immediately if we have enough to search on — don't wait for save.
+      // Kick off web lookup immediately if we have enough to search on - don't wait for save.
       // First patch the device so lookup has the right name/brand/model in the DB.
       if (d.brand || d.model || d.name) {
         const lfd = new FormData()
@@ -183,7 +184,7 @@ export function AddDeviceModal({ open, onOpenChange, onAdded }: AddDeviceModalPr
           <div className="flex flex-col gap-4">
             <div
               className={cn(
-                'flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8 cursor-pointer transition-colors',
+                'flex flex-col items-center justify-center gap-3 rounded-card border-2 border-dashed p-8 cursor-pointer transition-colors',
                 dragOver ? 'border-primary bg-primary/10' :
                 'border-border hover:border-primary/40 hover:bg-muted/30'
               )}
@@ -200,7 +201,7 @@ export function AddDeviceModal({ open, onOpenChange, onAdded }: AddDeviceModalPr
               <div className="text-center">
                 <p className="text-sm font-medium">Drop a photo here or click to browse</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Close-up, in-focus shot of the label sticker only — AI will read the text
+                  Close-up, in-focus shot of the label sticker only; AI will read the text
                 </p>
               </div>
               <input
@@ -231,25 +232,26 @@ export function AddDeviceModal({ open, onOpenChange, onAdded }: AddDeviceModalPr
             {/* Photo thumbnail + status */}
             {photoPreview && (
               <div className="flex items-center gap-3">
-                <img src={photoPreview} alt="Device" className="size-14 rounded-lg object-cover shrink-0 border" />
+                <img src={photoPreview} alt="Device" className="size-14 rounded-control object-cover shrink-0 border" />
                 {identifying
-                  ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Reading label…</div>
+                  ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner />Reading label…</div>
                   : identified
                   ? <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2 text-xs text-success bg-success/10 rounded-control px-3 py-2">
                         <Sparkles className="size-3 shrink-0" />
-                        Label scanned — review below
+                        Label scanned; review below
                         {identified.confidence && <span className="ml-auto opacity-60">{identified.confidence} confidence</span>}
                       </div>
                     </div>
-                  : <div className="text-xs text-muted-foreground">Could not read label — fill in manually</div>
+                  : <div className="text-xs text-muted-foreground">Could not read label; fill in manually</div>
                 }
               </div>
             )}
 
-            {/* Debug panel — what AI actually read */}
+            {/* Debug panel - what AI actually read */}
             {identified && (identified.rawLabelText || identified.visualDescription) && (
-              <div className="rounded-lg border border-border overflow-hidden text-xs">
+              <div className="rounded-control border border-border overflow-hidden text-xs">
+                {/* design-ok(hand-styled-button): full-bleed disclosure row inside its bordered card */}
                 <button
                   type="button"
                   className="w-full flex items-center justify-between px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors font-medium"
@@ -308,7 +310,7 @@ export function AddDeviceModal({ open, onOpenChange, onAdded }: AddDeviceModalPr
                   <select
                     value={form.category}
                     onChange={e => setForm(f => ({ ...f, category: e.target.value as DeviceCategory }))}
-                    className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    className="mt-1 flex h-9 w-full rounded-control border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   >
                     {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                   </select>
@@ -334,7 +336,7 @@ export function AddDeviceModal({ open, onOpenChange, onAdded }: AddDeviceModalPr
               Back
             </Button>
             <Button onClick={save} disabled={saving || identifying || !form.name.trim()}>
-              {saving && <Loader2 className="size-4 mr-2 animate-spin" />}
+              {saving && <Spinner className="mr-2 text-current" />}
               Add Device
             </Button>
           </DialogFooter>

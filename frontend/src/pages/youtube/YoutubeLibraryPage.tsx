@@ -1,9 +1,12 @@
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Clock, Heart, History, Trash2, Download, Loader2 } from 'lucide-react'
+import { Clock, Heart, History, Trash2, Download } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { useYtDownloads } from '@/lib/youtube/useData'
 import { getHistory } from '@/lib/youtube/api'
 import { savedToItem, historyToItem, type VideoItem } from '@/lib/youtube/types'
@@ -27,8 +30,8 @@ export function YoutubeLibraryPage() {
   const tab = (params.get('tab') as Tab) ?? 'history'
 
   return (
-    <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
-      <h1 className="mb-5 text-2xl font-black tracking-tight">Library</h1>
+    <PageContainer width="wide" className="pb-6">
+      <PageHeader title="Library" className="pt-6 pb-5" />
       <div className="mb-6 flex gap-1 border-b border-border/50">
         {TABS.map(t => (
           <button key={t.key} onClick={() => setParams({ tab: t.key })}
@@ -42,24 +45,24 @@ export function YoutubeLibraryPage() {
         : tab === 'liked' ? <CollectionTab kind="liked" empty="No liked videos yet." />
         : tab === 'saved' ? <SavedTab />
         : <HistoryTab />}
-    </div>
+    </PageContainer>
   )
 }
 
 function HistoryTab() {
   const { data: history = [], isPending } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
-  if (isPending) return <div className="flex justify-center py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+  if (isPending) return <SkeletonCards count={8} className="xl:grid-cols-4" />
   if (!history.length) return <Empty label="No watch history yet. Videos you play show up here." />
   return <div className={GRID}>{history.map(h => <VideoCard key={h.videoId} item={historyToItem(h)} />)}</div>
 }
 
-// Everything saved for offline — findable regardless of the app's Online/Offline mode.
+// Everything saved for offline, findable regardless of the app's Online/Offline mode.
 function SavedTab() {
   const { data: downloads = [], isPending } = useYtDownloads()
   const ready = useMemo(() => downloads.filter(r => r.status === 'ready'), [downloads])
   const items = useMemo(() => ready.map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight))), [ready])
   const totalBytes = useMemo(() => ready.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), [ready])
-  if (isPending) return <div className="flex justify-center py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+  if (isPending) return <SkeletonCards count={8} className="xl:grid-cols-4" />
   if (!items.length) return <Empty label="Nothing saved offline yet. Use “Save for offline” on any video." />
   return (
     <>

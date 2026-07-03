@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ExternalLink, Loader2, MapPin, RefreshCw, WifiOff } from 'lucide-react'
+import { ExternalLink, MapPin, RefreshCw, WifiOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/cn'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -28,11 +31,11 @@ function SetupCard() {
   return (
     <div className="flex flex-1 items-center justify-center px-6 py-20">
       <div className="flex max-w-sm flex-col items-center gap-5 text-center">
-        <div className="flex size-16 items-center justify-center rounded-2xl bg-muted/60">
+        <div className="flex size-16 items-center justify-center rounded-card bg-muted/60">
           <MapPin className="size-8 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="text-lg font-bold tracking-tight">Set your location to see local events</h2>
+          <h2 className="text-title">Set your location to see local events</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Open Settings and use &ldquo;Detect my location&rdquo; or type your city to get started.
           </p>
@@ -53,28 +56,26 @@ function SetupCard() {
 
 function EventRow({ event }: { event: EventItem }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card px-4 py-3">
+    <Card className="flex items-center gap-3 border-border/50 px-4 py-3">
       <MapPin className="size-4 shrink-0 text-brand" />
-      <p className={cn('min-w-0 flex-1 text-sm font-medium')}>{event.text}</p>
+      <p className="min-w-0 flex-1 text-sm font-medium">{event.text}</p>
       {event.url && (
         <a
           href={event.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex shrink-0 items-center justify-center rounded-control p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           aria-label="Open event link"
           onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="size-4" />
         </a>
       )}
-    </div>
+    </Card>
   )
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-
-const GRADIENT = 'linear-gradient(135deg,#3b0764,#7c3aed)'
 
 async function fetchEvents(bust = false): Promise<EventsResponse> {
   const url = bust ? '/api/local-events?bust=1' : '/api/local-events'
@@ -114,86 +115,83 @@ export function LocalEventsPage() {
   const noLocation = status === 'ready' && !location && events.length === 0
 
   return (
-    <PageShell gradient={GRADIENT} GhostIcon={MapPin}>
-      <PageHeader
-        variant="compact"
-        title="Local Events"
-        subtitle={`Events in ${location ?? 'Your Area'}`}
-        gradient={GRADIENT}
-        icon={<MapPin className="size-7 text-white" />}
-        actions={
-          <button
-            onClick={() => { void load(true) }}
-            disabled={status === 'loading'}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25 active:scale-95 disabled:opacity-50"
-            aria-label="Refresh events"
-          >
-            <RefreshCw className={cn('size-3.5', status === 'loading' && 'animate-spin')} />
-            Refresh
-          </button>
-        }
-      />
-
-      <div className="flex-1 overflow-y-auto px-4 pb-6 sm:px-5">
-        {/* Loading */}
-        {status === 'loading' && events.length === 0 && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <Loader2 className="size-6 animate-spin" />
-          </div>
-        )}
-
-        {/* Offline */}
-        {status === 'ready' && isOffline && (
-          <div className="flex flex-col items-center gap-3 py-20 text-center">
-            <WifiOff className="size-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">No internet connection. Local events are unavailable offline.</p>
-          </div>
-        )}
-
-        {/* Error */}
-        {status === 'error' && (
-          <div className="flex flex-col items-center gap-3 py-20 text-center">
-            <WifiOff className="size-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Could not load events right now.</p>
-            <button
-              onClick={() => { void load() }}
-              className="flex items-center gap-1.5 text-xs text-brand hover:underline"
+    <PageShell>
+      <PageContainer className="shrink-0">
+        <PageHeader
+          subtitle={`Events in ${location ?? 'Your Area'}`}
+          actions={
+            <Button
+              variant="tinted"
+              size="sm"
+              onClick={() => { void load(true) }}
+              disabled={status === 'loading'}
+              aria-label="Refresh events"
             >
-              <RefreshCw className="size-3" /> Try again
-            </button>
-          </div>
-        )}
+              {status === 'loading' ? <Spinner size="sm" className="text-brand" /> : <RefreshCw className="size-3.5" />}
+              Refresh
+            </Button>
+          }
+        />
+      </PageContainer>
 
-        {/* No location configured */}
-        {!isOffline && noLocation && <SetupCard />}
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer className="pb-6">
+          {/* Loading */}
+          {status === 'loading' && events.length === 0 && <SkeletonListRows count={6} />}
 
-        {/* Events list */}
-        {status === 'ready' && !isOffline && events.length > 0 && (
-          <div className="space-y-2">
-            {isWebFallback && (
-              <p className="px-1 pb-1 text-xs text-muted-foreground">
-                No Patch coverage for this area — showing event discovery links.
-              </p>
-            )}
-            {events.map((event, i) => (
-              <EventRow key={i} event={event} />
-            ))}
-          </div>
-        )}
+          {/* Offline */}
+          {status === 'ready' && isOffline && (
+            <div className="flex flex-col items-center gap-3 py-20 text-center">
+              <WifiOff className="size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">No internet connection. Local events are unavailable offline.</p>
+            </div>
+          )}
 
-        {/* Ready but empty with location */}
-        {status === 'ready' && !isOffline && events.length === 0 && location && (
-          <div className="flex flex-col items-center gap-3 py-20 text-center">
-            <MapPin className="size-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">No events found near {location} right now.</p>
-            <button
-              onClick={() => { void load() }}
-              className="flex items-center gap-1.5 text-xs text-brand hover:underline"
-            >
-              <RefreshCw className="size-3" /> Try again
-            </button>
-          </div>
-        )}
+          {/* Error */}
+          {status === 'error' && (
+            <div className="flex flex-col items-center gap-3 py-20 text-center">
+              <WifiOff className="size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Could not load events right now.</p>
+              <button
+                onClick={() => { void load() }}
+                className="flex items-center gap-1.5 text-xs text-brand hover:underline"
+              >
+                <RefreshCw className="size-3" /> Try again
+              </button>
+            </div>
+          )}
+
+          {/* No location configured */}
+          {!isOffline && noLocation && <SetupCard />}
+
+          {/* Events list */}
+          {status === 'ready' && !isOffline && events.length > 0 && (
+            <div className="space-y-2">
+              {isWebFallback && (
+                <p className="px-1 pb-1 text-xs text-muted-foreground">
+                  No Patch coverage for this area, showing event discovery links.
+                </p>
+              )}
+              {events.map((event, i) => (
+                <EventRow key={i} event={event} />
+              ))}
+            </div>
+          )}
+
+          {/* Ready but empty with location */}
+          {status === 'ready' && !isOffline && events.length === 0 && location && (
+            <div className="flex flex-col items-center gap-3 py-20 text-center">
+              <MapPin className="size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">No events found near {location} right now.</p>
+              <button
+                onClick={() => { void load() }}
+                className="flex items-center gap-1.5 text-xs text-brand hover:underline"
+              >
+                <RefreshCw className="size-3" /> Try again
+              </button>
+            </div>
+          )}
+        </PageContainer>
       </div>
     </PageShell>
   )

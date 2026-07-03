@@ -4,7 +4,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Loader2, Wifi, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
+import { Wifi, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react'
 import { GENERIC_DEVICE_IMAGE, DEVICE_MODELS } from '@/lib/deviceCatalog'
 
 // Devices we can build + flash over USB (those with a firmware template). The board
@@ -17,7 +18,7 @@ const flashableName = (id: string) => {
 
 // Admin → Devices → "Add a device": a friendly, step-by-step setup flow.
 // Connect → Wi-Fi → Set up → Done. No jargon, no device picker (the make/model is
-// recognized automatically once the device powers on and registers — shown on the
+// recognized automatically once the device powers on and registers, shown on the
 // card afterward). The technical build log is tucked behind "Show details".
 
 interface FirmwareStatus {
@@ -111,7 +112,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
   const [showLog, setShowLog] = useState(false)
   const [error, setError] = useState('')
 
-  // Aborts the in-flight install/flash SSE when the wizard closes — otherwise the fetch
+  // Aborts the in-flight install/flash SSE when the wizard closes; otherwise the fetch
   // keeps streaming, the backend keeps compiling, and it holds the one-flash lock so the
   // next open 409s ("a flash is already in progress").
   const flashAbortRef = useRef<AbortController | null>(null)
@@ -215,7 +216,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
   const connected = (status?.ports.length ?? 0) > 0
 
   // Always stop at the Wi-Fi + name step so the installer can confirm/change the
-  // network and name the device — even when Wi-Fi was saved on a previous flash
+  // network and name the device, even when Wi-Fi was saved on a previous flash
   // (otherwise wrong saved creds silently get baked in with no way to fix them).
   function continueFromConnect() {
     // Reinstall: model known + Wi-Fi already saved → straight to flashing.
@@ -241,7 +242,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
 
-  // Run install (if needed) then flash — all under the friendly "setup" screen.
+  // Run install (if needed) then flash, all under the friendly "setup" screen.
   const runSetup = useCallback(async () => {
     setBusy(true); setError(''); setLog([]); setStatusMsg('Getting your device ready…')
     flashAbortRef.current?.abort()
@@ -270,7 +271,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
       let ok = false
       // Transient = worth a silent retry (port settling, a stuck prior flash, a network
       // blip fetching firmware). Connect-fail = the board didn't enter the bootloader
-      // (often needs the BOOT button) — retry a couple times, then guide the user.
+      // (often needs the BOOT button): retry a couple times, then guide the user.
       const TRANSIENT = /device|port|plug|in progress|409|resource busy|could not open|firmware|download|network|ENOTFOUND|ETIMEDOUT|timed out/i
       const CONNECT_FAIL = /failed to connect|wrong boot mode|no serial data received|timed out waiting for packet|chip stopped|md5/i
       const retryable = (e: string) => TRANSIENT.test(e) || CONNECT_FAIL.test(e)
@@ -288,7 +289,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
             else if (ev === 'done') ok = true
           }, ac.signal)
         } catch (e) {
-          if (ac.signal.aborted) return            // wizard closed mid-flash — stop quietly
+          if (ac.signal.aborted) return            // wizard closed mid-flash: stop quietly
           flashErr = e instanceof Error ? e.message : String(e)
         }
         if (ok || !flashErr || !retryable(flashErr) || attempt === MAX_TRIES) break
@@ -311,7 +312,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
       }
       if (ok) {
         setPhase('done')
-        // Tell the parent to start refreshing now — the device will announce itself
+        // Tell the parent to start refreshing now: the device will announce itself
         // for Claim within seconds of powering up, so don't wait on the next poll.
         onFlashed?.()
       }
@@ -320,7 +321,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
     } finally { setBusy(false) }
   }, [appendLog, advanceStage, deviceName, model, selectedPort, onFlashed, refetch])
 
-  // Kick off setup automatically when we reach that screen — exactly once
+  // Kick off setup automatically when we reach that screen, exactly once
   // (a ref guard survives React StrictMode's double-effect in dev).
   const setupStartedRef = useRef(false)
   useEffect(() => {
@@ -348,7 +349,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
             {steps.map((label, i) => (
               <div key={label} className="flex items-center gap-2">
                 <span className={`flex items-center gap-1.5 text-xs ${i === stepIndex ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
-                  <span className={`size-1.5 rounded-full ${i < stepIndex ? 'bg-emerald-500' : i === stepIndex ? 'bg-primary' : 'bg-muted-foreground/40'}`} />
+                  <span className={`size-1.5 rounded-full ${i < stepIndex ? 'bg-success' : i === stepIndex ? 'bg-primary' : 'bg-muted-foreground/40'}`} />
                   {label}
                 </span>
                 {i < steps.length - 1 && <span className="text-muted-foreground/40">—</span>}
@@ -373,14 +374,14 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
                 announce itself, so we read its chip over USB and pick the matching
                 firmware automatically (no chance to choose the wrong one). Reinstall
                 already knows the device, so it just checks it's plugged in. */}
-            <div className={`flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium ${
-              connected ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+            <div className={`flex w-full items-center justify-center gap-2 rounded-card px-3 py-2.5 text-sm font-medium ${
+              connected ? 'bg-success/10 text-success' : 'bg-muted/60 text-muted-foreground'}`}>
               {!connected
-                ? <><Loader2 className="size-4 animate-spin" /> Looking for your device…</>
+                ? <><Spinner className="size-4" /> Looking for your device…</>
                 : isReflash
                   ? <><CheckCircle2 className="size-4" /> Found your device!</>
                   : detecting
-                    ? <><Loader2 className="size-4 animate-spin" /> Identifying your device…</>
+                    ? <><Spinner className="size-4" /> Identifying your device…</>
                     : detect?.model
                       ? <><CheckCircle2 className="size-4" /> {`Found your ${flashableName(detect.model)}!`}</>
                       : <><CheckCircle2 className="size-4" /> Found your device!</>}
@@ -394,7 +395,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
                 <select
                   value={selectedPort}
                   onChange={(e) => setSelectedPort(e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="h-9 w-full rounded-control border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   {(status?.ports ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
@@ -417,7 +418,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
                         key={m.id}
                         type="button"
                         onClick={() => setModel(m.id)}
-                        className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors ${
+                        className={`flex items-center gap-3 rounded-card border px-3 py-2 text-left transition-colors ${
                           model === m.id ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-border'}`}
                       >
                         <m.icon className="size-5 shrink-0 text-muted-foreground" />
@@ -456,7 +457,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
                   : 'Your device uses this to reach LokiDoki. You only set it once.'}
               </p>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border px-3">
+            <div className="flex items-center gap-2 rounded-control border px-3">
               <Wifi className="size-4 text-muted-foreground" />
               <Input className="border-0 px-1 focus-visible:ring-0" placeholder="Wi-Fi network name" value={ssid} onChange={(e) => setSsid(e.target.value)} autoFocus />
             </div>
@@ -469,7 +470,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
             <div className="flex gap-2 pt-1">
               <Button variant="ghost" onClick={() => setPhase('connect')} disabled={busy}>Back</Button>
               <Button className="flex-1" onClick={saveWifiAndContinue} disabled={busy || !ssid.trim()}>
-                {busy ? <Loader2 className="size-4 animate-spin" /> : 'Continue'}
+                {busy ? <Spinner className="size-4" /> : 'Continue'}
               </Button>
             </div>
           </div>
@@ -509,7 +510,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
           <div className="flex flex-col items-center gap-4 px-2 py-4 text-center">
             <DeviceHero done />
             <div>
-              <p className="text-base font-semibold">All set! <Sparkles className="inline size-4 text-amber-400" /></p>
+              <p className="text-base font-semibold">All set! <Sparkles className="inline size-4 text-brand" /></p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {isReflash
                   ? 'All updated. Unplug it and put it back — it’ll reconnect on its own in a moment.'
@@ -529,7 +530,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
               {showLog ? 'Hide details' : 'Show details'}
             </button>
             {showLog && (
-              <div ref={logRef} className="mt-1 max-h-32 w-full overflow-auto rounded-lg bg-black/90 p-2 font-mono text-[10px] leading-relaxed text-emerald-200/90">
+              <div ref={logRef} className="mt-1 max-h-32 w-full overflow-auto rounded-card bg-black/90 p-2 font-mono text-[10px] leading-relaxed text-success/90">
                 {log.map((l, i) => <div key={i} className="whitespace-pre-wrap break-all">{l}</div>)}
               </div>
             )}
@@ -537,7 +538,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
         )}
 
         {error && phase !== 'setup' && (
-          <p className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <p className="flex items-start gap-2 rounded-card bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> {error}
           </p>
         )}
@@ -563,14 +564,14 @@ function StageList({ stage }: { stage: SetupStage }) {
         return (
           <div
             key={s.id}
-            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${
+            className={`flex items-center gap-3 rounded-control px-3 py-2.5 transition-colors ${
               state === 'active' ? 'bg-primary/5' : ''}`}
           >
             <span className="grid size-5 shrink-0 place-items-center">
               {state === 'done' ? (
-                <CheckCircle2 className="size-5 text-emerald-500" />
+                <CheckCircle2 className="size-5 text-success" />
               ) : state === 'active' ? (
-                <Loader2 className="size-4 animate-spin text-primary" />
+                <Spinner className="size-4" />
               ) : (
                 <span className="size-2 rounded-full bg-muted-foreground/30" />
               )}
@@ -591,8 +592,9 @@ function StageList({ stage }: { stage: SetupStage }) {
 function DeviceHero({ pulsing, done }: { pulsing?: boolean; done?: boolean }) {
   return (
     <div className="relative">
-      {done && <span className="absolute -right-1 -top-1 z-10 grid size-7 place-items-center rounded-full bg-emerald-500 text-white shadow"><CheckCircle2 className="size-4" /></span>}
-      <div className={`grid size-28 place-items-center rounded-3xl bg-gradient-to-br from-muted/70 to-muted/20 ${pulsing ? 'animate-pulse' : ''}`}>
+      {done && <span className="absolute -right-1 -top-1 z-10 grid size-7 place-items-center rounded-full bg-success text-white shadow"><CheckCircle2 className="size-4" /></span>}
+      {/* design-ok(adhoc-pulse): connecting-in-progress illustration glow, same intent as BootScreen's repair-in-progress icon pulse */}
+      <div className={`grid size-28 place-items-center rounded-sheet bg-gradient-to-br from-muted/70 to-muted/20 ${pulsing ? 'animate-pulse' : ''}`}>
         <img src={GENERIC_DEVICE_IMAGE} alt="" className="size-20" />
       </div>
     </div>

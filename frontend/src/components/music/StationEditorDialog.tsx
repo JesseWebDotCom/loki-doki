@@ -17,7 +17,7 @@ const DJ_OPTIONS = [{
   options: [
     { value: 'full', label: 'Full DJ', description: 'An AI host talks between songs' },
     { value: 'minimal', label: 'DJ minimal', description: 'Just announces each song' },
-    { value: 'silent', label: 'Silent', description: 'No DJ — just the music' },
+    { value: 'silent', label: 'Silent', description: 'No DJ, just the music' },
   ],
 }]
 
@@ -97,7 +97,7 @@ export function StationEditorDialog({ open, onOpenChange, station }: {
               ))}
             </div>
           </div>
-          <div className="flex items-center justify-between rounded-xl border border-border/60 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-control border border-border/60 px-3 py-2.5">
             <div>
               <p className="text-sm font-medium">Share with the family</p>
               <p className="text-[11px] text-muted-foreground">Everyone can play it; only you can edit it.</p>

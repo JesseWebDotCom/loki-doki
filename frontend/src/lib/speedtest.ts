@@ -79,9 +79,10 @@ export const MODE_PREF_KEY = 'speedtest.mode'
 export type SpeedRating = 'good' | 'ok' | 'bad'
 
 export const RATING_META: Record<SpeedRating, { label: string; color: string; text: string; bg: string; ring: string }> = {
-  good: { label: 'Good', color: '#22c55e', text: 'text-emerald-400', bg: 'bg-emerald-500/10', ring: 'ring-emerald-500/30' },
-  ok:   { label: 'OK',   color: '#f59e0b', text: 'text-amber-400',   bg: 'bg-amber-500/10',   ring: 'ring-amber-500/30' },
-  bad:  { label: 'Slow', color: '#ef4444', text: 'text-red-400',     bg: 'bg-red-500/10',     ring: 'ring-red-500/30' },
+  // color: raw hex feeds the gauge-needle inline style (canvas/SVG-style DOM paint), not a Tailwind class.
+  good: { label: 'Good', color: '#22c55e', text: 'text-success', bg: 'bg-success/10', ring: 'ring-success/30' },
+  ok:   { label: 'OK',   color: '#f59e0b', text: 'text-warning', bg: 'bg-warning/10', ring: 'ring-warning/30' },
+  bad:  { label: 'Slow', color: '#ef4444', text: 'text-destructive', bg: 'bg-destructive/10', ring: 'ring-destructive/30' },
 }
 
 export function rateSpeed(mbps: number, t: SpeedThresholds): SpeedRating {

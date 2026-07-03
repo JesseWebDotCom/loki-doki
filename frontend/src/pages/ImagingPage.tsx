@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react'
-import { Sparkles, Settings2, X, RefreshCw, Wand2, ChevronDown, ChevronUp, Download, Trash2, Upload, Eraser, ZoomIn, Zap, Pencil, ArrowLeftRight, ScanFace, ImageOff, Maximize2, Palette, SlidersHorizontal, Aperture, ScanLine, Car, Search, ArrowRight, Loader2, FileText, MapPin, Eye, Type, Layers, Copy, Sparkle } from 'lucide-react'
+import { Sparkles, Settings2, X, RefreshCw, Wand2, ChevronDown, ChevronUp, Download, Trash2, Upload, Eraser, ZoomIn, Zap, Pencil, ArrowLeftRight, ScanFace, ImageOff, Maximize2, Palette, SlidersHorizontal, Aperture, ScanLine, Car, Search, ArrowRight, FileText, MapPin, Eye, Type, Layers, Copy, Sparkle } from 'lucide-react'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useImageEdit } from '@/hooks/useImageEdit'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,9 @@ import { Label } from '@/components/ui/label'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { PageShell } from '@/components/shared/PageShell'
 import { ChromeWash } from '@/components/shared/ChromeWash'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot } from '@/components/shared/StatusDot'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { useGenerationContext } from '@/context/GenerationContext'
@@ -65,8 +68,8 @@ const ASPECT_PRESETS = [
 // ── Edit operations ────────────────────────────────────────────────────────────
 
 const EDIT_OPERATIONS = [
-  { id: 'enhance',       label: 'Enhance',           description: 'Sharpen details and improve quality — adjustable strength',      icon: Zap,               group: 'Enhance'   as const, cardGrad: 'linear-gradient(135deg,#f59e0b,#ef4444)' },
-  { id: 'auto-color',    label: 'Auto Color',        description: 'Auto levels and vibrance — instant, no model needed',            icon: Palette,           group: 'Enhance'   as const, cardGrad: 'linear-gradient(135deg,#ec4899,#f43f5e)' },
+  { id: 'enhance',       label: 'Enhance',           description: 'Sharpen details and improve quality, adjustable strength',        icon: Zap,               group: 'Enhance'   as const, cardGrad: 'linear-gradient(135deg,#f59e0b,#ef4444)' },
+  { id: 'auto-color',    label: 'Auto Color',        description: 'Auto levels and vibrance, instant, no model needed',              icon: Palette,           group: 'Enhance'   as const, cardGrad: 'linear-gradient(135deg,#ec4899,#f43f5e)' },
   { id: 'adjust',        label: 'Adjust',            description: 'Brightness, contrast, saturation, and sharpness controls',       icon: SlidersHorizontal, group: 'Enhance'   as const, cardGrad: 'linear-gradient(135deg,#6366f1,#4f46e5)' },
   { id: 'remove-bg',     label: 'Remove BG',         description: 'Isolate the subject by cutting out the background',              icon: Eraser,            group: 'Transform' as const, cardGrad: 'linear-gradient(135deg,#7c3aed,#a855f7)' },
   { id: 'bg-blur',       label: 'BG Blur',           description: 'Keep the subject sharp while blurring the background',           icon: Aperture,          group: 'Transform' as const, cardGrad: 'linear-gradient(135deg,#0ea5e9,#06b6d4)' },
@@ -144,7 +147,7 @@ function GenProgress({ step, total, elapsedMs }: { step: number; total: number; 
           {etaLabel && <span>{etaLabel}</span>}
         </div>
       </div>
-      <p className="text-sm text-white/60 animate-pulse">Generating…</p>
+      <p className="flex items-center gap-1.5 text-sm text-white/60"><StatusDot status="info" pulse />Generating…</p>
     </div>
   )
 }
@@ -160,6 +163,7 @@ function Lightbox({ src, prompt, onClose }: { src: string; prompt?: string; onCl
 
   return (
     <div
+      // design-ok(raw-overlay): full-bleed fullscreen image preview, not a content modal
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
       onClick={onClose}
     >
@@ -169,13 +173,16 @@ function Lightbox({ src, prompt, onClose }: { src: string; prompt?: string; onCl
         className="max-w-full max-h-full object-contain select-none"
         onClick={e => e.stopPropagation()}
       />
-      <button
+      <Button
         onClick={onClose}
-        className="absolute top-4 right-4 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
+        variant="ghost"
+        size="icon"
+        className="absolute top-4 right-4 bg-black/60 text-white hover:bg-black/80 hover:text-white"
+        aria-label="Close"
         title="Close"
       >
         <X className="size-5" />
-      </button>
+      </Button>
       {prompt && (
         <div className="absolute bottom-0 inset-x-0 pointer-events-none">
           <div className="bg-gradient-to-t from-black/80 to-transparent px-6 pt-10 pb-5">
@@ -206,41 +213,50 @@ function ResultImage({ src, prompt, onDelete, onFullscreen }: { src: string; pro
         alt={prompt}
         onLoad={() => setLoaded(true)}
         className={cn(
-          'max-w-full max-h-full object-contain rounded-xl transition-opacity duration-500',
+          'max-w-full max-h-full object-contain rounded-card transition-opacity duration-500',
           loaded ? 'opacity-100' : 'opacity-0',
         )}
       />
       {!loaded && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="size-8 rounded-full border-2 border-muted-foreground/30 border-t-foreground animate-spin" />
+          <Spinner size="lg" className="text-foreground" />
         </div>
       )}
       {loaded && (
         <div className="absolute bottom-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {onFullscreen && (
-            <button
+            <Button
               onClick={onFullscreen}
-              className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 text-white transition-colors"
+              variant="ghost"
+              size="icon-sm"
+              className="bg-black/60 text-white hover:bg-black/80 hover:text-white"
+              aria-label="Fullscreen"
               title="Fullscreen"
             >
               <Maximize2 className="size-4" />
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             onClick={handleDownload}
-            className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 text-white transition-colors"
+            variant="ghost"
+            size="icon-sm"
+            className="bg-black/60 text-white hover:bg-black/80 hover:text-white"
+            aria-label="Download"
             title="Download"
           >
             <Download className="size-4" />
-          </button>
+          </Button>
           {onDelete && (
-            <button
+            <Button
               onClick={onDelete}
-              className="p-1.5 rounded-md bg-black/60 hover:bg-red-600/80 text-white transition-colors"
+              variant="ghost"
+              size="icon-sm"
+              className="bg-black/60 text-white hover:bg-destructive hover:text-white"
+              aria-label="Delete"
               title="Delete"
             >
               <Trash2 className="size-4" />
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -283,6 +299,7 @@ function CompareSlider({ beforeSrc, afterSrc }: { beforeSrc: string; afterSrc: s
         style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
       />
       <div className="absolute top-0 bottom-0 w-0.5 bg-white/80 shadow pointer-events-none" style={{ left: `${position}%` }} />
+      {/* design-ok(hand-styled-button): before/after drag handle, positional coordinate math not a semantic action button */}
       <button
         className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 size-8 rounded-full bg-white shadow-lg flex items-center justify-center cursor-col-resize z-10"
         style={{ left: `${position}%` }}
@@ -291,7 +308,7 @@ function CompareSlider({ beforeSrc, afterSrc }: { beforeSrc: string; afterSrc: s
         onTouchStart={e => e.preventDefault()}
         aria-label="Drag to compare"
       >
-        <ArrowLeftRight className="size-3.5 text-gray-600" />
+        <ArrowLeftRight className="size-3.5 text-black/60" />
       </button>
       <div className="absolute bottom-3 left-3 rounded px-1.5 py-0.5 text-xs bg-black/50 text-white pointer-events-none">Before</div>
       <div className="absolute bottom-3 right-3 rounded px-1.5 py-0.5 text-xs bg-black/50 text-white pointer-events-none">After</div>
@@ -309,7 +326,7 @@ function RatioIcon({ ratioW, ratioH }: { ratioW: number; ratioH: number }) {
   const bh = aspect >= 1 ? Math.round(MAX / aspect) : MAX
   return (
     <div
-      className="rounded-sm border-[1.5px] border-current"
+      className="rounded-control border-[1.5px] border-current"
       style={{ width: bw, height: bh }}
     />
   )
@@ -355,7 +372,7 @@ function LoraPicker({
             onChange={e => setSearchInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submit() }}
             placeholder="Search styles…"
-            className="h-7 pl-7 pr-6 text-xs rounded-lg"
+            className="h-7 pl-7 pr-6 text-xs rounded-control"
           />
           {searchInput && (
             <button onClick={clear} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -363,13 +380,16 @@ function LoraPicker({
             </button>
           )}
         </div>
-        <button
+        <Button
           onClick={submit}
-          className="flex items-center justify-center size-7 rounded-lg bg-muted hover:bg-muted/80 active:scale-95 text-muted-foreground hover:text-foreground transition-all shrink-0"
+          variant="secondary"
+          size="icon-sm"
+          className="shrink-0 active:scale-95"
+          aria-label="Search"
           title="Search"
         >
           <ArrowRight className="size-3.5" />
-        </button>
+        </Button>
       </div>
       {filtered.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2 text-center">No styles match "{query}"</p>
@@ -385,16 +405,16 @@ function LoraPicker({
               <button
                 onClick={() => onToggle(l.id)}
                 className={cn(
-                  'flex flex-col items-center gap-1 w-full rounded-xl border-2 p-1 transition-colors',
+                  'flex flex-col items-center gap-1 w-full rounded-card border-2 p-1 transition-colors',
                   selected.has(l.id)
                     ? 'border-brand'
                     : 'border-transparent hover:border-border',
                 )}
               >
                 {l.thumbnailUrl ? (
-                  <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-square rounded-lg object-cover" />
+                  <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-square rounded-card object-cover" />
                 ) : (
-                  <div className="w-full aspect-square rounded-lg bg-muted flex items-center justify-center">
+                  <div className="w-full aspect-square rounded-card bg-muted flex items-center justify-center">
                     <Palette className="size-5 text-muted-foreground" />
                   </div>
                 )}
@@ -404,17 +424,17 @@ function LoraPicker({
               </button>
 
               {hoveredId === l.id && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-xl bg-zinc-900 border border-white/10 shadow-2xl z-50 overflow-hidden pointer-events-none">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-sheet bg-popover border border-border shadow-2xl z-50 overflow-hidden pointer-events-none">
                   {l.thumbnailUrl && (
                     <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-[3/4] object-cover" />
                   )}
                   <div className="p-2.5 space-y-1">
-                    <p className="text-[11px] font-semibold text-white leading-tight">{l.name}</p>
+                    <p className="text-[11px] font-semibold text-popover-foreground leading-tight">{l.name}</p>
                     {l.description && (
-                      <p className="text-[10px] text-white/50 leading-snug line-clamp-4">{l.description}</p>
+                      <p className="text-[10px] text-muted-foreground leading-snug line-clamp-4">{l.description}</p>
                     )}
                     {l.triggerTokens.length > 0 && (
-                      <p className="text-[10px] text-sky-400/70 font-mono leading-tight">{l.triggerTokens.join(', ')}</p>
+                      <p className="text-[10px] text-brand/80 font-mono leading-tight">{l.triggerTokens.join(', ')}</p>
                     )}
                   </div>
                 </div>
@@ -434,8 +454,8 @@ function HistoryTile({ item, onClick, onDelete, onEdit, onFullscreen, selected }
 
   if (item.state !== 'ready') {
     return (
-      <div className="aspect-square rounded-xl bg-muted flex items-center justify-center">
-        <div className="size-4 rounded-full border border-muted-foreground/30 border-t-muted-foreground animate-spin" />
+      <div className="aspect-square rounded-card bg-muted flex items-center justify-center">
+        <Spinner size="sm" />
       </div>
     )
   }
@@ -455,7 +475,7 @@ function HistoryTile({ item, onClick, onDelete, onEdit, onFullscreen, selected }
 
   return (
     <div className={cn(
-      'relative aspect-square rounded-xl overflow-hidden bg-muted group',
+      'relative aspect-square rounded-card overflow-hidden bg-muted group',
       selected && 'ring-2 ring-brand',
     )}>
       <button
@@ -480,38 +500,50 @@ function HistoryTile({ item, onClick, onDelete, onEdit, onFullscreen, selected }
       {(onDelete || onEdit || onFullscreen) && (
         <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {onEdit && (
-            <button
+            <Button
               onClick={e => { e.stopPropagation(); onEdit() }}
-              className="p-1 rounded bg-black/60 hover:bg-indigo-600/80 text-white transition-colors"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6 bg-black/60 text-white hover:bg-brand hover:text-white"
+              aria-label="Edit"
               title="Edit"
             >
               <Pencil className="size-3" />
-            </button>
+            </Button>
           )}
           {onFullscreen && (
-            <button
+            <Button
               onClick={e => { e.stopPropagation(); onFullscreen() }}
-              className="p-1 rounded bg-black/60 hover:bg-black/80 text-white transition-colors"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6 bg-black/60 text-white hover:bg-black/80 hover:text-white"
+              aria-label="Fullscreen"
               title="Fullscreen"
             >
               <Maximize2 className="size-3" />
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             onClick={handleDownload}
-            className="p-1 rounded bg-black/60 hover:bg-black/80 text-white transition-colors"
+            variant="ghost"
+            size="icon-sm"
+            className="size-6 bg-black/60 text-white hover:bg-black/80 hover:text-white"
+            aria-label="Download"
             title="Download"
           >
             <Download className="size-3" />
-          </button>
+          </Button>
           {onDelete && (
-            <button
+            <Button
               onClick={handleDelete}
-              className="p-1 rounded bg-black/60 hover:bg-red-600/80 text-white transition-colors"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6 bg-black/60 text-white hover:bg-destructive hover:text-white"
+              aria-label="Delete"
               title="Delete"
             >
               <Trash2 className="size-3" />
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -812,7 +844,7 @@ export function ImagingPage() {
           correctedWeights?: Record<string, number>
         }
 
-        // Safety veto — cancel the running job and stop. Do NOT retry/correct.
+        // Safety veto: cancel the running job and stop. Do NOT retry/correct.
         if (data.blocked) {
           if (capturedImageId) cancel(capturedImageId)
           await new Promise(r => setTimeout(r, 300))
@@ -823,7 +855,7 @@ export function ImagingPage() {
 
         if (data.match) { setAutoPhase('idle'); return }
 
-        // Mismatch — cancel and re-generate with corrections (one attempt only)
+        // Mismatch: cancel and re-generate with corrections (one attempt only)
         setAutoPhase('correcting')
         if (capturedImageId) cancel(capturedImageId)
 
@@ -843,7 +875,7 @@ export function ImagingPage() {
 
         const correctedParams = { ...base.params, prompt: correctedPrompt, loraWeights: correctedWeights }
         lastGenParamsRef.current = { params: correctedParams, isAdult: base.isAdult }
-        // autoCheckFiredRef stays true — no second check on the corrected run
+        // autoCheckFiredRef stays true, no second check on the corrected run
         await generate(correctedParams, base.isAdult)
         setAutoPhase('idle')
       } catch {
@@ -1056,7 +1088,7 @@ export function ImagingPage() {
           if (data.prompt) finalPrompt = data.prompt
           if (data.weights && Object.keys(data.weights).length > 0) loraWeights = data.weights
         }
-      } catch { /* non-fatal — use original prompt + default weights */ }
+      } catch { /* non-fatal, use original prompt + default weights */ }
     }
 
     if (finalPrompt !== prompt.trim()) setPrompt(finalPrompt)
@@ -1250,7 +1282,7 @@ export function ImagingPage() {
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
                 className={cn(
-                  'flex flex-col items-center gap-1 w-full px-1 py-2.5 rounded-xl transition-colors',
+                  'flex flex-col items-center gap-1 w-full px-1 py-2.5 rounded-control transition-colors',
                   activeTab === item.id
                     ? 'text-brand bg-brand/10'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
@@ -1265,7 +1297,7 @@ export function ImagingPage() {
 
         {/* ── Secondary panel ──────────────────────────────────────────────── */}
         <div className="w-72 flex flex-col min-h-0 border-r border-border shrink-0 bg-background">
-          <div className="relative px-4 py-3.5 border-b border-border/40 bg-background/70 backdrop-blur-md shrink-0">
+          <div className="relative px-4 py-3.5 border-b border-border/40 glass-chrome shrink-0">
             <ChromeWash />
             <h2 className="relative text-sm font-semibold">
               {activeTab === 'generate' ? 'Generate' : activeTab === 'edit' ? 'Edit' : activeTab === 'recognize' ? 'Recognize' : 'Logo'}
@@ -1274,9 +1306,9 @@ export function ImagingPage() {
               {activeTab === 'generate'
                 ? 'Create images from text prompts using local AI models.'
                 : activeTab === 'edit'
-                ? 'Enhance, transform, and retouch any photo — fully offline.'
+                ? 'Enhance, transform, and retouch any photo, fully offline.'
                 : activeTab === 'recognize'
-                ? 'Analyze images — describe scenes, read text, detect objects.'
+                ? 'Analyze images: describe scenes, read text, detect objects.'
                 : 'Generate logos and icons from a text description.'}
             </p>
           </div>
@@ -1287,29 +1319,29 @@ export function ImagingPage() {
             {activeTab === 'generate' && (
               <>
                 {repairJob && (
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400 space-y-1.5">
+                  <div className="rounded-card border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning space-y-1.5">
                     <span className="flex items-center gap-2">
-                      <Loader2 className="size-3 animate-spin shrink-0" />
-                      <span>Re-downloading <span className="font-medium">{repairJob.label}</span> — a model file was corrupted and is being automatically repaired.</span>
+                      <Spinner size="sm" className="shrink-0 text-warning" />
+                      <span>Re-downloading <span className="font-medium">{repairJob.label}</span>, a model file was corrupted and is being automatically repaired.</span>
                     </span>
                     {repairJob.pct !== null && (
-                      <div className="w-full h-1.5 rounded-full bg-amber-500/20 overflow-hidden">
-                        <div className="h-full rounded-full bg-amber-500 transition-all duration-500" style={{ width: `${repairJob.pct}%` }} />
+                      <div className="w-full h-1.5 rounded-full bg-warning/20 overflow-hidden">
+                        <div className="h-full rounded-full bg-warning transition-all duration-500" style={{ width: `${repairJob.pct}%` }} />
                       </div>
                     )}
-                    <span className="text-amber-500/70">{repairJob.pct !== null ? `${repairJob.pct}% complete` : 'Queued…'} — generation will resume automatically when done.</span>
+                    <span className="text-warning/70">{repairJob.pct !== null ? `${repairJob.pct}% complete` : 'Queued…'}, generation will resume automatically when done.</span>
                   </div>
                 )}
                 {imageGenAvailable === false && !repairJob && (
-                  <div className={cn('rounded-xl border px-3 py-2.5 text-xs',
+                  <div className={cn('rounded-card border px-3 py-2.5 text-xs',
                     imageGenState === 'warming'
-                      ? 'border-sky-500/30 bg-sky-500/10 text-sky-400'
-                      : 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                      ? 'border-info/30 bg-info/10 text-info'
+                      : 'border-warning/30 bg-warning/10 text-warning',
                   )}>
                     {imageGenState === 'not_installed'
                       ? 'Image generation isn\'t installed. Go to Admin → Features to set it up.'
                       : imageGenState === 'warming'
-                      ? <span className="flex items-center gap-2"><Loader2 className="size-3 animate-spin" /> Starting up image generation…</span>
+                      ? <span className="flex items-center gap-2"><Spinner size="sm" className="text-info" /> Starting up image generation…</span>
                       : 'Image generation ran into an issue. Try reloading, or visit Admin → Troubleshooting.'}
                   </div>
                 )}
@@ -1319,7 +1351,7 @@ export function ImagingPage() {
                     <span className="text-[10px] text-muted-foreground">{prompt.length}/600</span>
                   </div>
                   {(activeGenIsAdult && gen.status === 'generating') || selectedHistoryIsAdult ? (
-                    <div className="min-h-[100px] flex items-center justify-center rounded-xl border border-border/60 bg-muted/30">
+                    <div className="min-h-[100px] flex items-center justify-center rounded-card border border-border/60 bg-muted/30">
                       <span className="text-xs text-muted-foreground">Unlock to view prompt</span>
                     </div>
                   ) : (
@@ -1329,7 +1361,7 @@ export function ImagingPage() {
                       value={prompt}
                       onChange={e => setPrompt(e.target.value)}
                       disabled={gen.status === 'generating'}
-                      className="min-h-[100px] resize-none text-sm rounded-xl"
+                      className="min-h-[100px] resize-none text-sm rounded-control"
                       maxLength={600}
                       onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleGenerate() }}
                     />
@@ -1340,7 +1372,7 @@ export function ImagingPage() {
                   onClick={() => setAutoMode(v => !v)}
                   disabled={gen.status === 'generating'}
                   className={cn(
-                    'w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                    'w-full flex items-center gap-3 rounded-card border px-3 py-2.5 text-left transition-colors',
                     autoMode
                       ? 'border-brand/40 bg-brand/8 hover:bg-brand/12'
                       : 'border-border bg-muted/20 hover:bg-muted/40',
@@ -1361,7 +1393,7 @@ export function ImagingPage() {
                       const [rw, rh] = p.label.split(':').map(Number)
                       return (
                         <button key={p.label} onClick={() => setAspectPreset(i)} disabled={gen.status === 'generating'}
-                          className={cn('flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-colors border min-w-[44px]',
+                          className={cn('flex flex-col items-center justify-center gap-1 rounded-control px-2 py-2 text-[10px] font-medium transition-colors border min-w-[44px]',
                             aspectPreset === i ? 'border-brand text-brand bg-brand/10' : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground')}>
                           <RatioIcon ratioW={rw} ratioH={rh} />
                           {p.label}
@@ -1372,7 +1404,7 @@ export function ImagingPage() {
                 </div>
                 <LoraPicker loras={privacyEnabled && !adultVisible ? loras.filter(l => !l.isAdult) : loras} selected={selectedLoras} onToggle={toggleLora} />
                 {sentLoraInfo.length > 0 && gen.status !== 'idle' && (
-                  <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5 space-y-1.5">
+                  <div className="rounded-card border border-border/50 bg-muted/30 px-3 py-2.5 space-y-1.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Sent to model</p>
                     {sentLoraInfo.map(l => {
                       const weight = sentLoraWeights[l.id] ?? l.defaultWeight
@@ -1384,7 +1416,7 @@ export function ImagingPage() {
                               <p className="text-[11px] font-medium text-foreground leading-tight truncate">{l.styleLabel ?? l.name}</p>
                               <span className="text-[10px] font-mono text-muted-foreground shrink-0">{weight.toFixed(2)}×</span>
                             </div>
-                            {l.triggerTokens.length > 0 && <p className="text-[10px] text-sky-400/80 font-mono leading-tight mt-0.5">{l.triggerTokens.join(', ')}</p>}
+                            {l.triggerTokens.length > 0 && <p className="text-[10px] text-brand/80 font-mono leading-tight mt-0.5">{l.triggerTokens.join(', ')}</p>}
                           </div>
                         </div>
                       )
@@ -1412,20 +1444,20 @@ export function ImagingPage() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Negative prompt</Label>
-                        <Textarea placeholder="Things to avoid in the image…" value={negativePrompt} onChange={e => setNegativePrompt(e.target.value)} disabled={gen.status === 'generating'} className="min-h-[52px] resize-none text-xs rounded-xl" />
+                        <Textarea placeholder="Things to avoid in the image…" value={negativePrompt} onChange={e => setNegativePrompt(e.target.value)} disabled={gen.status === 'generating'} className="min-h-[52px] resize-none text-xs rounded-control" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Seed</Label>
                         <div className="flex gap-2">
-                          <Input type="number" min={-1} value={seed} onChange={e => setSeed(parseInt(e.target.value, 10) || -1)} disabled={gen.status === 'generating'} className="text-xs h-8 rounded-xl" placeholder="-1 (random)" />
-                          <Button variant="outline" size="sm" onClick={randomSeed} disabled={gen.status === 'generating'} className="shrink-0 px-2.5 h-8 rounded-xl"><RefreshCw className="size-3.5" /></Button>
+                          <Input type="number" min={-1} value={seed} onChange={e => setSeed(parseInt(e.target.value, 10) || -1)} disabled={gen.status === 'generating'} className="text-xs h-8 rounded-control" placeholder="-1 (random)" />
+                          <Button variant="outline" size="sm" onClick={randomSeed} disabled={gen.status === 'generating'} className="shrink-0 px-2.5 h-8"><RefreshCw className="size-3.5" /></Button>
                         </div>
                       </div>
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
                 {gen.status === 'error' && gen.error && (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{gen.error}</div>
+                  <div className="rounded-card border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{gen.error}</div>
                 )}
               </>
             )}
@@ -1442,7 +1474,7 @@ export function ImagingPage() {
                     onDragLeave={onDragLeave}
                     onDrop={onDrop}
                     className={cn(
-                      'w-full rounded-xl border-2 border-dashed px-4 py-5 text-xs text-center transition-colors',
+                      'w-full rounded-card border-2 border-dashed px-4 py-5 text-xs text-center transition-colors',
                       dropOver ? 'border-brand bg-brand/10 text-brand'
                         : editSourceFile ? 'border-brand/40 bg-brand/5 text-brand hover:bg-brand/10'
                         : 'border-border text-muted-foreground hover:border-brand/40 hover:bg-muted',
@@ -1480,7 +1512,7 @@ export function ImagingPage() {
                                   else setFaceRestoreModel('codeformer')
                                 }
                               }}
-                              className={cn('flex flex-col rounded-xl overflow-hidden border-2 transition-all',
+                              className={cn('flex flex-col rounded-card overflow-hidden border-2 transition-all',
                                 editOp === op.id ? 'border-brand' : 'border-transparent hover:border-border')}
                             >
                               <div className="w-full aspect-video flex items-center justify-center" style={{ background: op.cardGrad }}>
@@ -1519,12 +1551,12 @@ export function ImagingPage() {
                 {editOp === 'face-restore' && (
                   <div className="space-y-3">
                     {!codeformerAvailable && !gfpganAvailable && (
-                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                      <div className="rounded-card border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                         No face restore model installed. Go to <strong>Admin → Install</strong> to download CodeFormer or GFPGAN.
                       </div>
                     )}
                     {(codeformerAvailable || gfpganAvailable) && !faceRestoreNodeAvailable && (
-                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                      <div className="rounded-card border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                         Face models installed but ComfyUI node is missing. Go to <strong>Admin → Install</strong>.
                       </div>
                     )}
@@ -1536,7 +1568,7 @@ export function ImagingPage() {
                           { id: 'gfpgan',     label: 'GFPGAN',     sub: 'Faster',           available: gfpganAvailable     },
                         ] as const).map(m => (
                           <button key={m.id} onClick={() => m.available && setFaceRestoreModel(m.id)} disabled={!m.available}
-                            className={cn('rounded-xl border px-3 py-2 text-left transition-colors',
+                            className={cn('rounded-control border px-3 py-2 text-left transition-colors',
                               !m.available ? 'border-border bg-muted text-muted-foreground opacity-50 cursor-not-allowed'
                                 : faceRestoreModel === m.id ? 'border-brand bg-brand/5 text-foreground'
                                 : 'border-border bg-background text-muted-foreground hover:bg-muted')}>
@@ -1561,12 +1593,12 @@ export function ImagingPage() {
                 {editOp === 'photo-restore' && (
                   <div className="space-y-3">
                     {!photoRestoreAvailable && (
-                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                      <div className="rounded-card border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                         Requires CodeFormer, GFPGAN, or ESRGAN. Go to <strong>Admin → Install</strong>.
                       </div>
                     )}
                     {(codeformerAvailable || gfpganAvailable) && !faceRestoreNodeAvailable && (
-                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                      <div className="rounded-card border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                         Face models installed but ComfyUI node is missing. Go to <strong>Admin → Install</strong>.
                       </div>
                     )}
@@ -1577,7 +1609,7 @@ export function ImagingPage() {
                         { key: 'upscale', label: 'Upscale 4×',   desc: 'Increase resolution with ESRGAN',           value: photoRestoreUpscale, set: setPhotoRestoreUpscale, enabled: upscaleAvailableState },
                       ].map(({ key, label, desc, value, set, enabled }) => (
                         <button key={key} onClick={() => enabled && set(!value)} disabled={!enabled}
-                          className={cn('w-full flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-colors',
+                          className={cn('w-full flex items-center justify-between rounded-control border px-3 py-2.5 text-left transition-colors',
                             !enabled ? 'border-border bg-muted opacity-50 cursor-not-allowed'
                               : value ? 'border-brand bg-brand/5 text-foreground'
                               : 'border-border bg-background text-foreground hover:bg-muted')}>
@@ -1585,8 +1617,8 @@ export function ImagingPage() {
                             <p className="text-xs font-medium">{label}</p>
                             <p className="text-[10px] text-muted-foreground mt-0.5">{enabled ? desc : 'Not installed'}</p>
                           </div>
-                          <div className={cn('size-4 rounded border flex items-center justify-center shrink-0', value && enabled ? 'bg-brand border-brand' : 'border-border')}>
-                            {value && enabled && <div className="size-2 rounded-sm bg-brand-foreground" />}
+                          <div className={cn('size-4 rounded-control border flex items-center justify-center shrink-0', value && enabled ? 'bg-brand border-brand' : 'border-border')}>
+                            {value && enabled && <div className="size-2 rounded-full bg-brand-foreground" />}
                           </div>
                         </button>
                       ))}
@@ -1623,7 +1655,7 @@ export function ImagingPage() {
                   </div>
                 )}
                 {edit.status === 'error' && edit.error && (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{edit.error}</div>
+                  <div className="rounded-card border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{edit.error}</div>
                 )}
               </>
             )}
@@ -1632,7 +1664,7 @@ export function ImagingPage() {
             {activeTab === 'recognize' && (
               <>
                 {visionAvailable === false && (
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
+                  <div className="rounded-card border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
                     No vision model installed. Go to <strong>Admin → Models</strong> and install a vision-capable model (e.g. Gemma 3 4B).
                   </div>
                 )}
@@ -1645,7 +1677,7 @@ export function ImagingPage() {
                     onDragLeave={onRecognizeDragLeave}
                     onDrop={onRecognizeDrop}
                     className={cn(
-                      'w-full rounded-xl border-2 border-dashed px-4 py-5 text-xs text-center transition-colors',
+                      'w-full rounded-card border-2 border-dashed px-4 py-5 text-xs text-center transition-colors',
                       recognizeDropOver ? 'border-brand bg-brand/10 text-brand'
                         : recognizeFile ? 'border-brand/40 bg-brand/5 text-brand hover:bg-brand/10'
                         : 'border-border text-muted-foreground hover:border-brand/40 hover:bg-muted',
@@ -1671,7 +1703,7 @@ export function ImagingPage() {
                       const active = selectedTasks.has(task.id)
                       return (
                         <button key={task.id} onClick={() => toggleTask(task.id)}
-                          className={cn('flex flex-col rounded-xl overflow-hidden border-2 transition-all text-left',
+                          className={cn('flex flex-col rounded-card overflow-hidden border-2 transition-all text-left',
                             active ? 'border-brand' : 'border-transparent hover:border-border')}>
                           <div className="w-full aspect-video flex items-center justify-center" style={{ background: task.cardGrad }}>
                             <Icon className="size-6 text-white drop-shadow-sm" />
@@ -1686,7 +1718,7 @@ export function ImagingPage() {
                   <p className="text-[10px] text-muted-foreground">Leave all unselected to run everything</p>
                 </div>
                 {analyzeStatus === 'error' && analyzeError && (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{analyzeError}</div>
+                  <div className="rounded-card border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{analyzeError}</div>
                 )}
                 {analyzeStatus === 'done' && analyzeResult && (
                   <div className="space-y-3 pt-1 border-t border-border">
@@ -1696,11 +1728,11 @@ export function ImagingPage() {
                           <p className="text-xs leading-relaxed text-foreground/90 font-medium">{analyzeResult.inference.summary}</p>
                         )}
                         <div className="flex flex-wrap gap-1.5">
-                          {analyzeResult.inference.timeOfDay && <span className="rounded-full bg-sky-900/40 border border-sky-700/30 px-2 py-0.5 text-[10px] text-sky-300">{analyzeResult.inference.timeOfDay}</span>}
-                          {analyzeResult.inference.weather && <span className="rounded-full bg-blue-900/40 border border-blue-700/30 px-2 py-0.5 text-[10px] text-blue-300">{analyzeResult.inference.weather}</span>}
-                          {analyzeResult.inference.country && <span className="rounded-full bg-zinc-800/60 border border-zinc-600/30 px-2 py-0.5 text-[10px] text-zinc-300">{analyzeResult.inference.country}</span>}
+                          {analyzeResult.inference.timeOfDay && <span className="rounded-full bg-muted/60 border border-border/50 px-2 py-0.5 text-[10px] text-muted-foreground">{analyzeResult.inference.timeOfDay}</span>}
+                          {analyzeResult.inference.weather && <span className="rounded-full bg-muted/60 border border-border/50 px-2 py-0.5 text-[10px] text-muted-foreground">{analyzeResult.inference.weather}</span>}
+                          {analyzeResult.inference.country && <span className="rounded-full bg-muted/60 border border-border/50 px-2 py-0.5 text-[10px] text-muted-foreground">{analyzeResult.inference.country}</span>}
                           {(analyzeResult.inference.sourceBrand || analyzeResult.inference.sourceType) && (
-                            <span className="rounded-full bg-emerald-900/40 border border-emerald-700/30 px-2 py-0.5 text-[10px] text-emerald-300">
+                            <span className="rounded-full bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] text-brand">
                               {[analyzeResult.inference.sourceBrand, analyzeResult.inference.sourceType].filter(Boolean).join(' · ')}
                             </span>
                           )}
@@ -1710,8 +1742,8 @@ export function ImagingPage() {
                     {analyzeResult.safety?.some(s => s.assessment !== 'normal') && (
                       <div className="space-y-1.5">
                         {analyzeResult.safety.filter(s => s.assessment !== 'normal').map((s: SafetyFlag, i: number) => (
-                          <div key={i} className={cn('rounded-xl border px-3 py-2 space-y-0.5',
-                            s.assessment === 'critical' ? 'border-red-500/40 bg-red-950/40' : 'border-orange-500/30 bg-orange-950/30')}>
+                          <div key={i} className={cn('rounded-card border px-3 py-2 space-y-0.5',
+                            s.assessment === 'critical' ? 'border-destructive/40 bg-destructive/10' : 'border-warning/30 bg-warning/10')}>
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs">{s.assessment === 'critical' ? '🔴' : '🟠'}</span>
                               <span className="text-xs font-semibold capitalize text-foreground">{s.hazard}</span>
@@ -1754,7 +1786,7 @@ export function ImagingPage() {
                       <div className="space-y-1.5">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Vehicles</p>
                         {analyzeResult.vehicles.map((v, i) => (
-                          <div key={i} className="rounded-xl border border-border bg-muted/40 px-3 py-2 space-y-1 text-xs">
+                          <div key={i} className="rounded-card border border-border bg-muted/40 px-3 py-2 space-y-1 text-xs">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <Car className="size-3 text-muted-foreground shrink-0" />
                               <span className="font-medium">{[v.brand, v.model].filter(Boolean).join(' ') || v.type}</span>
@@ -1775,7 +1807,7 @@ export function ImagingPage() {
                       <div className="space-y-1.5">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Text found</p>
                         {analyzeResult.text.map((t, i) => (
-                          <div key={i} className="rounded-xl border border-border bg-muted/40 px-3 py-2">
+                          <div key={i} className="rounded-card border border-border bg-muted/40 px-3 py-2">
                             <p className="text-xs font-mono font-medium break-all">{t.value}</p>
                             <p className="text-[10px] text-muted-foreground mt-0.5 capitalize">{t.type.replace('_', ' ')} · {t.language.toUpperCase()}</p>
                           </div>
@@ -1795,7 +1827,7 @@ export function ImagingPage() {
                   <input
                     value={logoName} onChange={e => setLogoName(e.target.value)}
                     placeholder="Brand or show name…"
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                    className="w-full rounded-control border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -1803,7 +1835,7 @@ export function ImagingPage() {
                   <input
                     value={logoTagline} onChange={e => setLogoTagline(e.target.value)}
                     placeholder="A short tagline…"
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                    className="w-full rounded-control border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -1815,7 +1847,7 @@ export function ImagingPage() {
                         type="button"
                         onClick={() => setLogoStyle(s.id)}
                         className={cn(
-                          'rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors',
+                          'rounded-control border px-2 py-1.5 text-xs font-medium transition-colors',
                           logoStyle === s.id ? 'border-brand bg-brand/10 text-brand' : 'border-border hover:bg-muted',
                         )}
                       >
@@ -1849,19 +1881,19 @@ export function ImagingPage() {
                   </div>
                 </div>
                 {logoError && (
-                  <p className="text-xs text-destructive rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">{logoError}</p>
+                  <p className="text-xs text-destructive rounded-control border border-destructive/30 bg-destructive/10 px-3 py-2">{logoError}</p>
                 )}
                 {logoSvg && (
                   <div className="flex gap-1.5 flex-wrap">
-                    <button onClick={downloadLogoSvg} className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs hover:bg-muted">
+                    <Button onClick={downloadLogoSvg} variant="outline" size="sm" className="gap-1 text-xs">
                       <Download className="size-3" /> SVG
-                    </button>
-                    <button onClick={downloadLogoPng} className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs hover:bg-muted">
+                    </Button>
+                    <Button onClick={downloadLogoPng} variant="outline" size="sm" className="gap-1 text-xs">
                       <Download className="size-3" /> PNG
-                    </button>
-                    <button onClick={copyLogoSvg} className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs hover:bg-muted">
+                    </Button>
+                    <Button onClick={copyLogoSvg} variant="outline" size="sm" className="gap-1 text-xs">
                       <Copy className="size-3" /> Copy SVG
-                    </button>
+                    </Button>
                   </div>
                 )}
               </>
@@ -1873,30 +1905,28 @@ export function ImagingPage() {
           <div className="shrink-0 p-4 border-t border-border">
             {activeTab === 'generate' && (
               gen.status === 'generating' ? (
-                <Button onClick={handleCancel} variant="outline" className="w-full gap-2 h-12 rounded-2xl">
+                <Button onClick={handleCancel} variant="outline" className="w-full gap-2 h-12">
                   <X className="size-4" /> Cancel
                 </Button>
               ) : (
                 <Button onClick={handleGenerate} disabled={!prompt.trim() || imageGenAvailable === false || !!repairJob || pending}
-                  className="w-full gap-2 h-12 rounded-2xl font-semibold text-base"
-                  style={{ background: 'linear-gradient(135deg,#6366f1,#ec4899)', border: 'none' }}>
-                  {pending ? <Loader2 className="size-5 animate-spin" /> : <Wand2 className="size-5" />} Generate
+                  className="w-full gap-2 h-12 font-semibold text-base">
+                  {pending ? <Spinner size="lg" className="text-current" /> : <Wand2 className="size-5" />} Generate
                 </Button>
               )
             )}
             {activeTab === 'edit' && (
               edit.status === 'running' ? (
-                <Button onClick={() => edit.imageId ? cancelEdit(edit.imageId) : resetEdit()} variant="outline" className="w-full gap-2 h-12 rounded-2xl">
+                <Button onClick={() => edit.imageId ? cancelEdit(edit.imageId) : resetEdit()} variant="outline" className="w-full gap-2 h-12">
                   <X className="size-4" /> Cancel
                 </Button>
               ) : (
                 <div className="flex gap-2">
-                  <Button onClick={handleRunEdit} disabled={!canRunEdit} className="flex-1 gap-2 h-12 rounded-2xl font-semibold"
-                    style={canRunEdit ? { background: 'linear-gradient(135deg,#6366f1,#ec4899)', border: 'none' } : {}}>
+                  <Button onClick={handleRunEdit} disabled={!canRunEdit} className="flex-1 gap-2 h-12 font-semibold">
                     <Wand2 className="size-5" /> Run
                   </Button>
                   {edit.status === 'done' && edit.imageId && (
-                    <Button variant="outline" size="sm" onClick={resetEdit} className="px-3 h-12 rounded-2xl"><RefreshCw className="size-4" /></Button>
+                    <Button variant="outline" size="sm" onClick={resetEdit} className="px-3 h-12"><RefreshCw className="size-4" /></Button>
                   )}
                 </div>
               )
@@ -1904,16 +1934,15 @@ export function ImagingPage() {
             {activeTab === 'recognize' && (
               <div className="flex gap-2">
                 <Button onClick={handleAnalyze} disabled={!recognizeFile || analyzeStatus === 'running' || visionAvailable === false}
-                  className="flex-1 gap-2 h-12 rounded-2xl font-semibold"
-                  style={recognizeFile && visionAvailable !== false ? { background: 'linear-gradient(135deg,#6366f1,#ec4899)', border: 'none' } : {}}>
+                  className="flex-1 gap-2 h-12 font-semibold">
                   {analyzeStatus === 'running' ? (
-                    <><div className="size-4 rounded-full border-2 border-white/30 border-t-white animate-spin shrink-0" />Analyzing…</>
+                    <><Spinner size="sm" className="text-current shrink-0" />Analyzing…</>
                   ) : (
                     <><ScanLine className="size-5" />Analyze</>
                   )}
                 </Button>
                 {(analyzeStatus === 'done' || analyzeStatus === 'error') && (
-                  <Button variant="outline" size="sm" onClick={analyzeReset} className="px-3 h-12 rounded-2xl"><RefreshCw className="size-4" /></Button>
+                  <Button variant="outline" size="sm" onClick={analyzeReset} className="px-3 h-12"><RefreshCw className="size-4" /></Button>
                 )}
               </div>
             )}
@@ -1922,19 +1951,18 @@ export function ImagingPage() {
                 <Button
                   onClick={handleLogoGenerate}
                   disabled={!logoName.trim() || logoLoading}
-                  className="w-full gap-2 h-12 rounded-2xl font-semibold"
-                  style={logoName.trim() ? { background: 'linear-gradient(135deg,#6d28d9,#a855f7)', border: 'none' } : {}}
+                  className="w-full gap-2 h-12 font-semibold"
                 >
-                  {logoLoading ? <Loader2 className="size-4 animate-spin" /> : <Sparkle className="size-4" />}
+                  {logoLoading ? <Spinner size="sm" className="text-current" /> : <Sparkle className="size-4" />}
                   Instant SVG
                 </Button>
                 <Button
                   variant="outline"
                   onClick={handleLogoQuality}
                   disabled={!logoName.trim() || logoQualityLoading || imageGenAvailable === false}
-                  className="w-full gap-2 h-10 rounded-2xl text-sm"
+                  className="w-full gap-2 h-10 text-sm"
                 >
-                  {logoQualityLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                  {logoQualityLoading ? <Spinner size="sm" className="text-current" /> : <Sparkles className="size-3.5" />}
                   HD Quality (Image Gen)
                 </Button>
               </div>
@@ -1948,7 +1976,7 @@ export function ImagingPage() {
           <div className="flex-1 relative p-4 min-h-0">
             <div
               className={cn(
-                'relative w-full h-full rounded-2xl overflow-hidden bg-muted border transition-colors',
+                'relative w-full h-full rounded-sheet overflow-hidden bg-muted border transition-colors',
                 activeTab === 'edit' && dropOver
                   ? 'border-brand border-2 bg-brand/5'
                   : 'border-border',
@@ -1968,20 +1996,20 @@ export function ImagingPage() {
               {/* ── Generation result ──────────────────────────────────────── */}
               {activeTab === 'generate' && (
                 <>
-                  {/* Safety veto — generation stopped by content policy */}
+                  {/* Safety veto: generation stopped by content policy */}
                   {autoPhase === 'blocked' && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center">
-                      <ImageOff className="size-9 text-red-400" />
+                      <ImageOff className="size-9 text-destructive" />
                       <p className="text-sm text-white font-medium">Generation stopped</p>
                       <p className="text-xs text-white/60 max-w-xs">This image was stopped by a content-safety policy and cannot be produced.</p>
                       <Button size="sm" variant="secondary" onClick={() => setAutoPhase('idle')}>Dismiss</Button>
                     </div>
                   )}
 
-                  {/* Auto correcting — between cancel and re-generate */}
+                  {/* Auto correcting, between cancel and re-generate */}
                   {autoPhase === 'correcting' && gen.status !== 'generating' && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
-                      <div className="size-8 rounded-full border-2 border-brand/40 border-t-brand animate-spin" />
+                      <Spinner size="lg" className="text-brand" />
                       <p className="text-sm text-white/80 font-medium">Auto correcting…</p>
                       <p className="text-xs text-white/50">Adjusting weights and retrying</p>
                     </div>
@@ -1997,18 +2025,16 @@ export function ImagingPage() {
                           style={{ filter: 'blur(2px)', transform: 'scale(1.02)' }}
                         />
                       ) : (
-                        <div
-                          className="absolute inset-0 animate-pulse"
-                          style={{ background: 'linear-gradient(135deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.1) 50%, hsl(var(--muted)) 100%)' }}
-                        />
+                        <Skeleton className="absolute inset-0 rounded-none" />
                       )}
                       <div className="absolute inset-0 bg-black/30" />
                       <GenProgress step={gen.step} total={gen.totalSteps} elapsedMs={gen.elapsedMs} />
                       {/* Auto check indicator */}
                       {autoMode && autoPhase !== 'idle' && (
                         <div className="absolute bottom-12 inset-x-0 flex justify-center pointer-events-none">
+                          {/* design-ok(backdrop-blur-outside-chrome): floating pill over the generation preview, kept dark for legibility on arbitrary photo content */}
                           <div className="flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 backdrop-blur-sm">
-                            <div className="size-2 rounded-full bg-brand animate-pulse" />
+                            <StatusDot status="info" pulse className="bg-brand" />
                             <span className="text-[11px] text-white/80 font-medium">
                               {autoPhase === 'checking' ? 'Auto checking preview…' : 'Correcting…'}
                             </span>
@@ -2020,7 +2046,7 @@ export function ImagingPage() {
 
                   {gen.status === 'generating' && activeGenIsAdult && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                      <div className="size-8 rounded-full border-2 border-muted-foreground/30 border-t-foreground animate-spin" />
+                      <Spinner size="lg" className="text-foreground" />
                       <p className="text-sm opacity-60">Generating…</p>
                     </div>
                   )}
@@ -2070,18 +2096,15 @@ export function ImagingPage() {
                           style={{ filter: 'blur(2px)' }}
                         />
                       ) : (
-                        <div
-                          className="absolute inset-0 animate-pulse"
-                          style={{ background: 'linear-gradient(135deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.1) 50%, hsl(var(--muted)) 100%)' }}
-                        />
+                        <Skeleton className="absolute inset-0 rounded-none" />
                       )}
                       <div className="absolute inset-0 bg-black/30" />
                       {edit.totalSteps > 1 ? (
                         <GenProgress step={edit.step} total={edit.totalSteps} elapsedMs={edit.elapsedMs} />
                       ) : (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                          <div className="size-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                          <p className="text-sm text-white/60 animate-pulse">Processing…</p>
+                          <Spinner size="lg" className="text-white" />
+                          <p className="flex items-center gap-1.5 text-sm text-white/60"><StatusDot status="info" pulse />Processing…</p>
                         </div>
                       )}
                     </>
@@ -2093,14 +2116,20 @@ export function ImagingPage() {
                         <div className="relative w-full h-full group">
                           <CompareSlider beforeSrc={editBeforeSrc!} afterSrc={editResultSrc!} />
                           <div className="absolute bottom-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
+                            <Button
                               onClick={() => setFullscreenSrc({ src: editResultSrc!, prompt: '' })}
-                              className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 text-white transition-colors"
-                            ><Maximize2 className="size-4" /></button>
-                            <button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="bg-black/60 text-white hover:bg-black/80 hover:text-white"
+                              aria-label="Fullscreen"
+                            ><Maximize2 className="size-4" /></Button>
+                            <Button
                               onClick={() => { const a = document.createElement('a'); a.href = editResultSrc!; a.download = `image-${edit.imageId?.slice(0, 8) ?? 'edit'}.png`; a.click() }}
-                              className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 text-white transition-colors"
-                            ><Download className="size-4" /></button>
+                              variant="ghost"
+                              size="icon-sm"
+                              className="bg-black/60 text-white hover:bg-black/80 hover:text-white"
+                              aria-label="Download"
+                            ><Download className="size-4" /></Button>
                           </div>
                         </div>
                       )
@@ -2139,8 +2168,8 @@ export function ImagingPage() {
                       )}
                       <div className="absolute inset-0 bg-black/20" />
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                        <div className="size-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                        <p className="text-sm text-white/60 animate-pulse">Analyzing image…</p>
+                        <Spinner size="lg" className="text-white" />
+                        <p className="flex items-center gap-1.5 text-sm text-white/60"><StatusDot status="info" pulse />Analyzing image…</p>
                       </div>
                     </>
                   )}
@@ -2165,13 +2194,13 @@ export function ImagingPage() {
                 <>
                   {logoLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                      <div className="size-10 rounded-full border-2 border-purple-500/30 border-t-purple-500 animate-spin" />
+                      <Spinner size="lg" className="text-brand" />
                       <p className="text-sm text-muted-foreground">Generating logo…</p>
                     </div>
                   )}
                   {!logoLoading && logoSvg && (
                     <div className="absolute inset-0 flex items-center justify-center p-8">
-                      {/* Render the LLM-generated SVG as an image, not via innerHTML — an
+                      {/* Render the LLM-generated SVG as an image, not via innerHTML: an
                           <img> won't execute <script>/onload inside the SVG (XSS guard). */}
                       <img
                         src={`data:image/svg+xml;utf8,${encodeURIComponent(logoSvg)}`}
@@ -2200,7 +2229,7 @@ export function ImagingPage() {
             </div>
           )}
 
-          {/* Thumbnail strip — generate only */}
+          {/* Thumbnail strip, generate only */}
           {activeTab === 'generate' && visibleHistory.length > 0 && (
             <div className="flex gap-2 px-4 pb-3 pt-2 overflow-x-auto shrink-0 border-t border-border">
               {visibleHistory.map(item => (

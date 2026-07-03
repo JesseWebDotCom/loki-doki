@@ -1,5 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { ChevronRight, ShieldAlert } from 'lucide-react'
+import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { useCompanionStore, isLocked } from '@/lib/companions/useCompanionStore'
 import { getCompanionCategory } from '@/lib/companions/companionCategories'
 import { CompanionCard } from '@/components/companions/store/CompanionCard'
@@ -21,33 +23,29 @@ export function CompanionCategoryPage() {
     )
   }
 
-  const Icon = category.icon
-
   return (
-    <div className="mx-auto max-w-6xl px-5 py-6 pb-20">
+    <PageContainer className="py-6 pb-20">
       <nav className="mb-4 flex items-center gap-1.5 text-sm">
         <Link to="/companions/categories" className="text-muted-foreground hover:text-foreground">Categories</Link>
         <ChevronRight className="size-3.5 text-muted-foreground/50" />
         <span className="font-medium text-foreground">{category.name}</span>
       </nav>
 
-      <div className="relative mb-8 overflow-hidden rounded-3xl p-8 text-white shadow-lg" style={{ backgroundImage: category.gradient }}>
-        <div className="absolute inset-0 bg-gradient-to-r from-black/45 to-transparent" />
-        <Icon className="pointer-events-none absolute -right-4 top-1/2 size-52 -translate-y-1/2 text-white/10" />
-        <div className="relative max-w-lg">
-          <h1 className="text-4xl font-black tracking-tight drop-shadow">{category.name}</h1>
-          <p className="mt-2 text-sm text-white/85">{category.blurb}</p>
-          <p className="mt-4 text-xs font-medium text-white/70">
-            {inCategory.length} {inCategory.length === 1 ? 'companion' : 'companions'}
-            {lockedCount > 0 && ` · ${lockedCount} locked`}
-          </p>
-        </div>
-      </div>
+      {/* Editorial hero: bg-card panel with the category gradient as atmosphere. */}
+      <PageHeader
+        hero
+        eyebrow="Category"
+        title={category.name}
+        icon={category.icon}
+        gradient={category.gradient}
+        subtitle={`${category.blurb} ${inCategory.length} ${inCategory.length === 1 ? 'companion' : 'companions'}${lockedCount > 0 ? ` · ${lockedCount} locked` : ''}.`}
+        className="mb-8"
+      />
 
       {category.mature && (
-        <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-          <p>These companions carry mature content. Any shown locked exceed your current content settings — raise them in Settings to unlock.</p>
+        <div className="mb-6 flex items-start gap-2.5 rounded-card border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+          <p>These companions carry mature content. Any shown locked exceed your current content settings. Raise them in Settings to unlock.</p>
         </div>
       )}
 
@@ -60,6 +58,6 @@ export function CompanionCategoryPage() {
           {inCategory.map((c) => <CompanionCard key={c.id} c={c} />)}
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }

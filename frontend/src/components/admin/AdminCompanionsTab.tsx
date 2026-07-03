@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, Shuffle, Send, Square, ChevronLeft, Sparkles } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/cn'
 import RiggedDicebearAvatar from '@/components/companion/RiggedDicebearAvatar'
@@ -80,12 +83,12 @@ interface PreviewControls {
   setManualTilt: (n: number | null) => void
 }
 
-// Right-column avatar — purely presentational, driven by the lifted controls.
+// Right-column avatar: purely presentational, driven by the lifted controls.
 function StudioPreview({ style, seed, avatarConfig, speaking, ctl }: { style: string; seed: string; avatarConfig: Record<string, unknown>; speaking: boolean; ctl: PreviewControls }) {
   const effectiveTilt = speaking ? 'speaking' : ctl.tilt
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="size-44 overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="size-44 overflow-hidden rounded-card border border-border bg-card">
         <RiggedDicebearAvatar
           style={coerceStyle(style)}
           seed={seed || 'preview'}
@@ -100,16 +103,16 @@ function StudioPreview({ style, seed, avatarConfig, speaking, ctl }: { style: st
   )
 }
 
-// Expression / state controls — rendered on the Test tab.
+// Expression / state controls: rendered on the Test tab.
 function StudioControls({ ctl }: { ctl: PreviewControls }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3">
+    <div className="flex flex-col gap-3 rounded-card border border-border bg-card p-3">
       <div className="flex flex-wrap gap-1.5">
         {TILT_STATES.map((s) => (
           <button
             key={s.state}
             onClick={() => ctl.setTilt(s.state)}
-            className={cn('rounded-md border px-2 py-1 text-[11px]', ctl.tilt === s.state ? 'border-violet-500 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
+            className={cn('rounded-control border px-2 py-1 text-[11px]', ctl.tilt === s.state ? 'border-brand text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
           >
             {s.label}
           </button>
@@ -120,7 +123,7 @@ function StudioControls({ ctl }: { ctl: PreviewControls }) {
           <button
             key={m}
             onClick={() => ctl.setMood(m)}
-            className={cn('rounded-md border px-2 py-1 text-[11px] capitalize', ctl.mood === m ? 'border-emerald-500 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
+            className={cn('rounded-control border px-2 py-1 text-[11px] capitalize', ctl.mood === m ? 'border-brand text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
           >
             {m}
           </button>
@@ -203,7 +206,7 @@ function StudioTester({ draft, onSpeaking }: { draft: Draft; onSpeaking: (v: { s
   }, [input, busy, log, draft, onSpeaking])
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-card">
+    <div className="flex flex-col rounded-card border border-border bg-card">
       <div className="max-h-96 min-h-48 space-y-2 overflow-y-auto p-3 text-sm">
         {log.length === 0 ? (
           <p className="text-xs text-muted-foreground">Send a message to preview this persona (nothing is saved).</p>
@@ -222,9 +225,9 @@ function StudioTester({ draft, onSpeaking }: { draft: Draft; onSpeaking: (v: { s
           className="flex-1 bg-transparent px-2 text-sm outline-none placeholder:text-muted-foreground/50"
         />
         {busy ? (
-          <button onClick={() => abortRef.current?.abort()} className="flex size-7 items-center justify-center rounded-lg bg-foreground text-background"><Square className="size-3 fill-current" /></button>
+          <Button size="icon-sm" onClick={() => abortRef.current?.abort()} aria-label="Stop reply"><Square className="size-3 fill-current" /></Button>
         ) : (
-          <button onClick={send} disabled={!input.trim()} className="flex size-7 items-center justify-center rounded-lg bg-foreground text-background disabled:opacity-20"><Send className="size-3.5" /></button>
+          <Button size="icon-sm" onClick={send} disabled={!input.trim()} aria-label="Send test message"><Send className="size-3.5" /></Button>
         )}
       </div>
     </div>
@@ -250,11 +253,11 @@ function AccessMatrix({ characterId }: { characterId: string }) {
   return (
     <div className="space-y-1">
       {rows.map((r) => (
-        <div key={r.userId} className="flex items-center justify-between rounded-lg border border-border px-3 py-1.5 text-sm">
+        <div key={r.userId} className="flex items-center justify-between rounded-control border border-border px-3 py-1.5 text-sm">
           <span>{r.nickname}{r.role === 'admin' && <span className="ml-1.5 text-[10px] text-muted-foreground">admin</span>}</span>
           <button
             onClick={() => toggle(r.userId, r.state === 'on' ? 'off' : 'on')}
-            className={cn('rounded-md px-2 py-0.5 text-xs font-medium', r.state === 'on' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400')}
+            className={cn('rounded-full px-2 py-0.5 text-xs font-medium', r.state === 'on' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive')}
           >
             {r.state === 'on' ? 'Allowed' : 'Blocked'}
           </button>
@@ -280,7 +283,7 @@ function AppearanceField({ field, current, onSet }: { field: RigField; current: 
             title="None"
             className={cn(
               'size-6 rounded-full border-2 bg-transparent text-[9px] text-muted-foreground',
-              current === null ? 'border-violet-400' : 'border-dashed border-border hover:border-white/40',
+              current === null ? 'border-brand' : 'border-dashed border-border hover:border-foreground/40',
             )}
           >
             ×
@@ -293,7 +296,7 @@ function AppearanceField({ field, current, onSet }: { field: RigField; current: 
             onClick={() => onSet(field, o.value)}
             title={o.label ?? o.value}
             style={{ background: o.color }}
-            className={cn('size-6 rounded-full border-2 transition-transform', current === o.value ? 'border-violet-400 scale-110' : 'border-transparent hover:border-white/40')}
+            className={cn('size-6 rounded-full border-2 transition-transform', current === o.value ? 'border-brand scale-110' : 'border-transparent hover:border-foreground/40')}
           />
         ))}
       </div>
@@ -337,7 +340,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
   const [trainInstalled, setTrainInstalled] = useState(false)
   const [trainedModels, setTrainedModels] = useState<{ id: string; accuracy: number | null; threshold: number | null; trainedAt: string | null }[]>([])
   const [retrainingAll, setRetrainingAll] = useState(false)
-  // The wake phrase as last loaded/saved — lets Save detect a real change so we
+  // The wake phrase as last loaded/saved; lets Save detect a real change so we
   // only retrain (and only discard the existing model) when the phrase actually
   // changed, not on every unrelated edit.
   const baselineWakeRef = useRef('')
@@ -385,7 +388,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
       if (!r.ok) throw new Error()
       const { total } = await r.json() as { total: number }
       toast.success(total > 0
-        ? `Retraining ${total} wake word${total === 1 ? '' : 's'} in the background — quality updates as each finishes.`
+        ? `Retraining ${total} wake word${total === 1 ? '' : 's'} in the background; quality updates as each finishes.`
         : 'No companions have a wake phrase to retrain.')
     } catch { toast.error('Couldn’t start retraining') } finally { setRetrainingAll(false) }
   }
@@ -470,7 +473,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
       {view === 'voice' && (
         <div className="space-y-4">
           <div>
-            <h2 className="text-lg font-semibold">Voice &amp; Wake words</h2>
+            <h2 className="text-title">Voice &amp; Wake words</h2>
             <p className="text-sm text-muted-foreground">Default voice and wake word used when a companion has none of its own. Per-companion voices are set in each character&apos;s Identity tab.</p>
           </div>
           <VoiceDefaults />
@@ -483,39 +486,40 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
         <>
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold">Companions</h2>
+              <h2 className="text-title">Companions</h2>
               <p className="text-sm text-muted-foreground">Create and manage the companions available across the app.</p>
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="outline"
                 onClick={retrainAll}
                 disabled={retrainingAll || !trainInstalled}
                 title={trainInstalled ? 'Retrain every companion’s wake-word model (applies trainer improvements to all)' : 'Install “Wake Word Training” in Admin → Features first'}
-                className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-foreground/5 disabled:opacity-50"
               >
-                <Sparkles className="size-4" /> {retrainingAll ? 'Starting…' : 'Retrain all'}
-              </button>
-              <button onClick={newDraft} className="flex items-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background hover:opacity-90">
+                {retrainingAll ? <Spinner size="sm" className="text-current" /> : <Sparkles className="size-4" />} Retrain all
+              </Button>
+              <Button onClick={newDraft}>
                 <Plus className="size-4" /> New companion
-              </button>
+              </Button>
             </div>
           </div>
 
           {list.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border py-16 text-center">
+            <Card variant="dashed" className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <p className="text-sm text-muted-foreground">No companions yet. Create one to get started.</p>
-            </div>
+            </Card>
           ) : (
             <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {list.map((c) => (
-                  <div
+                  <Card
                     key={c.id}
-                    className="group relative flex flex-col items-center rounded-2xl border border-border bg-card p-4 text-center transition-colors hover:border-border/80"
+                    variant="surface"
+                    className="group relative flex flex-col items-center p-4 text-center transition-colors hover:border-border/80"
                   >
                     <div className="absolute right-2 top-2 flex gap-1">
                       {!c.published && <span className="rounded-full bg-foreground/10 px-1.5 py-0.5 text-[10px] text-muted-foreground">Draft</span>}
-                      {!c.isActive && <span className="rounded-full bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-400">Off</span>}
+                      {!c.isActive && <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive">Off</span>}
                     </div>
                     <button
                       type="button"
@@ -528,14 +532,16 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                     <p className="mt-3 w-full truncate text-sm font-medium">{c.name}</p>
                     {c.backstory && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{c.backstory}</p>}
                     <div className="mt-3 flex w-full gap-1.5">
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1"
                         onClick={() => selectDraft(c)}
-                        className="flex-1 rounded-lg bg-foreground/5 px-2 py-1.5 text-xs font-medium transition-colors hover:bg-foreground/10"
                       >
                         Edit
-                      </button>
+                      </Button>
                     </div>
-                  </div>
+                  </Card>
                 ))}
               </div>
             </div>
@@ -564,7 +570,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                     className={cn(
                       'shrink-0 px-3 py-2 text-sm transition-colors',
                       tab === t.id
-                        ? '-mb-px border-b-2 border-violet-500 text-foreground'
+                        ? '-mb-px border-b-2 border-brand text-foreground'
                         : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
@@ -581,13 +587,13 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                   <Field label="Persona / system prompt">
                     <textarea value={draft.personalityPrompt} onChange={(e) => set('personalityPrompt', e.target.value)} rows={6} className="ld-input resize-y" placeholder="You are Loki, a warm and witty companion who…" />
                   </Field>
-                  <Field label="Example lines (one per line — few-shot voice samples; the biggest lever for voice fidelity)">
+                  <Field label="Example lines (one per line: few-shot voice samples, the biggest lever for voice fidelity)">
                     <textarea
                       value={draft.personaExamples.join('\n')}
                       onChange={(e) => set('personaExamples', e.target.value.split('\n'))}
                       rows={3}
                       className="ld-input resize-y"
-                      placeholder={'Ooh, okay okay okay — I have SO many thoughts about this.\nHonestly? Skip the movie, the book wrecked me in the best way.'}
+                      placeholder={'Ooh, okay okay okay, I have SO many thoughts about this.\nHonestly? Skip the movie, the book wrecked me in the best way.'}
                     />
                   </Field>
                   <div className="grid grid-cols-2 gap-3">
@@ -613,7 +619,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
               {tab === 'content' && (
                 <div className="space-y-3">
                   <Field label="Content level">
-                    <div className="rounded-lg border border-border/50 bg-card/50 p-3">
+                    <div className="rounded-card border border-border/50 bg-card/50 p-3">
                       <ContentDialGroup values={draft.content} includeCandor candor={draft.content.candor} onDial={setDial} onCandor={setCandor} />
                       <p className="mt-3 text-[11px] text-muted-foreground">
                         This character's fixed content level. Users whose content settings are lower than this won't be able to use it.
@@ -630,14 +636,14 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                     <VoicePicker value={draft.ttsVoice ?? ''} onChange={(v) => set('ttsVoice', v)} previewName={draft.name} />
                   </Field>
                   {/* Wake word = a spoken phrase. Whisper matches your words, so
-                      "hey loki" is never confused with "hey alexa" — no training,
+                      "hey loki" is never confused with "hey alexa": no training,
                       no model files, one way to set it up. */}
                   <Field label="Wake word">
                     <WakePhraseField value={draft.wakeWordPhrase ?? ''} onChange={(v) => set('wakeWordPhrase', v)} />
                     {/* Physical voice devices use a TRAINED detector model for this phrase
                         (the in-app companion just Whisper-matches it). The model is trained
                         once on first use and never auto-refreshed, so this retrains it on
-                        demand — it belongs to the companion, so it applies to every device
+                        demand; it belongs to the companion, so it applies to every device
                         using it. */}
                     {draft.id && (() => {
                       const phrase = (draft.wakeWordPhrase ?? '').trim()
@@ -646,21 +652,22 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                       return (
                         <div className="mt-2 space-y-1.5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <button
+                            <Button
                               type="button"
+                              variant="outline"
+                              size="sm"
                               onClick={() => { if (draft.id && phrase) setTrainReq({ phrase, characterId: draft.id, nonce: Date.now() }) }}
                               disabled={!trainInstalled || !phrase || busy}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-foreground/5 disabled:opacity-50"
                               title={!trainInstalled ? 'Install “Wake Word Training” in Admin → Features first'
                                 : !phrase ? 'Enter a wake phrase above first'
                                 : 'Retrain the detector model used by physical voice devices'}
                             >
-                              <Sparkles className="size-3.5" /> {busy ? 'Retraining…' : 'Retrain device model'}
-                            </button>
+                              {busy ? <Spinner size="sm" className="text-current" /> : <Sparkles className="size-3.5" />} Retrain device model
+                            </Button>
                             <span className="text-[11px] text-muted-foreground">
                               {!trainInstalled ? 'Needs “Wake Word Training” (Admin → Features).'
                                 : !phrase ? 'Enter a wake phrase above first.'
-                                : 'For physical voice devices — applies to every device using this companion.'}
+                                : 'For physical voice devices; applies to every device using this companion.'}
                             </span>
                           </div>
                           {/* When the current model was trained + its quality, so you can judge it at a glance. */}
@@ -668,7 +675,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                             <p className="text-[11px] text-muted-foreground/90">
                               Trained {model.trainedAt ? new Date(model.trainedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'unknown'}
                               {typeof model.accuracy === 'number'
-                                ? <> · <span className={model.accuracy >= 0.9 ? 'text-emerald-500' : model.accuracy >= 0.75 ? 'text-amber-500' : 'text-rose-500'}>{Math.round(model.accuracy * 100)}% accuracy</span></>
+                                ? <> · <span className={model.accuracy >= 0.9 ? 'text-success' : model.accuracy >= 0.75 ? 'text-warning' : 'text-destructive'}>{Math.round(model.accuracy * 100)}% accuracy</span></>
                                 : ' · quality not measured (retrain to capture it)'}
                               {typeof model.threshold === 'number' ? ` · fires at ${model.threshold.toFixed(2)}` : ''}
                             </p>
@@ -699,9 +706,9 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                         {AVATAR_STYLES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                       </select>
                     </Field>
-                    <button onClick={() => set('seed', randomSeed())} className="mb-0.5 flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm hover:bg-foreground/5">
+                    <Button variant="outline" onClick={() => set('seed', randomSeed())} className="mb-0.5">
                       <Shuffle className="size-3.5" /> Randomize
-                    </button>
+                    </Button>
                   </div>
                   {fieldsForStyle(draft.style ?? 'avataaars').map((field) => {
                     const current = (draft.avatarConfig[field.key] as string[] | undefined)?.[0] ?? null
@@ -731,18 +738,25 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
             {/* Right column: preview + actions (always visible) */}
             <div className="space-y-4">
               <StudioPreview style={draft.style ?? 'avataaars'} seed={draft.seed ?? 'preview'} avatarConfig={draft.avatarConfig} speaking={preview.speaking} ctl={ctl} />
-              <div className="space-y-2 rounded-xl border border-border p-3">
+              <div className="space-y-2 rounded-card border border-border p-3">
                 <Toggle label="Enabled" value={draft.isActive} onChange={(v) => set('isActive', v)} />
                 <Toggle label="Published" value={draft.published} onChange={(v) => set('published', v)} />
               </div>
               <div className="flex gap-2">
-                <button onClick={save} disabled={saving || !draft.name.trim()} className="flex-1 rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-40">
-                  {saving ? 'Saving…' : draft.id ? 'Save' : 'Create'}
-                </button>
+                <Button onClick={save} disabled={saving || !draft.name.trim()} className="flex-1">
+                  {saving && <Spinner size="sm" className="text-current" />}
+                  {draft.id ? 'Save' : 'Create'}
+                </Button>
                 {draft.id && (
-                  <button onClick={() => setConfirmRemove(true)} className="flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-rose-400 hover:bg-rose-500/10">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setConfirmRemove(true)}
+                    aria-label="Delete companion"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  >
                     <Trash2 className="size-4" />
-                  </button>
+                  </Button>
                 )}
               </div>
 
@@ -789,7 +803,7 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
   return (
     <button onClick={() => onChange(!value)} className="flex w-full items-center justify-between text-sm">
       <span>{label}</span>
-      <span className={cn('relative h-5 w-9 rounded-full transition-colors', value ? 'bg-violet-600' : 'bg-foreground/15')}>
+      <span className={cn('relative h-5 w-9 rounded-full transition-colors', value ? 'bg-brand' : 'bg-foreground/15')}>
         <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', value ? 'translate-x-4' : 'translate-x-0.5')} />
       </span>
     </button>

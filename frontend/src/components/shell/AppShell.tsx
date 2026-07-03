@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import {
-  ExternalLink, Home, LayoutGrid, Loader2, Locate, Lock, MapPin, Search, Settings,
-  ShieldCheck, ShoppingBag, Sparkles, Terminal, User, X,
+  ExternalLink, Home, LayoutGrid, Locate, MapPin, Search, Settings,
+  ShieldCheck, ShoppingBag, Terminal, User, X,
   type LucideIcon,
 } from "lucide-react";
 import { AppBreadcrumb, type BreadcrumbCrumb } from "@/components/shared/AppBreadcrumb";
@@ -11,6 +11,7 @@ import { PlexConnectBanner } from "@/components/media/PlexConnectBanner";
 import { AppBackdrop } from "@/components/shared/AppBackdrop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { useAppHeaderConfig } from "@/context/BreadcrumbSearchContext";
 import { useAuth } from "@/context/AuthContext";
 import { classifyRoute } from "@/lib/routeChrome";
@@ -19,7 +20,7 @@ import { getAppByPath, getGroupByAppPath, getAppGroup } from "@/lib/appCategorie
 import { categoryVisual } from "@/lib/archiveCategories";
 import { LeftSidebar } from "./LeftSidebar";
 import { BottomTabBar } from "./BottomTabBar";
-import { CompanionOverlay } from "./CompanionOverlay";
+import { CompanionEngineProvider } from "./CompanionEngineContext";
 import { QueueBanner } from "./QueueBanner";
 import { PodcastPlayerBar } from "@/components/podcast/PodcastPlayerBar";
 import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
@@ -29,13 +30,14 @@ import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
 import { useBrowserSession } from "@/hooks/useBrowserSession";
 
 // Pages not in APP_GROUPS (no category group in the breadcrumb).
+// design-ok(hex-in-tsx): route identity registry data, mirrors getAppByPath() fallback precedent
 const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: string; gradient?: string }> = {
   "/categories": { title: "Categories", icon: LayoutGrid,  color: "#6d28d9", gradient: "linear-gradient(135deg,#4c1d95,#c026d3)" },
-  "/companions": { title: "Companions", icon: Sparkles,    color: "#f59e0b", gradient: "linear-gradient(135deg,#92400e,#f59e0b)" },
   "/app-store":  { title: "App Store",  icon: ShoppingBag, color: "#6366f1", gradient: "linear-gradient(135deg,#4338ca,#6366f1)" },
   "/me":         { title: "Me",         icon: User,        color: "#6b7280" },
   "/settings":   { title: "Settings",   icon: Settings,    color: "#6b7280" },
   "/admin":      { title: "Admin",      icon: ShieldCheck, color: "#dc2626" },
+  // design-ok(hex-in-tsx): route identity registry data, mirrors getAppByPath() fallback precedent
   "/devtools":   { title: "Dev Tools",  icon: Terminal,    color: "#6b7280" },
 };
 
@@ -121,6 +123,7 @@ export function AppShell() {
     : null;
 
   return (
+    <CompanionEngineProvider>
     <div className="flex h-screen bg-background">
 
       {/* Fixed left sidebar */}
@@ -139,7 +142,7 @@ export function AppShell() {
             <div className="flex-1 min-w-0 space-y-1.5">
               {locationError ? (
                 <>
-                  <p className="text-xs text-amber-600 dark:text-amber-400">{locationError}</p>
+                  <p className="text-xs text-warning">{locationError}</p>
                   <form
                     className="flex gap-1.5"
                     onSubmit={async (e) => {
@@ -153,25 +156,29 @@ export function AppShell() {
                       value={cityQuery}
                       onChange={e => setCityQuery(e.target.value)}
                       placeholder="Type your city…"
-                      className="h-7 flex-1 min-w-0 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      className="h-7 flex-1 min-w-0 rounded-control border border-border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     />
-                    <button
+                    <Button
                       type="submit"
+                      size="sm"
+                      variant="tinted"
                       disabled={!cityQuery.trim() || status === "detecting"}
-                      className="flex items-center gap-1 rounded-md bg-foreground/10 hover:bg-foreground/15 disabled:opacity-40 px-2 py-1 text-xs font-medium transition-colors shrink-0"
+                      className="h-7 px-2 text-xs shrink-0"
                     >
                       <Search className="size-3" />
                       Set
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      size="sm"
+                      variant="ghost"
                       onClick={detect}
                       disabled={status === "detecting"}
-                      className="flex items-center gap-1 rounded-md bg-foreground/5 hover:bg-foreground/10 disabled:opacity-40 px-2 py-1 text-xs text-muted-foreground transition-colors shrink-0"
+                      className="h-7 px-2 text-xs text-muted-foreground shrink-0"
                     >
-                      {status === "detecting" ? <Loader2 className="size-3 animate-spin" /> : <Locate className="size-3" />}
+                      {status === "detecting" ? <Spinner size="sm" className="size-3" /> : <Locate className="size-3" />}
                       Retry
-                    </button>
+                    </Button>
                   </form>
                 </>
               ) : (
@@ -181,16 +188,18 @@ export function AppShell() {
               )}
             </div>
             {status !== "detecting" && !locationError && (
-              <button
+              <Button
+                size="sm"
+                variant="tinted"
                 onClick={detect}
-                className="flex items-center gap-1 rounded-md bg-foreground/10 hover:bg-foreground/15 px-2.5 py-1 text-xs font-medium transition-colors shrink-0"
+                className="h-7 px-2.5 text-xs shrink-0"
               >
                 <Locate className="size-3" />
                 Allow
-              </button>
+              </Button>
             )}
             {status === "detecting" && !locationError && (
-              <Loader2 className="size-3.5 animate-spin text-muted-foreground shrink-0 mt-0.5" />
+              <Spinner size="sm" className="size-3.5 shrink-0 mt-0.5" />
             )}
             <button
               onClick={() => setBannerDismissed(true)}
@@ -227,6 +236,18 @@ export function AppShell() {
                 ...(activeConvTitle ? [{ label: activeConvTitle, truncate: true } as BreadcrumbCrumb] : []),
               ];
             }
+            // Panel pages (Admin, Settings) publish their live section/subsection state
+            // as extra crumbs via useAppHeader instead of building their own local
+            // breadcrumb bar. This is the one and only breadcrumb in the app.
+            const extraCrumbs = breadcrumbSearch?.extraCrumbs ?? [];
+            if (extraCrumbs.length > 0) {
+              return [
+                home,
+                ...(groupCrumb ? [groupCrumb] : []),
+                { label: pageTitle, onClick: reloadApp, icon: PageIcon ?? undefined },
+                ...extraCrumbs.map((c): BreadcrumbCrumb => ({ label: c.label, onClick: c.onClick })),
+              ];
+            }
             return [home, ...(groupCrumb ? [groupCrumb] : []), { label: pageTitle, onClick: reloadApp, ...lastIconProps(PageIcon) }];
           })()}>
             {breadcrumbSearch && (
@@ -249,7 +270,7 @@ export function AppShell() {
                     {breadcrumbSearch.onSubmit && (
                       <Button type="submit" size="sm" variant="secondary" className="h-8 px-3">
                         {breadcrumbSearch.loading
-                          ? <Loader2 className="size-3.5 animate-spin" />
+                          ? <Spinner size="sm" className="size-3.5" />
                           : 'Search'
                         }
                       </Button>
@@ -259,14 +280,13 @@ export function AppShell() {
                   <div className="flex-1" />
                 )}
                 {breadcrumbSearch.rightSlot}
-                {breadcrumbSearch.settingsHref && user?.role === 'admin' && (
+                {breadcrumbSearch.settingsHref && (
                   <Button
-                    variant="ghost" size="icon" className="relative size-8 shrink-0"
-                    title="Admin settings"
+                    variant="ghost" size="icon" className="size-8 shrink-0"
+                    title="Settings"
                     onClick={() => navigate(breadcrumbSearch.settingsHref!)}
                   >
                     <Settings className="size-4" />
-                    <Lock className="absolute right-1 top-1 size-2.5 text-amber-500" />
                   </Button>
                 )}
                 {breadcrumbSearch.externalHref && (
@@ -310,12 +330,7 @@ export function AppShell() {
         {/* Bottom tab bar — mobile only (hosts the companion at its center) */}
         <BottomTabBar />
       </div>
-
-      {/* Floating companion — the global input + persistent animated buddy (desktop).
-          Lives OUTSIDE the right column so its z-[9999] competes with the sidebar's
-          stacking context directly; otherwise the column's own z-10 traps it and the
-          dragged overlay slides under the sidebar. */}
-      <CompanionOverlay />
     </div>
+    </CompanionEngineProvider>
   );
 }

@@ -3,12 +3,17 @@ import { useAuth } from '@/context/AuthContext'
 import {
   ArrowLeftRight, ArrowRight, BookOpen, Bot, Calculator, CalendarClock, ChefHat, CheckCircle2,
   ChevronDown, Clock, Cloud, Cpu, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
-  Home, Laugh, Lightbulb, Loader2, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Newspaper, Package,
+  Home, Laugh, Lightbulb, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Newspaper, Package,
   PartyPopper, Play, RefreshCw, Route, ScanFace, Search, Server, Settings2, ShieldCheck, Sparkles,
   Stethoscope, Trash2, Trophy, Tv, Wand2, Wifi, Wrench, X, Image as ImageIcon,
   type LucideIcon,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
+import { StatusDot } from '@/components/shared/StatusDot'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { formatFeatureBytes } from '@/lib/features'
@@ -66,29 +71,29 @@ const TOOL_CATEGORY_ORDER = ['Information', 'Utilities', 'Lifestyle', 'Media', '
 type ToolCategory = (typeof TOOL_CATEGORY_ORDER)[number]
 
 const TOOL_ICONS: Record<string, { icon: LucideIcon; chip: string; category: ToolCategory }> = {
-  weather:         { icon: Cloud,          chip: 'bg-sky-500/15 text-sky-500',         category: 'Information' },
-  search:          { icon: Globe,          chip: 'bg-blue-500/15 text-blue-500',        category: 'Information' },
-  news:            { icon: Newspaper,      chip: 'bg-orange-500/15 text-orange-500',    category: 'Information' },
-  dictionary:      { icon: BookOpen,       chip: 'bg-amber-500/15 text-amber-500',      category: 'Information' },
-  calculator:      { icon: Calculator,     chip: 'bg-brand/15 text-brand',              category: 'Utilities'   },
-  unit_conversion: { icon: ArrowLeftRight, chip: 'bg-teal-500/15 text-teal-500',        category: 'Utilities'   },
-  jokes:           { icon: Laugh,          chip: 'bg-yellow-500/15 text-yellow-500',    category: 'Lifestyle'   },
-  recipes:         { icon: ChefHat,        chip: 'bg-emerald-500/15 text-emerald-500',  category: 'Lifestyle'   },
-  youtube:         { icon: Play,           chip: 'bg-red-500/15 text-red-500',          category: 'Media'       },
-  tvshows:         { icon: Tv,             chip: 'bg-purple-500/15 text-purple-500',    category: 'Media'       },
-  onthisday:       { icon: CalendarClock,  chip: 'bg-indigo-500/15 text-indigo-500',    category: 'Information' },
-  localNews:       { icon: Newspaper,      chip: 'bg-rose-500/15 text-rose-500',        category: 'Information' },
-  localEvents:     { icon: MapPin,         chip: 'bg-green-500/15 text-green-500',      category: 'Lifestyle'   },
-  contentRating:   { icon: ShieldCheck,    chip: 'bg-amber-500/15 text-amber-500',      category: 'Media'       },
-  sports:          { icon: Trophy,         chip: 'bg-yellow-500/15 text-yellow-600',    category: 'Information' },
-  datetime:        { icon: Clock,          chip: 'bg-slate-500/15 text-slate-400',      category: 'Information' },
-  moonphase:       { icon: Moon,           chip: 'bg-indigo-500/15 text-indigo-400',    category: 'Information' },
-  medical:         { icon: Stethoscope,    chip: 'bg-red-500/15 text-red-500',          category: 'Lifestyle'   },
-  holidays:        { icon: PartyPopper,    chip: 'bg-pink-500/15 text-pink-500',        category: 'Lifestyle'   },
-  home_inventory:  { icon: Package,        chip: 'bg-orange-500/15 text-orange-500',    category: 'Lifestyle'   },
-  homeAssistant:   { icon: Lightbulb,      chip: 'bg-amber-500/15 text-amber-500',      category: 'Lifestyle'   },
-  'where-to-watch':{ icon: Film,           chip: 'bg-violet-500/15 text-violet-500',    category: 'Media'       },
-  image_gen:       { icon: ImageIcon,      chip: 'bg-fuchsia-500/15 text-fuchsia-500',  category: 'Creative'    },
+  weather:         { icon: Cloud,          chip: 'bg-info/15 text-info',                    category: 'Information' },
+  search:          { icon: Globe,          chip: 'bg-info/15 text-info',                    category: 'Information' },
+  news:            { icon: Newspaper,      chip: 'bg-warning/15 text-warning',              category: 'Information' },
+  dictionary:      { icon: BookOpen,       chip: 'bg-warning/15 text-warning',              category: 'Information' },
+  calculator:      { icon: Calculator,     chip: 'bg-brand/15 text-brand',                  category: 'Utilities'   },
+  unit_conversion: { icon: ArrowLeftRight, chip: 'bg-info/15 text-info',                    category: 'Utilities'   },
+  jokes:           { icon: Laugh,          chip: 'bg-warning/15 text-warning',              category: 'Lifestyle'   },
+  recipes:         { icon: ChefHat,        chip: 'bg-success/15 text-success',              category: 'Lifestyle'   },
+  youtube:         { icon: Play,           chip: 'bg-destructive/15 text-destructive',      category: 'Media'       },
+  tvshows:         { icon: Tv,             chip: 'bg-brand/15 text-brand',                  category: 'Media'       },
+  onthisday:       { icon: CalendarClock,  chip: 'bg-brand/15 text-brand',                  category: 'Information' },
+  localNews:       { icon: Newspaper,      chip: 'bg-destructive/15 text-destructive',      category: 'Information' },
+  localEvents:     { icon: MapPin,         chip: 'bg-success/15 text-success',              category: 'Lifestyle'   },
+  contentRating:   { icon: ShieldCheck,    chip: 'bg-warning/15 text-warning',              category: 'Media'       },
+  sports:          { icon: Trophy,         chip: 'bg-warning/15 text-warning',              category: 'Information' },
+  datetime:        { icon: Clock,          chip: 'bg-secondary text-muted-foreground',      category: 'Information' },
+  moonphase:       { icon: Moon,           chip: 'bg-brand/15 text-brand',                  category: 'Information' },
+  medical:         { icon: Stethoscope,    chip: 'bg-destructive/15 text-destructive',      category: 'Lifestyle'   },
+  holidays:        { icon: PartyPopper,    chip: 'bg-brand/15 text-brand',                  category: 'Lifestyle'   },
+  home_inventory:  { icon: Package,        chip: 'bg-warning/15 text-warning',              category: 'Lifestyle'   },
+  homeAssistant:   { icon: Lightbulb,      chip: 'bg-warning/15 text-warning',              category: 'Lifestyle'   },
+  'where-to-watch':{ icon: Film,           chip: 'bg-brand/15 text-brand',                  category: 'Media'       },
+  image_gen:       { icon: ImageIcon,      chip: 'bg-brand/15 text-brand',                  category: 'Creative'    },
 }
 
 // ── Toggle switch ─────────────────────────────────────────────────────────────
@@ -158,8 +163,8 @@ interface AdminCapDef {
 // ── Constants (direct copy from SetupWizard) ─────────────────────────────────
 
 const ADMIN_CAPS: AdminCapDef[] = [
-  { id: 'tesseract',     label: 'Home Inventory', description: 'Snap a photo — AI identifies your devices and tracks warranties (Tesseract OCR)', bytes: 30_000_000,  requires: [],            base: true, icon: Home },
-  { id: 'searxng',       label: 'Web Search',      description: 'Local SearXNG metasearch — aggregates Google/Brave/Startpage so web search works where direct scraping is blocked. Auto-updates weekly. Source: github.com/searxng/searxng (AGPL-3.0)', bytes: 300_000_000, requires: [],            icon: Globe },
+  { id: 'tesseract',     label: 'Home Inventory', description: 'Snap a photo: AI identifies your devices and tracks warranties (Tesseract OCR)', bytes: 30_000_000,  requires: [],            base: true, icon: Home },
+  { id: 'searxng',       label: 'Web Search',      description: 'Local SearXNG metasearch that aggregates Google/Brave/Startpage so web search works where direct scraping is blocked. Auto-updates weekly. Source: github.com/searxng/searxng (AGPL-3.0)', bytes: 300_000_000, requires: [],            icon: Globe },
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
   { id: 'esphome',       label: 'Devices',         description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB).', bytes: 1_000_000_000, requires: [],                     icon: Cpu  },
@@ -209,61 +214,58 @@ function ModelInstallRow({ entry, isActive, installState, onInstall, onCancel, a
   const hasAlts = (allEntries?.length ?? 0) > 1
 
   return (
-    <div className={cn('rounded-xl border bg-card transition-colors', blocked && 'opacity-50 pointer-events-none',
-      isInstalled ? 'border-violet-500/20' : 'border-border')}>
+    <Card variant="surface" className={cn('transition-colors', blocked && 'opacity-50 pointer-events-none',
+      isInstalled ? 'border-success/30' : 'border-border')}>
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={cn('flex size-5 shrink-0 items-center justify-center rounded-full',
-          isInstalled ? 'bg-emerald-500/15' : 'bg-muted')}>
+          isInstalled ? 'bg-success/10' : 'bg-muted')}>
           {isInstalling
-            ? <Loader2 className="size-3 animate-spin text-muted-foreground" />
+            ? <Spinner size="sm" className="size-3" />
             : isInstalled
-            ? <CheckCircle2 className="size-3 text-emerald-400" />
-            : <div className="size-1.5 rounded-full bg-muted-foreground/30" />}
+            ? <CheckCircle2 className="size-3 text-success" />
+            : <StatusDot status="off" />}
         </div>
         <RoleIcon className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+            <span className="text-overline text-muted-foreground shrink-0">
               {MODEL_ROLE_LABELS[entry.role] ?? entry.role}
             </span>
-            {isActive && <span className="text-[10px] font-semibold text-emerald-400 shrink-0">Active</span>}
+            {isActive && <span className="text-[10px] font-semibold text-success shrink-0">Active</span>}
             {entry.required && !LLM_ROLES_SET.has(entry.role) && (
-              <span className="text-[10px] font-semibold text-violet-400 shrink-0">Required</span>
+              <span className="text-[10px] font-semibold text-brand shrink-0">Required</span>
             )}
             {hasAlts && !isActive && !LLM_ROLES_SET.has(entry.role) && (
-              <span className="text-[10px] font-semibold text-violet-400 shrink-0">Choose one</span>
+              <span className="text-[10px] font-semibold text-brand shrink-0">Choose one</span>
             )}
           </div>
           <p className="text-sm font-semibold leading-tight truncate">{entry.label}</p>
         </div>
         <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">~{fmtCatalogBytes(entry.approxBytes)}</span>
         <div className="flex shrink-0 items-center gap-1">
-          <button type="button" onClick={() => { setShowDetails(v => !v); setShowChange(false) }}
-            className={cn('flex items-center gap-0.5 rounded-lg px-2 py-1 text-xs transition-colors',
-              showDetails ? 'bg-foreground/10 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5')}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setShowDetails(v => !v); setShowChange(false) }}
+            className={cn('gap-0.5 px-2', showDetails ? 'bg-foreground/10 text-foreground' : 'text-muted-foreground')}>
             details <ChevronDown className={cn('size-3 transition-transform', showDetails && 'rotate-180')} />
-          </button>
+          </Button>
           {hasAlts && (
-            <button type="button" onClick={() => { setShowChange(v => !v); setShowDetails(false) }}
-              className={cn('rounded-lg px-2 py-1 text-xs transition-colors',
-                showChange ? 'bg-violet-500/20 text-violet-300' : 'text-muted-foreground hover:text-violet-300 hover:bg-violet-500/10')}>
+            <Button type="button" variant={showChange ? 'tinted' : 'ghost'} size="sm"
+              onClick={() => { setShowChange(v => !v); setShowDetails(false) }}
+              className={cn('px-2', !showChange && 'text-muted-foreground')}>
               change
-            </button>
+            </Button>
           )}
           {isInstalling ? (
-            <button type="button" onClick={onCancel}
-              className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel} className="px-2 text-muted-foreground">
               Cancel
-            </button>
+            </Button>
           ) : isInstalled ? (
-            <span className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/8">
+            <span className="flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold text-success bg-success/10">
               <CheckCircle2 className="size-2.5" /> {isActive ? 'Active' : 'Installed'}
             </span>
           ) : (
-            <button type="button" onClick={onInstall}
-              className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-violet-500/40 hover:bg-violet-500/5 transition-colors">
+            <Button type="button" variant="outline" size="sm" onClick={onInstall} className="gap-1 px-2 text-muted-foreground">
               <Download className="size-3" /> Install
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -281,11 +283,11 @@ function ModelInstallRow({ entry, isActive, installState, onInstall, onCancel, a
 
       {showChange && allEntries && onSwap && (
         <div className="border-t border-border/50 px-4 py-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Choose model</p>
+          <p className="text-overline text-muted-foreground mb-2">Choose model</p>
           {allEntries.map(alt => (
             <button key={alt.id} type="button" onClick={() => { onSwap(alt); setShowChange(false) }}
-              className={cn('w-full rounded-lg border px-3 py-2.5 text-left transition-all',
-                alt.id === entry.id ? 'border-violet-500/40 bg-violet-500/8' : 'border-border bg-background/50 hover:border-border/80 hover:bg-accent/30')}>
+              className={cn('w-full rounded-control border px-3 py-2.5 text-left transition-all',
+                alt.id === entry.id ? 'border-brand/40 bg-brand/10' : 'border-border bg-background/50 hover:border-border/80 hover:bg-accent/30')}>
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">{alt.label}</p>
@@ -293,7 +295,7 @@ function ModelInstallRow({ entry, isActive, installState, onInstall, onCancel, a
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <span className="text-xs tabular-nums text-muted-foreground">~{fmtCatalogBytes(alt.approxBytes)}</span>
-                  {alt.installed && <CheckCircle2 className="size-3.5 text-emerald-400" />}
+                  {alt.installed && <CheckCircle2 className="size-3.5 text-success" />}
                 </div>
               </div>
             </button>
@@ -316,7 +318,7 @@ function ModelInstallRow({ entry, isActive, installState, onInstall, onCancel, a
           />
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -332,16 +334,16 @@ function CapInstallRow({ cap, installed, blocked, installState, onInstall, onCan
   const isInstalled = (installed || isDone) && !isInstalling
 
   return (
-    <div className={cn('rounded-xl border bg-card transition-colors', blocked && 'opacity-50 pointer-events-none',
-      isInstalled ? 'border-violet-500/20' : 'border-border')}>
+    <Card variant="surface" className={cn('transition-colors', blocked && 'opacity-50 pointer-events-none',
+      isInstalled ? 'border-success/30' : 'border-border')}>
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={cn('flex size-5 shrink-0 items-center justify-center rounded-full',
-          isInstalled ? 'bg-emerald-500/15' : 'bg-muted')}>
+          isInstalled ? 'bg-success/10' : 'bg-muted')}>
           {isInstalling
-            ? <Loader2 className="size-3 animate-spin text-muted-foreground" />
+            ? <Spinner size="sm" className="size-3" />
             : isInstalled
-            ? <CheckCircle2 className="size-3 text-emerald-400" />
-            : <div className="size-1.5 rounded-full bg-muted-foreground/30" />}
+            ? <CheckCircle2 className="size-3 text-success" />
+            : <StatusDot status="off" />}
         </div>
         <Icon className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
@@ -351,19 +353,17 @@ function CapInstallRow({ cap, installed, blocked, installState, onInstall, onCan
         <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">~{fmtCatalogBytes(cap.bytes)}</span>
         <div className="shrink-0">
           {isInstalling ? (
-            <button type="button" onClick={onCancel}
-              className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel} className="px-2 text-muted-foreground">
               Cancel
-            </button>
+            </Button>
           ) : isInstalled ? (
-            <span className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/8">
+            <span className="flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold text-success bg-success/10">
               <CheckCircle2 className="size-2.5" /> Installed
             </span>
           ) : (
-            <button type="button" onClick={onInstall}
-              className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-violet-500/40 hover:bg-violet-500/5 transition-colors disabled:opacity-50 disabled:pointer-events-none">
+            <Button type="button" variant="outline" size="sm" onClick={onInstall} className="gap-1 px-2 text-muted-foreground">
               <Download className="size-3" /> Install
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -382,7 +382,7 @@ function CapInstallRow({ cap, installed, blocked, installState, onInstall, onCan
           />
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -509,19 +509,19 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
   return (
     <div className={cn('space-y-3', !kiwixInstalled && 'opacity-40 pointer-events-none')}>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Content Packs</span>
+        <span className="text-overline text-muted-foreground/50">Content Packs</span>
         {notInstalled.length > 0 && kiwixInstalled && (
-          <button type="button" onClick={() => handleDownloadAll(notInstalled)}
-            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">
+          <Button type="button" variant="ghost" size="sm" onClick={() => handleDownloadAll(notInstalled)}
+            className="gap-1 px-2 text-muted-foreground">
             <Download className="size-3" /> Add all
-          </button>
+          </Button>
         )}
       </div>
 
       {kiwixInstalled && (
         loading ? (
           <div className="flex items-center gap-2 py-2">
-            <Loader2 className="size-3 animate-spin text-muted-foreground/40" />
+            <Spinner size="sm" className="size-3 text-muted-foreground/40" />
             <span className="text-xs text-muted-foreground/40">Loading…</span>
           </div>
         ) : (
@@ -538,14 +538,14 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
                     <button type="button" onClick={() => !query && toggleCategory(cat)}
                       className="flex items-center gap-2 flex-1 min-w-0">
                       <ChevronDown className={cn('size-3 text-muted-foreground/40 transition-transform', !catOpen && '-rotate-90')} />
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">{cat}</span>
+                      <span className="text-overline text-muted-foreground/50">{cat}</span>
                       <span className="text-[10px] text-muted-foreground/35 tabular-nums">{catInstalled}/{entries.length}</span>
                     </button>
                     {catNotInstalled.length > 0 && (
-                      <button type="button" onClick={() => handleDownloadAll(catNotInstalled)}
-                        className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors shrink-0">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => handleDownloadAll(catNotInstalled)}
+                        className="gap-1 px-2 text-muted-foreground/50 shrink-0">
                         <Download className="size-2.5" /> Add all
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -559,13 +559,13 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
                         const dlStatus = toDlStatus(dl)
 
                         return (
-                          <div key={entry.sourceId} className="overflow-hidden rounded-xl border border-border/60 bg-card/60">
+                          <Card key={entry.sourceId} variant="surface" className="border-border/60 bg-card/60">
                             <div className="flex items-center gap-3 px-3 py-2.5">
                               <div className={cn('flex size-4 shrink-0 items-center justify-center rounded-full',
-                                entry.installed || dlStatus === 'completed' ? 'bg-emerald-500/15' : 'bg-muted')}>
+                                entry.installed || dlStatus === 'completed' ? 'bg-success/10' : 'bg-muted')}>
                                 {entry.installed || dlStatus === 'completed'
-                                  ? <CheckCircle2 className="size-2.5 text-emerald-400" />
-                                  : <div className="size-1.5 rounded-full bg-muted-foreground/30" />}
+                                  ? <CheckCircle2 className="size-2.5 text-success" />
+                                  : <StatusDot status="off" />}
                               </div>
                               {entry.faviconUrl && <img src={proxyImg(entry.faviconUrl)} className="size-4 shrink-0 rounded" alt="" />}
                               <div className="min-w-0 flex-1">
@@ -575,7 +575,7 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
                               {entry.variants.length > 1 && !isActive && (
                                 <select value={variantKey}
                                   onChange={e => setVariants(prev => new Map(prev).set(entry.sourceId, e.target.value))}
-                                  className="h-6 rounded-md border border-input bg-background px-1.5 text-[11px] focus:outline-none shrink-0">
+                                  className="h-6 rounded-control border border-input bg-background px-1.5 text-[11px] focus:outline-none shrink-0">
                                   {entry.variants.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
                                 </select>
                               )}
@@ -584,21 +584,22 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
                               )}
                               <div className="shrink-0 flex items-center gap-1">
                                 {isActive ? (
-                                  <button type="button" onClick={() => handleCancel(entry.sourceId)}
-                                    className="rounded-lg px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">Cancel</button>
+                                  <Button type="button" variant="ghost" size="sm" onClick={() => handleCancel(entry.sourceId)}
+                                    className="px-2 text-muted-foreground">Cancel</Button>
                                 ) : (
                                   <>
                                     {entry.installed && (
-                                      <button type="button" onClick={() => setConfirmDeleteId(entry.sourceId)}
-                                        className="rounded-lg p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors">
+                                      <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove content pack"
+                                        onClick={() => setConfirmDeleteId(entry.sourceId)}
+                                        className="text-muted-foreground hover:text-destructive hover:bg-destructive/5">
                                         <Trash2 className="size-3" />
-                                      </button>
+                                      </Button>
                                     )}
-                                    <button type="button" onClick={() => handleDownload(entry.sourceId, variantKey)}
-                                      className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-brand/40 hover:bg-brand/5 transition-colors">
+                                    <Button type="button" variant="outline" size="sm" onClick={() => handleDownload(entry.sourceId, variantKey)}
+                                      className="gap-1 px-2 text-muted-foreground">
                                       <Download className="size-2.5" />
                                       {entry.installed ? 'Update' : 'Add'}
-                                    </button>
+                                    </Button>
                                   </>
                                 )}
                               </div>
@@ -610,7 +611,7 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
                                   speedBps={dl.speedBps} etaSeconds={dl.etaSeconds} error={dl.error ?? undefined} />
                               </div>
                             )}
-                          </div>
+                          </Card>
                         )
                       })}
                     </div>
@@ -795,7 +796,7 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
             <Sparkles className="size-4 text-brand shrink-0" />
             <DialogTitle className="text-base">Browse LoRAs</DialogTitle>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">Search CivitAI — SDXL compatible models</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Search CivitAI: SDXL compatible models</p>
         </DialogHeader>
 
         <div className="shrink-0 px-5 py-3 border-b border-border/40 space-y-2.5">
@@ -805,7 +806,7 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
               <input ref={inputRef} value={inputValue} onChange={e => setInputValue(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
                 placeholder="Search for a style, character, concept…"
-                className="w-full rounded-xl border border-border bg-card pl-9 pr-9 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40" />
+                className="w-full rounded-control border border-border bg-card pl-9 pr-9 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40" />
               {inputValue && (
                 <button onClick={() => { setInputValue(''); setQuery(''); setHits([]) }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
@@ -813,26 +814,23 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
                 </button>
               )}
             </div>
-            <button onClick={handleSubmit}
-              className="flex items-center justify-center size-10 rounded-xl bg-brand text-white hover:bg-brand/90 transition-colors shrink-0"
-              title="Search">
+            <Button onClick={handleSubmit} size="icon" aria-label="Search" title="Search" className="size-10 shrink-0">
               <ArrowRight className="size-4" />
-            </button>
+            </Button>
           </div>
           <div className="flex items-center gap-3">
             <select value={sort} onChange={e => setSort(e.target.value as SortOption)}
-              className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand/40">
+              className="h-8 rounded-control border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand/40">
               <option value="downloads">Most downloaded</option>
               <option value="highest_rated">Highest rated</option>
               <option value="newest">Newest</option>
               <option value="relevance">Relevance</option>
             </select>
-            <button type="button" onClick={() => setShowAdult(v => !v)}
-              className={cn('flex items-center gap-1.5 h-8 rounded-lg border px-3 text-xs font-medium transition-colors',
-                showAdult ? 'border-rose-500/50 bg-rose-500/10 text-rose-400' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted')}>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowAdult(v => !v)}
+              className={cn('gap-1.5', showAdult ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : 'text-muted-foreground')}>
               {showAdult ? '🔞 Adult on' : 'Adult off'}
-            </button>
-            {searching && <Loader2 className="size-3.5 animate-spin text-muted-foreground/50 ml-auto" />}
+            </Button>
+            {searching && <Spinner size="sm" className="text-muted-foreground/50 ml-auto" />}
           </div>
         </div>
 
@@ -847,7 +845,7 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
               const imp = imports.get(hit.versionId)
               const pct = imp && imp.total > 0 ? Math.round((imp.completed / imp.total) * 100) : 0
               return (
-                <div key={hit.versionId} className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card hover:border-brand/40 transition-colors">
+                <Card key={hit.versionId} variant="surface" className="group flex flex-col border-border/60 hover:border-brand/40 transition-colors">
                   <div className="relative aspect-[3/4] bg-muted overflow-hidden">
                     {hit.thumbnailUrl ? (
                       <img src={proxyImg(hit.thumbnailUrl)} alt="" className={cn('absolute inset-0 size-full object-cover', hit.isNsfw && !showAdult && 'blur-xl')} />
@@ -858,7 +856,7 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
                     )}
                     {imp?.status === 'downloading' && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 gap-2 px-3">
-                        <Loader2 className="size-5 animate-spin text-white" />
+                        <Spinner className="size-5 text-white" />
                         <div className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden">
                           <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
                         </div>
@@ -867,9 +865,9 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
                     )}
                     {imp?.status === 'done' && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                        <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/90 px-3 py-1.5">
-                          <CheckCircle2 className="size-3.5 text-white" />
-                          <span className="text-xs font-semibold text-white">Added</span>
+                        <div className="flex items-center gap-1.5 rounded-full bg-success/90 px-3 py-1.5">
+                          <CheckCircle2 className="size-3.5 text-success-foreground" />
+                          <span className="text-xs font-semibold text-success-foreground">Added</span>
                         </div>
                       </div>
                     )}
@@ -878,7 +876,7 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
                     <p className="text-xs font-semibold leading-tight line-clamp-2">{hit.name}</p>
                     {hit.versionName && <p className="text-[10px] text-muted-foreground/50 truncate">{hit.versionName}</p>}
                     {hit.baseModel && (
-                      <span className="self-start rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium text-brand leading-none">{hit.baseModel}</span>
+                      <span className="self-start rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium text-brand leading-none">{hit.baseModel}</span>
                     )}
                     <div className="flex items-center justify-between gap-1">
                       {hit.author && <p className="text-[10px] text-muted-foreground/50 truncate">by {hit.author}</p>}
@@ -889,32 +887,33 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
                       )}
                     </div>
                     {hit.triggerTokens.length > 0 && (
-                      <p className="text-[10px] font-mono text-sky-400/70 truncate">
+                      <p className="text-[10px] font-mono text-muted-foreground/70 truncate">
                         {hit.triggerTokens.slice(0, 2).join(', ')}{hit.triggerTokens.length > 2 ? '…' : ''}
                       </p>
                     )}
                     {(hit.allowCommercialUse === 'None' || hit.allowDerivatives === false) && (
                       <div className="flex flex-wrap gap-1">
                         {hit.allowCommercialUse === 'None' && (
-                          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-400 leading-none">Non-commercial</span>
+                          <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[9px] font-medium text-warning leading-none">Non-commercial</span>
                         )}
                         {hit.allowDerivatives === false && (
-                          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-400 leading-none">No derivatives</span>
+                          <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[9px] font-medium text-warning leading-none">No derivatives</span>
                         )}
                       </div>
                     )}
                     {imp?.status === 'error' && <p className="text-[10px] text-destructive line-clamp-2">{imp.error}</p>}
                     {!imp ? (
-                      <button onClick={() => initiateImport(hit)}
-                        className="mt-0.5 flex items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-brand/40 hover:bg-brand/5 transition-colors">
+                      <Button variant="outline" size="sm" onClick={() => initiateImport(hit)}
+                        className="mt-0.5 w-full gap-1.5 text-muted-foreground">
                         <Download className="size-3" /> Add
-                      </button>
+                      </Button>
                     ) : imp.status === 'error' ? (
-                      <button onClick={() => { setImports(p => { const n = new Map(p); n.delete(hit.versionId); return n }); void handleImport(hit) }}
-                        className="mt-0.5 rounded-lg border border-destructive/30 py-1.5 text-xs text-destructive hover:bg-destructive/5 transition-colors">Retry</button>
+                      <Button variant="outline" size="sm"
+                        onClick={() => { setImports(p => { const n = new Map(p); n.delete(hit.versionId); return n }); void handleImport(hit) }}
+                        className="mt-0.5 w-full border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive">Retry</Button>
                     ) : null}
                   </div>
-                </div>
+                </Card>
               )
             })}
           </div>
@@ -922,19 +921,19 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
 
         {(currentPage > 0 || hasNextPage) && (
           <div className="shrink-0 flex items-center justify-center gap-1.5 border-t border-border/40 px-5 py-3">
-            <button type="button" disabled={currentPage === 0 || searching} onClick={() => setCurrentPage(p => p - 1)}
-              className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 transition-colors">← Prev</button>
+            <Button type="button" variant="outline" size="sm" disabled={currentPage === 0 || searching} onClick={() => setCurrentPage(p => p - 1)}
+              className="gap-1 text-muted-foreground">← Prev</Button>
             <div className="flex items-center gap-1">
               {Array.from({ length: maxPage + (hasNextPage ? 2 : 1) }, (_, i) => (
-                <button key={i} type="button" disabled={searching || i > maxPage + 1} onClick={() => setCurrentPage(i)}
-                  className={cn('min-w-[2rem] rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
-                    i === currentPage ? 'border-brand/50 bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40')}>
+                <Button key={i} type="button" variant="outline" size="sm" disabled={searching || i > maxPage + 1} onClick={() => setCurrentPage(i)}
+                  className={cn('min-w-[2rem] px-2.5',
+                    i === currentPage ? 'border-brand/50 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand' : 'text-muted-foreground')}>
                   {i + 1}
-                </button>
+                </Button>
               ))}
             </div>
-            <button type="button" disabled={!hasNextPage || searching} onClick={() => setCurrentPage(p => p + 1)}
-              className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 transition-colors">Next →</button>
+            <Button type="button" variant="outline" size="sm" disabled={!hasNextPage || searching} onClick={() => setCurrentPage(p => p + 1)}
+              className="gap-1 text-muted-foreground">Next →</Button>
           </div>
         )}
 
@@ -945,22 +944,21 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
               <DialogDescription className="sr-only">License acknowledgment for CivitAI models</DialogDescription>
             </DialogHeader>
             <p className="text-sm text-foreground leading-relaxed">
-              Models on CivitAI carry individual license terms set by their creators. Some restrict commercial use or derivatives. By downloading, you agree to comply with that model&apos;s license — check the <strong>View ↗</strong> link on each card before use in any commercial or public project.
+              Models on CivitAI carry individual license terms set by their creators. Some restrict commercial use or derivatives. By downloading, you agree to comply with that model&apos;s license: check the <strong>View ↗</strong> link on each card before use in any commercial or public project.
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              You&apos;ll only see this once. License badges (<span className="font-medium text-amber-400">Non-commercial</span> / <span className="font-medium text-amber-400">No derivatives</span>) appear on restricted models.
+              You&apos;ll only see this once. License badges (<span className="font-medium text-warning">Non-commercial</span> / <span className="font-medium text-warning">No derivatives</span>) appear on restricted models.
             </p>
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button"
+              <Button type="button" variant="outline" size="sm"
                 onClick={() => { setShowLoraNotice(false); setPendingHit(null) }}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">
+                className="text-muted-foreground">
                 Cancel
-              </button>
-              <button type="button"
-                onClick={() => void acceptLoraNotice()}
-                className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand/90 transition-colors">
+              </Button>
+              <Button type="button" size="sm"
+                onClick={() => void acceptLoraNotice()}>
                 Got it
-              </button>
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -1022,36 +1020,36 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
   return (
     <div className={cn('space-y-2', !imageGenInstalled && 'opacity-40 pointer-events-none')}>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+        <span className="text-overline text-muted-foreground/50">
           LoRA Styles {loras.length > 0 && `· ${loras.filter(l => l.enabled).length}/${loras.length} enabled`}
         </span>
         {imageGenInstalled && (
-          <button type="button" onClick={() => setBrowsing(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-brand/40 hover:bg-brand/5 transition-colors">
+          <Button type="button" variant="outline" size="sm" onClick={() => setBrowsing(true)}
+            className="gap-1.5 text-muted-foreground">
             <Search className="size-3" /> Browse CivitAI
-          </button>
+          </Button>
         )}
       </div>
 
       {loading ? (
         <div className="flex items-center gap-2 py-1">
-          <Loader2 className="size-3 animate-spin text-muted-foreground/40" />
+          <Spinner size="sm" className="size-3 text-muted-foreground/40" />
           <span className="text-xs text-muted-foreground/40">Loading…</span>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border/40 py-4 text-center">
+        <Card variant="dashed" className="flex flex-col items-center gap-2 border-border/40 py-4 text-center">
           <Sparkles className="size-5 text-muted-foreground/25" />
           <p className="text-xs text-muted-foreground/50">No LoRAs installed yet.</p>
-          <button type="button" onClick={() => setBrowsing(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-brand/40 hover:bg-brand/5 transition-colors">
+          <Button type="button" variant="outline" size="sm" onClick={() => setBrowsing(true)}
+            className="gap-1.5 text-muted-foreground">
             <Search className="size-3" /> Browse CivitAI
-          </button>
-        </div>
+          </Button>
+        </Card>
       ) : (
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           {filtered.map(lora => (
             <div key={lora.id} className="shrink-0 w-24 group relative">
-              <div className={cn('relative aspect-[3/4] overflow-hidden rounded-xl border',
+              <div className={cn('relative aspect-[3/4] overflow-hidden rounded-card border',
                 lora.enabled ? 'border-border/60' : 'border-border/30 opacity-50')}>
                 {lora.thumbnailUrl ? (
                   <img src={proxyImg(lora.thumbnailUrl)} alt="" className="absolute inset-0 size-full object-cover" />
@@ -1062,18 +1060,18 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 gap-1">
                   <button type="button" disabled={toggling.has(lora.id)} onClick={() => handleToggle(lora.id, !lora.enabled)}
-                    className={cn('flex items-center justify-center gap-1 rounded-md py-1 text-[10px] font-medium transition-colors',
+                    className={cn('flex items-center justify-center gap-1 rounded-control py-1 text-[10px] font-medium transition-colors',
                       lora.enabled ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-brand/80 text-white hover:bg-brand')}>
                     {lora.enabled ? 'Disable' : 'Enable'}
                   </button>
-                  <button type="button" disabled={deleting.has(lora.id)} onClick={() => setConfirmDeleteId(lora.id)}
-                    className="flex items-center justify-center rounded-md py-1 text-[10px] text-white/70 bg-black/30 hover:bg-red-500/70 transition-colors">
+                  <button type="button" disabled={deleting.has(lora.id)} onClick={() => setConfirmDeleteId(lora.id)} aria-label="Remove LoRA style"
+                    className="flex items-center justify-center rounded-control py-1 text-[10px] text-white/70 bg-black/30 hover:bg-destructive/70 transition-colors">
                     <Trash2 className="size-3" />
                   </button>
                 </div>
               </div>
               <p className="mt-1 text-[11px] font-medium leading-tight truncate text-center">{lora.name}</p>
-              {!lora.fileExists && <p className="text-[10px] text-amber-400 text-center">Missing</p>}
+              {!lora.fileExists && <p className="text-[10px] text-warning text-center">Missing</p>}
             </div>
           ))}
         </div>
@@ -1212,9 +1210,7 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
   return (
     <div className="space-y-5">
       {loading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="size-4 animate-spin text-muted-foreground/40" />
-        </div>
+        <SkeletonListRows count={4} className="py-2" />
       ) : (
         orderedCategories.map(cat => {
           const catTools = categoryMap.get(cat)!
@@ -1228,7 +1224,7 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                   className="flex items-center gap-2 w-full"
                   onClick={() => !query && toggleCategory(cat)}>
                   <ChevronDown className={cn('size-3.5 text-muted-foreground/70 transition-transform', !catOpen && '-rotate-90')} />
-                  <span className="text-xs font-bold uppercase tracking-wider text-foreground/80">{cat}</span>
+                  <span className="text-overline text-foreground/80">{cat}</span>
                   <span className="text-[10px] font-medium text-muted-foreground tabular-nums">{enabledCount}/{catTools.length}</span>
                 </button>
               </div>
@@ -1243,9 +1239,9 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                     const hasConfig    = globalFields.length > 0
 
                     return (
-                      <div key={tool.id} className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+                      <Card key={tool.id} variant="surface" className="border-border/60">
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl', meta.chip)}>
+                          <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-card', meta.chip)}>
                             <ToolIcon className="size-5" />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1261,12 +1257,12 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                             <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{tool.description}</p>
                           </div>
                           {hasConfig && (
-                            <button type="button" onClick={() => handleExpand(tool.id)}
-                              className={cn('shrink-0 flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
-                                isExpanded ? 'border-brand/40 bg-brand/8 text-brand' : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent/40')}>
+                            <Button type="button" variant="outline" size="sm" onClick={() => handleExpand(tool.id)}
+                              className={cn('shrink-0 gap-1.5',
+                                isExpanded ? 'border-brand/40 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand' : 'text-muted-foreground')}>
                               <Settings2 className="size-3" />
                               {isExpanded ? 'Done' : 'Config'}
-                            </button>
+                            </Button>
                           )}
                           <ToggleSwitch checked={tool.enabled} disabled={tool.core || saving.has(tool.id)} onChange={enabled => toggleTool(tool.id, enabled)} />
                         </div>
@@ -1307,7 +1303,7 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                                           <input type={isSecret && !visible ? 'password' : 'text'} value={displayVal}
                                             placeholder={field.placeholder}
                                             onChange={e => setDrafts(prev => ({ ...prev, [fk]: e.target.value }))}
-                                            className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand/40 pr-8" />
+                                            className="w-full rounded-control border border-border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand/40 pr-8" />
                                           {isSecret && (
                                             <button type="button" onClick={() => setShowSecret(prev => ({ ...prev, [fk]: !visible }))}
                                               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors">
@@ -1316,11 +1312,11 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                                           )}
                                         </div>
                                         {isDirty && (
-                                          <button type="button" disabled={savingField[fk]}
+                                          <Button type="button" size="sm" disabled={savingField[fk]}
                                             onClick={() => saveConfigField(tool.id, field.key, draftVal!)}
-                                            className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs text-brand-foreground hover:opacity-90 disabled:opacity-50 transition-colors">
+                                            className="shrink-0">
                                             {savingField[fk] ? '…' : 'Save'}
-                                          </button>
+                                          </Button>
                                         )}
                                       </div>
                                     </div>
@@ -1330,7 +1326,7 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                             )}
                             {configLoaded && users.length > 0 && (
                               <div className="space-y-2">
-                                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Who can use this</p>
+                                <p className="text-overline text-muted-foreground/60">Who can use this</p>
                                 <div className="flex flex-wrap gap-2">
                                   {users.map(u => {
                                     const pk     = `${tool.id}.${u.id}`
@@ -1338,9 +1334,9 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                                     return (
                                       <button key={u.id} type="button" disabled={savingPerm[pk]}
                                         onClick={() => togglePerm(tool.id, u.id)}
-                                        className={cn('flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors',
-                                          denied ? 'border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                                            : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20',
+                                        className={cn('flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors',
+                                          denied ? 'border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20'
+                                            : 'border-success/30 bg-success/10 text-success hover:bg-success/20',
                                           savingPerm[pk] && 'opacity-50')}>
                                         {u.nickname || u.firstName}
                                       </button>
@@ -1357,7 +1353,7 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                             )}
                           </div>
                         )}
-                      </div>
+                      </Card>
                     )
                   })}
                 </div>
@@ -1534,7 +1530,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
     else void repairComponent(entry.id, entry.id)
   }
 
-  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+  if (loading) return <div className="px-5 py-6"><SkeletonListRows count={6} /></div>
   if (loadError || !catalog) return (
     <div className="flex flex-col items-center gap-2 py-16 text-center">
       <p className="text-sm text-destructive">{loadError || 'Could not load catalog.'}</p>
@@ -1558,22 +1554,22 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
       <div className="px-5 pt-5 pb-4 border-b border-border/40 space-y-3">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-black tracking-tight">Your AI</h2>
+            <h2 className="text-title">Your AI</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {catalog.hardware.totalRamGb} GB{catalog.hardware.isAppleSilicon ? ' Apple Silicon' : ''} · {fmtCatalogBytes(catalog.disk.freeBytes)} free
             </p>
           </div>
-          <button type="button" onClick={loadAll}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0">
+          <Button type="button" variant="outline" size="sm" onClick={loadAll}
+            className="gap-1.5 text-muted-foreground shrink-0">
             <RefreshCw className="size-3" /> Refresh
-          </button>
+          </Button>
         </div>
 
         {catalog.tiers.length > 1 && (
           <div className="space-y-1.5">
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Model size</label>
+            <label className="block text-overline text-muted-foreground">Model size</label>
             <select value={selectedTier} onChange={e => setSelectedTier(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500/40">
+              className="w-full rounded-control border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand/40">
               {catalog.tiers.map(t => (
                 <option key={t.id} value={t.id}>{t.label}{t.id === catalog.recommendedTier ? ' (recommended for you)' : ''}</option>
               ))}
@@ -1587,37 +1583,37 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
 
         {/* Chat & Intelligence */}
         <div id="section-chat" className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">Chat &amp; Intelligence</p>
+          <p className="text-overline text-muted-foreground/60">Chat &amp; Intelligence</p>
 
           {/* Ollama runtime row */}
-          <div className={cn('rounded-xl border bg-card transition-colors', catalog.ollamaRunning ? 'border-violet-500/20' : 'border-border')}>
+          <Card variant="surface" className={cn('transition-colors', catalog.ollamaRunning ? 'border-success/30' : 'border-border')}>
             <div className="flex items-center gap-3 px-4 py-3">
-              <div className={cn('flex size-5 shrink-0 items-center justify-center rounded-full', catalog.ollamaRunning ? 'bg-emerald-500/15' : 'bg-muted')}>
+              <div className={cn('flex size-5 shrink-0 items-center justify-center rounded-full', catalog.ollamaRunning ? 'bg-success/10' : 'bg-muted')}>
                 {ollamaState?.status === 'downloading'
-                  ? <Loader2 className="size-3 animate-spin text-muted-foreground" />
+                  ? <Spinner size="sm" className="size-3" />
                   : catalog.ollamaRunning
-                  ? <CheckCircle2 className="size-3 text-emerald-400" />
-                  : <div className="size-1.5 rounded-full bg-muted-foreground/30" />}
+                  ? <CheckCircle2 className="size-3 text-success" />
+                  : <StatusDot status="off" />}
               </div>
               <Server className="size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Runtime</span>
+                <span className="text-overline text-muted-foreground">Runtime</span>
                 <p className="text-sm font-semibold leading-tight">{catalog.ollamaRunning ? 'Ollama · running' : 'Ollama'}</p>
               </div>
               <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">~{fmtCatalogBytes(catalog.ollamaInstallBytes)}</span>
               <div className="shrink-0">
                 {ollamaState?.status === 'downloading' ? (
-                  <button type="button" onClick={() => cancelInstall('ollama-runtime')}
-                    className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">Cancel</button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => cancelInstall('ollama-runtime')}
+                    className="px-2 text-muted-foreground">Cancel</Button>
                 ) : catalog.ollamaRunning ? (
-                  <span className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/8">
+                  <span className="flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold text-success bg-success/10">
                     <CheckCircle2 className="size-2.5" /> Running
                   </span>
                 ) : (
-                  <button type="button" onClick={() => void repairComponent('ollama-runtime', 'ollama-runtime')}
-                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-violet-500/40 hover:bg-violet-500/5 transition-colors">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void repairComponent('ollama-runtime', 'ollama-runtime')}
+                    className="gap-1 px-2 text-muted-foreground">
                     <Download className="size-3" /> Install
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -1629,7 +1625,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
                   speedBps={ollamaState.speedBps} etaSeconds={ollamaState.etaSeconds} error={ollamaState.error} />
               </div>
             )}
-          </div>
+          </Card>
 
           {activeTierLlm && (
             <ModelInstallRow
@@ -1654,11 +1650,11 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
             ))}
 
           {activeTierLlm?.builtinVision && (
-            <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 flex items-start gap-3">
-              <Eye className="size-4 shrink-0 text-violet-400 mt-0.5" />
+            <div className="rounded-card border border-brand/30 bg-brand/10 px-4 py-3 flex items-start gap-3">
+              <Eye className="size-4 shrink-0 text-brand mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-violet-300">Vision built in</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{activeTierLlm.label} understands images natively — no separate vision model needed.</p>
+                <p className="text-sm font-semibold text-brand">Vision built in</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{activeTierLlm.label} understands images natively, no separate vision model needed.</p>
               </div>
             </div>
           )}
@@ -1667,12 +1663,12 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
         {/* Image Generation */}
         {imageModels.length > 0 && (
           <div id="section-images" className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">Image Generation</p>
+            <p className="text-overline text-muted-foreground/60">Image Generation</p>
 
-            <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-2.5">
+            <div className="flex items-center gap-3 rounded-card border border-border/50 bg-muted/30 px-4 py-2.5">
               <Server className="size-4 shrink-0 text-muted-foreground/60" />
               <div className="min-w-0 flex-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">Runtime</span>
+                <span className="text-overline text-muted-foreground/60">Runtime</span>
                 <p className="text-sm text-muted-foreground">ComfyUI · included automatically</p>
               </div>
             </div>
@@ -1693,7 +1689,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
         {/* Voice */}
         {voiceModels.length > 0 && (
           <div id="section-voice" className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">Voice</p>
+            <p className="text-overline text-muted-foreground/60">Voice</p>
             {voiceModels.map(m => (
               <ModelInstallRow key={m.id} entry={m}
                 installState={installStates.get(m.id)}
@@ -1706,7 +1702,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
 
         {/* Base Applications */}
         <div id="section-capabilities" className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">Base Applications</p>
+          <p className="text-overline text-muted-foreground/60">Base Applications</p>
           {ADMIN_CAPS.filter(c => c.base).map(cap => (
             <CapInstallRow key={cap.id} cap={cap}
               installed={compMap.get(cap.id) === true}
@@ -1719,8 +1715,8 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
 
         {/* More capabilities */}
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">More Capabilities</p>
-          <p className="px-1 text-xs text-muted-foreground/70 -mt-1">Optional — add these at any time.</p>
+          <p className="text-overline text-muted-foreground/60">More Capabilities</p>
+          <p className="px-1 text-xs text-muted-foreground/70 -mt-1">Optional: add these at any time.</p>
           {ADMIN_CAPS.filter(c => !c.base).map(cap => (
             <CapInstallRow key={cap.id} cap={cap}
               installed={compMap.get(cap.id) === true}
@@ -1741,14 +1737,14 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
             <DialogDescription className="sr-only">Privacy notice for face analysis models</DialogDescription>
           </DialogHeader>
           <p className="text-sm text-foreground leading-relaxed">
-            Face Identity models extract facial geometry from photos to inject your likeness into generated images. Only use this on photos you own or have explicit rights to process. All analysis happens locally — no images are sent externally.
+            Face Identity models extract facial geometry from photos to inject your likeness into generated images. Only use this on photos you own or have explicit rights to process. All analysis happens locally; no images are sent externally.
           </p>
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={() => { setShowFaceIdNotice(false); setPendingEntry(null) }}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors">
+            <Button type="button" variant="outline" size="sm" onClick={() => { setShowFaceIdNotice(false); setPendingEntry(null) }}
+              className="text-muted-foreground">
               Cancel
-            </button>
-            <button type="button"
+            </Button>
+            <Button type="button" size="sm"
               onClick={async () => {
                 faceIdSeenRef.current = true
                 setShowFaceIdNotice(false)
@@ -1759,10 +1755,9 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
                   }).catch(() => {})
                 }
                 if (pendingEntry) { installEntry(pendingEntry); setPendingEntry(null) }
-              }}
-              className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 transition-colors">
+              }}>
               Got it, install
-            </button>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

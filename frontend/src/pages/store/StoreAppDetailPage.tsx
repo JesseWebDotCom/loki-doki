@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Wifi, Cpu, ShieldCheck, Globe, HardDrive } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { PageContainer } from '@/components/shared/PageContainer'
 import { useStoreApps, type StoreApp } from '@/lib/store/useStoreApps'
 import { AppIcon } from '@/components/store/AppIcon'
 import { PrimaryAction, SecondaryActions } from '@/components/store/StoreActions'
@@ -35,27 +36,28 @@ export function StoreAppDetailPage() {
   ]
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-6 pb-20">
+    <PageContainer className="py-6 pb-20">
       <Link to="/app-store" className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> Go back
       </Link>
 
-      {/* Hero */}
-      <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/40">
+      {/* Hero: calm bg-card panel; the app tile keeps its identity gradient. */}
+      <div className="relative mb-6 overflow-hidden rounded-sheet border border-border bg-card">
         <div
-          className="absolute inset-0 opacity-30"
-          style={app.gradient ? { backgroundImage: app.gradient } : undefined}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{ background: `radial-gradient(640px circle at 0% 0%, color-mix(in oklch, ${app.accent} 22%, transparent), transparent 62%)` }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-card via-card/80 to-transparent" />
         <div className="relative flex flex-col gap-5 p-6 sm:flex-row sm:items-start sm:p-8">
-          <AppIcon app={app} className="size-24" iconClassName="size-12" rounded="rounded-3xl" />
+          <AppIcon app={app} className="size-24" iconClassName="size-12" rounded="rounded-sheet" />
 
           <div className="min-w-0 flex-1">
-            <h1 className="text-3xl font-black tracking-tight">{app.name}</h1>
+            {/* design-ok(raw-h1-in-pages): bespoke detail hero (tile + tags + actions) that PageHeader can't host; title uses the sanctioned text-display style */}
+            <h1 className="text-display">{app.name}</h1>
             <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
               {app.category}
               {app.builtIn && (
-                <span className="inline-flex items-center gap-1 text-emerald-500">
+                <span className="inline-flex items-center gap-1 text-success">
                   <ShieldCheck className="size-3.5" /> Built-in
                 </span>
               )}
@@ -71,7 +73,7 @@ export function StoreAppDetailPage() {
 
             <div className="mt-5 flex items-center gap-2">
               <PrimaryAction app={app} size="md" />
-              <SecondaryActions app={app} className="size-9 border border-border/60" />
+              <SecondaryActions app={app} className="size-9 border border-border" />
             </div>
           </div>
         </div>
@@ -111,7 +113,7 @@ export function StoreAppDetailPage() {
         {/* Details panel */}
         <DetailsPanel app={app} />
       </div>
-    </div>
+    </PageContainer>
   )
 }
 
@@ -125,15 +127,15 @@ function OverviewTab({ app }: { app: StoreApp }) {
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="mb-2 text-base font-bold">About this app</h3>
+        <h3 className="mb-2 text-base font-semibold">About this app</h3>
         <p className="text-sm text-muted-foreground leading-relaxed">{app.description}</p>
       </section>
       {app.examples.length > 0 && (
         <section>
-          <h3 className="mb-2 text-base font-bold">Try saying</h3>
+          <h3 className="mb-2 text-base font-semibold">Try saying</h3>
           <ul className="space-y-1.5">
             {app.examples.map((ex, i) => (
-              <li key={i} className="rounded-xl border border-border/40 bg-card px-3 py-2 text-sm text-muted-foreground">
+              <li key={i} className="rounded-control bg-secondary/50 px-3 py-2 text-sm text-muted-foreground">
                 “{ex}”
               </li>
             ))}
@@ -147,8 +149,8 @@ function OverviewTab({ app }: { app: StoreApp }) {
 function SourcesTab({ app }: { app: StoreApp }) {
   if (app.dataSources.length === 0) {
     return (
-      <div className="flex items-start gap-3 rounded-xl border border-border/50 bg-muted/30 p-4">
-        <HardDrive className="mt-0.5 size-5 shrink-0 text-emerald-500" />
+      <div className="flex items-start gap-3 rounded-card bg-secondary/50 p-4">
+        <HardDrive className="mt-0.5 size-5 shrink-0 text-success" />
         <div>
           <p className="text-sm font-medium">Fully local</p>
           <p className="text-xs text-muted-foreground leading-snug">
@@ -174,7 +176,7 @@ function DetailsPanel({ app }: { app: StoreApp }) {
     ['Type', app.offline ? 'Extension' : 'App'],
     ['Connectivity', (
       <span className="inline-flex items-center gap-1.5">
-        {app.online ? <Wifi className="size-3.5 text-sky-500" /> : <Cpu className="size-3.5 text-slate-400" />}
+        {app.online ? <Wifi className="size-3.5 text-info" /> : <Cpu className="size-3.5 text-muted-foreground" />}
         {app.online ? 'Online' : 'Local'}
       </span>
     )],
@@ -183,9 +185,9 @@ function DetailsPanel({ app }: { app: StoreApp }) {
     ['Data sources', String(app.dataSources.length)],
   ]
   return (
-    <aside className="w-full shrink-0 rounded-2xl border border-border/40 bg-card p-5 lg:w-72">
-      <h3 className="mb-3 text-base font-bold">Details</h3>
-      <dl className="divide-y divide-border/40">
+    <aside className="w-full shrink-0 rounded-card border border-border bg-card p-5 lg:w-72">
+      <h3 className="mb-3 text-base font-semibold">Details</h3>
+      <dl className="divide-y divide-border/50">
         {rows.map(([label, value]) => (
           <div key={label} className="flex items-center justify-between gap-3 py-2.5 text-sm">
             <dt className="text-muted-foreground">{label}</dt>

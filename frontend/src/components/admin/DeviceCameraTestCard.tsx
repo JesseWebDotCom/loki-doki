@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Video } from 'lucide-react'
+import { Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/lib/toast'
 
 // Admin → Devices: prove the server can drive a flashed device's screen — push a live
@@ -37,11 +39,11 @@ export function DeviceCameraTestCard() {
   }
 
   return (
-    <section id="devices-camera-test" className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 scroll-mt-20">
+    <Card variant="surface" id="devices-camera-test" className="space-y-3 border-border/50 p-4 scroll-mt-20">
       <div className="flex items-center gap-2">
-        <Video className="size-4 text-amber-500" />
+        <Video className="size-4 text-brand" />
         <h4 className="text-sm font-semibold">Camera test</h4>
-        <span className="text-xs text-muted-foreground">— push a live camera to a device's screen</span>
+        <span className="text-xs text-muted-foreground">Push a live camera to a device's screen</span>
       </div>
       <p className="text-xs text-muted-foreground">
         The device shows whatever the server serves. Enter a camera snapshot or MJPEG URL (e.g.
@@ -49,7 +51,7 @@ export function DeviceCameraTestCard() {
         flashed screen device; "Back to layout" returns it to the ambient display.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
-        <select value={device} onChange={(e) => setDevice(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <select value={device} onChange={(e) => setDevice(e.target.value)} className="h-9 rounded-control border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
           {devices.length === 0 && <option value="">No devices</option>}
           {devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
@@ -57,12 +59,12 @@ export function DeviceCameraTestCard() {
       </div>
       <div className="flex gap-2">
         <Button size="sm" onClick={() => driveDisplay({ mode: 'camera', url: cameraUrl.trim() })} disabled={!device || !cameraUrl.trim() || busy}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <><Video className="size-3.5" /> Show camera</>}
+          {busy ? <Spinner className="text-current" /> : <><Video className="size-3.5" /> Show camera</>}
         </Button>
         <Button size="sm" variant="secondary" onClick={() => driveDisplay({ mode: 'auto' })} disabled={!device || busy}>
           Back to layout
         </Button>
       </div>
-    </section>
+    </Card>
   )
 }

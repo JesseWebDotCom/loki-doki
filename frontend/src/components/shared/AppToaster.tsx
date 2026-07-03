@@ -11,7 +11,7 @@ export function AppToaster() {
       position="bottom-right"
       richColors
       closeButton
-      toastOptions={{ className: 'rounded-xl' }}
+      toastOptions={{ className: 'rounded-card' }}
     />
   )
 }

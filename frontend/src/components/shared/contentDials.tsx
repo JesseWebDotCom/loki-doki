@@ -3,7 +3,7 @@ import { cn } from '@/lib/cn'
 // Shared content-policy dial UI + metadata. Used by user settings (capped by the
 // admin ceiling), the admin instance-ceiling editor, and the character studio.
 
-// Mirror of backend lib/contentPolicy.ts CONTENT_CATEGORIES — keep in sync. Every
+// Mirror of backend lib/contentPolicy.ts CONTENT_CATEGORIES; keep in sync. Every
 // axis tops out at `unrestricted`. Behavior is owned by the backend; this is UI only.
 export type DialKey =
   | 'profanity' | 'sexual' | 'violence' | 'substances'
@@ -101,7 +101,7 @@ export function Segmented({ value, options, onChange, className }: {
 }) {
   return (
     <div
-      className={cn('grid gap-1 rounded-lg border border-border bg-muted p-1', className)}
+      className={cn('grid gap-1 rounded-full border border-border bg-muted p-1', className)}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       {options.map((o) => (
@@ -111,7 +111,7 @@ export function Segmented({ value, options, onChange, className }: {
           disabled={o.disabled}
           onClick={() => { if (!o.disabled) onChange(o.value) }}
           className={cn(
-            'truncate rounded-md px-3 py-1.5 text-center text-xs font-medium transition-all',
+            'truncate rounded-full px-3 py-1.5 text-center text-xs font-medium transition-all',
             value === o.value
               ? 'bg-foreground text-background shadow-sm'
               : 'text-muted-foreground hover:text-foreground hover:bg-muted-foreground/10',
@@ -126,7 +126,7 @@ export function Segmented({ value, options, onChange, className }: {
 }
 
 // ── Dial group ───────────────────────────────────────────────────────────────────
-// `ceiling` (optional) disables levels above the cap — used in user settings so a user
+// `ceiling` (optional) disables levels above the cap; used in user settings so a user
 // can't exceed the admin instance ceiling. Rows are divided and the controls are a
 // fixed width so every category lines up.
 export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDial, onCandor }: {
@@ -140,7 +140,7 @@ export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDia
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {CONTENT_DIALS.map((d) => (
-        <div key={d.key} className="flex flex-col gap-2 rounded-lg border border-border/50 bg-background/50 px-3 py-2.5">
+        <div key={d.key} className="flex flex-col gap-2 rounded-card border border-border/50 bg-background/50 px-3 py-2.5">
           <div>
             <p className="text-xs font-semibold leading-tight">{d.label}</p>
             <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{d.help}</p>
@@ -156,7 +156,7 @@ export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDia
         </div>
       ))}
       {includeCandor && onCandor && (
-        <div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-background/50 px-3 py-2.5">
+        <div className="flex flex-col gap-2 rounded-card border border-border/50 bg-background/50 px-3 py-2.5">
           <div>
             <p className="text-xs font-semibold leading-tight">{CANDOR_DEF.label}</p>
             <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{CANDOR_DEF.help}</p>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle2, Circle, Copy, Loader2, Play, PlayCircle, RotateCcw, Zap } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Circle, Copy, Play, PlayCircle, RotateCcw, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ const LAYERS: LayerDef[] = [
   {
     id: 'llm-first-token',
     label: 'LLM first token (bare)',
-    description: 'Time until the first token arrives from the chat model with no system prompt, memory, or tools — pure model latency.',
+    description: 'Time until the first token arrives from the chat model with no system prompt, memory, or tools: pure model latency.',
   },
   {
     id: 'memory-recall',
@@ -107,15 +108,15 @@ const BENCH_IDS = [
 ]
 
 const BENCH_DESCRIPTIONS: Record<string, string> = {
-  'bare-llm':     'No system prompt, no history — baseline model speed.',
+  'bare-llm':     'No system prompt, no history: baseline model speed.',
   'system-only':  'Date-only system prompt. Shows overhead of minimal context.',
   'with-memory':  'Date + recalled memory block. Shows cost of memory injection.',
   'with-history': 'Date + real conversation history. Shows prefill scaling with context.',
   'full-context': 'Date + memory + history. Realistic context minus routing.',
   'routing-t1':   'Cosine-only routing (embed + vector match). No LLM call.',
   'routing-t2':   'Full LLM routing call (intent extraction). Largest routing overhead.',
-  'kv-cache-1':   'Same context as #5, first call — primes the KV cache.',
-  'kv-cache-2':   'Identical context repeated — prefill:0 means Ollama reused its KV cache.',
+  'kv-cache-1':   'Same context as #5, first call: primes the KV cache.',
+  'kv-cache-2':   'Identical context repeated: prefill:0 means Ollama reused its KV cache.',
 }
 
 // ─── Verdict ─────────────────────────────────────────────────────────────────
@@ -142,14 +143,14 @@ function computeVerdicts(states: Record<string, BenchState>): Verdict[] {
   // Generation speed — always show if we have data
   if (bare?.tps != null) {
     if (bare.tps < 8) {
-      verdicts.push({ level: 'error', text: `Generation: ${bare.tps} tok/s — very slow. Model may not be on GPU. Run \`ollama ps\` to check.` })
+      verdicts.push({ level: 'error', text: `Generation: ${bare.tps} tok/s, very slow. Model may not be on GPU. Run \`ollama ps\` to check.` })
     } else if (bare.tps < 18) {
-      verdicts.push({ level: 'warn', text: `Generation: ${bare.tps} tok/s — slower than expected. Check VRAM headroom (ollama ps).` })
+      verdicts.push({ level: 'warn', text: `Generation: ${bare.tps} tok/s, slower than expected. Check VRAM headroom (ollama ps).` })
     } else {
-      verdicts.push({ level: 'ok', text: `Generation: ${bare.tps} tok/s — normal.` })
+      verdicts.push({ level: 'ok', text: `Generation: ${bare.tps} tok/s, normal.` })
     }
   } else if (bare) {
-    verdicts.push({ level: 'warn', text: `Generation speed unavailable — Ollama didn't return eval stats.` })
+    verdicts.push({ level: 'warn', text: `Generation speed unavailable: Ollama didn't return eval stats.` })
   }
 
   // Prefill / context cost — always show delta
@@ -159,20 +160,20 @@ function computeVerdicts(states: Record<string, BenchState>): Verdict[] {
     if (overhead > 2000) {
       verdicts.push({ level: 'warn', text: `Context overhead: +${overhead}ms vs bare (prefill ${prefillFull != null ? prefillFull + 'ms' : '?'}). Try reducing memory block or history budget.` })
     } else {
-      verdicts.push({ level: 'ok', text: `Context overhead: +${overhead}ms vs bare — acceptable.` })
+      verdicts.push({ level: 'ok', text: `Context overhead: +${overhead}ms vs bare, acceptable.` })
     }
   }
 
   // KV cache — always show result
   if (kv1 && kv2) {
     if (kv2.prefillMs === 0) {
-      verdicts.push({ level: 'ok', text: `KV cache: hit — 2nd identical call had 0ms prefill. Cache is working.` })
+      verdicts.push({ level: 'ok', text: `KV cache: hit, 2nd identical call had 0ms prefill. Cache is working.` })
     } else if (kv2.prefillMs != null && kv1.prefillMs != null) {
       const saved = kv1.prefillMs - kv2.prefillMs
       if (saved > kv1.prefillMs * 0.5) {
-        verdicts.push({ level: 'ok', text: `KV cache: partial hit — prefill dropped from ${kv1.prefillMs}ms to ${kv2.prefillMs}ms on repeat call.` })
+        verdicts.push({ level: 'ok', text: `KV cache: partial hit, prefill dropped from ${kv1.prefillMs}ms to ${kv2.prefillMs}ms on repeat call.` })
       } else {
-        verdicts.push({ level: 'warn', text: `KV cache: miss — 2nd call prefill ${kv2.prefillMs}ms (same as 1st: ${kv1.prefillMs}ms). Check Ollama keep_alive and num_ctx match.` })
+        verdicts.push({ level: 'warn', text: `KV cache: miss, 2nd call prefill ${kv2.prefillMs}ms (same as 1st: ${kv1.prefillMs}ms). Check Ollama keep_alive and num_ctx match.` })
       }
     }
   }
@@ -189,13 +190,13 @@ function computeVerdicts(states: Record<string, BenchState>): Verdict[] {
 
   // Routing overhead — always show both
   if (t1) {
-    verdicts.push({ level: t1.wallMs > 200 ? 'warn' : 'ok', text: `Routing T1 (cosine): ${t1.wallMs}ms${t1.detail ? ` — ${t1.detail}` : ''}.` })
+    verdicts.push({ level: t1.wallMs > 200 ? 'warn' : 'ok', text: `Routing T1 (cosine): ${t1.wallMs}ms${t1.detail ? ` (${t1.detail})` : ''}.` })
   }
   if (t2) {
     if (t2.wallMs > 3000) {
-      verdicts.push({ level: 'warn', text: `Routing T2 (LLM): ${fmt(t2.wallMs)} — large overhead for tool calls. Consider raising T1 threshold.` })
+      verdicts.push({ level: 'warn', text: `Routing T2 (LLM): ${fmt(t2.wallMs)}, large overhead for tool calls. Consider raising T1 threshold.` })
     } else {
-      verdicts.push({ level: t2.wallMs > 1000 ? 'warn' : 'ok', text: `Routing T2 (LLM): ${fmt(t2.wallMs)} — fires for ambiguous/tool prompts.` })
+      verdicts.push({ level: t2.wallMs > 1000 ? 'warn' : 'ok', text: `Routing T2 (LLM): ${fmt(t2.wallMs)}, fires for ambiguous/tool prompts.` })
     }
   }
 
@@ -370,18 +371,18 @@ function ChatBenchmarkSection() {
 
           return (
             <div key={id} className={cn(
-              'rounded-lg border bg-card px-4 py-2.5 space-y-2',
+              'rounded-control border bg-card px-4 py-2.5 space-y-2',
               i === 5 && 'mt-3',  // visual gap before routing tests
             )}>
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 shrink-0">
                   {state.status === 'running'
-                    ? <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    ? <Spinner />
                     : result?.error
                       ? <AlertCircle className="size-4 text-destructive" />
                       : result
                         ? kvCacheHit
-                          ? <CheckCircle2 className="size-4 text-emerald-500" />
+                          ? <CheckCircle2 className="size-4 text-success" />
                           : <CheckCircle2 className="size-4 text-muted-foreground" />
                         : <Circle className="size-4 text-muted-foreground/40" />
                   }
@@ -404,7 +405,7 @@ function ChatBenchmarkSection() {
                       <span className={cn(
                         'text-xs tabular-nums font-mono',
                         delta <= 100 ? 'text-muted-foreground' :
-                        delta <= 500 ? 'text-amber-500' : 'text-destructive',
+                        delta <= 500 ? 'text-warning' : 'text-destructive',
                       )}>
                         +{delta}ms vs bare
                       </span>
@@ -414,14 +415,14 @@ function ChatBenchmarkSection() {
                   {result && !isRoutingOnly && (result.prefillMs != null || result.genMs != null || result.tps != null) && (
                     <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                       {result.loadMs != null && result.loadMs > 0 && (
-                        <span className="text-xs tabular-nums font-mono text-amber-500">
+                        <span className="text-xs tabular-nums font-mono text-warning">
                           load {result.loadMs}ms
                         </span>
                       )}
                       {result.prefillMs != null && (
                         <span className={cn(
                           'text-xs tabular-nums font-mono',
-                          result.prefillMs === 0 ? 'text-emerald-500 font-semibold' : 'text-muted-foreground',
+                          result.prefillMs === 0 ? 'text-success font-semibold' : 'text-muted-foreground',
                         )}>
                           prefill {result.prefillMs === 0 ? '0ms (cached)' : result.prefillMs + 'ms'}
                         </span>
@@ -435,7 +436,7 @@ function ChatBenchmarkSection() {
                         <span className={cn(
                           'text-xs tabular-nums font-mono font-medium',
                           result.tps < 8 ? 'text-destructive' :
-                          result.tps < 18 ? 'text-amber-500' : 'text-muted-foreground',
+                          result.tps < 18 ? 'text-warning' : 'text-muted-foreground',
                         )}>
                           {result.tps} tok/s
                         </span>
@@ -467,7 +468,7 @@ function ChatBenchmarkSection() {
                     className={cn(
                       'h-full rounded-full transition-all duration-500',
                       result.error ? 'bg-destructive' :
-                      kvCacheHit ? 'bg-emerald-500' :
+                      kvCacheHit ? 'bg-success' :
                       id === 'bare-llm' ? 'bg-muted-foreground/60' : 'bg-primary/70',
                     )}
                     style={{ width: `${barPct}%` }}
@@ -481,11 +482,13 @@ function ChatBenchmarkSection() {
 
       {/* Verdict */}
       {verdicts.length > 0 && (
-        <div className="rounded-lg border bg-muted/40 px-4 py-3 space-y-1.5">
+        <div className="rounded-control border bg-muted/40 px-4 py-3 space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Diagnosis</p>
-            <button
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            <p className="text-overline text-muted-foreground">Diagnosis</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
               onClick={() => {
                 navigator.clipboard.writeText(buildCopyText(states, verdicts)).then(() => {
                   setCopied(true)
@@ -496,14 +499,14 @@ function ChatBenchmarkSection() {
             >
               <Copy className="size-3" />
               {copied ? 'Copied!' : 'Copy'}
-            </button>
+            </Button>
           </div>
           {verdicts.map((v, i) => (
             <div key={i} className="flex items-start gap-2">
               {v.level === 'ok'
-                ? <CheckCircle2 className="size-3.5 mt-0.5 shrink-0 text-emerald-500" />
+                ? <CheckCircle2 className="size-3.5 mt-0.5 shrink-0 text-success" />
                 : v.level === 'warn'
-                  ? <AlertCircle className="size-3.5 mt-0.5 shrink-0 text-amber-500" />
+                  ? <AlertCircle className="size-3.5 mt-0.5 shrink-0 text-warning" />
                   : <AlertCircle className="size-3.5 mt-0.5 shrink-0 text-destructive" />
               }
               <p className="text-xs leading-relaxed">{v.text}</p>
@@ -654,12 +657,12 @@ function RouterBenchmarkSection() {
 
       {/* Summary bar */}
       {summary && (
-        <div className="rounded-lg border bg-muted/40 px-4 py-2.5 flex flex-wrap gap-4 items-center">
+        <div className="rounded-control border bg-muted/40 px-4 py-2.5 flex flex-wrap gap-4 items-center">
           <div className="text-center">
             <p className={cn(
               'text-2xl font-bold tabular-nums',
-              summary.accuracyPct >= 90 ? 'text-emerald-500' :
-              summary.accuracyPct >= 70 ? 'text-amber-500' : 'text-destructive',
+              summary.accuracyPct >= 90 ? 'text-success' :
+              summary.accuracyPct >= 70 ? 'text-warning' : 'text-destructive',
             )}>
               {summary.accuracyPct}%
             </p>
@@ -669,8 +672,8 @@ function RouterBenchmarkSection() {
             <div className="text-center">
               <p className={cn(
                 'text-2xl font-bold tabular-nums',
-                summary.t2AvgMs < 300 ? 'text-emerald-500' :
-                summary.t2AvgMs < 1000 ? 'text-amber-500' : 'text-destructive',
+                summary.t2AvgMs < 300 ? 'text-success' :
+                summary.t2AvgMs < 1000 ? 'text-warning' : 'text-destructive',
               )}>
                 {fmt(summary.t2AvgMs)}
               </p>
@@ -678,7 +681,7 @@ function RouterBenchmarkSection() {
             </div>
           )}
           {!model.trim() && (
-            <p className="text-xs text-muted-foreground italic">T1-only run — no model set, T2 fell back to null</p>
+            <p className="text-xs text-muted-foreground italic">T1-only run: no model set, T2 fell back to null</p>
           )}
         </div>
       )}
@@ -686,19 +689,19 @@ function RouterBenchmarkSection() {
       {/* Results grouped by category */}
       {Object.entries(byCategory).map(([cat, rows]) => (
         <div key={cat} className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">{cat}</p>
+          <p className="text-overline text-muted-foreground px-1">{cat}</p>
           {rows.map(r => {
             const passed = r.toolCorrect && r.argsCorrect !== false
             return (
               <div key={r.id} className={cn(
-                'rounded-md border px-3 py-2 flex items-start gap-2.5',
+                'rounded-control border px-3 py-2 flex items-start gap-2.5',
                 passed ? 'bg-card' : 'bg-destructive/5 border-destructive/30',
               )}>
                 <div className="mt-0.5 shrink-0">
                   {running && results.length < 30 && results.at(-1)?.id === r.id
-                    ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                    ? <Spinner size="sm" />
                     : passed
-                      ? <CheckCircle2 className="size-3.5 text-emerald-500" />
+                      ? <CheckCircle2 className="size-3.5 text-success" />
                       : <AlertCircle className="size-3.5 text-destructive" />
                   }
                 </div>
@@ -707,7 +710,7 @@ function RouterBenchmarkSection() {
                     <span className="text-xs font-mono text-foreground">&ldquo;{r.prompt}&rdquo;</span>
                     <span className={cn(
                       'text-xs tabular-nums font-mono',
-                      r.tier === 'T2' ? 'text-amber-500' : 'text-muted-foreground/60',
+                      r.tier === 'T2' ? 'text-warning' : 'text-muted-foreground/60',
                     )}>
                       {r.tier} {r.durationMs}ms
                     </span>
@@ -730,7 +733,7 @@ function RouterBenchmarkSection() {
                       </span>
                     )}
                     {r.argsCorrect === false && (
-                      <span className="text-xs text-amber-500">args mismatch</span>
+                      <span className="text-xs text-warning">args mismatch</span>
                     )}
                   </div>
                 </div>
@@ -923,7 +926,7 @@ function LayerRow({
   const barPct = state.durationMs != null ? Math.max(2, Math.round((state.durationMs / max) * 100)) : 0
 
   return (
-    <div className="rounded-lg border bg-card px-4 py-3 space-y-2">
+    <div className="rounded-control border bg-card px-4 py-3 space-y-2">
       <div className="flex items-start gap-3">
         {/* Status icon */}
         <div className="mt-0.5 shrink-0">
@@ -938,7 +941,7 @@ function LayerRow({
               <span className={cn(
                 'text-xs tabular-nums font-mono',
                 state.status === 'ok' ? 'text-muted-foreground' :
-                state.status === 'warn' ? 'text-amber-500' :
+                state.status === 'warn' ? 'text-warning' :
                 state.status === 'error' ? 'text-destructive' : 'text-muted-foreground',
               )}>
                 {fmt(state.durationMs)}
@@ -957,15 +960,17 @@ function LayerRow({
         </div>
 
         {/* Run button */}
-        <button
-          className="shrink-0 mt-0.5 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:pointer-events-none transition-colors"
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0 mt-0.5 text-muted-foreground hover:text-foreground"
           title="Run this test"
           disabled={globalRunning}
           onClick={onRun}
           aria-label={`Run ${layer.label}`}
         >
           <Play className="size-3" />
-        </button>
+        </Button>
       </div>
 
       {/* Timing bar */}
@@ -974,8 +979,8 @@ function LayerRow({
           <div
             className={cn(
               'h-full rounded-full transition-all duration-300',
-              state.status === 'ok' ? 'bg-emerald-500' :
-              state.status === 'warn' ? 'bg-amber-400' : 'bg-destructive',
+              state.status === 'ok' ? 'bg-success' :
+              state.status === 'warn' ? 'bg-warning' : 'bg-destructive',
             )}
             style={{ width: `${barPct}%` }}
           />
@@ -989,9 +994,9 @@ function LayerRow({
 
 function StatusIcon({ status }: { status: LayerStatus }) {
   switch (status) {
-    case 'running': return <Loader2 className="size-4 animate-spin text-muted-foreground" />
-    case 'ok':      return <CheckCircle2 className="size-4 text-emerald-500" />
-    case 'warn':    return <AlertCircle className="size-4 text-amber-500" />
+    case 'running': return <Spinner />
+    case 'ok':      return <CheckCircle2 className="size-4 text-success" />
+    case 'warn':    return <AlertCircle className="size-4 text-warning" />
     case 'error':   return <AlertCircle className="size-4 text-destructive" />
     default:        return <Circle className="size-4 text-muted-foreground/40" />
   }

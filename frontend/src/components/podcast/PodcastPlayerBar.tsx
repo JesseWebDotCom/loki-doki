@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play, Pause, SkipBack, SkipForward, ChevronUp, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { NowPlaying } from '@/components/podcast/NowPlaying'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { fmtTime } from '@/lib/podcast/format'
 
-const POP_SIZE = 220 // px, fixed square — cover art has no natural aspect to resize like video
+const POP_SIZE = 220 // px, fixed square - cover art has no natural aspect to resize like video
 
 /**
- * Persistent slim player bar shown app-wide whenever a track is loaded — on
+ * Persistent slim player bar shown app-wide whenever a track is loaded - on
  * every route, including inside /podcasts alongside the full Now Playing
  * sidebar, so transport controls are always reachable without hunting for
  * the sidebar or resizing the window.
@@ -58,13 +59,13 @@ export function PodcastPlayerBar() {
 
   return (
     <div className="relative z-40 shrink-0">
-      {/* Pop-out artwork window — anchored above the bar until dragged elsewhere. */}
+      {/* Pop-out artwork window - anchored above the bar until dragged elsewhere. */}
       {popped && (
         <div
           onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
           title="Drag to move • tap to shrink"
           className={cn(
-            'touch-none select-none overflow-hidden rounded-lg bg-black shadow-lg',
+            'touch-none select-none overflow-hidden rounded-card bg-black shadow-lg',
             win ? 'fixed z-[60]' : 'absolute bottom-[calc(100%+0.5rem)] left-4 z-[60]',
           )}
           style={{ width: POP_SIZE, height: POP_SIZE, ...popStyle }}
@@ -73,7 +74,7 @@ export function PodcastPlayerBar() {
         </div>
       )}
 
-      <div className="relative border-t border-border/60 bg-background/95 backdrop-blur-md shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+      <div className="glass-chrome relative border-t border-border/60 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
         {/* Scrubber */}
         <div
           className="group absolute -top-1 left-0 h-2 w-full cursor-pointer"
@@ -88,7 +89,7 @@ export function PodcastPlayerBar() {
 
         <div className="flex items-center gap-3 px-4 py-2">
           <button onClick={togglePop} className="flex items-center gap-3 min-w-0 flex-1 text-left" aria-label="Pop out artwork">
-            <ShowCover showId={track.showId ?? ''} title={track.showName} size={40} rounded="rounded-lg" />
+            <ShowCover showId={track.showId ?? ''} title={track.showName} size={40} rounded="rounded-control" />
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{track.title}</p>
               <p className="truncate text-xs text-muted-foreground">{track.showName}</p>
@@ -100,13 +101,13 @@ export function PodcastPlayerBar() {
           </span>
 
           <div className="flex items-center gap-1">
-            <button onClick={prev} className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"><SkipBack className="size-4" /></button>
-            <button onClick={playing ? pause : resume} className="flex size-9 items-center justify-center rounded-full bg-foreground text-background hover:opacity-90">
+            <Button variant="ghost" size="icon-sm" onClick={prev} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Previous"><SkipBack className="size-4" /></Button>
+            <Button size="icon" onClick={playing ? pause : resume} aria-label={playing ? 'Pause' : 'Play'}>
               {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current ml-0.5" />}
-            </button>
-            <button onClick={next} className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"><SkipForward className="size-4" /></button>
-            <button onClick={() => setSheetOpen(true)} className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:text-foreground" aria-label="Open player"><ChevronUp className="size-4" /></button>
-            <button onClick={close} className="flex size-8 items-center justify-center rounded-full text-muted-foreground hover:text-foreground" aria-label="Close"><X className="size-3.5" /></button>
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={next} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Next"><SkipForward className="size-4" /></Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => setSheetOpen(true)} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Open player"><ChevronUp className="size-4" /></Button>
+            <Button variant="ghost" size="icon-sm" onClick={close} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Close"><X className="size-3.5" /></Button>
           </div>
         </div>
       </div>

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { ArrowDown, Circle, ClipboardCheck, ClipboardCopy, Trash2 } from 'lucide-react'
+import { ArrowDown, ClipboardCheck, ClipboardCopy, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
+import { StatusDot } from '@/components/shared/StatusDot'
 
 interface LogEntry {
   id: number
@@ -17,12 +18,12 @@ interface LogEntry {
 }
 
 const LEVEL_META: Record<number, { label: string; row: string; badge: string }> = {
-  10: { label: 'TRC', row: 'text-zinc-500',  badge: 'bg-zinc-800 text-zinc-400' },
-  20: { label: 'DBG', row: 'text-blue-300',  badge: 'bg-blue-950 text-blue-400' },
-  30: { label: 'INF', row: 'text-zinc-200',  badge: 'bg-emerald-950 text-emerald-400' },
-  40: { label: 'WRN', row: 'text-amber-300', badge: 'bg-amber-950 text-amber-400' },
-  50: { label: 'ERR', row: 'text-red-300',   badge: 'bg-red-950 text-red-400' },
-  60: { label: 'FTL', row: 'text-red-200',   badge: 'bg-red-900 text-red-300' },
+  10: { label: 'TRC', row: 'text-muted-foreground/70',  badge: 'bg-muted text-muted-foreground/70' },
+  20: { label: 'DBG', row: 'text-muted-foreground',     badge: 'bg-muted text-muted-foreground' },
+  30: { label: 'INF', row: 'text-foreground',           badge: 'bg-info/10 text-info' },
+  40: { label: 'WRN', row: 'text-warning',              badge: 'bg-warning/10 text-warning' },
+  50: { label: 'ERR', row: 'text-destructive',          badge: 'bg-destructive/10 text-destructive' },
+  60: { label: 'FTL', row: 'text-destructive',          badge: 'bg-destructive text-destructive-foreground' },
 }
 
 function levelMeta(level: number) {
@@ -105,7 +106,7 @@ export function LogViewer({ streamUrl = '/api/logs/stream', mode = 'json' }: Log
         return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next
       })
     } catch {
-      // unparseable line — skip
+      // unparseable line, skip
     }
   }, [mode])
 
@@ -182,12 +183,9 @@ export function LogViewer({ streamUrl = '/api/logs/stream', mode = 'json' }: Log
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30 shrink-0">
         {/* Connection status */}
-        <Circle
-          className={cn('size-2 shrink-0 fill-current', {
-            'text-amber-400': status === 'connecting',
-            'text-emerald-400': status === 'connected',
-            'text-red-400': status === 'disconnected',
-          })}
+        <StatusDot
+          status={status === 'connected' ? 'ok' : status === 'connecting' ? 'warn' : 'error'}
+          className="size-2 shrink-0"
         />
         <span className="text-[11px] text-muted-foreground capitalize mr-2">{status}</span>
 
@@ -219,7 +217,7 @@ export function LogViewer({ streamUrl = '/api/logs/stream', mode = 'json' }: Log
           onClick={copyToClipboard}
           title={copied ? 'Copied!' : 'Copy all visible logs'}
         >
-          {copied ? <ClipboardCheck className="size-3.5 text-emerald-400" /> : <ClipboardCopy className="size-3.5" />}
+          {copied ? <ClipboardCheck className="size-3.5 text-success" /> : <ClipboardCopy className="size-3.5" />}
         </Button>
         <Button
           variant="ghost"
@@ -235,10 +233,10 @@ export function LogViewer({ streamUrl = '/api/logs/stream', mode = 'json' }: Log
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="relative flex-1 min-h-0 overflow-y-auto bg-zinc-950 font-mono text-xs leading-5"
+        className="relative flex-1 min-h-0 overflow-y-auto bg-background font-mono text-xs leading-5"
       >
         {visible.length === 0 ? (
-          <p className="flex items-center justify-center h-full text-zinc-600">
+          <p className="flex items-center justify-center h-full text-muted-foreground">
             Waiting for logs…
           </p>
         ) : (
@@ -248,13 +246,13 @@ export function LogViewer({ streamUrl = '/api/logs/stream', mode = 'json' }: Log
               const extra = mode === 'json' ? formatExtra(entry) : ''
               return (
                 <div key={entry.id} className={cn('flex gap-2 items-baseline', meta.row)}>
-                  <span className="shrink-0 text-zinc-600">{formatTime(entry.time)}</span>
+                  <span className="shrink-0 text-muted-foreground/70">{formatTime(entry.time)}</span>
                   <span className={cn('shrink-0 rounded px-1 text-[10px] font-bold uppercase tracking-wider', meta.badge)}>
                     {meta.label}
                   </span>
                   <span className="flex-1 break-all">{entry.msg}</span>
                   {extra && (
-                    <span className="shrink-0 text-zinc-600 text-[10px]">{extra}</span>
+                    <span className="shrink-0 text-muted-foreground/70 text-[10px]">{extra}</span>
                   )}
                 </div>
               )
@@ -264,13 +262,15 @@ export function LogViewer({ streamUrl = '/api/logs/stream', mode = 'json' }: Log
 
         {/* Jump to bottom */}
         {!atBottom && (
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={scrollToBottom}
-            className="sticky bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full bg-zinc-800 px-3 py-1.5 text-[11px] text-zinc-300 shadow hover:bg-zinc-700 transition-colors"
+            className="sticky bottom-3 left-1/2 -translate-x-1/2 gap-1.5 text-[11px] shadow"
           >
             <ArrowDown className="size-3" />
             Jump to bottom
-          </button>
+          </Button>
         )}
       </div>
     </div>

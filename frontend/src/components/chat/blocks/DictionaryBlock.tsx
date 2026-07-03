@@ -1,9 +1,10 @@
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import type { DictionaryBlockData } from './types'
 
 export function DictionaryBlock({ data }: { data: DictionaryBlockData }) {
   return (
-    <div className="rounded-xl border border-border/50 bg-card overflow-hidden text-sm">
+    <Card variant="surface" className="text-sm">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border/30 flex items-baseline gap-3">
         <span className="text-lg font-semibold">{data.word}</span>
@@ -33,6 +34,6 @@ export function DictionaryBlock({ data }: { data: DictionaryBlockData }) {
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }

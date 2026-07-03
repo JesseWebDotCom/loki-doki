@@ -30,14 +30,14 @@ export function AppRailHeader({ title, description, icon, gradient, className }:
     <div className={cn("flex items-start gap-2.5 px-2", className)}>
       {Icon && (
         <span
-          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl text-white shadow-sm"
+          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-control text-white shadow-sm"
           style={grad ? { background: grad } : undefined}
         >
           <Icon className="size-4" />
         </span>
       )}
       <div>
-        <p className="text-base font-bold leading-tight tracking-tight">{title}</p>
+        <p className="text-base font-semibold leading-tight tracking-tight">{title}</p>
         {desc && <p className="text-[11px] leading-snug text-muted-foreground">{desc}</p>}
       </div>
     </div>

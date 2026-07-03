@@ -72,7 +72,7 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, orientation = 0, 
     : { [edge]: edgeInset, bottom: 48 } as React.CSSProperties
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border/50 shadow-inner" style={{ width, height }}>
+    <div className="relative overflow-hidden rounded-card border border-border/50 shadow-inner" style={{ width, height }}>
       <div style={{ width: FRAME_W, height: FRAME_H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute' }}>
         {/* The EXACT device content — same component the Tab5 renders. */}
         <LayoutContent descriptor={{ theme, widgets }} />
@@ -84,7 +84,8 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, orientation = 0, 
             <button
               key={`slot-${i}`}
               onClick={() => onSlotClick(r, c)}
-              className="absolute rounded-xl border border-dashed border-white/10 transition-colors hover:border-white/30 hover:bg-white/5"
+              // design-ok(glass-on-plain-bg): empty-slot hover highlight over the live device preview canvas (artwork/widgets), not a plain page background
+              className="absolute rounded-control border border-dashed border-white/10 transition-colors hover:border-white/30 hover:bg-white/5"
               style={{ left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER, width: CELL_W - GUTTER * 2, height: CELL_H - GUTTER * 2 }}
             />
           )
@@ -96,7 +97,7 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, orientation = 0, 
             <button
               key={`sel-${i}`}
               onClick={(e) => { e.stopPropagation(); onSelect(i) }}
-              className="absolute rounded-2xl"
+              className="absolute rounded-card"
               style={{
                 left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER,
                 width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
@@ -126,6 +127,7 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, orientation = 0, 
             <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>Sound on</span>
           </span>
         </div>
+        {/* design-ok(hex-in-tsx): mirrors the fixed firmware-drawn "Listening" pill color on real hardware, not app chrome */}
         <div className="absolute flex items-center justify-center rounded-full text-white"
           style={{ ...pillPos, height: 76, padding: '0 28px', background: '#16A34A', fontSize: 26 * fs }}>
           Listening

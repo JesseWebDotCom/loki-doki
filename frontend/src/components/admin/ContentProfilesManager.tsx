@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, Star, Loader2, ShieldAlert, ChevronRight, ChevronLeft, Check } from 'lucide-react'
+import { Plus, Trash2, Star, ShieldAlert, ChevronRight, ChevronLeft, Check } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ContentDialGroup, MIN_DIALS, normalizeDials, CONTENT_DIALS } from '@/components/shared/contentDials'
 import type { ContentDialValues, DialKey } from '@/components/shared/contentDials'
@@ -101,37 +105,37 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
     setDelTarget(null)
   }
 
-  if (loading) return <div className="flex items-center justify-center h-32"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+  if (loading) return <div className="flex items-center justify-center h-32"><Spinner className="size-5" /></div>
 
   // ── Editor (one profile) ────────────────────────────────────────────────────
   if (editingSlug && draft) {
     const open100 = openLabels(draft.dials)
     const isDefault = defaultSlug === draft.slug
     return (
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <Card>
         {/* Header — back nav + profile identity + actions all in one bar */}
         <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
-          <button onClick={closeEditor}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0">
+          <Button variant="ghost" size="sm" onClick={closeEditor}
+            className="gap-1 px-2 text-muted-foreground hover:text-foreground shrink-0">
             <ChevronLeft className="size-4" /> Profiles
-          </button>
+          </Button>
           <ChevronRight className="size-3.5 text-muted-foreground/40 shrink-0" />
           <span className="min-w-0 truncate text-sm font-semibold">{draft.name || 'New profile'}</span>
           {draft.isBuiltin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">built-in</span>}
           {isDefault && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-medium text-brand shrink-0">default</span>}
           <div className="flex-1" />
-          {saving && <Loader2 className="size-3.5 animate-spin text-muted-foreground shrink-0" />}
+          {saving && <Spinner size="sm" className="shrink-0" />}
           {!isDefault && (
-            <button onClick={() => void makeDefault(draft.slug)}
-              className="flex items-center gap-1.5 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0">
+            <Button variant="outline" size="sm" onClick={() => void makeDefault(draft.slug)}
+              className="gap-1.5 text-muted-foreground hover:text-foreground shrink-0">
               <Star className="size-3.5" /> Make default
-            </button>
+            </Button>
           )}
           {!draft.isBuiltin && (
-            <button onClick={() => setDelTarget(draft)}
-              className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted transition-colors shrink-0">
+            <Button variant="ghost" size="icon-sm" onClick={() => setDelTarget(draft)} aria-label="Delete profile"
+              className="text-muted-foreground hover:text-destructive shrink-0">
               <Trash2 className="size-4" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -140,24 +144,24 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Name</label>
-              <input
+              <Input
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 onBlur={() => { if (draftRef.current) void saveDraft(draftRef.current) }}
                 disabled={draft.isBuiltin}
                 placeholder="Profile name"
-                className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-brand/60 disabled:opacity-60"
+                className="h-9"
               />
               {draft.isBuiltin && <p className="text-[11px] text-muted-foreground">Built-in name can't be changed.</p>}
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Description</label>
-              <input
+              <Input
                 value={draft.description}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                 onBlur={() => { if (draftRef.current) void saveDraft(draftRef.current) }}
                 placeholder="What this profile is for"
-                className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-brand/60"
+                className="h-9"
               />
             </div>
           </div>
@@ -172,9 +176,9 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
           </div>
 
           {open100.length > 0 && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
-              <ShieldAlert className="size-3.5 text-amber-500 mt-0.5 shrink-0" />
-              <p className="text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-start gap-2 rounded-card border border-warning/20 bg-warning/10 px-3 py-2">
+              <ShieldAlert className="size-3.5 text-warning mt-0.5 shrink-0" />
+              <p className="text-xs text-warning">
                 Unrestricted: {open100.join(', ')}. No limit on these topics (sexual content involving minors &amp; mass-casualty weapons always blocked).
               </p>
             </div>
@@ -184,7 +188,7 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
         <ConfirmDialog open={!!delTarget} onOpenChange={(o) => { if (!o) setDelTarget(null) }}
           title={`Delete "${delTarget?.name}"?`} description="Users on this profile will be reassigned to the default profile."
           confirmLabel="Delete" destructive onConfirm={() => void doDelete()} />
-      </div>
+      </Card>
     )
   }
 
@@ -194,21 +198,21 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
       <div className="mb-4 flex items-end justify-between gap-3">
         {!embedded ? (
           <div>
-            <h2 className="text-base font-semibold">Content Profiles</h2>
+            <h2 className="text-section">Content Profiles</h2>
             <p className="text-sm text-muted-foreground">Named per-category ceilings assigned to users. New accounts get the default; a companion can never exceed the user's profile.</p>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">Pick a profile to edit its category limits.</p>
         )}
-        <button onClick={() => void create()} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-semibold text-background transition-opacity hover:opacity-90">
+        <Button size="sm" onClick={() => void create()} className="shrink-0 gap-1.5">
           <Plus className="size-3.5" /> New profile
-        </button>
+        </Button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/50 divide-y divide-border/40">
+      <Card className="divide-y divide-border/40">
         {profiles.map((p) => (
           <button key={p.slug} onClick={() => openEditor(p)}
-            className="flex w-full items-center gap-3 bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50">
+            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-sm font-medium">{p.name}</span>
@@ -221,7 +225,7 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
             <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
           </button>
         ))}
-      </div>
+      </Card>
       <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground"><Check className="size-3" /> Assign profiles to users in the Accounts section above.</p>
     </div>
   )

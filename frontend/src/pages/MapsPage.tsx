@@ -142,7 +142,6 @@ export function MapsPage(): JSX.Element {
     query: searchQuery,
     setQuery: (q) => { setSearchQuery(q); if (q) setBrowseCategory(null); },
     placeholder: "Search places, addresses, ZIP…",
-    settingsHref: "/admin/features?tool=maps",
   });
   const { theme } = useMapTheme();
   const userLocation = useUserLocation();
@@ -413,6 +412,7 @@ export function MapsPage(): JSX.Element {
     }
     if (!userMarkerRef.current) {
       const el = document.createElement("div");
+      // design-ok(hex-in-tsx): user-location marker convention (blue dot), cartographic data akin to pages/maps/ allowlist
       el.style.cssText =
         "width:16px;height:16px;border-radius:9999px;background:#2563eb;" +
         "border:3px solid #fff;box-shadow:0 0 0 2px rgba(37,99,235,0.35),0 1px 4px rgba(0,0,0,0.4);";
@@ -530,6 +530,7 @@ export function MapsPage(): JSX.Element {
     }
   }
 
+  // design-ok(hex-in-tsx): panel color matched to basemap land hex from the maps style-spec, cartographic data
   // Same color family as the map background but one step elevated:
   // light land is #f5efe2 (warm parchment) → panel is a richer cream
   // dark land is #1f2832 (dark blue-grey) → panel is a lighter slate

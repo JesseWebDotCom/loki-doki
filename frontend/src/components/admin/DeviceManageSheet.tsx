@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
+import { StatusDot, type StatusDotStatus } from '@/components/shared/StatusDot'
+import { ListRow } from '@/components/shared/ListRow'
 import { DeviceArt } from '@/components/admin/DeviceArt'
 import { resolveDeviceModel, deviceModelName } from '@/lib/deviceCatalog'
-import { Volume2, Wifi, RefreshCw, Trash2, ChevronRight, Loader2, HelpCircle, Clock, Camera, Pointer, Monitor, LayoutGrid } from 'lucide-react'
+import { Volume2, Wifi, RefreshCw, Trash2, ChevronRight, HelpCircle, Clock, Camera, Pointer, Monitor, LayoutGrid } from 'lucide-react'
 import { toast } from '@/lib/toast'
 
 // Apple-style slide-over for managing one device: a big Test button up top, grouped
@@ -31,11 +34,11 @@ interface Detector { id: string; label: string }
 const opts: RequestInit = { credentials: 'include' }
 const J = { 'Content-Type': 'application/json' }
 
-const ACTIVITY: Record<string, { label: string; cls: string; dot: string; pulse?: boolean }> = {
-  idle: { label: 'Ready', cls: 'text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' },
-  listening: { label: 'Listening', cls: 'text-green-600 dark:text-green-400', dot: 'bg-green-500', pulse: true },
-  thinking: { label: 'Thinking', cls: 'text-blue-600 dark:text-blue-400', dot: 'bg-blue-500', pulse: true },
-  talking: { label: 'Speaking', cls: 'text-cyan-600 dark:text-cyan-400', dot: 'bg-cyan-500', pulse: true },
+const ACTIVITY: Record<string, { label: string; cls: string; dotStatus: StatusDotStatus; pulse?: boolean }> = {
+  idle: { label: 'Ready', cls: 'text-success', dotStatus: 'ok' },
+  listening: { label: 'Listening', cls: 'text-success', dotStatus: 'ok', pulse: true },
+  thinking: { label: 'Thinking', cls: 'text-info', dotStatus: 'info', pulse: true },
+  talking: { label: 'Speaking', cls: 'text-info', dotStatus: 'info', pulse: true },
 }
 
 // Screen-mode test options for screen Pods (Tab5). The server pushes the chosen mode
@@ -136,10 +139,10 @@ export function DeviceManageSheet({
   // options, so picking a companion immediately offers its wake word (e.g. "Hey Loki").
   const selectedCompanion = companions.find((c) => c.id === characterId)
   const companionPhrase = selectedCompanion?.wakeWordPhrase?.trim()
-  const status = !device.paired
-    ? { label: 'Needs setup', cls: 'text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' }
+  const status: { label: string; cls: string; dotStatus: StatusDotStatus; pulse?: boolean } = !device.paired
+    ? { label: 'Needs setup', cls: 'text-warning', dotStatus: 'warn' }
     : !device.online
-      ? { label: 'Offline', cls: 'text-muted-foreground', dot: 'bg-muted-foreground/50' }
+      ? { label: 'Offline', cls: 'text-muted-foreground', dotStatus: 'off' }
       : ACTIVITY[device.activity] ?? ACTIVITY.idle
 
   const dirty =
@@ -178,14 +181,14 @@ export function DeviceManageSheet({
         {/* Hero */}
         <div className="relative bg-gradient-to-b from-brand/10 to-transparent px-5 pb-5 pt-7">
           <div className="flex items-center gap-4">
-            <div className="flex size-20 shrink-0 items-center justify-center rounded-3xl bg-card shadow-sm ring-1 ring-border/50">
+            <div className="flex size-20 shrink-0 items-center justify-center rounded-sheet bg-card shadow-sm ring-1 ring-border/50">
               <DeviceArt resolved={art} className="size-16" />
             </div>
             <div className="min-w-0">
               <h2 className="truncate text-lg font-bold leading-tight">{name || device.name}</h2>
               <p className="text-xs font-medium text-muted-foreground/80">{deviceModelName(device.model, device.kind)}</p>
               <span className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium">
-                <span className={`size-1.5 rounded-full ${status.dot} ${'pulse' in status && status.pulse ? 'animate-pulse' : ''}`} />
+                <StatusDot status={status.dotStatus} pulse={status.pulse} />
                 <span className={status.cls}>{status.label}</span>
                 {companionName && <span className="text-muted-foreground/70">· {companionName}</span>}
               </span>
@@ -194,7 +197,7 @@ export function DeviceManageSheet({
 
           {/* Test sound — the headline action */}
           <Button onClick={test} disabled={testing || !device.online} className="mt-5 w-full gap-2" size="lg">
-            {testing ? <Loader2 className="size-4 animate-spin" /> : <Volume2 className="size-4" />}
+            {testing ? <Spinner className="text-current" /> : <Volume2 className="size-4" />}
             Play a test sound
           </Button>
           {!device.online && <p className="mt-1.5 text-center text-[11px] text-muted-foreground">Power on the device to test it.</p>}
@@ -251,7 +254,7 @@ export function DeviceManageSheet({
                   <button
                     onClick={() => changeMode('normal')}
                     disabled={modeBusy}
-                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors disabled:opacity-60 ${
+                    className={`flex flex-col items-center gap-2 rounded-card border p-4 text-center transition-colors disabled:opacity-60 ${
                       !isController ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40'
                     }`}
                   >
@@ -264,7 +267,7 @@ export function DeviceManageSheet({
                   <button
                     onClick={() => changeMode('stream-deck')}
                     disabled={modeBusy}
-                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-colors disabled:opacity-60 ${
+                    className={`flex flex-col items-center gap-2 rounded-card border p-4 text-center transition-colors disabled:opacity-60 ${
                       isController ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40'
                     }`}
                   >
@@ -290,7 +293,7 @@ export function DeviceManageSheet({
                             key={m.id}
                             onClick={() => changeMode(m.id)}
                             disabled={modeBusy}
-                            className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-colors disabled:opacity-60 ${
+                            className={`flex flex-col items-center gap-1.5 rounded-card border p-3 text-center transition-colors disabled:opacity-60 ${
                               active ? 'border-brand bg-brand/10 text-brand' : 'border-border/50 hover:bg-muted/40'
                             }`}
                           >
@@ -326,30 +329,31 @@ export function DeviceManageSheet({
 
           {/* Network & software */}
           <Group title="Network & software">
-            <ActionRow icon={<Wifi className="size-4 text-sky-500" />} label="Wi-Fi network" value={wifiSsid || 'Not set'} onClick={onReflash} />
-            <ActionRow icon={<RefreshCw className="size-4 text-violet-500" />} label="Reinstall software" value="" onClick={onReflash} />
+            <ActionRow icon={<Wifi className="size-4 text-brand" />} label="Wi-Fi network" value={wifiSsid || 'Not set'} onClick={onReflash} />
+            <ActionRow icon={<RefreshCw className="size-4 text-brand" />} label="Reinstall software" value="" onClick={onReflash} />
             <ActionRow icon={<HelpCircle className="size-4 text-muted-foreground" />} label="How to use" value="" onClick={onHelp} />
           </Group>
 
           {/* Danger */}
           <Group>
-            <button
+            <ListRow
+              leading={<Trash2 className="size-4 text-destructive" />}
+              title="Remove this device"
               onClick={onDelete}
-              className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5"
-            >
-              <Trash2 className="size-4" /> Remove this device
-            </button>
+              className="text-destructive hover:bg-destructive/5"
+            />
           </Group>
         </div>
 
         {/* Sticky save bar — only when there are unsaved edits */}
+        {/* design-ok(backdrop-blur-outside-chrome): sticky save bar pinned to sheet bottom, content scrolls under */}
         {dirty && (
           <div className="absolute inset-x-0 bottom-0 flex gap-2 border-t border-border/50 bg-background/95 p-4 backdrop-blur">
             <Button variant="ghost" className="flex-1" onClick={() => { setName(device.name); setUserId(device.userId); setCharacterId(device.characterId ?? ''); setWakeWord(device.wakeWord ?? '') }}>
               Discard
             </Button>
             <Button className="flex-1 gap-2" onClick={save} disabled={saving}>
-              {saving && <Loader2 className="size-4 animate-spin" />} Save changes
+              {saving && <Spinner className="text-current" />} Save changes
             </Button>
           </div>
         )}
@@ -364,7 +368,7 @@ function Group({ title, children }: { title?: string; children: React.ReactNode 
   return (
     <div className="space-y-1.5">
       {title && <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{title}</p>}
-      <div className="divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/50 bg-card">{children}</div>
+      <div className="divide-y divide-border/40 overflow-hidden rounded-card border border-border/50 bg-card">{children}</div>
     </div>
   )
 }
@@ -380,14 +384,17 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 
 function ActionRow({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value?: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
-      {icon}
-      <span className="text-sm font-medium">{label}</span>
-      <div className="ml-auto flex items-center gap-1.5 text-sm text-muted-foreground">
-        {value && <span className="max-w-[10rem] truncate">{value}</span>}
-        <ChevronRight className="size-4 text-muted-foreground/60" />
-      </div>
-    </button>
+    <ListRow
+      leading={icon}
+      title={label}
+      onClick={onClick}
+      trailing={
+        <>
+          {value && <span className="max-w-[10rem] truncate">{value}</span>}
+          <ChevronRight className="size-4 text-muted-foreground/60" />
+        </>
+      }
+    />
   )
 }
 
@@ -396,7 +403,7 @@ function Picker({ value, onChange, children }: { value: string; onChange: (v: st
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 max-w-[12rem] rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="h-8 max-w-[12rem] rounded-control border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {children}
     </select>

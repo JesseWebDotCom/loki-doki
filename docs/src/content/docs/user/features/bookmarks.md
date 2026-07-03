@@ -1,6 +1,6 @@
 ---
 title: Bookmarks
-description: Your personal reading library — save links and articles, archive full pages for offline reading, and keep it all on your own server.
+description: Your personal reading library; save links and articles, archive full pages for offline reading, and keep it all on your own server.
 sidebar:
   order: 13
 ---
@@ -33,17 +33,17 @@ In **Bookmarks → Settings** there's a **Save to Loki** bookmarklet you can dra
 
 Tap any item to open it:
 
-- **Offline articles** open in a clean **reader view** — just the text, byline, and images, matched to your light or dark theme. A reading-time estimate sits at the top. If a page was saved with its full layout, you can flip between **Reader** and **Full page** to see the original look. There's also an **AI panel** to get a quick summary of the article or ask a question about it.
+- **Offline articles** open in a clean **reader view**: just the text, byline, and images, matched to your light or dark theme. A reading-time estimate sits at the top. If a page was saved with its full layout, you can flip between **Reader** and **Full page** to see the original look. There's also an **AI panel** to get a quick summary of the article or ask a question about it.
 - **Live links** open the real site. If the link is set to embed, it loads full-screen inside Loki Doki; otherwise it opens in a new browser tab.
 
 As you open offline articles they're marked **Reading**, and you can **Archive** anything you're done with so it drops out of your main list (Archived items are still searchable). You can re-archive an offline page any time to grab a fresh copy.
 
 ## Collections and Tags
 
-- **Collections** are folders you make in the sidebar — "Recipes", "To read", "Work", whatever you like. Give each a color and icon. Move any item into a collection from its card.
+- **Collections** are folders you make in the sidebar: "Recipes", "To read", "Work", whatever you like. Give each a color and icon. Move any item into a collection from its card.
 - **Tags** are lightweight labels. Add as many as you want to an item; tapping a tag in the sidebar filters down to everything that carries it.
 
-A search box at the top searches across your whole library — titles, summaries, the saved text of offline articles, and even the web address, so searching a site name finds links to that site.
+A search box at the top searches across your whole library: titles, summaries, the saved text of offline articles, and even the web address, so searching a site name finds links to that site.
 
 ## Importing and Exporting Bookmarks
 
@@ -54,7 +54,7 @@ Bookmarks speaks the standard browser bookmarks format:
 
 ## Shared Links
 
-Your admin can pin a few **shared links** that show up for everyone in the home — things like the family page or a shared dashboard. You can't edit those, but you can **hide** any shared link you don't want cluttering your library.
+Your admin can pin a few **shared links** that show up for everyone in the home, things like the family page or a shared dashboard. You can't edit those, but you can **hide** any shared link you don't want cluttering your library.
 
 ## Your Privacy
 

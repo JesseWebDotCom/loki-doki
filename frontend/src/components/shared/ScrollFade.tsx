@@ -11,7 +11,7 @@ interface ScrollFadeProps {
 
 /**
  * Wraps a vertically-scrollable region that hides its scrollbar and shows soft
- * top/bottom fade masks whenever there's more content to scroll to — a
+ * top/bottom fade masks whenever there's more content to scroll to; a
  * lightweight "there's more above / below" affordance. The masks fade in only
  * when the corresponding edge is scrolled away from, so a list that fits shows
  * nothing.

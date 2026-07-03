@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Square, Plus, X, FileText, Loader2 } from 'lucide-react'
+import { ArrowUp, Square, Plus, X, FileText } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { RippleButton } from '@/components/shared/RippleButton'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { useChatContext } from '@/context/ChatContext'
 import {
   DropdownMenu,
@@ -82,7 +84,7 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
       {(attachments.length > 0 || attachedDocs.length > 0 || attachingDoc) && (
         <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
           {attachments.map((file, i) => (
-            <div key={`img-${i}`} className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs max-w-[120px]">
+            <div key={`img-${i}`} className="flex items-center gap-1 rounded-control bg-muted px-2 py-1 text-xs max-w-[120px]">
               <span className="truncate text-foreground/70">{file.name}</span>
               <button onClick={() => removeAttachment(i)} className="shrink-0 text-muted-foreground hover:text-foreground">
                 <X className="size-3" />
@@ -90,7 +92,7 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
             </div>
           ))}
           {attachedDocs.map((doc, i) => (
-            <div key={`doc-${i}`} className="flex items-center gap-1 rounded-lg bg-brand/10 px-2 py-1 text-xs max-w-[140px]" title={`${doc.chars.toLocaleString()} chars`}>
+            <div key={`doc-${i}`} className="flex items-center gap-1 rounded-control bg-brand/10 px-2 py-1 text-xs max-w-[140px]" title={`${doc.chars.toLocaleString()} chars`}>
               <FileText className="size-3 shrink-0 text-brand" />
               <span className="truncate text-foreground/70">{doc.filename}</span>
               <button onClick={() => removeAttachedDoc(i)} className="shrink-0 text-muted-foreground hover:text-foreground">
@@ -99,8 +101,8 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
             </div>
           ))}
           {attachingDoc && (
-            <div className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" /> reading…
+            <div className="flex items-center gap-1 rounded-control bg-muted px-2 py-1 text-xs text-muted-foreground">
+              <Spinner size="sm" className="size-3" /> reading…
             </div>
           )}
         </div>
@@ -130,7 +132,7 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
           <DropdownMenuTrigger asChild>
             <button
               className={cn(
-                'flex size-6 shrink-0 items-center justify-center rounded-lg transition-all',
+                'flex size-6 shrink-0 items-center justify-center rounded-control transition-all',
                 attachments.length > 0
                   ? 'text-brand hover:text-brand/80'
                   : 'text-foreground/25 hover:text-foreground/60',
@@ -171,18 +173,20 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
           </kbd>
         )}
         {isGenerating ? (
-          <button
+          <Button
             onClick={onStop}
-            className="stop-btn-animated flex size-7 shrink-0 items-center justify-center rounded-xl transition-all hover:scale-110 active:scale-95"
+            size="icon-sm"
+            variant="ghost"
+            className="stop-btn-animated shrink-0 hover:scale-110 active:scale-95"
           >
             <Square className="size-3 fill-current" />
-          </button>
+          </Button>
         ) : (
           <RippleButton
             onClick={send}
             disabled={!value.trim() && attachments.length === 0 && attachedDocs.length === 0}
             rippleColor="var(--background)"
-            className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-foreground text-background transition-colors disabled:opacity-20"
+            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors disabled:opacity-20"
           >
             <ArrowUp className="size-3.5" />
           </RippleButton>

@@ -6,6 +6,7 @@ import { categoryVisual, compareCategories, formatBytes } from "@/lib/archiveCat
 import { APP_GROUPS } from "@/lib/appCategories";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { PageContainer } from "@/components/shared/PageContainer";
 import { SectionHeader } from "@/components/shared/SectionHeader";
 
 
@@ -27,10 +28,10 @@ function GradientCard({
   return (
     <Link
       to={to}
-      className="group relative flex h-24 flex-col justify-between overflow-hidden rounded-xl p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]"
+      className="group relative flex h-24 flex-col justify-between overflow-hidden rounded-card p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]"
       style={{ background: gradient }}
     >
-      <div className="flex size-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20 backdrop-blur-sm">
+      <div className="flex size-8 items-center justify-center rounded-control bg-white/15 ring-1 ring-white/20">
         <Icon className="size-4 text-white" />
       </div>
       <div>
@@ -38,6 +39,7 @@ function GradientCard({
         <p className="text-[11px] text-white/60 leading-tight">{meta}</p>
       </div>
       <ChevronRight className="absolute right-2.5 top-3 size-3.5 text-white/40 transition-transform group-hover:translate-x-0.5" />
+      {/* design-ok(glass-on-plain-bg): decorative glow sits over the app gradient, not a plain background */}
       <div className="pointer-events-none absolute -bottom-8 -right-6 size-24 rounded-full bg-white/10 blur-xl" />
     </Link>
   );
@@ -118,6 +120,7 @@ export function CategoriesPage() {
 
   return (
     <div className="min-h-full bg-background">
+      <PageContainer className="pb-10">
       <PageHeader
         eyebrow="Browse"
         title="Categories"
@@ -125,9 +128,9 @@ export function CategoriesPage() {
       />
 
       {/* App categories */}
-      <div className="px-4 pt-2 sm:px-5">
+      <div className="pt-2">
         <div className="mb-3">
-          <SectionHeader title="Apps" />
+          <SectionHeader title="Apps" count={totalApps} />
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {appGroups.map((g) => (
@@ -144,7 +147,7 @@ export function CategoriesPage() {
       </div>
 
       {/* Offline library */}
-      <div className="mt-8 px-4 sm:px-5">
+      <div className="mt-8">
         <div className="mb-3">
           <SectionHeader title="Offline Library" />
         </div>
@@ -167,9 +170,9 @@ export function CategoriesPage() {
         ) : (
           <Link
             to="/admin/features"
-            className="group flex items-center gap-4 rounded-2xl border-2 border-dashed border-border/50 bg-card/40 px-5 py-5 transition-colors hover:border-brand/40 hover:bg-card"
+            className="group flex items-center gap-4 rounded-card border-2 border-dashed border-border/50 bg-card/40 px-5 py-5 transition-colors hover:border-brand/40 hover:bg-card"
           >
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-card bg-brand/10 text-brand">
               <Plus className="size-6" />
             </div>
             <div className="min-w-0 flex-1">
@@ -182,8 +185,7 @@ export function CategoriesPage() {
           </Link>
         )}
       </div>
-
-      <div className="h-10" />
+      </PageContainer>
     </div>
   );
 }

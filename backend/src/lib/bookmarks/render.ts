@@ -90,7 +90,19 @@ export async function ensureChromium(): Promise<LaunchOptions | null> {
 
 let busy: Promise<unknown> = Promise.resolve() // serialize renders (one browser at a time)
 
-export async function renderPage(url: string): Promise<RenderResult | null> {
+export interface RenderOptions {
+  /** Screenshot + printed PDF are only needed for Reader's archival copy — Shop's price
+   *  scraping only ever reads `.html`, so skipping them cuts real per-render latency (and
+   *  the risk below) for a caller that never wanted the media in the first place. */
+  captureMedia?: boolean
+  /** Hard backstop closing the browser no matter what's in flight (a hung screenshot/pdf
+   *  capture, or a site whose own load-state timeouts don't fire for some reason) — without
+   *  this, one wedged render could block every other renderPage() caller behind it in `busy`
+   *  forever, since serialization only advances once a render actually settles. */
+  timeoutMs?: number
+}
+
+export async function renderPage(url: string, opts: RenderOptions = {}): Promise<RenderResult | null> {
   const launchOpts = await ensureChromium()
   if (!launchOpts) return null
   try {
@@ -101,13 +113,15 @@ export async function renderPage(url: string): Promise<RenderResult | null> {
   }
 
   // Serialize so we never run multiple browsers at once (memory + CPU on a LAN box).
-  const run = busy.then(() => doRender(url, launchOpts)).catch(() => null)
+  const run = busy.then(() => doRender(url, launchOpts, opts)).catch(() => null)
   busy = run.catch(() => {})
   return run
 }
 
-async function doRender(url: string, launchOpts: LaunchOptions): Promise<RenderResult | null> {
+async function doRender(url: string, launchOpts: LaunchOptions, opts: RenderOptions): Promise<RenderResult | null> {
+  const captureMedia = opts.captureMedia ?? true
   const browser = await chromium.launch({ ...launchOpts, headless: true })
+  const killer = setTimeout(() => { browser.close().catch(() => {}) }, opts.timeoutMs ?? 45_000)
   try {
     const ctx = await browser.newContext({ viewport: VIEWPORT, userAgent: UA, javaScriptEnabled: true })
     // SSRF: abort any subresource pointed at a private/loopback/link-local/metadata host.
@@ -122,16 +136,21 @@ async function doRender(url: string, launchOpts: LaunchOptions): Promise<RenderR
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS })
     await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {})
     await page.waitForTimeout(SETTLE_MS)
+    const html = await page.content()
+
+    if (!captureMedia) return { html, screenshotPng: new Uint8Array(0), pdf: null }
 
     const screenshotPng = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, ...VIEWPORT } })
-    const html = await page.content()
     // Printed PDF (ArchiveBox-style durable copy). Chromium-only + best-effort: a page that
     // refuses to print must not fail the whole archive, so swallow errors and return null.
     const pdf = await page.pdf({ format: 'A4', printBackground: true })
       .then((b) => new Uint8Array(b))
       .catch(() => null)
     return { html, screenshotPng, pdf }
+  } catch {
+    return null
   } finally {
+    clearTimeout(killer)
     await browser.close().catch(() => {})
   }
 }

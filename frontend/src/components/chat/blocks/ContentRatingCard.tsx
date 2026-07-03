@@ -1,5 +1,6 @@
 import { ShieldCheck, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Card } from '@/components/ui/card'
 import type { ContentRatingBlockData, ContentRatingCategory } from './types'
 
 // Common Sense Media classifies these as "positive content"; everything else is a
@@ -21,7 +22,7 @@ function Dots({ rating, positive }: { rating?: number; positive: boolean }) {
           key={i}
           className={cn(
             'size-[7px] rounded-full',
-            i < filled ? (positive ? 'bg-emerald-500' : 'bg-foreground/80') : 'bg-foreground/15',
+            i < filled ? (positive ? 'bg-success' : 'bg-foreground/80') : 'bg-foreground/15',
           )}
         />
       ))}
@@ -46,7 +47,7 @@ export function ContentRatingCard({ data }: { data: ContentRatingBlockData }) {
   const positives = data.categories.filter((c) => POSITIVE_LABELS.has(c.label))
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card overflow-hidden text-sm">
+    <Card variant="surface" className="text-sm">
       {/* Header: title + age badge */}
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/30">
         <div className="min-w-0">
@@ -54,9 +55,9 @@ export function ContentRatingCard({ data }: { data: ContentRatingBlockData }) {
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">Common Sense Media</p>
         </div>
         {data.ageRating && (
-          <div className="flex items-center gap-1.5 shrink-0 rounded-full bg-emerald-500/10 px-2.5 py-1">
-            <ShieldCheck className="size-3.5 text-emerald-500" />
-            <span className="text-[12px] font-semibold text-emerald-600 dark:text-emerald-400">Age {data.ageRating}</span>
+          <div className="flex items-center gap-1.5 shrink-0 rounded-full bg-success/10 px-2.5 py-1">
+            <ShieldCheck className="size-3.5 text-success" />
+            <span className="text-[12px] font-semibold text-success">Age {data.ageRating}</span>
           </div>
         )}
       </div>
@@ -101,6 +102,6 @@ export function ContentRatingCard({ data }: { data: ContentRatingBlockData }) {
           Full review on Common Sense Media
         </a>
       )}
-    </div>
+    </Card>
   )
 }

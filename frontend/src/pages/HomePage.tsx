@@ -3,10 +3,14 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Activity, Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Home, Laugh, LayoutGrid,
-  Lightbulb, ListVideo, Loader2, LockOpen, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
-  Power, RotateCw, ShieldCheck, Star, Sunrise, Trophy, Tv, Upload, Volume2, X, type LucideIcon,
+  Activity, Bookmark, BookOpen, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Home, Laugh, LayoutGrid,
+  Lightbulb, ListVideo, LockOpen, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
+  Power, RotateCw, ShieldCheck, Star, Sunrise, Tag, Trophy, Tv, Upload, Volume2, X, type LucideIcon,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cardVariants } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
+import { StatTile } from "@/components/shared/StatTile";
 import type { VideoItem } from "@/lib/youtube/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DeviceCard, type CardAction } from "@/components/homeassistant/DeviceCard";
@@ -83,7 +87,7 @@ function WeatherWidget({ light }: { light?: boolean }) {
   const textFaint = light ? "text-white/55" : "text-muted-foreground/50";
 
   if (status === "loading") {
-    return <Loader2 className={cn("size-4 animate-spin", light ? "text-white/40" : "text-muted-foreground/30")} />;
+    return <Spinner className={light ? "text-white/40" : "text-muted-foreground/30"} />;
   }
 
   if (status !== "ready" || !snapshot) {
@@ -107,7 +111,7 @@ function WeatherWidget({ light }: { light?: boolean }) {
             </span>
           )}
         </div>
-        <span className={cn("text-[2rem] font-black tabular-nums leading-none", light && "text-white drop-shadow")}>{snapshot.temp}°</span>
+        <span className={cn("text-[2rem] font-semibold tracking-tight tabular-nums leading-none", light && "text-white drop-shadow")}>{snapshot.temp}°</span>
       </div>
       <p className={cn("text-xs font-medium", textMuted)}>{snapshot.info.desc}</p>
       <p className={cn("text-[10px] max-w-[130px] text-right leading-tight truncate", textFaint)}>
@@ -182,10 +186,11 @@ type TickerItem =
 type TickerSection = { source: TickerSource; items: TickerItem[] }
 
 const SECTION_STYLES: Record<TickerSource, { Icon: React.ElementType; accent: string; bg: string; label: string }> = {
-  sports:  { Icon: Trophy,      accent: 'text-emerald-400', bg: 'bg-emerald-500/[0.09]', label: 'Scores'   },
-  youtube: { Icon: PlaySquare,  accent: 'text-red-400',     bg: 'bg-red-500/[0.09]',     label: 'YouTube'  },
-  news:    { Icon: Newspaper,   accent: 'text-sky-400',     bg: 'bg-sky-500/[0.09]',     label: 'News'     },
-  podcast: { Icon: Headphones,  accent: 'text-violet-400',  bg: 'bg-violet-500/[0.09]',  label: 'Podcasts' },
+  sports:  { Icon: Trophy,      accent: 'text-success', bg: 'bg-success/[0.08]', label: 'Scores'   },
+  // design-ok(raw-palette-semantic): YouTube brand-red identity accent
+  youtube: { Icon: PlaySquare,  accent: 'text-red-400', bg: 'bg-red-500/[0.09]', label: 'YouTube'  },
+  news:    { Icon: Newspaper,   accent: 'text-info',    bg: 'bg-info/[0.08]',    label: 'News'     },
+  podcast: { Icon: Headphones,  accent: 'text-brand',   bg: 'bg-brand/[0.08]',   label: 'Podcasts' },
 }
 
 function SectionBadge({ source }: { source: TickerSource }) {
@@ -193,7 +198,7 @@ function SectionBadge({ source }: { source: TickerSource }) {
   return (
     <span className="inline-flex items-center gap-1.5 px-3 border-r border-border/20 self-stretch shrink-0">
       <Icon className={cn('size-3 shrink-0', accent)} />
-      <span className={cn('text-[9px] font-black uppercase tracking-[0.14em] whitespace-nowrap', accent)}>{label}</span>
+      <span className={cn('text-[9px] font-semibold uppercase tracking-[0.14em] whitespace-nowrap', accent)}>{label}</span>
     </span>
   )
 }
@@ -206,7 +211,7 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
         {league && <span className="text-[13px] leading-none" title={league}>{SPORT_EMOJI[league] ?? '🏆'}</span>}
         <span className="text-[11px] font-medium text-foreground/75">{teams}</span>
         {status && (
-          <span className={cn("text-[10px]", isLive ? "font-semibold text-emerald-400" : isFinal ? "text-muted-foreground/45" : "text-muted-foreground/55")}>
+          <span className={cn("text-[10px]", isLive ? "font-semibold text-success" : isFinal ? "text-muted-foreground/45" : "text-muted-foreground/55")}>
             {isFinal ? "Final" : status}
           </span>
         )}
@@ -243,11 +248,11 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
         )}
         {/* favicon */}
         {item.faviconHost ? (
-          <div className={cn("shrink-0 overflow-hidden rounded-sm bg-muted", item.imageUrl ? "size-[13px]" : "size-[16px]")}>
+          <div className={cn("shrink-0 overflow-hidden rounded-control bg-muted", item.imageUrl ? "size-[13px]" : "size-[16px]")}>
             <img src={proxyImg(`https://www.google.com/s2/favicons?domain=${item.faviconHost}&sz=32`)} alt="" loading="lazy" className="size-full object-cover" />
           </div>
         ) : !item.imageUrl && (
-          <Newspaper className="size-3 text-sky-400/60 shrink-0" />
+          <Newspaper className="size-3 text-info/60 shrink-0" />
         )}
         <span className="text-[11px] font-medium text-foreground/75 group-hover:text-foreground transition-colors max-w-[260px] truncate">{item.title}</span>
         <span className="text-border/40 ml-1">·</span>
@@ -455,7 +460,7 @@ function HomeTicker({ config }: { config: TickerConfig }) {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-1 text-xs font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+    <p className="px-1 text-overline text-muted-foreground/60 mb-3">
       {children}
     </p>
   );
@@ -490,7 +495,7 @@ function TodaysHeadlines() {
       <div className="mb-1.5 flex items-center justify-between">
         <Label>Today's Headlines</Label>
         {loading
-          ? <Loader2 className="size-3 animate-spin text-muted-foreground/30" />
+          ? <Spinner size="sm" className="text-muted-foreground/30" />
           : <Link to="/news" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
         }
       </div>
@@ -519,15 +524,15 @@ function OtdCard() {
   }, []);
 
   return (
-    <div className="rounded-2xl overflow-hidden border flex flex-col" style={{ background: "rgba(245,158,11,0.05)", borderColor: "rgba(245,158,11,0.15)" }}>
-      <div className="flex items-center justify-between px-3.5 py-2.5 border-b" style={{ borderColor: "rgba(245,158,11,0.12)" }}>
+    <div className="rounded-card overflow-hidden border border-warning/15 bg-warning/5 flex flex-col">
+      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-warning/10">
         <div className="flex items-center gap-1.5">
-          <CalendarDays className="size-3.5 text-amber-400" />
-          <span className="text-[10px] font-black uppercase tracking-[0.14em] text-amber-400">On This Day</span>
+          <CalendarDays className="size-3.5 text-warning" />
+          <span className="text-overline text-warning">On This Day</span>
         </div>
         {loading
-          ? <Loader2 className="size-3 animate-spin text-muted-foreground/30" />
-          : <Link to="/on-this-day" className="text-[10px] text-amber-400/55 hover:text-amber-400 transition-colors">See all →</Link>
+          ? <Spinner size="sm" className="text-muted-foreground/30" />
+          : <Link to="/on-this-day" className="text-[10px] text-warning/55 hover:text-warning transition-colors">See all →</Link>
         }
       </div>
       <div className="flex-1 px-3.5 py-2.5 space-y-2.5">
@@ -539,7 +544,7 @@ function OtdCard() {
           return (
             <div key={i} className="flex items-start gap-2">
               {year && (
-                <span className="text-[12px] font-black text-amber-400 tabular-nums leading-tight shrink-0 pt-px">
+                <span className="text-[12px] font-semibold text-warning tabular-nums leading-tight shrink-0 pt-px">
                   {year}
                 </span>
               )}
@@ -558,12 +563,12 @@ function WidgetWeather() {
   const { snapshot, status } = useWeatherSnapshot();
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
-      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-muted-foreground/50">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+      <div className="flex items-center gap-1.5 text-overline text-muted-foreground/60">
         <span>⛅</span>
         <span>Weather</span>
       </div>
-      {status === "loading" && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {status === "loading" && <Spinner className="text-muted-foreground/30" />}
       {status === "no-location" && (
         <p className="text-[12px] text-muted-foreground/60">No location set. Configure in Settings.</p>
       )}
@@ -571,7 +576,7 @@ function WidgetWeather() {
         <Link to="/weather" className="flex items-center gap-3 group">
           <img src={weatherIconSrc(snapshot.info.icon)} className="size-10 shrink-0" alt="" />
           <div>
-            <p className="text-2xl font-black tabular-nums leading-none">{snapshot.temp}°</p>
+            <p className="text-2xl font-semibold tabular-nums leading-none">{snapshot.temp}°</p>
             <p className="text-[11px] text-muted-foreground mt-0.5">{snapshot.info.desc}</p>
             <p className="text-[10px] text-muted-foreground/50 mt-0.5 leading-tight">{snapshot.location}</p>
           </div>
@@ -595,15 +600,15 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
   }, [limit]);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-muted-foreground/50">
+        <div className="flex items-center gap-1.5 text-overline text-muted-foreground/60">
           <Newspaper className="size-3" />
           <span>News</span>
         </div>
         <Link to="/news" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
       </div>
-      {loading && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {loading && <Spinner className="text-muted-foreground/30" />}
       {!loading && items.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No news available.</p>
       )}
@@ -618,14 +623,14 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
               className="group shrink-0 w-[180px] flex flex-col gap-1.5"
             >
               {item.imageUrl ? (
-                <div className="w-full aspect-video overflow-hidden rounded-lg bg-muted">
+                <div className="w-full aspect-video overflow-hidden rounded-card bg-muted">
                   <img
                     src={item.imageUrl} alt="" loading="lazy"
                     className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                   />
                 </div>
               ) : (
-                <div className="w-full aspect-video rounded-lg bg-muted/60 flex items-center justify-center">
+                <div className="w-full aspect-video rounded-card bg-muted/60 flex items-center justify-center">
                   <Newspaper className="size-6 text-muted-foreground/20" />
                 </div>
               )}
@@ -660,12 +665,12 @@ function WidgetJokes() {
   }, []);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
-      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-muted-foreground/50">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+      <div className="flex items-center gap-1.5 text-overline text-muted-foreground/60">
         <Laugh className="size-3" />
         <span>Joke of the Day</span>
       </div>
-      {loading && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {loading && <Spinner className="text-muted-foreground/30" />}
       {!loading && joke && (
         <p className="text-[13px] italic text-foreground/70 leading-snug flex-1">{joke}</p>
       )}
@@ -689,12 +694,12 @@ function WidgetSports() {
   }, []);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
-      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-muted-foreground/50">
-        <Trophy className="size-3 text-emerald-400" />
-        <span className="text-emerald-400">Scores</span>
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+      <div className="flex items-center gap-1.5 text-overline text-success">
+        <Trophy className="size-3" />
+        <span>Scores</span>
       </div>
-      {loading && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {loading && <Spinner className="text-muted-foreground/30" />}
       {!loading && games.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No games today.</p>
       )}
@@ -712,7 +717,7 @@ function WidgetSports() {
               {status && (
                 <span className={cn(
                   "text-[10px] shrink-0",
-                  isLive ? "font-semibold text-emerald-400" : isFinal ? "text-muted-foreground/45" : "text-muted-foreground/55",
+                  isLive ? "font-semibold text-success" : isFinal ? "text-muted-foreground/45" : "text-muted-foreground/55",
                 )}>
                   {isFinal ? "Final" : status}
                 </span>
@@ -741,16 +746,16 @@ function WidgetOnThisDay() {
   const parsed = item ? parseOtdYear(item.title) : null;
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
-      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-amber-400">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+      <div className="flex items-center gap-1.5 text-overline text-warning">
         <CalendarDays className="size-3" />
         <span>On This Day</span>
       </div>
-      {loading && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {loading && <Spinner className="text-muted-foreground/30" />}
       {!loading && parsed && (
         <div className="flex items-start gap-2 flex-1">
           {parsed.year && (
-            <span className="text-[14px] font-black text-amber-400 tabular-nums leading-tight shrink-0 pt-px">
+            <span className="text-[14px] font-semibold text-warning tabular-nums leading-tight shrink-0 pt-px">
               {parsed.year}
             </span>
           )}
@@ -796,7 +801,7 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
   const empty = !loading && !payload;
 
   const header = (
-    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-amber-400">
+    <div className="flex items-center gap-1.5 text-overline text-warning">
       <Sunrise className="size-3" />
       <span>Morning Briefing</span>
     </div>
@@ -810,15 +815,15 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
     if (otd) cards.push({ label: 'On This Day', icon: CalendarDays, text: otd.title });
 
     return (
-      <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
         {header}
-        {(loading || warming) && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+        {(loading || warming) && <Spinner className="text-muted-foreground/30" />}
         {empty && <p className="text-[12px] text-muted-foreground/60">No briefing available yet.</p>}
         <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
           {cards.map((c, i) => {
             const Icon = c.icon;
             const inner = (
-              <div className="group shrink-0 w-[180px] flex flex-col gap-1.5 rounded-lg bg-muted/40 p-2.5">
+              <div className="group shrink-0 w-[180px] flex flex-col gap-1.5 rounded-control bg-muted/40 p-2.5">
                 <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/60">
                   <Icon className="size-3" /><span>{c.label}</span>
                 </div>
@@ -835,15 +840,15 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
   }
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       {header}
-      {(loading || warming) && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {(loading || warming) && <Spinner className="text-muted-foreground/30" />}
       {empty && <p className="text-[12px] text-muted-foreground/60">No briefing available yet.</p>}
       {payload && (
         <div className="space-y-1.5 flex-1">
           {payload.weather && (
             <div className="flex items-center gap-1.5 text-[12px] text-foreground/75">
-              <CloudSun className="size-3.5 shrink-0 text-sky-400" /><span className="truncate">{payload.weather}</span>
+              <CloudSun className="size-3.5 shrink-0 text-info" /><span className="truncate">{payload.weather}</span>
             </div>
           )}
           {topStory && (
@@ -851,12 +856,12 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
           )}
           {topScore && (
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-              <Trophy className="size-3 shrink-0 text-emerald-400" /><span className="truncate">{topScore.title}</span>
+              <Trophy className="size-3 shrink-0 text-success" /><span className="truncate">{topScore.title}</span>
             </div>
           )}
           {otd && (
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
-              <CalendarDays className="size-3 shrink-0 text-amber-400" /><span className="truncate">{otd.title}</span>
+              <CalendarDays className="size-3 shrink-0 text-warning" /><span className="truncate">{otd.title}</span>
             </div>
           )}
         </div>
@@ -875,15 +880,16 @@ function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | '
   const vids = items.slice(0, showCount);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-red-500">
+        {/* design-ok(raw-palette-semantic): YouTube brand-red identity accent */}
+        <div className="flex items-center gap-1.5 text-overline text-red-500">
           <PlaySquare className="size-3" />
           <span>Subscriptions</span>
         </div>
         <Link to="/youtube" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
       </div>
-      {loading && vids.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {loading && vids.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!loading && vids.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No recent uploads. Subscribe to channels in YouTube.</p>
       )}
@@ -893,7 +899,7 @@ function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | '
             const age = v.ageLabel ?? fmtAge(v.publishedAt);
             return (
               <Link key={v.videoId} to={watchHref(v)} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
-                <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted">
+                <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted">
                   <img
                     src={ytThumb(v.videoId)} alt="" loading="lazy"
                     className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
@@ -913,7 +919,7 @@ function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | '
             const age = v.ageLabel ?? fmtAge(v.publishedAt);
             return (
               <Link key={v.videoId} to={watchHref(v)} className="group flex gap-2.5">
-                <div className="relative aspect-video w-[88px] shrink-0 overflow-hidden rounded-lg bg-muted">
+                <div className="relative aspect-video w-[88px] shrink-0 overflow-hidden rounded-control bg-muted">
                   <img
                     src={ytThumb(v.videoId)} alt="" loading="lazy"
                     className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
@@ -958,16 +964,17 @@ function WidgetMusic() {
   const empty = recents.length === 0 && favStations.length === 0;
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2.5">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2.5")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-orange-400">
+        {/* design-ok(raw-palette-semantic): music identity orange accent */}
+        <div className="flex items-center gap-1.5 text-overline text-orange-400">
           <Music className="size-3" />
           <span>Music</span>
         </div>
         <Link to="/music" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Open →</Link>
       </div>
 
-      {histLoading && empty && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {histLoading && empty && <Spinner className="text-muted-foreground/30" />}
       {!histLoading && empty && (
         <p className="text-[12px] text-muted-foreground/60">Start a station to see it here.</p>
       )}
@@ -978,7 +985,10 @@ function WidgetMusic() {
             <button
               key={s.id}
               onClick={() => radio.start(stationToDj(s))}
-              className="flex items-center gap-1 rounded-full border border-orange-400/25 bg-orange-400/10 px-2.5 py-1 text-[11px] font-semibold text-orange-300/90 transition-colors hover:bg-orange-400/20"
+              className={cn(
+                // design-ok(raw-palette-semantic): music identity orange accent
+                "flex items-center gap-1 rounded-full border border-orange-400/25 bg-orange-400/10 px-2.5 py-1 text-[11px] font-semibold text-orange-300/90 transition-colors hover:bg-orange-400/20",
+              )}
             >
               <Heart className="size-2.5 fill-current" />
               <span className="max-w-[120px] truncate">{s.name}</span>
@@ -990,7 +1000,7 @@ function WidgetMusic() {
       {recents.length > 0 && (
         <div className="flex-1 space-y-1.5">
           {favStations.length > 0 && (
-            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40">Recently played</p>
+            <p className="text-overline text-muted-foreground/40">Recently played</p>
           )}
           {recents.map(t => (
             <button
@@ -998,11 +1008,12 @@ function WidgetMusic() {
               onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist ?? undefined, thumbnail: ytThumb(t.videoId) })}
               className="group flex w-full items-center gap-2.5 text-left"
             >
-              <img src={ytThumb(t.videoId)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <img src={ytThumb(t.videoId)} alt="" loading="lazy" className="size-9 shrink-0 rounded-control object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[12px] font-semibold leading-snug text-foreground/85">{t.title}</p>
                 {t.artist && <p className="truncate text-[10px] text-muted-foreground/60">{t.artist}</p>}
               </div>
+              {/* design-ok(raw-palette-semantic): music identity orange accent */}
               <Play className="size-3.5 shrink-0 text-orange-400 opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           ))}
@@ -1029,15 +1040,15 @@ function WidgetBookmarksRecent({ displayMode = 'column' }: { displayMode?: 'row'
   const fmtDomain = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-400">
+        <div className="flex items-center gap-1.5 text-overline text-brand">
           <Bookmark className="size-3" />
           <span>Bookmarks</span>
         </div>
         <Link to="/bookmarks" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
       </div>
-      {loading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {loading && items.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!loading && items.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No bookmarks yet. Save an article to see it here.</p>
       )}
@@ -1045,7 +1056,7 @@ function WidgetBookmarksRecent({ displayMode = 'column' }: { displayMode?: 'row'
         <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
           {items.map(b => (
             <Link key={b.id} to={`/bookmarks/${b.id}`} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
-              <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted flex items-center justify-center">
+              <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted flex items-center justify-center">
                 {b.ogImagePath
                   ? <img src={`/api/bookmarks/${b.id}/archive/${b.ogImagePath}`} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
                   : b.faviconUrl
@@ -1062,7 +1073,7 @@ function WidgetBookmarksRecent({ displayMode = 'column' }: { displayMode?: 'row'
         <div className="space-y-2 flex-1">
           {items.map(b => (
             <Link key={b.id} to={`/bookmarks/${b.id}`} className="group flex gap-2.5 items-start">
-              <div className="size-9 shrink-0 rounded-md bg-muted overflow-hidden flex items-center justify-center">
+              <div className="size-9 shrink-0 rounded-control bg-muted overflow-hidden flex items-center justify-center">
                 {b.faviconUrl
                   ? <img src={b.faviconUrl} alt="" loading="lazy" className="size-5 object-contain" />
                   : <Bookmark className="size-4 text-muted-foreground/30" />
@@ -1080,6 +1091,89 @@ function WidgetBookmarksRecent({ displayMode = 'column' }: { displayMode?: 'row'
   );
 }
 
+// Reading Queue — offline articles saved but not finished (unread first as "next up",
+// then in-progress). Reuses the bookmarks list API's status/type filters.
+function WidgetBookmarksQueue({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const show = displayMode === 'row' ? 8 : 5;
+  const [items, setItems] = useState<BookmarkItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/bookmarks?status=reading&type=offline', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+      fetch('/api/bookmarks?status=unread&type=offline', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+    ])
+      .then(([reading, unread]: ({ items?: BookmarkItem[] } | null)[]) => {
+        const merged = [...(reading?.items ?? []), ...(unread?.items ?? [])];
+        setTotal(merged.length);
+        setItems(merged.slice(0, show));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [show]);
+
+  const fmtDomain = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+
+  return (
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-overline text-brand">
+          <BookOpen className="size-3" />
+          <span>Reading Queue{total > 0 && <span className="ml-1 text-muted-foreground/50">· {total}</span>}</span>
+        </div>
+        <Link to="/bookmarks" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
+      </div>
+      {loading && items.length === 0 && <Spinner className="text-muted-foreground/30" />}
+      {!loading && items.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">Reading list is clear. Saved articles land here until you've read them.</p>
+      )}
+      {displayMode === 'row' ? (
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {items.map(b => (
+            <Link key={b.id} to={`/bookmarks/read/${b.id}`} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
+              <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted flex items-center justify-center">
+                {b.ogImagePath
+                  ? <img src={`/api/bookmarks/${b.id}/archive/${b.ogImagePath}`} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                  : b.faviconUrl
+                    ? <img src={b.faviconUrl} alt="" loading="lazy" className="size-8 object-contain" />
+                    : <BookOpen className="size-6 text-muted-foreground/30" />
+                }
+                {b.readingMins > 0 && (
+                  <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[9px] font-semibold text-white">{b.readingMins} min</span>
+                )}
+              </div>
+              <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{b.title}</p>
+              <p className="truncate text-[10px] text-muted-foreground/55">
+                {b.status === 'reading' ? 'In progress · ' : ''}{b.siteName ?? fmtDomain(b.url)}
+              </p>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2 flex-1">
+          {items.map(b => (
+            <Link key={b.id} to={`/bookmarks/read/${b.id}`} className="group flex gap-2.5 items-start">
+              <div className="size-9 shrink-0 rounded-control bg-muted overflow-hidden flex items-center justify-center">
+                {b.faviconUrl
+                  ? <img src={b.faviconUrl} alt="" loading="lazy" className="size-5 object-contain" />
+                  : <BookOpen className="size-4 text-muted-foreground/30" />
+                }
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground/85">{b.title}</p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">
+                  {b.status === 'reading' ? 'In progress' : `${b.readingMins || '?'} min`} · {b.siteName ?? fmtDomain(b.url)}
+                </p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WidgetPodcastsRecent({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
   const { data, isLoading } = usePodcastFeed();
   const podcast = usePodcastPlayback();
@@ -1087,15 +1181,15 @@ function WidgetPodcastsRecent({ displayMode = 'column' }: { displayMode?: 'row' 
   const items  = newEpisodes(data?.all ?? []).slice(0, show);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-indigo-400">
+        <div className="flex items-center gap-1.5 text-overline text-brand">
           <Headphones className="size-3" />
           <span>New Episodes</span>
         </div>
         <Link to="/podcasts" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
       </div>
-      {isLoading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {isLoading && items.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!isLoading && items.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No episodes yet. Generate one from a podcast show.</p>
       )}
@@ -1103,7 +1197,7 @@ function WidgetPodcastsRecent({ displayMode = 'column' }: { displayMode?: 'row' 
         <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
           {items.map(({ episode, show: s }) => (
             <button key={episode.id} onClick={() => podcast.play({ episodeId: episode.id, showId: s.id, showName: s.name, title: episode.title, durationSec: episode.durationSec ?? undefined, coverUrl: coverUrl(s.id) })} className="group shrink-0 w-[140px] flex flex-col gap-1.5 text-left">
-              <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
+              <div className="relative aspect-square w-full overflow-hidden rounded-card bg-muted">
                 <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
               </div>
               <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{episode.title}</p>
@@ -1115,12 +1209,12 @@ function WidgetPodcastsRecent({ displayMode = 'column' }: { displayMode?: 'row' 
         <div className="space-y-2 flex-1">
           {items.map(({ episode, show: s }) => (
             <button key={episode.id} onClick={() => podcast.play({ episodeId: episode.id, showId: s.id, showName: s.name, title: episode.title, durationSec: episode.durationSec ?? undefined, coverUrl: coverUrl(s.id) })} className="group flex gap-2.5 items-center text-left w-full">
-              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-control object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground/85">{episode.title}</p>
                 <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">{s.name}</p>
               </div>
-              <Play className="size-3.5 shrink-0 text-indigo-400 opacity-0 transition-opacity group-hover:opacity-100" />
+              <Play className="size-3.5 shrink-0 text-brand opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           ))}
         </div>
@@ -1140,15 +1234,15 @@ function WidgetPodcastsContinue() {
   };
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-teal-400">
+        <div className="flex items-center gap-1.5 text-overline text-brand">
           <CirclePlay className="size-3" />
           <span>Continue Listening</span>
         </div>
         <Link to="/podcasts" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Library →</Link>
       </div>
-      {isLoading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {isLoading && items.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!isLoading && items.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">Start listening to an episode to resume it here.</p>
       )}
@@ -1157,17 +1251,17 @@ function WidgetPodcastsContinue() {
           const pct = fmtProgress(episode.watchState?.positionSec ?? 0, episode.durationSec);
           return (
             <button key={episode.id} onClick={() => podcast.play({ episodeId: episode.id, showId: s.id, showName: s.name, title: episode.title, durationSec: episode.durationSec ?? undefined, coverUrl: coverUrl(s.id) }, episode.watchState?.positionSec)} className="group flex gap-2.5 items-center text-left w-full">
-              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-control object-cover" />
               <div className="min-w-0 flex-1 space-y-1">
                 <p className="line-clamp-1 text-[12px] font-semibold leading-snug text-foreground/85">{episode.title}</p>
                 <p className="truncate text-[10px] text-muted-foreground/60">{s.name}</p>
                 {pct != null && (
                   <div className="h-0.5 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full rounded-full bg-teal-400" style={{ width: `${pct}%` }} />
+                    <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
                   </div>
                 )}
               </div>
-              <Play className="size-3.5 shrink-0 text-teal-400 opacity-0 transition-opacity group-hover:opacity-100" />
+              <Play className="size-3.5 shrink-0 text-brand opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           );
         })}
@@ -1201,15 +1295,15 @@ function WidgetWatchlist({ displayMode = 'column' }: { displayMode?: 'row' | 'co
     item.mediaType === 'show' ? `/shows/${item.refId}` : `/movies?title=${encodeURIComponent(item.title)}`;
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-rose-400">
+        <div className="flex items-center gap-1.5 text-overline text-brand">
           <Tv className="size-3" />
           <span>Watchlist</span>
         </div>
         <Link to="/shows" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Browse →</Link>
       </div>
-      {loading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {loading && items.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!loading && items.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No watchlist yet. Add shows or movies to track them.</p>
       )}
@@ -1217,12 +1311,12 @@ function WidgetWatchlist({ displayMode = 'column' }: { displayMode?: 'row' | 'co
         <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
           {items.map(item => (
             <Link key={item.id} to={itemHref(item)} className="group shrink-0 w-[100px] flex flex-col gap-1.5">
-              <div className="relative w-full overflow-hidden rounded-lg bg-muted" style={{ aspectRatio: '2/3' }}>
+              <div className="relative w-full overflow-hidden rounded-card bg-muted" style={{ aspectRatio: '2/3' }}>
                 {item.posterUrl
                   ? <img src={item.posterUrl} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
                   : <Tv className="absolute inset-0 m-auto size-6 text-muted-foreground/25" />
                 }
-                <span className="absolute top-1 right-1 rounded-sm bg-black/60 px-1 py-px text-[9px] font-bold uppercase text-white/80">
+                <span className="absolute top-1 right-1 rounded-full bg-black/60 px-1 py-px text-[9px] font-bold uppercase text-white/80">
                   {item.mediaType === 'show' ? 'TV' : 'Film'}
                 </span>
               </div>
@@ -1235,7 +1329,7 @@ function WidgetWatchlist({ displayMode = 'column' }: { displayMode?: 'row' | 'co
         <div className="space-y-2 flex-1">
           {items.map(item => (
             <Link key={item.id} to={itemHref(item)} className="group flex gap-2.5 items-center">
-              <div className="relative w-[36px] shrink-0 overflow-hidden rounded-md bg-muted flex items-center justify-center" style={{ aspectRatio: '2/3' }}>
+              <div className="relative w-[36px] shrink-0 overflow-hidden rounded-control bg-muted flex items-center justify-center" style={{ aspectRatio: '2/3' }}>
                 {item.posterUrl
                   ? <img src={item.posterUrl} alt="" loading="lazy" className="size-full object-cover" />
                   : <Tv className="size-4 text-muted-foreground/30" />
@@ -1258,15 +1352,15 @@ function WidgetPodcastsShows({ displayMode = 'column' }: { displayMode?: 'row' |
   const shows = (data?.shows ?? []).slice(0, displayMode === 'row' ? 8 : 4);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-300">
+        <div className="flex items-center gap-1.5 text-overline text-brand">
           <ListVideo className="size-3" />
           <span>My Shows</span>
         </div>
         <Link to="/podcasts/library" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Library →</Link>
       </div>
-      {isLoading && shows.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {isLoading && shows.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!isLoading && shows.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No shows yet. Create one in the Podcasts app.</p>
       )}
@@ -1274,7 +1368,7 @@ function WidgetPodcastsShows({ displayMode = 'column' }: { displayMode?: 'row' |
         <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
           {shows.map(s => (
             <Link key={s.id} to={`/podcasts/show/${s.id}`} className="group shrink-0 w-[120px] flex flex-col gap-1.5">
-              <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
+              <div className="relative aspect-square w-full overflow-hidden rounded-card bg-muted">
                 <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
               </div>
               <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{s.name}</p>
@@ -1286,7 +1380,7 @@ function WidgetPodcastsShows({ displayMode = 'column' }: { displayMode?: 'row' |
         <div className="space-y-2 flex-1">
           {shows.map(s => (
             <Link key={s.id} to={`/podcasts/show/${s.id}`} className="group flex gap-2.5 items-center">
-              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-control object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="line-clamp-1 text-[12px] font-semibold leading-snug text-foreground/85">{s.name}</p>
                 <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60 capitalize">{s.style}</p>
@@ -1301,7 +1395,7 @@ function WidgetPodcastsShows({ displayMode = 'column' }: { displayMode?: 'row' |
 
 function WidgetUnavailable() {
   return (
-    <div className="rounded-xl border border-dashed border-border/40 bg-card/40 p-4 h-full flex flex-col items-center justify-center gap-1.5 text-center">
+    <div className={cn(cardVariants({ variant: "dashed" }), "p-4 h-full flex flex-col items-center justify-center gap-1.5 text-center")}>
       <LayoutGrid className="size-5 text-muted-foreground/25" />
       <p className="text-[11px] text-muted-foreground/40">Widget unavailable</p>
     </div>
@@ -1353,27 +1447,27 @@ function WidgetSpeedTest({ mode }: { mode: SpeedMode }) {
   const rating = result ? rateSpeed(result.downloadMbps, thresholds) : null;
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-400">
+        <div className="flex items-center gap-1.5 text-overline text-info">
           <Gauge className="size-3" />
           <span>{SPEED_PATH_LABEL[mode]}</span>
         </div>
         <button
           onClick={run}
           disabled={running}
-          className="text-cyan-400/70 hover:text-cyan-400 transition-colors disabled:opacity-50"
+          className="text-info/70 hover:text-info transition-colors disabled:opacity-50"
           title="Run speed test"
         >
           {running
-            ? <Loader2 className="size-3.5 animate-spin" />
+            ? <Spinner size="sm" className="text-current" />
             : <RotateCw className="size-3.5" />}
         </button>
       </div>
 
       {running ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-1">
-          <span className="text-3xl font-black tabular-nums text-cyan-400">{fmtMbps(live)}</span>
+          <span className="text-3xl font-semibold tabular-nums text-info">{fmtMbps(live)}</span>
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground/55">
             {phase === 'upload' ? 'Upload Mbps' : phase === 'ping' ? 'Pinging…' : 'Download Mbps'}
           </span>
@@ -1381,7 +1475,7 @@ function WidgetSpeedTest({ mode }: { mode: SpeedMode }) {
       ) : result ? (
         <button onClick={() => navigate('/speed-test')} className="flex-1 flex flex-col justify-center gap-2 text-left">
           <div className="flex items-baseline gap-1.5">
-            <span className={cn('text-3xl font-black tabular-nums', rating && RATING_META[rating].text)}>
+            <span className={cn('text-3xl font-semibold tabular-nums', rating && RATING_META[rating].text)}>
               {fmtMbps(result.downloadMbps)}
             </span>
             <span className="text-[11px] font-semibold text-muted-foreground/55">Mbps down</span>
@@ -1404,6 +1498,7 @@ function WidgetSpeedTest({ mode }: { mode: SpeedMode }) {
 }
 
 // ── WidgetStatus ─────────────────────────────────────────────────────────────
+// design-ok(hex-in-tsx): status preset color data
 const STATUS_WIDGET_PRESETS = [
   { state: 'available', label: 'Available', color: '#22c55e', icon: '🟢' },
   { state: 'busy',      label: 'Busy',      color: '#ef4444', icon: '🔴' },
@@ -1451,6 +1546,7 @@ function WidgetStatus() {
     <div className="flex flex-col gap-3 p-4 h-full">
       {/* Current status pill */}
       <div
+        // design-ok(hex-in-tsx): status preset color data
         className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors"
         style={{ backgroundColor: current?.color ?? '#6b7280' }}
       >
@@ -1469,7 +1565,7 @@ function WidgetStatus() {
             key={p.state}
             disabled={busy}
             onClick={() => setStatus(p.state)}
-            className={`flex flex-col items-center justify-center gap-1 rounded-xl border p-2 text-center text-xs font-medium transition-colors disabled:opacity-60 ${
+            className={`flex flex-col items-center justify-center gap-1 rounded-card border p-2 text-center text-xs font-medium transition-colors disabled:opacity-60 ${
               current?.state === p.state
                 ? 'text-white shadow-sm border-transparent'
                 : 'border-border/50 text-muted-foreground hover:bg-muted/40'
@@ -1483,7 +1579,7 @@ function WidgetStatus() {
         <button
           disabled={busy}
           onClick={() => setStatus(null)}
-          className="flex flex-col items-center justify-center gap-1 rounded-xl border border-border/50 p-2 text-center text-xs font-medium text-muted-foreground hover:bg-muted/40 transition-colors disabled:opacity-60"
+          className="flex flex-col items-center justify-center gap-1 rounded-card border border-border/50 p-2 text-center text-xs font-medium text-muted-foreground hover:bg-muted/40 transition-colors disabled:opacity-60"
         >
           <span className="text-lg">✕</span>
           <span>Clear</span>
@@ -1532,7 +1628,7 @@ function WidgetHASummary() {
 
   if (!data) {
     if (isError) return <WidgetHAUnavailable />
-    return <div className="flex items-center justify-center h-full p-4"><Loader2 className="size-5 animate-spin text-muted-foreground/50" /></div>
+    return <div className="flex items-center justify-center h-full p-4"><Spinner size="lg" className="text-muted-foreground/50" /></div>
   }
   if (!data.configured) {
     return (
@@ -1559,23 +1655,23 @@ function WidgetHASummary() {
   return (
     <div className="flex flex-col gap-2.5 p-4 h-full">
       <div className="grid grid-cols-2 gap-2">
-        <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2.5 text-left hover:bg-amber-500/15 transition-colors">
-          <Lightbulb className="size-4.5 shrink-0 text-amber-400" />
+        <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-card bg-warning/10 border border-warning/20 px-3 py-2.5 text-left hover:bg-warning/15 transition-colors">
+          <Lightbulb className="size-4.5 shrink-0 text-warning" />
           <div className="min-w-0">
-            <p className="text-lg font-black leading-none tabular-nums">{c.lightsOn}</p>
+            <p className="text-lg font-semibold leading-none tabular-nums">{c.lightsOn}</p>
             <p className="mt-0.5 text-[10px] text-muted-foreground/70">light{c.lightsOn !== 1 ? 's' : ''} on</p>
           </div>
         </button>
-        <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 px-3 py-2.5 text-left hover:bg-blue-500/15 transition-colors">
-          <Power className="size-4.5 shrink-0 text-blue-400" />
+        <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-card bg-info/10 border border-info/20 px-3 py-2.5 text-left hover:bg-info/15 transition-colors">
+          <Power className="size-4.5 shrink-0 text-info" />
           <div className="min-w-0">
-            <p className="text-lg font-black leading-none tabular-nums">{c.devicesOn}</p>
+            <p className="text-lg font-semibold leading-none tabular-nums">{c.devicesOn}</p>
             <p className="mt-0.5 text-[10px] text-muted-foreground/70">device{c.devicesOn !== 1 ? 's' : ''} on</p>
           </div>
         </button>
       </div>
-      <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 px-3 py-2 text-left hover:bg-purple-500/15 transition-colors">
-        <Volume2 className="size-4 shrink-0 text-purple-400" />
+      <button onClick={() => navigate('/home-assistant')} className="flex items-center gap-2.5 rounded-card bg-brand/10 border border-brand/20 px-3 py-2 text-left hover:bg-brand/15 transition-colors">
+        <Volume2 className="size-4 shrink-0 text-brand" />
         <p className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
           {media
             ? <>{media.name}: <span className="font-semibold">{media.title ?? 'playing'}</span>{c.mediaPlaying > 1 ? ` +${c.mediaPlaying - 1}` : ''}</>
@@ -1585,17 +1681,17 @@ function WidgetHASummary() {
       <button
         onClick={() => navigate('/home-assistant')}
         className={cn(
-          'flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors',
-          secure ? 'bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/15' : 'bg-red-500/10 border-red-500/25 hover:bg-red-500/15',
+          'flex items-center gap-2.5 rounded-card border px-3 py-2 text-left transition-colors',
+          secure ? 'bg-success/10 border-success/20 hover:bg-success/15' : 'bg-destructive/10 border-destructive/25 hover:bg-destructive/15',
         )}
       >
         {secure
-          ? <ShieldCheck className="size-4 shrink-0 text-emerald-400" />
-          : <LockOpen className="size-4 shrink-0 text-red-400" />}
+          ? <ShieldCheck className="size-4 shrink-0 text-success" />
+          : <LockOpen className="size-4 shrink-0 text-destructive" />}
         <p className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
           {secure
-            ? <span className="text-emerald-400/90 font-medium">All secure</span>
-            : <span className="font-semibold text-red-300">{openItems.map(o => o.name).join(', ')} {openItems.length === 1 ? openItems[0]!.state : 'open'}</span>}
+            ? <span className="text-success/90 font-medium">All secure</span>
+            : <span className="font-semibold text-destructive">{openItems.map(o => o.name).join(', ')} {openItems.length === 1 ? openItems[0]!.state : 'open'}</span>}
         </p>
       </button>
     </div>
@@ -1696,7 +1792,7 @@ function WidgetHAFavorites() {
 
   if (!data || favoriteIds === null) {
     if (isError) return <WidgetHAUnavailable />
-    return <div className="flex items-center justify-center h-full p-4"><Loader2 className="size-5 animate-spin text-muted-foreground/50" /></div>
+    return <div className="flex items-center justify-center h-full p-4"><Spinner size="lg" className="text-muted-foreground/50" /></div>
   }
   if (!data.configured || favorites.length === 0) {
     return (
@@ -1720,6 +1816,70 @@ function WidgetHAFavorites() {
 // Keyed by canonical widget id (see lib/homeWidgets). The catalog there is the
 // source of truth for which widgets exist; this map just wires ids to views.
 
+interface PriceDropProduct {
+  id: string;
+  title: string;
+  imageUrl: string | null;
+  lastChangedAt: number | null;
+  best: { retailerLabel: string; priceCents: number | null; effective: { effectiveCents: number } | null } | null;
+}
+
+function WidgetPriceDrops({ displayMode }: { displayMode: 'row' | 'column' }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['price-drops-widget'],
+    queryFn: async () => {
+      const res = await fetch('/api/shopping/products?sort=recentDrop&limit=8', { credentials: 'include' });
+      if (!res.ok) return { products: [] as PriceDropProduct[] };
+      return res.json() as Promise<{ products: PriceDropProduct[] }>;
+    },
+  });
+  const products = data?.products ?? [];
+  const price = (p: PriceDropProduct) =>
+    p.best ? `$${(((p.best.effective?.effectiveCents ?? p.best.priceCents) ?? 0) / 100).toFixed(2)}` : '–';
+
+  return (
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2.5")}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-overline text-success">
+          <Tag className="size-3" />
+          <span>Price Drops</span>
+        </div>
+        <Link to="/shopping" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Open →</Link>
+      </div>
+
+      {isLoading && products.length === 0 && <Spinner className="text-muted-foreground/30" />}
+      {!isLoading && products.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">Track a product to watch its price here.</p>
+      )}
+
+      {products.length > 0 && (
+        <div className={cn('flex-1', displayMode === 'row' ? 'flex gap-2 overflow-x-auto' : 'space-y-1.5')}>
+          {products.map(p => (
+            <Link
+              key={p.id}
+              to={`/shopping/products/${p.id}`}
+              className={cn(
+                'group flex items-center gap-2 rounded-control border border-border/40 bg-muted/20 p-2 transition-colors hover:bg-muted/40',
+                displayMode === 'row' ? 'w-44 shrink-0' : '',
+              )}
+            >
+              {p.imageUrl ? (
+                <img src={proxyImg(p.imageUrl)} alt="" className="size-9 shrink-0 rounded object-contain bg-muted" />
+              ) : (
+                <div className="size-9 shrink-0 rounded bg-muted" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12px] font-medium leading-tight">{p.title}</p>
+                <p className="text-[11px] font-semibold text-success">{price(p)}{p.best ? ` · ${p.best.retailerLabel}` : ''}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.ReactNode> = {
   'weather':            () => <WidgetWeather />,
   'news':               (m) => <WidgetNews displayMode={m} />,
@@ -1729,7 +1889,9 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'morning-briefing':   (m) => <WidgetBriefing displayMode={m} />,
   'yt-subs':            (m) => <WidgetYoutubeSubs displayMode={m} />,
   'music':              () => <WidgetMusic />,
+  'price-drops':        (m) => <WidgetPriceDrops displayMode={m} />,
   'bookmarks-recent':   (m) => <WidgetBookmarksRecent displayMode={m} />,
+  'bookmarks-queue':    (m) => <WidgetBookmarksQueue displayMode={m} />,
   'podcasts-recent':    (m) => <WidgetPodcastsRecent displayMode={m} />,
   'podcasts-continue':  () => <WidgetPodcastsContinue />,
   'podcasts-shows':     (m) => <WidgetPodcastsShows displayMode={m} />,
@@ -1956,7 +2118,7 @@ function GapDrop({ id, dragging }: { id: string; dragging: boolean }) {
     <div
       ref={setNodeRef}
       className={cn(
-        "flex items-center justify-center rounded-xl text-[11px] font-semibold transition-all",
+        "flex items-center justify-center rounded-card text-[11px] font-semibold transition-all",
         !dragging
           ? "h-3"
           : isOver
@@ -2094,13 +2256,14 @@ function Canvas({
         {editMode && <GapDrop id="end" dragging={dragging} />}
       </div>
       {editMode && (
-        <button
+        <Button
           onClick={onAddWidget}
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border-dashed border-2 border-border/40 hover:border-brand/60 py-4 text-[12px] text-muted-foreground/50 hover:text-foreground/70 transition-all"
+          variant="ghost"
+          className="mt-4 w-full rounded-card border-dashed border-2 border-border/40 hover:border-brand/60 py-4 h-auto text-[12px] text-muted-foreground/50 hover:text-foreground/70 transition-all"
         >
           <Plus className="size-4" />
           Add widget
-        </button>
+        </Button>
       )}
       <DragOverlay dropAnimation={null}>
         {activeWidget ? (
@@ -2124,7 +2287,7 @@ function CategoryTile({
   return (
     <Link
       to={to}
-      className="group relative h-24 overflow-hidden rounded-2xl shimmer-sweep transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.97]"
+      className="group relative h-24 overflow-hidden rounded-card shimmer-sweep transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.97]"
       style={{ background: gradient }}
     >
       <Icon
@@ -2308,14 +2471,17 @@ export function HomePage() {
           <div className="absolute inset-x-0 bottom-0 h-16 pointer-events-none z-[1] bg-gradient-to-b from-transparent to-background" />
         )}
         <div className={cn("relative z-10 min-w-0 flex-1", wxLoaded && wxTextClass)}>
+          {/* design-ok(raw-palette-semantic): weather-tinted greeting hero text, mirrors components/weather/ scene-text allowlist */}
           <p className={cn("text-[11px] font-semibold uppercase tracking-[0.15em]", wxLight ? "text-white/60" : wxLoaded ? "text-slate-500" : "text-muted-foreground/50")}>
             {dateStr}
           </p>
-          <h1 className={cn("mt-1.5 text-[2rem] font-black tracking-tight leading-[1.1]", wxLight && "text-white drop-shadow")}>
+          {/* design-ok(raw-h1-in-pages): bespoke weather-tinted greeting hero, not a PageHeader page-title (redesign phase 11) */}
+          <h1 className={cn("mt-1.5 text-[2rem] font-bold tracking-tight leading-[1.1]", wxLight && "text-white drop-shadow")}>
             {greeting}
             {displayName && (
               <>
                 ,{" "}
+                {/* design-ok(raw-palette-semantic): weather-tinted greeting hero text, mirrors components/weather/ scene-text allowlist */}
                 <span className={wxLight ? "text-white/75" : wxLoaded ? "text-slate-600" : "text-foreground/70"}>{displayName}</span>
               </>
             )}
@@ -2333,7 +2499,7 @@ export function HomePage() {
       {/* ── Canvas zone ── */}
       <div className={cn(
         "px-5 py-4 pb-24 relative transition-all",
-        editMode && "ring-2 ring-inset ring-brand/40 rounded-xl mx-2",
+        editMode && "ring-2 ring-inset ring-brand/40 rounded-card mx-2",
       )}>
 
         {/* Canvas header with edit controls */}
@@ -2342,20 +2508,23 @@ export function HomePage() {
           {!locked && (
             editMode ? (
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   onClick={cancelEdit}
-                  className="px-3 py-1 text-[11px] font-medium rounded-lg border border-border/40 text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto px-3 py-1 text-[11px] font-medium border-border/40 text-muted-foreground/70 hover:text-foreground/80"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={saveEdit}
                   disabled={isSaving}
-                  className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold rounded-lg bg-brand text-white hover:brightness-110 disabled:opacity-50 transition-all"
+                  size="sm"
+                  className="h-auto px-3 py-1 text-[11px] font-semibold hover:brightness-110"
                 >
-                  {isSaving && <Loader2 className="size-3 animate-spin" />}
+                  {isSaving && <Spinner size="sm" className="size-3" />}
                   Save
-                </button>
+                </Button>
               </div>
             ) : (
               <button

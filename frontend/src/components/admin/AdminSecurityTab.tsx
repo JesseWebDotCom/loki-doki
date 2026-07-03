@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Lock, Plus, RefreshCw, RotateCcw, Save, ShieldAlert, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { ConsentManager } from '@/components/admin/ConsentManager'
 
 // Security admin area. One section with several views (styles / filtering /
@@ -24,7 +27,7 @@ export function AdminSecurityTab({ view }: { view?: string }) {
 function PanelHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="mb-4">
-      <h2 className="text-base font-semibold">{title}</h2>
+      <h2 className="text-title font-semibold">{title}</h2>
       <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   )
@@ -75,7 +78,7 @@ function PrivacyModePanel() {
     } finally { setSaving(false) }
   }
 
-  if (!settings) return <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Loading…</div>
+  if (!settings) return <SkeletonListRows count={3} className="max-w-xl" />
   return (
     <div className="max-w-xl">
       <PanelHeader title="Privacy Mode" description="Hide adult styles and generated content behind a PIN (⌘⇧P)." />
@@ -90,7 +93,7 @@ function PrivacyModePanel() {
             <div className="flex items-center gap-3">
               <input type="number" min={10} max={3600} value={settings.timeoutSeconds}
                 onChange={e => setSettings(s => s ? { ...s, timeoutSeconds: Number(e.target.value) } : s)}
-                className="w-24 rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
+                className="w-24 rounded-control border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
               <span className="text-sm text-muted-foreground">seconds</span>
             </div>
           </div>
@@ -102,22 +105,22 @@ function PrivacyModePanel() {
             </div>
             {settings.hasPin && <p className="text-xs text-muted-foreground">Leave blank to keep current PIN</p>}
             <input type="password" value={pin} onChange={e => { setPin(e.target.value); setPinError(null) }} placeholder="New PIN" autoComplete="new-password"
-              className="w-full max-w-xs rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
+              className="w-full max-w-xs rounded-control border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
             <input type="password" value={pinConfirm} onChange={e => { setPinConfirm(e.target.value); setPinError(null) }} placeholder="Confirm PIN" autoComplete="new-password"
-              className="w-full max-w-xs rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
+              className="w-full max-w-xs rounded-control border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
             {pinError && <p className="text-xs text-destructive">{pinError}</p>}
             {!settings.hasPin && !pin && (
-              <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 max-w-xs">
-                <ShieldAlert className="size-3.5 text-amber-500 mt-0.5 shrink-0" />
-                <p className="text-xs text-amber-700 dark:text-amber-400">Set a PIN to enable privacy mode.</p>
+              <div className="flex items-start gap-2 rounded-control bg-warning/10 border border-warning/20 px-3 py-2 max-w-xs">
+                <ShieldAlert className="size-3.5 text-warning mt-0.5 shrink-0" />
+                <p className="text-xs text-warning">Set a PIN to enable privacy mode.</p>
               </div>
             )}
           </div>
         </div>
-        <button onClick={() => void save()} disabled={saving}
-          className="flex items-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50">
-          <Save className="size-3.5" />{saving ? 'Saving…' : saved ? 'Saved!' : 'Save settings'}
-        </button>
+        <Button onClick={() => void save()} disabled={saving}>
+          {saving ? <Spinner size="sm" className="text-current" /> : <Save className="size-3.5" />}
+          {saving ? 'Saving…' : saved ? 'Saved!' : 'Save settings'}
+        </Button>
       </div>
     </div>
   )
@@ -162,25 +165,25 @@ function FilteringPanel() {
     if (res.ok) setData(await res.json() as KeywordsData)
   }
 
-  if (!data) return <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Loading…</div>
+  if (!data) return <SkeletonListRows count={3} className="max-w-xl" />
   return (
     <div className="max-w-xl">
       <PanelHeader title="Adult Detection Keywords" description="Scanned at image-style (LoRA) import time to auto-flag adult styles." />
       <div className="space-y-2">
         {data.isCustom && (
           <div className="flex justify-end">
-            <button onClick={() => void reset()} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <Button variant="ghost" size="sm" onClick={() => void reset()} className="text-muted-foreground">
               <RotateCcw className="size-3" /> Reset to defaults
-            </button>
+            </Button>
           </div>
         )}
         <div className="flex gap-2">
           <input ref={inputRef} type="text" value={newKeyword} onChange={e => setNewKeyword(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }} placeholder="Add keyword…"
-            className="flex-1 rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
-          <button onClick={add} className="flex items-center gap-1 rounded-lg bg-muted px-3 py-1.5 text-sm font-medium hover:bg-muted/80 transition-colors">
+            className="flex-1 rounded-control border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60" />
+          <Button variant="secondary" onClick={add}>
             <Plus className="size-3.5" /> Add
-          </button>
+          </Button>
         </div>
         <div className="flex flex-wrap gap-1.5 max-h-60 overflow-y-auto">
           {data.keywords.map(kw => (
@@ -191,9 +194,10 @@ function FilteringPanel() {
           ))}
         </div>
         <div className="flex items-center gap-2 pt-1">
-          <button onClick={() => void save()} disabled={saving} className="flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50">
-            <Save className="size-3" />{saving ? 'Saving…' : saved ? 'Saved!' : 'Save keywords'}
-          </button>
+          <Button size="sm" onClick={() => void save()} disabled={saving}>
+            {saving ? <Spinner size="sm" className="text-current" /> : <Save className="size-3" />}
+            {saving ? 'Saving…' : saved ? 'Saved!' : 'Save keywords'}
+          </Button>
           <p className="text-xs text-muted-foreground">{data.keywords.length} keywords</p>
         </div>
       </div>
@@ -235,13 +239,16 @@ function StylesPanel() {
       <PanelHeader title="Style Adult Flags" description="Re-scan installed image styles and manually mark them adult." />
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <button onClick={() => void rescan()} disabled={scanning} className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50">
-            <RefreshCw className={cn('size-3.5', scanning && 'animate-spin')} />{scanning ? 'Scanning…' : 'Re-scan all styles'}
-          </button>
-          {scanResult && <p className="text-xs text-muted-foreground">{scanResult.scanned} scanned — {scanResult.flagged} flagged</p>}
+          <Button variant="outline" onClick={() => void rescan()} disabled={scanning}>
+            {scanning
+              ? <Spinner size="sm" className="text-current" />
+              : <RefreshCw className="size-3.5" />}
+            {scanning ? 'Scanning…' : 'Re-scan all styles'}
+          </Button>
+          {scanResult && <p className="text-xs text-muted-foreground">{scanResult.scanned} scanned, {scanResult.flagged} flagged</p>}
         </div>
         {loras.length > 0 ? (
-          <div className="rounded-xl border border-border/50 divide-y divide-border/30 overflow-hidden">
+          <div className="rounded-card border border-border/50 divide-y divide-border/30 overflow-hidden">
             {loras.map(lora => (
               <div key={lora.id} className="flex items-center justify-between px-4 py-2.5 bg-card">
                 <span className="text-sm text-foreground">{lora.styleLabel ?? lora.name}</span>

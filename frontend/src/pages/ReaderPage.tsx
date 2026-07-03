@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AppBreadcrumb } from '@/components/shared/AppBreadcrumb'
-import { Search, ArrowLeft, ArrowRight, Shuffle, ExternalLink, BookOpen, Home, Loader2 } from 'lucide-react'
+import { Search, ArrowLeft, ArrowRight, Shuffle, ExternalLink, BookOpen, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { categoryVisual } from '@/lib/archiveCategories'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { ArchiveIcon } from '@/components/shared/ArchiveIcon'
@@ -67,11 +68,12 @@ export function ReaderPage() {
     if (archive) open()
   }, [archive, open])
 
-  // Read document.title from the iframe on every load — works for both initial
+  // Read document.title from the iframe on every load; works for both initial
   // loads and in-iframe link clicks, and is more reliable than URL parsing.
   function handleIframeLoad() {
     try {
       const rawTitle = iframeRef.current?.contentWindow?.document?.title ?? ''
+      // design-ok(em-dash): regex character class must match em-dash-separated title suffixes
       const title = rawTitle.replace(/\s*[|–—-]\s*.+$/, '').trim() || null
       setArticleTitle(title)
     } catch { /* cross-origin guard */ }
@@ -95,7 +97,7 @@ export function ReaderPage() {
   if (!loaded) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -120,7 +122,7 @@ export function ReaderPage() {
 
   const visual = categoryVisual(archive.category)
   const archiveTile = (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-md" style={{ background: visual.gradient }}>
+    <span className="flex size-5 shrink-0 items-center justify-center rounded" style={{ background: visual.gradient }}>
       <ArchiveIcon zimIconUrl={archive.zimIconUrl} category={archive.category} />
     </span>
   )
@@ -164,7 +166,7 @@ export function ReaderPage() {
         )}
       </AppBreadcrumb>
 
-      {/* Minimal license credit — required by CC-BY-SA for offline archive content */}
+      {/* Minimal license credit, required by CC-BY-SA for offline archive content */}
       <div className="flex shrink-0 items-center border-b border-border/40 px-3 py-0.5">
         <span className="text-[10px] text-muted-foreground/50">
           Offline archive &middot;{' '}

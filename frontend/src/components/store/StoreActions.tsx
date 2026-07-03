@@ -1,10 +1,12 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, MoreHorizontal, Trash2, ExternalLink, Info } from 'lucide-react'
+import { Check, MoreHorizontal, Trash2, ExternalLink, Info } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { InstallDisclosureModal } from '@/components/shared/InstallDisclosureModal'
 import { RequestModal } from '@/components/store/RequestModal'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
@@ -96,24 +98,25 @@ export function PrimaryAction({ app, size = 'sm', full, className }: {
 }) {
   const { isAdmin, busyId, install, request, open } = useStoreActions()
   const busy = busyId === app.id
-  const base = cn(
-    'inline-flex items-center justify-center gap-1.5 rounded-full font-semibold transition-colors disabled:opacity-50',
-    size === 'sm' ? 'px-4 py-1.5 text-xs' : 'px-5 py-2 text-sm',
-    full && 'w-full',
-    className,
-  )
+  const btnSize = size === 'sm' ? 'sm' : 'default'
+  const cls = cn(full && 'w-full', className)
   const stop = (e: React.MouseEvent) => e.stopPropagation()
 
   if (app.enabled) {
     if (app.route) {
       return (
-        <button onClick={e => { stop(e); open(app) }} className={cn(base, 'bg-foreground text-background hover:opacity-90')}>
+        <Button size={btnSize} onClick={e => { stop(e); open(app) }}
+          className={cn('bg-foreground text-background hover:bg-foreground/90', cls)}>
           <ExternalLink className="size-3.5" /> Open
-        </button>
+        </Button>
       )
     }
     return (
-      <span className={cn(base, 'bg-emerald-500/15 text-emerald-500 cursor-default')}>
+      <span className={cn(
+        'inline-flex items-center justify-center gap-1.5 rounded-full bg-success/15 font-semibold text-success cursor-default',
+        size === 'sm' ? 'h-8 px-3 text-xs' : 'h-9 px-4 text-sm',
+        cls,
+      )}>
         <Check className="size-3.5" /> Installed
       </span>
     )
@@ -121,17 +124,15 @@ export function PrimaryAction({ app, size = 'sm', full, className }: {
 
   if (isAdmin) {
     return (
-      <button onClick={e => { stop(e); install(app) }} disabled={busy}
-        className={cn(base, 'bg-brand text-brand-foreground hover:opacity-90')}>
-        {busy ? <Loader2 className="size-3.5 animate-spin" /> : null} Get
-      </button>
+      <Button size={btnSize} onClick={e => { stop(e); install(app) }} disabled={busy} className={cls}>
+        {busy ? <Spinner size="sm" className="text-primary-foreground" /> : null} Get
+      </Button>
     )
   }
   return (
-    <button onClick={e => { stop(e); request(app) }}
-      className={cn(base, 'border border-border bg-muted/60 text-foreground hover:bg-muted')}>
+    <Button variant="secondary" size={btnSize} onClick={e => { stop(e); request(app) }} className={cls}>
       Request
-    </button>
+    </Button>
   )
 }
 
@@ -142,12 +143,15 @@ export function SecondaryActions({ app, className }: { app: StoreApp; className?
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="More actions"
           onClick={e => e.stopPropagation()}
-          className={cn('flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors', className)}
+          className={cn('size-8 text-muted-foreground hover:text-foreground', className)}
         >
           <MoreHorizontal className="size-4" />
-        </button>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
         <DropdownMenuItem onSelect={() => details(app)}>

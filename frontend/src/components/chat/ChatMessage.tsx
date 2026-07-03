@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from 'react'
 import { Copy, Check, Pencil, RotateCcw, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { BlockRenderer } from './blocks/BlockRenderer'
 import type { Block } from './blocks/BlockRenderer'
@@ -22,7 +23,7 @@ interface ChatMessageProps {
   message: Message
   isLast?: boolean
   isGenerating?: boolean
-  /** Stable across renders (see MessageList) — takes the message id, not bound per-row,
+  /** Stable across renders (see MessageList) - takes the message id, not bound per-row,
    *  so passing it doesn't defeat this component's memoization. */
   onRegenerate?: (messageId: string) => void
   /** Edit-and-resubmit a user message. Stable across renders (see MessageList). */
@@ -33,7 +34,7 @@ export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenera
   const isUser = message.role === 'user'
 
   // Strip <action> tags before display (they drive avatar animation instead).
-  // Must be before any early return — Rules of Hooks.
+  // Must be before any early return - Rules of Hooks.
   const cleanContent = useMemo(
     () => isUser ? message.content : stripEmotesForDisplay(message.content),
     [isUser, message.content],
@@ -47,7 +48,7 @@ export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenera
 
   return (
     <div className={cn('group/msg flex flex-col gap-3 px-4 text-sm text-foreground/90', isActive && 'min-h-[1.5rem]')}>
-      {/* Tool result blocks — appear before the prose commentary */}
+      {/* Tool result blocks - appear before the prose commentary */}
       {message.blocks?.map((block, i) => (
         <BlockRenderer key={`${block.kind}-${i}`} block={block} />
       ))}
@@ -91,7 +92,7 @@ function UserMessage({ message, onEdit }: { message: Message; onEdit?: (messageI
   if (editing) {
     return (
       <div className="flex justify-end px-4">
-        <div className="w-full max-w-[70%] rounded-2xl border border-border bg-card p-2">
+        <div className="w-full max-w-[70%] rounded-card border border-border bg-card p-2">
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -101,19 +102,19 @@ function UserMessage({ message, onEdit }: { message: Message; onEdit?: (messageI
             }}
             rows={Math.min(8, Math.max(2, draft.split('\n').length))}
             autoFocus
-            className="w-full resize-y rounded-lg bg-transparent px-2 py-1.5 text-sm leading-relaxed outline-none"
+            className="w-full resize-y rounded-control bg-transparent px-2 py-1.5 text-sm leading-relaxed outline-none"
           />
           <div className="flex items-center justify-between px-1 pt-1">
             <span className="text-[11px] text-muted-foreground">Replies after this point will be replaced</span>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setEditing(false)} aria-label="Cancel edit" title="Cancel"
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+              <Button type="button" variant="ghost" size="icon-sm" onClick={() => setEditing(false)} aria-label="Cancel edit" title="Cancel"
+                className="text-muted-foreground hover:text-foreground">
                 <X className="size-3.5" />
-              </button>
-              <button type="button" onClick={save} aria-label="Save and resubmit" title="Save & resubmit"
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+              </Button>
+              <Button type="button" variant="ghost" size="icon-sm" onClick={save} aria-label="Save and resubmit" title="Save & resubmit"
+                className="text-muted-foreground hover:text-foreground">
                 <Check className="size-3.5" />
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -124,12 +125,12 @@ function UserMessage({ message, onEdit }: { message: Message; onEdit?: (messageI
   return (
     <div className="group/usermsg flex items-center justify-end gap-1 px-4">
       {onEdit && (
-        <button type="button" onClick={startEdit} aria-label="Edit message" title="Edit & resubmit"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/usermsg:opacity-100 focus-visible:opacity-100">
+        <Button type="button" variant="ghost" size="icon-sm" onClick={startEdit} aria-label="Edit message" title="Edit & resubmit"
+          className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/usermsg:opacity-100 focus-visible:opacity-100">
           <Pencil className="size-3.5" />
-        </button>
+        </Button>
       )}
-      <div className="max-w-[70%] rounded-2xl bg-foreground text-background px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
+      <div className="max-w-[70%] rounded-card bg-foreground text-background px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
         {message.content}
       </div>
     </div>
@@ -146,15 +147,15 @@ function MessageActions({ content, onRegenerate }: { content: string; onRegenera
   }
   return (
     <div className="-mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
-      <button type="button" onClick={copy} aria-label="Copy message" title="Copy"
-        className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+      <Button type="button" variant="ghost" size="icon-sm" onClick={copy} aria-label="Copy message" title="Copy"
+        className="text-muted-foreground hover:text-foreground">
         {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </button>
+      </Button>
       {onRegenerate && (
-        <button type="button" onClick={onRegenerate} aria-label="Regenerate response" title="Regenerate"
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+        <Button type="button" variant="ghost" size="icon-sm" onClick={onRegenerate} aria-label="Regenerate response" title="Regenerate"
+          className="text-muted-foreground hover:text-foreground">
           <RotateCcw className="size-3.5" />
-        </button>
+        </Button>
       )}
     </div>
   )

@@ -11,7 +11,7 @@ import { DEFAULT_TIMER_TONE, toneDisplayName } from '@/lib/time/tones'
 import { splitDuration } from '@/lib/time/format'
 import type { ClockTimer } from '@/lib/time/api'
 
-const SELECT_CLS = 'rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand'
+const SELECT_CLS = 'rounded-control border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand'
 
 export function TimerEditorDialog({ open, onOpenChange, timer }: {
   open: boolean
@@ -86,7 +86,7 @@ export function TimerEditorDialog({ open, onOpenChange, timer }: {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Sound — {toneDisplayName(tone, toneName)}</Label>
+            <Label>Sound · {toneDisplayName(tone, toneName)}</Label>
             <TonePicker value={tone} onChange={(t, n) => { setTone(t); setToneName(n) }} />
           </div>
         </div>

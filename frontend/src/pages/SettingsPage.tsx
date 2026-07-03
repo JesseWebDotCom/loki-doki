@@ -1,9 +1,10 @@
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Bell, Brain, Cpu, Home, Info, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
+import { Bell, Brain, Cpu, Home, Info, Menu, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
 import type { PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
-import { SettingsHeader } from '@/components/settings/SettingsHeader'
+import { Button } from '@/components/ui/button'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { SettingsProfileTab } from '@/components/settings/SettingsProfileTab'
 import { SettingsToolsTab } from '@/components/settings/SettingsToolsTab'
@@ -47,6 +48,19 @@ export function SettingsPage() {
     setMobileNavOpen(false)
   }, [navigate])
 
+  // Publish the active section into the ONE global breadcrumb (Home > Settings >
+  // Appearance) instead of a second local header bar; the mobile-nav trigger rides
+  // along as a slot on the same bar.
+  useAppHeader({
+    query: '', setQuery: () => {}, searchable: false,
+    leftSlot: (
+      <Button variant="ghost" size="icon-sm" onClick={() => setMobileNavOpen(true)} className="md:hidden" aria-label="Open navigation">
+        <Menu className="size-5" />
+      </Button>
+    ),
+    extraCrumbs: [{ label: sectionLabel }],
+  })
+
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Desktop sidebar (collapsible icon rail) */}
@@ -65,8 +79,6 @@ export function SettingsPage() {
       </Sheet>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <SettingsHeader sectionLabel={sectionLabel} onOpenMobileNav={() => setMobileNavOpen(true)} onNavigate={go} />
-
         <div className="flex-1 overflow-y-auto">
           {section === 'profile'       && <SettingsProfileTab />}
           {section === 'home'          && <SettingsHomeTab />}

@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Plus, Trash2, Loader2, Save, X, Play } from 'lucide-react'
+import { AlarmClock, Plus, Trash2, Save, Play } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/spinner'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { opts, JSON_HEADERS, getJSON, audioUrl, type AlarmRow, type ChimeRow } from '@/lib/pod/layout'
@@ -25,11 +28,11 @@ export function DeviceAlarmsPanel({ id }: { id?: string }) {
   const deviceName = (i: string) => devices.find((d) => d.id === i)?.name ?? i
 
   return (
-    <section id={id} className="space-y-4 rounded-3xl border border-border/40 bg-card p-5 scroll-mt-20">
+    <section id={id} className="space-y-4 rounded-card border border-border/40 bg-card p-5 scroll-mt-20">
       <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl" style={{ backgroundImage: 'linear-gradient(135deg,#fb7185,#e11d48)' }}><AlarmClock className="size-5 text-white" /></div>
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-card bg-brand/10 text-brand"><AlarmClock className="size-5" /></div>
         <div className="flex-1">
-          <h3 className="text-sm font-semibold">Alarms</h3>
+          <h3 className="text-section">Alarms</h3>
           <p className="text-sm text-muted-foreground">Server-owned alarms that ring on your screen devices. Snooze/cancel on one device quiets the rest. These also appear in the Time app.</p>
         </div>
         <Button size="sm" onClick={() => setEdit('new')}><Plus className="size-4" /> New alarm</Button>
@@ -40,7 +43,7 @@ export function DeviceAlarmsPanel({ id }: { id?: string }) {
       ) : (
         <div className="space-y-2">
           {alarms.map((a) => (
-            <div key={a.id} className="flex items-center gap-3 rounded-2xl border border-border/40 bg-background/40 px-4 py-3">
+            <div key={a.id} className="flex items-center gap-3 rounded-card border border-border/40 bg-background/40 px-4 py-3">
               <div className="w-20 text-2xl font-semibold tabular-nums">{String(((a.hour % 12) || 12)).padStart(2, ' ')}:{String(a.minute).padStart(2, '0')}<span className="ml-1 text-xs text-muted-foreground">{a.hour < 12 ? 'AM' : 'PM'}</span></div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{a.label} <span className="text-muted-foreground">· {a.userName}</span></p>
@@ -50,7 +53,7 @@ export function DeviceAlarmsPanel({ id }: { id?: string }) {
                   {a.toneName ? ` · ${a.toneName}` : ''}
                 </p>
               </div>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] ${a.enabled ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}`}>{a.enabled ? 'On' : 'Off'}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] ${a.enabled ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'}`}>{a.enabled ? 'On' : 'Off'}</span>
               <Button size="sm" variant="ghost" className="text-xs" onClick={() => setEdit(a)}>Edit</Button>
               <Button size="icon" variant="ghost" className="size-8 text-muted-foreground hover:text-destructive" onClick={() => setDel(a)}><Trash2 className="size-4" /></Button>
             </div>
@@ -96,28 +99,24 @@ function AlarmEditor({ alarm, devices, alarmTones, onClose, onSaved }: { alarm: 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg space-y-4 rounded-3xl border border-border/50 bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2">
-          <h3 className="text-base font-semibold">{isNew ? 'New alarm' : 'Edit alarm'}</h3>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={onClose}><X className="size-4" /></Button>
-            <Button size="sm" onClick={save} disabled={busy}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save</Button>
-          </div>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{isNew ? 'New alarm' : 'Edit alarm'}</DialogTitle>
+        </DialogHeader>
 
         <div className="flex items-center gap-2">
           <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label" className="flex-1" />
-          <input type="number" min={0} max={23} value={hour} onChange={(e) => setHour(Math.max(0, Math.min(23, Number(e.target.value))))} className="h-9 w-16 rounded-md border border-input bg-background px-2 text-center text-sm" />
+          <input type="number" min={0} max={23} value={hour} onChange={(e) => setHour(Math.max(0, Math.min(23, Number(e.target.value))))} className="h-9 w-16 rounded-control border border-input bg-background px-2 text-center text-sm" />
           <span>:</span>
-          <input type="number" min={0} max={59} value={minute} onChange={(e) => setMinute(Math.max(0, Math.min(59, Number(e.target.value))))} className="h-9 w-16 rounded-md border border-input bg-background px-2 text-center text-sm" />
+          <input type="number" min={0} max={59} value={minute} onChange={(e) => setMinute(Math.max(0, Math.min(59, Number(e.target.value))))} className="h-9 w-16 rounded-control border border-input bg-background px-2 text-center text-sm" />
           <label className="ml-2 flex items-center gap-1.5 text-xs text-muted-foreground">On <Switch checked={enabled} onCheckedChange={setEnabled} /></label>
         </div>
 
         <div>
           <p className="mb-1 text-xs text-muted-foreground">Repeat</p>
           <div className="flex gap-1">
-            {DAYS.map((d, i) => <button key={i} onClick={() => toggleDay(i)} className={`size-9 rounded-full text-xs font-medium ${repeat.includes(i) ? 'bg-brand text-white' : 'bg-background/60 text-muted-foreground'}`}>{d}</button>)}
+            {DAYS.map((d, i) => <Button key={i} size="icon" variant="ghost" onClick={() => toggleDay(i)} className={cn('text-xs font-medium', repeat.includes(i) ? 'bg-brand text-brand-foreground hover:bg-brand-hover hover:text-brand-foreground' : 'bg-background/60 text-muted-foreground')}>{d}</Button>)}
           </div>
         </div>
 
@@ -125,23 +124,27 @@ function AlarmEditor({ alarm, devices, alarmTones, onClose, onSaved }: { alarm: 
           <p className="mb-1 text-xs text-muted-foreground">Ring on devices {targets.length === 0 && <span>(all of the owner’s devices)</span>}</p>
           <div className="flex flex-wrap gap-1.5">
             {devices.length === 0 && <span className="text-sm text-muted-foreground">No devices</span>}
-            {devices.map((d) => <button key={d.id} onClick={() => toggleTarget(d.id)} className={`rounded-lg border px-2.5 py-1 text-xs ${targets.includes(d.id) ? 'border-brand bg-brand/10 text-foreground' : 'border-border/50 text-muted-foreground'}`}>{d.name}</button>)}
+            {devices.map((d) => <Button key={d.id} size="sm" variant="outline" onClick={() => toggleTarget(d.id)} className={cn('h-7 px-2.5 text-xs', targets.includes(d.id) ? 'border-brand bg-brand/10 text-foreground hover:bg-brand/15' : 'border-border/50 text-muted-foreground')}>{d.name}</Button>)}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <label className="flex-1 text-xs text-muted-foreground">Tone
-            <select value={toneId ?? ''} onChange={(e) => setToneId(e.target.value || null)} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+            <select value={toneId ?? ''} onChange={(e) => setToneId(e.target.value || null)} className="mt-1 h-9 w-full rounded-control border border-input bg-background px-2 text-sm">
               <option value="">Device default</option>
               {alarmTones.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
-          {toneId && <button onClick={() => new Audio(audioUrl(toneId)!).play().catch(() => {})} className="mt-5 flex size-9 items-center justify-center rounded-full bg-brand/15 text-brand"><Play className="size-4" /></button>}
+          {toneId && <Button size="icon" variant="tinted" aria-label="Preview tone" onClick={() => new Audio(audioUrl(toneId)!).play().catch(() => {})} className="mt-5"><Play className="size-4" /></Button>}
           <label className="w-28 text-xs text-muted-foreground">Snooze (min)
-            <input type="number" min={1} max={60} value={snooze} onChange={(e) => setSnooze(Math.max(1, Math.min(60, Number(e.target.value))))} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm" />
+            <input type="number" min={1} max={60} value={snooze} onChange={(e) => setSnooze(Math.max(1, Math.min(60, Number(e.target.value))))} className="mt-1 h-9 w-full rounded-control border border-input bg-background px-2 text-sm" />
           </label>
         </div>
-      </div>
-    </div>
+
+        <DialogFooter>
+          <Button size="sm" onClick={save} disabled={busy}>{busy ? <Spinner className="text-current" /> : <Save className="size-4" />} Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
