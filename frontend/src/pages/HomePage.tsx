@@ -38,7 +38,6 @@ import { useWeatherSnapshot } from "@/hooks/useWeatherSnapshot";
 import { useHomeLayout, resolveTickerConfig, type HomeRow, type HomeWidget, type TickerConfig, type TickerSource } from "@/hooks/useHomeLayout";
 import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTextClass, SNOW_TEXT, type HeroGradient } from "@/lib/weather";
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
-import { categoryVisual, compareCategories } from "@/lib/archiveCategories";
 import { APP_GROUPS } from "@/lib/appCategories";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
@@ -56,7 +55,6 @@ import { useYoutubePlayback } from "@/context/YoutubePlaybackContext";
 import type { BookmarkItem } from "@/lib/bookmarks/api";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
 import { useAppFeatures } from "@/hooks/useAppFeatures";
-import { useInstalledArchives } from "@/hooks/useInstalledArchives";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { WidgetErrorBoundary } from "@/components/shared/WidgetErrorBoundary";
 import {
@@ -2303,10 +2301,6 @@ function CategoryTile({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-interface CategorySummary {
-  category: string; count: number; totalBytes: number;
-}
-
 export function HomePage() {
   const now = new Date();
   const dateStr = `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}`;
@@ -2334,9 +2328,6 @@ export function HomePage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Archives + app features for categories — shared React Query caches (deduped
-  // with the sidebar; archives refetch on window focus once stale).
-  const { data: archives } = useInstalledArchives();
   const appFeatures = useAppFeatures();
 
   const toolsMap = useMemo(() => {
@@ -2345,51 +2336,26 @@ export function HomePage() {
     return m;
   }, [tools]);
 
-  const libCategories = useMemo<CategorySummary[]>(() => {
-    const byCat = new Map<string, CategorySummary>();
-    for (const a of archives ?? []) {
-      const cur = byCat.get(a.category) ?? { category: a.category, count: 0, totalBytes: 0 };
-      cur.count += 1; cur.totalBytes += a.fileSizeBytes ?? 0;
-      byCat.set(a.category, cur);
-    }
-    return [...byCat.values()].sort((x, y) => compareCategories(x.category, y.category));
-  }, [archives]);
-
+  // Home "Browse" tiles are the app groups. Offline books live in the Books app and
+  // references in the Reference app, so raw archive categories are no longer surfaced
+  // here as their own tiles.
   const categories = useMemo(() => {
-    const appGroupTiles = APP_GROUPS.flatMap(group => {
+    return APP_GROUPS.flatMap(group => {
       const visibleApps = group.apps.filter(
         a =>
           (!a.feature || appFeatures[a.feature] !== false) &&
           isAppVisible(a.toolId, enabledToolIds),
       );
-      const matchingLib = libCategories.find(lc => lc.category.toLowerCase() === group.key);
-      const total = visibleApps.length + (matchingLib?.count ?? 0);
-      if (total === 0) return [];
+      if (visibleApps.length === 0) return [];
       return [{
         key: group.key,
         name: group.name,
         gradient: group.gradient,
         icon: group.icon,
-        count: total,
+        count: visibleApps.length,
       }];
     });
-
-    const usedKeys = new Set(APP_GROUPS.map(g => g.key));
-    const libOnlyTiles = libCategories
-      .filter(lc => !usedKeys.has(lc.category.toLowerCase()))
-      .map(lc => {
-        const v = categoryVisual(lc.category);
-        return {
-          key: lc.category.toLowerCase(),
-          name: lc.category,
-          gradient: v.gradient,
-          icon: v.icon,
-          count: lc.count,
-        };
-      });
-
-    return [...appGroupTiles, ...libOnlyTiles];
-  }, [libCategories, appFeatures, enabledToolIds]);
+  }, [appFeatures, enabledToolIds]);
 
   usePublishUIContext({
     label: "Home",

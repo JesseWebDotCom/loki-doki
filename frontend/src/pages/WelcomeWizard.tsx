@@ -21,6 +21,7 @@ import { Spinner } from '@/components/ui/spinner'
 interface ZimVariant { key: string; label: string; approxBytes: number; description: string }
 interface ZimEntry {
   sourceId: string; label: string; description: string; category: string
+  bookCategory: string | null
   variants: ZimVariant[]; variantKey: string; installed: boolean; fileSizeBytes: number | null
 }
 interface ZimSelection { sourceId: string; variantKey: string; label: string; approxBytes: number }
@@ -31,6 +32,10 @@ const CATEGORY_VISUALS: Record<string, { icon: React.ComponentType<{ className?:
   'How-To':      { icon: Wrench,         chip: 'bg-warning/15 text-warning' },
   Development:   { icon: Code,           chip: 'bg-brand/15 text-brand' },
   Books:         { icon: BookOpen,       chip: 'bg-info/15 text-info' },
+  'Fiction & Classics':  { icon: BookOpen, chip: 'bg-info/15 text-info' },
+  'Classics & Texts':    { icon: BookOpen, chip: 'bg-info/15 text-info' },
+  Textbooks:             { icon: BookOpen, chip: 'bg-info/15 text-info' },
+  'Manuals & Survival':  { icon: Wrench,   chip: 'bg-warning/15 text-warning' },
   Medical:       { icon: Stethoscope,    chip: 'bg-destructive/15 text-destructive' },
   Science:       { icon: FlaskConical,   chip: 'bg-success/15 text-success' },
   Survival:      { icon: Tent,           chip: 'bg-success/15 text-success' },
@@ -141,8 +146,66 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
     })
   }
 
+  // Split the catalog into Books (has bookCategory) and Reference (everything else).
+  // Keys are namespaced ("b:Textbooks" / "r:Medical") so groups that share a name across
+  // both sides (Kids, Religion) don't collide in the single expandedCat state.
   const byCategory = new Map<string, ZimEntry[]>()
-  for (const e of catalog ?? []) { const c = e.category || 'Other'; (byCategory.get(c) ?? byCategory.set(c, []).get(c)!).push(e) }
+  const bookKeys: string[] = []
+  const refKeys: string[] = []
+  for (const e of catalog ?? []) {
+    const isBook = !!e.bookCategory
+    const label = (isBook ? e.bookCategory : e.category) || 'Other'
+    const key = `${isBook ? 'b' : 'r'}:${label}`
+    if (!byCategory.has(key)) { byCategory.set(key, []); (isBook ? bookKeys : refKeys).push(key) }
+    byCategory.get(key)!.push(e)
+  }
+  bookKeys.sort(); refKeys.sort()
+
+  function renderPackBucket(title: string, keys: string[]) {
+    if (!keys.length) return null
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+          {keys.map((key) => {
+            const entries = byCategory.get(key)!
+            const label  = key.slice(2)
+            const allIn  = entries.every(e => zimSelected.has(e.sourceId))
+            const someIn = entries.some(e => zimSelected.has(e.sourceId))
+            const open   = expandedCat === key
+            const catBytes = entries.reduce((s, e) => {
+              const v = e.variants.find(x => x.key === e.variantKey) ?? e.variants[0]
+              return s + (v?.approxBytes ?? 0)
+            }, 0)
+            const vis  = CATEGORY_VISUALS[label] ?? CATEGORY_VISUALS['_default']!
+            const Icon = vis.icon
+            return (
+              <div key={key} onClick={() => toggleCategory(entries)}
+                className={cn('cursor-pointer rounded-card border p-3 transition-colors',
+                  someIn ? 'border-brand/40 bg-brand/[0.06]' : 'border-border bg-card hover:border-border/70',
+                  open && 'ring-1 ring-brand/40')}>
+                <div className="flex items-start justify-between">
+                  <div className={cn('flex size-8 items-center justify-center rounded-control', vis.chip)}><Icon className="size-4" /></div>
+                  <span className={cn('flex size-5 items-center justify-center rounded-full border-2 transition-all',
+                    allIn || someIn ? 'border-brand bg-brand' : 'border-border')}>
+                    {allIn ? <CheckCircle2 className="size-3 text-brand-foreground" /> : someIn ? <span className="h-0.5 w-2.5 rounded-full bg-brand-foreground" /> : null}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm font-semibold leading-tight">{label}</p>
+                <p className="text-[11px] text-muted-foreground tabular-nums">
+                  {entries.length} {entries.length === 1 ? 'item' : 'items'} · ~{formatBytes(catBytes)}
+                </p>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setExpandedCat(open ? null : key) }}
+                  className="mt-1 text-[11px] font-medium text-brand hover:text-brand/80">
+                  {open ? 'Hide' : 'Customize'}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   const zimBytes = [...zimSelected].reduce((sum, [sourceId, vk]) => {
     const entry   = catalog?.find(e => e.sourceId === sourceId)
@@ -243,9 +306,9 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
             <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand mb-3">
               <Sparkles className="size-3.5" /> You're all set up
             </span>
-            <h2 className="text-title">Add your offline content</h2>
+            <h2 className="text-title">Add books & references for offline</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Your AI is ready right now. Pick anything below and it downloads in the background while you explore.
+              Your AI is ready right now. Pick any books and references to keep on hand - they download in the background while you explore.
             </p>
           </div>
 
@@ -254,8 +317,8 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
             <div className="flex items-center gap-2.5">
               <div className="flex size-7 items-center justify-center rounded-control bg-warning/15 text-warning"><Library className="size-4" /></div>
               <div>
-                <h3 className="text-sm font-bold tracking-tight">Offline library</h3>
-                <p className="text-xs text-muted-foreground">Wikipedia, repair guides, medical references and more - readable without internet.</p>
+                <h3 className="text-sm font-bold tracking-tight">Books & references</h3>
+                <p className="text-xs text-muted-foreground">Whole book collections plus Wikipedia, medical and repair references - readable without internet.</p>
               </div>
             </div>
 
@@ -271,46 +334,13 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
             )}
             {catalog && catalog.length > 0 && (
               <>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-                  {[...byCategory.entries()].map(([category, entries]) => {
-                    const allIn  = entries.every(e => zimSelected.has(e.sourceId))
-                    const someIn = entries.some(e => zimSelected.has(e.sourceId))
-                    const open   = expandedCat === category
-                    const catBytes = entries.reduce((s, e) => {
-                      const v = e.variants.find(x => x.key === e.variantKey) ?? e.variants[0]
-                      return s + (v?.approxBytes ?? 0)
-                    }, 0)
-                    const vis  = CATEGORY_VISUALS[category] ?? CATEGORY_VISUALS['_default']!
-                    const Icon = vis.icon
-                    return (
-                      <div key={category} onClick={() => toggleCategory(entries)}
-                        className={cn('cursor-pointer rounded-card border p-3 transition-colors',
-                          someIn ? 'border-brand/40 bg-brand/[0.06]' : 'border-border bg-card hover:border-border/70',
-                          open && 'ring-1 ring-brand/40')}>
-                        <div className="flex items-start justify-between">
-                          <div className={cn('flex size-8 items-center justify-center rounded-control', vis.chip)}><Icon className="size-4" /></div>
-                          <span className={cn('flex size-5 items-center justify-center rounded-full border-2 transition-all',
-                            allIn || someIn ? 'border-brand bg-brand' : 'border-border')}>
-                            {allIn ? <CheckCircle2 className="size-3 text-brand-foreground" /> : someIn ? <span className="h-0.5 w-2.5 rounded-full bg-brand-foreground" /> : null}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm font-semibold leading-tight">{category}</p>
-                        <p className="text-[11px] text-muted-foreground tabular-nums">
-                          {entries.length} {entries.length === 1 ? 'item' : 'items'} · ~{formatBytes(catBytes)}
-                        </p>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setExpandedCat(open ? null : category) }}
-                          className="mt-1 text-[11px] font-medium text-brand hover:text-brand/80">
-                          {open ? 'Hide' : 'Customize'}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
+                {renderPackBucket('Books', bookKeys)}
+                {renderPackBucket('Reference', refKeys)}
 
                 {expandedCat && byCategory.has(expandedCat) && (
                   <div className="rounded-card border border-border bg-card p-3 animate-in fade-in slide-in-from-top-1 duration-150">
                     <div className="mb-1 flex items-center justify-between px-1">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{expandedCat}</p>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{expandedCat.slice(2)}</p>
                       <Button type="button" variant="ghost" size="sm" onClick={() => setExpandedCat(null)} className="text-muted-foreground">Done</Button>
                     </div>
                     {byCategory.get(expandedCat)!.map(entry => {

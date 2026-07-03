@@ -11,6 +11,13 @@ export interface ZimSource {
   label: string
   description: string
   category: string
+  /**
+   * When set, this source is a *book* (a discrete book/textbook/manual you'd
+   * shelve), not reference material, and surfaces inside the Books app shelved
+   * under this label — rather than in the Reference app. Unset = reference
+   * (a living wiki / encyclopedia / Q&A / video / doc-site).
+   */
+  bookCategory?: string
   faviconUrl?: string
   kiwixDir: string
   variants: ZimVariant[]
@@ -986,6 +993,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'Project Gutenberg',
     description: '70,000+ free public domain ebooks',
     category: 'Books',
+    bookCategory: 'Fiction & Classics',
     faviconUrl: 'https://www.gutenberg.org/favicon.ico',
     kiwixDir: 'gutenberg',
     defaultVariant: 'en',
@@ -1004,6 +1012,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'Wikibooks',
     description: 'Open-content textbooks and how-to manuals',
     category: 'Books',
+    bookCategory: 'Textbooks',
     faviconUrl: 'https://en.wikibooks.org/favicon.ico',
     kiwixDir: 'wikibooks',
     defaultVariant: 'maxi',
@@ -1022,6 +1031,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'Wikisource',
     description: 'Public-domain books and primary-source texts',
     category: 'Books',
+    bookCategory: 'Classics & Texts',
     faviconUrl: 'https://en.wikisource.org/favicon.ico',
     kiwixDir: 'wikisource',
     defaultVariant: 'maxi',
@@ -1156,6 +1166,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'LibreTexts Medicine',
     description: 'Open college-level medical and health science textbooks',
     category: 'Medical',
+    bookCategory: 'Textbooks',
     faviconUrl: 'https://libretexts.org/favicon.ico',
     kiwixDir: 'libretexts',
     defaultVariant: 'en',
@@ -1210,6 +1221,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'Military Field Medicine',
     description: 'US military field medical guides — trauma care, triage, and combat medicine',
     category: 'Medical',
+    bookCategory: 'Manuals & Survival',
     faviconUrl: 'https://fas.org/favicon.ico',
     kiwixDir: 'zimit',
     defaultVariant: 'en',
@@ -1247,6 +1259,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'LibreTexts',
     description: 'Open college-level textbooks across math, science, and engineering',
     category: 'Science',
+    bookCategory: 'Textbooks',
     faviconUrl: 'https://libretexts.org/favicon.ico',
     kiwixDir: 'libretexts',
     defaultVariant: 'math',
@@ -1555,6 +1568,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'Survivor Library',
     description: 'Massive archive of pre-industrial skills, crafts, and self-sufficiency texts',
     category: 'Survival',
+    bookCategory: 'Manuals & Survival',
     faviconUrl: 'https://survivorlibrary.com/favicon.ico',
     kiwixDir: 'zimit',
     defaultVariant: 'en',
@@ -1659,6 +1673,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'CD3WD',
     description: 'Practical knowledge for developing communities — agriculture, water, construction, health',
     category: 'Survival',
+    bookCategory: 'Manuals & Survival',
     faviconUrl: 'https://cd3wdproject.org/favicon.ico',
     kiwixDir: 'zimit',
     defaultVariant: 'en',
@@ -1790,6 +1805,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'African Storybook',
     description: '8,000+ picture books in 30+ African languages — CC BY 4.0',
     category: 'Kids',
+    bookCategory: 'Kids',
     faviconUrl: 'https://www.africanstorybook.org/favicon.ico',
     kiwixDir: 'other',
     defaultVariant: 'mul',
@@ -1827,6 +1843,7 @@ export const ZIM_CATALOG: ZimSource[] = [
     label: 'Chabad Texts',
     description: 'Classical Hebrew religious texts from the Chabad library',
     category: 'Religion',
+    bookCategory: 'Religion',
     faviconUrl: 'https://www.chabad.org/favicon.ico',
     kiwixDir: 'other',
     defaultVariant: 'he',

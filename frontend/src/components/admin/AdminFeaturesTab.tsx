@@ -394,6 +394,7 @@ function CapInstallRow({ cap, installed, blocked, installState, onInstall, onCan
 interface ZimVariant { key: string; label: string; approxBytes: number; description: string }
 interface ZimEntry {
   sourceId: string; label: string; description: string; category: string
+  bookCategory: string | null
   faviconUrl: string | null; variants: ZimVariant[]; defaultVariant: string
   variantKey: string; installed: boolean; fileSizeBytes: number | null
 }
@@ -403,8 +404,11 @@ interface ZimDlState {
   statusMsg: string; error: string | null
 }
 
+// Book packs (grouped by their shelf category) list first, then reference packs
+// (grouped by topic). Book entries are keyed by bookCategory, everything else by category.
 const ZIM_CATEGORY_ORDER = [
-  'Reference', 'Education', 'How-To', 'Development', 'Books',
+  'Fiction & Classics', 'Classics & Texts', 'Textbooks', 'Manuals & Survival',
+  'Reference', 'Education', 'How-To', 'Development',
   'Medical', 'Science', 'Survival', 'Entertainment', 'Kids', 'Religion',
 ]
 
@@ -493,13 +497,13 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
   }
 
   const displayCatalog = query
-    ? catalog.filter(e => qMatch(e.label, query) || qMatch(e.description, query) || qMatch(e.category, query))
+    ? catalog.filter(e => qMatch(e.label, query) || qMatch(e.description, query) || qMatch(e.category, query) || qMatch(e.bookCategory ?? '', query))
     : catalog
 
   const categorized = useMemo(() => {
     const groups = new Map<string, ZimEntry[]>()
     for (const entry of displayCatalog) {
-      const cat = entry.category || 'Other'
+      const cat = entry.bookCategory || entry.category || 'Other'
       if (!groups.has(cat)) groups.set(cat, [])
       groups.get(cat)!.push(entry)
     }
@@ -512,7 +516,7 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
   return (
     <div className={cn('space-y-3', !kiwixInstalled && 'opacity-40 pointer-events-none')}>
       <div className="flex items-center justify-between">
-        <span className="text-overline text-muted-foreground/50">Content Packs</span>
+        <span className="text-overline text-muted-foreground/50">Books & References</span>
         {notInstalled.length > 0 && kiwixInstalled && (
           <Button type="button" variant="ghost" size="sm" onClick={() => handleDownloadAll(notInstalled)}
             className="gap-1 px-2 text-muted-foreground">

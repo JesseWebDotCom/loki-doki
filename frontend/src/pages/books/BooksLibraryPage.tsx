@@ -1,12 +1,14 @@
 import { useCallback, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Archive, BookAudio, BookOpen, Compass, Download, Headphones, Sparkles, Upload } from 'lucide-react'
+import { Archive, BookAudio, BookOpen, Compass, Download, Headphones, Plus, Sparkles, Upload } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { OfflineSelectionToolbar } from '@/components/shared/OfflineSelectionToolbar'
+import { AddOfflinePacksDialog } from '@/components/shared/AddOfflinePacksDialog'
+import { useAuth } from '@/context/AuthContext'
 import { Spinner } from '@/components/ui/spinner'
 import { BookCard } from '@/components/books/BookCard'
 import { BookCover } from '@/components/books/BookCover'
@@ -61,14 +63,15 @@ function Row({ title, books }: { title: string; books: BookListItem[] }) {
   )
 }
 
-// Every installed ZIM pack, of any category, front and center in Books instead of
-// hidden behind a separate "Offline Archives" click: a medical/repair/survival/dev
-// reference library is just as much an offline book as a novel is, and the original
-// complaint was that offline content existed but nothing on the main page showed it.
-// One shelf per category (Books first, then alphabetical) instead of one giant list.
-const CATEGORY_PRIORITY = ['Books']
+// Installed book packs (Gutenberg, Wikisource, textbooks, manuals…) shelved right in
+// the library, one shelf per book category. Reference packs (Wikipedia, medical wikis,
+// dev docs) are NOT books - they live in the Reference app, so they're filtered out here
+// by `bookCategory` (only book collections carry it).
+function bookPacks(archives: InstalledArchive[]): InstalledArchive[] {
+  return archives.filter((a) => a.bookCategory != null)
+}
 
-function OfflineLibraryShelf({ title, archives }: { title: string; archives: InstalledArchive[] }) {
+function BookPackShelf({ title, archives }: { title: string; archives: InstalledArchive[] }) {
   return (
     <BookShelf title={title}>
       {archives.map((a) => (
@@ -79,7 +82,7 @@ function OfflineLibraryShelf({ title, archives }: { title: string; archives: Ins
             </div>
             <div className="mt-2">
               <p className="truncate text-sm font-semibold">{a.label}</p>
-              <p className="truncate text-xs text-muted-foreground">Offline library</p>
+              <p className="truncate text-xs text-muted-foreground">Book collection</p>
             </div>
           </Link>
         </ShelfSlot>
@@ -88,26 +91,24 @@ function OfflineLibraryShelf({ title, archives }: { title: string; archives: Ins
   )
 }
 
-function OfflineLibrariesShelves() {
+function BookPackShelves() {
   const { data: archives = [], isLoading } = useInstalledArchives()
-  if (isLoading) return <BookShelf title="Offline Libraries" loading>{null}</BookShelf>
-  if (!archives.length) return null
+  const packs = bookPacks(archives)
+  if (isLoading) return <BookShelf title="Book collections" loading>{null}</BookShelf>
+  if (!packs.length) return null
 
   const byCategory = new Map<string, InstalledArchive[]>()
-  for (const a of archives) {
-    if (!byCategory.has(a.category)) byCategory.set(a.category, [])
-    byCategory.get(a.category)!.push(a)
+  for (const a of packs) {
+    const cat = a.bookCategory ?? 'Books'
+    if (!byCategory.has(cat)) byCategory.set(cat, [])
+    byCategory.get(cat)!.push(a)
   }
-  const categories = [...byCategory.keys()].sort((a, b) => {
-    const pa = CATEGORY_PRIORITY.indexOf(a), pb = CATEGORY_PRIORITY.indexOf(b)
-    if (pa !== -1 || pb !== -1) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb)
-    return a.localeCompare(b)
-  })
+  const categories = [...byCategory.keys()].sort((a, b) => a.localeCompare(b))
 
   return (
     <>
       {categories.map((cat) => (
-        <OfflineLibraryShelf key={cat} title={cat === 'Books' ? 'Offline Libraries' : `Offline: ${cat}`} archives={byCategory.get(cat)!} />
+        <BookPackShelf key={cat} title={cat} archives={byCategory.get(cat)!} />
       ))}
     </>
   )
@@ -116,6 +117,9 @@ function OfflineLibrariesShelves() {
 export function BooksLibraryPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const [addOpen, setAddOpen] = useState(false)
   const [params] = useSearchParams()
   const offlineOnly = params.get('filter') === 'offline'
   const { data: allBooks = [], isLoading } = useQuery({
@@ -124,7 +128,7 @@ export function BooksLibraryPage() {
     refetchInterval: (query) => (query.state.data ?? []).some((b) => b.libraryStatus === 'pending' || b.libraryStatus === 'downloading') ? 3000 : false,
   })
   const { data: archives = [], isLoading: archivesLoading } = useInstalledArchives()
-  const hasOfflineLibraries = archives.length > 0
+  const hasBookPacks = bookPacks(archives).length > 0
   const books = offlineOnly ? allBooks.filter(isOfflineAvailable) : allBooks
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -150,7 +154,7 @@ export function BooksLibraryPage() {
     return <div className="flex h-full items-center justify-center py-24"><Spinner size="lg" /></div>
   }
 
-  if (!books.length && !hasOfflineLibraries) {
+  if (!books.length && !hasBookPacks) {
     return (
       <div className="h-full overflow-y-auto">
         <PageContainer width="wide" className="py-6 pb-24">
@@ -168,7 +172,7 @@ export function BooksLibraryPage() {
             <EmptyAppState
               icon={BookAudio}
               title="Your library is empty"
-              tagline="Upload your own EPUBs, find public-domain classics, or read offline ZIM book packs, all in one place."
+              tagline="Upload your own EPUBs, find public-domain classics, or read whole offline book collections, all in one place."
               gradient={BOOKS_GRADIENT}
               actions={(
                 <>
@@ -180,7 +184,7 @@ export function BooksLibraryPage() {
                 { icon: Upload, title: 'Upload your own', desc: 'EPUB, PDF, CBZ, CBR, and audiobook files (MP3/M4A/M4B).' },
                 { icon: Compass, title: 'Discover public domain', desc: 'Search Project Gutenberg and the Internet Archive directly.' },
                 { icon: Sparkles, title: 'Convert to audiobook', desc: 'AI narration with a distinct voice per character.' },
-                { icon: Archive, title: 'Offline libraries', desc: 'Read bulk book packs like Gutenberg and Wikisource fully offline.' },
+                { icon: Archive, title: 'Offline collections', desc: 'Read whole libraries like Gutenberg and Wikisource fully offline.' },
               ]}
             />
           )}
@@ -198,13 +202,21 @@ export function BooksLibraryPage() {
       <PageContainer width="wide" className="space-y-9 py-6 pb-24">
         <PageHeader
           title={offlineOnly ? 'Offline' : undefined}
-          subtitle={offlineOnly ? 'Books and audiobooks with a local copy, usable with no connection.' : 'Your EPUBs, audiobooks, and offline libraries in one place.'}
+          subtitle={offlineOnly ? 'Books and audiobooks with a local copy, usable with no connection.' : 'Your EPUBs, audiobooks, and offline book collections in one place.'}
           className="pt-0 pb-0"
+          actions={isAdmin && !offlineOnly ? (
+            <button
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-accent/50"
+            >
+              <Plus className="size-4" /> Add offline books
+            </button>
+          ) : undefined}
         />
 
         {!offlineOnly && <Row title="Continue Reading" books={reading} />}
         {!offlineOnly && <Row title="Continue Listening" books={listening} />}
-        <OfflineLibrariesShelves />
+        {!offlineOnly && <BookPackShelves />}
 
         {books.length > 0 && (
           <section>
@@ -255,6 +267,7 @@ export function BooksLibraryPage() {
           </section>
         )}
       </PageContainer>
+      {isAdmin && <AddOfflinePacksDialog open={addOpen} onOpenChange={setAddOpen} mode="books" accentClassName="bg-[var(--books-accent)] text-[var(--books-accent-contrast)] hover:bg-[var(--books-accent-hover)]" />}
     </div>
   )
 }

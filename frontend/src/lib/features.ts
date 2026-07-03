@@ -247,19 +247,19 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   },
   {
     id: 'library',
-    name: 'Offline Library',
-    description: 'Browse Wikipedia and more without internet',
+    name: 'Books & Reference',
+    description: 'Read books and browse references offline',
     base: {
       id: 'offline-library',
-      name: 'Offline Library',
-      description: 'Browse Wikipedia, iFixit, Khan Academy and more without internet.',
+      name: 'Books & Reference',
+      description: 'Offline reader powering downloadable books and references (Wikipedia, medical, repair guides and more).',
       diskBytes: 15_000_000,
       ramBytes:  200_000_000,
       requires: [],
       installs: [{ id: 'kiwix-tools', type: 'component' }],
       advanced: 'kiwix-serve · libzim reader',
     },
-    // ZIM archive items appended dynamically in AdminFeaturesTab
+    // Downloadable book/reference packs appended dynamically in AdminFeaturesTab
   },
   {
     id: 'maps',

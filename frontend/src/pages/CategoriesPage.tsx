@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight, Plus, type LucideIcon } from "lucide-react";
+import { ChevronRight, type LucideIcon } from "lucide-react";
 import { usePublishUIContext } from "@/context/UIContextProvider";
-import { categoryVisual, compareCategories, formatBytes } from "@/lib/archiveCategories";
 import { APP_GROUPS } from "@/lib/appCategories";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -47,36 +46,9 @@ function GradientCard({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-interface InstalledArchive {
-  id: string;
-  sourceId: string;
-  category: string;
-  fileSizeBytes: number | null;
-}
-
-interface CategorySummary {
-  category: string;
-  count: number;
-  totalBytes: number;
-}
-
 export function CategoriesPage() {
-  const [archives, setArchives] = useState<InstalledArchive[]>([]);
   const [appFeatures, setAppFeatures] = useState<Record<string, boolean>>({});
   const { enabledToolIds } = useInstalledTools();
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetch("/api/archives/installed", { credentials: "include" })
-        .then((r) => r.json())
-        .then((d) => { if (!cancelled) setArchives(d.archives ?? []); })
-        .catch(() => {});
-    };
-    load();
-    window.addEventListener("focus", load);
-    return () => { cancelled = true; window.removeEventListener("focus", load); };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,91 +72,39 @@ export function CategoriesPage() {
     [appFeatures, enabledToolIds],
   );
 
-  const categories = useMemo<CategorySummary[]>(() => {
-    const byCat = new Map<string, CategorySummary>();
-    for (const a of archives) {
-      const cur = byCat.get(a.category) ?? { category: a.category, count: 0, totalBytes: 0 };
-      cur.count += 1;
-      cur.totalBytes += a.fileSizeBytes ?? 0;
-      byCat.set(a.category, cur);
-    }
-    return [...byCat.values()].sort((x, y) => compareCategories(x.category, y.category));
-  }, [archives]);
-
   const totalApps = appGroups.reduce((s, g) => s + g.visibleCount, 0);
 
   usePublishUIContext({
     label: "Categories",
-    description: `User is browsing all apps and library categories (${totalApps} apps, ${categories.length} library categories).`,
+    description: `User is browsing all apps (${totalApps} apps).`,
   });
 
   return (
     <div className="min-h-full bg-background">
       <PageContainer className="pb-10">
-      <PageHeader
-        eyebrow="Browse"
-        title="Categories"
-        subtitle="Apps and your offline library, all in one place."
-      />
+        <PageHeader
+          eyebrow="Browse"
+          title="Categories"
+          subtitle="Every app, organized."
+        />
 
-      {/* App categories */}
-      <div className="pt-2">
-        <div className="mb-3">
-          <SectionHeader title="Apps" count={totalApps} />
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {appGroups.map((g) => (
-            <GradientCard
-              key={g.key}
-              to={`/category/${g.key}`}
-              gradient={g.gradient}
-              icon={g.icon}
-              label={g.name}
-              meta={`${g.visibleCount} ${g.visibleCount === 1 ? "app" : "apps"}`}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Offline library */}
-      <div className="mt-8">
-        <div className="mb-3">
-          <SectionHeader title="Offline Library" />
-        </div>
-        {categories.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {categories.map((c) => {
-              const v = categoryVisual(c.category);
-              return (
-                <GradientCard
-                  key={c.category}
-                  to={`/category/${encodeURIComponent(c.category)}`}
-                  gradient={v.gradient}
-                  icon={v.icon}
-                  label={c.category}
-                  meta={`${c.count} ${c.count === 1 ? "library" : "libraries"}${formatBytes(c.totalBytes) ? ` · ${formatBytes(c.totalBytes)}` : ""}`}
-                />
-              );
-            })}
+        <div className="pt-2">
+          <div className="mb-3">
+            <SectionHeader title="Apps" count={totalApps} />
           </div>
-        ) : (
-          <Link
-            to="/admin/features"
-            className="group flex items-center gap-4 rounded-card border-2 border-dashed border-border/50 bg-card/40 px-5 py-5 transition-colors hover:border-brand/40 hover:bg-card"
-          >
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-card bg-brand/10 text-brand">
-              <Plus className="size-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">Build your offline library</p>
-              <p className="text-sm text-muted-foreground">
-                Add Wikipedia, iFixit, medical & survival guides from Admin → Features.
-              </p>
-            </div>
-            <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-          </Link>
-        )}
-      </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {appGroups.map((g) => (
+              <GradientCard
+                key={g.key}
+                to={`/category/${g.key}`}
+                gradient={g.gradient}
+                icon={g.icon}
+                label={g.name}
+                meta={`${g.visibleCount} ${g.visibleCount === 1 ? "app" : "apps"}`}
+              />
+            ))}
+          </div>
+        </div>
       </PageContainer>
     </div>
   );

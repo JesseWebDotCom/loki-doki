@@ -1,6 +1,6 @@
 import {
-  ArrowLeftRight, BookAudio, BookOpen, Brain, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
-  Code2, FileType, Gamepad2, Gauge, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
+  ArrowLeftRight, BookAudio, BookMarked, BookOpen, Brain, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
+  Code2, FileType, Gamepad2, Gauge, Gift, Home, Image as ImageIcon, Library, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
   Search, Settings2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
@@ -158,8 +158,7 @@ export const APP_GROUPS: AppGroup[] = [
     apps: [
       { id: "docs-user",   to: "/docs/user",   label: "User Guide",          description: "How to use Loki Doki",         gradient: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "#818cf8", icon: BookOpen },
       { id: "docs-dev",    to: "/docs/dev",    label: "Dev Docs",            description: "Architecture & internals",     gradient: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "#3b82f6", icon: Code2 },
-      { id: "dictionary",  to: "/dictionary",  label: "Dictionary",          description: "Word definitions and phonetics", gradient: "linear-gradient(135deg,#1e3a5f,#1d4ed8)", color: "#1d4ed8", icon: BookOpen,   toolId: "dictionary" },
-      { id: "medical",     to: "/medical",     label: "Medical Reference",   description: "Look up conditions and medications", gradient: "linear-gradient(135deg,#164e63,#0891b2)", color: "#0891b2", icon: HeartPulse, toolId: "medical" },
+      { id: "reference",   to: "/reference",   label: "Reference",           description: "Wikipedia, dictionary, medical & more", gradient: "linear-gradient(135deg,#1e1b4b,#1e3a8a)", color: "#6366f1", icon: BookMarked, feature: "reference" },
     ],
   },
   {

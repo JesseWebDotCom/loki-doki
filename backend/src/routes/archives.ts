@@ -37,6 +37,7 @@ archives.get('/installed', async (c) => {
       label:          source?.label          ?? row.sourceId,
       description:    source?.description    ?? null,
       category:       source?.category       ?? 'Other',
+      bookCategory:   source?.bookCategory   ?? null,
       faviconUrl:     source?.faviconUrl     ?? null,
       zimIconUrl:     row.kiwixBookName ? `/api/archives/favicon/${row.sourceId}` : null,
       variantLabel:   variant?.label         ?? row.variantKey,

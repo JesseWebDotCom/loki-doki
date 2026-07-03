@@ -11,6 +11,8 @@ export interface InstalledArchive {
   label: string;
   description: string | null;
   category: string;
+  /** Set when the archive is a book collection (surfaces in Books); null = reference. */
+  bookCategory: string | null;
   zimIconUrl: string | null;
   fileSizeBytes: number | null;
 }

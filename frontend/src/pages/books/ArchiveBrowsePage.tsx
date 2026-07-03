@@ -56,7 +56,7 @@ export function ArchiveBrowsePage() {
           <ArrowLeft className="mr-1.5 size-4" />My Library
         </Button>
 
-        <PageHeader title={archive?.label ?? 'Browse'} eyebrow="Books" subtitle={archive?.description ?? 'Browse titles in this offline library.'} />
+        <PageHeader title={archive?.label ?? 'Browse'} eyebrow="Books" subtitle={archive?.description ?? 'Browse titles in this collection.'} />
 
         {unsupported ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">

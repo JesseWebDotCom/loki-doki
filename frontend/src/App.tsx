@@ -90,6 +90,7 @@ import { MovieDetailPage } from '@/pages/movies/MovieDetailPage'
 import { MoviesSettingsPage } from '@/pages/movies/MoviesSettingsPage'
 import { WhereToWatchPage } from '@/pages/WhereToWatchPage'
 import { MedicalPage } from '@/pages/MedicalPage'
+import { ReferencePage } from '@/pages/reference/ReferencePage'
 import { SportsPage } from '@/pages/SportsPage'
 import { HolidaysPage } from '@/pages/HolidaysPage'
 import { MoonPhasePage } from '@/pages/MoonPhasePage'
@@ -409,7 +410,8 @@ export default function App() {
                 <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/canvas" element={<CanvasPage />} />
                 <Route path="/time" element={<TimePage />} />
-                <Route path="/dictionary" element={<DictionaryPage />} />
+                {/* Dictionary + Medical are now sections of the Reference app. */}
+                <Route path="/dictionary" element={<Navigate to="/reference/dictionary" replace />} />
                 <Route path="/shows" element={<ShowsHomePage />} />
                 <Route path="/shows/:id" element={<ShowsDetailPage />} />
                 {/* Renamed from "TV Shows" — keep old links working. */}
@@ -418,7 +420,10 @@ export default function App() {
                 <Route path="/movies/settings" element={<MoviesSettingsPage />} />
                 <Route path="/movies/:ref" element={<MovieDetailPage />} />
                 <Route path="/where-to-watch" element={<WhereToWatchPage />} />
-                <Route path="/medical" element={<MedicalPage />} />
+                <Route path="/medical" element={<Navigate to="/reference/medical" replace />} />
+                <Route path="/reference" element={<ReferencePage />} />
+                <Route path="/reference/medical" element={<MedicalPage />} />
+                <Route path="/reference/dictionary" element={<DictionaryPage />} />
                 <Route path="/sports" element={<SportsPage />} />
                 <Route path="/holidays" element={<HolidaysPage />} />
                 <Route path="/home-assistant" element={<HomeAssistantPage />} />
