@@ -1,5 +1,5 @@
 export interface BookSearchResult {
-  source: 'gutenberg' | 'archiveorg' | 'indexer'
+  source: 'gutenberg' | 'archiveorg' | 'standardebooks' | 'indexer'
   sourceRef: string
   title: string
   author: string | null

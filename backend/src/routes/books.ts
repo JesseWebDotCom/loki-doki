@@ -17,6 +17,7 @@ import { addAndDownloadBook, enqueueBookDownload } from '@/lib/books/offline'
 import { enqueueBookTtsRender } from '@/lib/books/tts'
 import { searchLibrivox, browseLibrivoxByCategory, browseAllLibrivoxCategories, browseLibrivoxByCategoryFull, LIBRIVOX_CATEGORIES } from '@/lib/books/librivox'
 import { browseGutenbergByTopic, browseAllGutenbergCategories, browseGutenbergByTopicFull } from '@/lib/books/gutenberg'
+import { getStandardEbooksNewReleases } from '@/lib/books/standardEbooks'
 import { getBuiltinSourceToggles, setBuiltinSourceToggle, type BuiltinSource } from '@/lib/books/sourceToggles'
 import { listIndexers } from '@/lib/books/indexer'
 import { safeFetch } from '@/lib/ssrfGuard'
@@ -92,6 +93,13 @@ books.get('/categories/:topic/full', async (c) => {
 books.get('/categories/:topic', async (c) => {
   if (!(await getBuiltinSourceToggles()).gutenberg) return c.json({ results: [] })
   return c.json({ results: await browseGutenbergByTopic(c.req.param('topic')) })
+})
+
+// Standard Ebooks: browse-only (their full catalog feed now requires an account/API
+// key), so just the public "New Releases" feed — no /search or /categories route.
+books.get('/standardebooks/new-releases', async (c) => {
+  if (!(await getBuiltinSourceToggles()).standardebooks) return c.json({ results: [] })
+  return c.json({ results: await getStandardEbooksNewReleases() })
 })
 
 // LibriVox audiobooks, via Internet Archive's librivoxaudio collection (see

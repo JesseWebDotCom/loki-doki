@@ -20,21 +20,24 @@
 import { stripHtml } from '@/lib/htmlText'
 import type { BookSearchResult } from './types'
 
-function findTags(xml: string, tag: string): string[] {
+// Exported for other hand-rolled Atom/OPDS-shaped parsers (e.g. standardEbooks.ts's
+// new-releases feed, which uses rel="enclosure" links instead of this module's
+// rel="...acquisition" convention) so the regex/tag-walk logic isn't duplicated.
+export function findTags(xml: string, tag: string): string[] {
   const re = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>|<${tag}\\b[^>]*/>`, 'gi')
   return xml.match(re) ?? []
 }
 
-function attr(tag: string, name: string): string | null {
+export function attr(tag: string, name: string): string | null {
   return tag.match(new RegExp(`${name}\\s*=\\s*"([^"]*)"`, 'i'))?.[1] ?? null
 }
 
-function textOf(block: string, tag: string): string | null {
+export function textOf(block: string, tag: string): string | null {
   const m = block.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
   return m ? stripHtml(m[1]!).trim() || null : null
 }
 
-function resolveUrl(href: string, baseUrl: string): string {
+export function resolveUrl(href: string, baseUrl: string): string {
   try { return new URL(href, baseUrl).toString() } catch { return href }
 }
 

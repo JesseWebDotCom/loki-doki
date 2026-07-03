@@ -257,14 +257,23 @@ export async function browseLibrivoxCategoryFull(subject: string): Promise<Libri
 
 // ── Sources: on/off for built-ins (any user), custom OPDS indexers (admin CRUD) ──
 
-export type BuiltinSource = 'gutenberg' | 'archiveorg' | 'librivox'
-export interface BuiltinSourceToggles { gutenberg: boolean; archiveorg: boolean; librivox: boolean }
+export type BuiltinSource = 'gutenberg' | 'archiveorg' | 'librivox' | 'standardebooks'
+export interface BuiltinSourceToggles { gutenberg: boolean; archiveorg: boolean; librivox: boolean; standardebooks: boolean }
 export interface BookIndexer { id: string; label: string; baseUrl: string; username: string | null; hasPassword: boolean; enabled: boolean }
 
 export async function getBookSources(): Promise<{ toggles: BuiltinSourceToggles; indexers: BookIndexer[] }> {
   const r = await fetch('/api/books/sources', { credentials: 'include' })
-  if (!r.ok) return { toggles: { gutenberg: true, archiveorg: true, librivox: true }, indexers: [] }
+  if (!r.ok) return { toggles: { gutenberg: true, archiveorg: true, librivox: true, standardebooks: true }, indexers: [] }
   return r.json()
+}
+
+/** Standard Ebooks' latest ~15 releases. Browse-only (no keyword search) — see
+ *  backend/src/lib/books/standardEbooks.ts for why. */
+export async function getStandardEbooksNewReleases(): Promise<BookSearchResult[]> {
+  const r = await fetch('/api/books/standardebooks/new-releases', { credentials: 'include' })
+  if (!r.ok) return []
+  const d = (await r.json()) as { results?: BookSearchResult[] }
+  return d.results ?? []
 }
 
 export async function setBookSourceToggle(source: BuiltinSource, enabled: boolean): Promise<void> {

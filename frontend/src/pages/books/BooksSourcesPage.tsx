@@ -5,7 +5,7 @@
 // also reachable at Admin > Integrations > Books).
 
 import { useCallback, useEffect, useState } from 'react'
-import { BookAudio, Globe, Mic2 } from 'lucide-react'
+import { BookAudio, Globe, Mic2, Sparkles } from 'lucide-react'
 import { AppSettingsPage } from '@/components/shared/AppSettingsPage'
 import { IndexerManager } from '@/components/books/IndexerManager'
 import { Spinner } from '@/components/ui/spinner'
@@ -18,6 +18,7 @@ const BUILTINS: { key: BuiltinSource; label: string; desc: string; icon: typeof 
   { key: 'gutenberg', label: 'Project Gutenberg', desc: 'Public-domain ebooks with real descriptions and genre shelves.', icon: BookAudio },
   { key: 'archiveorg', label: 'Internet Archive', desc: 'Public-domain scanned books.', icon: Globe },
   { key: 'librivox', label: 'LibriVox', desc: 'Public-domain audiobooks read by volunteers.', icon: Mic2 },
+  { key: 'standardebooks', label: 'Standard Ebooks', desc: 'Latest 15 newly-published public-domain titles, beautifully formatted. Browse-only, not searchable.', icon: Sparkles },
 ]
 
 function ToggleRow({ item, enabled, onChange }: { item: typeof BUILTINS[number]; enabled: boolean; onChange: (v: boolean) => void }) {

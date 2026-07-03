@@ -12,17 +12,19 @@ import { db } from '@/db'
 import { toolGlobalConfig } from '@/db/schema'
 
 const TOOL_ID = 'books'
-export type BuiltinSource = 'gutenberg' | 'archiveorg' | 'librivox'
+export type BuiltinSource = 'gutenberg' | 'archiveorg' | 'librivox' | 'standardebooks'
 const KEYS: Record<BuiltinSource, string> = {
   gutenberg: 'gutenberg_enabled',
   archiveorg: 'archiveorg_enabled',
   librivox: 'librivox_enabled',
+  standardebooks: 'standardebooks_enabled',
 }
 
 export interface BuiltinSourceToggles {
   gutenberg: boolean
   archiveorg: boolean
   librivox: boolean
+  standardebooks: boolean
 }
 
 export async function getBuiltinSourceToggles(): Promise<BuiltinSourceToggles> {
@@ -33,7 +35,10 @@ export async function getBuiltinSourceToggles(): Promise<BuiltinSourceToggles> {
     if (raw === undefined) return true // unset = enabled by default
     try { return JSON.parse(raw) !== false } catch { return true }
   }
-  return { gutenberg: read(KEYS.gutenberg), archiveorg: read(KEYS.archiveorg), librivox: read(KEYS.librivox) }
+  return {
+    gutenberg: read(KEYS.gutenberg), archiveorg: read(KEYS.archiveorg),
+    librivox: read(KEYS.librivox), standardebooks: read(KEYS.standardebooks),
+  }
 }
 
 export async function isSourceEnabled(source: BuiltinSource): Promise<boolean> {

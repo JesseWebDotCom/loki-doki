@@ -3,7 +3,7 @@ import { Writable } from 'node:stream'
 import { mkdirSync, statSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-// Duplicated from download.ts's `dataDir` (not imported from there) — download.ts
+// Duplicated from download.ts's `dataDir` (not imported from there): download.ts
 // imports this module, so importing back would be a circular dependency, and since
 // this module eagerly builds its logger at load time (see makeLogger() call below),
 // whichever of the two modules loaded first would crash with a TDZ ReferenceError.

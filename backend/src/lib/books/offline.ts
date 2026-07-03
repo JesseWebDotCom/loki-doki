@@ -30,6 +30,9 @@ async function resolveDownloadUrl(sourceType: string, sourceRef: string): Promis
   if (sourceType === 'gutenberg') return resolveGutenbergDownload(sourceRef)
   if (sourceType === 'archiveorg') return resolveArchiveOrgDownload(sourceRef)
   if (sourceType === 'indexer') return resolveIndexerDownload(sourceRef)
+  // Standard Ebooks: sourceRef IS the direct .epub URL (captured at browse time),
+  // no per-book lookup needed like Gutenberg/Archive.org's numeric-id schemes.
+  if (sourceType === 'standardebooks') return { url: sourceRef, format: 'epub' }
   throw new Error(`Unknown source type: ${sourceType}`)
 }
 
