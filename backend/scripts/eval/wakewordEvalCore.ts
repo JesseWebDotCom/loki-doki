@@ -116,14 +116,29 @@ async function synthClip(base: string, text: string, voice: string, speed: numbe
     const { pcm, sr } = decodeWav(readFileSync(dest))
     return resampleTo16k(pcm, sr)
   }
-  const res = await fetch(`${base}/synthesize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice, speed }),
-    signal: AbortSignal.timeout(30000),
-  })
-  if (!res.ok) throw new Error(`synthesize failed ${res.status} for "${text}"`)
-  const raw = Buffer.from(await res.arrayBuffer())
+  // Retry with backoff — the Kokoro sidecar transiently drops connections on
+  // restart (concurrent dev hot-reload), and eval scoring runs inside the
+  // multi-hour fleet retrain; a single blip must not fail a whole companion's
+  // eval. Mirrors the trainer's synthesize() retry.
+  let raw: Buffer | undefined
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const res = await fetch(`${base}/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice, speed }),
+        signal: AbortSignal.timeout(30000),
+      })
+      if (!res.ok) throw new Error(`synthesize failed ${res.status} for "${text}"`)
+      raw = Buffer.from(await res.arrayBuffer())
+      break
+    } catch (err) {
+      lastErr = err
+      if (attempt < 5) await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)))
+    }
+  }
+  if (!raw) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
   const { pcm, sr } = decodeWav(raw)
   const pcm16 = resampleTo16k(pcm, sr)
   writeFileSync(dest, pcm16Write(pcm16))
