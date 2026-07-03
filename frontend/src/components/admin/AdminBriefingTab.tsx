@@ -28,7 +28,7 @@ interface CachedSnapshot {
 const SOURCE_LABELS: Record<SourceId, string> = {
   weather: 'Weather',
   worldNews: 'World news',
-  localNews: 'Local news (Patch)',
+  localNews: 'Local news (Patch + Daily Voice)',
   localEvents: 'Local events (Patch)',
   sports: 'Sports scores',
   onThisDay: 'On this day + birthdays',
@@ -150,7 +150,8 @@ export function AdminBriefingTab() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Local sources use Patch ({s.patchSlug || 'auto-derived from location'}) with a web-search fallback.
+            Local news blends Patch ({s.patchSlug || 'auto-derived from location'}), Daily Voice's RSS feed
+            (CT/NY/NJ/PA/MA towns only), and Bing News RSS, falling back to web search if all come up empty.
             Sports uses ESPN's public scoreboard.
           </p>
         </div>

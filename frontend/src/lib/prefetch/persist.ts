@@ -25,7 +25,7 @@ const PERSIST_KEY_ROOTS = new Set<string>([
 
 // Bump CACHE_VERSION whenever a persisted query's response SHAPE changes, so old payloads
 // are discarded on next load instead of rehydrated into a renderer that expects the new shape.
-const CACHE_VERSION = 'v1'
+const CACHE_VERSION = 'v7' // v7: og:image enrichment falls back to the page's largest <img> when no og:image/twitter:image meta exists at all
 
 const persister = createAsyncStoragePersister({
   key: IDB_KEY,

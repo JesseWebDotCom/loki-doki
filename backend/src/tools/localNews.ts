@@ -1,5 +1,5 @@
 import type { Tool, ToolResult } from './index'
-import { patchLocal } from '@/lib/briefing/sources/patch'
+import { blendedLocalNews } from '@/lib/briefing/localNews'
 import { resolvePatchSlug } from '@/lib/briefing/resolveSlug'
 import { googleNewsSearch } from '@/lib/briefing/sources/rss'
 
@@ -29,8 +29,10 @@ export const localNewsTool: Tool = {
   passMessage: 'query',
   configSchema: [PATCH_SLUG_FIELD, DEFAULT_LOCATION_FIELD],
   dataSources: [
-    { name: 'Google News', domain: 'news.google.com', purpose: 'Local headline search', type: 'rss' },
+    { name: 'Bing News', domain: 'bing.com', purpose: 'Local headline search', type: 'rss' },
     { name: 'Patch.com', domain: 'patch.com', purpose: 'Hyperlocal town news and articles', type: 'web' },
+    { name: 'Daily Voice', domain: 'dailyvoice.com', purpose: 'Hyperlocal town news via RSS, CT/NY/NJ/PA/MA only', type: 'rss' },
+    { name: 'Google News', domain: 'news.google.com', purpose: 'Local headline search fallback (no location set up)', type: 'rss' },
   ],
   examples: [
     'local news in my town',
@@ -62,16 +64,16 @@ export const localNewsTool: Tool = {
       return { success: false, error: 'Set your location in Settings → General to get local news.' }
     }
 
-    // Patch path — richer structured results when a userId is available
+    // Blended path (Patch + Daily Voice + Bing News RSS) when a userId is available
     if (userId) {
       try {
         const slug = slugOverride ?? (await resolvePatchSlug(townLabel))
-        const r = await patchLocal({ slug, townLabel: townLabel || slug || '', limit: 6 })
+        const r = await blendedLocalNews({ patchSlug: slug, townLabel: townLabel || slug || '', limit: 6 })
         if (r.news.length) {
           return {
             success: true,
             data: {
-              source: r.usedFallback ? 'web' : 'patch',
+              source: 'blended',
               news: r.news,
               answer_payload: {
                 gist: `Local headline${townLabel ? ` for ${townLabel}` : ''}: ${r.news[0]!.title}`,

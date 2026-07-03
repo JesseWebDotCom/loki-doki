@@ -6,7 +6,7 @@ import { requireAuth } from '@/middleware/auth'
 import { isOffline } from '@/lib/connectivity'
 import type { AppEnv } from '@/types'
 import { worldHeadlines } from '@/lib/briefing/sources/rss'
-import { patchLocal } from '@/lib/briefing/sources/patch'
+import { blendedLocalNews } from '@/lib/briefing/localNews'
 import { getBriefingSettings } from '@/lib/briefing/settings'
 import { resolvePatchSlug } from '@/lib/briefing/resolveSlug'
 import { enrichOgImages } from '@/lib/ogImage'
@@ -130,13 +130,13 @@ async function itemsFromFolder(folderId: string, limit: number): Promise<NewsIte
   return items
 }
 
-// Town-aware local news via the Patch source (no feed rows — fetched live).
+// Town-aware local news — Patch + Daily Voice + Google News RSS blend (no feed rows — fetched live).
 async function localItems(limit: number): Promise<NewsItem[]> {
   const s = await getBriefingSettings()
   const slug = s.patchSlug ?? (await resolvePatchSlug(s.defaultLocation))
   const townLabel = s.defaultLocation
-  const result = await patchLocal({ slug, townLabel, limit }, 6000)
-  return result.news.map((r) => ({
+  const { news } = await blendedLocalNews({ patchSlug: slug, townLabel, limit })
+  return news.map((r) => ({
     title: r.title, url: r.url, detail: r.detail,
     summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt,
   }))
@@ -147,6 +147,11 @@ async function localItems(limit: number): Promise<NewsItem[]> {
 async function categoryItems(cat: { id: string; slug: string | null }, limit: number): Promise<NewsItem[]> {
   if (cat.slug === 'local') {
     const items = await localItems(limit)
+    // Awaited (unlike the folder branch below): most local items are Google News RSS, which
+    // carries NO image at all, so nearly every item needs this. Firing it in the background
+    // meant the first response — the one both the server cache and the client's 5-min
+    // staleTime latch onto — always shipped with placeholders that never got a chance to heal.
+    await enrichOgImages(items).catch(() => {})
     setCached(`cat-${cat.id}-${limit}`, items)
     return items
   }

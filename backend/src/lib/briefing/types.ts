@@ -83,8 +83,10 @@ export const BRIEFING_SOURCE_MANIFEST: Record<BriefingSourceId, DataSource[]> = 
     { name: 'BBC News', domain: 'feeds.bbci.co.uk', purpose: 'World news headlines', type: 'rss' },
   ],
   localNews: [
-    { name: 'Google News', domain: 'news.google.com', purpose: 'Local news search', type: 'rss' },
+    { name: 'Google News', domain: 'news.google.com', purpose: 'Local news search fallback (no location set up)', type: 'rss' },
+    { name: 'Bing News', domain: 'bing.com', purpose: 'Local news search, real per-article images (when consented)', type: 'rss' },
     { name: 'Patch.com', domain: 'patch.com', purpose: 'Hyperlocal town news (when consented)', type: 'web' },
+    { name: 'Daily Voice', domain: 'dailyvoice.com', purpose: 'Hyperlocal town news via RSS, CT/NY/NJ/PA/MA only (when consented)', type: 'rss' },
   ],
   localEvents: [
     { name: 'Google News', domain: 'news.google.com', purpose: 'Local event listings search', type: 'rss' },

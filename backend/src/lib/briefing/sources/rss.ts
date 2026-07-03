@@ -61,6 +61,58 @@ export function googleNewsSearch(query: string, limit = 3, timeoutMs = 5000): Pr
   return fetchRss(`${BASE}/search?q=${encodeURIComponent(query)}&${LOCALE}`, limit, timeoutMs)
 }
 
+// ── Bing News RSS (real per-article images, unlike Google News) ──────────────────
+// Google News RSS <link> values are a client-JS-only redirect interstitial with no real
+// image (see lib/ogImage.ts isGoogleNewsRedirect). Bing's <link> is a plain redirect whose
+// real destination sits in its own `url=` query param — no JS execution needed — and it
+// carries a genuine per-article <News:Image> (verified distinct per article, not a reused
+// generic icon). Used specifically where local news renders image cards.
+
+// Bing's redirect wraps the real URL in `?url=<encoded>`; URLSearchParams already decodes
+// percent-encoding, so this returns the real destination straight from the query string.
+function decodeBingLink(rawLink: string): string | undefined {
+  if (!rawLink) return undefined
+  try {
+    return new URL(decodeEntities(rawLink)).searchParams.get('url') || rawLink
+  } catch {
+    return rawLink
+  }
+}
+
+function parseBingRss(xml: string, limit: number): RssItem[] {
+  const items: RssItem[] = []
+  const itemRe = /<item>([\s\S]*?)<\/item>/gi
+  let m: RegExpExecArray | null
+  while ((m = itemRe.exec(xml)) !== null && items.length < limit) {
+    const block = m[1]!
+    const title = stripHtml(extractXml(block, 'title'))
+    if (!title) continue
+    const source = block.match(/<News:Source>([^<]*)<\/News:Source>/)?.[1]?.trim() ?? ''
+    const pub = extractXml(block, 'pubDate')
+    const ts = pub ? Date.parse(pub) : NaN
+    items.push({
+      title,
+      url: decodeBingLink(extractXml(block, 'link')),
+      source,
+      detail: source || undefined,
+      imageUrl: decodeEntities(block.match(/<News:Image>([^<]*)<\/News:Image>/)?.[1]?.trim() ?? '') || undefined,
+      publishedAt: Number.isNaN(ts) ? undefined : ts,
+    })
+  }
+  return items
+}
+
+/** Keyword search against Bing News RSS — prefer this over googleNewsSearch when the caller
+ *  renders images (e.g. local news cards); Bing gives real per-article thumbnails. */
+export async function bingNewsSearch(query: string, limit = 5, timeoutMs = 6000): Promise<RssItem[]> {
+  const res = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(query)}&format=RSS`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!res.ok) throw new Error(`Bing RSS ${res.status}`)
+  return parseBingRss(await res.text(), limit)
+}
+
 // ── Rich publisher feeds (real per-article images + summaries) ───────────────────
 // Google News RSS gives diverse headlines but NO usable image (every article page serves
 // the same generic og:image) and a junk description. For the news UI we instead aggregate

@@ -55,3 +55,35 @@ export function deriveSlug(displayName: string | null | undefined): string | nul
   if (!state) return null
   return `${state}/${town}`
 }
+
+// Daily Voice's hyperlocal network only covers these five states.
+const DAILY_VOICE_STATES = new Set(['ct', 'ny', 'nj', 'pa', 'ma'])
+
+const STATE_NAME_TO_ABBR: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_ABBR_TO_NAME).map(([abbr, name]) => [name, abbr]),
+)
+
+/**
+ * Returns a Daily Voice slug like "ct/milford", or null if the state isn't one Daily Voice
+ * covers (CT/NY/NJ/PA/MA) or can't be resolved from the displayName.
+ */
+export function deriveDailyVoiceSlug(displayName: string | null | undefined): string | null {
+  if (!displayName) return null
+  const parts = displayName.split(',').map((p) => p.trim()).filter(Boolean)
+  if (parts.length < 2) return null
+
+  const town = slugifyPart(parts[0]!)
+  if (!town) return null
+
+  let abbr: string | null = null
+  for (let i = parts.length - 1; i >= 1 && !abbr; i--) {
+    const raw = parts[i]!.toLowerCase().trim()
+    if (raw.length === 2 && DAILY_VOICE_STATES.has(raw)) abbr = raw
+    else {
+      const asAbbr = STATE_NAME_TO_ABBR[slugifyPart(raw)]
+      if (asAbbr && DAILY_VOICE_STATES.has(asAbbr)) abbr = asAbbr
+    }
+  }
+  if (!abbr) return null
+  return `${abbr}/${town}`
+}

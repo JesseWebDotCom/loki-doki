@@ -13,12 +13,12 @@ import { getBriefingSettings, type BriefingSettings } from './settings'
 import { setCachedBriefing, getCachedBriefing, peekCachedBriefing, cachedBriefingKeys } from './cache'
 import { renderBriefingBlock } from './render'
 import { resolvePatchSlug } from './resolveSlug'
+import { blendedLocalNews } from './localNews'
 import { weatherSummary } from './sources/weather'
 import { worldNews } from './sources/worldNews'
 import { notableDeaths } from './sources/notableDeaths'
 import { onThisDay } from './sources/onThisDay'
 import { todaysHolidays } from './sources/holidays'
-import { patchLocal } from './sources/patch'
 import { googleNewsSearch } from './sources/rss'
 import { sportsToday } from './sources/sports'
 import { plexRecentlyAdded } from './sources/plex'
@@ -110,11 +110,12 @@ export async function refreshBriefing(
     const limit = Math.max(s.maxItems.localNews, s.maxItems.localEvents)
     const userId = opts.userId ?? ''
     if (userId) {
-      // Patch path — richer structured results, consent already granted.
+      // Blended path — Patch + Daily Voice + Google News RSS, consent already granted.
+      // Shared with the News app's "Local" tab and the localNews tool (see localNews.ts).
       const slugP = s.patchSlug ? Promise.resolve<string | null>(s.patchSlug) : resolvePatchSlug(location.displayName)
       tasks.push(
         slugP
-          .then((slug) => patchLocal({ slug, townLabel: location.displayName, limit }))
+          .then((slug) => blendedLocalNews({ patchSlug: slug, townLabel: location.displayName, limit }))
           .then((r) => {
             if (s.sources.localNews) payload.localNews = r.news
             if (s.sources.localEvents) payload.localEvents = r.events
