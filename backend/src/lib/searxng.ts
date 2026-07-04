@@ -442,7 +442,20 @@ export async function maybeUpdateSearXNG(force = false): Promise<void> {
     // a depth-1 clone). Use the async run() helper so the event loop stays unblocked
     // during the network fetch — execSync here would stall health probes for up to 60s.
     await run('git', ['fetch', '--depth', '1', 'origin', branch], { cwd: SEARXNG_DIR })
-    await run('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+    if (IS_WIN) {
+      // `git reset --hard` aborts the ENTIRE update on Windows: SearXNG ships deploy
+      // templates whose filenames contain a colon (e.g. `searxng.conf:socket`), illegal on
+      // NTFS, and git refuses to reset to a tree it can't fully materialize ("Could not
+      // reset index file to revision"). Mirror the install path instead — move the branch
+      // ref, then restore just the working tree from the new commit. `restore` writes every
+      // valid file and skips the colon paths with an "invalid path" warning, exiting 0
+      // (a hard-reset never gets that far). The index is left untouched — cosmetic only;
+      // every consumer reads commit/ref state, never the index.
+      await run('git', ['update-ref', `refs/heads/${branch}`, 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+      await run('git', ['restore', '--source', branch, '--worktree', '--', ':/'], { cwd: SEARXNG_DIR })
+    } else {
+      await run('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+    }
     const after = (() => { try { return execGit(['rev-parse', 'HEAD']) } catch { return '' } })()
 
     await setAppSetting(CHECKED_KEY, Date.now())
