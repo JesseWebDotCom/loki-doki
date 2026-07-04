@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import {
@@ -30,6 +30,7 @@ import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
 import { useBrowserSession } from "@/hooks/useBrowserSession";
+import { useClipboardAutofill } from "@/hooks/use-clipboard-autofill";
 
 // Pages not in APP_GROUPS (no category group in the breadcrumb).
 // design-ok(hex-in-tsx): route identity registry data, mirrors getAppByPath() fallback precedent
@@ -62,6 +63,14 @@ export function AppShell() {
   const { paneOpen: canvasOpen } = useArtifactState();
   const navigate = useNavigate();
   const breadcrumbSearch = useAppHeaderConfig();
+  // Clipboard auto-fill: only on YouTube, where pasting a video URL/query is the common case.
+  // The header search input is shared across every app, so gate it here rather than in the hook.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const setQueryFromClipboard = useCallback(
+    (text: string) => breadcrumbSearch?.setQuery(text),
+    [breadcrumbSearch],
+  );
+  useClipboardAutofill(searchInputRef, setQueryFromClipboard, pathname.startsWith("/youtube"));
   // Bumped when the user clicks the app crumb; remounts the Outlet to "reload" the app.
   const [reloadNonce, setReloadNonce] = useState(0);
   const { location, status, error: locationError, detect, setManual } = useUserLocation();
@@ -268,6 +277,7 @@ export function AppShell() {
                     <div className="relative flex-1">
                       <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                       <Input
+                        ref={searchInputRef}
                         value={breadcrumbSearch.query}
                         onChange={(e) => breadcrumbSearch.setQuery(e.target.value)}
                         placeholder={breadcrumbSearch.placeholder ?? 'Search...'}

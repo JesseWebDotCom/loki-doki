@@ -129,6 +129,15 @@ export const proxyStreamUrl = (videoId: string, kind: 'audio' | 'video' = 'video
 export const prewarmStream = (videoId: string, kind: 'audio' | 'video' = 'video') =>
   void fetch(`/api/youtube/stream/${videoId}/prewarm${kind === 'audio' ? '?kind=audio' : ''}`, { credentials: 'include' }).catch(() => {})
 
+/** Poll target for the /stream 202 "preparing" fallback: the server couldn't resolve a live
+ *  stream and kicked off an offline download instead — this reports its yt_downloads status
+ *  so the player knows when to switch to fileUrl(videoId, kind). */
+export async function getDownloadStatus(videoId: string, kind: 'audio' | 'video'): Promise<string> {
+  const r = await fetch(`/api/youtube/download-status/${videoId}/${kind}`, opts)
+  const { status } = await r.json() as { status?: string }
+  return status ?? 'none'
+}
+
 // ── InnerTube discovery: trending / channel / related ────────────────────────────
 
 /** A video as returned by the InnerTube endpoints (search/trending/channel/related). */

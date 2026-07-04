@@ -31,6 +31,7 @@ import {
   getUserPreference, DEFAULT_GLOBAL_CAP,
 } from '@/lib/youtube/quality'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { logger } from '@/lib/logger'
 import {
   enqueueVideoSave, createYoutubeEpisode,
   isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
@@ -1314,7 +1315,18 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
   const quality = parseQuality(c.req.query('q'))
 
   const upstreamUrl = await resolveStreamUrl(videoId, kind, quality)
-  if (!upstreamUrl) return c.json({ error: 'Could not resolve a playable stream' }, 502)
+  if (!upstreamUrl) {
+    // Last resort: both the InnerTube fast path and the yt-dlp -g retry chain gave up (see
+    // resolveStreamUrl) — instead of dead-ending the player, kick off the same offline-download
+    // pipeline "Save offline" uses (enqueueVideoSave is idempotent: it coalesces with any save/
+    // job already in flight for this video) and tell the client to wait for the file rather
+    // than erroring out.
+    const user = c.get('user')
+    const firstName = await getUserFirstName(user.id)
+    await enqueueVideoSave({ userId: user.id, videoId, title: '', kind, maxHeight: null, firstName })
+      .catch(err => logger.warn(`[youtube/stream] fallback download enqueue failed for ${videoId}: ${err}`))
+    return c.json({ status: 'preparing', videoId, kind }, 202)
+  }
 
   // Abort the upstream fetch when the client disconnects (seek/close) so we don't keep
   // draining a googlevideo connection into a dead socket.
@@ -1378,6 +1390,18 @@ youtubeRoute.get('/stream/:videoId/prewarm', async (c) => {
   const kind: StreamKind = c.req.query('kind') === 'audio' ? 'audio' : 'video'
   void resolveStreamUrl(videoId, kind, 'auto')
   return c.body(null, 204)
+})
+
+// Poll target for the /stream 202 "preparing" fallback above: lets the client know when the
+// offline download it kicked off has landed, so it can switch to /file/:videoId/:kind.
+youtubeRoute.get('/download-status/:videoId/:kind', async (c) => {
+  const user = c.get('user')
+  const videoId = c.req.param('videoId')
+  const kind = c.req.param('kind') as 'audio' | 'video'
+  const [dl] = await db.select({ status: ytDownloads.status }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind)))
+    .limit(1)
+  return c.json({ status: dl?.status ?? 'none' })
 })
 
 // ── Collections (Watch Later / Liked) ───────────────────────────────────────────

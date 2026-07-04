@@ -1,11 +1,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Play, Pause, Volume2, VolumeX, Maximize, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock } from '@/lib/youtube/format'
-import { fileUrl, proxyStreamUrl, saveWatchState, type SkipSegment, type WatchMeta, type StreamQuality } from '@/lib/youtube/api'
+import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, type SkipSegment, type WatchMeta, type StreamQuality } from '@/lib/youtube/api'
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
 import { VideoThumb } from '@/components/youtube/media'
+import { useZoomToFillFullscreen } from '@/hooks/use-zoom-to-fill-fullscreen'
+import { useAudioBoost } from '@/hooks/use-audio-boost'
 
 export interface VideoPlayerHandle {
   seek: (sec: number) => void
@@ -98,6 +100,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const [rate, setRate] = useState(1)
   // Settings popover: which sub-menu is open (null = closed).
   const [menu, setMenu] = useState<null | 'main' | 'speed' | 'quality'>(null)
+  const [boostOpen, setBoostOpen] = useState(false)
   // Privacy-proxy quality (re-requests the stream); embed quality is a best-effort hint.
   const [proxyQuality, setProxyQuality] = useState<StreamQuality>('auto')
   const [embedLevels, setEmbedLevels] = useState<string[]>([])
@@ -105,22 +108,65 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // If the privacy proxy can't produce a stream, fall back to the embed so playback
   // still works rather than showing a dead player.
   const [proxyFailed, setProxyFailed] = useState(false)
+  // Last-resort tier: the stream resolve failed completely (both InnerTube and yt-dlp),
+  // so the server kicked off an offline download instead of erroring out — see the /stream
+  // 202 "preparing" response. While this is set we show a spinner rather than falling
+  // through to the iframe embed; once the download lands we switch straight to the file.
+  const [preparingKind, setPreparingKind] = useState<'audio' | 'video' | null>(null)
+  const [fallbackReadyKind, setFallbackReadyKind] = useState<'audio' | 'video' | null>(null)
+  useEffect(() => { setPreparingKind(null); setFallbackReadyKind(null) }, [videoId])
 
   const localSrc = localKind ? fileUrl(videoId, localKind) : null
   // Audio-only streams just the audio through our server, with the thumbnail as poster.
   const onlineAudio = audioOnly && !localKind && !proxyFailed
   const usingProxy = privacyProxy && !localKind && !proxyFailed && !onlineAudio
-  // Native <video>/<audio> source: an offline file, the privacy proxy, or audio-only.
+  // Native <video>/<audio> source: an offline file, the privacy proxy, audio-only, or (once
+  // the last-resort download lands) the freshly-saved offline file.
   const nativeVideoSrc =
     localKind === 'video' ? localSrc
+    : fallbackReadyKind === 'video' ? fileUrl(videoId, 'video')
     : usingProxy ? proxyStreamUrl(videoId, 'video', proxyQuality)
     : null
   const nativeAudioSrc =
     localKind === 'audio' ? localSrc
+    : fallbackReadyKind === 'audio' ? fileUrl(videoId, 'audio')
     : onlineAudio ? proxyStreamUrl(videoId, 'audio')
     : null
-  // Use the YouTube embed only when we have no native source to drive.
-  const useIframe = !nativeVideoSrc && !nativeAudioSrc
+  // Use the YouTube embed only when we have no native source to drive, and we're not busy
+  // waiting on the last-resort download (that has its own "Preparing…" UI, not the embed).
+  const useIframe = !nativeVideoSrc && !nativeAudioSrc && !preparingKind
+
+  // Poll the last-resort download until it's ready, then switch the native source over to it.
+  useEffect(() => {
+    if (!preparingKind) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+    const kind = preparingKind
+    const poll = async () => {
+      try {
+        const status = await getDownloadStatus(videoId, kind)
+        if (cancelled) return
+        if (status === 'ready') { setPreparingKind(null); setFallbackReadyKind(kind); return }
+        if (status === 'failed') { setPreparingKind(null); setProxyFailed(true); return }
+      } catch { /* transient — keep polling */ }
+      if (!cancelled) timer = setTimeout(poll, 4000)
+    }
+    timer = setTimeout(poll, 4000)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [preparingKind, videoId])
+
+  // Called from the native <video>/<audio> onError: check whether the stream genuinely died
+  // (fall back to the embed, as before) or the server answered 202 "preparing" (start polling
+  // for the last-resort download instead). Only fires on an actual playback error, so the
+  // common "stream just works" case never pays for this extra request.
+  async function handleStreamError(kind: 'audio' | 'video', src: string) {
+    try {
+      const res = await fetch(src, { credentials: 'include' })
+      if (res.status === 202) { setPreparingKind(kind); return }
+      try { await res.body?.cancel() } catch { /* already closed */ }
+    } catch { /* noop */ }
+    setProxyFailed(true)
+  }
 
   // Reading position works against whichever backing player is active.
   const read = () => {
@@ -261,16 +307,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     else if (y) { try { next ? y.mute?.() : y.unMute?.() } catch { /* noop */ } }
     setMuted(next)
   }
-  // Toggle: exit if already fullscreen (so the button works both ways), else request.
-  const fullscreen = () => {
-    const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void }
-    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
-      try { (document.exitFullscreen ?? doc.webkitExitFullscreen)?.call(document) } catch { /* noop */ }
-      return
-    }
-    const el = wrapRef.current as (HTMLElement & { webkitRequestFullscreen?: () => void }) | null
-    try { (el?.requestFullscreen ?? el?.webkitRequestFullscreen)?.call(el) } catch { /* noop */ }
-  }
+  const { isFullscreen, fillMode, toggleFullscreen, toggleFillMode } = useZoomToFillFullscreen(mediaRef, wrapRef)
+  const { boost, setBoost } = useAudioBoost(mediaRef)
 
   // PiP state sync: reflect browser-driven exits (e.g. the PiP window's own close
   // button) back into our icon. Native <video> only — no PiP-eligible element while
@@ -349,7 +387,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     : useIframe ? (YT_QUALITY_LABEL[embedQuality] ?? 'Auto') : null
 
   return (
-    <div ref={wrapRef} onMouseLeave={() => setMenu(null)}
+    <div ref={wrapRef} onMouseLeave={() => { setMenu(null); setBoostOpen(false) }}
       className={cn('group relative overflow-hidden rounded-card bg-black',
         aspect === 'short' ? 'size-full' : 'aspect-video w-full')}>
       <div ref={frameRef} className="size-full">
@@ -362,7 +400,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
               if (autoRequestPip) { onPipRequestHandled?.(); void mediaRef.current?.requestPictureInPicture?.().catch(() => {}) }
             }}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
-            onError={() => { if (privacyProxy && !localKind) setProxyFailed(true) }}
+            onError={() => { if (privacyProxy && !localKind) void handleStreamError('video', nativeVideoSrc) }}
             onEnded={() => { persist(true); onEnded?.() }} />
         ) : nativeAudioSrc ? (
           <div className="relative flex size-full items-center justify-center bg-black">
@@ -386,7 +424,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
               onLoadStart={() => setBuffering(true)} onWaiting={() => setBuffering(true)}
               onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)} onPlaying={() => setBuffering(false)}
               onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
-              onError={() => { if (onlineAudio) setProxyFailed(true) }}
+              onError={() => { if (onlineAudio) void handleStreamError('audio', nativeAudioSrc) }}
               onEnded={() => { persist(true); onEnded?.() }} />
           </div>
         ) : null}
@@ -401,11 +439,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
       )}
 
       {/* Buffering / loading spinner covers the dead time while the privacy proxy
-          resolves a stream (several seconds) or the embed/native player is loading. */}
-      {buffering && (
+          resolves a stream (several seconds) or the embed/native player is loading. Also
+          covers the last-resort "preparing" wait (both fast paths failed; an offline
+          download was kicked off server-side and we're polling for it to land). */}
+      {(buffering || preparingKind) && (
         <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/20">
           <Spinner className="size-10 text-white/90" />
-          {usingProxy && <span className="text-xs font-medium text-white/80">Starting private stream…</span>}
+          {preparingKind
+            ? <span className="text-xs font-medium text-white/80">Preparing video…</span>
+            : usingProxy && <span className="text-xs font-medium text-white/80">Starting private stream…</span>}
         </div>
       )}
 
@@ -485,13 +527,40 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             )}
           </div>
 
+          {/* Audio boost: only meaningful once there's a real <video>/<audio> element to tap
+              (not the plain iframe embed) — useful for quiet phone-recorded clips. */}
+          {!useIframe && (
+            <div className="relative">
+              <button onClick={() => setBoostOpen(o => !o)} aria-label="Boost volume" title="Boost volume"
+                className={cn('flex items-center gap-1.5 transition', boost > 1 && 'text-[var(--yt-accent-fg)]')}>
+                {boost > 1 && <span className="text-xs font-bold tabular-nums">{boost.toFixed(1)}×</span>}
+                <Zap className="size-5" />
+              </button>
+              {boostOpen && (
+                // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): theme-invariant dark popover floating over the video surface
+                <div className="absolute bottom-full right-0 mb-3 w-40 rounded-card border border-white/10 bg-zinc-900/95 p-3 text-white shadow-xl backdrop-blur">
+                  <div className="mb-1.5 flex items-center justify-between text-xs">
+                    <span className="font-semibold">Boost</span>
+                    <span className="tabular-nums text-white/60">{boost.toFixed(1)}×</span>
+                  </div>
+                  <input type="range" min={1} max={4} step={0.1} value={boost}
+                    onChange={e => setBoost(Number(e.target.value))} className="w-full accent-[var(--yt-accent)]" />
+                </div>
+              )}
+            </div>
+          )}
           {showPip && (
             <button onClick={togglePip} aria-label={pipActive ? 'Exit picture-in-picture' : 'Picture-in-picture'} title="Picture-in-picture"
               className={cn(pipActive && 'text-[var(--yt-accent-fg)]')}>
               <PictureInPicture className="size-5" />
             </button>
           )}
-          <button onClick={fullscreen} aria-label="Fullscreen"><Maximize className="size-5" /></button>
+          {isFullscreen && (
+            <button onClick={toggleFillMode} aria-label={fillMode === 'cover' ? 'Fit to screen' : 'Zoom to fill'} title={fillMode === 'cover' ? 'Fit to screen' : 'Zoom to fill'}>
+              <Expand className={cn('size-5', fillMode === 'cover' && 'text-[var(--yt-accent-fg)]')} />
+            </button>
+          )}
+          <button onClick={toggleFullscreen} aria-label="Fullscreen"><Maximize className="size-5" /></button>
         </div>
       </div>
 
