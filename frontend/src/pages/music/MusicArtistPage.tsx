@@ -41,28 +41,33 @@ export function MusicArtistPage() {
   return (
     <div>
       <div className="relative overflow-hidden px-5 pt-12 pb-6 sm:px-8">
-        {/* Header backdrop: the artist photo, blurred + scrimmed for legibility, over the brand
-            gradient (which shows through / stands in when no photo exists). */}
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-brand/30 via-brand/10 to-transparent" />
+        {/* Header backdrop: the band photo as a VISIBLE hero (lightly softened, not heavily blurred),
+            darkened by theme-independent scrims so the left-aligned content + white logo always read.
+            Brand gradient stands in when there's no photo. */}
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-brand/40 via-brand/15 to-transparent" />
         {info?.image && (
           <div aria-hidden className="absolute inset-0">
-            <img src={proxyImg(info.image)} alt="" className="size-full scale-110 object-cover object-center opacity-40 blur-2xl" />
-            <div className="absolute inset-0 bg-gradient-to-t from-background via-background/75 to-background/30" />
+            <img src={proxyImg(info.image)} alt="" className="size-full scale-105 object-cover object-center opacity-75 blur-[2px]" />
+            {/* design-ok(raw-palette-semantic): black scrims over a photo hero, mirrors NowPlayingPage */}
+            <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/35 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
           </div>
         )}
         <div className="relative">
-          <p className="text-overline text-muted-foreground">Artist</p>
+          {/* design-ok(raw-palette-semantic): light text on the darkened photo hero */}
+          <p className="text-overline text-white/70">Artist</p>
           {showLogo ? (
-            // Band logo as the left-aligned feature image, over the blurred photo background.
-            /* Band logos are usually monochrome SVGs; forced to the legible tone per theme
-               (black on the light header, white on the dark header) so they always read. */
+            // Band logo as the left-aligned feature image. Logos are usually monochrome SVGs, so we
+            // force them white (the hero is always dark) with a shadow so they read on any photo.
             <img src={proxyImg(info!.logo!)} alt={artist.name}
-              className="mt-1 h-20 w-auto max-w-[72%] object-contain object-left [filter:brightness(0)] sm:h-28 dark:[filter:brightness(0)_invert(1)]"
+              className="mt-1 h-20 w-auto max-w-[72%] object-contain object-left sm:h-28"
+              style={{ filter: 'brightness(0) invert(1) drop-shadow(0 2px 12px rgba(0,0,0,0.65))' }}
               onError={() => setLogoBroken(true)} />
           ) : (
             <div className="flex items-end gap-4">
               <ArtistAvatar name={artist.name} mbid={artist.mbid} className="size-24 shrink-0 rounded-full shadow-xl ring-1 ring-border/40 sm:size-28" />
-              <div className="truncate text-display sm:text-display-lg">{artist.name}</div>
+              {/* design-ok(raw-palette-semantic): band name on the darkened photo hero */}
+              <div className="truncate text-display text-white sm:text-display-lg">{artist.name}</div>
             </div>
           )}
           {artist.tags.length > 0 && (
