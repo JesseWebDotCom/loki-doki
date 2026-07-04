@@ -97,6 +97,12 @@ export function WatchPage() {
   // threaded through as a prop rather than a ref, which a remount would wipe out.
   const [pipPending, setPipPending] = useState(false)
   const enablePrivacyForPip = () => { setPrivacy(true); setPipPending(true) }
+  // Same story for audio boost: amplifying past 100% needs a real <video>/<audio> to tap,
+  // which the iframe embed isn't — so a boost tap on the embed flips the privacy stream on
+  // (session-only, not persisted) and threads a pending flag through the remount so the
+  // boost slider opens on the freshly-mounted native player.
+  const [boostPending, setBoostPending] = useState(false)
+  const enablePrivacyForBoost = () => { setPrivacy(true); setBoostPending(true) }
   // Audio-only: stream just the audio (thumbnail stays as poster). Remembered per session.
   const [audioOnly, setAudioOnly] = useState(() => localStorage.getItem(AUDIO_KEY) === '1')
   const toggleAudioOnly = () => setAudioOnly(p => { const n = !p; try { localStorage.setItem(AUDIO_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
@@ -235,6 +241,8 @@ export function WatchPage() {
               privacyProxy={online && privacy} audioOnly={online && audioOnly}
               onNeedsProxyForPip={enablePrivacyForPip}
               autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
+              onNeedsProxyForBoost={enablePrivacyForBoost}
+              autoOpenBoost={boostPending} onBoostOpenHandled={() => setBoostPending(false)}
               skipSegments={online ? segments : undefined}
               onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
               chapters={chapters}

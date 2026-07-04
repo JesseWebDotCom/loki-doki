@@ -63,6 +63,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // onPipRequestHandled, the first time the resulting <video> starts playing.
   autoRequestPip?: boolean
   onPipRequestHandled?: () => void
+  // Audio boost (amplify past 100%) needs a real <video>/<audio> element to tap — Web
+  // Audio can't touch the cross-origin iframe embed. Same handoff as PiP: when boost is
+  // requested while still on the embed, the parent flips privacyProxy on so a native
+  // element mounts, and passes autoOpenBoost back so the slider pops open on the new mount.
+  onNeedsProxyForBoost?: () => void
+  autoOpenBoost?: boolean
+  onBoostOpenHandled?: () => void
   // Audio-only: stream just the audio (through our server) and show the video's
   // thumbnail as a static poster; saves bandwidth, keeps the visual context.
   audioOnly?: boolean
@@ -82,7 +89,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Frame shape: 'video' self-sizes to 16:9; 'short' fills its parent (the parent
   // sizes the 9:16 box); used by the vertical Shorts feed.
   aspect?: 'video' | 'short'
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null)
@@ -137,6 +144,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Use the YouTube embed only when we have no native source to drive, and we're not busy
   // waiting on the last-resort download (that has its own "Preparing…" UI, not the embed).
   const useIframe = !nativeVideoSrc && !nativeAudioSrc && !preparingKind
+
+  // This mount exists to satisfy a boost request made while still on the embed (the parent
+  // flipped privacyProxy on, remounting us onto a native element): pop the slider open so
+  // the user lands right on the control they reached for. Consumed once.
+  useEffect(() => {
+    if (autoOpenBoost && !useIframe) { setBoostOpen(true); onBoostOpenHandled?.() }
+  }, [autoOpenBoost, useIframe]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll the last-resort download until it's ready, then switch the native source over to it.
   useEffect(() => {
@@ -569,16 +583,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             )}
           </div>
 
-          {/* Audio boost: only meaningful once there's a real <video>/<audio> element to tap
-              (not the plain iframe embed) — useful for quiet phone-recorded clips. */}
-          {!useIframe && (
+          {/* Audio boost: amplify quiet clips past 100%. Needs a real <video>/<audio>
+              element to tap — Web Audio can't reach the iframe embed. On the embed the
+              button is still shown but hands off to the privacy stream first (like PiP),
+              so it's always discoverable rather than silently absent. */}
+          {(!useIframe || onNeedsProxyForBoost) && (
             <div className="relative">
-              <button onClick={() => setBoostOpen(o => !o)} aria-label="Boost volume" title="Boost volume"
+              <button onClick={() => (useIframe ? onNeedsProxyForBoost?.() : setBoostOpen(o => !o))}
+                aria-label="Boost volume" title={useIframe ? 'Boost volume (switches to the privacy stream)' : 'Boost volume'}
                 className={cn('flex items-center gap-1.5 transition', boost > 1 && 'text-[var(--yt-accent-fg)]')}>
                 {boost > 1 && <span className="text-xs font-bold tabular-nums">{boost.toFixed(1)}×</span>}
                 <Zap className="size-5" />
               </button>
-              {boostOpen && (
+              {boostOpen && !useIframe && (
                 // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): theme-invariant dark popover floating over the video surface
                 <div className="absolute bottom-full right-0 mb-3 w-40 rounded-card border border-white/10 bg-zinc-900/95 p-3 text-white shadow-xl backdrop-blur">
                   <div className="mb-1.5 flex items-center justify-between text-xs">
