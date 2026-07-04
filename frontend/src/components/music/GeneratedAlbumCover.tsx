@@ -138,8 +138,14 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
           <img src={proxyImg(logo)} alt="" loading="lazy" className="max-h-full max-w-full object-contain"
             style={{ filter: 'brightness(0) invert(1) drop-shadow(0 1.5cqw 3cqw rgba(0,0,0,0.55))' }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
         </div>
+        {/* LIVE as a small centered tag in the free band BELOW the logo (never over it). */}
+        {live && (
+          <span className="absolute left-1/2 -translate-x-1/2" style={{
+            bottom: albumName ? '19%' : '9%', background: p.accent, color: p.c1, fontFamily: FONTS[4],
+            fontWeight: 800, letterSpacing: '0.16em', padding: '0.8cqw 2.4cqw', borderRadius: '999px', fontSize: '4.4cqw', lineHeight: 1,
+          }}>LIVE</span>
+        )}
         {albumName && <div className="absolute inset-x-0 bottom-0 text-center" style={{ padding: '7%' }}><Album color={p.fg} align="center" /></div>}
-        <Live corners={['tr', 'tl']} />
       </div>
     )
   }
