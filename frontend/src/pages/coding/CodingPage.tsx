@@ -26,6 +26,10 @@ export function CodingPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<ConnStatus>("connecting");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Split panes come from tmux, which doesn't exist on Windows; the backend reports whether
+  // they're available and we hide the buttons when they're not. Default true so the mac/Linux
+  // layout renders immediately without waiting on the fetch.
+  const [splits, setSplits] = useState(true);
 
   useEffect(() => {
     const container = termContainerRef.current;
@@ -88,6 +92,13 @@ export function CodingPage() {
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
+  useEffect(() => {
+    fetch("/api/coding/capabilities", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((caps: { splits?: boolean } | null) => { if (caps && typeof caps.splits === "boolean") setSplits(caps.splits); })
+      .catch(() => { /* keep default */ });
+  }, []);
+
   // Toggle: exit if already fullscreen (so the button works both ways), else request,
   // same idiom as VideoPlayer.tsx's fullscreen() toggle.
   const toggleFullscreen = useCallback(() => {
@@ -121,15 +132,19 @@ export function CodingPage() {
   return (
     <div ref={wrapRef} className="flex h-full flex-col bg-black">
       <div className="flex items-center justify-end gap-1 border-b border-border/40 bg-muted/20 px-2 py-1">
-        <Button variant="ghost" size="icon-sm" onClick={() => void paneAction("split-h")} title="Split pane horizontally" aria-label="Split pane horizontally">
-          <SplitSquareHorizontal className="size-4" />
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={() => void paneAction("split-v")} title="Split pane vertically" aria-label="Split pane vertically">
-          <SplitSquareVertical className="size-4" />
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={() => void paneAction("close")} title="Close pane" aria-label="Close pane">
-          <X className="size-4" />
-        </Button>
+        {splits && (
+          <>
+            <Button variant="ghost" size="icon-sm" onClick={() => void paneAction("split-h")} title="Split pane horizontally" aria-label="Split pane horizontally">
+              <SplitSquareHorizontal className="size-4" />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => void paneAction("split-v")} title="Split pane vertically" aria-label="Split pane vertically">
+              <SplitSquareVertical className="size-4" />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => void paneAction("close")} title="Close pane" aria-label="Close pane">
+              <X className="size-4" />
+            </Button>
+          </>
+        )}
         <Button variant="ghost" size="icon-sm" onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "Fullscreen"} aria-label="Toggle fullscreen">
           {isFullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
         </Button>

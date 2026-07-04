@@ -169,7 +169,7 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
   { id: 'esphome',       label: 'Devices',         description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB).', bytes: 1_000_000_000, requires: [],                     icon: Cpu  },
-  { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model — usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
+  { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model, usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
   { id: 'tmux',          label: 'Coding Terminal Multiplexer', description: 'Powers split panes and reload-persistence in the Coding app\'s terminal.', bytes: 2_000_000, requires: ['claude-code'], icon: Code2 },
   { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
 ]
@@ -1723,14 +1723,21 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
               onInstall={() => void repairComponent('claude-code', 'claude-code')}
               onCancel={() => cancelInstall('claude-code')}
             />
-            <CapInstallRow
-              cap={ADMIN_CAPS.find(c => c.id === 'tmux')!}
-              installed={compMap.get('tmux') === true}
-              blocked={compMap.get('claude-code') !== true}
-              installState={installStates.get('tmux')}
-              onInstall={() => void repairComponent('tmux', 'tmux')}
-              onCancel={() => cancelInstall('tmux')}
-            />
+            {catalog.hardware.platform === 'win32' ? (
+              <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
+                <ShieldCheck className="size-4 shrink-0" />
+                Split-pane multiplexing (tmux) isn't available on Windows. The coding terminal runs as a single persistent pane.
+              </div>
+            ) : (
+              <CapInstallRow
+                cap={ADMIN_CAPS.find(c => c.id === 'tmux')!}
+                installed={compMap.get('tmux') === true}
+                blocked={compMap.get('claude-code') !== true}
+                installState={installStates.get('tmux')}
+                onInstall={() => void repairComponent('tmux', 'tmux')}
+                onCancel={() => cancelInstall('tmux')}
+              />
+            )}
             {catalog.hardware.platform === 'win32' ? (
               <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
                 <ShieldCheck className="size-4 shrink-0" />

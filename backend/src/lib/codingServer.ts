@@ -7,10 +7,12 @@ import {
   isSandboxUserInstalled, ensureSandboxRuntimeMirrored,
 } from '@/lib/codingSandboxUser'
 import { CLAUDE_CODE_DIR, CLAUDE_BIN, isClaudeCodeInstalled } from '@/lib/claudeCode'
+import { killCodingSession } from '@/lib/codingPtySidecar'
 import { ollamaUrl } from '@/llm/ollama'
 import { dataDir } from '@/lib/download'
 import { getAppSetting } from '@/lib/settings'
 import { CATALOG } from '@/lib/catalog'
+import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -88,6 +90,9 @@ async function runSandboxed(cmdArgs: string[], cwd: string): Promise<{ code: num
 }
 
 async function hasSession(userId: string): Promise<boolean> {
+  // Windows has no tmux socket; the PTY sidecar owns session existence (spawn-or-adopt),
+  // so there's nothing to probe here.
+  if (IS_WIN) return false
   const workingDir = workspaceDirFor(userId)
   const sock = socketPathFor(workingDir)
   if (!existsSync(sock)) return false
@@ -168,6 +173,15 @@ export async function ensureTmuxSession(userId: string): Promise<void> {
   const existing = ensuring.get(userId)
   if (existing) return existing
   const p = (async () => {
+    if (IS_WIN) {
+      // No tmux on Windows: the PTY sidecar spawns `claude` directly and keeps it alive
+      // across reconnects (see buildAttachSpawnParams). Nothing to pre-create here beyond
+      // the per-user workspace + home dirs the attach spawn will run in.
+      const workingDir = workspaceDirFor(userId)
+      mkdirSync(workingDir, { recursive: true })
+      mkdirSync(homeDirFor(workingDir), { recursive: true })
+      return
+    }
     if (await hasSession(userId)) return
     const { claudeBin, envArgs, workingDir, sock } = await resolveClaudeLaunch(userId)
     // Env vars set here reach `claude` because tmux captures the "global environment"
@@ -194,6 +208,11 @@ export async function ensureTmuxSession(userId: string): Promise<void> {
 
 /** Kills the session — used when the coding_model setting changes (env is baked in at session start, not re-readable mid-session) or for admin/debug cleanup. */
 export async function killTmuxSession(userId: string): Promise<void> {
+  if (IS_WIN) {
+    // On Windows the session is a persistent pty inside the PTY sidecar, not a tmux server.
+    await killCodingSession(userId)
+    return
+  }
   const workingDir = workspaceDirFor(userId)
   const sock = socketPathFor(workingDir)
   if (!existsSync(sock)) return
@@ -209,6 +228,9 @@ export type PaneAction = 'split-h' | 'split-v' | 'close'
  * through to our own 'split-h'/'split-v' action names with that same meaning.
  */
 export async function paneControl(userId: string, action: PaneAction): Promise<void> {
+  // Split panes are a tmux feature; on Windows the Coding terminal is a single pane. The
+  // route also hides the buttons via /capabilities, so this is defense-in-depth.
+  if (IS_WIN) throw new Error('Split panes are not available on Windows (no tmux).')
   await ensureTmuxSession(userId)
   if (action === 'close') {
     const workingDir = workspaceDirFor(userId)
@@ -259,7 +281,37 @@ export async function buildHeadlessClaudeCommand(userId: string, task: string): 
  * same sandboxed OS user as the session itself: a different OS user couldn't reach
  * the session's own socket file regardless.
  */
-export async function buildAttachSpawnParams(userId: string): Promise<{ cmd: string; args: string[]; cwd: string; env: Record<string, string> }> {
+export async function buildAttachSpawnParams(userId: string): Promise<{ cmd: string; args: string[]; cwd: string; env: Record<string, string>; sessionKey?: string; persistent?: boolean }> {
+  if (IS_WIN) {
+    // Windows has no tmux, so there's no `attach-session` to run in the pty. Instead spawn
+    // `claude` DIRECTLY and mark the sidecar session `persistent`: the sidecar keeps the pty
+    // alive across socket disconnects and shares it across tabs, reproducing tmux's
+    // persistence + reattach. claude.exe is a real PE launcher (verified), so ConPTY runs it.
+    if (!isClaudeCodeInstalled()) throw new Error('Claude Code is not installed. Enable it in Admin → Features')
+    const workingDir = workspaceDirFor(userId)
+    mkdirSync(workingDir, { recursive: true })
+    const homeDir = homeDirFor(workingDir)
+    mkdirSync(homeDir, { recursive: true })
+    const model = await resolveCodingModelTag()
+    // claude is spawned directly here (unlike the Unix path, where tmux baked env into the
+    // session), so its whole environment must be assembled now. Curated allowlist, not the
+    // full process.env, which carries backend secrets an attach client has no reason to see.
+    const env: Record<string, string> = {
+      TERM: 'xterm-256color',
+      HOME: homeDir,
+      USERPROFILE: homeDir, // Node/claude resolve ~/.claude from USERPROFILE on Windows → per-user isolation
+      ANTHROPIC_BASE_URL: ollamaUrl(),
+      ANTHROPIC_AUTH_TOKEN: 'ollama',
+      ANTHROPIC_MODEL: model,
+    }
+    // Windows runtime vars claude.exe (a Node process) needs to load DLLs / find the runtime.
+    for (const k of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'APPDATA', 'LOCALAPPDATA']) {
+      const v = process.env[k]
+      if (v) env[k] = v
+    }
+    return { cmd: CLAUDE_BIN, args: [], cwd: workingDir, env, sessionKey: userId, persistent: true }
+  }
+
   await ensureTmuxSession(userId)
   const workingDir = workspaceDirFor(userId)
   const sock = socketPathFor(workingDir)

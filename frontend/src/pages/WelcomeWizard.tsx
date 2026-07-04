@@ -91,9 +91,6 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
   const [expandedCat, setExpandedCat] = useState<string | null>(null)
   const [mapsRegion, setMapsRegion]   = useState<{ regionId: string; label: string } | null>(null)
   const [mapsOn, setMapsOn]           = useState(false)
-  // Default ON (unlike maps/ZIM, which default off): Coding is a small, low-friction
-  // install, so it ships unless the user explicitly opts out.
-  const [codingOn, setCodingOn]       = useState(true)
   const [diskFreeBytes, setDiskFreeBytes] = useState(0)
   const [finishing, setFinishing]     = useState(false)
   const [error, setError]             = useState('')
@@ -213,8 +210,7 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
     return sum + (variant?.approxBytes ?? 0)
   }, 0)
   const mapsBytes   = mapsOn && mapsRegion ? 480_000_000 : 0
-  const codingBytes = codingOn ? 60_000_000 : 0
-  const totalBytes  = zimBytes + mapsBytes + codingBytes
+  const totalBytes  = zimBytes + mapsBytes
   const freeAfter  = Math.max(0, diskFreeBytes - totalBytes)
   const notEnough  = diskFreeBytes > 0 && totalBytes > diskFreeBytes * 0.95
   const anySelected = zimSelected.size > 0 || (mapsOn && !!mapsRegion)
@@ -222,12 +218,6 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
   async function finish(enqueue: boolean) {
     setFinishing(true); setError('')
     try {
-      // Coding (Claude Code + Ornith) installs by default, independent of the "skip
-      // optional content" choice below: it's a small, low-friction add, unlike the
-      // multi-GB ZIM/maps content this wizard otherwise gates behind opt-in. The user
-      // can still remove it afterwards in Admin → Features.
-      const componentIds = codingOn ? ['claude-code', 'tmux'] : []
-      const modelIds = codingOn ? ['ornith:9b'] : []
       if (enqueue && anySelected) {
         const zimSelections: ZimSelection[] = []
         for (const [sourceId, variantKey] of zimSelected) {
@@ -239,13 +229,7 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
         const maps = mapsOn && mapsRegion ? { regionId: mapsRegion.regionId, label: mapsRegion.label } : null
         await fetch('/api/jobs/enqueue', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ componentIds, zimSelections, maps, modelIds }),
-        })
-      } else if (componentIds.length) {
-        // Skipped ZIM/maps but Coding still installs: enqueue it on its own.
-        await fetch('/api/jobs/enqueue', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ componentIds, modelIds }),
+          body: JSON.stringify({ zimSelections, maps }),
         })
       }
       await fetch('/api/setup/welcome-complete', { method: 'POST', credentials: 'include' })
@@ -397,24 +381,6 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
                 </button>
               </div>
             )}
-
-            {/* Coding: default ON, shown so the user can still opt out */}
-            <div className="pt-1">
-              <button type="button" onClick={() => setCodingOn(v => !v)}
-                className={cn('flex w-full items-center gap-3 rounded-card border px-4 py-3 text-left transition-colors',
-                  codingOn ? 'border-brand/40 bg-brand/[0.06]' : 'border-border bg-card hover:border-border/70')}>
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-control bg-info/15 text-info"><Code className="size-4" /></div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold tracking-tight">AI coding agent</p>
-                  <p className="text-xs text-muted-foreground truncate">Sandboxed dev projects, in-app and from chat</p>
-                </div>
-                <span className="text-xs text-muted-foreground tabular-nums shrink-0">~{formatBytes(60_000_000)}</span>
-                <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all',
-                  codingOn ? 'border-brand bg-brand' : 'border-border')}>
-                  {codingOn && <CheckCircle2 className="size-3 text-brand-foreground" />}
-                </span>
-              </button>
-            </div>
           </section>
 
           {/* ── Footer: disk stats + actions, matches ModelsStep card style ── */}

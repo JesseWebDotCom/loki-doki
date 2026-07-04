@@ -15,6 +15,7 @@ import type { createBunWebSocket } from 'hono/bun'
 import { resolveSession, requireAuth } from '@/middleware/auth'
 import { buildAttachSpawnParams, paneControl, type PaneAction } from '@/lib/codingServer'
 import { ensureCodingPtySidecarReady, codingPtySidecarWsUrl } from '@/lib/codingPtySidecar'
+import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -84,9 +85,17 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
     }),
   )
 
+  // Terminal capabilities the frontend adapts to. Split panes are a tmux feature; on Windows
+  // (no tmux) the Coding terminal is a single persistent pane, so the client hides the split
+  // buttons. `persistence` documents where session survival comes from.
+  coding.get('/capabilities', requireAuth, (c) =>
+    c.json({ splits: !IS_WIN, persistence: IS_WIN ? 'sidecar' : 'tmux' }),
+  )
+
   coding.post('/pane/:action', requireAuth, async (c) => {
     const user = c.get('user')
     const action = c.req.param('action') as PaneAction
+    if (IS_WIN) return c.json({ error: 'Split panes are not available on Windows' }, 501)
     if (action !== 'split-h' && action !== 'split-v' && action !== 'close') {
       return c.json({ error: 'invalid pane action' }, 400)
     }

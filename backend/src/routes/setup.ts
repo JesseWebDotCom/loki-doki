@@ -239,6 +239,21 @@ setup.post('/download', requireAuth, async (c) => {
     .map((id) => CATALOG.find((m) => m.id === id))
     .filter(Boolean) as typeof CATALOG
 
+  // Coding package: a selected coding-role model implies the Coding app, which needs the
+  // Claude Code CLI + tmux to run (codingServer refuses to start without them). Provision
+  // the whole package from the install wizard, the way image models pull in the ComfyUI
+  // runtime, so nothing is left for a later step. (coding-sandbox-user is intentionally
+  // excluded: it throws on Windows and needs interactive OS approval elsewhere; codingServer
+  // degrades gracefully to a plain per-user workdir without it, and it can be enabled from
+  // Admin -> Features where the OS prompt is expected.)
+  if (selected.some((m) => m.role === 'coding')) {
+    if (!componentIds.includes('claude-code')) componentIds.push('claude-code')
+    // tmux is unavailable on Windows (installTmux throws), and Coding's terminal needs it,
+    // so on Windows the package is limited to the CLI + model. Enqueuing tmux there would
+    // fail permanently and stall the wizard's completion gate, so gate it by platform.
+    if (process.platform !== 'win32' && !componentIds.includes('tmux')) componentIds.push('tmux')
+  }
+
   // Essentials block boot: chat LLM + embeddings + router (Ollama always installs first).
   const ESSENTIAL_ROLES = new Set(['llm', 'uncensored_llm', 'embeddings', 'router', 'router_llm'])
   const toInstall = essentialOnly ? selected.filter((m) => ESSENTIAL_ROLES.has(m.role)) : selected
