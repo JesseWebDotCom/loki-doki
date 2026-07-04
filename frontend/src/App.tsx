@@ -73,6 +73,7 @@ import { CodingPage } from '@/pages/coding/CodingPage'
 import { CamerasPage } from '@/pages/CamerasPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
+import { ClipperPage } from '@/pages/ClipperPage'
 import { CanvasPage } from '@/pages/CanvasPage'
 import { PodcastLayout } from '@/components/podcast/PodcastLayout'
 import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
@@ -420,6 +421,7 @@ export default function App() {
                 <Route path="/cameras" element={<CamerasPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
+                <Route path="/clipper" element={<ClipperPage />} />
                 <Route path="/canvas" element={<CanvasPage />} />
                 <Route path="/time" element={<TimePage />} />
                 {/* Dictionary + Medical are now sections of the Reference app. */}
