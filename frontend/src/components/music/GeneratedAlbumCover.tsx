@@ -186,7 +186,8 @@ export function GeneratedAlbumCover({ band, album, photo, className }: {
           <Band widthPct={70} weight={800} align="center" />
           <Album color={p.fg} weight={500} align="center" />
         </div>
-        <Live corners={['tr', 'tl', 'br', 'bl']} />
+        {/* band is top-center → keep the stamp off it (bottom corners only) */}
+        <Live corners={['br', 'bl']} />
       </>)}
 
       {/* 7 - photo with an oversized band-initial monogram, text at the bottom */}
@@ -209,7 +210,8 @@ export function GeneratedAlbumCover({ band, album, photo, className }: {
         <div className="absolute" style={{ left: '7%', right: '14%', bottom: '9%', background: p.c1, padding: '5% 6%', transform: 'rotate(-2deg)', boxShadow: '0 2cqw 6cqw rgba(0,0,0,0.4)' }}>
           <Band max={14} /><Album color={p.accent} />
         </div>
-        <Live corners={['tr', 'br']} />
+        {/* text sticker sits bottom-left → stamp stays top-right */}
+        <Live corners={['tr']} />
       </>)}
     </div>
   )
