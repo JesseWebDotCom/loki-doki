@@ -1,18 +1,32 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Disc3, User } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
-import { getArtistInfo } from '@/lib/music/catalogApi'
+import { getArtistInfo, getAlbumCoverFallback } from '@/lib/music/catalogApi'
 
-/** Album cover: shows the Cover Art Archive image, falling back cleanly to a disc tile when the
- *  release-group has no art (CAA 404s) instead of a broken-image icon. */
-export function AlbumCover({ coverUrl, className }: { coverUrl: string | null; className?: string }) {
+/** Album cover: shows the Cover Art Archive image. When the CAA image 404s (common for live
+ *  bootlegs / broadcasts), it falls back to iTunes cover art — but only if the caller passes the
+ *  album identity (artist + album), and only lazily, once CAA has actually failed. Falls back to a
+ *  clean disc tile when neither source has art (no broken-image icon). */
+export function AlbumCover({ coverUrl, artist, album, className }: {
+  coverUrl: string | null; artist?: string; album?: string; className?: string
+}) {
+  const canFallback = !!(artist && album)
+  // 'caa' → the constructed Cover Art Archive URL; 'itunes' → the iTunes fallback; 'none' → disc.
+  const [stage, setStage] = useState<'caa' | 'itunes' | 'none'>(coverUrl ? 'caa' : (canFallback ? 'itunes' : 'none'))
+  const { data: fb } = useQuery({
+    queryKey: ['album-cover-fallback', artist, album],
+    queryFn: () => getAlbumCoverFallback(artist!, album!),
+    enabled: stage === 'itunes' && canFallback, staleTime: Infinity,
+  })
+  const src = stage === 'caa' ? coverUrl : stage === 'itunes' ? (fb?.coverUrl ?? null) : null
   return (
     <div className={cn('relative grid place-items-center overflow-hidden bg-gradient-to-br from-brand/30 to-brand/10', className)}>
       <Disc3 className="absolute size-1/3 text-brand/50" />
-      {coverUrl && (
-        <img src={proxyImg(coverUrl)} alt="" loading="lazy" className="relative size-full object-cover"
-          onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
+      {src && (
+        <img key={src} src={proxyImg(src)} alt="" loading="lazy" className="relative size-full object-cover"
+          onError={() => setStage(s => (s === 'caa' && canFallback) ? 'itunes' : 'none')} />
       )}
     </div>
   )

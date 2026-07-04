@@ -29,7 +29,7 @@ function AlbumCard({ al, onClick }: { al: CatalogAlbum; onClick: () => void }) {
   return (
     // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
     <button onClick={onClick} className="flex w-40 shrink-0 flex-col gap-2 rounded-card p-2 text-left transition hover:bg-accent/50">
-      <AlbumCover coverUrl={al.coverUrl} className="aspect-square w-full rounded-control" />
+      <AlbumCover coverUrl={al.coverUrl} artist={al.artistName} album={al.title} className="aspect-square w-full rounded-control" />
       <div><p className="truncate text-sm font-medium">{al.title}</p><p className="truncate text-[11px] text-muted-foreground">{al.artistName}{al.year ? ` · ${al.year}` : ''}</p></div>
     </button>
   )

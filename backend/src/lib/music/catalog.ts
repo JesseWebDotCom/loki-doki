@@ -94,6 +94,33 @@ export function albumCoverUrl(releaseGroupMbid: string, size: 250 | 500 | 1200 =
   return `${CAA_BASE}/release-group/${releaseGroupMbid}/front-${size}`
 }
 
+/** Fallback cover art from the iTunes Search API (keyless) for albums the Cover Art Archive has no
+ *  image for — common for live bootlegs / broadcast releases. Only called when the CAA image 404s,
+ *  and cached hard (misses included, so a coverless album isn't re-searched). Returns null when
+ *  iTunes has nothing either. */
+export async function itunesAlbumCover(artist: string, album: string): Promise<string | null> {
+  const a = artist.trim()
+  const al = album.trim()
+  if (!al) return null
+  return cachedLookup('itunes-album-cover', `${a}~${al}`, THIRTY_DAYS_MS, async () => {
+    try {
+      const term = encodeURIComponent(`${a} ${al}`.trim())
+      const res = await fetch(`https://itunes.apple.com/search?term=${term}&entity=album&media=music&limit=1`, {
+        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000),
+      })
+      if (!res.ok) return null
+      const data = await res.json() as { results?: Array<{ artworkUrl100?: string }> }
+      const art = data.results?.[0]?.artworkUrl100
+      if (!art) return null
+      // Apple returns a 100px thumbnail; swap the size segment for a crisp grid-sized image.
+      return art.replace(/\/\d+x\d+bb\.(jpg|png)$/, '/600x600bb.$1')
+    } catch (err) {
+      logger.debug(`[catalog] itunesAlbumCover failed: ${String(err)}`)
+      return null
+    }
+  })
+}
+
 // ── Search ───────────────────────────────────────────────────────────────────────
 
 export async function searchArtists(query: string, limit = 12): Promise<CatalogArtist[]> {
