@@ -11,6 +11,7 @@ import {
 import { SortableContext, arrayMove, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { proxyImg } from '@/lib/img'
+import { ytImageProxy } from '@/lib/youtube/api'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -18,12 +19,17 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useRadio } from '@/context/RadioContext'
+import type { QueuedTrack } from '@/lib/music/radioEngine'
 import {
   getPlaylist, updatePlaylist, deletePlaylist, removePlaylistTrack, reorderPlaylist,
   sharePlaylist, clonePlaylist, type PlaylistTrack,
 } from '@/lib/music/catalogApi'
 
 const fmtDur = (s: number | null) => !s ? '' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
+const toQueuedTrack = (t: PlaylistTrack): QueuedTrack => ({
+  videoId: t.videoId, title: t.title, author: t.artist,
+  thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`),
+})
 
 function SongThumb({ videoId }: { videoId: string }) {
   return (
@@ -35,7 +41,7 @@ function SongThumb({ videoId }: { videoId: string }) {
   )
 }
 
-function TrackRow({ track, editable, onRemoved }: { track: PlaylistTrack; editable: boolean; onRemoved: () => void }) {
+function TrackRow({ track, tracks, editable, onRemoved }: { track: PlaylistTrack; tracks: PlaylistTrack[]; editable: boolean; onRemoved: () => void }) {
   const radio = useRadio()
   const [removing, setRemoving] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: track.id, disabled: !editable })
@@ -44,6 +50,11 @@ function TrackRow({ track, editable, onRemoved }: { track: PlaylistTrack; editab
     setRemoving(true)
     try { await removePlaylistTrack(track.playlistId, track.id); onRemoved() }
     catch { toast.error('Could not remove track'); setRemoving(false) }
+  }
+
+  const play = () => {
+    const idx = tracks.findIndex(t => t.id === track.id)
+    radio.playPlaylist(tracks.map(toQueuedTrack), Math.max(0, idx), { playlistId: track.playlistId })
   }
 
   return (
@@ -55,7 +66,7 @@ function TrackRow({ track, editable, onRemoved }: { track: PlaylistTrack; editab
           <GripVertical className="size-4" />
         </button>
       )}
-      <button onClick={() => radio.playTrack({ videoId: track.videoId, title: track.title, author: track.artist })}
+      <button onClick={play}
         className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <div className="relative shrink-0">
           <SongThumb videoId={track.videoId} />
@@ -83,6 +94,7 @@ export function MusicPlaylistPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const radio = useRadio()
   const { data, isLoading } = useQuery({ queryKey: ['music-playlist', id], queryFn: () => getPlaylist(id!), enabled: !!id })
   const [editingName, setEditingName] = useState(false)
   const [name, setName] = useState('')
@@ -184,6 +196,11 @@ export function MusicPlaylistPage() {
             {!editable && playlist.ownerName && ` · by ${playlist.ownerName}`}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
+            {tracks.length > 0 && (
+              <Button size="sm" onClick={() => radio.playPlaylist(tracks.map(toQueuedTrack), 0, { name: playlist.name, playlistId: playlist.id })}>
+                <Play className="size-4" /> Play
+              </Button>
+            )}
             {editable ? (
               <>
                 <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -213,13 +230,13 @@ export function MusicPlaylistPage() {
           <SortableContext items={tracks.map(t => t.id)} strategy={verticalListSortingStrategy}>
             {/* dnd-sortable list: plain rows on a resting surface, no hover-translate (drag-safe) */}
             <div className="divide-y divide-border/50 rounded-card border border-border/60">
-              {tracks.map(t => <TrackRow key={t.id} track={t} editable onRemoved={invalidate} />)}
+              {tracks.map(t => <TrackRow key={t.id} track={t} tracks={tracks} editable onRemoved={invalidate} />)}
             </div>
           </SortableContext>
         </DndContext>
       ) : (
         <div className="divide-y divide-border/50 rounded-card border border-border/60">
-          {tracks.map(t => <TrackRow key={t.id} track={t} editable={false} onRemoved={invalidate} />)}
+          {tracks.map(t => <TrackRow key={t.id} track={t} tracks={tracks} editable={false} onRemoved={invalidate} />)}
         </div>
       )}
 

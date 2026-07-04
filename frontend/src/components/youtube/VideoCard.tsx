@@ -9,6 +9,7 @@ import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useCardHoverPreview } from '@/hooks/use-card-hover-preview'
+import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
 
 /** Where a card navigates: the full-page watch route, preserving offline kind. */
 export function watchHref(i: Pick<VideoItem, 'videoId' | 'localKind'>) {
@@ -141,18 +142,30 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
       </div>
     </>
   )
+  const addBtn = (
+    <AddToPlaylistButton
+      video={{ videoId: item.videoId, title, author: item.author ?? undefined, durationSec: item.durationSec ?? undefined }}
+      className="self-center opacity-0 group-hover:opacity-100"
+    />
+  )
   if (ghosted) {
     return (
-      // design-ok(hand-styled-button): the whole media row is the tap target (card-shaped ghost row)
-      <button type="button" onClick={onClick} className="group flex w-full gap-2.5 rounded-control p-1.5 text-left transition-colors hover:bg-accent/50">
-        {body}
-      </button>
+      <div className="group flex w-full items-center gap-1">
+        {/* design-ok(hand-styled-button): the whole media row is the tap target (card-shaped ghost row) */}
+        <button type="button" onClick={onClick} className="flex min-w-0 flex-1 gap-2.5 rounded-control p-1.5 text-left transition-colors hover:bg-accent/50">
+          {body}
+        </button>
+        {addBtn}
+      </div>
     )
   }
   return (
-    <Link to={watchHref(item)} state={{ title, author: item.author, channelThumb: item.channelThumb }}
-      className={cn('group flex gap-2.5 rounded-control p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')} {...bind}>
-      {body}
-    </Link>
+    <div className="group flex items-center gap-1">
+      <Link to={watchHref(item)} state={{ title, author: item.author, channelThumb: item.channelThumb }}
+        className={cn('flex min-w-0 flex-1 gap-2.5 rounded-control p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')} {...bind}>
+        {body}
+      </Link>
+      {addBtn}
+    </div>
   )
 }

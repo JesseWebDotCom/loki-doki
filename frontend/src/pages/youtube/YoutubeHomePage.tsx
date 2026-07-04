@@ -5,10 +5,11 @@ import { Rss } from 'lucide-react'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
+import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ChannelAvatar } from '@/components/youtube/media'
-import { getHistory, getRecommended, ytPopularQueryOptions, ytTrendingQueryOptions } from '@/lib/youtube/api'
+import { getHistory, getRecommended, search as ytSearch, ytPopularQueryOptions, ytTrendingQueryOptions } from '@/lib/youtube/api'
 import { useYtFeed, useYtSubs, useYtDownloads, buildChannels } from '@/lib/youtube/useData'
-import { isShort, savedToItem, historyToItem, itToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
+import { isShort, savedToItem, historyToItem, itToItem, searchToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { MediaShelf, ChannelRail, ShelfSkeleton, type ChannelEntry } from '@/components/youtube/shelves'
 
@@ -20,6 +21,9 @@ type Filter = 'all' | 'videos' | 'shorts' | 'channels'
 const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 const SHORTS_GRID = 'grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 xl:grid-cols-6'
 const FILTERS: [Filter, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['channels', 'Channels']]
+// Topic chips (real-YouTube style): selecting one swaps the feed for a live search on that
+// topic. They need a live query, so they only appear in online mode.
+const TOPICS = ['Podcasts', 'Music', 'News', 'Gaming', 'Trailers', 'Live', 'Comedy', 'Cooking', 'Sports', 'Technology', 'Science', 'Documentary']
 
 // Round-robin a recency-sorted list across its channels so a single frequent uploader
 // doesn't bury everyone else; "Latest" then leads with each channel's newest in turn.
@@ -62,6 +66,8 @@ function HomeLanding() {
   const mode = useYoutubeMode()
   const online = mode === 'online'
   const [filter, setFilter] = useState<Filter>('all')
+  // A selected topic overrides the type filter and shows a live topic feed instead.
+  const [topic, setTopic] = useState<string | null>(null)
 
   const { videos, items: feedItems, loading } = useYtFeed()
   const { data: subs = [] } = useYtSubs()
@@ -100,10 +106,18 @@ function HomeLanding() {
   return (
     <PageContainer width="wide" className="py-6">
       <ChipRow className="mb-6">
-        {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={filter === k} onClick={() => setFilter(k)} />)}
+        {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} onClick={() => { setTopic(null); setFilter(k) }} />)}
+        {online && (
+          <>
+            <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />
+            {TOPICS.map(t => <Chip key={t} label={t} active={topic === t} onClick={() => setTopic(topic === t ? null : t)} />)}
+          </>
+        )}
       </ChipRow>
 
-      {filter === 'channels' ? (
+      {topic ? (
+        <TopicFeed topic={topic} />
+      ) : filter === 'channels' ? (
         <ChannelGrid channels={channels} />
       ) : filter === 'videos' ? (
         <VideoGrid items={regular} />
@@ -151,6 +165,18 @@ function EmptyState({ online }: { online: boolean }) {
 function VideoGrid({ items }: { items: VideoItem[] }) {
   if (!items.length) return <p className="py-20 text-center text-sm text-muted-foreground">Nothing here yet.</p>
   return <div className={GRID}>{items.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
+}
+
+// Live topic feed: a video search on the picked topic, rendered as the standard card grid.
+function TopicFeed({ topic }: { topic: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['yt-topic', topic],
+    queryFn: () => ytSearch(topic, null, 'videos'),
+  })
+  const items = useMemo(() => (data?.results ?? []).map(searchToItem), [data])
+  if (isLoading) return <SkeletonCards count={12} className="xl:grid-cols-4" />
+  if (!items.length) return <p className="py-20 text-center text-sm text-muted-foreground">Nothing found for “{topic}”.</p>
+  return <div className={GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
 }
 
 function ShortsGrid({ items }: { items: VideoItem[] }) {

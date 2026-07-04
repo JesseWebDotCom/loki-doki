@@ -157,6 +157,7 @@ const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage
 const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
 const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPage').then((m) => ({ default: m.YoutubePlaylistPage })))
+const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
 const WatchPage = lazy(() => import('@/pages/youtube/WatchPage').then((m) => ({ default: m.WatchPage })))
 const YoutubeSettingsPage = lazy(() => import('@/pages/youtube/YoutubeSettingsPage').then((m) => ({ default: m.YoutubeSettingsPage })))
 
@@ -391,6 +392,7 @@ export default function App() {
                   <Route path="subscriptions" element={<YoutubeSubscriptionsPage />} />
                   <Route path="channel/:id" element={<YoutubeChannelPage />} />
                   <Route path="playlist/:id" element={<YoutubePlaylistPage />} />
+                  <Route path="my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
                   <Route path="watch/:videoId" element={<WatchPage />} />
                   <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
                   <Route path="settings" element={<YoutubeSettingsPage />} />

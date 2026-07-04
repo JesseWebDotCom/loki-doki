@@ -795,6 +795,41 @@ export class RadioEngine {
     await this.playFrom(runId, station, songs)
   }
 
+  // Play a FIXED, ordered track list (a playlist) start-to-finish, then stop — unlike playTrack(),
+  // never builds a continuation mix. Reuses the same playFrom() transition/DJ loop, just seeded
+  // directly with the caller's track list instead of one that fetchStationQueue would extend.
+  async playPlaylist(tracks: QueuedTrack[], startIndex = 0, opts?: { name?: string; playlistId?: string }) {
+    this.stop()
+    this.ensureAudio()
+    this.unlock()
+    this.ensureAnalyser()
+    const runId = ++this.runId
+    this.offline = this.isOfflineMode()
+    this.offlineDj = null
+    const songs = tracks.slice(Math.max(0, startIndex))
+    if (!songs.length) { this.stop(); return }
+    const first = songs[0]!
+    const station: DjStation = {
+      id: `playlist:${opts?.playlistId ?? first.videoId}`, label: opts?.name ?? 'Playlist',
+      emoji: '🎧', color: '#6d28d9', colorDark: '#a78bfa',
+      seedType: 'song', djMode: this.djOverride ?? 'full',
+    }
+    this.set({
+      active: true, station, phase: 'playing', loading: false, paused: false,
+      queue: songs, index: 0, currentTrack: first, nextTrack: songs[1] ?? null,
+      djText: null, djSpeaking: false, queueLoading: false,
+    })
+    this.deck = 0
+    let firstLocal = this.offline
+    if (!firstLocal) { try { firstLocal = (await prefetchReady([first.videoId], 'audio')).includes(first.videoId) } catch { firstLocal = false } }
+    if (this.stale(runId)) return
+    this.cueSrc(0, first.videoId, firstLocal)
+    await this.playDeck(0)
+    if (this.stale(runId)) return
+    this.ramp(this.deckKey(0), 1, 250)
+    await this.playFrom(runId, station, songs)
+  }
+
   skip() {
     // Immediate UI feedback so the listener knows the click registered (the actual hand-off takes a
     // beat to cue + crossfade). Cleared when the next song takes over.

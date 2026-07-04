@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { checkStreamPreview, fileUrl, proxyStreamUrl } from '@/lib/youtube/api'
 import type { VideoItem } from '@/lib/youtube/types'
 
-// Netflix's own card hover-preview only fires after a sustained hover, not an instant
-// mouse-pass — this matches that feel while also giving a fast sweep across a grid time
-// to move on before any work starts.
-const HOVER_DEBOUNCE_MS = 550
+// Fire the preview essentially on contact (real-YouTube feel). We keep a tiny debounce
+// so a fast sweep across a grid still clears each card's timer (via the mouseleave that
+// immediately follows the mouseenter) before any work starts — the in-flight cap and
+// per-card abort below are the real backstops against a burst of preview checks.
+const HOVER_DEBOUNCE_MS = 0
 // Defensive cap on simultaneous preview checks. Each one is at most a single InnerTube
 // HTTP call server-side (no subprocess) — cheap, but this keeps a worst-case fast sweep
 // from firing a burst of them all at once.
