@@ -1157,6 +1157,45 @@ export function runMigrations() {
       added_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS yt_collections_user_col_vid_idx ON yt_collections(user_id, collection, video_id);
+
+    CREATE TABLE IF NOT EXISTS yt_playlists (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_yt_playlists_user ON yt_playlists(user_id);
+
+    CREATE TABLE IF NOT EXISTS yt_playlist_videos (
+      id TEXT NOT NULL PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT,
+      channel_id TEXT,
+      duration_sec INTEGER,
+      position INTEGER NOT NULL DEFAULT 0,
+      added_at INTEGER NOT NULL,
+      FOREIGN KEY (playlist_id) REFERENCES yt_playlists(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_yt_pl_videos_playlist ON yt_playlist_videos(playlist_id);
+
+    CREATE TABLE IF NOT EXISTS yt_playlist_download_batches (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      playlist_id TEXT REFERENCES yt_playlists(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      max_height INTEGER,
+      video_ids TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_yt_pl_dl_batches_user ON yt_playlist_download_batches(user_id);
   `)
   // Channel-page cache (meta + first page of videos) — instant loads + stale-on-failure
   // so a transient InnerTube error never leaves a channel showing zero videos.

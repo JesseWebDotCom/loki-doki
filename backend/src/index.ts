@@ -93,6 +93,7 @@ import { plexRoute } from '@/routes/plex'
 import { adminHomeAssistant } from '@/routes/adminHomeAssistant'
 import { homeAssistantRoute } from '@/routes/homeAssistant'
 import { youtubeRoute } from '@/routes/youtube'
+import { ytPlaylists } from '@/routes/ytPlaylists'
 import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
 import { clipperRoute } from '@/routes/clipper'
 import { podcastsRoute } from '@/routes/podcasts'
@@ -541,6 +542,7 @@ app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
 app.route('/api/youtube', youtubeRoute)
+app.route('/api/youtube/playlists', ytPlaylists)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
 app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)

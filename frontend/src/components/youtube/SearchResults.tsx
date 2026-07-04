@@ -9,7 +9,7 @@ import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
-import { search as ytSearch, type SearchResult, type PlaylistSearchResult, type SearchType } from '@/lib/youtube/api'
+import { search as ytSearch, type SearchResult, type PlaylistSearchResult, type SearchType, type ChannelSearchResult } from '@/lib/youtube/api'
 import { searchToItem, savedToItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { useYtDownloads } from '@/lib/youtube/useData'
@@ -45,9 +45,11 @@ export function SearchResults({ q }: { q: string }) {
 
   // Extra pages loaded via the InnerTube continuation token ("Load more").
   const [more, setMore] = useState<SearchResult[]>([])
+  const [moreChannels, setMoreChannels] = useState<ChannelSearchResult[]>([])
+  const [morePlaylists, setMorePlaylists] = useState<PlaylistSearchResult[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
-  useEffect(() => { setMore([]); setCursor(data?.continuation ?? null) }, [data])
+  useEffect(() => { setMore([]); setMoreChannels([]); setMorePlaylists([]); setCursor(data?.continuation ?? null) }, [data])
   // Reset the filter when the query changes.
   useEffect(() => { setType('all') }, [q])
 
@@ -57,6 +59,8 @@ export function SearchResults({ q }: { q: string }) {
     try {
       const page = await ytSearch(q, cursor, type)
       setMore(prev => [...prev, ...(page.results ?? [])])
+      setMoreChannels(prev => [...prev, ...(page.channels ?? [])])
+      setMorePlaylists(prev => [...prev, ...(page.playlists ?? [])])
       setCursor(page.continuation ?? null)
     } catch { toast.error('Could not load more') } finally { setLoadingMore(false) }
   }
@@ -65,10 +69,12 @@ export function SearchResults({ q }: { q: string }) {
   const seen = new Set<string>()
   const results = [...(data?.results ?? []), ...more].filter(r => !seen.has(r.videoId) && seen.add(r.videoId))
   const items = results.map(searchToItem)
-  const channels: ChannelEntry[] = (data?.channels ?? []).map(c => ({
-    id: c.channelId, title: c.title, thumbnailUrl: c.thumbnailUrl, subtitle: c.subscribers ?? c.handle ?? undefined,
-  }))
-  const playlists = data?.playlists ?? []
+  const seenChannels = new Set<string>()
+  const channels: ChannelEntry[] = [...(data?.channels ?? []), ...moreChannels]
+    .filter(c => !seenChannels.has(c.channelId) && seenChannels.add(c.channelId))
+    .map(c => ({ id: c.channelId, title: c.title, thumbnailUrl: c.thumbnailUrl, subtitle: c.subscribers ?? c.handle ?? undefined }))
+  const seenPlaylists = new Set<string>()
+  const playlists = [...(data?.playlists ?? []), ...morePlaylists].filter(p => !seenPlaylists.has(p.playlistId) && seenPlaylists.add(p.playlistId))
   const empty = !isLoading && !results.length && !channels.length && !playlists.length
 
   if (!online) {
@@ -100,17 +106,23 @@ export function SearchResults({ q }: { q: string }) {
           <Search className="mb-3 size-10 opacity-30" /><p className="text-sm">No {type === 'all' ? 'results' : type} found</p>
         </div>
       ) : type === 'channels' ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
-          {channels.map(c => (
-            <Link key={c.id} to={`/youtube/channel/${encodeURIComponent(c.id)}`} state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
-              className="group flex items-center gap-3 rounded-card border border-border bg-card p-3 transition hover:border-[var(--yt-accent)]">
-              <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-14 shrink-0 text-xl ring-1 ring-border/40" />
-              <div className="min-w-0"><p className="truncate text-sm font-semibold">{c.title}</p>{c.subtitle && <p className="truncate text-xs text-muted-foreground">{c.subtitle}</p>}</div>
-            </Link>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
+            {channels.map(c => (
+              <Link key={c.id} to={`/youtube/channel/${encodeURIComponent(c.id)}`} state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
+                className="group flex items-center gap-3 rounded-card border border-border bg-card p-3 transition hover:border-[var(--yt-accent)]">
+                <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-14 shrink-0 text-xl ring-1 ring-border/40" />
+                <div className="min-w-0"><p className="truncate text-sm font-semibold">{c.title}</p>{c.subtitle && <p className="truncate text-xs text-muted-foreground">{c.subtitle}</p>}</div>
+              </Link>
+            ))}
+          </div>
+          <LoadMore cursor={cursor} loading={loadingMore} onClick={loadMore} />
+        </>
       ) : type === 'playlists' ? (
-        <div className={GRID}>{playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>
+        <>
+          <div className={GRID}>{playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>
+          <LoadMore cursor={cursor} loading={loadingMore} onClick={loadMore} />
+        </>
       ) : (
         <div className="space-y-8">
           {type === 'all' && channels.length > 0 && <ChannelRail title="Channels" channels={channels} />}
@@ -119,20 +131,25 @@ export function SearchResults({ q }: { q: string }) {
             <section className="space-y-3">
               {type === 'all' && (channels.length > 0 || playlists.length > 0) && <SectionHeader title="Videos" />}
               <div className={GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
-              {cursor && (
-                <div className="flex justify-center pt-2">
-                  <Button variant="outline" onClick={loadMore} disabled={loadingMore}
-                    className="h-auto px-5 py-2.5 font-semibold hover:border-[var(--yt-accent)]">
-                    {loadingMore && <Spinner />} Load more
-                  </Button>
-                </div>
-              )}
+              <LoadMore cursor={cursor} loading={loadingMore} onClick={loadMore} />
             </section>
           )}
         </div>
       )}
       {error ? <p className="text-sm text-destructive">Search failed.</p> : null}
     </PageContainer>
+  )
+}
+
+function LoadMore({ cursor, loading, onClick }: { cursor: string | null; loading: boolean; onClick: () => void }) {
+  if (!cursor) return null
+  return (
+    <div className="flex justify-center pt-2">
+      <Button variant="outline" onClick={onClick} disabled={loading}
+        className="h-auto px-5 py-2.5 font-semibold hover:border-[var(--yt-accent)]">
+        {loading && <Spinner />} Load more
+      </Button>
+    </div>
   )
 }
 

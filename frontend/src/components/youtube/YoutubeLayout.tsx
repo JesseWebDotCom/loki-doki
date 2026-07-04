@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
+import { youtubeSuggestSource } from '@/lib/youtube/api'
 import { YoutubeRail } from '@/components/youtube/YoutubeRail'
 import { DownloadDialog, SaveDialog, ManageChannelsDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
 import { hydrateCollections } from '@/lib/youtube/collections'
@@ -98,6 +99,7 @@ export function YoutubeLayout() {
     onSubmit: () => { const t = query.trim(); if (t) navigate(`/youtube?q=${encodeURIComponent(t)}`) },
     placeholder: mode === 'online' ? 'Search videos, channels, episodes…' : 'Search your offline library…',
     externalHref: mode === 'online' ? 'https://www.youtube.com' : undefined,
+    suggest: mode === 'online' ? youtubeSuggestSource : undefined,
     rightSlot,
   })
 

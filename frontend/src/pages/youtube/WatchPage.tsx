@@ -3,7 +3,7 @@ import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'reac
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BookmarkPlus, Download, Heart, Clock, Search, Smartphone, Mic, Check,
-  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal,
+  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square,
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -28,6 +28,7 @@ import { useYtFeed } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
+  startLiveRecord, stopLiveRecord,
   ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
@@ -342,6 +343,27 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
 
+  // Live DVR: record an in-progress stream from its start. `recording` is local UI state only —
+  // the capture itself runs server-side as a durable job, so reloading this page just loses the
+  // "Stop" affordance (clicking Record again harmlessly coalesces onto the same in-progress job).
+  const [recording, setRecording] = useState(false)
+  const [recordBusy, setRecordBusy] = useState(false)
+  async function toggleRecording() {
+    setRecordBusy(true)
+    try {
+      if (recording) {
+        await stopLiveRecord(videoId)
+        setRecording(false)
+        toast.success('Recording finalizing — check Offline library shortly')
+      } else {
+        const d = await startLiveRecord(videoId, title)
+        if (d.error) { toast.error(d.error); return }
+        setRecording(true)
+        toast.success('Recording from the start of the stream')
+      }
+    } catch { toast.error('Could not update the recording') } finally { setRecordBusy(false) }
+  }
+
   const { ask: askUnsub, dialog: unsubDialog } = useUnsubscribeConfirm()
   async function toggleSub() {
     if (!channelId) return
@@ -422,6 +444,11 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
           <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
             <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked} onClick={() => toggleCollection('liked', snapshot)} />
             <AddToPlaylistPill compact video={{ videoId, title, author: author ?? undefined, channelId: channelId ?? undefined, durationSec: meta?.durationSec ?? undefined }} />
+            {online && meta?.isLive && (
+              <SegBtn icon={recording ? Square : Circle} label={recording ? 'Stop recording' : 'Record from start'}
+                active={recording} tone="accent" iconFill={recording} onClick={recordBusy ? undefined : toggleRecording}
+                title={recording ? 'Stop recording — keeps what was captured' : 'Record this livestream from its start'} />
+            )}
             <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
             <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
             <DropdownMenu>

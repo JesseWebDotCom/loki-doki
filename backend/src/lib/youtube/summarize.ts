@@ -20,7 +20,9 @@ const SUMMARY_SYSTEM =
   'Dive straight into the content itself. Do NOT begin with meta openers like "The video transcript describes", ' +
   '"This video", "In this video", "The speaker", "The transcript" — write as if explaining the subject directly. ' +
   'The transcript may be auto-generated and may be cut off; summarize whatever is present, never ask the user for ' +
-  'more, never mention that it is incomplete, and never address the reader. Output only the summary.'
+  'more, never mention that it is incomplete, and never address the reader. ' +
+  'The transcript may be in any language — always write the summary in English regardless of the transcript\'s ' +
+  'language. Output only the summary.'
 
 // Safety net: even with the instruction above, small models sometimes lead with a meta
 // preamble. Strip a single such opening clause so the summary starts on substance.

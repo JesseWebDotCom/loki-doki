@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live'
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -377,8 +377,10 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
         logger.error(`[jobs] ✗ ${job.type}:${job.refId} — gave up after ${attempts} attempts: ${err}`)
         await notifyJobExhausted(job, String(err))
         // Propagate terminal failure to the shared media asset + every waiting ref, so a second
-        // user who attached to this job doesn't sit on 'pending' forever.
-        if (job.type === 'yt-media') {
+        // user who attached to this job doesn't sit on 'pending' forever. Safe for yt-live-record
+        // too: this branch only runs when the runner actually threw (nothing worth keeping was
+        // captured) — a graceful stop/partial-keep resolves normally and never reaches here.
+        if (job.type === 'yt-media' || job.type === 'yt-live-record') {
           const { failAssetByJobRefId } = await import('@/lib/youtube/assets')
           await failAssetByJobRefId(job.refId, String(err)).catch(() => {})
         }
@@ -507,6 +509,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       const payload = JSON.parse(job.refId) as import('@/lib/youtube/download').YtExportJobPayload
       const { runYtExportJob } = await import('@/lib/youtube/download')
       await runYtExportJob(payload, onProgress, signal)
+      return
+    }
+    case 'yt-live-record': {
+      const payload = JSON.parse(job.refId) as import('@/lib/youtube/live').YtLiveRecordPayload
+      const { runYtLiveRecordJob } = await import('@/lib/youtube/live')
+      await runYtLiveRecordJob(payload, onProgress, signal)
       return
     }
     case 'podcast-generate': {

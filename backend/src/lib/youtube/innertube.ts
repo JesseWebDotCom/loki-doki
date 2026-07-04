@@ -413,20 +413,22 @@ export const SEARCH_FILTERS = {
   shorts: 'EgIYAQ==',   // "short" duration (<4 min); we further narrow to Shorts client-side
 } as const
 
+function collectChannels(data: any, channelLimit: number): ItChannel[] {
+  const channels: ItChannel[] = []
+  if (channelLimit <= 0) return channels
+  const raw: any[] = []
+  collect(data, 'channelRenderer', raw, channelLimit * 2)
+  const seen = new Set<string>()
+  for (const r of raw) {
+    const ch = parseChannelRenderer(r)
+    if (ch && !seen.has(ch.channelId)) { seen.add(ch.channelId); channels.push(ch); if (channels.length >= channelLimit) break }
+  }
+  return channels
+}
+
 export async function innertubeSearch(query: string, limit = 12, channelLimit = 0, timeout = 8000, playlistLimit = 0, params?: string): Promise<ItSearch> {
   const data = await call('search', params ? { query, params } : { query }, timeout)
-  const videos = collectVideos(data, limit)
-  const channels: ItChannel[] = []
-  if (channelLimit > 0) {
-    const raw: any[] = []
-    collect(data, 'channelRenderer', raw, channelLimit * 2)
-    const seen = new Set<string>()
-    for (const r of raw) {
-      const ch = parseChannelRenderer(r)
-      if (ch && !seen.has(ch.channelId)) { seen.add(ch.channelId); channels.push(ch); if (channels.length >= channelLimit) break }
-    }
-  }
-  return { videos, channels, playlists: collectPlaylists(data, playlistLimit), continuation: findContinuation(data) }
+  return { videos: collectVideos(data, limit), channels: collectChannels(data, channelLimit), playlists: collectPlaylists(data, playlistLimit), continuation: findContinuation(data) }
 }
 
 export interface ItPlaylistOwner { channelId: string | null; name: string | null; thumbnailUrl: string | null }
@@ -464,10 +466,12 @@ export async function innertubePlaylist(playlistId: string, limit = 50, timeout 
   return { title, description, owner: parsePlaylistOwner(data), videos: collectVideos(data, limit) }
 }
 
-/** Fetch the next page of search results from a continuation token. */
-export async function innertubeSearchMore(token: string, limit = 20, timeout = 8000): Promise<{ videos: ItVideo[]; continuation: string | null }> {
+/** Fetch the next page of search results from a continuation token. Pass channelLimit/playlistLimit
+ *  > 0 when paging a Channels/Playlists-filtered search so those pages keep filling in too — a
+ *  continuation token only replays the same result type as the search it came from. */
+export async function innertubeSearchMore(token: string, limit = 20, timeout = 8000, channelLimit = 0, playlistLimit = 0): Promise<ItSearch> {
   const data = await call('search', { continuation: token }, timeout)
-  return { videos: collectVideos(data, limit), continuation: findContinuation(data) }
+  return { videos: collectVideos(data, limit), channels: collectChannels(data, channelLimit), playlists: collectPlaylists(data, playlistLimit), continuation: findContinuation(data) }
 }
 
 // ── Channel browse (with continuation paging) ────────────────────────────────────
@@ -837,6 +841,10 @@ export interface ItPlayerMeta {
   description: string | null
   durationSec: number | null
   views: string | null
+  /** Cheap "is this currently live" signal for the Record-from-start button. Backed by the
+   *  same player response this call already fetches — no extra request. yt-dlp's `-J` (see
+   *  live.ts's getLiveStatus) is the authoritative check right before a recording starts. */
+  isLive: boolean
 }
 
 /** Fast video metadata (title/author/description/length) without spawning yt-dlp. */
@@ -853,6 +861,7 @@ export async function innertubePlayerMeta(videoId: string, timeout = 8000): Prom
     description: d.shortDescription ?? null,
     durationSec: Number.isFinite(len) && len > 0 ? len : null,
     views: d.viewCount ?? null,
+    isLive: !!d.isLive,
   }
 }
 

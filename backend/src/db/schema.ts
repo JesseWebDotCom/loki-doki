@@ -1257,6 +1257,47 @@ export const ytCollections = sqliteTable('yt_collections', {
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userColVidUnique: unique().on(t.userId, t.collection, t.videoId) }))
 
+// User-curated video playlists — explicit, named, ordered lists (distinct from the fixed
+// Watch Later / Liked buckets in ytCollections above).
+export const ytPlaylists = sqliteTable('yt_playlists', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description'),
+  visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const ytPlaylistVideos = sqliteTable('yt_playlist_videos', {
+  id: text('id').primaryKey(),
+  playlistId: text('playlist_id').notNull().references(() => ytPlaylists.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  title: text('title').notNull(),
+  author: text('author'),
+  channelId: text('channel_id'),
+  durationSec: integer('duration_sec'),
+  position: integer('position').notNull().default(0),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+})
+
+// "Download all" batches for a curated playlist — a thin tracking row, not a download
+// pipeline of its own. Each video in the batch is enqueued through the same per-video
+// enqueueVideoSave() a manual Save uses, so status is computed live by joining ytDownloads
+// on (userId, videoId IN videoIds, kind) rather than duplicated here.
+export const ytPlaylistDownloadBatches = sqliteTable('yt_playlist_download_batches', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  playlistId: text('playlist_id').references(() => ytPlaylists.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  kind: text('kind', { enum: ['audio', 'video'] }).notNull(),
+  maxHeight: integer('max_height'),
+  videoIds: text('video_ids').notNull(),   // JSON string[] snapshot at batch-start time
+  status: text('status', { enum: ['running', 'completed', 'completed_with_errors', 'cancelled'] }).notNull().default('running'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── Podcasts ─────────────────────────────────────────────────────────────────
 
 export const podcastShows = sqliteTable('podcast_shows', {

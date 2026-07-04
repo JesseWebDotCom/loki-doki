@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { SuggestSource } from '@/lib/smartSearch/types'
 
 export interface AppHeaderConfig {
   query: string
@@ -8,6 +9,8 @@ export interface AppHeaderConfig {
   onSubmit?: () => void
   /** Set false to hide the search input entirely (for header rows that only use slots). */
   searchable?: boolean
+  /** Opt into the autosuggest dropdown (SmartSearchInput) instead of a plain input. */
+  suggest?: SuggestSource
   placeholder?: string
   loading?: boolean
   /** Opens in a new tab — shown as an external link icon. */
@@ -70,7 +73,7 @@ export function useAppHeader(config: AppHeaderConfig) {
   const setQuery = useCallback((q: string) => configRef.current.setQuery(q), [])
   const onSubmit = useCallback(() => configRef.current.onSubmit?.(), [])
 
-  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs } = config
+  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs, suggest } = config
   const hasSubmit = !!config.onSubmit
 
   useLayoutEffect(() => {
@@ -84,11 +87,12 @@ export function useAppHeader(config: AppHeaderConfig) {
       rightSlot,
       searchable,
       extraCrumbs,
+      suggest,
       setQuery,
       onSubmit: hasSubmit ? onSubmit : undefined,
     })
     return () => _set(null)
-  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs, hasSubmit, setQuery, onSubmit, _set])
+  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs, suggest, hasSubmit, setQuery, onSubmit, _set])
 }
 
 // ── Back-compat aliases ────────────────────────────────────────────────────────

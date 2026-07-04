@@ -2,6 +2,7 @@
 // consolidating the fetch helpers that used to live inline in YoutubePage.
 
 import type { UseQueryOptions } from '@tanstack/react-query'
+import type { SuggestSource } from '@/lib/smartSearch/types'
 
 const opts: RequestInit = { credentials: 'include' }
 const J = { 'Content-Type': 'application/json' }
@@ -101,6 +102,7 @@ export interface VideoMeta {
   durationSec: number | null
   subscribed?: boolean
   subscriptionId?: string | null
+  isLive?: boolean
 }
 
 export interface SaveQuality { tiers: number[]; cap: number; pref: number | null }
@@ -381,6 +383,13 @@ export interface SearchResponse {
 
 export type SearchType = 'all' | 'videos' | 'shorts' | 'playlists' | 'channels'
 
+/** Query-autosuggest source for SmartSearchInput, backed by YouTube's own suggest endpoint. */
+export const youtubeSuggestSource: SuggestSource = async (query, signal) => {
+  const r = await fetch(`/api/youtube/suggest?q=${encodeURIComponent(query)}`, { ...opts, signal })
+  const d = await r.json() as { suggestions?: string[] }
+  return (d.suggestions ?? []).map((label, i) => ({ id: String(i), label }))
+}
+
 export async function search(q: string, cursor?: string | null, type: SearchType = 'all'): Promise<SearchResponse> {
   const parts = [`q=${encodeURIComponent(q)}`]
   if (cursor) parts.push(`cursor=${encodeURIComponent(cursor)}`)
@@ -507,6 +516,18 @@ export async function getSaveQuality(): Promise<SaveQuality> {
   return r.json() as Promise<SaveQuality>
 }
 
+// ── Live-from-start DVR ──────────────────────────────────────────────────────────
+
+export async function startLiveRecord(videoId: string, title: string): Promise<{ status?: string; error?: string }> {
+  const r = await fetch(`/api/youtube/live/${videoId}/record`, { ...opts, method: 'POST', headers: J, body: JSON.stringify({ title }) })
+  return r.json() as Promise<{ status?: string; error?: string }>
+}
+
+export async function stopLiveRecord(videoId: string): Promise<{ ok: boolean }> {
+  const r = await fetch(`/api/youtube/live/${videoId}/stop`, { ...opts, method: 'POST' })
+  return r.json() as Promise<{ ok: boolean }>
+}
+
 // ── Export to device ───────────────────────────────────────────────────────────
 
 export async function getFormats(videoId: string): Promise<YtFormat[]> {
@@ -564,6 +585,16 @@ export interface HistoryRow {
 export async function getHistory(): Promise<HistoryRow[]> {
   const r = await fetch('/api/youtube/history', { ...opts, cache: 'no-store' })
   return (await r.json() as { history: HistoryRow[] }).history ?? []
+}
+
+/** Remove one video from watch history. */
+export async function removeHistoryItem(videoId: string): Promise<void> {
+  await fetch(`/api/youtube/history/${encodeURIComponent(videoId)}`, { ...opts, method: 'DELETE' })
+}
+
+/** Clear the entire watch history. */
+export async function clearHistory(): Promise<void> {
+  await fetch('/api/youtube/history', { ...opts, method: 'DELETE' })
 }
 
 /** Same-origin proxy for a YouTube image (avatar/thumbnail) — canvas-safe, no Google hit. */
