@@ -58,9 +58,10 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
   const stampStyle = hashInt(`${seed}#s`) % 4
   const upper = hashInt(`${seed}#u`) % 4 !== 0 // mostly uppercase, occasionally title-case
   const albumFs = fs(albumCqw(albumName.length || 1))
-  // Mix in the band LOGO (when we have one) on ~40% of covers: some over the photo, some on colour.
+  // Mix in the band LOGO (when we have one) on ~40% of covers, each with a different background
+  // pattern so no two logo covers look alike.
   const logoMode = !!logo && hashInt(`${seed}#lg`) % 5 < 2
-  const logoOnPhoto = !!photo && hashInt(`${seed}#lo`) % 2 === 0
+  const logoBg = hashInt(`${seed}#bp`) % 6
 
   const text = {
     fontFamily: font, color: p.fg, textShadow: shadow,
@@ -113,12 +114,25 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
     return (
       <div className={cn('relative size-full overflow-hidden [container-type:inline-size]', className)}
         style={{ background: `linear-gradient(${angle}deg, ${p.c1}, ${p.c2})` }}>
-        {logoOnPhoto ? (<>
+        {/* Background pattern - varied per album so logo covers never repeat. */}
+        {logoBg === 0 && <div className="absolute inset-0" style={{ background: `linear-gradient(${angle}deg, ${p.c1}, ${p.c2})` }} />}
+        {logoBg === 1 && <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 40%, ${p.c2}, ${p.c1} 82%)` }} />}
+        {logoBg === 2 && (<>
+          <div className="absolute inset-0" style={{ background: p.c2 }} />
+          <div className="absolute inset-0" style={{ background: p.c1, clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
+        </>)}
+        {logoBg === 3 && photo && (<>
           <Photo pos="center" />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, ${p.c1}73, ${p.c1}cc)` }} />
-        </>) : (
-          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 42%, ${p.c2}40, ${p.c1}f2 78%)` }} />
-        )}
+          <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, ${p.c1}80, ${p.c1}d9)` }} />
+        </>)}
+        {logoBg === 3 && !photo && <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 30% 22%, ${p.c2}, ${p.c1} 76%)` }} />}
+        {logoBg === 4 && <div className="absolute inset-0" style={{ background: `repeating-linear-gradient(-45deg, ${p.c1}, ${p.c1} 7%, ${p.c2} 7%, ${p.c2} 14%)` }} />}
+        {logoBg === 5 && (<>
+          <div className="absolute inset-0" style={{ background: p.c1 }} />
+          <div className="absolute inset-0" style={{ background: `radial-gradient(${p.accent}59 16%, transparent 17%)`, backgroundSize: '13% 13%' }} />
+        </>)}
+        {/* Center scrim so the white logo pops on any pattern (incl. bright palettes). */}
+        <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0.34), transparent 62%)' }} />
         {/* covers are always dark → force the (usually monochrome) logo white so it always reads */}
         <div className="absolute inset-0 flex items-center justify-center" style={{ padding: '15% 13% 26%' }}>
           <img src={proxyImg(logo)} alt="" loading="lazy" className="max-h-full max-w-full object-contain"
