@@ -78,7 +78,7 @@ export function MusicArtistPage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {list.map(al => (
                 <button key={al.mbid} onClick={() => navigate(`/music/album/${al.mbid}`)} className="flex flex-col gap-2 rounded-card p-2 text-left transition hover:bg-accent/50">
-                  <AlbumCover coverUrl={al.coverUrl} artist={al.artistName} album={al.title} className="aspect-square w-full rounded-control" />
+                  <AlbumCover coverUrl={al.coverUrl} artist={al.artistName} album={al.title} artistImage={info?.image} className="aspect-square w-full rounded-control" />
                   <div><p className="truncate text-sm font-medium">{al.title}</p>{al.year && <p className="text-caption text-muted-foreground">{al.year}</p>}</div>
                 </button>
               ))}
