@@ -12,8 +12,7 @@ import { warmupModel } from '@/lib/models'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import { CATALOG, TIERS, recommendedTier, ROLE_SETTINGS_KEY } from '@/lib/catalog'
 import { ollamaList } from '@/llm/ollama'
-import { pullOllama, downloadHfFile, downloadAndStartOllama, downloadComfyUIModel, setupComfyUIBase, installComfyUINodes, downloadTaesdModels, downloadSdxlVae, downloadEsrganModel, findSystemOllama, OLLAMA_BIN_APPROX_BYTES, OLLAMA_WINDOWS_INSTALL_MESSAGE, dataDir, currentOllamaVersion } from '@/lib/download'
-import { IS_WIN } from '@/lib/platform'
+import { pullOllama, downloadHfFile, downloadAndStartOllama, downloadComfyUIModel, setupComfyUIBase, installComfyUINodes, downloadTaesdModels, downloadSdxlVae, downloadEsrganModel, findSystemOllama, OLLAMA_BIN_APPROX_BYTES, dataDir, currentOllamaVersion } from '@/lib/download'
 import { spawnComfyUI, isComfyUIInstalled } from '@/lib/comfyui'
 import { maybeSpawnKiwix } from '@/lib/kiwix'
 import { IMAGE_ROLES, getInstallComponent, recordInstalled } from '@/lib/installRegistry'
@@ -281,12 +280,6 @@ setup.post('/download', requireAuth, async (c) => {
     // seeded 'pending' entry gets resolved even when Ollama is already running.
     const ollamaBase = { id: 'ollama-runtime', role: 'runtime', label: 'Ollama Runtime' }
     await stream.writeSSE({ event: 'start', data: JSON.stringify({ ...ollamaBase, status: 'downloading' }) })
-    // Windows can't auto-install Ollama — if it's neither running nor installed, stop with a
-    // clear, actionable error instead of attempting the unreliable standalone-zip fallback.
-    if (!ollamaOk && IS_WIN && !findSystemOllama()) {
-      await stream.writeSSE({ event: 'error', data: JSON.stringify({ ...ollamaBase, status: 'error', error: OLLAMA_WINDOWS_INSTALL_MESSAGE }) })
-      return
-    }
     if (!ollamaOk) {
       try {
         await downloadAndStartOllama(async (p) => {

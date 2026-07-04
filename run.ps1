@@ -1,0 +1,161 @@
+<#
+  Windows launcher for Loki Doki, the PowerShell counterpart to run.sh.
+
+  Usage:
+    powershell -ExecutionPolicy Bypass -File .\run.ps1
+    powershell -ExecutionPolicy Bypass -File .\run.ps1 -Uninstall
+
+  Loki Doki runs on the Bun runtime. This installs Bun automatically on first run
+  so a fresh machine needs nothing but this script and Ollama (which you install
+  once from https://ollama.com/download; the app auto-detects it). Ollama and the
+  AI models download on first launch from the setup wizard.
+#>
+
+param(
+  [switch]$Uninstall
+)
+
+$ErrorActionPreference = 'Stop'
+$Root = $PSScriptRoot
+
+# Ports every app + sidecar listens on: vite, backend, ComfyUI, voice, kiwix,
+# GraphHopper (+admin), pod gateway.
+$Ports = @(5173, 3000, 8188, 8092, 8091, 8090, 8002, 8003, 10700)
+
+# Full-command-line signatures for detached sidecars that outlive the servers.
+$SidecarPatterns = @(
+  'bun run --hot src/index.ts',                 # backend (dev)
+  "$Root\frontend\node_modules",                # frontend (vite)
+  "$Root\data\comfyui",                         # ComfyUI (python)
+  'bun run dev'                                 # leftover dev wrappers
+)
+
+# ── Bun bootstrap ─────────────────────────────────────────────────────────────
+function Ensure-Bun {
+  if (Get-Command bun -ErrorAction SilentlyContinue) { return }
+  Write-Host 'Bun runtime not found, installing it...'
+  Invoke-RestMethod https://bun.sh/install.ps1 | Invoke-Expression
+  $bunBin = Join-Path $env:USERPROFILE '.bun\bin'
+  if (Test-Path $bunBin) { $env:Path = "$bunBin;$env:Path" }
+  if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
+    throw 'Bun install did not add bun to PATH. Open a new terminal and re-run, or install Bun manually from https://bun.sh.'
+  }
+}
+
+# ── Teardown helpers ──────────────────────────────────────────────────────────
+function Stop-Port([int]$Port) {
+  try {
+    Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+      Select-Object -ExpandProperty OwningProcess -Unique |
+      ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+  } catch { }
+}
+
+function Stop-ByCommandLine([string]$Pattern) {
+  try {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.CommandLine -and $_.CommandLine -like "*$Pattern*" } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  } catch { }
+}
+
+# Completely stop any previous instance before starting. Killing the dev servers
+# (or their ports) is NOT enough: the backend spawns detached sidecars (ComfyUI,
+# voice server, kiwix, GraphHopper, the Wyoming pod gateway) that outlive it and
+# pile up across runs. Free every known port, then sweep this project's dev
+# runtimes + spawned children by command line so nothing lingers. Scoped to
+# "$Root" / specific signatures so unrelated work on the machine is never touched.
+function Stop-Existing {
+  Write-Host 'Stopping any previous instance (servers + sidecars)...'
+  foreach ($p in $Ports) { Stop-Port $p }
+  foreach ($sig in $SidecarPatterns) { Stop-ByCommandLine $sig }
+  Start-Sleep -Seconds 1
+}
+
+# Unload Ollama models on exit so they don't linger in VRAM across sessions.
+# The backend's own SIGTERM handler runs first; this is the fallback for crashes.
+function Invoke-OllamaUnload {
+  $ollama = if ($env:OLLAMA_URL) { $env:OLLAMA_URL.TrimEnd('/') } else { 'http://localhost:11434' }
+  try {
+    $ps = Invoke-RestMethod -Uri "$ollama/api/ps" -TimeoutSec 3
+    foreach ($m in $ps.models) {
+      try {
+        $body = @{ model = $m.name; keep_alive = 0 } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Method Post -Uri "$ollama/api/generate" -Body $body -ContentType 'application/json' -TimeoutSec 5 | Out-Null
+      } catch { }
+    }
+  } catch { }
+}
+
+# ── Uninstall path ────────────────────────────────────────────────────────────
+if ($Uninstall) {
+  Ensure-Bun
+  Write-Host ''
+  Write-Host 'WARNING: This will permanently delete all app data, AI models, ComfyUI,'
+  Write-Host 'voice/map caches, and the downloaded runtimes from this machine.'
+  Write-Host ''
+  $confirm = Read-Host 'Type UNINSTALL to confirm'
+  if ($confirm -ne 'UNINSTALL') { Write-Host 'Cancelled.'; exit 1 }
+  Set-Location (Join-Path $Root 'backend')
+  if (-not (Test-Path 'node_modules')) { bun install --silent }
+  bun run src/uninstall-cli.ts
+  exit $LASTEXITCODE
+}
+
+# ── Launch ────────────────────────────────────────────────────────────────────
+Ensure-Bun
+
+$backend = $null
+$frontend = $null
+
+try {
+  Stop-Existing
+
+  Write-Host 'Starting backend...'
+  $backendDir = Join-Path $Root 'backend'
+  if (-not (Test-Path (Join-Path $backendDir 'node_modules'))) {
+    Push-Location $backendDir; bun install; Pop-Location
+  }
+  $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
+    -WorkingDirectory $backendDir -NoNewWindow -PassThru
+
+  Write-Host 'Starting frontend...'
+  $frontendDir = Join-Path $Root 'frontend'
+  if (-not (Test-Path (Join-Path $frontendDir 'node_modules'))) {
+    Push-Location $frontendDir; bun install; Pop-Location
+  }
+  $frontend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
+    -WorkingDirectory $frontendDir -NoNewWindow -PassThru
+
+  # Wait for the frontend to bind, then open the browser (Chrome if available,
+  # otherwise the default browser).
+  Write-Host 'Waiting for the frontend...'
+  while (-not (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue)) {
+    if ($frontend.HasExited) { throw 'Frontend exited before it started listening on port 5173.' }
+    Start-Sleep -Milliseconds 200
+  }
+  $url = 'http://localhost:5173'
+  try { Start-Process 'chrome.exe' "--new-window $url" }
+  catch { Start-Process $url }
+
+  Write-Host ''
+  Write-Host "Loki Doki is running at $url  (press Ctrl+C to stop)"
+
+  # Keep the script alive until either server exits (crash) or the user hits
+  # Ctrl+C, then fall through to cleanup.
+  while (-not $backend.HasExited -and -not $frontend.HasExited) {
+    Start-Sleep -Milliseconds 500
+  }
+}
+finally {
+  Write-Host ''
+  Write-Host 'Shutting down...'
+  # Ask the backend to stop first so its own SIGTERM handler can unload models.
+  if ($backend  -and -not $backend.HasExited)  { Stop-Process -Id $backend.Id  -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Seconds 2
+  Invoke-OllamaUnload
+  if ($frontend -and -not $frontend.HasExited) { Stop-Process -Id $frontend.Id -Force -ErrorAction SilentlyContinue }
+  # Sweep any detached sidecars the servers left behind.
+  foreach ($p in $Ports) { Stop-Port $p }
+  foreach ($sig in $SidecarPatterns) { Stop-ByCommandLine $sig }
+}

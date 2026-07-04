@@ -677,8 +677,6 @@ const OLLAMA_ZIP_URL =
 const OLLAMA_ZIP_DEST = IS_WIN ? 'downloads/ollama-windows.zip' : 'downloads/Ollama-darwin.zip'
 export const OLLAMA_BIN_DEST = IS_WIN ? 'bin/ollama.exe' : 'bin/ollama'
 export const OLLAMA_BIN_APPROX_BYTES = 90_000_000  // ~90 MB zip
-export const OLLAMA_WINDOWS_INSTALL_MESSAGE =
-  'Ollama is required and must be installed manually on Windows. Download it from https://ollama.com/download — it starts automatically once installed, and setup will continue.'
 
 // Standard locations where Ollama is pre-installed (macOS app, Windows installer, or Linux package)
 const SYSTEM_OLLAMA_CANDIDATES = IS_WIN
@@ -752,10 +750,20 @@ export async function downloadAndStartOllama(
         await rm(extractDir, { recursive: true, force: true })
         await rm(zipPath, { force: true })
       } else if (IS_WIN) {
-        // On Windows we don't auto-install: the official installer registers Ollama as an
-        // auto-starting service and is far more reliable than unpacking the standalone zip.
-        // Surface an actionable error; the wizard already prompts the user up front.
-        throw new Error(OLLAMA_WINDOWS_INSTALL_MESSAGE)
+        // Windows: the standalone zip is self-contained — ollama.exe plus its
+        // lib/ollama runners (the CUDA libraries included) — so extract it straight
+        // into data/bin, the same self-managed approach macOS uses. No installer and
+        // no admin elevation, and the auto-updater (upgradeOllama) re-fetches this
+        // same always-"latest" zip to keep it current.
+        await downloadUrl(OLLAMA_ZIP_URL, OLLAMA_ZIP_DEST, onProgress, signal)
+        const zipPath = join(dataDir, OLLAMA_ZIP_DEST)
+        await mkdir(join(dataDir, 'bin'), { recursive: true })
+        onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Extracting Ollama…' })
+        extractZip(zipPath, join(dataDir, 'bin'), 180_000)
+        if (!existsSync(binPath)) {
+          throw new Error('Ollama install failed: ollama.exe not found after extracting the Windows build')
+        }
+        await rm(zipPath, { force: true })
       } else {
         await downloadUrl(OLLAMA_ZIP_URL, OLLAMA_BIN_DEST, onProgress, signal)
         chmodSync(binPath, 0o755)
@@ -798,6 +806,18 @@ export async function currentOllamaVersion(): Promise<string | null> {
     if (!r.ok) return null
     const { version } = await r.json() as { version?: string }
     return version ?? null
+  } catch { return null }
+}
+
+/** Latest published Ollama release version (e.g. "0.12.3"), via the GitHub
+ *  releases/latest redirect so we don't spend the API rate limit. Best-effort. */
+async function latestOllamaVersion(): Promise<string | null> {
+  try {
+    const r = await fetch('https://github.com/ollama/ollama/releases/latest', {
+      method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(5_000),
+    })
+    const m = r.headers.get('location')?.match(/\/tag\/v?(\d+\.\d+\.\d+)/)
+    return m?.[1] ?? null
   } catch { return null }
 }
 
@@ -849,7 +869,23 @@ export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<O
     const systemBin = findSystemOllama()
     const managedBin = join(dataDir, OLLAMA_BIN_DEST)
     if (!systemBin && existsSync(managedBin)) {
-      status('Re-downloading the latest Ollama build…')
+      // Skip a needless ~700MB re-download when the running build already matches the
+      // latest release. If we can't determine either version, fall through and refresh
+      // (safe default). This is what makes the weekly cadence cheap on Windows, where
+      // the managed binary is the normal install rather than a rare fallback.
+      const [running, latest] = await Promise.all([currentOllamaVersion(), latestOllamaVersion()])
+      if (running && latest && running === latest) {
+        await setAppSetting(OLLAMA_VERSION_KEY, running)
+        status(`Ollama already current (${running})`)
+        return 'up-to-date'
+      }
+      status(`Updating Ollama${latest ? ` to ${latest}` : ''}…`)
+      // Stop the running server first: otherwise downloadAndStartOllama sees Ollama
+      // still answering on the port and returns without fetching the update, and on
+      // Windows a running ollama.exe can't be overwritten. Match on the binary path so
+      // this works whether the process reports as `ollama` or `ollama.exe`.
+      killByCommandLine(managedBin)
+      await new Promise<void>((r) => setTimeout(r, 800))
       await rm(managedBin, { force: true })
       await downloadAndStartOllama(() => {})
       const v = await currentOllamaVersion()

@@ -1060,36 +1060,12 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
     )
   }
 
-  // Windows can't auto-install Ollama. Block the install and prompt for the official
-  // installer until a server is running or a binary is detected (polled every 3s).
-  const needsOllama = catalog.hardware.platform === 'win32' && !ollamaRunning && !ollamaInstalled
-
   return (
     <div className="w-full space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div ref={titleRef} className="sticky top-0 z-20 -mx-6 glass-chrome px-6 pb-3 pt-1 sm:-mx-10 sm:px-10">
         <h2 className="text-title">Choose your AI</h2>
         <p className="mt-1 text-sm text-muted-foreground">Pick the models and features to install. You can add more anytime from Admin → Features.</p>
       </div>
-
-      {needsOllama && (
-        <div className="flex items-start gap-3 rounded-card border border-warning/40 bg-warning/10 px-4 py-3.5">
-          <AlertTriangle className="size-5 shrink-0 text-warning mt-0.5" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <p className="text-sm font-semibold text-warning">Ollama is required</p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              On Windows, Ollama must be installed manually. Download and run the installer, it starts
-              automatically, and this page will detect it within a few seconds.
-            </p>
-            <a href="https://ollama.com/download" target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-control bg-warning/20 px-3 py-1.5 text-xs font-semibold text-warning hover:bg-warning/30 transition-colors">
-              <Globe className="size-3.5" /> Get Ollama
-            </a>
-          </div>
-          <span className="shrink-0 inline-flex items-center gap-1.5 self-center text-xs text-muted-foreground">
-            <Spinner size="sm" /> Waiting…
-          </span>
-        </div>
-      )}
 
       {/* Compact summary (default) */}
       {!customizing && (
@@ -1254,7 +1230,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
         const componentBytes = selectedComponents.reduce((sum, id) => { const cap = CAPABILITIES.find((c) => c.id === id); return cap ? sum + cap.bytes : sum }, 0)
         const toDownloadBytes = selectedIds.reduce((sum, id) => { const m = catalog.models.find((x) => x.id === id); return m && !m.installed ? sum + m.approxBytes : sum }, 0) + ollamaBytes + componentBytes
         const notEnough  = freeBytes > 0 && toDownloadBytes > freeBytes * 0.95
-        const canProceed = selectedIds.length > 0 && !notEnough && !needsOllama
+        const canProceed = selectedIds.length > 0 && !notEnough
         return (
           <div className="rounded-card border border-border bg-card px-4 py-4 space-y-3">
             {customizing ? (
