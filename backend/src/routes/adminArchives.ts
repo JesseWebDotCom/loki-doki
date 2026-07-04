@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { db } from '@/db'
-import { zimArchives } from '@/db/schema'
+import { zimArchives, downloadJobs } from '@/db/schema'
 import { ZIM_CATALOG } from '@/lib/zimCatalog'
 import {
   kiwixZimDir,
@@ -139,6 +139,9 @@ adminArchives.delete('/:sourceId', async (c) => {
   } catch { /* non-fatal */ }
 
   await db.delete(zimArchives).where(eq(zimArchives.sourceId, sourceId))
+  // Drop the background-queue row too, so the pack shows as removed everywhere and a later
+  // re-add enqueues a fresh download instead of being skipped as "already completed".
+  await db.delete(downloadJobs).where(and(eq(downloadJobs.type, 'archive'), eq(downloadJobs.refId, sourceId)))
 
   // Restart kiwix with updated list
   const allRows  = await db.select().from(zimArchives)

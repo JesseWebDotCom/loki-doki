@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import { and, eq } from 'drizzle-orm'
+import { db } from '@/db'
+import { downloadJobs } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 import { catalogTree, getRegion } from '@/lib/maps/catalog'
@@ -152,6 +155,8 @@ adminMaps.delete('/:regionId', async (c) => {
   const ctrl = activeBuilds.get(regionId)
   if (ctrl) { ctrl.abort(); activeBuilds.delete(regionId) }
   await removeRegion(regionId)
+  // Drop the background-queue row too, so a later re-add enqueues a fresh build.
+  await db.delete(downloadJobs).where(and(eq(downloadJobs.type, 'map'), eq(downloadJobs.refId, regionId)))
   return c.json({ ok: true })
 })
 
