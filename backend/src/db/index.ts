@@ -408,6 +408,31 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_conversions_user_id ON conversions(user_id);
   `)
 
+  // Device-to-device drops (ephemeral; files at data/drops/<id>, swept by TTL)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS file_drops (
+      id TEXT NOT NULL PRIMARY KEY,
+      sender_user_id TEXT NOT NULL,
+      sender_device_id TEXT NOT NULL,
+      sender_label TEXT NOT NULL,
+      target_user_id TEXT NOT NULL,
+      target_device_id TEXT,
+      kind TEXT NOT NULL,
+      file_name TEXT,
+      mime TEXT,
+      size_bytes INTEGER,
+      rel_path TEXT,
+      body TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      claimed_at INTEGER,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_file_drops_target ON file_drops(target_user_id, status);
+  `)
+
   // Image generation + LoRA system
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS generated_images (

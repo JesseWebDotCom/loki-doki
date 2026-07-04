@@ -532,6 +532,34 @@ export const conversions = sqliteTable('conversions', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Device Drop ──────────────────────────────────────────────────────────────
+// Ephemeral device-to-device transfers ("AirDrop for the household"). A row is a
+// single pending/claimed item routed from one of a user's devices to another. File
+// bytes live at data/drops/<id> (NOT the content-dedup blob store — drops are
+// transient, so the GC coupling isn't worth it); text/link drops carry `body`
+// inline. A TTL sweep expires + deletes past `expiresAt`; claimed files are removed
+// shortly after pickup. Currently same-user only (household targeting is a later add).
+
+export const fileDrops = sqliteTable('file_drops', {
+  id: text('id').primaryKey(),
+  senderUserId: text('sender_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  senderDeviceId: text('sender_device_id').notNull(),
+  senderLabel: text('sender_label').notNull(),
+  targetUserId: text('target_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // null = "all my other devices" (broadcast to the sender's own fleet).
+  targetDeviceId: text('target_device_id'),
+  kind: text('kind', { enum: ['file', 'text'] }).notNull(),
+  fileName: text('file_name'),        // file kind
+  mime: text('mime'),                 // file kind
+  sizeBytes: integer('size_bytes'),   // file kind
+  relPath: text('rel_path'),          // file bytes, relative to data/drops
+  body: text('body'),                 // text/link kind
+  status: text('status', { enum: ['pending', 'claimed', 'expired'] }).notNull().default('pending'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  claimedAt: integer('claimed_at', { mode: 'timestamp' }),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── Vision Analysis ──────────────────────────────────────────────────────────
 
 export const analysisResults = sqliteTable('analysis_results', {
@@ -938,7 +966,7 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert'] }).notNull(),
+  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert', 'file_drop'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   // Delivery routing (lib/notify): 'urgent' breaks through quiet hours; 'info' is
   // bell-only fodder. Priority lives as a real column (not payload) because the

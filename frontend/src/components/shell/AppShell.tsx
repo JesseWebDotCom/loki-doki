@@ -30,6 +30,7 @@ import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
 import { useBrowserSession } from "@/hooks/useBrowserSession";
+import { useDropReceiver } from "@/hooks/useDropReceiver";
 import { useClipboardAutofill } from "@/hooks/use-clipboard-autofill";
 
 // Pages not in APP_GROUPS (no category group in the breadcrumb).
@@ -49,6 +50,8 @@ export function AppShell() {
   useAppWarmer();
   // Controller / Tab5 button commands over SSE.
   useBrowserSession();
+  // Device-to-device Drop: receive files/links pushed from another of your devices.
+  useDropReceiver();
   const { pathname } = useLocation();
   // Full-bleed apps own their full height and let the companion float over them.
   // isReader (ZIM reader at /read/:id + docs) provides its OWN breadcrumb header, so the

@@ -30,6 +30,8 @@ import { adminRouterBenchmark } from '@/routes/adminRouterBenchmark'
 import { projects } from '@/routes/projects'
 import { image } from '@/routes/image'
 import { converter } from '@/routes/converter'
+import { drop } from '@/routes/drop'
+import { startDropSweep } from '@/lib/drop/service'
 import { adminImageLoras } from '@/routes/adminImageLoras'
 import { adminQueue } from '@/routes/adminQueue'
 import { adminInstall } from '@/routes/adminInstall'
@@ -186,6 +188,7 @@ if (firstBoot) {
   startMemorySweep()
   startBriefingRefresh()
   startCompanionCheckins()
+  startDropSweep()
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})
@@ -462,6 +465,7 @@ app.route('/api/admin/router-benchmark', adminRouterBenchmark)
 app.route('/api/projects', projects)
 app.route('/api/image', image)
 app.route('/api/converter', converter)
+app.route('/api/drop', drop)
 app.route('/api/admin/image-loras', adminImageLoras)
 app.route('/api/admin/queue', adminQueue)
 app.route('/api/admin/install', adminInstall)

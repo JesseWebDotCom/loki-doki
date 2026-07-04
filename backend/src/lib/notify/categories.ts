@@ -12,15 +12,16 @@ export type NotifType =
   | 'companion_checkin'
   | 'watcher_alert'
   | 'price_alert'
+  | 'file_drop'
 
 export type NotifPriority = 'info' | 'normal' | 'urgent'
-export type NotifCategory = 'camera' | 'downloads' | 'installs' | 'system' | 'companion' | 'watchers' | 'shopping'
+export type NotifCategory = 'camera' | 'downloads' | 'installs' | 'system' | 'companion' | 'watchers' | 'shopping' | 'drops'
 export type Channel = 'push' | 'telegram' | 'email'
 export type DeliveryMode = 'off' | 'instant' | 'digest'
 
 export const NOTIF_TYPES: readonly NotifType[] = [
   'install_request', 'install_complete', 'download_complete', 'system',
-  'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert',
+  'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert', 'file_drop',
 ]
 
 export const CHANNELS: readonly Channel[] = ['push', 'telegram', 'email']
@@ -39,6 +40,7 @@ export const CATEGORY_META: readonly CategoryMeta[] = [
   { key: 'downloads', label: 'Downloads', description: 'Background downloads finishing', types: ['download_complete'] },
   { key: 'installs', label: 'App installs', description: 'Install requests and completed installs', types: ['install_request', 'install_complete'] },
   { key: 'companion', label: 'Companion check-ins', description: 'Your companion reaching out about things you shared', types: ['companion_checkin'] },
+  { key: 'drops', label: 'Device drops', description: 'Files and links sent between your devices', types: ['file_drop'] },
   { key: 'system', label: 'System', description: 'Everything else — maintenance, warnings, admin messages', types: ['system'] },
 ]
 
@@ -64,6 +66,7 @@ export const DEFAULT_MATRIX: Record<NotifCategory, Record<Channel, DeliveryMode>
   downloads: { push: 'instant', telegram: 'off', email: 'off' },
   installs: { push: 'instant', telegram: 'off', email: 'off' },
   companion: { push: 'instant', telegram: 'off', email: 'off' },
+  drops: { push: 'instant', telegram: 'off', email: 'off' },
   system: { push: 'instant', telegram: 'off', email: 'off' },
 }
 
@@ -88,6 +91,11 @@ export function deriveMessage(type: NotifType, payload: Record<string, unknown>)
     case 'price_alert': {
       const productId = payload['productId']
       return { title: String(payload['message'] ?? 'Price alert'), url: productId ? `/shopping/products/${String(productId)}` : '/shopping' }
+    }
+    case 'file_drop': {
+      const from = String(payload['senderLabel'] ?? 'Another device')
+      const name = payload['fileName'] ?? (payload['kind'] === 'text' ? 'a message' : 'a file')
+      return { title: 'Incoming drop', body: `${from} sent ${String(name)}`, url: '/drop' }
     }
     case 'system':
     default:
