@@ -91,6 +91,8 @@ import { plexRoute } from '@/routes/plex'
 import { adminHomeAssistant } from '@/routes/adminHomeAssistant'
 import { homeAssistantRoute } from '@/routes/homeAssistant'
 import { youtubeRoute } from '@/routes/youtube'
+import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
+import { clipperRoute } from '@/routes/clipper'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
 import { music } from '@/routes/music'
@@ -479,6 +481,7 @@ app.route('/api/pod', deviceStudio)
 app.route('/api/browser-session', browserSessionRoute)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
+app.route('/api/clipper', clipperRoute)
 app.route('/api/narration', narration)
 app.route('/api/books', books)
 app.route('/api/books', booksGenerate)
@@ -563,6 +566,7 @@ app.route('/api/admin/storage', adminStorage)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))
 
 if (process.env.NODE_ENV !== 'development') {
+  app.get('/youtube/watch/:videoId', ogMetaMiddleware)
   app.use('*', serveStatic({ root: '../frontend/dist' }))
   app.get('*', serveStatic({ path: '../frontend/dist/index.html' }))
 }

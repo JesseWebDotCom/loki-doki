@@ -5,7 +5,7 @@ import {
   BookmarkPlus, Download, Heart, Clock, Search, Smartphone, Mic, Check,
   ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft,
 } from 'lucide-react'
-import { ShieldCheck, Headphones, ExternalLink } from 'lucide-react'
+import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -32,6 +32,7 @@ import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
 import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
+import { useShareLink } from '@/hooks/use-share-link'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -279,6 +280,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const online = !localKind
   const ui = useYoutubeUI()
   const qc = useQueryClient()
+  const { shareLink } = useShareLink()
   const [expanded, setExpanded] = useState(false)
   const [podcastOpen, setPodcastOpen] = useState(false)
   const [subbed, setSubbed] = useState(meta?.subscribed ?? false)
@@ -382,6 +384,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
           <Pill icon={Clock} label="Watch Later" active={watchLater} onClick={() => toggleCollection('watch-later', snapshot)} />
           {!localKind && <Pill icon={BookmarkPlus} label="Save" onClick={() => ui.openSave(videoId, title)} />}
           <Pill icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
+          <Pill icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
           <Pill icon={ExternalLink} label="YouTube" onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')} />
         </div>
       </div>

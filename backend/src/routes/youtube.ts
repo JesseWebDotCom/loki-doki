@@ -25,7 +25,7 @@ import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, isValidVideoId, parseQuality, type StreamKind } from '@/lib/youtube/stream'
-import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot } from '@/lib/youtube/ytdlp'
+import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot } from '@/lib/ytdlp'
 import {
   SAVE_HEIGHTS, getGlobalCap, getUserCapOverride, getEffectiveCap,
   getUserPreference, DEFAULT_GLOBAL_CAP,
