@@ -33,9 +33,18 @@ $SidecarPatterns = @(
 # ── Bun bootstrap ─────────────────────────────────────────────────────────────
 function Ensure-Bun {
   if (Get-Command bun -ErrorAction SilentlyContinue) { return }
+  # Bun may already be installed at its default location but missing from this
+  # session's PATH: its installer only updates the *user* PATH, which existing
+  # terminals don't pick up. Add it and skip the (re)install if so, otherwise
+  # every run from such a shell re-triggers the installer, which then errors
+  # with "An older installation exists and is open".
+  $bunBin = Join-Path $env:USERPROFILE '.bun\bin'
+  if (Test-Path (Join-Path $bunBin 'bun.exe')) {
+    $env:Path = "$bunBin;$env:Path"
+    if (Get-Command bun -ErrorAction SilentlyContinue) { return }
+  }
   Write-Host 'Bun runtime not found, installing it...'
   Invoke-RestMethod https://bun.sh/install.ps1 | Invoke-Expression
-  $bunBin = Join-Path $env:USERPROFILE '.bun\bin'
   if (Test-Path $bunBin) { $env:Path = "$bunBin;$env:Path" }
   if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
     throw 'Bun install did not add bun to PATH. Open a new terminal and re-run, or install Bun manually from https://bun.sh.'
