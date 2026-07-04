@@ -32,6 +32,13 @@ async function dz<T = any>(path: string, timeout = 9000): Promise<T | null> {
 const STOP = new Set('the of a an and to for with music hits hit songs song mix best top playlist vol volume edition'.split(' '))
 const toks = (s: string) => new Set((s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
 
+// Fisher–Yates in place. Used to vary the queue between tune-ins so a station doesn't replay the
+// same head of the same editorial playlist every single time.
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j]!, arr[i]!] }
+  return arr
+}
+
 // Deezer (especially soundtrack/various-artists playlists) often jams a credit into the title:
 // "Eurythmics, Annie Lennox, Dave Stewart - Sweet Dreams", "Halle Bailey - Part of Your World",
 // "We Don't Talk About Bruno By Carolina Gaitán/...". Strip a leading "<credit> - " when the credit
@@ -92,19 +99,31 @@ export async function deezerPlaylistTracks(queries: string[], limit = 30, timeou
       .filter((p) => fitsQuery(p, qToks))                 // must actually match the concept
       .map((p) => ({ p, s: scorePlaylist(p, qToks) }))
       .sort((a, b) => b.s - a.s)
-    if (ranked[0] && ranked[0].s > 0 && !seenPlaylist.has(ranked[0].p.id)) {
-      seenPlaylist.add(ranked[0].p.id)
-      chosen.push(ranked[0].p)
+    // Don't always take the single top playlist — that makes every tune-in identical. Pick randomly
+    // among the strongest fits (top score band), so a station rotates through the good editorial
+    // playlists for its concept instead of replaying one. All candidates already passed fitsQuery.
+    const positive = ranked.filter((r) => r.s > 0)
+    if (positive.length) {
+      const best = positive[0]!.s
+      const band = positive.filter((r) => r.s >= best - 1 && !seenPlaylist.has(r.p.id)).slice(0, 4)
+      const pick = band.length ? band[Math.floor(Math.random() * band.length)]! : positive[0]!
+      if (!seenPlaylist.has(pick.p.id)) {
+        seenPlaylist.add(pick.p.id)
+        chosen.push(pick.p)
+      }
     }
   }
-  // Pull each chosen playlist's tracks.
+  // Pull each chosen playlist's tracks. Shuffle each list so we sample ACROSS the whole editorial
+  // playlist (often 50–300 tracks) rather than always returning its fixed top ~30 in order — the
+  // other half of why stations felt static. Track order within an editorial playlist isn't a
+  // quality signal, so shuffling costs nothing and adds a fresh mix every tune-in.
   const lists: DeezerTrack[][] = []
   for (const p of chosen) {
     const full = await dz<{ tracks?: { data?: any[] } }>(`/playlist/${p.id}`, timeout)
     const tracks = (full?.tracks?.data ?? [])
       .filter((t) => t?.title && t?.artist?.name)
       .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string }))
-    if (tracks.length) lists.push(tracks)
+    if (tracks.length) lists.push(shuffle(tracks))
   }
   return roundRobin(lists, limit)
 }
