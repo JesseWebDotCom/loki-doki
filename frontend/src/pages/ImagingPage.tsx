@@ -1096,6 +1096,9 @@ export function ImagingPage() {
           credentials: 'include',
           body: JSON.stringify({
             prompt: finalPrompt,
+            // SVG output: tell the enhancer to produce a flat, trace-friendly prompt rather
+            // than a photorealistic one (which traces into a photo-like SVG).
+            vector: outputFormat === 'svg' && svgFlatBias,
             loras: selectedLoraObjects.map(l => ({
               id: l.id,
               name: l.styleLabel ?? l.name,

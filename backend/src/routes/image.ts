@@ -852,8 +852,20 @@ async function buildAndEnqueueJob(params: {
 
   // Hi-res fix ONLY when the ESRGAN model is present. The latent bislerp fallback
   // produces crosshatch/blur artifacts at 2× because SDXL was never trained at 2048×.
+  //
+  // DISABLED on Apple Silicon: the hi-res refine pass re-encodes the 2× image, and torch's
+  // MPS scaled_dot_product_attention miscalculates the VAE mid-block self-attention buffer
+  // ("Invalid buffer size: 18.00 GiB" → Metal assertion → the whole ComfyUI process aborts,
+  // surfacing as "websocket closed unexpectedly: 1006"). It crashes 100% of the time on MPS,
+  // so every interactive full-quality gen fails. Plain 1024² generation is unaffected and
+  // reliable, so we skip the refine on MPS rather than crash. (--cpu-vae avoids it but runs
+  // VAE on CPU for EVERY gen — 8+ min per image, too slow to ship.)
+  //
+  // Also skipped for SVG output: the flat, low-detail look traces into clean vector paths;
+  // a 2× photorealistic refine would only add detail that bloats the traced SVG.
   const esrganAvailable = isEsrganInstalled()
   const hiresUpscale    = !noCheckpoint && !isEnhance && !isDistilled && !fast && esrganAvailable
+                          && !hw.isAppleSilicon && !vectorize
   const esrganModel     = pipeline === 'upscale' ? '4x_NMKD-Siax_200k.pth'
                         : hiresUpscale            ? '4x_NMKD-Siax_200k.pth'
                         : undefined
@@ -886,8 +898,11 @@ async function buildAndEnqueueJob(params: {
       width    = Math.min(2048, Math.max(256, params.width  ?? 1024))
       height   = Math.min(2048, Math.max(256, params.height ?? 1024))
     } else {
-      // Style detection
-      const style = params.style ?? (params.rawMessage ? detectStyle(params.rawMessage) : 'photorealistic')
+      // Style detection. For SVG/flat output, force a flat 'illustration' style instead of the
+      // photorealistic default — the photo style injects "RAW photo, 8k, sharp focus" which
+      // fights the flat-art bias and produces a photoreal image that traces into a huge,
+      // photo-like SVG. 'illustration' negates photorealism and lets the vectorize bias win.
+      const style = flatBias ? 'illustration' : (params.style ?? (params.rawMessage ? detectStyle(params.rawMessage) : 'photorealistic'))
       const { prompt: styledPrompt, negativePrompt: styledNegative } = applyStyleToPrompt(prompt, style, params.negativePrompt)
 
       // Prompt policy
@@ -1113,10 +1128,19 @@ Rules for "weights":
 Return ONLY valid JSON. No explanation, no markdown, no code fences.
 Example: {"prompt": "one boy and one girl on a swingset, both in frame", "weights": {"abc123": 0.55}}`.trim()
 
+// Prepended to AUTO_ENHANCE_SYSTEM when the user picked SVG (vector) output. The image will
+// be traced into vector paths, so a photorealistic render traces into a huge, photo-like SVG.
+// Steer the rewrite toward FLAT, trace-friendly art instead.
+const AUTO_ENHANCE_VECTOR = `IMPORTANT — this image will be converted into an SVG vector graphic by tracing. Rewrite the subject as FLAT VECTOR ART, NOT a photo:
+- Describe it as a "flat vector illustration" / "bold graphic" with clean shapes and a limited flat color palette.
+- NEVER add words like "photorealistic", "realistic", "photo", "accurate likeness", "8k", "detailed skin", "sharp focus", or lighting/lens terms — those defeat the vector look.
+- Prefer high contrast, simple bold forms, minimal fine detail. Keep the user's subject, just render it flat.`.trim()
+
 image.post('/auto-enhance', requireAuth, async (c) => {
-  const { prompt, loras } = await c.req.json<{
+  const { prompt, loras, vector } = await c.req.json<{
     prompt: string
     loras: Array<{ id: string; name: string; description?: string | null; isStylisticLora?: boolean }>
+    vector?: boolean   // SVG output: steer the rewrite toward flat, trace-friendly vector art
   }>()
   if (!prompt?.trim()) return c.json({ prompt: prompt ?? '', weights: {} })
   try {
@@ -1125,8 +1149,9 @@ image.post('/auto-enhance', requireAuth, async (c) => {
       ? loras.map(l => `- id: "${l.id}", name: "${l.name}"${l.description ? `, desc: "${l.description}"` : ''}${l.isStylisticLora ? ', type: stylistic' : ''}`).join('\n')
       : '(none)'
     const userContent = `Prompt: ${prompt.trim()}\n\nSelected LoRAs:\n${loraList}`
+    const system = vector ? `${AUTO_ENHANCE_VECTOR}\n\n${AUTO_ENHANCE_SYSTEM}` : AUTO_ENHANCE_SYSTEM
     const result = await ollamaChat(model, [
-      { role: 'system', content: AUTO_ENHANCE_SYSTEM },
+      { role: 'system', content: system },
       { role: 'user', content: userContent },
     ], [], { num_predict: 400, temperature: 0.1 })
     const raw = result.message?.content?.trim() ?? ''
