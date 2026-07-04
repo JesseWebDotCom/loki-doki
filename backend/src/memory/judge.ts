@@ -241,6 +241,11 @@ export async function runJudge(
   }
 
   for (const e of extracted.entities) {
+    // structuredCall's JSON.parse has no schema validation, so a malformed/truncated LLM
+    // entity (missing name, or a non-array aliases) would otherwise crash the
+    // e.name.toLowerCase() below instead of just being skipped like an empty fact is.
+    if (!e?.name?.trim()) continue
+    if (!Array.isArray(e.aliases)) e.aliases = []
     const canonicalKey = e.name.toLowerCase()
     // Merge on a direct name match, or on a NON-generic alias match. A generic
     // relationship word ("brother") shared between two differently-named people
