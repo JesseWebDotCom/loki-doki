@@ -6,28 +6,49 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
+import { proxyImg } from '@/lib/img'
 import { useRadio } from '@/context/RadioContext'
-import { getArtist, instantStationDj, type CatalogAlbum } from '@/lib/music/catalogApi'
+import { getArtist, getArtistInfo, instantStationDj, type CatalogAlbum } from '@/lib/music/catalogApi'
 
 export function MusicArtistPage() {
   const { mbid = '' } = useParams()
   const navigate = useNavigate()
   const radio = useRadio()
   const { data, isLoading } = useQuery({ queryKey: ['music-artist', mbid], queryFn: () => getArtist(mbid), enabled: !!mbid })
+  // Wikipedia extract (bio) + photo, from the same source that powers the avatar and the song
+  // "About" blurb. Same query key as ArtistAvatar → shared cache, no extra request. Fetched on the
+  // resolved artist name/mbid, so it waits for the artist load.
+  const artistName = data?.artist.name ?? ''
+  const { data: info } = useQuery({
+    queryKey: ['music-artist-img', mbid || artistName],
+    queryFn: () => getArtistInfo(artistName, mbid || undefined),
+    enabled: !!artistName, staleTime: Infinity,
+  })
 
   if (isLoading) return <div className="px-5 pt-6 text-sm text-muted-foreground">Loading…</div>
   if (!data) return <div className="px-5 pt-6 text-sm text-muted-foreground">Artist not found.</div>
 
   const { artist, albums } = data
+  const bio = info?.found ? info.extract : null
+  const bioUrl = info?.url ?? artist.wikipediaUrl
 
   const albumsByType = (t: string) => albums.filter(a => (a.primaryType ?? 'Album') === t)
   const groups: Array<[string, CatalogAlbum[]]> = [['Album', albumsByType('Album')], ['EP', albumsByType('EP')], ['Single', albumsByType('Single')]]
 
   return (
     <div>
-      <div className="relative overflow-hidden bg-gradient-to-br from-brand/30 via-brand/10 to-transparent px-5 pt-10 pb-6 sm:px-8">
-        <div className="flex items-end gap-4">
-          <ArtistAvatar name={artist.name} mbid={artist.mbid} className="size-24 shrink-0 rounded-full ring-1 ring-border/40" />
+      <div className="relative overflow-hidden px-5 pt-12 pb-6 sm:px-8">
+        {/* Header backdrop: the artist photo, blurred + scrimmed for legibility, over the brand
+            gradient (which shows through / stands in when no photo exists). */}
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-brand/30 via-brand/10 to-transparent" />
+        {info?.image && (
+          <div aria-hidden className="absolute inset-0">
+            <img src={proxyImg(info.image)} alt="" className="size-full scale-110 object-cover object-center opacity-40 blur-2xl" />
+            <div className="absolute inset-0 bg-gradient-to-t from-background via-background/75 to-background/30" />
+          </div>
+        )}
+        <div className="relative flex items-end gap-4">
+          <ArtistAvatar name={artist.name} mbid={artist.mbid} className="size-28 shrink-0 rounded-full shadow-xl ring-1 ring-border/40 sm:size-32" />
           <div className="min-w-0">
             <p className="text-overline text-muted-foreground">Artist</p>
             <div className="truncate text-display sm:text-display-lg">{artist.name}</div>
@@ -36,15 +57,21 @@ export function MusicArtistPage() {
             )}
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="relative mt-4 flex flex-wrap gap-2">
           <Button onClick={() => { radio.start(instantStationDj({ type: 'artist', value: artist.name })); navigate('/music/now-playing') }}><Radio className="size-4" /> Start station</Button>
-          {artist.wikipediaUrl && (
-            <Button variant="secondary" asChild><a href={artist.wikipediaUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> Wikipedia</a></Button>
+          {bioUrl && (
+            <Button variant="secondary" asChild><a href={bioUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> Wikipedia</a></Button>
           )}
         </div>
       </div>
 
       <PageContainer width="wide" className="pt-4 pb-10">
+        {bio && (
+          <section className="mb-6">
+            <SectionHeader title="About" />
+            <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{bio}</p>
+          </section>
+        )}
         {groups.filter(([, list]) => list.length > 0).map(([label, list]) => (
           <section key={label} className="mb-6">
             <SectionHeader title={label === 'Album' ? 'Albums' : `${label}s`} count={list.length} />
