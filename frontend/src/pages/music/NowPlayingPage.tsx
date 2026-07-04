@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, addFavorite, saveOffline, getStationTuning, getStation, prefetchMedia } from '@/lib/music/catalogApi'
+import { useCatalogNav } from '@/lib/music/catalogNav'
 
 function SectionLabel({ icon: Icon, color, children }: { icon: typeof Music2; color: string; children: React.ReactNode }) {
   return (
@@ -255,6 +256,7 @@ function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, station
 export function NowPlayingPage() {
   const radio = useRadio()
   const navigate = useNavigate()
+  const cat = useCatalogNav()
   const queryClient = useQueryClient()
 
   // Warm the NEXT track's page content (image, lyrics, Wikipedia, smart links) into the
@@ -370,9 +372,16 @@ export function NowPlayingPage() {
                 </button>
               )}
             </div>
-            {/* One header per page: the track title is display text, not a second h1. */}
-            <div className="mt-2 truncate text-display">{cur.title}</div>
-            {artist && <p className="mt-0.5 truncate text-sm text-muted-foreground">{artist}</p>}
+            {/* One header per page: the track title is display text, not a second h1. Clicking the
+                title opens the song's album, the artist opens the artist page (both in-app MB detail). */}
+            <button onClick={() => cat.openSong(cur.title, artist)} disabled={cat.pending === 'song'}
+              className="mt-2 block max-w-full truncate text-display text-left transition hover:text-brand disabled:opacity-60"
+              title="View album details">{cur.title}</button>
+            {artist && (
+              <button onClick={() => cat.openArtist(artist)} disabled={cat.pending === 'artist'}
+                className="mt-0.5 block max-w-full truncate text-left text-sm text-muted-foreground transition hover:text-foreground hover:underline disabled:opacity-60"
+                title="View artist details">{artist}</button>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <Button size="icon" variant="secondary" onClick={favorite} aria-label="Favorite"><Heart className="size-4" /></Button>

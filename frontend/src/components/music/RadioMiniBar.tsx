@@ -1,6 +1,7 @@
 import { Pause, Play, SkipForward, X, Mic, AudioLines, MonitorPlay } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
+import { useCatalogNav } from '@/lib/music/catalogNav'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
 import { fmtClock } from '@/lib/youtube/format'
@@ -18,6 +19,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 export function RadioMiniBar() {
   const radio = useRadio()
   const navigate = useNavigate()
+  const cat = useCatalogNav()
   const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec, skipping } = radio
   // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors
   const accent = station?.color ?? '#a855f7'
@@ -28,6 +30,8 @@ export function RadioMiniBar() {
   // voice; the mic state is conveyed by the subtitle + a small badge on the art, not by masking it.
   const title = currentTrack?.title ?? station?.label ?? 'AI Radio'
   const subtitle = djSpeaking ? 'On the mic…' : (currentTrack?.author ?? station?.genre ?? 'Live')
+  // The subtitle is a clickable artist link only when it actually shows the track's artist.
+  const artistLink = !djSpeaking && !!currentTrack?.author
   const busy = phase === 'loading'
 
   return (
@@ -71,14 +75,23 @@ export function RadioMiniBar() {
             )}
           </button>
 
-          {/* Title + subtitle */}
-          <button onClick={() => navigate('/music/now-playing')} className="min-w-0 flex-1 text-left">
-            <p className="truncate text-sm font-semibold">{title}</p>
+          {/* Title + subtitle. Title opens the full now-playing view; the artist subtitle (when it's
+              a real artist, not "On the mic…"/"Live") opens that artist's in-app MB detail page. */}
+          <div className="min-w-0 flex-1">
+            <button onClick={() => navigate('/music/now-playing')} className="block max-w-full text-left">
+              <p className="truncate text-sm font-semibold">{title}</p>
+            </button>
             <span className="mt-0.5 flex items-center gap-1.5">
               <StatusDot status="error" pulse />
-              <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
+              {artistLink ? (
+                <button onClick={() => cat.openArtist(currentTrack!.author!)} disabled={cat.pending === 'artist'}
+                  className="truncate text-left text-xs text-muted-foreground transition hover:text-foreground hover:underline disabled:opacity-60"
+                  title="View artist details">{subtitle}</button>
+              ) : (
+                <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
+              )}
             </span>
-          </button>
+          </div>
 
           {/* Elapsed / remaining - same readout as the YouTube mini-player. */}
           {canSeek && (

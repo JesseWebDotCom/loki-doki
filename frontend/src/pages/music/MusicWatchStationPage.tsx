@@ -13,6 +13,7 @@ import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { getStation, previewStationQueue, getOfflineVideoQueue, prefetchMedia, prefetchReady, addFavorite, stationToDj } from '@/lib/music/catalogApi'
+import { useCatalogNav } from '@/lib/music/catalogNav'
 
 interface WatchTrack { videoId: string; title: string; artist: string | null }
 
@@ -26,6 +27,7 @@ export function MusicWatchStationPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const radio = useRadio()
+  const cat = useCatalogNav()
   const pb = useYoutubePlayback()
   const offline = useMusicModeOptional() === 'offline'
   const watchPath = `/music/watch/${id}`
@@ -215,8 +217,14 @@ export function MusicWatchStationPage() {
               {cur && (
                 <div className="relative mt-3 flex items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-title">{cur.title}</div>
-                    {cur.artist && <p className="truncate text-sm text-muted-foreground">{cur.artist}</p>}
+                    <button onClick={() => cat.openSong(cur.title, cur.artist ?? '')} disabled={cat.pending === 'song'}
+                      className="block max-w-full truncate text-title text-left transition hover:text-brand disabled:opacity-60"
+                      title="View album details">{cur.title}</button>
+                    {cur.artist && (
+                      <button onClick={() => cat.openArtist(cur.artist!)} disabled={cat.pending === 'artist'}
+                        className="block max-w-full truncate text-left text-sm text-muted-foreground transition hover:text-foreground hover:underline disabled:opacity-60"
+                        title="View artist details">{cur.artist}</button>
+                    )}
                   </div>
                   {/* Action row - same chrome + icons as the YouTube watch page. */}
                   <div className="flex shrink-0 items-center gap-1.5">
