@@ -43,7 +43,7 @@ Most AI companion apps are designed to hook you, flattering you, creating depend
 
 ## Works When the Internet Doesn't
 
-Everything that can run locally does. Chat, image and video generation, voice, maps, and the offline library all work with no connection at all. Cloud AI is a surveillance surface and a single point of failure; Loki Doki keeps running when the internet is down, when services are disrupted, or when you simply don't trust what's happening out there.
+Everything that can run locally does. Chat, image and video generation, voice, maps, and reference/book downloads all work with no connection at all. Cloud AI is a surveillance surface and a single point of failure; Loki Doki keeps running when the internet is down, when services are disrupted, or when you simply don't trust what's happening out there.
 
 ## What You Can Do
 
@@ -51,7 +51,9 @@ Everything that can run locally does. Chat, image and video generation, voice, m
 - **[Generate images and video](../features/image-generation/)** using Stable Diffusion: no refusals, no restrictions for adults
 - **[Talk hands-free](../features/voice/)** with a wakeword: speech recognition and speech all run on your machine
 - **[Meet your companion](../features/companions/)**: a buddy with its own personality, voice, and animated avatar that lives alongside you in the app
-- **[Read offline](../features/library/)**: full Wikipedia and other references, no internet required
+- **[Write and edit with Canvas](../features/canvas/)**: an editable side pane your companion writes code, documents, and HTML into, live
+- **[Read and listen to books](../features/books/)**: a storefront of ebooks and audiobooks, offline downloads, and an AI tool that can draft an original book with you
+- **[Look things up offline](../features/reference/)**: full Wikipedia, a dictionary, medical references, and more, no internet required
 - **[Navigate offline](../features/maps/)**: maps with turn-by-turn routing, no data plan needed
 - **[Track your home](../features/home-inventory/)**: appliances, devices, service history, and warranty alerts
 - **[Control your home](../features/home-assistant/)**: turn off the lights, lock the door, or set a room's brightness by just asking, through your own Home Assistant
@@ -60,6 +62,7 @@ Everything that can run locally does. Chat, image and video generation, voice, m
 - **[Generate music](../features/music/)**: render tracks and stingers entirely offline in the browser
 - **[Open the Today dashboard](../features/today/)**: news, sports, weather, on-this-day history, holidays, and local events in one place
 - **[Track prices](../features/shopping/)**: watch products across Amazon, Walmart, Target, and more, with price-drop alerts, a deals feed, and coupons
+- **[Code with an AI agent](../features/coding/)**: a real terminal running Claude Code in your own sandboxed workspace
 - **[Add and remove apps](../features/app-store/)**: the admin installs exactly the apps your household wants, with install-time disclosure instead of hidden data collection
 
 ## Getting Started

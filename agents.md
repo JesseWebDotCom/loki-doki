@@ -665,3 +665,97 @@ interface HomeLayout    { header: HomeLayoutHeader; canvas: HomeRow[] }
 **Legacy migration:** On first `GET /api/home-layout` with no existing layout, the API reads `home.highlights` preferences (sports/jokes booleans) and seeds `header` from them.
 
 ---
+
+## Coding System
+
+`/coding` (`CodingPage.tsx`) is a real terminal (xterm.js) attached to a persistent
+**tmux session per user**, wrapping a single managed **Claude Code CLI** (`claude`)
+process, replaces the old OpenCode integration.
+
+**Key files:**
+- `backend/src/lib/claudeCode.ts` - installs `@anthropic-ai/claude-code` as a pinned
+  npm dependency into its own managed runtime dir (`data/coding/claude-runtime`),
+  version bumped deliberately, not on every install
+- `backend/src/lib/codingSandboxUser.ts` - OS-level sandbox: a dedicated unprivileged
+  OS user per household when supported (real filesystem/process isolation, not just
+  app-level checks); unsupported on Windows or before install, falls back to a plain
+  directory under `data/coding/users/<userId>` with no OS isolation (Claude Code's own
+  interactive approval prompts are the only guard in that case)
+- `backend/src/lib/codingServer.ts` - session/pane management: one `tmux` session named
+  `coding` per user, spawns `claude` inside it; per-user `HOME` nested inside the
+  workspace dir (`.home`) so config/skills/credentials never leak across household
+  members; tmux split/kill for panes
+- `backend/src/lib/codingPtySidecar.ts` + `backend/scripts/coding-pty-sidecar.ts` - the
+  actual PTY attach runs in a small **Node sidecar** process, not the main Bun process
+  (`node-pty`'s data-callback delivery is unreliable under Bun)
+- `backend/src/routes/coding.ts` - `GET /terminal` (WebSocket) relays the browser's
+  socket to the PTY sidecar's socket verbatim in both directions; `POST /pane/:action`
+  issues tmux split/kill commands
+
+**Model:** the `coding` catalog role resolves an Ollama-served local model (falls back
+to `ornith:9b`), configurable via the `coding_model` app setting.
+
+**Persistence is the point:** closing the browser tab or reloading only kills the
+attach client, tmux (and `claude` inside it) keeps running server-side, so a project
+picks back up exactly where it left off.
+
+---
+
+## Books & Reference System
+
+Two plain homes for all offline/discoverable reading content, split by artifact type:
+a book/textbook/manual is a **Book** (`/books`), a living wiki/encyclopedia/Q&A/video/
+doc-site is **Reference** (`/reference`). No "ZIM"/"archive"/"content pack" jargon
+surfaces to users; that's still the underlying kiwix mechanism for Reference.
+
+**Books** (`backend/src/routes/books.ts`, `frontend/src/pages/books/`):
+- Storefront across 4+ sources: Project Gutenberg, Standard Ebooks, Internet Archive,
+  LibriVox (audiobooks), Open Library/Google Books metadata, custom self-hosted OPDS
+  indexers (Calibre-Web, Kavita, COPS, etc. - `bookIndexers` table, admin-managed), plus
+  user uploads and magazines
+- Two-tier per-user library state on `bookLibrary.status`: `'saved'` (metadata only,
+  no bytes on disk) vs the offline-download lifecycle `'pending' → 'downloading' →
+  'ready'` (only `'ready'` has a local copy)
+- `bookProgress` tracks per-user reading (`epubCfi`) or listening
+  (`audioPositionSec`/`audioChapterIdx`) position; switching modes doesn't align position
+- TTS-to-audiobook for any text book without a narrated source; multi-track
+  (LibriVox-style) audiobooks stream per-chapter from `externalAudioUrl` instead of
+  seeking a single shared file
+- **AI book authoring** (`backend/src/routes/booksGenerate.ts`, `bookProjects` +
+  `bookProjectChapters` tables): draft an original book from a premise (or continue/
+  reshape an existing one) through a reviewed pipeline - story bible → sample chapter →
+  per-chapter generation, with user approval gates at each stage. Kept out of the shared
+  `books` catalog until approved end to end; `commitProjectToBook()` then materializes a
+  real `books` row (`sourceType='ai-generated'`)
+
+**Reference** (`frontend/src/pages/reference/ReferencePage.tsx`,
+`backend/src/routes/archives.ts` / `adminArchives.ts`): all installed kiwix/ZIM
+reference archives (Wikipedia, repair guides, medical references, etc.) plus the
+Dictionary and Medical lookup tools (their pages reused as-is; `/medical` and
+`/dictionary` redirect here). `ZimSource.bookCategory` (in `zimCatalog.ts`) is what
+drives the Books/Reference split for admin-added packs; the underlying kiwix
+download/serve plumbing is unchanged, only the tag and presentation moved.
+
+---
+
+## Canvas / Artifacts System
+
+`/canvas` (and the in-chat canvas tray) is an editable side pane the companion writes
+code, documents, or HTML into live, backed by `backend/src/routes/artifacts.ts` +
+`backend/src/lib/artifacts/store.ts` + the `tools/canvas.ts` chat tool.
+
+**DB tables:** `artifacts` (`type`: `'code' | 'document' | 'html'`, `currentContent`,
+`pinned`, `archivedAt`) and `artifactVersions` (one immutable row per revision,
+`author`: `'assistant' | 'user'`, optional human-readable `summary`).
+
+**How it streams:** the companion opens a canvas via an `open_artifact` directive in
+its turn, content streams into the pane token-by-token via an `artifact_token` SSE
+event (same transport as chat streaming). A chat message can target an already-open
+artifact for an edit-style follow-up (`chat.ts` tracks the open artifact per
+conversation) - see `POST /api/artifacts/:id/edit` for the LLM edit pass over current
+content.
+
+**Export:** PDF export goes through the same headless Chromium instance that powers
+the Reader archive engine (`system.ts` - install-heals if Chromium is missing).
+
+---

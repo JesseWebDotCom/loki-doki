@@ -129,14 +129,28 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <tr>
 <td width="50%" valign="top">
   <img src="assets/icons/library.svg" width="48" /><br/>
-  <b>Offline Library</b><br/>
-  Full Wikipedia, repair guides, medical references, and more, all readable with no internet. AI-searchable.
+  <b>Books</b><br/>
+  A storefront for ebooks and audiobooks: Project Gutenberg, Standard Ebooks, Internet Archive, and LibriVox, plus your own uploads. Save for later or download for fully offline reading and listening, with AI text-to-speech narration for anything that isn't already an audiobook. An AI authoring tool can also draft an original book from your own premise, chapter by chapter, with your approval at each step.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
   <img src="assets/icons/maps.svg" width="48" /><br/>
   <b>Offline Maps</b><br/>
   Maps and turn-by-turn directions with no data plan required. Your region, stored locally.
+  <br/><br/>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="assets/icons/reference.svg" width="48" /><br/>
+  <b>Reference</b><br/>
+  Full Wikipedia, repair guides, medical references, a dictionary, and more, all readable with no internet. AI-searchable, and the companion can cite them directly in chat.
+  <br/><br/>
+</td>
+<td width="50%" valign="top">
+  <img src="assets/icons/canvas.svg" width="48" /><br/>
+  <b>Canvas</b><br/>
+  An editable side pane the companion writes code, documents, and HTML into, live, as it works. Keep editing after it's done, and export to PDF.
   <br/><br/>
 </td>
 </tr>
@@ -224,6 +238,15 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
   <br/><br/>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="assets/icons/coding.svg" width="48" /><br/>
+  <b>Coding</b><br/>
+  A real terminal running the Claude Code CLI in its own sandboxed workspace per person, so anyone in the family can vibe-code a project without touching your host machine.
+  <br/><br/>
+</td>
+<td></td>
+</tr>
 </table>
 
 ### 🏠 Home &amp; Cameras
@@ -232,7 +255,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 
 ### 🧰 Everyday Tools
 
-A **Today dashboard** (news, sports, weather, on-this-day history, holidays, local events), **Voice Memos**, **Skills** for custom companion behaviors, **Recipes**, **Dictionary**, **Medical reference**, a **Speed Test** for your connection, and **unit** + **file converters**, plus a **Links** launcher for your home network. Everything installs per household from the **App Store**, sits on a **customizable drag-and-drop home**, and respects full **multi-user** accounts where the admin controls every user's access.
+A **Today dashboard** (news, sports, weather, on-this-day history, holidays, local events), **Voice Memos**, **Skills** for custom companion behaviors, **Recipes**, a **Speed Test** for your connection, and **unit** + **file converters**, plus a **Links** launcher for your home network. Everything installs per household from the **App Store**, sits on a **customizable drag-and-drop home**, and respects full **multi-user** accounts where the admin controls every user's access.
 
 ---
 

@@ -114,7 +114,7 @@ The default capture path is **server headless Chromium** (`render.ts`, Playwrigh
 
 All `/api/reader/*` calls go through the typed wrappers in `frontend/src/lib/reader/api.ts`.
 
-> Not part of Reader: `/read/:sourceId` → `ReaderPage` is the **ZIM offline-library** reader (see the [Library](/dev/subsystems/library/) subsystem), unrelated to this feature despite the similar name.
+> Not part of Reader: `/read/:sourceId` → `ReaderPage` is the **ZIM/Reference** reader (see the [Reference](/dev/subsystems/reference/) subsystem), unrelated to this feature despite the similar name.
 
 ### Rail (`components/reader/ReaderRail.tsx`)
 
