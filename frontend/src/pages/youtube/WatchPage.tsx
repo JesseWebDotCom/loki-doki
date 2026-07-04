@@ -3,11 +3,14 @@ import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'reac
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BookmarkPlus, Download, Heart, Clock, Search, Smartphone, Mic, Check,
-  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft,
+  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal,
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -20,6 +23,7 @@ import { AutoplayCountdown } from '@/components/youtube/AutoplayCountdown'
 import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { ChannelAvatar } from '@/components/youtube/media'
+import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
 import { useYtFeed } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
@@ -396,36 +400,56 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
           </Button>
         ))}
         {votes && <VotesBar votes={votes} />}
-        <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="outline" size="icon" onClick={onMinimize} title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." aria-label="Minimize to mini-player"
-            className="border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground">
-            <SquareArrowOutDownLeft className="size-4" />
-          </Button>
-          {online && (
-            <Button variant="outline" size="icon" onClick={onTogglePrivacy} title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." aria-label="Private stream"
-              className={cn(privacy ? 'border-success/30 bg-success/10 text-success hover:bg-success/15 hover:text-success' : 'border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground')}>
-              <ShieldCheck className={cn('size-4', privacy && 'fill-current')} />
-            </Button>
-          )}
-          {online && (
-            <Button variant="outline" size="icon" onClick={onToggleAudioOnly} title="Audio only: play just the audio to save bandwidth." aria-label="Audio only"
-              className={cn(audioOnly ? 'border-info/30 bg-info/10 text-info hover:bg-info/15 hover:text-info' : 'border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground')}>
-              <Headphones className="size-4" />
-            </Button>
-          )}
-          {isShortVid && (
-            <Link to={`/youtube/shorts/${videoId}`} title="Open in Shorts view" aria-label="Shorts view"
-              className="grid size-9 place-items-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-              <Smartphone className="size-4" />
-            </Link>
-          )}
-          <Pill icon={Mic} label="Podcast" onClick={() => setPodcastOpen(true)} />
-          <Pill icon={Heart} label="Like" active={liked} onClick={() => toggleCollection('liked', snapshot)} />
-          <Pill icon={Clock} label="Watch Later" active={watchLater} onClick={() => toggleCollection('watch-later', snapshot)} />
-          {!localKind && <Pill icon={BookmarkPlus} label="Save" onClick={() => ui.openSave(videoId, title)} />}
-          <Pill icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
-          <Pill icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
-          <Pill icon={ExternalLink} label="YouTube" onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')} />
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {/* Player options — grouped so the row reads as one control, not a scatter of circles */}
+          <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-1">
+            <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
+              title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
+            {online && (
+              <SegBtn icon={ShieldCheck} label="Private stream" active={privacy} tone="success" iconFill={privacy} onClick={onTogglePrivacy}
+                title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." />
+            )}
+            {online && (
+              <SegBtn icon={Headphones} label="Audio only" active={audioOnly} tone="info" onClick={onToggleAudioOnly}
+                title="Audio only: play just the audio to save bandwidth." />
+            )}
+            {isShortVid && (
+              <SegBtn icon={Smartphone} label="Shorts view" to={`/youtube/shorts/${videoId}`} title="Open in Shorts view" />
+            )}
+          </div>
+
+          {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
+          <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
+            <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked} onClick={() => toggleCollection('liked', snapshot)} />
+            <AddToPlaylistPill compact video={{ videoId, title, author: author ?? undefined, channelId: channelId ?? undefined, durationSec: meta?.durationSec ?? undefined }} />
+            <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
+            <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button title="More actions" aria-label="More actions"
+                  className="grid size-8 place-items-center rounded-full text-foreground/70 transition-colors hover:bg-background/60 data-[state=open]:bg-background/70 data-[state=open]:text-foreground">
+                  <MoreHorizontal className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={() => toggleCollection('watch-later', snapshot)}>
+                  <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
+                  {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
+                </DropdownMenuItem>
+                {!localKind && (
+                  <DropdownMenuItem onClick={() => ui.openSave(videoId, title)}>
+                    <BookmarkPlus className="size-4" /> Save to bookmarks
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
+                  <Mic className="size-4" /> Create podcast
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')}>
+                  <ExternalLink className="size-4" /> Open on YouTube
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
@@ -445,15 +469,20 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   )
 }
 
-function Pill({ icon: Icon, label, active, onClick }: { icon: typeof Heart; label: string; active?: boolean; onClick: () => void }) {
-  return (
-    <Button variant="secondary" size="icon" onClick={onClick} title={label} aria-label={label}
-      className={cn(active
-        ? 'bg-[var(--yt-accent-soft)] text-[var(--yt-accent-fg)] hover:bg-[var(--yt-accent-soft)]'
-        : 'bg-muted text-foreground/80 hover:bg-muted/70')}>
-      <Icon className={cn('size-4', active && 'fill-current')} />
-    </Button>
+/** A compact icon button that lives inside one of the grouped segment bars in the action row.
+ *  Renders as a <Link> when `to` is set, otherwise a <button>. */
+function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, onClick, to }: {
+  icon: typeof Heart; label: string; title?: string; active?: boolean
+  tone?: 'accent' | 'success' | 'info'; iconFill?: boolean; onClick?: () => void; to?: string
+}) {
+  const activeText = tone === 'success' ? 'text-success' : tone === 'info' ? 'text-info' : 'text-[var(--yt-accent-fg)]'
+  const cls = cn(
+    'grid size-8 place-items-center rounded-full transition-colors hover:bg-background/60',
+    active ? cn('bg-background/70', activeText) : 'text-foreground/70',
   )
+  const icon = <Icon className={cn('size-4', iconFill && 'fill-current')} />
+  if (to) return <Link to={to} title={title ?? label} aria-label={label} className={cls}>{icon}</Link>
+  return <button onClick={onClick} title={title ?? label} aria-label={label} className={cls}>{icon}</button>
 }
 
 // Estimated like/dislike counts from Return YouTube Dislike (YouTube hides dislikes).
