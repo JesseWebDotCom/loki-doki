@@ -64,6 +64,21 @@ setup.post('/welcome-complete', requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+// Finalize first run. In essentialOnly mode the /download stream installs the essentials
+// inline and hands the rest to the durable background setup track, WITHOUT flipping
+// first_run_complete. The wizard blocks on that track and calls this once every selected
+// model + capability has finished downloading (or the admin explicitly opts to open the
+// app before they finish). Idempotent - safe to call more than once. Keeping first_run
+// gated here (not in /download) means a crash mid-download re-shows the wizard on its
+// finishing screen and the queue resumes, instead of stranding the user in a half-install.
+setup.post('/finish', requireAuth, async (c) => {
+  await setAppSetting('first_run_complete', true)
+  await setAppSetting('setup_state', null)
+  await setAppSetting('consent_system_present', true)
+  warmupModel()
+  return c.json({ ok: true })
+})
+
 // Persist wizard progress. Called by the frontend as the user advances so a refresh,
 // crash, or server restart can resume. Cleared once first run completes.
 setup.put('/state', requireAuth, async (c) => {
@@ -585,16 +600,25 @@ setup.post('/download', requireAuth, async (c) => {
       })
     }
 
-    // Mark first run complete: app will now admit the user. Skip this when the chat
-    // LLM failed: the wizard keeps the user on the retry screen, and finalizing here
-    // would let a reload admit them into a broken, chatless app.
+    // Finalize first run: the app will now admit the user. Skip this when the chat LLM
+    // failed (the wizard keeps the user on the retry screen; finalizing here would admit
+    // them into a broken, chatless app).
+    //
+    // essentialOnly mode does NOT flip first_run_complete here: the wizard now BLOCKS on
+    // the background setup track (the selected models + capabilities enqueued above) and
+    // calls POST /finish only once they've all finished downloading, or when the admin
+    // explicitly opts to open the app early. Flipping it here would let a reload admit the
+    // user mid-download - exactly the "opened into a half-installed app" problem we're
+    // fixing. The full-install path (essentialOnly === false) still finalizes inline,
+    // since it installs everything before reaching this point.
     if (!essentialLlmFailed) {
-      await setAppSetting('first_run_complete', true)
-      await setAppSetting('setup_state', null)  // clear saved resume progress
       // Sentinel: this install went through the consent-aware setup wizard.
       // The boot migration guard uses this to skip auto-granting consent for new installs.
       await setAppSetting('consent_system_present', true)
-
+      if (!essentialOnly) {
+        await setAppSetting('first_run_complete', true)
+        await setAppSetting('setup_state', null)  // clear saved resume progress
+      }
       // Warm up the newly active model so the first chat response is immediate
       warmupModel()
     }

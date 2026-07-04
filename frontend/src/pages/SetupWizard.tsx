@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Sparkles, Lock, Package, Download, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Settings2,
@@ -75,6 +75,21 @@ interface ModelDownload {
   etaSeconds: number
   error?: string
   note?: string  // backend sub-status while no bytes have flowed yet (resolving / connecting)
+}
+
+// Background setup-track summary from GET /api/jobs/status (the `setup` slice). The wizard
+// blocks on this after the inline essentials finish.
+interface JobsSetupSummary {
+  counts: { total: number; pending: number; running: number; completed: number; failed: number; cancelled: number }
+  pct: number
+  downloadedBytes: number
+  totalBytes: number
+  speedBps: number
+  etaSeconds: number
+  jobs: {
+    id: string; type: string; refId: string; label: string; status: string
+    progress: { completed?: number; total?: number; speedBps?: number; etaSeconds?: number; note?: string } | null
+  }[]
 }
 
 // ── Wizard steps ──────────────────────────────────────────────────────────────
@@ -1322,6 +1337,21 @@ function dlSubtitle(d: ModelDownload) {
   return ROLE_FRIENDLY[d.role] ? d.label : undefined
 }
 
+// Map a background-job status string to the DownloadProgress status vocabulary.
+function jobDlStatus(status: string): DownloadStatus {
+  switch (status) {
+    case 'running':   return 'downloading'
+    case 'failed':    return 'error'
+    case 'completed': return 'completed'
+    case 'cancelled': return 'cancelled'
+    default:          return 'pending'
+  }
+}
+// Friendly title for a setup-track job (reuses the same maps as the inline rows).
+function jobTitle(j: JobsSetupSummary['jobs'][number]): string {
+  return COMPONENT_FRIENDLY[j.refId] ?? RUNTIME_FRIENDLY[j.refId] ?? j.label
+}
+
 function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplete }: DownloadStepProps) {
   const [downloads, setDownloads] = useState<Map<string, ModelDownload>>(() => {
     const m = new Map<string, ModelDownload>()
@@ -1341,6 +1371,12 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
   const retryAttemptRef       = useRef(0)
   const itemFailsRef          = useRef<Map<string, number>>(new Map())  // per-item failure count
   const [autoRetrying, setAutoRetrying] = useState(false)
+  // Phase 2: once the inline essentials finish, we BLOCK on the durable background setup
+  // track (the selected models + capabilities the backend enqueued) and only open the app
+  // when it's fully downloaded. See the finishing render below.
+  const [finishing, setFinishing]   = useState(false)
+  const [setupTrack, setSetupTrack] = useState<JobsSetupSummary | null>(null)
+  const finalizedRef                = useRef(false)
 
   const MAX_ITEM_ATTEMPTS = 3
   const isRetriable = (id: string) => (itemFailsRef.current.get(id) ?? 0) < MAX_ITEM_ATTEMPTS
@@ -1486,9 +1522,49 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
     d => ESSENTIAL_LLM_ROLES.has(d.role) && d.status === 'error',
   )
 
+  // Essentials are installed. Instead of opening the app now (the old behaviour, which
+  // dropped the user into a half-installed app), BLOCK on the background setup track: the
+  // selected models + capabilities the backend enqueued. Flip into the finishing phase,
+  // which polls /api/jobs/status until every one has finished downloading.
   useEffect(() => {
-    if (allDone && !llmFailed) { const t = setTimeout(onComplete, 1200); return () => clearTimeout(t) }
-  }, [allDone, llmFailed, onComplete])
+    if (allDone && !llmFailed) setFinishing(true)
+  }, [allDone, llmFailed])
+
+  // Finalize first run (flips first_run_complete server-side) and open the app. Guarded so
+  // it runs exactly once whether it fires from "setup track complete" or an explicit skip.
+  const finalizeAndOpen = useCallback(async () => {
+    if (finalizedRef.current) return
+    finalizedRef.current = true
+    try { await fetch('/api/setup/finish', { method: 'POST', credentials: 'include' }) } catch { /* best effort: onComplete refetches */ }
+    onComplete()
+  }, [onComplete])
+
+  // Poll the setup track while finishing. Complete = nothing pending/running and nothing
+  // failed (total 0 means the user deselected every extra, trivially done). Failed jobs
+  // self-heal back to pending on the backend, so this stays false until they truly succeed.
+  useEffect(() => {
+    if (!finishing) return
+    let active = true
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/jobs/status', { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json() as { setup: JobsSetupSummary }
+        if (!active) return
+        reportAlive()
+        setSetupTrack(data.setup)
+        const c = data.setup.counts
+        if (c.pending + c.running === 0 && c.failed === 0) void finalizeAndOpen()
+      } catch { /* backend momentarily unreachable: keep polling */ }
+    }
+    void poll()
+    const id = setInterval(poll, 1500)
+    return () => { active = false; clearInterval(id) }
+  }, [finishing, finalizeAndOpen, reportAlive])
+
+  async function retryFailedSetup() {
+    try { await fetch('/api/jobs/retry-all-failed', { method: 'POST', credentials: 'include' }) } catch { /* poll will reflect it */ }
+  }
 
   function cancel() {
     abortRef.current?.abort()
@@ -1518,6 +1594,121 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
   // window (between Ollama finishing and the first model's 'start' event) from locking
   // at 100% before the real items have been added.
   const overallPct = (allDone && skippedCount === 0) ? 100 : Math.min(rawPct, 99)
+
+  // ── Phase 2: finishing (blocking on the background setup track) ────────────────
+  // The essentials are installed; we now wait until every selected model + capability
+  // has finished downloading before opening the app. This is the whole point of the
+  // change: the wizard never proceeds on a half-installed setup.
+  if (finishing) {
+    const c = setupTrack?.counts
+    const activeCount   = (c?.pending ?? 0) + (c?.running ?? 0)
+    const failedCount   = c?.failed ?? 0
+    const setupComplete = !!setupTrack && activeCount === 0 && failedCount === 0
+    const setupPct      = setupComplete ? 100 : Math.min(setupTrack?.pct ?? 0, 99)
+    const jobsList      = setupTrack?.jobs ?? []
+    const activeJobs    = jobsList.filter((j) => j.status === 'running' || j.status === 'pending')
+    const failedJobs    = jobsList.filter((j) => j.status === 'failed')
+    const dl            = setupTrack?.downloadedBytes ?? 0
+    const tot           = setupTrack?.totalBytes ?? 0
+    const speed         = setupTrack?.speedBps ?? 0
+    const eta           = setupTrack?.etaSeconds ?? 0
+
+    return (
+      <div className="w-full space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div>
+          <h2 className="text-title">{setupComplete ? 'Everything is ready' : 'Finishing your setup'}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {setupComplete
+              ? 'All of your models and features have finished downloading. Opening the app…'
+              : 'Your chat AI is ready. We’re downloading the rest of what you picked (image generation, voice, and more) before opening the app so nothing is half-installed. Large models can take a while - you can leave this running.'}
+          </p>
+        </div>
+
+        <InstallPromo />
+
+        <div className="space-y-2.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="truncate text-lg font-bold tracking-tight">
+              {setupComplete ? 'Ready' : 'Downloading your selection'}
+            </h3>
+            <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+              <span className="font-semibold text-foreground">{setupPct}%</span>
+              {c && <> · {c.completed} of {c.total}</>}
+            </span>
+          </div>
+          <div className="relative h-4 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn('absolute inset-y-0 left-0 rounded-full transition-[width] duration-500', setupComplete && 'bg-success')}
+              style={{
+                width: `${setupPct}%`,
+                ...(!setupComplete ? {
+                  background: 'linear-gradient(90deg, var(--gradient-brand-2), var(--gradient-brand-3), var(--gradient-brand-4), var(--gradient-brand-3), var(--gradient-brand-2))',
+                  backgroundSize: '200% 100%',
+                  animation: 'dl-gradient 2s linear infinite',
+                } : {}),
+              }}
+            />
+          </div>
+          {!setupComplete && tot > 0 && (
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {formatBytes(dl)} of {formatBytes(tot)}
+              {speed > 0 && <> · {(speed / 1_048_576).toFixed(1)} MB/s</>}
+              {speed > 0 && eta > 0 && <> · ~{eta < 60 ? `${eta}s` : `${Math.round(eta / 60)}m`} left</>}
+            </p>
+          )}
+          {setupComplete && (
+            <div className="flex items-center gap-2 text-sm font-medium text-success animate-in fade-in">
+              <CheckCircle2 className="size-4" /> All done - opening app…
+            </div>
+          )}
+        </div>
+
+        {/* Currently downloading (parallel). */}
+        {!setupComplete && activeJobs.length > 0 && (
+          <div className="space-y-2.5">
+            {activeJobs.map((j) => (
+              <DownloadProgress
+                key={j.id}
+                label={jobTitle(j)}
+                status={jobDlStatus(j.status)}
+                progress={j.progress?.total ? Math.round(((j.progress.completed ?? 0) / j.progress.total) * 100) : undefined}
+                downloadedBytes={j.progress?.completed}
+                totalBytes={j.progress?.total}
+                speedBps={j.progress?.speedBps}
+                etaSeconds={j.progress?.etaSeconds}
+                note={j.progress?.note}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* First poll still pending. */}
+        {!setupTrack && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner className="text-brand" /> Preparing your downloads…
+          </p>
+        )}
+
+        {/* Something is stuck: offer a retry and an explicit escape hatch. Failed setup
+            jobs self-heal on the backend, so this only appears when an item is genuinely
+            struggling (e.g. a dead mirror) - the normal path never shows a skip. */}
+        {failedJobs.length > 0 && (
+          <div className="space-y-3 rounded-card border border-warning/40 bg-warning/5 px-4 py-3.5 animate-in fade-in">
+            <p className="flex items-center gap-2 text-sm font-medium text-warning">
+              <AlertTriangle className="size-4 shrink-0" />
+              {failedJobs.length} item{failedJobs.length === 1 ? '' : 's'} keep{failedJobs.length === 1 ? 's' : ''} failing to download: {failedJobs.map((j) => jobTitle(j)).join(', ')}. We’ll keep retrying automatically.
+            </p>
+            <div className="flex items-center gap-4">
+              <Button type="button" onClick={retryFailedSetup}>Try again now</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void finalizeAndOpen()} className="text-muted-foreground">
+                Open the app anyway
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="w-full space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
