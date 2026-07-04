@@ -38,7 +38,10 @@ const LIVE_RE = /\b(live|broadcast|tour|in concert|concert|unplugged|bootleg|ses
 export function GeneratedAlbumCover({ band, album, photo, className }: {
   band?: string; album?: string; photo?: string | null; className?: string
 }) {
-  const bandName = (band ?? '').trim()
+  // Treat a missing/placeholder credit as no band, so a cover never literally reads "Unknown Artist"
+  // (MusicBrainz browse-by-artist omits artist-credits, which the catalog maps to that placeholder).
+  const rawBand = (band ?? '').trim()
+  const bandName = /^unknown artist$/i.test(rawBand) ? '' : rawBand
   const albumName = (album ?? '').trim()
   const seed = `${bandName}~${albumName}` || 'album'
   const h = hashInt(seed)

@@ -234,7 +234,7 @@ export async function getArtistAlbums(mbid: string, limit = 100): Promise<Catalo
   if (!mbid) return []
   return cachedLookup('mb-artist-albums', `${mbid}:${limit}`, THIRTY_DAYS_MS, async () => {
     try {
-      const data = await mbFetch(`/release-group?artist=${mbid}&type=album|ep|single&limit=${limit}`)
+      const data = await mbFetch(`/release-group?artist=${mbid}&type=album|ep|single&limit=${limit}&inc=artist-credits`)
       const albums = (data['release-groups'] ?? []).map(mapReleaseGroup)
       return albums.sort((a: CatalogAlbum, b: CatalogAlbum) => (b.year ?? 0) - (a.year ?? 0))
     } catch (err) {
