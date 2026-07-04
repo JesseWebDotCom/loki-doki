@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Sparkles, Lock, Package, Download, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Settings2,
-  Bot, Eye, Database, Wand2, Mic, Server, Route, ScanFace, Film, Eraser, Library,
+  Bot, Eye, Database, Wand2, Mic, Server, Route, ScanFace, Film, Eraser, Library, Code2,
   Map as MapIcon, Ear, MessageSquare, Image as ImageIcon, Users, Home, Lightbulb, Cpu,
   MapPin, Navigation, ShieldCheck, WifiOff, Lock as LockIcon, AlertTriangle, Globe,
   ShieldQuestion,
@@ -29,7 +29,7 @@ import { Spinner } from '@/components/ui/spinner'
 type ModelRole =
   | 'llm' | 'uncensored_llm' | 'vision' | 'embeddings' | 'router' | 'router_llm'
   | 'image_gen' | 'face_id' | 'face_embed' | 'video_motion' | 'video_gen' | 'bg_remove'
-  | 'voice' | 'runtime' | 'component'
+  | 'voice' | 'coding' | 'runtime' | 'component'
 
 interface CatalogEntry {
   id: string
@@ -107,23 +107,23 @@ const inputCls = [
 const ROLE_ICONS: Record<ModelRole, React.ComponentType<{ className?: string }>> = {
   runtime: Server, llm: Bot, uncensored_llm: Bot, vision: Eye, embeddings: Database,
   router: Route, router_llm: Route, image_gen: Wand2, face_id: ScanFace, face_embed: Database,
-  video_motion: Film, bg_remove: Eraser, voice: Mic,
+  video_motion: Film, bg_remove: Eraser, voice: Mic, coding: Code2,
 }
 
 const ROLE_LABELS: Record<ModelRole, string> = {
   llm: 'Language Model', uncensored_llm: 'Uncensored Model', vision: 'Vision Model',
   embeddings: 'Embedding Model', router: 'Tool Router', router_llm: 'Router LLM',
   image_gen: 'Image Base', face_id: 'Face Identity', face_embed: 'Face Embedder',
-  video_motion: 'Video Generation', bg_remove: 'Background Removal', voice: 'Voice Model', runtime: 'Runtime',
+  video_motion: 'Video Generation', bg_remove: 'Background Removal', voice: 'Voice Model', coding: 'Coding Model', runtime: 'Runtime',
 }
 
 const ROLE_ORDER: ModelRole[] = [
   'llm', 'uncensored_llm', 'vision', 'embeddings', 'router', 'router_llm',
-  'image_gen', 'face_id', 'video_motion', 'bg_remove', 'voice',
+  'image_gen', 'face_id', 'video_motion', 'bg_remove', 'voice', 'coding',
 ]
 
 const IMAGE_GEN_ROLES = new Set<ModelRole>(['image_gen', 'face_id', 'video_motion', 'bg_remove'])
-const CHAT_ROLES      = new Set<ModelRole>(['vision', 'embeddings', 'router', 'router_llm'])
+const CHAT_ROLES      = new Set<ModelRole>(['vision', 'embeddings', 'router', 'router_llm', 'coding'])
 
 function formatBytes(b: number): string {
   if (b <= 0) return '-'
@@ -974,6 +974,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
   const activeLlm   = llmCandidates.find((m) => m.id === activeLlmId)
   const selectedVision = !activeLlm?.builtinVision ? catalog.models.find((m) => m.role === 'vision' && selectedIds.includes(m.id)) : null
   const selectedImage = catalog.models.find((m) => m.role === 'image_gen' && selectedIds.includes(m.id))
+  const selectedCoding = catalog.models.find((m) => m.role === 'coding' && selectedIds.includes(m.id))
   const hotModelBytes = (activeLlm?.approxBytes ?? 0) + (selectedVision?.approxBytes ?? 0) + (selectedImage?.approxBytes ?? 0)
   const hotParts = [activeLlm?.label, !activeLlm?.builtinVision && selectedVision ? 'Vision' : null, selectedImage ? 'Image Gen' : null].filter(Boolean)
   const hotModelLabel = hotParts.join(' + ')
@@ -1083,6 +1084,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
             const items: { label: string; note?: string }[] = [{ label: 'Chat' }]
             if (activeLlm?.builtinVision || selectedVision) items.push({ label: 'Sees images', note: activeLlm?.builtinVision ? 'built in' : undefined })
             if (selectedImage) items.push({ label: 'Image & video generation' })
+            if (selectedCoding) items.push({ label: 'Coding' })
             if (selectedComponents.includes('tesseract')) items.push({ label: 'Home Inventory' })
             if (selectedComponents.includes('voice-core')) items.push({ label: 'Voice (speak & listen)' })
             if (selectedComponents.includes('wakeword-core')) items.push({ label: 'Wake word' })
