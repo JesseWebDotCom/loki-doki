@@ -65,6 +65,24 @@ async function wikidataImage(qid: string): Promise<string | null> {
   }
 }
 
+// Wikidata P154 ("logo image") → a Wikimedia Commons URL. A band's wordmark/logo, when one exists
+// (not populated for every artist). Used to vary the generated album covers — some use the photo,
+// some the logo, some both. Kept as a PNG (usually transparent) so it composites over art.
+async function wikidataLogo(qid: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${WD_ENTITY}/${qid}.json`, { headers: wikiHeaders, signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return null
+    const data = await res.json() as {
+      entities?: Record<string, { claims?: Record<string, Array<{ mainsnak?: { datavalue?: { value?: string } } }>> }>
+    }
+    const file = data.entities?.[qid]?.claims?.P154?.[0]?.mainsnak?.datavalue?.value
+    if (!file || typeof file !== 'string') return null
+    return `${COMMONS_FILEPATH}/${encodeURIComponent(file)}?width=500`
+  } catch {
+    return null
+  }
+}
+
 // Pull the article title out of an en.wikipedia.org/wiki/<Title> URL (the form MusicBrainz stores).
 function titleFromWikipediaUrl(url: string | null): string | null {
   if (!url) return null
@@ -96,11 +114,12 @@ async function wikipediaSearchSummary(name: string): Promise<WikiSummary | null>
 //   1. Direct Wikipedia summary by name (instant for exact-title artists like "Metallica").
 //   2. MusicBrainz cross-references → Wikidata P18 → Wikimedia Commons (handles the hard cases).
 //   3. Music-biased Wikipedia search as a last resort.
-async function resolveArtistInfo(name: string, mbid: string | null): Promise<WikiSummary & { found: boolean } | { found: false }> {
+async function resolveArtistInfo(name: string, mbid: string | null): Promise<(WikiSummary & { found: true; logo: string | null }) | { found: false }> {
   let image: string | null = null
   let extract = ''
   let url: string | null = null
   let title = name
+  let logo: string | null = null
 
   // 1. Fast path: the article title equals the artist name.
   if (name) {
@@ -132,8 +151,17 @@ async function resolveArtistInfo(name: string, mbid: string | null): Promise<Wik
     if (s) { image = s.image; extract = s.extract; url = s.url; title = s.title }
   }
 
+  // Band logo (Wikidata P154) — independent of the photo/bio above, so we get it even when the fast
+  // Wikipedia path already filled those. getArtist is cached, so this is one Wikidata fetch/artist.
+  if (mbid) {
+    try {
+      const a = await getArtist(mbid)
+      if (a?.wikidataId) logo = await wikidataLogo(a.wikidataId)
+    } catch { /* logo is optional */ }
+  }
+
   if (!image && !extract) return { found: false }
-  return { found: true, title, description: '', extract, image, url }
+  return { found: true, title, description: '', extract, image, url, logo }
 }
 
 // Confirm a Wikipedia page is actually about THIS song — not a same-named topic (the classic trap:

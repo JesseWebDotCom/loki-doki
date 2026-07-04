@@ -73,6 +73,12 @@ export function getArtist(mbid: string) {
 export function getAlbum(mbid: string) {
   return mfetch<{ album: CatalogAlbum; songs: CatalogSong[] }>(`/catalog/album/${mbid}`)
 }
+// Fallback cover art (iTunes) for albums with no Cover Art Archive image — called lazily only after
+// the CAA image fails to load. Returns null when iTunes has nothing either.
+export function getAlbumCoverFallback(artist: string, album: string) {
+  return mfetch<{ coverUrl: string | null }>(
+    `/catalog/cover?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`)
+}
 export async function resolveSong(s: { mbid?: string | null; title: string; artist: string; durationSec?: number | null }) {
   const params = new URLSearchParams({ title: s.title, artist: s.artist })
   if (s.mbid) params.set('mbid', s.mbid)
@@ -155,7 +161,7 @@ export function getLyrics(artist: string, title: string, duration?: number) {
   if (duration) p.set('duration', String(duration))
   return mfetch<{ synced: LyricLine[] | null; plain: string | null; source: string }>(`/info/lyrics?${p}`)
 }
-export interface WikiInfo { found: boolean; title?: string; extract?: string; image?: string | null; url?: string | null }
+export interface WikiInfo { found: boolean; title?: string; extract?: string; image?: string | null; url?: string | null; logo?: string | null }
 export function getSongInfo(artist: string, title: string) {
   return mfetch<WikiInfo>(`/info/song?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`)
 }

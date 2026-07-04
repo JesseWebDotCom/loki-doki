@@ -38,7 +38,7 @@ export function MusicAlbumPage() {
   return (
     <PageContainer width="wide" className="pt-6 pb-10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-        <AlbumCover coverUrl={album.coverUrl} className="aspect-square w-40 shrink-0 rounded-card shadow-lg" />
+        <AlbumCover coverUrl={album.coverUrl} artist={album.artistName} album={album.title} className="aspect-square w-40 shrink-0 rounded-card shadow-lg" />
         <div className="min-w-0">
           <p className="text-overline text-muted-foreground">{album.primaryType ?? 'Album'}{album.year ? ` · ${album.year}` : ''}</p>
           <div className="text-display sm:text-display-lg">{album.title}</div>

@@ -55,6 +55,14 @@ export const BOOKS_DEFAULT_THEME: CoverTheme = {
   palettes: [PAL.gold, PAL.amber, PAL.teal, PAL.rose, PAL.indigo, PAL.green],
 }
 
+// Music default — for album/artist tiles whose real cover is missing. Artist/album text often has
+// no "music" keyword to auto-detect, so callers pass this to guarantee a music-appropriate look
+// (note/mic/guitar/notes glyphs, violet-family palettes) instead of the generic Podcast default.
+export const MUSIC_DEFAULT_THEME: CoverTheme = {
+  kicker: 'Music', emojis: ['1F3B5', '1F3A4', '1F3B8', '1F3B6'],
+  palettes: [PAL.violet, PAL.pink, PAL.indigo, PAL.rose, PAL.cyan, PAL.amber],
+}
+
 export function detectTheme(text: string, fallback: CoverTheme = DEFAULT_THEME): CoverTheme {
   const t = (text || '').toLowerCase()
   for (const theme of THEMES) if (theme.test.test(t)) return { kicker: theme.kicker, palettes: theme.palettes, emojis: theme.emojis }

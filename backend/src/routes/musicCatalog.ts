@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import {
   searchArtists, searchAlbums, searchSongs,
-  getArtist, getArtistAlbums, getAlbum,
+  getArtist, getArtistAlbums, getAlbum, itunesAlbumCover,
 } from '@/lib/music/catalog'
 import { resolveTrack } from '@/lib/music/resolve'
 import { searchStations } from '@/routes/musicStations'
@@ -44,6 +44,16 @@ musicCatalog.get('/album/:mbid', async (c) => {
   const { album, songs } = await getAlbum(c.req.param('mbid'))
   if (!album) return c.json({ error: 'not found' }, 404)
   return c.json({ album, songs })
+})
+
+// GET /api/music/catalog/cover?artist=&album= — fallback cover art (iTunes) for albums the Cover
+// Art Archive has no image for. The client calls this only after the CAA image fails to load.
+musicCatalog.get('/cover', async (c) => {
+  const artist = c.req.query('artist')?.trim() ?? ''
+  const album = c.req.query('album')?.trim() ?? ''
+  if (!album) return c.json({ coverUrl: null })
+  const coverUrl = await itunesAlbumCover(artist, album)
+  return c.json({ coverUrl })
 })
 
 // GET /api/music/catalog/resolve?mbid=&title=&artist=&duration= — identity → playable videoId
