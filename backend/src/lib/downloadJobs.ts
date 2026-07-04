@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper'
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -560,6 +560,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runBookGenerateJob(payload, onProgress, signal)
       return
     }
+    case 'clip_download': {
+      const payload = JSON.parse(job.refId) as import('@/lib/clipper/download').ClipDownloadJobPayload
+      const { runClipDownloadJob } = await import('@/lib/clipper/download')
+      await runClipDownloadJob(payload, onProgress, signal)
+      return
+    }
   }
 }
 
@@ -572,6 +578,23 @@ export async function enqueueRadioRecording(recordingId: string, label: string):
     id: randomUUID(), type: 'radio-record', refId: recordingId, variantKey: null,
     domain: 'radio', sizeClass: 'small', label: label.slice(0, 120), priority: 45,
     status: 'pending', attempts: 0, maxAttempts: 1, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue a Clipper save (any yt-dlp-supported URL → offline blob). One job per clip row
+ *  (the clip id is the refId's clipId, not the job id — a clip can be re-tried by re-enqueuing
+ *  the same clipId); domain='clipper' is its own concurrency lane, separate from 'youtube' and
+ *  the other content domains. No emitNotification here — Clipper surfaces progress via the
+ *  clips row + downloadJobs the same way YouTube saves and podcast downloads do, not via the
+ *  admin/self-heal notification channel (see notifyJobExhausted's SELF_HEAL_TYPES gate). */
+export async function enqueueClipDownload(clipId: string, url: string, kind: 'audio' | 'video', label: string): Promise<void> {
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'clip_download', refId: JSON.stringify({ clipId, url, kind }), variantKey: null,
+    domain: 'clipper', sizeClass: 'small', label: label.slice(0, 120), priority: 45,
+    status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })
   kickScheduler()

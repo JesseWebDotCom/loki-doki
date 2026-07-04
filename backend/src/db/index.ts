@@ -1176,9 +1176,6 @@ export function runMigrations() {
   addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
   // Marks transient music prefetch-cache refs (download-ahead for gapless play; rolling keep-N).
   addColumn('yt_downloads', 'prefetch', 'INTEGER NOT NULL DEFAULT 0')
-  // Which app a save came from. Music saves reuse this pipeline but belong to the Music offline
-  // library, so the YouTube Saved tab filters out origin='music'.
-  addColumn('yt_downloads', 'origin', `TEXT NOT NULL DEFAULT 'youtube'`)
   // Channel avatar URL resolved + warmed at save time so Offline cards show real logos
   // (not just a letter) even for non-subscribed channels — existing DBs.
   addColumn('yt_videos', 'channel_thumb', 'TEXT')
@@ -2439,6 +2436,27 @@ export function runMigrations() {
   addColumn('shopping_listings', 'description', 'TEXT')
   addColumn('shopping_listings', 'rating_value', 'REAL')
   addColumn('shopping_listings', 'rating_count', 'INTEGER')
+
+  // Clipper: generic "paste any video URL" saver (see schema.ts clips).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS clips (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_url TEXT NOT NULL,
+      extractor TEXT,
+      title TEXT NOT NULL DEFAULT '',
+      thumbnail_url TEXT,
+      duration_seconds INTEGER,
+      kind TEXT NOT NULL DEFAULT 'video',
+      status TEXT NOT NULL DEFAULT 'pending',
+      asset_id TEXT,
+      size_bytes INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS clips_user_idx ON clips(user_id, created_at);
+  `)
 
   // Coding app: superseded by one persistent per-user tmux+Claude Code workspace
   // directory (lib/codingServer.ts) instead of app-tracked project/session rows:

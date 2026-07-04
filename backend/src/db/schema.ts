@@ -1168,11 +1168,6 @@ export const ytDownloads = sqliteTable('yt_downloads', {
   // Ephemeral: hidden from libraries and evicted by a rolling keep-N prune. Promoted to a real
   // ref (prefetch=false) if the user later explicitly saves the same track.
   prefetch: integer('prefetch', { mode: 'boolean' }).notNull().default(false),
-  // Which app the save originated from. Music saves (station snapshots + à-la-carte song saves)
-  // reuse this same pipeline but belong to the Music offline library, not YouTube's — so the
-  // YouTube Saved tab filters them out by origin. Only ever upgrades toward 'youtube' (an explicit
-  // YouTube save of a music-saved track surfaces it in YouTube; a music save never hides a YouTube one).
-  origin: text('origin', { enum: ['youtube', 'music'] }).notNull().default('youtube'),
   error: text('error'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
@@ -2256,3 +2251,24 @@ export const shoppingSaved = sqliteTable('shopping_saved', {
 // one persistent sandboxed workspace directory (data/coding/users/<userId>/, see
 // lib/codingServer.ts workspaceDirFor()); Claude Code manages its own session/config
 // state within it natively, so there's nothing for us to track separately.
+
+// ─── Clipper (generic "paste any video URL, watch it or save it offline") ──────
+// One row per user save. Unlike YouTube's shared media_assets rendition (keyed by
+// videoId across all users), each clip is a personal save — its media_assets row is
+// keyed 1:1 by (sourceType='clip', sourceId=clips.id), never deduped across users.
+export const clips = sqliteTable('clips', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sourceUrl: text('source_url').notNull(),
+  extractor: text('extractor'),
+  title: text('title').notNull().default(''),
+  thumbnailUrl: text('thumbnail_url'),
+  durationSeconds: integer('duration_seconds'),
+  kind: text('kind', { enum: ['audio', 'video'] }).notNull().default('video'),
+  status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('pending'),
+  assetId: text('asset_id'),
+  sizeBytes: integer('size_bytes'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
