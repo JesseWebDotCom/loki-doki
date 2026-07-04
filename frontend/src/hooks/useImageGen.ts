@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 
 export interface GenerateParams {
   prompt: string
+  originalPrompt?: string   // pre-Auto-enhance wording; backend falls back to it if the enhanced prompt trips the safety filter
   negativePrompt?: string
   width?: number
   height?: number
@@ -18,6 +19,10 @@ export interface GenerateParams {
   fps?: number
   motionBucketId?: number    // i2v: SVD motion amount
   augmentation?: number      // i2v: SVD conditioning noise
+  // SVG (vector) output: trace the rendered still into scalable vector paths
+  outputFormat?: 'png' | 'svg'
+  flatBias?: boolean         // steer generation toward flat vector art (default on)
+  svgOptions?: { colorPrecision?: number; filterSpeckle?: number }
 }
 
 export type GenStatus = 'idle' | 'generating' | 'done' | 'error' | 'cancelled'
@@ -73,7 +78,8 @@ export function useImageGen() {
 
     if (!res.ok) {
       let msg = `HTTP ${res.status}`
-      try { const d = await res.json() as { error?: string }; msg = d.error ?? msg } catch { /* ignore */ }
+      // Prefer the backend's human-readable `message`; the `error` code is only a fallback.
+      try { const d = await res.json() as { error?: string; message?: string }; msg = d.message ?? d.error ?? msg } catch { /* ignore */ }
       setState(s => ({ ...s, status: 'error', error: msg }))
       return null
     }

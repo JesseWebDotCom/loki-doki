@@ -97,3 +97,20 @@ export function applyStyleToPrompt(
     styleLabel: mod.label,
   }
 }
+
+// Flat-art bias for SVG (vector) output. Naively tracing a detailed/photoreal render into
+// vector paths yields thousands of mushy shapes and a huge file; steering generation toward
+// flat, posterized, limited-palette art keeps the traced SVG clean and editable. This
+// COMPOSES on top of any user-selected style/LoRA (prepended), rather than replacing it.
+const VECTORIZE_PREFIX = 'flat vector illustration, bold clean shapes, limited color palette, high contrast, sharp edges, minimal fine detail, '
+const VECTORIZE_NEGATIVE = 'photorealistic, gradient, film grain, noise, texture, fine detail, blurry, soft focus, '
+
+export function applyVectorizeBias(
+  prompt: string,
+  negativePrompt?: string,
+): { prompt: string; negativePrompt: string } {
+  return {
+    prompt: VECTORIZE_PREFIX + prompt,
+    negativePrompt: VECTORIZE_NEGATIVE + (negativePrompt ?? ''),
+  }
+}

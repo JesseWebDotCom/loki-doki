@@ -44,6 +44,7 @@ import {
   type DownloadProgress,
 } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI } from '@/lib/comfyui'
+import { isVtracerInstalled, ensureVtracer } from '@/lib/vtracer'
 import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG } from '@/lib/searxng'
 import { isESPHomeInstalled, installESPHome } from '@/lib/esphome'
 import { warmUpToolchain } from '@/lib/pod/firmware'
@@ -228,6 +229,14 @@ const STATIC_COMPONENTS: InstallComponent[] = [
       const config = await comfyConfig()
       await setupComfyUIBase(config, onP, sig)
     },
+  },
+  {
+    // Raster→SVG tracer for the image generator's "SVG (vector)" output mode. Small
+    // standalone binary; the generator falls back to the raster artifact if it's absent,
+    // so repair is never blocking.
+    id: 'vtracer', group: 'image', label: 'Vector Tracer (vtracer)',
+    isInstalled: isVtracerInstalled,
+    repair: (onP, sig) => ensureVtracer((msg) => statusAdapter(onP)(msg), sig),
   },
   {
     id: 'comfyui-nodes', group: 'image', label: 'ComfyUI Extensions',

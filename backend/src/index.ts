@@ -141,7 +141,8 @@ import { seedContentProfiles } from '@/lib/contentPolicy'
 import { frigate } from '@/routes/frigate'
 import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
-import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
+import { maybeSpawnComfyUI, stopComfyUI, isComfyUIInstalled } from '@/lib/comfyui'
+import { ensureVtracer } from '@/lib/vtracer'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
 import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
@@ -329,6 +330,10 @@ if (firstBoot) {
   // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
   // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
   startYtdlpAutoUpdate()
+  // Provision the vector tracer for the image generator's SVG output mode. Only where image
+  // gen exists (ComfyUI installed), and only a NEW dependency the component-ledger reconcile
+  // would otherwise skip on pre-existing installs. Best-effort, non-blocking.
+  if (isComfyUIInstalled()) ensureVtracer().catch(() => {})
   // Keep Ollama fresh too: an outdated Ollama can't pull models with a newer manifest
   // format (discovered pulling ornith:9b against 0.30.8). Same daily-check/weekly-force
   // cadence; only upgrades installs it can do safely and unattended (Homebrew or its own
