@@ -139,7 +139,7 @@ import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
 import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
-import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix } from '@/lib/kiwix'
+import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix, maybeUpdateKiwixTools } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
 import { stopCodingPtySidecar } from '@/lib/codingPtySidecar'
 import { reconcileBuiltinPronunciationPacks } from '@/lib/voice/pronunciation'
@@ -236,6 +236,10 @@ if (firstBoot) {
   maybeSpawnSearXNG()
   void maybeUpdateSearXNG()
   setInterval(() => void maybeUpdateSearXNG(), 24 * 60 * 60 * 1000)
+  // kiwix-tools (Windows) auto-update: roll out newer builds on boot + daily, so a purged
+  // pinned version never strands the offline library (mac/Linux use bundled libzim, no-op there).
+  void maybeUpdateKiwixTools()
+  setInterval(() => void maybeUpdateKiwixTools(true), 24 * 60 * 60 * 1000)
   // Pod gateway: a Wyoming-protocol TCP listener that ESP32 satellites (and the
   // scripts/pod-test-satellite.ts harness) connect to. Reuses STT/TTS/LLM brains.
   // See plans/hardware-devices/pod-wyoming-architecture.md. Disable: POD_GATEWAY_ENABLED=0.
