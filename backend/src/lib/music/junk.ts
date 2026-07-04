@@ -49,3 +49,25 @@ export function isJunkTrack(title: string, artist: string): boolean {
 export function dropJunk<T extends { title: string; artist?: string | null }>(tracks: T[]): T[] {
   return tracks.filter((x) => !isJunkTrack(x.title, x.artist ?? ''))
 }
+
+// Non-music YOUTUBE VIDEO tells — trailers, reviews, tech setups, gameplay, etc. Distinct from the
+// music-junk filter above (which targets fake "songs" like type-beats and karaoke). These leak into
+// listening history when a companion "play music" request is mis-parsed into a station whose free-text
+// seed resolves to an ordinary YouTube video (e.g. a movie trailer) that then plays as audio. High-
+// precision terms only — words that essentially never appear in a real song title.
+const VIDEO_PHRASE =
+  /\b(official trailer|teaser trailer|trailer|teaser|unboxing|reaction video|reacts to|first look|hands[- ]?on|room tour|house tour|studio tour|apartment tour|\bsetup\b|\bvlog\b|gameplay|walkthrough|playthrough|let'?s play|tutorial|documentary|full episode|full movie|caught on camera|dash ?cam|body ?cam)\b/i
+
+/**
+ * True when a history entry is clearly an ordinary (non-music) YouTube video rather than a song —
+ * used to keep trailers/reviews/setup videos out of the music "Continue listening" list. A real
+ * artist name is never a sentence, so a '?' or an implausibly long artist is a strong tell too.
+ */
+export function looksLikeVideo(title: string, artist: string): boolean {
+  const t = title ?? ''
+  const a = artist ?? ''
+  if (VIDEO_PHRASE.test(`${t} ${a}`)) return true
+  if (a.includes('?')) return true                                   // "Have you seen new Spiderman movie?"
+  if (a.trim().split(/\s+/).filter(Boolean).length >= 8) return true // a sentence, not an artist
+  return false
+}

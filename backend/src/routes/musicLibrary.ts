@@ -10,6 +10,7 @@ import { requireAuth } from '@/middleware/auth'
 import { enqueueVideoSave, enqueuePrefetch } from '@/lib/youtube/automation'
 import { releaseAssetsIfOrphaned } from '@/lib/youtube/assets'
 import { resolveUserPath } from '@/lib/storage/paths'
+import { looksLikeVideo } from '@/lib/music/junk'
 import type { AppEnv } from '@/types'
 
 export const musicLibrary = new Hono<AppEnv>()
@@ -140,6 +141,9 @@ musicLibrary.get('/history', async (c) => {
   for (const r of rows) {
     if (seen.has(r.videoId)) continue
     seen.add(r.videoId)
+    // Keep ordinary YouTube videos out of "Continue listening" — trailers/reviews/etc. leak in when
+    // a companion "play music" request is mis-parsed into a station seeded from free text.
+    if (looksLikeVideo(r.title, r.artist ?? '')) continue
     recent.push(r)
     if (recent.length >= limit) break
   }
