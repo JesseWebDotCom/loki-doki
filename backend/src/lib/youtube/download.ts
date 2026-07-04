@@ -12,7 +12,7 @@ import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
 import { ensureSummary, ensureSavedVideoMeta } from '@/lib/youtube/summarize'
-import { ytDlpBin } from '@/lib/youtube/ytdlp'
+import { ytDlpBin } from '@/lib/ytdlp'
 import { ensureFfmpeg, ffmpegLocation, ffprobeBin } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
 

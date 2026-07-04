@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { ytVideos } from '@/db/schema'
-import { ytDlpBin } from '@/lib/youtube/ytdlp'
+import { ytDlpBin } from '@/lib/ytdlp'
 
 const MAX_PER_CALL = 50
 

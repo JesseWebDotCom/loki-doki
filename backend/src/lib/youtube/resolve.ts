@@ -5,7 +5,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { innertubeResolveChannel } from '@/lib/youtube/innertube'
-import { ytDlpBin } from '@/lib/youtube/ytdlp'
+import { ytDlpBin } from '@/lib/ytdlp'
 import { decodeEntities } from '@/lib/htmlText'
 
 const execFileAsync = promisify(execFile)

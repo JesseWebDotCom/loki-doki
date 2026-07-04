@@ -8,7 +8,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { logger } from '@/lib/logger'
-import { ytDlpBin, withYtDlpSlot } from '@/lib/youtube/ytdlp'
+import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
 import { innertubePlayerStreams, type ItStreams } from '@/lib/youtube/innertube'
 
 const execFileAsync = promisify(execFile)
