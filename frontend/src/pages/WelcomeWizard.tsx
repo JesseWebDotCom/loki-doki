@@ -222,11 +222,11 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
   async function finish(enqueue: boolean) {
     setFinishing(true); setError('')
     try {
-      // Coding (OpenCode + Ornith) installs by default, independent of the "skip
+      // Coding (Claude Code + Ornith) installs by default, independent of the "skip
       // optional content" choice below: it's a small, low-friction add, unlike the
       // multi-GB ZIM/maps content this wizard otherwise gates behind opt-in. The user
       // can still remove it afterwards in Admin → Features.
-      const componentIds = codingOn ? ['opencode-server'] : []
+      const componentIds = codingOn ? ['claude-code', 'tmux'] : []
       const modelIds = codingOn ? ['ornith:9b'] : []
       if (enqueue && anySelected) {
         const zimSelections: ZimSelection[] = []

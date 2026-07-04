@@ -169,8 +169,9 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
   { id: 'esphome',       label: 'Devices',         description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB).', bytes: 1_000_000_000, requires: [],                     icon: Cpu  },
-  { id: 'opencode-server', label: 'Coding',        description: 'Local AI coding agent (OpenCode) for sandboxed dev projects, usable from the Coding app or by asking the companion in chat. File edits and commands always pause for your approval.', bytes: 60_000_000, requires: [], icon: Code2 },
-  { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['opencode-server'], icon: ShieldCheck },
+  { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model — usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
+  { id: 'tmux',          label: 'Coding Terminal Multiplexer', description: 'Powers split panes and reload-persistence in the Coding app\'s terminal.', bytes: 2_000_000, requires: ['claude-code'], icon: Code2 },
+  { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
 ]
 
 const LLM_ROLES_SET = new Set<ModelRole>(['llm', 'uncensored_llm'])
@@ -1716,11 +1717,19 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
           <div id="section-coding" className="space-y-2">
             <p className="text-overline text-muted-foreground/60">Coding</p>
             <CapInstallRow
-              cap={ADMIN_CAPS.find(c => c.id === 'opencode-server')!}
-              installed={compMap.get('opencode-server') === true}
-              installState={installStates.get('opencode-server')}
-              onInstall={() => void repairComponent('opencode-server', 'opencode-server')}
-              onCancel={() => cancelInstall('opencode-server')}
+              cap={ADMIN_CAPS.find(c => c.id === 'claude-code')!}
+              installed={compMap.get('claude-code') === true}
+              installState={installStates.get('claude-code')}
+              onInstall={() => void repairComponent('claude-code', 'claude-code')}
+              onCancel={() => cancelInstall('claude-code')}
+            />
+            <CapInstallRow
+              cap={ADMIN_CAPS.find(c => c.id === 'tmux')!}
+              installed={compMap.get('tmux') === true}
+              blocked={compMap.get('claude-code') !== true}
+              installState={installStates.get('tmux')}
+              onInstall={() => void repairComponent('tmux', 'tmux')}
+              onCancel={() => cancelInstall('tmux')}
             />
             {catalog.hardware.platform === 'win32' ? (
               <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
@@ -1731,7 +1740,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
               <CapInstallRow
                 cap={ADMIN_CAPS.find(c => c.id === 'coding-sandbox-user')!}
                 installed={compMap.get('coding-sandbox-user') === true}
-                blocked={compMap.get('opencode-server') !== true}
+                blocked={compMap.get('claude-code') !== true}
                 installState={installStates.get('coding-sandbox-user')}
                 onInstall={() => void repairComponent('coding-sandbox-user', 'coding-sandbox-user')}
                 onCancel={() => cancelInstall('coding-sandbox-user')}
@@ -1764,7 +1773,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
         <div className="space-y-2">
           <p className="text-overline text-muted-foreground/60">More Capabilities</p>
           <p className="px-1 text-xs text-muted-foreground/70 -mt-1">Optional: add these at any time.</p>
-          {ADMIN_CAPS.filter(c => !c.base && c.id !== 'opencode-server' && c.id !== 'coding-sandbox-user').map(cap => (
+          {ADMIN_CAPS.filter(c => !c.base && c.id !== 'claude-code' && c.id !== 'tmux' && c.id !== 'coding-sandbox-user').map(cap => (
             <CapInstallRow key={cap.id} cap={cap}
               installed={compMap.get(cap.id) === true}
               blocked={cap.requires.some(r => compMap.get(r) !== true)}

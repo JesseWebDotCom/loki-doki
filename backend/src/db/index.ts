@@ -2437,10 +2437,11 @@ export function runMigrations() {
   addColumn('shopping_listings', 'rating_value', 'REAL')
   addColumn('shopping_listings', 'rating_count', 'INTEGER')
 
-  // Coding app: superseded by one persistent per-user OpenCode workspace directory
-  // (lib/codingServer.ts) instead of app-tracked project/session rows: OpenCode's
-  // own web UI manages projects natively. Drop the short-lived tables from the
-  // earlier design (never shipped/committed).
+  // Coding app: superseded by one persistent per-user tmux+Claude Code workspace
+  // directory (lib/codingServer.ts) instead of app-tracked project/session rows:
+  // Claude Code manages its own sessions/config natively (~/.claude inside each
+  // user's workspace HOME). Drop the short-lived tables from the earlier design
+  // (never shipped/committed).
   sqlite.exec(`
     DROP TABLE IF EXISTS coding_sessions;
     DROP TABLE IF EXISTS coding_projects;

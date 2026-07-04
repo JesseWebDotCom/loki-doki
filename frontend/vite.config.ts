@@ -119,14 +119,15 @@ export default defineConfig({
         timeout: 0,
         agent: false,
       },
-      // Coding app: /api/coding/projects/:id/events is a raw SSE passthrough from the
-      // per-project OpenCode sidecar. The project id varies, so this covers the whole
-      // /api/coding prefix (harmless for the plain JSON routes under it too) rather
-      // than listing one dynamic path — same unpooled-socket treatment as the other
-      // SSE entries above, for the same "Bun SSE poisons the pooled proxy socket" reason.
+      // Coding app: /api/coding/terminal is a WebSocket (the xterm.js terminal
+      // attached to the user's tmux+claude session) — needs ws: true, same as the STT
+      // stream entry above. Covers the whole /api/coding prefix (harmless for the
+      // plain JSON pane-control routes under it too) rather than listing the one
+      // dynamic path.
       '/api/coding': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        ws: true,
         proxyTimeout: 0,
         timeout: 0,
         agent: false,

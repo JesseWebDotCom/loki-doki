@@ -2,7 +2,7 @@ import type { HardwareInfo } from '@/lib/hwfit'
 
 export type ModelRole =
   | 'llm' | 'uncensored_llm' | 'vision' | 'embeddings' | 'router' | 'router_llm'
-  | 'coding'          // agentic coding model, served to the OpenCode sidecar
+  | 'coding'          // agentic coding model, served to the Claude Code CLI via Ollama's Anthropic-compat endpoint
   | 'image_gen'       // SDXL base checkpoint
   | 'face_id'         // IP-Adapter FaceID weights
   | 'face_embed'      // InsightFace AntelopeV2
@@ -113,7 +113,7 @@ export const CATALOG: CatalogModel[] = [
     id: 'ornith:9b',
     role: 'coding',
     label: 'Ornith 1.0 9B',
-    description: 'DeepReinforce Ornith 1.0 9B via Ollama. Agentic coding model with native tool-calling, powers the Coding app and companion coding tool through the OpenCode sidecar.',
+    description: 'DeepReinforce Ornith 1.0 9B via Ollama. Agentic coding model with native tool-calling, powers the Coding app and companion coding tool through the real Claude Code CLI (via Ollama\'s Anthropic-compatible endpoint).',
     backend: 'ollama',
     ollamaTag: 'ornith:9b',
     approxBytes: 5_900_000_000,

@@ -2247,7 +2247,7 @@ export const shoppingSaved = sqliteTable('shopping_saved', {
   userKindIdx: index('shopping_saved_user_kind_idx').on(t.userId, t.kind),
 }))
 
-// Coding (OpenCode): no app-level project/session tables. Each user gets one
-// persistent sandboxed workspace directory (data/coding/users/<userId>/, see
-// lib/codingServer.ts workspaceDirFor()); OpenCode's own web UI manages projects and
-// sessions within it natively, so there's nothing for us to track separately.
+// Coding (Claude Code, via tmux): no app-level project/session tables. Each user gets
+// one persistent sandboxed workspace directory (data/coding/users/<userId>/, see
+// lib/codingServer.ts workspaceDirFor()); Claude Code manages its own session/config
+// state within it natively, so there's nothing for us to track separately.

@@ -50,7 +50,7 @@ import { warmUpToolchain } from '@/lib/pod/firmware'
 import { isKiwixInstalled, installKiwixTools } from '@/lib/kiwix'
 import { isVoiceServerInstalled, installVoiceModels, maybeSpawnVoiceServer } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled, installMapsToolchain } from '@/lib/maps/toolchain'
-import { isOpenCodeInstalled, installOpenCode } from '@/lib/opencode'
+import { isClaudeCodeInstalled, installClaudeCode } from '@/lib/claudeCode'
 import { isChromiumInstalled, installChromium } from '@/lib/bookmarks/chromiumInstall'
 import { isSandboxUserInstalled, installSandboxUser } from '@/lib/codingSandboxUser'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
@@ -120,6 +120,28 @@ async function installTesseract(onProgress: InstallProgressFn): Promise<void> {
   status(`Installing Tesseract via ${mgr}…`)
   await execAsync(cmd, { timeout: 120_000 })
   status('Tesseract installed')
+}
+
+export function isTmuxInstalled(): boolean {
+  if (process.platform === 'win32') return false // tmux isn't available on Windows; Coding falls back same as sandbox isolation
+  return existsSync('/opt/homebrew/bin/tmux') ||
+         existsSync('/usr/local/bin/tmux') ||
+         existsSync('/usr/bin/tmux')
+}
+
+async function installTmux(onProgress: InstallProgressFn): Promise<void> {
+  const status = statusAdapter(onProgress)
+  if (process.platform === 'win32') throw new Error('tmux (and Coding\'s split-pane terminal) is not available on Windows.')
+  const hasBrew = existsSync('/opt/homebrew/bin/brew') || existsSync('/usr/local/bin/brew')
+  const hasApt  = existsSync('/usr/bin/apt-get')
+  let cmd: string
+  let mgr: string
+  if (hasBrew)     { cmd = 'brew install tmux'; mgr = 'Homebrew' }
+  else if (hasApt) { cmd = 'apt-get install -y tmux'; mgr = 'apt-get' }
+  else throw new Error('No package manager found (brew/apt-get). Install tmux manually: https://github.com/tmux/tmux/wiki/Installing')
+  status(`Installing tmux via ${mgr}…`)
+  await execAsync(cmd, { timeout: 120_000 })
+  status('tmux installed')
 }
 
 // ── Component definitions ─────────────────────────────────────────────────────
@@ -252,11 +274,18 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     repair: (onP, sig) => downloadStingerSoundfont(onP, sig),
   },
   {
-    // Servers are per-user and spawned on demand (see codingServer.ts): install
+    // Sessions are per-user and spawned on demand (see codingServer.ts): install
     // just needs the binary present; nothing to pre-warm here.
-    id: 'opencode-server', group: 'coding', label: 'Coding (OpenCode)',
-    isInstalled: isOpenCodeInstalled,
-    repair: (onP, sig) => installOpenCode(statusAdapter(onP), sig),
+    id: 'claude-code', group: 'coding', label: 'Coding (Claude Code)',
+    isInstalled: isClaudeCodeInstalled,
+    repair: (onP, sig) => installClaudeCode(statusAdapter(onP), sig),
+  },
+  {
+    // Session multiplexing (splits + reload-persistence) for the Coding app's
+    // terminal — see codingServer.ts's ensureTmuxSession/paneControl.
+    id: 'tmux', group: 'coding', label: 'Coding Terminal Multiplexer (tmux)',
+    isInstalled: isTmuxInstalled,
+    repair: (onP) => installTmux(onP),
   },
   {
     // Real OS-level isolation for the coding sidecar (see codingSandboxUser.ts):

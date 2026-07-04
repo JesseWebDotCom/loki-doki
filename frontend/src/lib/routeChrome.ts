@@ -32,7 +32,7 @@ export function classifyRoute(pathname: string): RouteChrome {
     pathname.startsWith("/music") ||
     pathname.startsWith("/bookmarks") ||
     pathname.startsWith("/books") ||
-    // Embeds OpenCode's own web UI edge-to-edge: keeps the automatic breadcrumb
+    // A real terminal (xterm.js) edge-to-edge: keeps the automatic breadcrumb
     // (not isReader, that suppresses it), just owns its own full-height content.
     pathname.startsWith("/coding");
   // The shell paints the backdrop for standard scroller apps only. Full-bleed,

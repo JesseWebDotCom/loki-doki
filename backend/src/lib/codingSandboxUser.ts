@@ -245,12 +245,15 @@ export function ensureSandboxRuntimeMirrored(sourceDir: string): void {
  * lokidoki-coding via the same sudoers-permitted launch script already used to
  * spawn (no new sudoers grant needed), so it can only ever match/kill processes
  * that user itself owns, and that user exists for no other purpose, so killing
- * every opencode process it's running is always safe. Best-effort: a clean box
+ * every tmux/claude process it's running is always safe. Best-effort: a clean box
  * with nothing to kill is the common case, not a failure.
  */
 export function killSandboxedOrphans(): void {
   if (!isSandboxUserInstalled()) return
   try {
-    execFileSync('sudo', ['-n', '-u', SANDBOX_USER, LAUNCH_SCRIPT, '/usr/bin/pkill', '-f', 'opencode web --port'], { stdio: 'ignore', timeout: 5_000 })
+    // Matches the per-user tmux server sockets codingServer.ts creates (`-S
+    // <workspace>/.tmux.sock`) — killing the tmux server also takes down the
+    // `claude` process running inside it, and any attach-client PTYs.
+    execFileSync('sudo', ['-n', '-u', SANDBOX_USER, LAUNCH_SCRIPT, '/usr/bin/pkill', '-f', 'tmux -S .*\\.tmux\\.sock'], { stdio: 'ignore', timeout: 5_000 })
   } catch { /* nothing to kill, or already gone (pkill exits non-zero on no match) */ }
 }

@@ -11,7 +11,7 @@ import { logger } from '@/lib/logger'
 // live into the pane and is persisted as the artifact's first version.
 //
 // NOT for multi-file projects / "build me an app" — those route to the `coding`
-// tool (the OpenCode workspace). Canvas is the lightweight single-file surface.
+// tool (the sandboxed Claude Code workspace). Canvas is the lightweight single-file surface.
 
 interface CanvasArgs {
   type?: string

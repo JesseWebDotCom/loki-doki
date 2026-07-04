@@ -104,7 +104,7 @@ import { musicLibrary } from '@/routes/musicLibrary'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
 import { shopping } from '@/routes/shopping'
-import { coding } from '@/routes/coding'
+import { createCodingRoute } from '@/routes/coding'
 import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
@@ -141,9 +141,7 @@ import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
 import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
-import { stopAllCodingServers } from '@/lib/codingServer'
-import { killSandboxedOrphans } from '@/lib/codingSandboxUser'
-import { killByCommandLine } from '@/lib/platform'
+import { stopCodingPtySidecar } from '@/lib/codingPtySidecar'
 import { reconcileBuiltinPronunciationPacks } from '@/lib/voice/pronunciation'
 import { cleanupStaleTrainingTmp } from '@/lib/voice/wakewordTrainer'
 import { startPodGateway } from '@/lib/pod/gateway'
@@ -332,14 +330,12 @@ if (firstBoot) {
   // managed binary), otherwise just logs a manual-upgrade nudge.
   startOllamaAutoUpdate()
 
-  // Coding sidecars from before a restart survive it as orphans: the backend's own
-  // in-memory tracking resets on every restart (--hot or a real relaunch alike), but
-  // the actual spawned processes (especially sandboxed ones, which jessetorres can't
-  // even signal directly) keep running, invisible and unmanaged, squatting on their
-  // ports forever. Sweep both flavors clean on every boot; a fresh one spawns on
-  // next access same as any other cold start.
-  killSandboxedOrphans()
-  killByCommandLine('opencode web --port')
+  // Unlike OpenCode's old HTTP sidecars, per-user tmux sessions are DELIBERATELY left
+  // running across a backend restart (--hot or a real relaunch alike) — that's the
+  // entire point of the tmux-backed design: a user's Claude Code conversation and any
+  // in-flight work survive a restart instead of being swept on every boot. No orphan
+  // cleanup call here; codingSandboxUser.ts's killSandboxedOrphans() is still
+  // available for manual/admin-triggered resets, just no longer fired automatically.
 
   // Plex: mirror the linked user's media watchlist with their Plex account Watchlist every
   // 15 min (two-way, tombstone-aware). No-op until a Plex server+token is configured.
@@ -388,7 +384,10 @@ async function stopSidecars() {
   try { stopComfyUI() } catch { /* best-effort */ }
   try { stopSearXNG() } catch { /* best-effort */ }
   try { stopVoiceServer() } catch { /* best-effort */ }
-  try { stopAllCodingServers() } catch { /* best-effort */ }
+  // Deliberately NOT killing per-user tmux sessions here: they're meant to survive a
+  // backend restart (that's the whole point of tmux-backed persistence) — only the
+  // stateless PTY-attach sidecar needs to go down.
+  try { stopCodingPtySidecar() } catch { /* best-effort */ }
   try { stopGraphHopper() } catch { /* best-effort */ }
 }
 
@@ -543,7 +542,7 @@ app.route('/api/music/library', musicLibrary)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
 app.route('/api/shopping', shopping)
-app.route('/api/coding', coding)
+app.route('/api/coding', createCodingRoute(upgradeWebSocket))
 app.route('/api/artifacts', artifactsRoute)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)
