@@ -15,7 +15,8 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { toast } from '@/lib/toast'
 import { useYoutubeUI } from '@/components/youtube/YoutubeLayout'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
-import { UpNextRow } from '@/components/youtube/VideoCard'
+import { UpNextRow, watchHref } from '@/components/youtube/VideoCard'
+import { AutoplayCountdown } from '@/components/youtube/AutoplayCountdown'
 import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { ChannelAvatar } from '@/components/youtube/media'
@@ -51,6 +52,7 @@ function fmtCount(n: number): string {
 
 const PRIVACY_KEY = 'yt.privacy'
 const AUDIO_KEY = 'yt.audioOnly'
+const AUTOPLAY_COUNTDOWN_SEC = 8
 const SB_LABELS: Record<string, string> = {
   sponsor: 'sponsor', selfpromo: 'self-promo', interaction: 'reminder',
   intro: 'intro', outro: 'outro', preview: 'recap', music_offtopic: 'non-music',
@@ -66,6 +68,9 @@ export function WatchPage() {
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [tab, setTab] = useState<SideTab>('transcript')
   const [autoplay, setAutoplay] = useState(true)
+  // "Playing next in Ns" overlay shown instead of navigating immediately on end, so the
+  // viewer gets a beat to cancel. Cleared on scrub-back/replay (see onTime/onPlaying below).
+  const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
 
   // ── Docked mini-player hand-off ────────────────────────────────────────────────
   // If this same video is currently playing in the docked mini-player (we got here by
@@ -192,8 +197,21 @@ export function WatchPage() {
   }), [meta?.title, meta?.channelId, meta?.durationSec, author, feedItem?.title, navState.title])
 
   function onEnded() {
-    if (autoplay && upNext[0]) navigate(`/youtube/watch/${upNext[0].videoId}${upNext[0].localKind ? `?k=${upNext[0].localKind}` : ''}`)
+    if (autoplay && upNext[0]) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
   }
+
+  // Ticks the "playing next" countdown down once a second and navigates when it hits 0.
+  useEffect(() => {
+    if (!countdown) return
+    if (countdown.secondsLeft <= 0) {
+      const nx = upNext[0]
+      setCountdown(null)
+      if (nx) navigate(watchHref(nx))
+      return
+    }
+    const t = setTimeout(() => setCountdown(c => (c ? { ...c, secondsLeft: c.secondsLeft - 1 } : null)), 1000)
+    return () => clearTimeout(t)
+  }, [countdown, upNext, navigate])
 
   // Pop the video into the docked mini-player and leave the watch page. Forces the dock
   // (even if paused) so the button always does something; navigating away would otherwise
@@ -210,19 +228,33 @@ export function WatchPage() {
         {isPending ? (
           <Skeleton className="aspect-video w-full rounded-card" />
         ) : (
-          <VideoPlayer
-            ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
-            resumeSec={resumeSec} onEnded={onEnded}
-            privacyProxy={online && privacy} audioOnly={online && audioOnly}
-            onNeedsProxyForPip={enablePrivacyForPip}
-            autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
-            skipSegments={online ? segments : undefined}
-            onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
-            chapters={chapters}
-            onTime={(s) => { secRef.current = s; setCurrentSec(Math.floor(s)) }}
-            onPlaying={(p) => { playingRef.current = p }}
-            videoMeta={videoMeta}
-          />
+          <div className="relative">
+            <VideoPlayer
+              ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
+              resumeSec={resumeSec} onEnded={onEnded}
+              privacyProxy={online && privacy} audioOnly={online && audioOnly}
+              onNeedsProxyForPip={enablePrivacyForPip}
+              autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
+              skipSegments={online ? segments : undefined}
+              onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
+              chapters={chapters}
+              onTime={(s) => {
+                secRef.current = s; setCurrentSec(Math.floor(s))
+                // Scrubbing back into the video (or it simply not being at the very end
+                // anymore) cancels a pending "up next" countdown.
+                if (countdown && meta?.durationSec && s < meta.durationSec - 1.5) setCountdown(null)
+              }}
+              onPlaying={(p) => { playingRef.current = p; if (p && countdown) setCountdown(null) }}
+              videoMeta={videoMeta}
+            />
+            {countdown && upNext[0] && (
+              <AutoplayCountdown
+                nextItem={upNext[0]} secondsLeft={countdown.secondsLeft} total={countdown.total}
+                onCancel={() => setCountdown(null)}
+                onPlayNow={() => { const nx = upNext[0]; setCountdown(null); navigate(watchHref(nx)) }}
+              />
+            )}
+          </div>
         )}
 
         <InfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}

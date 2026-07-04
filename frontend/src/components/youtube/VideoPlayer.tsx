@@ -1,10 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock } from '@/lib/youtube/format'
-import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, type SkipSegment, type WatchMeta, type StreamQuality } from '@/lib/youtube/api'
+import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, getStoryboards, ytImageProxy, type SkipSegment, type WatchMeta, type StreamQuality, type StoryboardLevel } from '@/lib/youtube/api'
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
+import { pickStoryboardLevel, frameForTime } from '@/lib/youtube/storyboard'
 import { VideoThumb } from '@/components/youtube/media'
 import { useZoomToFillFullscreen } from '@/hooks/use-zoom-to-fill-fullscreen'
 import { useAudioBoost } from '@/hooks/use-audio-boost'
@@ -349,13 +351,48 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     setEmbedQuality(level); setMenu(null)
   }
 
-  const scrub = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+  // Scrub bar: press/drag anywhere on it to seek, hover to preview a storyboard frame at
+  // that timestamp. Storyboards are fetched lazily (only once the bar is actually
+  // hovered) and cached for the session — a scrub, quality-switch remount, etc. never
+  // re-fetches once the first hover has warmed the query.
+  const scrubRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+  const [hoverRatio, setHoverRatio] = useState<number | null>(null)
+  const [wantStoryboard, setWantStoryboard] = useState(false)
+
+  const { data: storyboardLevels } = useQuery({
+    queryKey: ['yt-storyboards', videoId],
+    queryFn: () => getStoryboards(videoId),
+    enabled: wantStoryboard && !localKind,
+    staleTime: Infinity,
+  })
+  const storyboardLevel = useMemo(() => storyboardLevels?.length ? pickStoryboardLevel(storyboardLevels) : null, [storyboardLevels])
+
+  const ratioFromClientX = (clientX: number) => {
+    const rect = scrubRef.current?.getBoundingClientRect()
+    if (!rect) return 0
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  }
+  const seekToRatio = (ratio: number) => {
     const sec = ratio * (duration || 0)
     seekTo(sec)
     setPosition(sec)
   }
+  const onScrubDown = (e: React.MouseEvent<HTMLDivElement>) => { seekToRatio(ratioFromClientX(e.clientX)); setDragging(true) }
+  const onScrubMove = (e: React.MouseEvent<HTMLDivElement>) => { setHoverRatio(ratioFromClientX(e.clientX)); setWantStoryboard(true) }
+  const onScrubLeave = () => { if (!dragging) setHoverRatio(null) }
+
+  // Dragging can carry the pointer outside the (thin, h-1) bar itself — track window-level
+  // moves/up while a drag is active so the seek keeps following the cursor.
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: MouseEvent) => { const r = ratioFromClientX(e.clientX); seekToRatio(r); setHoverRatio(r) }
+    const onUp = () => setDragging(false)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging, duration])
 
   const pct = duration ? Math.min(100, (position / duration) * 100) : 0
 
@@ -455,7 +492,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           full-surface toggle layer below handles taps everywhere; on hover the bar
           becomes interactive so its scrubber + buttons work. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 translate-y-2 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 opacity-0 transition group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto">
-        <div onClick={scrub} className="relative mb-3 h-1 cursor-pointer rounded-full bg-white/25">
+        <div ref={scrubRef} onMouseDown={onScrubDown} onMouseMove={onScrubMove} onMouseLeave={onScrubLeave}
+          className="relative mb-3 h-1 cursor-pointer rounded-full bg-white/25">
           {/* SponsorBlock segment markers */}
           {segMarks.map((s, i) => (
             // design-ok(raw-palette-semantic): SponsorBlock warning marks on the scrubber over the video surface
@@ -469,6 +507,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           <div className="relative h-full rounded-full bg-[var(--yt-accent)]" style={{ width: `${pct}%` }}>
             <span className="absolute -right-1.5 top-1/2 size-3 -translate-y-1/2 rounded-full bg-[var(--yt-accent)]" />
           </div>
+          {/* Trickplay: sprite-sheet frame preview at the hovered timestamp */}
+          {hoverRatio != null && storyboardLevel && duration > 0 && (
+            <StoryboardPreview level={storyboardLevel} sec={hoverRatio * duration} ratio={hoverRatio} />
+          )}
         </div>
         <div className="flex items-center gap-4 text-white">
           <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
@@ -600,6 +642,30 @@ function Submenu({ title, onBack, children }: { title: string; onBack: () => voi
       </button>
       <div className="max-h-56 overflow-y-auto py-1">{children}</div>
     </>
+  )
+}
+
+// Trickplay preview: crops one frame out of a storyboard sprite sheet via CSS
+// background-position, upscaled ~2× for legibility, floating above the scrub bar and
+// clamped so it never overflows the player's edges.
+function StoryboardPreview({ level, sec, ratio }: { level: StoryboardLevel; sec: number; ratio: number }) {
+  const { sheetUrl, col, row } = frameForTime(level, sec)
+  const scale = 2
+  const w = level.width * scale
+  const h = level.height * scale
+  return (
+    // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): trickplay preview floats over the video surface
+    <div className="pointer-events-none absolute bottom-full mb-2 overflow-hidden rounded-control border border-white/10 shadow-xl"
+      style={{
+        width: w, height: h,
+        left: `clamp(${w / 2}px, ${ratio * 100}%, calc(100% - ${w / 2}px))`,
+        transform: 'translateX(-50%)',
+        backgroundImage: `url(${ytImageProxy(sheetUrl)})`,
+        backgroundPosition: `-${col * w}px -${row * h}px`,
+        backgroundSize: `${level.cols * w}px ${level.rows * h}px`,
+      }}>
+      <span className="absolute bottom-1 right-1.5 rounded bg-black/80 px-1 py-0.5 text-[10px] font-semibold tabular-nums text-white">{fmtClock(sec)}</span>
+    </div>
   )
 }
 

@@ -129,6 +129,32 @@ export const proxyStreamUrl = (videoId: string, kind: 'audio' | 'video' = 'video
 export const prewarmStream = (videoId: string, kind: 'audio' | 'video' = 'video') =>
   void fetch(`/api/youtube/stream/${videoId}/prewarm${kind === 'audio' ? '?kind=audio' : ''}`, { credentials: 'include' }).catch(() => {})
 
+/** Card hover-preview support: cache hit is free server-side, otherwise the server makes
+ *  one InnerTube HTTP call (no subprocess) to see if a preview stream is available. Never
+ *  triggers a costly yt-dlp resolve — `false` just means "skip the preview". */
+export async function checkStreamPreview(videoId: string, kind: 'audio' | 'video' = 'video', signal?: AbortSignal): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/youtube/stream/${videoId}/preview?kind=${kind}`, { ...opts, signal })
+    if (!r.ok) return false
+    return !!((await r.json()) as { available?: boolean }).available
+  } catch { return false }
+}
+
+/** Scrub-preview sprite sheet levels (trickplay), parsed server-side from InnerTube's
+ *  storyboard spec. Each level's `urlTemplate` has a literal "{sheet}" placeholder for
+ *  the multi-sheet index — see `frameForTime` in `lib/youtube/storyboard.ts`. */
+export interface StoryboardLevel {
+  width: number; height: number; cols: number; rows: number
+  totalCount: number; intervalMs: number; sheetCount: number; urlTemplate: string
+}
+export async function getStoryboards(videoId: string): Promise<StoryboardLevel[]> {
+  try {
+    const r = await fetch(`/api/youtube/storyboards/${videoId}`, opts)
+    if (!r.ok) return []
+    return ((await r.json()) as { levels?: StoryboardLevel[] }).levels ?? []
+  } catch { return [] }
+}
+
 /** Poll target for the /stream 202 "preparing" fallback: the server couldn't resolve a live
  *  stream and kicked off an offline download instead — this reports its yt_downloads status
  *  so the player knows when to switch to fileUrl(videoId, kind). */

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, CloudOff, Download } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -7,6 +8,7 @@ import { watchProgress, type VideoItem } from '@/lib/youtube/types'
 import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
+import { useCardHoverPreview } from '@/hooks/use-card-hover-preview'
 
 /** Where a card navigates: the full-page watch route, preserving offline kind. */
 export function watchHref(i: Pick<VideoItem, 'videoId' | 'localKind'>) {
@@ -23,12 +25,23 @@ function useGhost(item: Pick<VideoItem, 'videoId' | 'title' | 'localKind'>) {
   return { ghosted, onClick }
 }
 
-function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null }) {
+function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null }) {
   const dur = fmtDur(i.durationSec)
   const progress = watchProgress(i)
+  // Fades in once the preview clip is actually decoding a frame, rather than the instant
+  // its <video> mounts, so there's no flash of a black/blank box while it buffers.
+  const [previewReady, setPreviewReady] = useState(false)
   return (
     <div className={cn('relative overflow-hidden rounded-card bg-muted', aspect === 'short' ? 'aspect-[9/16]' : 'aspect-video')}>
       <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
+      {previewSrc && !ghosted && (
+        <video
+          key={previewSrc} src={previewSrc} muted autoPlay loop playsInline preload="auto"
+          className={cn('absolute inset-0 size-full object-cover transition-opacity duration-200', previewReady ? 'opacity-100' : 'opacity-0')}
+          onPlaying={() => setPreviewReady(true)}
+          onError={() => setPreviewReady(false)}
+        />
+      )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       {i.watch?.completed && (
         <div className="pointer-events-none absolute inset-0 bg-black/40" />
@@ -73,12 +86,13 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
   // DeArrow swaps clickbait titles/thumbnails for community-voted ones (no-op when off).
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
+  const { previewSrc, bind } = useCardHoverPreview(item)
   // Online shorts open in the vertical Shorts feed; everything else (and offline
   // shorts, which need local playback) goes to the standard watch page.
   const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
   const body = (
     <>
-      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} />
+      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} />
       <div className="flex gap-2.5">
         {item.author && (
           <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('mt-0.5 size-8 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />
@@ -102,7 +116,7 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
     )
   }
   return (
-    <Link to={to} state={{ title, author: item.author, channelThumb: item.channelThumb }} className="group flex flex-col gap-2.5">
+    <Link to={to} state={{ title, author: item.author, channelThumb: item.channelThumb }} className="group flex flex-col gap-2.5" {...bind}>
       {body}
     </Link>
   )
@@ -114,10 +128,11 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
   const { ghosted, onClick } = useGhost(item)
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
+  const { previewSrc, bind } = useCardHoverPreview(item)
   const body = (
     <>
       <div className="relative w-[150px] shrink-0">
-        <Thumb i={item} aspect="video" ghosted={ghosted} overrideSrc={da?.thumbnailUrl} />
+        <Thumb i={item} aspect="video" ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} />
       </div>
       <div className="min-w-0 flex-1 py-0.5">
         <p className={cn('line-clamp-2 text-[13px] font-semibold leading-snug', ghosted && 'text-muted-foreground')}>{title}</p>
@@ -136,7 +151,7 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
   }
   return (
     <Link to={watchHref(item)} state={{ title, author: item.author, channelThumb: item.channelThumb }}
-      className={cn('group flex gap-2.5 rounded-control p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')}>
+      className={cn('group flex gap-2.5 rounded-control p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')} {...bind}>
       {body}
     </Link>
   )

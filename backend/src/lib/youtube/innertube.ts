@@ -8,6 +8,7 @@
 
 import { logger } from '@/lib/logger'
 import { decodeEntities } from '@/lib/htmlText'
+import { parseStoryboardSpec, type StoryboardLevel } from '@/lib/youtube/storyboard'
 
 // ── Wire protocol ──────────────────────────────────────────────────────────────
 
@@ -930,6 +931,36 @@ export async function innertubePlayerStreams(videoId: string, timeout = 6000): P
   const progressive = ((sd.formats ?? []).map(toFmt).filter(Boolean)) as ItStreamFormat[]
   const audio = ((sd.adaptiveFormats ?? []).filter((f: any) => String(f?.mimeType ?? '').startsWith('audio/')).map(toFmt).filter(Boolean)) as ItStreamFormat[]
   return { progressive, audio }
+}
+
+// Storyboard (scrub-preview sprite sheet) levels for a video. The plain WEB `player` call
+// used by innertubePlayerMeta comes back playabilityStatus UNPLAYABLE (no storyboards,
+// no streamingData) without the same VR-client + visitorData trick innertubePlayerStreams
+// uses — verified against a live response before writing this. Fetched lazily on first
+// scrub-hover rather than on every page load, so this deliberately makes its own request
+// instead of sharing innertubePlayerMeta's.
+export async function innertubePlayerStoryboards(videoId: string, timeout = 6000): Promise<StoryboardLevel[] | null> {
+  const visitorData = await getVisitorData()
+  const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': VR_UA,
+      'X-Youtube-Client-Name': '28',
+      'X-Youtube-Client-Version': VR_CLIENT.clientVersion,
+      Origin: 'https://www.youtube.com',
+    },
+    body: JSON.stringify({ context: { client: { ...VR_CLIENT, ...(visitorData ? { visitorData } : {}) } }, videoId, contentCheckOk: true, racyCheckOk: true }),
+    signal: AbortSignal.timeout(timeout),
+  })
+  if (!res.ok) throw new Error(`innertube player(vr, storyboards) → ${res.status}`)
+  const data: any = await res.json()
+  const status = data?.playabilityStatus?.status
+  if (status === 'LOGIN_REQUIRED') { _visitorData = null }
+  if (status && status !== 'OK') return null
+  const spec = data?.storyboards?.playerStoryboardSpecRenderer?.spec
+  if (typeof spec !== 'string' || !spec) return null
+  try { return parseStoryboardSpec(spec) } catch { return null }
 }
 
 // Best-effort wrappers — never throw; callers treat InnerTube as an optional fast path.

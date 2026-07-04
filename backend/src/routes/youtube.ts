@@ -17,14 +17,14 @@ import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblock'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
-import { resolveStreamUrl, invalidateStreamUrl, isValidVideoId, parseQuality, type StreamKind } from '@/lib/youtube/stream'
+import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, isValidVideoId, parseQuality, type StreamKind } from '@/lib/youtube/stream'
 import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot } from '@/lib/ytdlp'
 import {
   SAVE_HEIGHTS, getGlobalCap, getUserCapOverride, getEffectiveCap,
@@ -1390,6 +1390,28 @@ youtubeRoute.get('/stream/:videoId/prewarm', async (c) => {
   const kind: StreamKind = c.req.query('kind') === 'audio' ? 'audio' : 'video'
   void resolveStreamUrl(videoId, kind, 'auto')
   return c.body(null, 204)
+})
+
+// Card hover-preview support: cache hit is free, otherwise one InnerTube HTTP call (no
+// subprocess) to see if a preview stream is available — never falls back to yt-dlp, so
+// hovering a grid of cards can't contend for the tiny global yt-dlp concurrency pool the
+// actual player also depends on. `available: false` just means "skip the preview".
+youtubeRoute.get('/stream/:videoId/preview', async (c) => {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const kind: StreamKind = c.req.query('kind') === 'audio' ? 'audio' : 'video'
+  const url = await resolveStreamPreviewUrl(videoId, kind)
+  return c.json({ available: !!url })
+})
+
+// Scrub-preview sprite sheet levels (trickplay), parsed from InnerTube's storyboard spec.
+// 4h TTL matches the stream-URL cache — the sprite URLs carry a `sigh` signature token
+// whose real lifetime isn't documented, so periodic refresh is the safety valve.
+youtubeRoute.get('/storyboards/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const levels = await cachedLookup('yt-storyboard', videoId, 4 * 60 * 60 * 1000, () => innertubePlayerStoryboards(videoId))
+  return c.json({ levels: levels ?? [] })
 })
 
 // Poll target for the /stream 202 "preparing" fallback above: lets the client know when the
