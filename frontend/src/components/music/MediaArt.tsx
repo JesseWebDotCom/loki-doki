@@ -12,8 +12,8 @@ import { GeneratedAlbumCover } from '@/components/music/GeneratedAlbumCover'
  *  source has art, it renders a GeneratedAlbumCover - a deterministic album-art poster (band photo
  *  when `artistImage` is passed, otherwise a colour treatment) - instead of a generic disc, so
  *  every tile reads as a real, intentional cover and never shows the WRONG album. */
-export function AlbumCover({ coverUrl, artist, album, artistImage, className }: {
-  coverUrl: string | null; artist?: string; album?: string; artistImage?: string | null; className?: string
+export function AlbumCover({ coverUrl, artist, album, artistImage, artistLogo, className }: {
+  coverUrl: string | null; artist?: string; album?: string; artistImage?: string | null; artistLogo?: string | null; className?: string
 }) {
   const canFallback = !!(artist && album)
   // 'caa' → the constructed Cover Art Archive URL; 'itunes' → the iTunes fallback; 'none' →
@@ -32,7 +32,7 @@ export function AlbumCover({ coverUrl, artist, album, artistImage, className }: 
   const showGenerated = !src && !waitingItunes
   return (
     <div className={cn('relative overflow-hidden bg-gradient-to-br from-brand/30 to-brand/10', className)}>
-      {showGenerated && <GeneratedAlbumCover band={artist} album={album} photo={artistImage} className="absolute inset-0" />}
+      {showGenerated && <GeneratedAlbumCover band={artist} album={album} photo={artistImage} logo={artistLogo} className="absolute inset-0" />}
       {src && (
         <img key={src} src={proxyImg(src)} alt="" loading="lazy" className="absolute inset-0 size-full object-cover"
           onError={() => setStage(s => (s === 'caa' && canFallback) ? 'itunes' : 'none')} />

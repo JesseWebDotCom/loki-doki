@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Radio, ExternalLink } from 'lucide-react'
@@ -24,6 +25,7 @@ export function MusicArtistPage() {
     queryFn: () => getArtistInfo(artistName, mbid || undefined),
     enabled: !!artistName, staleTime: Infinity,
   })
+  const [logoBroken, setLogoBroken] = useState(false)
 
   if (isLoading) return <div className="px-5 pt-6 text-sm text-muted-foreground">Loading…</div>
   if (!data) return <div className="px-5 pt-6 text-sm text-muted-foreground">Artist not found.</div>
@@ -31,6 +33,7 @@ export function MusicArtistPage() {
   const { artist, albums } = data
   const bio = info?.found ? info.extract : null
   const bioUrl = info?.url ?? artist.wikipediaUrl
+  const showLogo = !!info?.logo && !logoBroken
 
   const albumsByType = (t: string) => albums.filter(a => (a.primaryType ?? 'Album') === t)
   const groups: Array<[string, CatalogAlbum[]]> = [['Album', albumsByType('Album')], ['EP', albumsByType('EP')], ['Single', albumsByType('Single')]]
@@ -47,15 +50,24 @@ export function MusicArtistPage() {
             <div className="absolute inset-0 bg-gradient-to-t from-background via-background/75 to-background/30" />
           </div>
         )}
-        <div className="relative flex items-end gap-4">
-          <ArtistAvatar name={artist.name} mbid={artist.mbid} className="size-28 shrink-0 rounded-full shadow-xl ring-1 ring-border/40 sm:size-32" />
-          <div className="min-w-0">
-            <p className="text-overline text-muted-foreground">Artist</p>
-            <div className="truncate text-display sm:text-display-lg">{artist.name}</div>
-            {artist.tags.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">{artist.tags.slice(0, 5).map(t => <Badge key={t} variant="secondary">{t}</Badge>)}</div>
-            )}
-          </div>
+        <div className="relative">
+          <p className="text-overline text-muted-foreground">Artist</p>
+          {showLogo ? (
+            // Band logo as the left-aligned feature image, over the blurred photo background.
+            /* Band logos are usually monochrome SVGs; forced to the legible tone per theme
+               (black on the light header, white on the dark header) so they always read. */
+            <img src={proxyImg(info!.logo!)} alt={artist.name}
+              className="mt-1 h-20 w-auto max-w-[72%] object-contain object-left [filter:brightness(0)] sm:h-28 dark:[filter:brightness(0)_invert(1)]"
+              onError={() => setLogoBroken(true)} />
+          ) : (
+            <div className="flex items-end gap-4">
+              <ArtistAvatar name={artist.name} mbid={artist.mbid} className="size-24 shrink-0 rounded-full shadow-xl ring-1 ring-border/40 sm:size-28" />
+              <div className="truncate text-display sm:text-display-lg">{artist.name}</div>
+            </div>
+          )}
+          {artist.tags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">{artist.tags.slice(0, 5).map(t => <Badge key={t} variant="secondary">{t}</Badge>)}</div>
+          )}
         </div>
         <div className="relative mt-4 flex flex-wrap gap-2">
           <Button onClick={() => { radio.start(instantStationDj({ type: 'artist', value: artist.name })); navigate('/music/now-playing') }}><Radio className="size-4" /> Start station</Button>
@@ -78,7 +90,7 @@ export function MusicArtistPage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {list.map(al => (
                 <button key={al.mbid} onClick={() => navigate(`/music/album/${al.mbid}`)} className="flex flex-col gap-2 rounded-card p-2 text-left transition hover:bg-accent/50">
-                  <AlbumCover coverUrl={al.coverUrl} artist={artist.name} album={al.title} artistImage={info?.image} className="aspect-square w-full rounded-control" />
+                  <AlbumCover coverUrl={al.coverUrl} artist={artist.name} album={al.title} artistImage={info?.image} artistLogo={info?.logo} className="aspect-square w-full rounded-control" />
                   <div><p className="truncate text-sm font-medium">{al.title}</p>{al.year && <p className="text-caption text-muted-foreground">{al.year}</p>}</div>
                 </button>
               ))}

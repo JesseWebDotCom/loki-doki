@@ -40,8 +40,8 @@ const LIVE_RE = /\b(live|broadcast|tour|in concert|concert|unplugged|bootleg|ses
 const TEMPLATES = 9
 type Corner = 'tr' | 'tl' | 'br' | 'bl'
 
-export function GeneratedAlbumCover({ band, album, photo, className }: {
-  band?: string; album?: string; photo?: string | null; className?: string
+export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
+  band?: string; album?: string; photo?: string | null; logo?: string | null; className?: string
 }) {
   // Treat a missing/placeholder credit as no band, so a cover never literally reads "Unknown Artist".
   const rawBand = (band ?? '').trim()
@@ -58,6 +58,9 @@ export function GeneratedAlbumCover({ band, album, photo, className }: {
   const stampStyle = hashInt(`${seed}#s`) % 4
   const upper = hashInt(`${seed}#u`) % 4 !== 0 // mostly uppercase, occasionally title-case
   const albumFs = fs(albumCqw(albumName.length || 1))
+  // Mix in the band LOGO (when we have one) on ~40% of covers: some over the photo, some on colour.
+  const logoMode = !!logo && hashInt(`${seed}#lg`) % 5 < 2
+  const logoOnPhoto = !!photo && hashInt(`${seed}#lo`) % 2 === 0
 
   const text = {
     fontFamily: font, color: p.fg, textShadow: shadow,
@@ -103,6 +106,29 @@ export function GeneratedAlbumCover({ band, album, photo, className }: {
   }
   const Album = ({ color = p.accent, weight = 600, align = 'left' as const }: { color?: string; weight?: number; align?: 'left' | 'center' }) =>
     albumName ? <span style={{ ...text, fontSize: albumFs, fontWeight: weight, lineHeight: 1.05, color, opacity: 0.98, textAlign: align }}>{albumName}</span> : null
+
+  // Logo cover: the wordmark centered, either over the (dimmed) band photo or on a colour field,
+  // with the album title along the bottom. Falls back to the album title alone if the logo 404s.
+  if (logoMode && logo) {
+    return (
+      <div className={cn('relative size-full overflow-hidden [container-type:inline-size]', className)}
+        style={{ background: `linear-gradient(${angle}deg, ${p.c1}, ${p.c2})` }}>
+        {logoOnPhoto ? (<>
+          <Photo pos="center" />
+          <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, ${p.c1}73, ${p.c1}cc)` }} />
+        </>) : (
+          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 42%, ${p.c2}40, ${p.c1}f2 78%)` }} />
+        )}
+        {/* covers are always dark → force the (usually monochrome) logo white so it always reads */}
+        <div className="absolute inset-0 flex items-center justify-center" style={{ padding: '15% 13% 26%' }}>
+          <img src={proxyImg(logo)} alt="" loading="lazy" className="max-h-full max-w-full object-contain"
+            style={{ filter: 'brightness(0) invert(1) drop-shadow(0 1.5cqw 3cqw rgba(0,0,0,0.55))' }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+        </div>
+        {albumName && <div className="absolute inset-x-0 bottom-0 text-center" style={{ padding: '7%' }}><Album color={p.fg} align="center" /></div>}
+        <Live corners={['tr', 'tl']} />
+      </div>
+    )
+  }
 
   return (
     <div className={cn('relative size-full overflow-hidden [container-type:inline-size]', className)}

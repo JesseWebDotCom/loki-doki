@@ -161,7 +161,7 @@ export function getLyrics(artist: string, title: string, duration?: number) {
   if (duration) p.set('duration', String(duration))
   return mfetch<{ synced: LyricLine[] | null; plain: string | null; source: string }>(`/info/lyrics?${p}`)
 }
-export interface WikiInfo { found: boolean; title?: string; extract?: string; image?: string | null; url?: string | null }
+export interface WikiInfo { found: boolean; title?: string; extract?: string; image?: string | null; url?: string | null; logo?: string | null }
 export function getSongInfo(artist: string, title: string) {
   return mfetch<WikiInfo>(`/info/song?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`)
 }
