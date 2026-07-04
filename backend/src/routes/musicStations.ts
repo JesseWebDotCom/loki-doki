@@ -791,8 +791,8 @@ musicStations_route.post('/:id/snapshot', async (c) => {
   let queued = 0
   for (const t of tracks) {
     try {
-      if (wantAudio) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'audio', maxHeight: null, firstName: user.firstName, audioFormat: 'm4a' })
-      if (wantVideo) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'video', maxHeight: videoHeight, firstName: user.firstName })
+      if (wantAudio) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'audio', maxHeight: null, firstName: user.firstName, audioFormat: 'm4a', origin: 'music' })
+      if (wantVideo) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'video', maxHeight: videoHeight, firstName: user.firstName, origin: 'music' })
       queued++
     } catch { /* skip individual failures */ }
   }

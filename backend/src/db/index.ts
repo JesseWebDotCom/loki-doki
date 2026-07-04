@@ -1176,6 +1176,9 @@ export function runMigrations() {
   addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
   // Marks transient music prefetch-cache refs (download-ahead for gapless play; rolling keep-N).
   addColumn('yt_downloads', 'prefetch', 'INTEGER NOT NULL DEFAULT 0')
+  // Which app a save came from. Music saves reuse this pipeline but belong to the Music offline
+  // library, so the YouTube Saved tab filters out origin='music'.
+  addColumn('yt_downloads', 'origin', `TEXT NOT NULL DEFAULT 'youtube'`)
   // Channel avatar URL resolved + warmed at save time so Offline cards show real logos
   // (not just a letter) even for non-subscribed channels — existing DBs.
   addColumn('yt_videos', 'channel_thumb', 'TEXT')

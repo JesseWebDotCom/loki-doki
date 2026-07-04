@@ -67,6 +67,8 @@ export interface EnqueueSaveOpts {
   audioFormat?: 'm4a' | 'mp3'
   /** True when written by auto-save — marks the row for keep-N pruning eligibility. */
   auto?: boolean
+  /** Which app the save came from. Music saves are hidden from the YouTube Saved tab. Default 'youtube'. */
+  origin?: 'youtube' | 'music'
 }
 
 /** Upsert the per-user ytDownloads REFERENCE and ensure a shared media asset (+ its coalesced
@@ -77,7 +79,7 @@ export interface EnqueueSaveOpts {
  *  no download (the household's "store-the-max" copy serves everyone). The whole decision runs
  *  under a per-asset lock so concurrent saves can't double-download or race the height math. */
 export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status: 'queued' | 'already-saved' | 'in-progress'; id: string }> {
-  const { userId, videoId, title, kind, maxHeight, firstName: _firstName, audioFormat, auto = false } = opts
+  const { userId, videoId, title, kind, maxHeight, firstName: _firstName, audioFormat, auto = false, origin = 'youtube' } = opts
   const format = assetFormat(kind, audioFormat)
 
   return withLock(assetLockKey(videoId, kind, format), async () => {
@@ -91,14 +93,16 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
     const refId = existing?.id ?? crypto.randomUUID()
     if (!existing) {
       await db.insert(ytDownloads).values({
-        id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, auto,
+        id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, auto, origin,
         status: 'pending', createdAt: now, updatedAt: now,
       })
     } else {
       // An explicit save promotes a transient prefetch ref into a permanent one (prefetch→false),
-      // so it survives the prefetch prune. Don't downgrade a manual save's `auto` flag.
+      // so it survives the prefetch prune. Don't downgrade a manual save's `auto` flag. Origin only
+      // ever upgrades toward 'youtube' (a YouTube save of a music-saved track surfaces it in YouTube;
+      // a music save never hides a track the user had saved from YouTube).
       await db.update(ytDownloads)
-        .set({ status: 'pending', error: null, maxHeight, assetId: asset.id, prefetch: false, ...(auto ? { auto: true } : {}), updatedAt: now })
+        .set({ status: 'pending', error: null, maxHeight, assetId: asset.id, prefetch: false, ...(auto ? { auto: true } : {}), ...(origin === 'youtube' ? { origin: 'youtube' as const } : {}), updatedAt: now })
         .where(eq(ytDownloads.id, refId))
     }
 
@@ -136,7 +140,7 @@ export async function enqueuePrefetch(opts: { userId: string; videoId: string; t
       .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind))).limit(1)
     const refId = existing?.id ?? crypto.randomUUID()
     if (!existing) {
-      await db.insert(ytDownloads).values({ id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, prefetch: true, status: 'pending', createdAt: now, updatedAt: now })
+      await db.insert(ytDownloads).values({ id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, prefetch: true, origin: 'music', status: 'pending', createdAt: now, updatedAt: now })
     } else {
       // Touch updatedAt (LRU) but keep its existing prefetch flag — a real save is never demoted.
       await db.update(ytDownloads).set({ assetId: asset.id, updatedAt: now }).where(eq(ytDownloads.id, refId))

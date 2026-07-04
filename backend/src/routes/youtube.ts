@@ -4,9 +4,9 @@ import { readFile, stat, readdir, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-import { eq, and, or, desc, inArray } from 'drizzle-orm'
+import { eq, ne, and, or, desc, inArray, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs } from '@/db/schema'
+import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, musicOfflineStationTracks } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { youtubeTool } from '@/tools/youtube'
 import { resolveToolConfig } from '@/lib/toolConfig'
@@ -382,6 +382,14 @@ youtubeRoute.post('/durations', async (c) => {
 // (when the video is also in a feed) so the cards match the Online look.
 youtubeRoute.get('/downloads', async (c) => {
   const user = c.get('user')
+  // Music saves (station snapshots + à-la-carte song saves) reuse the shared save pipeline, so
+  // they land in ytDownloads too — but they belong to the Music app's offline library, not
+  // YouTube's. The Saved tab shows only videos saved from within YouTube. New music saves are
+  // tagged origin='music' (filtered below); the station-track videoIds cover rows saved BEFORE
+  // the origin column existed. Rows still exist + serve offline music via /api/music/library/offline.
+  const stationTrackRows = await db.select({ videoId: musicOfflineStationTracks.videoId })
+    .from(musicOfflineStationTracks).where(eq(musicOfflineStationTracks.userId, user.id))
+  const stationVideoIds = [...new Set(stationTrackRows.map(r => r.videoId))]
   const rows = await db.select({
     id: ytDownloads.id,
     videoId: ytDownloads.videoId,
@@ -404,8 +412,14 @@ youtubeRoute.get('/downloads', async (c) => {
     .from(ytDownloads)
     .leftJoin(ytVideos, eq(ytVideos.videoId, ytDownloads.videoId))
     .leftJoin(ytSubscriptions, and(eq(ytSubscriptions.externalId, ytVideos.channelId), eq(ytSubscriptions.userId, user.id)))
-    // Exclude transient music prefetch-cache refs — they're not part of the user's saved library.
-    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.prefetch, false)))
+    // Exclude transient music prefetch-cache refs and music-originated saves — neither is part
+    // of the user's YouTube saved library.
+    .where(and(
+      eq(ytDownloads.userId, user.id),
+      eq(ytDownloads.prefetch, false),
+      ne(ytDownloads.origin, 'music'),
+      ...(stationVideoIds.length ? [notInArray(ytDownloads.videoId, stationVideoIds)] : []),
+    ))
     .orderBy(desc(ytDownloads.createdAt))
 
   // Attach watch state via a separate query (same approach as /feed).
