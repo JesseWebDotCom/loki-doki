@@ -3,6 +3,7 @@ import { chmodSync, existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { ensureNode } from '@/lib/node'
+import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 // Manages the coding-terminal PTY sidecar (see scripts/coding-pty-sidecar.ts). Mirrors
@@ -24,6 +25,8 @@ export function codingPtySidecarWsUrl(): string { return `ws://127.0.0.1:${CODIN
 // every spawn, not just once, since a fresh install could land after this module first
 // loads.
 function ensureSpawnHelperExecutable(): void {
+  // Windows uses ConPTY, which has no `spawn-helper` binary (it's a Unix node-pty artifact).
+  if (IS_WIN) return
   try {
     const dir = join(BACKEND_DIR, 'node_modules', 'node-pty', 'prebuilds', `${process.platform}-${process.arch}`)
     const helper = join(dir, 'spawn-helper')
@@ -118,8 +121,26 @@ export function spawnCodingPtySidecar(): void {
 export function stopCodingPtySidecar(): void {
   clearPoll()
   stopSupervision()
-  if (proc) { try { proc.kill('SIGTERM') } catch { /* already gone */ } proc = null }
+  // On Windows the sidecar hosts the persistent claude ptys in-process (there's no independent
+  // tmux server), so SIGTERM-ing it on a graceful Bun shutdown would drop every coding session.
+  // Leave it running (it's detached + unref'd) so sessions survive a backend restart; the next
+  // boot re-adopts the still-listening sidecar via the /health probe in maybeSpawnCodingPtySidecar.
+  if (!IS_WIN && proc) { try { proc.kill('SIGTERM') } catch { /* already gone */ } }
+  proc = null
   state.current = 'idle'
+}
+
+/** Kill a persistent coding session in the sidecar (Windows model-change / admin teardown).
+ *  Best-effort: a down/absent sidecar just means there's nothing to kill. */
+export async function killCodingSession(sessionKey: string): Promise<void> {
+  try {
+    await fetch(`${codingPtySidecarUrl()}/session/kill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionKey }),
+      signal: AbortSignal.timeout(3_000),
+    })
+  } catch { /* sidecar down/absent — nothing to kill */ }
 }
 
 export async function maybeSpawnCodingPtySidecar(): Promise<void> {

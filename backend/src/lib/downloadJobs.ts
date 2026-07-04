@@ -108,6 +108,10 @@ export interface EnqueueInput {
   componentIds?: string[]
   zimSelections?: { sourceId: string; variantKey?: string; label: string; approxBytes?: number }[]
   maps?: { regionId: string; label: string } | null
+  // Re-run explicitly-requested items even if a prior job already completed — for the admin
+  // "Update"/re-download action and re-adding a pack that was deleted. Auto-injected
+  // prerequisites (kiwix-tools, maps-toolchain, comfyui) are never force-rerun.
+  force?: boolean
 }
 
 /** Create job rows for the non-essential set. Idempotent per (type, refId): an existing
@@ -136,6 +140,15 @@ export async function enqueueBackground(input: EnqueueInput): Promise<number> {
   for (const z of input.zimSelections ?? []) specs.push(archiveSpec(z))
   if (input.maps) specs.push(mapSpec(input.maps.regionId, input.maps.label))
 
+  // Items the caller asked for explicitly (before prereq auto-injection); only these are
+  // eligible for a force-rerun, so a re-download never re-installs a shared runtime.
+  const explicitRefIds = new Set<string>([
+    ...(input.modelIds ?? []),
+    ...(input.componentIds ?? []),
+    ...(input.zimSelections ?? []).map((z) => z.sourceId),
+    ...(input.maps ? [input.maps.regionId] : []),
+  ])
+
   const now = new Date()
   let created = 0
   for (const s of specs) {
@@ -143,9 +156,12 @@ export async function enqueueBackground(input: EnqueueInput): Promise<number> {
       .where(and(eq(downloadJobs.type, s.type), eq(downloadJobs.refId, s.refId)))
       .then((r) => r[0])
     if (existing) {
-      if (existing.status === 'failed' || existing.status === 'cancelled') {
+      const forceRerun = input.force === true && explicitRefIds.has(s.refId) && existing.status === 'completed'
+      if (existing.status === 'failed' || existing.status === 'cancelled' || forceRerun) {
         await db.update(downloadJobs)
-          .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: now })
+          // A forced re-download starts clean (drop the stale 100% snapshot); a failed/cancelled
+          // resume keeps its progress so the widget shows where the .part file picks up.
+          .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: now, ...(forceRerun ? { progress: null } : {}) })
           .where(eq(downloadJobs.id, existing.id))
         created++
       }

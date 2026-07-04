@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { useSetupProgress } from '@/context/SetupProgressContext'
 import {
   ArrowLeftRight, ArrowRight, BookOpen, Bot, Calculator, CalendarClock, ChefHat, CheckCircle2,
   ChevronDown, Clock, Cloud, Code2, Cpu, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
@@ -169,7 +170,7 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
   { id: 'esphome',       label: 'Devices',         description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB).', bytes: 1_000_000_000, requires: [],                     icon: Cpu  },
-  { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model — usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
+  { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model, usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
   { id: 'tmux',          label: 'Coding Terminal Multiplexer', description: 'Powers split panes and reload-persistence in the Coding app\'s terminal.', bytes: 2_000_000, requires: ['claude-code'], icon: Code2 },
   { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
 ]
@@ -416,11 +417,14 @@ const ZIM_CATEGORY_ORDER = [
 function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query: string }) {
   const [catalog, setCatalog]               = useState<ZimEntry[]>([])
   const [loading, setLoading]               = useState(true)
-  const [downloads, setDownloads]           = useState<Map<string, ZimDlState>>(new Map())
   const [variants, setVariants]             = useState<Map<string, string>>(new Map())
   const [openCategories, setOpenCategories] = useState<Set<string>>(new Set(ZIM_CATEGORY_ORDER))
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const esRefs = useRef<Map<string, EventSource>>(new Map())
+  // Downloads run in the shared background queue (so they persist across navigation and show in
+  // the global widget). `queued` is a short-lived optimistic set for rows just clicked, until the
+  // poller reflects the new job. Per-row progress is derived from the queue below.
+  const { status: jobsStatus, cancelJob: cancelQueuedJob, refresh: refreshJobs } = useSetupProgress()
+  const [queued, setQueued]                 = useState<Set<string>>(new Set())
 
   const loadCatalog = useCallback(() => {
     setLoading(true)
@@ -433,10 +437,6 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
 
   useEffect(() => { loadCatalog() }, [loadCatalog])
 
-  // Close any open SSE downloads on unmount so navigating away mid-download
-  // doesn't leak connections or fire setState after the component is gone.
-  useEffect(() => () => { for (const es of esRefs.current.values()) es.close() }, [])
-
   function getVariant(entry: ZimEntry) { return variants.get(entry.sourceId) ?? entry.variantKey }
 
   function toDlStatus(s: ZimDlState | undefined): DownloadStatus {
@@ -447,50 +447,88 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
     return 'cancelled'
   }
 
-  function setDl(sourceId: string, patch: Partial<ZimDlState>) {
-    setDownloads(prev => {
-      const next = new Map(prev)
-      const cur = next.get(sourceId) ?? { status: 'downloading' as const, completed: 0, total: 0, speedBps: 0, etaSeconds: 0, statusMsg: '', error: null }
-      next.set(sourceId, { ...cur, ...patch })
-      return next
-    })
+  // Archive jobs from the shared background queue, keyed by sourceId (= job.refId).
+  const archiveJobs = useMemo(
+    () => new Map((jobsStatus?.jobs ?? []).filter(j => j.type === 'archive').map(j => [j.refId, j] as const)),
+    [jobsStatus],
+  )
+
+  // Per-row download state derived from the queue, plus an optimistic "Queued…" entry for rows
+  // clicked since the last poll. This is the single source of truth the rows render from.
+  const downloads = useMemo(() => {
+    const m = new Map<string, ZimDlState>()
+    for (const [refId, j] of archiveJobs) {
+      const p = j.progress
+      const status: ZimDlState['status'] =
+        j.status === 'completed' ? 'done'
+        : j.status === 'failed' ? 'error'
+        : j.status === 'cancelled' ? 'cancelled'
+        : 'downloading'  // pending or running
+      m.set(refId, {
+        status,
+        completed: p?.completed ?? 0, total: p?.total ?? 0,
+        speedBps: p?.speedBps ?? 0, etaSeconds: p?.etaSeconds ?? 0,
+        statusMsg: p?.note ?? (j.status === 'pending' ? 'Queued…' : ''),
+        error: j.lastError,
+      })
+    }
+    for (const sid of queued) {
+      if (!m.has(sid)) m.set(sid, { status: 'downloading', completed: 0, total: 0, speedBps: 0, etaSeconds: 0, statusMsg: 'Queued…', error: null })
+    }
+    return m
+  }, [archiveJobs, queued])
+
+  // Drop optimistic entries once the queue has picked them up.
+  useEffect(() => {
+    if (!queued.size) return
+    const settled = [...queued].filter(sid => archiveJobs.has(sid))
+    if (settled.length) setQueued(prev => { const n = new Set(prev); for (const s of settled) n.delete(s); return n })
+  }, [archiveJobs, queued])
+
+  function selectionFor(entry: ZimEntry, variantKey: string) {
+    const variant = entry.variants.find(v => v.key === variantKey) ?? entry.variants[0]
+    return { sourceId: entry.sourceId, variantKey, label: entry.label, approxBytes: variant?.approxBytes ?? 0 }
+  }
+
+  // Enqueue into the background queue instead of streaming a foreground download, so it persists
+  // across navigation and surfaces in the global download widget. `force` re-runs an item whose
+  // prior job already completed (Update / re-add after delete).
+  async function enqueueArchives(selections: ReturnType<typeof selectionFor>[]) {
+    if (!selections.length) return
+    setQueued(prev => { const n = new Set(prev); for (const s of selections) n.add(s.sourceId); return n })
+    try {
+      await fetch('/api/jobs/enqueue', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zimSelections: selections, force: true }),
+      })
+    } catch { /* optimistic entry stays; the poller reconciles */ }
+    refreshJobs()
   }
 
   function handleDownload(sourceId: string, variantKey: string) {
-    fetch(`/api/admin/archives/cancel/${sourceId}`, { method: 'POST', credentials: 'include' }).catch(() => {})
-    esRefs.current.get(sourceId)?.close()
-    setDl(sourceId, { status: 'downloading', completed: 0, total: 0, speedBps: 0, etaSeconds: 0, statusMsg: 'Starting…', error: null })
-    const es = new EventSource(`/api/admin/archives/download/${sourceId}?variantKey=${encodeURIComponent(variantKey)}`, { withCredentials: true })
-    esRefs.current.set(sourceId, es)
-    let closed = false
-    const cleanup = () => { if (!closed) { closed = true; es.close(); esRefs.current.delete(sourceId) } }
-    es.addEventListener('status', (e) => { try { const { msg } = JSON.parse((e as MessageEvent).data) as { msg: string }; setDl(sourceId, { statusMsg: msg }) } catch { /* malformed frame */ } })
-    es.addEventListener('progress', (e) => { try { const p = JSON.parse((e as MessageEvent).data) as { completed: number; total: number; speedBps: number; etaSeconds: number }; setDl(sourceId, { ...p, status: 'downloading' }) } catch { /* malformed frame */ } })
-    es.addEventListener('done', () => { cleanup(); setDl(sourceId, { status: 'done' }); loadCatalog() })
-    es.addEventListener('cancelled', () => { cleanup(); setDl(sourceId, { status: 'cancelled' }) })
-    es.addEventListener('error', (e) => {
-      cleanup()
-      const msg = 'data' in e ? (() => { try { return (JSON.parse((e as MessageEvent).data) as { msg: string }).msg } catch { return 'Download failed' } })() : 'Connection lost'
-      setDl(sourceId, { status: 'error', error: msg })
-    })
+    const entry = catalog.find(e => e.sourceId === sourceId)
+    if (entry) void enqueueArchives([selectionFor(entry, variantKey)])
   }
 
   function handleCancel(sourceId: string) {
-    esRefs.current.get(sourceId)?.close()
-    fetch(`/api/admin/archives/cancel/${sourceId}`, { method: 'POST', credentials: 'include' })
-    setDl(sourceId, { status: 'cancelled' })
+    setQueued(prev => { const n = new Set(prev); n.delete(sourceId); return n })
+    const job = archiveJobs.get(sourceId)
+    if (job) void cancelQueuedJob(job.id)
   }
 
   async function handleDelete(sourceId: string) {
     await fetch(`/api/admin/archives/${sourceId}`, { method: 'DELETE', credentials: 'include' })
     loadCatalog()
+    refreshJobs()
   }
 
   function handleDownloadAll(entries: ZimEntry[]) {
-    for (const entry of entries) {
-      const dl = downloads.get(entry.sourceId)
-      if (!entry.installed && dl?.status !== 'downloading') handleDownload(entry.sourceId, getVariant(entry))
-    }
+    void enqueueArchives(
+      entries
+        .filter(e => !e.installed && downloads.get(e.sourceId)?.status !== 'downloading')
+        .map(e => selectionFor(e, getVariant(e))),
+    )
   }
 
   function toggleCategory(cat: string) {
@@ -1723,14 +1761,21 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
               onInstall={() => void repairComponent('claude-code', 'claude-code')}
               onCancel={() => cancelInstall('claude-code')}
             />
-            <CapInstallRow
-              cap={ADMIN_CAPS.find(c => c.id === 'tmux')!}
-              installed={compMap.get('tmux') === true}
-              blocked={compMap.get('claude-code') !== true}
-              installState={installStates.get('tmux')}
-              onInstall={() => void repairComponent('tmux', 'tmux')}
-              onCancel={() => cancelInstall('tmux')}
-            />
+            {catalog.hardware.platform === 'win32' ? (
+              <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
+                <ShieldCheck className="size-4 shrink-0" />
+                Split-pane multiplexing (tmux) isn't available on Windows. The coding terminal runs as a single persistent pane.
+              </div>
+            ) : (
+              <CapInstallRow
+                cap={ADMIN_CAPS.find(c => c.id === 'tmux')!}
+                installed={compMap.get('tmux') === true}
+                blocked={compMap.get('claude-code') !== true}
+                installState={installStates.get('tmux')}
+                onInstall={() => void repairComponent('tmux', 'tmux')}
+                onCancel={() => cancelInstall('tmux')}
+              />
+            )}
             {catalog.hardware.platform === 'win32' ? (
               <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
                 <ShieldCheck className="size-4 shrink-0" />

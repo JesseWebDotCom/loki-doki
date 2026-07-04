@@ -51,10 +51,26 @@ function formatBytes(b: number): string {
   return `${(b / 1_073_741_824).toFixed(1)} GB`
 }
 
+// Curated "recommended for a home hub" set, pre-selected on this step and shown in its own
+// section above the full catalog. Each entry pins a specific variant: the general-knowledge
+// anchor (Wikipedia Mini) plus small, high-value references for health, world facts, kids,
+// emergencies, travel, and repairs. Items already installed or absent from the live catalog
+// are skipped. Array order is the display order. Users can uncheck any of them.
+const RECOMMENDED: { sourceId: string; variantKey: string }[] = [
+  { sourceId: 'wikipedia',       variantKey: 'mini' },
+  { sourceId: 'wikimed',         variantKey: 'en' },
+  { sourceId: 'factbook',        variantKey: 'en' },
+  { sourceId: 'vikidia',         variantKey: 'en' },
+  { sourceId: 'zimgit_medicine', variantKey: 'en' },
+  { sourceId: 'ready_gov',       variantKey: 'en' },
+  { sourceId: 'wikivoyage',      variantKey: 'maxi' },
+  { sourceId: 'ifixit',          variantKey: 'en' },
+]
+
 const VALUE_PROPS = [
   { icon: ShieldCheck, text: 'Everything stays on your server - no cloud' },
   { icon: WifiOff,     text: 'Works without an internet connection' },
-  { icon: Library,     text: 'Add or change any of this later in Admin' },
+  { icon: Library,     text: 'Change any of this later in the Admin panel' },
 ]
 
 // ── Maps auto-detect ──────────────────────────────────────────────────────────
@@ -91,9 +107,6 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
   const [expandedCat, setExpandedCat] = useState<string | null>(null)
   const [mapsRegion, setMapsRegion]   = useState<{ regionId: string; label: string } | null>(null)
   const [mapsOn, setMapsOn]           = useState(false)
-  // Default ON (unlike maps/ZIM, which default off): Coding is a small, low-friction
-  // install, so it ships unless the user explicitly opts out.
-  const [codingOn, setCodingOn]       = useState(true)
   const [diskFreeBytes, setDiskFreeBytes] = useState(0)
   const [finishing, setFinishing]     = useState(false)
   const [error, setError]             = useState('')
@@ -101,7 +114,22 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
     fetch('/api/admin/archives/catalog', { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then((data: { catalog?: ZimEntry[] }) => setCatalog((data.catalog ?? []).filter(e => !e.installed)))
+      .then((data: { catalog?: ZimEntry[] }) => {
+        const avail = (data.catalog ?? []).filter(e => !e.installed)
+        setCatalog(avail)
+        // Pre-select the recommended set (only items actually available), each at its
+        // recommended variant, falling back to the catalog default if that key is gone.
+        const seed = new Map<string, string>()
+        for (const rec of RECOMMENDED) {
+          const entry = avail.find(e => e.sourceId === rec.sourceId)
+          if (!entry) continue
+          const vk = entry.variants.some(v => v.key === rec.variantKey)
+            ? rec.variantKey
+            : (entry.variantKey || entry.variants[0]?.key || 'maxi')
+          seed.set(entry.sourceId, vk)
+        }
+        if (seed.size) setZimSelected(seed)
+      })
       .catch(() => setCatalog([]))
   }, [])
 
@@ -149,10 +177,18 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
   // Split the catalog into Books (has bookCategory) and Reference (everything else).
   // Keys are namespaced ("b:Textbooks" / "r:Medical") so groups that share a name across
   // both sides (Kids, Religion) don't collide in the single expandedCat state.
+  // Recommended items are surfaced in their own section above, so keep them out of the
+  // category buckets to avoid showing each one twice. Preserve RECOMMENDED order for display.
+  const recommendedIds = new Set(RECOMMENDED.map(r => r.sourceId))
+  const recommendedEntries = RECOMMENDED
+    .map(r => (catalog ?? []).find(e => e.sourceId === r.sourceId))
+    .filter((e): e is ZimEntry => !!e)
+
   const byCategory = new Map<string, ZimEntry[]>()
   const bookKeys: string[] = []
   const refKeys: string[] = []
   for (const e of catalog ?? []) {
+    if (recommendedIds.has(e.sourceId)) continue
     const isBook = !!e.bookCategory
     const label = (isBook ? e.bookCategory : e.category) || 'Other'
     const key = `${isBook ? 'b' : 'r'}:${label}`
@@ -213,8 +249,7 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
     return sum + (variant?.approxBytes ?? 0)
   }, 0)
   const mapsBytes   = mapsOn && mapsRegion ? 480_000_000 : 0
-  const codingBytes = codingOn ? 60_000_000 : 0
-  const totalBytes  = zimBytes + mapsBytes + codingBytes
+  const totalBytes  = zimBytes + mapsBytes
   const freeAfter  = Math.max(0, diskFreeBytes - totalBytes)
   const notEnough  = diskFreeBytes > 0 && totalBytes > diskFreeBytes * 0.95
   const anySelected = zimSelected.size > 0 || (mapsOn && !!mapsRegion)
@@ -222,12 +257,6 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
   async function finish(enqueue: boolean) {
     setFinishing(true); setError('')
     try {
-      // Coding (Claude Code + Ornith) installs by default, independent of the "skip
-      // optional content" choice below: it's a small, low-friction add, unlike the
-      // multi-GB ZIM/maps content this wizard otherwise gates behind opt-in. The user
-      // can still remove it afterwards in Admin → Features.
-      const componentIds = codingOn ? ['claude-code', 'tmux'] : []
-      const modelIds = codingOn ? ['ornith:9b'] : []
       if (enqueue && anySelected) {
         const zimSelections: ZimSelection[] = []
         for (const [sourceId, variantKey] of zimSelected) {
@@ -239,13 +268,7 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
         const maps = mapsOn && mapsRegion ? { regionId: mapsRegion.regionId, label: mapsRegion.label } : null
         await fetch('/api/jobs/enqueue', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ componentIds, zimSelections, maps, modelIds }),
-        })
-      } else if (componentIds.length) {
-        // Skipped ZIM/maps but Coding still installs: enqueue it on its own.
-        await fetch('/api/jobs/enqueue', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-          body: JSON.stringify({ componentIds, modelIds }),
+          body: JSON.stringify({ zimSelections, maps }),
         })
       }
       await fetch('/api/setup/welcome-complete', { method: 'POST', credentials: 'include' })
@@ -334,6 +357,43 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
             )}
             {catalog && catalog.length > 0 && (
               <>
+                {recommendedEntries.length > 0 && (
+                  <div className="rounded-card border border-brand/30 bg-brand/[0.05] p-3">
+                    <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1">
+                      <Sparkles className="size-4 text-brand" />
+                      <p className="text-sm font-bold tracking-tight">Recommended for your home</p>
+                      <span className="text-[11px] text-muted-foreground">pre-selected - uncheck anything you don't want</span>
+                    </div>
+                    {recommendedEntries.map(entry => {
+                      const checked    = zimSelected.has(entry.sourceId)
+                      const variantKey = zimSelected.get(entry.sourceId) ?? entry.variantKey
+                      const variant    = entry.variants.find(v => v.key === variantKey) ?? entry.variants[0]
+                      return (
+                        <div key={entry.sourceId} className="flex items-center gap-3 py-1.5">
+                          <button type="button" onClick={() => toggleZim(entry)}
+                            className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all',
+                              checked ? 'border-brand bg-brand' : 'border-border bg-transparent hover:border-brand/60')}>
+                            {checked && <CheckCircle2 className="size-3 text-brand-foreground" />}
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium leading-tight">{entry.label}</p>
+                            <p className="text-xs text-muted-foreground leading-snug truncate">{entry.description}</p>
+                          </div>
+                          {checked && entry.variants.length > 1 ? (
+                            <select value={variantKey} onChange={e => setVariant(entry.sourceId, e.target.value)}
+                              className="shrink-0 rounded-control border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand/40">
+                              {entry.variants.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+                            </select>
+                          ) : (
+                            <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+                              ~{formatBytes(variant?.approxBytes ?? 0)}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
                 {renderPackBucket('Books', bookKeys)}
                 {renderPackBucket('Reference', refKeys)}
 
@@ -397,24 +457,6 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
                 </button>
               </div>
             )}
-
-            {/* Coding: default ON, shown so the user can still opt out */}
-            <div className="pt-1">
-              <button type="button" onClick={() => setCodingOn(v => !v)}
-                className={cn('flex w-full items-center gap-3 rounded-card border px-4 py-3 text-left transition-colors',
-                  codingOn ? 'border-brand/40 bg-brand/[0.06]' : 'border-border bg-card hover:border-border/70')}>
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-control bg-info/15 text-info"><Code className="size-4" /></div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold tracking-tight">AI coding agent</p>
-                  <p className="text-xs text-muted-foreground truncate">Sandboxed dev projects, in-app and from chat</p>
-                </div>
-                <span className="text-xs text-muted-foreground tabular-nums shrink-0">~{formatBytes(60_000_000)}</span>
-                <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all',
-                  codingOn ? 'border-brand bg-brand' : 'border-border')}>
-                  {codingOn && <CheckCircle2 className="size-3 text-brand-foreground" />}
-                </span>
-              </button>
-            </div>
           </section>
 
           {/* ── Footer: disk stats + actions, matches ModelsStep card style ── */}

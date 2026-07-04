@@ -14,7 +14,7 @@
 // health poll on /healthz. Install/repair is wired through lib/installRegistry.
 
 import { join } from 'node:path'
-import { existsSync, writeFileSync, readFileSync, statSync, renameSync } from 'node:fs'
+import { existsSync, writeFileSync, readFileSync, statSync, renameSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { execSync, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
@@ -263,8 +263,29 @@ export async function installSearXNG(onStatus: StatusFn = () => {}, signal?: Abo
     if (!python) throw new Error('no suitable Python (≥3.10) could be resolved')
 
     if (!existsSync(join(SEARXNG_DIR, 'searx', 'webapp.py'))) {
+      // A crash mid-clone leaves a partial, non-empty SEARXNG_DIR. `git clone` into a
+      // non-empty directory fails with exit 128 ("destination path already exists and is
+      // not an empty directory"), and since the sentinel above is still missing the job
+      // retries forever with the same error. Wipe any partial checkout first so the clone
+      // starts clean.
+      if (existsSync(SEARXNG_DIR)) {
+        onStatus('Removing incomplete SearXNG checkout…')
+        rmSync(SEARXNG_DIR, { recursive: true, force: true })
+      }
       onStatus('Cloning SearXNG…')
-      await run('git', ['clone', '--depth', '1', SEARXNG_REPO, SEARXNG_DIR], { signal, onStatus })
+      if (IS_WIN) {
+        // The searxng repo ships deploy templates whose filenames contain a colon, e.g.
+        // `utils/templates/etc/nginx/default.apps-available/searxng.conf:socket`. A colon
+        // is illegal in Windows/NTFS filenames, so a normal `git clone` aborts the ENTIRE
+        // checkout with exit 128 ("unable to checkout working tree") and leaves nothing
+        // usable. Clone without checking out, then `git restore` the working tree: restore
+        // writes every valid file and merely warns-and-skips the handful of colon paths
+        // (which we never use - SearXNG runs via `python -m searx.webapp`), exiting 0.
+        await run('git', ['clone', '--no-checkout', '--depth', '1', SEARXNG_REPO, SEARXNG_DIR], { signal, onStatus })
+        await run('git', ['-C', SEARXNG_DIR, 'restore', '--source=HEAD', ':/'], { signal, onStatus })
+      } else {
+        await run('git', ['clone', '--depth', '1', SEARXNG_REPO, SEARXNG_DIR], { signal, onStatus })
+      }
     }
 
     if (!existsSync(venvBin('python'))) {
@@ -421,7 +442,20 @@ export async function maybeUpdateSearXNG(force = false): Promise<void> {
     // a depth-1 clone). Use the async run() helper so the event loop stays unblocked
     // during the network fetch — execSync here would stall health probes for up to 60s.
     await run('git', ['fetch', '--depth', '1', 'origin', branch], { cwd: SEARXNG_DIR })
-    await run('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+    if (IS_WIN) {
+      // `git reset --hard` aborts the ENTIRE update on Windows: SearXNG ships deploy
+      // templates whose filenames contain a colon (e.g. `searxng.conf:socket`), illegal on
+      // NTFS, and git refuses to reset to a tree it can't fully materialize ("Could not
+      // reset index file to revision"). Mirror the install path instead — move the branch
+      // ref, then restore just the working tree from the new commit. `restore` writes every
+      // valid file and skips the colon paths with an "invalid path" warning, exiting 0
+      // (a hard-reset never gets that far). The index is left untouched — cosmetic only;
+      // every consumer reads commit/ref state, never the index.
+      await run('git', ['update-ref', `refs/heads/${branch}`, 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+      await run('git', ['restore', '--source', branch, '--worktree', '--', ':/'], { cwd: SEARXNG_DIR })
+    } else {
+      await run('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+    }
     const after = (() => { try { return execGit(['rev-parse', 'HEAD']) } catch { return '' } })()
 
     await setAppSetting(CHECKED_KEY, Date.now())

@@ -8,8 +8,20 @@
 // self-heal reconcile it.
 
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { chromium } from 'playwright'
+
+// Keep Playwright's managed browsers under data/ (matches lib/bookmarks/render.ts). This MUST
+// be set before chromium.executablePath() is first evaluated. This module runs the install
+// CHECK and is loaded at boot by installRegistry - potentially BEFORE render.ts, which is the
+// only other place that used to set this. If the env is still unset when the check runs,
+// executablePath() resolves Playwright's default (~/.cache) location instead of ours, so
+// isChromiumInstalled() falsely returns false even though Chromium is installed under data/ -
+// which made the setup wizard's chromium-render job flakily report "Chromium install failed".
+// Derived from process.cwd() (not the imported dataDir) to preserve this module's deliberate
+// "only playwright + node builtins" rule that avoids the boot-time circular-init TDZ.
+process.env.PLAYWRIGHT_BROWSERS_PATH ??= join(process.cwd(), '..', 'data', 'bin', 'playwright')
 
 /** Cheap sync check for the registry: is OUR managed Chromium on disk? A dev machine
  *  with only system Chrome reports false and would install managed Chromium on repair —
