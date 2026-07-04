@@ -101,19 +101,45 @@ export function albumCoverUrl(releaseGroupMbid: string, size: 250 | 500 | 1200 =
 export async function itunesAlbumCover(artist: string, album: string): Promise<string | null> {
   const a = artist.trim()
   const al = album.trim()
-  if (!al) return null
+  // The artist is REQUIRED — iTunes' fuzzy search happily returns another artist's album (a Guns N'
+  // Roses bootleg query matched a BLACKPINK release), so without an artist to verify against we'd
+  // risk showing the wrong cover, which is worse than a blank tile.
+  if (!al || !a) return null
   return cachedLookup('itunes-album-cover', `${a}~${al}`, THIRTY_DAYS_MS, async () => {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const want = norm(a)
+    const artistMatches = (name: string) => {
+      const r = norm(name)
+      return !!r && (r === want || (r.length >= 5 && want.includes(r)) || (want.length >= 5 && r.includes(want)))
+    }
+    // Bootlegs bury the real title under venues/dates/"broadcast"; try the title as-is, then a
+    // de-noised version. Artist verification below guards against the wrong-artist matches that
+    // aggressive title-cleaning would otherwise invite.
+    const cleaned = al.replace(/[([].*?[)\]]/g, ' ').replace(/[,:].*$/, ' ')
+      .replace(/\b(remaster(?:ed)?|deluxe|expanded|edition|live|broadcast|bootleg|anniversary|reissue|mono|stereo)\b/gi, ' ')
+      .replace(/\b(?:19|20)\d\d\b/g, ' ').replace(/\s+/g, ' ').trim()
+    const queries = [...new Set([al, cleaned].filter(q => q.length > 1))]
     try {
-      const term = encodeURIComponent(`${a} ${al}`.trim())
-      const res = await fetch(`https://itunes.apple.com/search?term=${term}&entity=album&media=music&limit=1`, {
-        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000),
-      })
-      if (!res.ok) return null
-      const data = await res.json() as { results?: Array<{ artworkUrl100?: string }> }
-      const art = data.results?.[0]?.artworkUrl100
-      if (!art) return null
-      // Apple returns a 100px thumbnail; swap the size segment for a crisp grid-sized image.
-      return art.replace(/\/\d+x\d+bb\.(jpg|png)$/, '/600x600bb.$1')
+      for (const q of queries) {
+        const term = encodeURIComponent(`${a} ${q}`.trim())
+        const res = await fetch(`https://itunes.apple.com/search?term=${term}&entity=album&media=music&limit=8`, {
+          headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000),
+        })
+        if (!res.ok) continue
+        const data = await res.json() as { results?: Array<{ artworkUrl100?: string; artistName?: string; collectionName?: string }> }
+        // Require BOTH the artist AND the album title to match — a same-artist but wrong-album hit
+        // (a bootleg fuzzy-matching a real single) would otherwise show the wrong cover. Only take
+        // art we're confident is this exact release; otherwise leave the tile blank.
+        const qKey = norm(q)
+        const hit = (data.results ?? []).find(r => {
+          if (!r.artworkUrl100 || !artistMatches(r.artistName ?? '')) return false
+          const rt = norm(r.collectionName ?? '')
+          return !!rt && !!qKey && (rt.includes(qKey) || qKey.includes(rt))
+        })
+        // Apple returns a 100px thumbnail; swap the size segment for a crisp grid-sized image.
+        if (hit?.artworkUrl100) return hit.artworkUrl100.replace(/\/\d+x\d+bb\.(jpg|png)$/, '/600x600bb.$1')
+      }
+      return null
     } catch (err) {
       logger.debug(`[catalog] itunesAlbumCover failed: ${String(err)}`)
       return null
