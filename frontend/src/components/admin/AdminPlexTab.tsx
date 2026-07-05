@@ -17,8 +17,17 @@ import {
   type PlexServer,
 } from '@/lib/plex/api'
 
+interface PlexLibrarySection {
+  userId: string
+  contentType: string
+  status: 'pending' | 'provisioning' | 'ready' | 'error'
+  error: string | null
+}
+
 export function AdminPlexTab() {
   const [cfg, setCfg] = useState<PlexConfigSummary | null>(null)
+  const [librarySections, setLibrarySections] = useState<PlexLibrarySection[]>([])
+  const [provisioning, setProvisioning] = useState<Set<string>>(new Set())
   const [baseUrl, setBaseUrl] = useState('')
   const [token, setToken] = useState('')
   const [saving, setSaving] = useState(false)
@@ -39,7 +48,29 @@ export function AdminPlexTab() {
     }
     setCfg(d)
     setBaseUrl(d.baseUrl)
+    const secRes = await fetch('/api/plex/admin/library-sections', { credentials: 'include' })
+    if (secRes.ok) {
+      const secData = await secRes.json() as { sections: PlexLibrarySection[] }
+      setLibrarySections(secData.sections ?? [])
+    }
   }, [])
+
+  const provisionYoutube = useCallback(async (userId: string) => {
+    setProvisioning(prev => new Set(prev).add(userId))
+    try {
+      await fetch('/api/plex/admin/provision', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, contentType: 'youtube' }),
+      })
+      toast.success('Provisioning started, check back shortly for status')
+      // The job runs in the background; poll once after a few seconds so a quick success shows up.
+      setTimeout(() => { void load() }, 4000)
+    } finally {
+      setProvisioning(prev => { const next = new Set(prev); next.delete(userId); return next })
+    }
+  }, [load])
 
   useEffect(() => {
     void load()
@@ -211,20 +242,47 @@ export function AdminPlexTab() {
           </CardHeader>
           <CardContent>
             <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
-              {cfg.users.map(u => (
-                <div key={u.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                  <span>{u.name}</span>
-                  {u.linked ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-success">
-                      <UserCheck className="size-3.5" /> Linked
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <UserX className="size-3.5" /> Not linked
-                    </span>
-                  )}
-                </div>
-              ))}
+              {cfg.users.map(u => {
+                const section = librarySections.find(s => s.userId === u.id && s.contentType === 'youtube')
+                return (
+                  <div key={u.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                    <span>{u.name}</span>
+                    <div className="flex items-center gap-3">
+                      {u.linked ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-success">
+                          <UserCheck className="size-3.5" /> Linked
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <UserX className="size-3.5" /> Not linked
+                        </span>
+                      )}
+                      {u.linked && (
+                        <>
+                          {section?.status === 'ready' && <span className="text-xs text-success">YouTube library ready</span>}
+                          {section?.status === 'error' && <span className="text-xs text-destructive" title={section.error ?? ''}>Provisioning failed</span>}
+                          {(!section || section.status === 'error') && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={provisioning.has(u.id)}
+                              onClick={() => provisionYoutube(u.id)}
+                            >
+                              {provisioning.has(u.id) && <Spinner size="sm" className="text-current mr-1" />}
+                              {section?.status === 'error' ? 'Retry' : 'Provision YouTube library'}
+                            </Button>
+                          )}
+                          {(section?.status === 'pending' || section?.status === 'provisioning') && (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Spinner size="sm" /> Provisioning…
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </CardContent>
         </Card>

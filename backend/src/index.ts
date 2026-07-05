@@ -112,6 +112,7 @@ import { shopping } from '@/routes/shopping'
 import { createCodingRoute } from '@/routes/coding'
 import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
+import adminStorageLocations from '@/routes/adminStorageLocations'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -576,6 +577,7 @@ app.route('/api/local-events', localEventsRoute)
 app.route('/api/time', time)
 app.route('/api/lookup', lookup)
 app.route('/api/admin/storage', adminStorage)
+app.route('/api/admin/storage-locations', adminStorageLocations)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))

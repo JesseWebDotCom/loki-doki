@@ -162,9 +162,26 @@ function SavedTab() {
   const totalBytes = useMemo(() => ready.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), [ready])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const [syncingPlex, setSyncingPlex] = useState(false)
 
   const toggle = (id: string) => setSelected(s => { const next = new Set(s); next.has(id) ? next.delete(id) : next.add(id); return next })
   const allSelected = rows.length > 0 && selected.size === rows.length
+
+  // Manual trigger while the Plex export feature is new (automatic sync on save/prune
+  // is a separate, later piece of the same feature). Requires a Plex library already
+  // provisioned for this user (Admin → Plex); harmlessly no-ops otherwise.
+  const syncToPlex = async () => {
+    setSyncingPlex(true)
+    try {
+      const res = await fetch('/api/youtube/plex/sync-all', { method: 'POST', credentials: 'include' })
+      const data = await res.json() as { ok: boolean; enqueued: number }
+      toast.success(data.ok ? `Syncing ${data.enqueued} video${data.enqueued === 1 ? '' : 's'} to Plex` : 'Could not start Plex sync')
+    } catch {
+      toast.error('Could not start Plex sync')
+    } finally {
+      setSyncingPlex(false)
+    }
+  }
 
   const clear = async (ids: string[]) => {
     setBusy(true)
@@ -184,8 +201,11 @@ function SavedTab() {
   if (!rows.length) return <Empty label="Nothing saved offline yet. Use “Save for offline” on any video." />
   return (
     <>
-      <p className="mb-3 text-xs text-muted-foreground">
-        {rows.length} video{rows.length === 1 ? '' : 's'}{totalBytes ? ` · ${fmtBytes(totalBytes)}` : ''} saved offline
+      <p className="mb-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>{rows.length} video{rows.length === 1 ? '' : 's'}{totalBytes ? ` · ${fmtBytes(totalBytes)}` : ''} saved offline</span>
+        <Button variant="outline" size="sm" disabled={syncingPlex} onClick={syncToPlex}>
+          Sync to Plex
+        </Button>
       </p>
       <OfflineSelectionToolbar
         totalCount={rows.length}
@@ -231,9 +251,26 @@ function PlaylistsTab() {
     catch { toast.error('Could not create playlist') }
   }
   const all = [...(data?.mine ?? []), ...(data?.shared ?? [])]
+  const [syncingCollections, setSyncingCollections] = useState(false)
+  const syncCollectionsToPlex = async () => {
+    setSyncingCollections(true)
+    try {
+      await fetch('/api/youtube/plex/sync-collections', { method: 'POST', credentials: 'include' })
+      toast.success('Syncing playlists to Plex Collections')
+    } catch {
+      toast.error('Could not start Plex collections sync')
+    } finally {
+      setSyncingCollections(false)
+    }
+  }
   return (
     <div>
-      <div className="mb-3"><Button size="sm" onClick={() => { setName(''); setCreating(true) }}><Plus className="size-4" /> New playlist</Button></div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <Button size="sm" onClick={() => { setName(''); setCreating(true) }}><Plus className="size-4" /> New playlist</Button>
+        <Button variant="outline" size="sm" disabled={syncingCollections} onClick={syncCollectionsToPlex}>
+          Sync collections to Plex
+        </Button>
+      </div>
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>New playlist</DialogTitle></DialogHeader>

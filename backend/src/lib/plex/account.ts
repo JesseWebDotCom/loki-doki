@@ -52,6 +52,13 @@ export async function isUserPlexLinked(userId: string): Promise<boolean> {
   return (await userPlexToken(userId)) !== null
 }
 
+/** The user's OWN linked Plex token — unlike getUserPlexConnection(), does NOT fall back to
+ *  the admin/global token. Needed wherever we must identify WHICH Plex account a user is
+ *  (e.g. provisioning a private library share) rather than just get a working connection. */
+export async function getUserOwnPlexToken(userId: string): Promise<string | null> {
+  return userPlexToken(userId)
+}
+
 /** True when an admin has configured the shared server URL (so users can link to it). */
 export async function isPlexServerConfigured(): Promise<boolean> {
   return !!(await globalPlexCfg()).baseUrl.trim()

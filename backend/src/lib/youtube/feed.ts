@@ -109,6 +109,11 @@ export interface UpsertVideo {
   publishedAt: number | null   // Unix ms (null when the source only gives relative text)
   durationSec: number | null
   description: string | null
+  // Which InnerTube channel tab this came from ('videos'|'shorts'|'live'), when known — used
+  // by the Plex export to split Shorts into their own show instead of mixing them into the
+  // main channel's per-year seasons. Null when the source doesn't distinguish (RSS poller,
+  // playlist scans) — those rows fall back to the durationSec<=90 heuristic at export time.
+  tab?: 'videos' | 'shorts' | 'live' | null
 }
 
 /**
@@ -148,6 +153,7 @@ export async function upsertSubscriptionVideos(
       publishedAt: v.publishedAt ?? null,
       durationSec: v.durationSec ?? null,
       description: v.description,
+      tab: v.tab ?? null,
       summary: null,
       createdAt: now,
     }))).onConflictDoNothing()

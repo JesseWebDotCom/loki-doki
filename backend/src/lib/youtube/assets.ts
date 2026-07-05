@@ -131,8 +131,18 @@ export async function completeAsset(
 
   // Fan out: every still-waiting ref for this asset is now satisfied.
   const effSize = adopt ? sizeBytes : asset.sizeBytes
+  const waitingRefs = await db.select({ userId: ytDownloads.userId, videoId: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.assetId, assetId), inArray(ytDownloads.status, ['pending', 'downloading'])))
   await db.update(ytDownloads).set({ status: 'ready', sizeBytes: effSize ?? sizeBytes, error: null, updatedAt: now })
     .where(and(eq(ytDownloads.assetId, assetId), inArray(ytDownloads.status, ['pending', 'downloading'])))
+
+  // Each newly-satisfied user, if they have a Plex library, gets this video placed into it.
+  // Video only — audio-only saves have nothing to show in a "show" library. Best-effort: a
+  // Plex-export hiccup must never affect the actual download/save the user asked for.
+  if (asset.kind === 'video') {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    for (const ref of waitingRefs) void enqueuePlexSync(ref.userId, ref.videoId, 'add').catch(() => {})
+  }
 
   // Chase a higher tier only when we actually improved this round (prevents looping when the
   // source simply can't deliver the requested height — the next attempt won't improve).

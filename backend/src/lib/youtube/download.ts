@@ -11,6 +11,7 @@ import { ytDownloads, ytVideos, mediaAssets, users } from '@/db/schema'
 import { eq, and, isNull, or } from 'drizzle-orm'
 import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
+import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
 import { ensureSummary, ensureSavedVideoMeta } from '@/lib/youtube/summarize'
 import { ytDlpBin, ytDlpAuthArgs } from '@/lib/ytdlp'
@@ -165,7 +166,8 @@ export async function runYtMediaJob(
     const mime = kind === 'audio' ? (audioFormat === 'mp3' ? 'audio/mpeg' : 'audio/mp4') : 'video/mp4'
 
     // Hash + move into the blob store OUTSIDE the lock (slow), then swap + fan out INSIDE it.
-    const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime })
+    const storageLocationId = await getContentTypeStorageLocationId('youtube')
+    const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime, storageLocationId })
     const { needsHigher } = await withLock(assetLockKey(videoId, kind, asset.format),
       () => completeAsset(assetId, hash, actualHeight, sizeBytes))
 

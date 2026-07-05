@@ -1143,6 +1143,10 @@ export const ytVideos = sqliteTable('yt_videos', {
   durationSec: integer('duration_sec'),
   description: text('description'),
   summary: text('summary'),
+  // Which InnerTube channel tab this came from, when known (null for RSS/playlist-sourced
+  // rows) — 'shorts' drives the Plex export's separate "Channel — Shorts" show; legacy/null
+  // rows fall back to the durationSec<=90 heuristic used elsewhere in this codebase.
+  tab: text('tab', { enum: ['videos', 'shorts', 'live'] }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
@@ -1207,12 +1211,16 @@ export const ytDownloads = sqliteTable('yt_downloads', {
 // `staging` (invisible to GC) until a referrer flips it `live`. See lib/content/store.ts.
 export const blobs = sqliteTable('blobs', {
   hash: text('hash').primaryKey(),                 // sha256 hex of the bytes
-  relPath: text('rel_path').notNull(),             // relative to the user data root
+  relPath: text('rel_path').notNull(),             // relative to whichever root this blob lives under
   sizeBytes: integer('size_bytes').notNull(),
   mime: text('mime'),
   status: text('status', { enum: ['staging', 'live'] }).notNull().default('staging'),
   lastAccessedAt: integer('last_accessed_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  // Which storage_locations row this blob's bytes actually live under. Null (the vast
+  // majority of rows) = the default data root, exactly like before this column existed —
+  // set only when the blob was written for a content type reassigned to another location.
+  storageLocationId: text('storage_location_id'),
 })
 
 // ── Media assets (Layer 2: identity + store-the-max) ────────────────────────────
@@ -2341,3 +2349,122 @@ export const clips = sqliteTable('clips', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ─── Storage locations (generic, content-type agnostic) ────────────────────────
+// A named filesystem root — local or a network/UNC path — the app can store real
+// content under. Distinct from `storage.user_data_root` (paths.ts's single default
+// data root, untouched by this): a content type only leaves that default root when
+// explicitly assigned one of these via `contentTypeStorage`.
+export const storageLocations = sqliteTable('storage_locations', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  path: text('path').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Which storage location owns a given content type's real files. Row absent (or
+// storageLocationId null) = that content type stays on the default app data root,
+// exactly like today. contentType is a free-form key ('youtube', later 'podcasts' |
+// 'music' | 'audiobooks') rather than an enum so new content types don't need a
+// migration to participate.
+export const contentTypeStorage = sqliteTable('content_type_storage', {
+  contentType: text('content_type').primaryKey(),
+  storageLocationId: text('storage_location_id').references(() => storageLocations.id, { onDelete: 'set null' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Plex-only concern, deliberately separate from storageLocations itself: how Plex's
+// own OS process sees the SAME bytes a storage location's `path` points at from the
+// app's side (e.g. app sees `\\server\share`, Plex sees `/mnt/share`). Only consulted
+// when registering a Plex library section's `location` or calling the targeted-refresh
+// API — never used for the app's own reads/writes.
+export const plexPathMappings = sqliteTable('plex_path_mappings', {
+  id: text('id').primaryKey(),
+  storageLocationId: text('storage_location_id').notNull()
+    .references(() => storageLocations.id, { onDelete: 'cascade' }).unique(),
+  plexPath: text('plex_path').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ─── Plex per-user library provisioning ────────────────────────────────────────
+// One row per (user, content type) once a private Plex "show" library has been
+// created and shared to only that user's Plex account. `sharedServerId` is the id
+// returned by Plex's shared_servers API, needed to revoke/update the share later.
+export const plexLibrarySections = sqliteTable('plex_library_sections', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  contentType: text('content_type').notNull(),
+  plexSectionKey: text('plex_section_key'),
+  plexMachineIdentifier: text('plex_machine_identifier'),
+  sharedServerId: text('shared_server_id'),
+  rootAbsPath: text('root_abs_path'),
+  status: text('status', { enum: ['pending', 'provisioning', 'ready', 'error'] }).notNull().default('pending'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userContentTypeUnique: unique().on(t.userId, t.contentType) }))
+
+// Playlists / Watch-Later / Liked → native Plex Collections (a cross-cutting shelf tag
+// applied to episodes that already live under their real channel-show — never a duplicate
+// show/season; see project plan §"how do collections contribute"). One row per source.
+export const plexCollections = sqliteTable('plex_collections', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  contentType: text('content_type').notNull(),
+  sourceType: text('source_type', { enum: ['playlist', 'collection'] }).notNull(),
+  sourceId: text('source_id').notNull(),   // ytPlaylists.id, or 'watch-later' | 'liked'
+  plexCollectionTitle: text('plex_collection_title'),
+  plexRatingKey: text('plex_rating_key'),
+  lastSyncedAt: integer('last_synced_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userSourceUnique: unique().on(t.userId, t.contentType, t.sourceType, t.sourceId) }))
+
+// ─── YouTube → Plex export tree tracking ────────────────────────────────────────
+// One Plex "show" per (user, channel, variant) — 'shorts' is a SEPARATE show from 'main'
+// so Shorts never mix into the main channel's per-year episode grid. Kept apart from
+// ytSubscriptions (a subscription can exist with no Plex export at all, and this needs
+// per-user folder/NFO bookkeeping fields that don't belong on the shared catalog).
+export const ytPlexShows = sqliteTable('yt_plex_shows', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  channelId: text('channel_id').notNull(),
+  variant: text('variant', { enum: ['main', 'shorts'] }).notNull().default('main'),
+  title: text('title').notNull(),
+  folderRelPath: text('folder_rel_path').notNull(),   // relative to this user's content root
+  nfoHash: text('nfo_hash'),                          // detects "channel metadata changed, rewrite tvshow.nfo"
+  nfoWrittenAt: integer('nfo_written_at', { mode: 'timestamp' }),
+  postersWrittenAt: integer('posters_written_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userChannelVariantUnique: unique().on(t.userId, t.channelId, t.variant) }))
+
+// One row per (user, video) placed into that user's Plex tree — tracks a lifecycle
+// orthogonal to ytDownloads ("is this saved offline"): "is this in this user's Plex
+// library," which fields matter for NFO/asset freshness, and (once cutting lands) which
+// SponsorBlock category set produced the rendition actually placed.
+export const ytPlexEpisodes = sqliteTable('yt_plex_episodes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  showId: text('show_id').notNull().references(() => ytPlexShows.id, { onDelete: 'cascade' }),
+  seasonYear: integer('season_year').notNull(),       // upload year; 0 for the flat Shorts season
+  // MMDD-derived by default (date-sortable, human-readable), bumped by 1 on same-day collision
+  // within the (showId, seasonYear) pair — this column is the source of truth for that check.
+  episodeNumber: integer('episode_number').notNull(),
+  sourceAssetId: text('source_asset_id'),             // media_assets.id of the original (uncut) rendition
+  cutFormatKey: text('cut_format_key'),                // derived media_assets.format when a cut rendition exists
+  cutCategoriesHash: text('cut_categories_hash'),
+  cutSegmentsJson: text('cut_segments_json'),
+  relPath: text('rel_path'),                          // placed file's path, relative to this user's content root
+  nfoWrittenAt: integer('nfo_written_at', { mode: 'timestamp' }),
+  thumbWrittenAt: integer('thumb_written_at', { mode: 'timestamp' }),
+  srtWrittenAt: integer('srt_written_at', { mode: 'timestamp' }),
+  status: text('status', { enum: ['pending', 'cutting', 'placing', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'),
+  plexRefreshedAt: integer('plex_refreshed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userVideoUnique: unique().on(t.userId, t.videoId) }))

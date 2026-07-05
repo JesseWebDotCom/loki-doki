@@ -110,6 +110,12 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
     if (assetSatisfies(asset, kind, maxHeight)) {
       await db.update(ytDownloads).set({ status: 'ready', sizeBytes: asset.sizeBytes, error: null, updatedAt: now })
         .where(eq(ytDownloads.id, refId))
+      // This path bypasses completeAsset()'s fan-out entirely (nothing to download), so it
+      // needs its own Plex-export hook — otherwise a dedup-satisfied save never reaches Plex.
+      if (kind === 'video') {
+        const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+        void enqueuePlexSync(userId, videoId, 'add').catch(() => {})
+      }
       return { status: 'already-saved', id: refId }
     }
 
@@ -241,6 +247,7 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
 
   const rows = await db.select({
     id: ytDownloads.id,
+    videoId: ytDownloads.videoId,
     assetId: ytDownloads.assetId,
     transcriptRelPath: ytDownloads.transcriptRelPath,
     publishedAt: ytVideos.publishedAt,
@@ -271,6 +278,13 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
   }
   await db.delete(ytDownloads).where(inArray(ytDownloads.id, stale.map(r => r.id)))
   await releaseAssetsIfOrphaned(stale.map(r => r.assetId))
+
+  // Auto-prune has zero Plex-facing effect otherwise — a rolled-off video would keep
+  // showing in the user's Plex library forever even after this function deletes its save.
+  if (kind === 'video') {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    for (const r of stale) void enqueuePlexSync(userId, r.videoId, 'remove').catch(() => {})
+  }
   logger.info(`[youtube] auto-save pruned ${stale.length} old video(s) for subscription ${subscriptionId} (keep ${keep})`)
 }
 

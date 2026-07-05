@@ -13,6 +13,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '@/db'
 import { mediaAssets, ytDownloads, downloadJobs } from '@/db/schema'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
+import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { getOrCreateAsset, assetSatisfies, assetLockKey, assetVariantKey, assetFormat, markAssetDownloading, completeAsset, type Kind } from '@/lib/youtube/assets'
 import { ytDlpBin, ytDlpAuthArgs, withYtDlpSlot } from '@/lib/ytdlp'
 import { probeHeight } from '@/lib/youtube/download'
@@ -212,7 +213,8 @@ export async function runYtLiveRecordJob(
   }
 
   const actualHeight = await probeHeight(absPath)
-  const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime: 'video/mp4' })
+  const storageLocationId = await getContentTypeStorageLocationId('youtube')
+  const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime: 'video/mp4', storageLocationId })
   await withLock(assetLockKey(videoId, 'video', asset.format), () => completeAsset(assetId, hash, actualHeight, sizeBytes))
   logger.info(`[youtube-live] recorded ${videoId} — ${fmtClock(elapsedSec)} kept`)
 }

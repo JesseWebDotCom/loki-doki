@@ -213,6 +213,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'storage', label: 'Storage', kind: 'anchor', anchorId: 'storage',
         keywords: ['storage', 'disk', 'cleanup', 'space', 'usage'],
         description: 'Disk usage and cleanup' },
+      { id: 'storage-locations', label: 'Storage Locations', kind: 'anchor', anchorId: 'storage-locations',
+        keywords: ['storage', 'locations', 'network', 'unc', 'nas', 'plex', 'path', 'mapping'],
+        description: 'Per-content-type storage roots, incl. network paths, and Plex path mappings' },
     ],
   },
   {

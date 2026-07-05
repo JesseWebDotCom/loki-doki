@@ -478,7 +478,34 @@ youtubeRoute.post('/downloads/delete', async (c) => {
     .where(and(eq(ytDownloads.userId, user.id), inArray(ytDownloads.id, ids)))
   // Drop any asset that now has zero references → its blob becomes unreferenced and GC reclaims it.
   await releaseAssetsIfOrphaned(rows.map(r => r.assetId))
+  // Manual unsave — if this user has a Plex library, remove the matching episode/file too.
+  // Best-effort: never let a Plex-export hiccup block the delete the user actually asked for.
+  for (const r of rows) {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    void enqueuePlexSync(user.id, r.videoId, 'remove').catch(() => {})
+  }
   return c.json({ ok: true, deleted: rows.length })
+})
+
+// Manual trigger to (re)sync every ready video save to this user's Plex library — for
+// testing the export before the automatic hooks (new save / auto-prune) are wired in.
+youtubeRoute.post('/plex/sync-all', async (c) => {
+  const user = c.get('user')
+  const rows = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'video'), eq(ytDownloads.status, 'ready')))
+  const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+  for (const r of rows) await enqueuePlexSync(user.id, r.videoId, 'add')
+  return c.json({ ok: true, enqueued: rows.length })
+})
+
+// Manual trigger to sync this user's playlists/Watch Later/Liked into Plex Collections.
+// Runs inline (not queued) — it's read-heavy against Plex plus a handful of PUTs, not a
+// download, and its own timeouts already bound how long a single call can take.
+youtubeRoute.post('/plex/sync-collections', async (c) => {
+  const user = c.get('user')
+  const { syncCollectionsForUser } = await import('@/lib/plex/export/collections')
+  await syncCollectionsForUser(user.id).catch(() => {})
+  return c.json({ ok: true })
 })
 
 // Save a video into the Offline library. Capped at the user's effective Save height
