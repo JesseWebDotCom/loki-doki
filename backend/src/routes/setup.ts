@@ -139,7 +139,7 @@ setup.get('/ollama-status', async (c) => {
 // ── Step 3: Catalog ───────────────────────────────────────────────────────────
 
 setup.get('/catalog', requireAuth, async (c) => {
-  const hw = detectHardware()
+  const hw = await detectHardware()
   const tier = recommendedTier(hw)
 
   // Check Ollama connectivity + installed models
@@ -431,7 +431,7 @@ setup.post('/download', requireAuth, async (c) => {
       if (!hasImageModels || cancelled) return
       const comfyBase = { id: 'comfyui-base', role: 'runtime', label: 'ComfyUI Runtime' }
       const nodesBase = { id: 'comfyui-nodes', role: 'runtime', label: 'Image Generation Extensions' }
-      const hw     = detectHardware()
+      const hw     = await detectHardware()
       const config = await resolveComfyUILaunchConfig(hw)
 
       if (!isComfyUIInstalled()) {

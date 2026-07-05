@@ -839,7 +839,7 @@ async function buildAndEnqueueJob(params: {
   // Checkpoint drives sampler preset — distilled variants (Lightning, LCM, Hyper, Turbo)
   // need fewer steps and lower CFG than a standard SDXL fine-tune.
   const checkpoint    = await getCheckpointName()
-  const hw            = detectHardware()
+  const hw            = await detectHardware()
   const config        = await resolveComfyUILaunchConfig(hw)
   const preset        = detectSamplerPreset(checkpoint)
   const isDistilled   = preset !== 'standard'

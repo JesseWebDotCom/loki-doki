@@ -85,7 +85,7 @@ const statusAdapter = (onProgress: InstallProgressFn) => (msg: string): void => 
 }
 
 async function comfyConfig() {
-  return resolveComfyUILaunchConfig(detectHardware())
+  return resolveComfyUILaunchConfig(await detectHardware())
 }
 
 export function isTesseractInstalled(): boolean {
