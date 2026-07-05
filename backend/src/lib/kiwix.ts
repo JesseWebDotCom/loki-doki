@@ -206,7 +206,7 @@ async function installKiwixServeWindows(onStatus: (msg: string) => void, signal?
     onStatus('Extracting kiwix-serve…')
     await rm(extractDir, { recursive: true, force: true })
     await mkdir(extractDir, { recursive: true })
-    extractZip(archive, extractDir, 120_000)
+    await extractZip(archive, extractDir, 120_000)
 
     // The 3.8.x Windows builds are NOT self-contained: kiwix-serve/kiwix-manage dynamically link
     // bundled ICU DLLs (icu*.dll) shipped alongside them in the archive. Copy EVERY file from the

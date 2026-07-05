@@ -109,4 +109,39 @@ FRONTEND_PID=$!
 while ! lsof -ti :5173 &>/dev/null; do sleep 0.2; done
 open -na "Google Chrome" --args --new-window "http://localhost:5173" 2>/dev/null || open "http://localhost:5173"
 
-wait $FRONTEND_PID $BACKEND_PID
+# Supervise: a crashed server restarts automatically instead of taking the whole
+# app down (previously one backend crash ended the script and killed everything).
+# Capped at 5 restarts per 5-minute window per server so a genuine crash-loop
+# stops instead of thrashing. Ctrl+C still exits via the EXIT trap.
+BACKEND_RESTARTS=0
+FRONTEND_RESTARTS=0
+WINDOW_START=$(date +%s)
+while true; do
+  sleep 1
+  now=$(date +%s)
+  if [ $((now - WINDOW_START)) -gt 300 ]; then
+    BACKEND_RESTARTS=0; FRONTEND_RESTARTS=0; WINDOW_START=$now
+  fi
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    BACKEND_RESTARTS=$((BACKEND_RESTARTS + 1))
+    if [ "$BACKEND_RESTARTS" -gt 5 ]; then
+      echo "Backend is crash-looping (>5 restarts in 5 min) — giving up. Check data/logs/app.log."
+      break
+    fi
+    echo "Backend exited — restarting it..."
+    sleep 2
+    (cd "$ROOT/backend" && bun run dev) &
+    BACKEND_PID=$!
+  fi
+  if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+    FRONTEND_RESTARTS=$((FRONTEND_RESTARTS + 1))
+    if [ "$FRONTEND_RESTARTS" -gt 5 ]; then
+      echo "Frontend is crash-looping (>5 restarts in 5 min) — giving up."
+      break
+    fi
+    echo "Frontend exited — restarting it..."
+    sleep 2
+    (cd "$ROOT/frontend" && bun run dev) &
+    FRONTEND_PID=$!
+  fi
+done

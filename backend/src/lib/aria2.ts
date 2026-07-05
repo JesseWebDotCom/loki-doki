@@ -49,7 +49,7 @@ async function downloadWindowsBuild(): Promise<boolean> {
     await downloadUrl(ARIA2_WIN_URL, archive, () => {}, undefined, { minBytes: 500_000 })
     await rm(extractDir, { recursive: true, force: true })
     await mkdir(extractDir, { recursive: true })
-    extractZip(archive, extractDir, 120_000)
+    await extractZip(archive, extractDir, 120_000)
     const found = await findFileInTree(extractDir, 'aria2c.exe')
     if (!found) throw new Error('aria2c.exe not found inside archive')
     await copyFile(found, MANAGED_PATH)

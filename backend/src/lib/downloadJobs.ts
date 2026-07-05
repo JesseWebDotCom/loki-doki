@@ -730,7 +730,7 @@ export async function scanAndRepairCorruptImageModels(): Promise<string[]> {
   }
 
   for (const { componentId, filePath, label } of candidates) {
-    if (validateSafetensorsFile(filePath)) continue
+    if (await validateSafetensorsFile(filePath)) continue
     logger.warn(`[image] corrupt .safetensors file detected, removing and re-queuing: ${filePath}`)
     try { unlinkSync(filePath) } catch { /* already gone */ }
     repaired.push(label)
@@ -815,7 +815,7 @@ export async function resumeDownloadJobs(): Promise<void> {
     .from(downloadJobs)
     .where(and(eq(downloadJobs.status, 'running'), eq(downloadJobs.type, 'map')))
   for (const { refId } of runningMaps) {
-    killByCommandLine(refId)
+    await killByCommandLine(refId)
   }
 
   await db.update(downloadJobs).set({ status: 'pending', updatedAt: new Date() }).where(eq(downloadJobs.status, 'running'))

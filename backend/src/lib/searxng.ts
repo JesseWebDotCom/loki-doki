@@ -63,6 +63,12 @@ function venvBin(name: string): string {
   return IS_WIN ? join(SEARXNG_VENV, 'Scripts', `${name}.exe`) : join(SEARXNG_VENV, 'bin', name)
 }
 
+// Exposed for the install registry's functional probe: the venv survives an OS wipe
+// on the data drive, but its interpreter launcher points at a base Python that may be gone.
+export function searxngVenvPython(): string {
+  return venvBin('python')
+}
+
 export function isSearXNGInstalled(): boolean {
   return existsSync(join(SEARXNG_DIR, 'searx', 'webapp.py')) && existsSync(venvBin('python'))
 }

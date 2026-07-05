@@ -21,6 +21,7 @@ import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
 import { BackgroundSetupWidget } from '@/components/shared/BackgroundSetupWidget'
+import { RestorePrompt } from '@/components/shared/RestorePrompt'
 import { Spinner } from '@/components/ui/spinner'
 import { AppShell } from '@/components/shell/AppShell'
 import { BootScreen } from '@/components/shell/BootScreen'
@@ -488,6 +489,7 @@ export default function App() {
           </FrigateAnnounceProvider>
           <AlarmRingDialog />
           <GlobalSetupWidget />
+          <RestorePrompt />
           </TimeAlarmProvider>
           </LiveRadioProvider>
           </RadioProvider>

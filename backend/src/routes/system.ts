@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 import { logger } from '@/lib/logger'
 import { getModel, getWarmupPromise } from '@/lib/models'
-import { seedHardwareDefaults, detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
+import { seedHardwareDefaults, detectHardware, resolveComfyUILaunchConfig, resolveGpuPlacement } from '@/lib/hwfit'
 import {
   pullOllama,
   downloadHfFile,
@@ -44,8 +44,12 @@ import {
 } from '@/lib/comfyui'
 import { CATALOG } from '@/lib/catalog'
 import { getAppSetting } from '@/lib/settings'
-import { INSTALL_COMPONENTS, getInstallComponent, getInstalledLedger, recordInstalled, IMAGE_ROLES } from '@/lib/installRegistry'
+import { INSTALL_COMPONENTS, getInstallComponent, getInstalledLedger, recordInstalled, IMAGE_ROLES, availablePackageManagers, type InstallComponent } from '@/lib/installRegistry'
 import { enqueueBackground, scanAndRepairCorruptImageModels } from '@/lib/downloadJobs'
+import { checkOsFingerprint, stampOsFingerprint } from '@/lib/osFingerprint'
+import { getRestorePlan, saveRestorePlan, clearRestorePlan, type RestoreAttentionItem } from '@/lib/restorePlan'
+import { isDownloadBlocked } from '@/lib/connectivity'
+import { requireAdmin } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 
 const system = new Hono<AppEnv>()
@@ -102,15 +106,26 @@ async function repairOllama(broadcast: BroadcastFn, key: string, tag: string): P
 //   (a) Ollama role models recorded in app_settings (router LLM, vision).
 //   (b) Registry components recorded in the install ledger.
 // Healthy items are (re)recorded so they are protected on future boots.
+//
+// Repairs are TIERED (the "OS drive wiped, data drive survived" design):
+//   • attention — needs elevation or a package manager that is itself gone: never
+//     auto-run; recorded on the restore plan so the admin sees why and what to do.
+//   • consent   — the OS fingerprint changed (fresh OS install) or the total
+//     re-download exceeds AUTO_RESTORE_MAX_BYTES: recorded as a pending restore
+//     plan; the admin gets a one-click "Restore" prompt in the app instead of us
+//     silently pulling gigabytes.
+//   • auto      — small drift (or consent already given): enqueued to the durable
+//     background queue exactly as before, surfaced by the global setup widget.
 
-async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
-  // Repair-of-missing is now NON-BLOCKING: we hand it to the background download-job
-  // manager so the app boots immediately. Boot only blocks on the truly-core models
-  // (steps 4–5: chat LLM + embeddings + router), handled inline above. Everything the
-  // user previously installed that went missing is enqueued and shown in the global
-  // background-setup widget.
+// Silent-heal budget per boot when the OS didn't change. Above this we ask first.
+const AUTO_RESTORE_MAX_BYTES = 1_500_000_000
+
+async function reconcileInstalls(broadcast: BroadcastFn, osChanged: boolean): Promise<void> {
+  // Repair-of-missing stays NON-BLOCKING: auto-tier work is handed to the background
+  // download-job manager so the app boots immediately. Boot only blocks on the
+  // truly-core models (steps 4–5: chat LLM + embeddings + router), handled inline above.
   const bgModelIds: string[] = []
-  const bgComponentIds: string[] = []
+  let modelBytes = 0
 
   // (a) Configured Ollama role models that have gone missing → background.
   try {
@@ -126,21 +141,30 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
       const cat = CATALOG.find((m) => m.id === modelId && m.backend === 'ollama' && m.ollamaTag)
       if (!cat?.ollamaTag || have(cat.ollamaTag)) continue
       bgModelIds.push(modelId)
+      modelBytes += cat.approxBytes ?? 0
     }
   } catch { /* Ollama unreachable — skip model reconcile */ }
 
-  // (b) Registry components recorded in the install ledger → background if missing.
+  // (b) Registry components recorded in the install ledger → collect if missing.
+  const missingComponents: InstallComponent[] = []
   try {
     const ledgerSet = new Set(await getInstalledLedger())
     for (const comp of INSTALL_COMPONENTS) {
       let installed = false
       try { installed = comp.isInstalled() } catch { installed = false }
+      if (installed && comp.verify) {
+        // Files on the data drive can survive an OS wipe yet be broken — a venv whose
+        // launcher points at a base Python that no longer exists. Actually running the
+        // binary is the only honest check; a probe error (not a clean failure) is
+        // treated as healthy so a busy machine never triggers a multi-GB rebuild.
+        try { installed = await comp.verify() } catch { /* probe inconclusive — trust file check */ }
+      }
       if (installed) {
         if (!ledgerSet.has(comp.id)) { try { await recordInstalled(comp.id) } catch { /* ignore */ } }
         continue
       }
       if (!ledgerSet.has(comp.id)) continue // never chosen — leave alone
-      bgComponentIds.push(comp.id)
+      missingComponents.push(comp)
     }
 
     // The real-RIR pack ships bundled with Wake Word Training but was added later,
@@ -150,8 +174,8 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
     // own download early-returns once complete).
     const rir = getInstallComponent('wakeword-train-rir')
     const hasTraining = ledgerSet.has('wakeword-train') || isWakewordTrainInstalled()
-    if (rir && hasTraining && !rir.isInstalled() && !bgComponentIds.includes(rir.id)) {
-      bgComponentIds.push(rir.id)
+    if (rir && hasTraining && !rir.isInstalled() && !missingComponents.some((c) => c.id === rir.id)) {
+      missingComponents.push(rir)
     }
 
     // Same bridge for the Silero VAD model: it ships alongside Voice but was
@@ -160,8 +184,8 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
     // the ~2 MB download lands; the next STT session picks it up live).
     const vad = getInstallComponent('silero-vad')
     const hasVoice = ledgerSet.has('voice-core') || isVoiceServerInstalled()
-    if (vad && hasVoice && !vad.isInstalled() && !bgComponentIds.includes(vad.id)) {
-      bgComponentIds.push(vad.id)
+    if (vad && hasVoice && !vad.isInstalled() && !missingComponents.some((c) => c.id === vad.id)) {
+      missingComponents.push(vad)
     }
 
     // Headless Chromium powers Canvas → PDF export AND the Reader archive, but was
@@ -171,13 +195,101 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
     // export/archive picks it up live). Matches "install in the wizard + heal as part
     // of chat".
     const chromium = getInstallComponent('chromium-render')
-    if (chromium && !chromium.isInstalled() && !bgComponentIds.includes(chromium.id)) {
-      bgComponentIds.push(chromium.id)
+    if (chromium && !chromium.isInstalled() && !missingComponents.some((c) => c.id === chromium.id)) {
+      missingComponents.push(chromium)
     }
   } catch { /* ledger unreadable — skip */ }
 
-  if (bgModelIds.length || bgComponentIds.length) {
-    await enqueueBackground({ modelIds: bgModelIds, componentIds: bgComponentIds })
+  // ── Tier the missing set ──────────────────────────────────────────────────────
+  const attention: RestoreAttentionItem[] = []
+  const repairable: InstallComponent[] = []
+  const pkgManagers = availablePackageManagers()
+  for (const comp of missingComponents) {
+    if (comp.needsElevation) {
+      attention.push({
+        id: comp.id, label: comp.label,
+        reason: 'Reinstalling needs a one-time OS administrator approval — run it from Admin → Features when you\'re at the machine.',
+      })
+    } else if (comp.needsPackageManager && pkgManagers.length === 0) {
+      attention.push({
+        id: comp.id, label: comp.label,
+        reason: process.platform === 'win32'
+          ? 'Needs a package manager. Install "App Installer" (winget) from the Microsoft Store, then repair from Admin → Features.'
+          : 'Needs a package manager (Homebrew or apt-get). Install one, then repair from Admin → Features.',
+      })
+    } else {
+      repairable.push(comp)
+    }
+  }
+
+  const bgComponentIds = repairable.map((c) => c.id)
+  const totalBytes = modelBytes + repairable.reduce((s, c) => s + (c.approxBytes ?? 0), 0)
+  const allIds = [...bgModelIds, ...bgComponentIds]
+  const prior = await getRestorePlan()
+
+  if (!allIds.length && !attention.length) {
+    if (prior) await clearRestorePlan()
+    if (osChanged) {
+      step(broadcast, { key: 'restore', label: 'Fresh OS install detected — nothing to restore, all components intact', status: 'ok' })
+    }
+    return
+  }
+
+  // A dismissed plan stays dismissed as long as nothing NEW went missing — dismissing
+  // must not re-prompt on every boot. Consent ('started') persists the same way.
+  const priorIds = prior
+    ? new Set([...prior.componentIds, ...prior.modelIds, ...prior.attention.map((a) => a.id)])
+    : new Set<string>()
+  const coveredByPrior = allIds.every((id) => priorIds.has(id)) && attention.every((a) => priorIds.has(a.id))
+  const consentGiven = prior?.status === 'started'
+  const staysDismissed = prior?.status === 'dismissed' && coveredByPrior
+
+  const needsConsent = !consentGiven && (osChanged || totalBytes > AUTO_RESTORE_MAX_BYTES)
+
+  if (needsConsent) {
+    await saveRestorePlan({
+      createdAt: prior?.createdAt ?? new Date().toISOString(),
+      osChanged: osChanged || (prior?.osChanged ?? false),
+      componentIds: bgComponentIds,
+      modelIds: bgModelIds,
+      totalBytes,
+      attention,
+      status: staysDismissed ? 'dismissed' : 'pending',
+    })
+    if (!staysDismissed) {
+      const gb = (totalBytes / 1_000_000_000).toFixed(1)
+      step(broadcast, {
+        key: 'restore',
+        label: osChanged
+          ? `Fresh OS install detected — ${allIds.length} previously installed item(s) to restore (~${gb} GB)`
+          : `${allIds.length} previously installed item(s) need restoring (~${gb} GB)`,
+        status: 'warn',
+        detail: 'An admin will be asked before downloading',
+      })
+    }
+    return
+  }
+
+  // Auto tier: small drift, or the admin already clicked Restore — enqueue now.
+  if (allIds.length) {
+    // force: true — every id here was already live-verified missing (Ollama /api/tags
+    // lookup above, or comp.isInstalled() in the loop below), so a stale "completed" row
+    // from before a wipe must not block re-enqueuing it. Without this, enqueueBackground's
+    // dedup trusts the old status and silently never re-downloads the actually-missing file.
+    await enqueueBackground({ modelIds: bgModelIds, componentIds: bgComponentIds, force: true })
+  }
+
+  if (attention.length) {
+    // Keep (only) the can't-auto-fix items on the plan so the admin prompt explains them.
+    await saveRestorePlan({
+      createdAt: prior?.createdAt ?? new Date().toISOString(),
+      osChanged: osChanged || (prior?.osChanged ?? false),
+      componentIds: [], modelIds: [], totalBytes: 0,
+      attention,
+      status: staysDismissed ? 'dismissed' : 'pending',
+    })
+  } else if (prior && !allIds.length) {
+    await clearRestorePlan()
   }
 }
 
@@ -200,15 +312,50 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   // ── 0a. Sweep temp directories from previous session ─────────────────────────
   await sweepTempDirs()
 
+  // ── 0b. OS fingerprint — was the OS reinstalled under us? ─────────────────────
+  // data/ (models, app.db, the install ledger) survives an OS-drive wipe; everything
+  // installed on the system drive doesn't. Detecting the reinstall explicitly lets
+  // the boot screen SAY why things are being restored instead of silently
+  // re-downloading, and flips reconcileInstalls into consent-first restore mode.
+  let osChanged = false
+  try {
+    osChanged = (await checkOsFingerprint()) === 'changed'
+    if (osChanged) {
+      logger.warn('[boot] OS fingerprint changed — fresh OS install detected, entering restore mode')
+      step(broadcast, {
+        key: 'restore-note',
+        label: 'Fresh OS install detected — your LokiDoki data drive is intact',
+        status: 'ok',
+        detail: 'Checking what needs restoring',
+      })
+    }
+  } catch { /* fingerprint is best-effort — never blocks boot */ }
+
+  // ── 0c. GPU placement — decide who gets which card BEFORE anything spawns ────
+  // Populates the cached placement that ollamaServeEnv() reads, so the very first
+  // Ollama spawn below already lands on the right GPU(s) on multi-GPU machines.
+  try { await resolveGpuPlacement() } catch { /* no NVIDIA tooling — stays unpinned */ }
+
   // ── 0. Kill stale project-owned Ollama binary ────────────────────────────────
   // The extracted CLI binary (data/bin/ollama) lacks the runner binaries that
   // modern Ollama needs. Kill it so the system Ollama.app takes over cleanly.
   const staleBin = join(dataDir, OLLAMA_BIN_DEST)
   if (existsSync(staleBin)) {
-    killByCommandLine(staleBin)
+    await killByCommandLine(staleBin)
     // Give the process time to exit before we try to connect
     await new Promise<void>((r) => setTimeout(r, 800))
   }
+  // `ollama serve` takes a few seconds to bind after being spawned — wait for it to
+  // accept connections so the "Connecting to Ollama" check below doesn't falsely
+  // report "Ollama unreachable" and skip restoring every model as a result.
+  async function waitForOllamaReachable(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      try { const r = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(1_500) }); if (r.ok) return } catch { /* keep waiting */ }
+      await new Promise<void>((r) => setTimeout(r, 1_000))
+    }
+  }
+
   // Ensure system Ollama server is running — spawn the binary directly so the
   // GUI app window doesn't open. Only start if not already reachable.
   try {
@@ -218,19 +365,17 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
     const systemBin = findSystemOllama()
     if (systemBin) {
       spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore', env: ollamaServeEnv() }).unref()
-      // `ollama serve` takes a few seconds to bind — wait for it to accept connections
-      // so step 3 below doesn't falsely report "Ollama unreachable".
-      const deadline = Date.now() + 20_000
-      while (Date.now() < deadline) {
-        await new Promise<void>((r) => setTimeout(r, 1_000))
-        try { const r = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(1_500) }); if (r.ok) break } catch { /* keep waiting */ }
-      }
+      await waitForOllamaReachable(20_000)
     } else {
       // No Ollama binary present (never installed, or removed). It's core, so restore it
       // here — same installer the setup wizard uses — with progress on the boot screen.
       step(broadcast, { key: 'ollama', label: 'Installing Ollama runtime…', status: 'running' })
       try {
         await downloadAndStartOllama((p) => broadcast('repair', JSON.stringify({ key: 'ollama', ...p })))
+        // downloadAndStartOllama only spawns the process — it doesn't wait for the
+        // server to actually bind, so give it the same grace period as the
+        // systemBin branch above before the reachability check 3 steps down.
+        await waitForOllamaReachable(20_000)
       } catch { /* step 3 below will report unreachable and let the user continue */ }
     }
   }
@@ -513,7 +658,11 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   }
 
   // ── Reconcile: repair any previously-installed item that has gone missing ──────
-  await reconcileInstalls(broadcast)
+  await reconcileInstalls(broadcast, osChanged)
+
+  // Stamp only AFTER reconcile persisted the restore plan — a crash mid-boot then
+  // re-detects the change next boot instead of losing the "OS was reinstalled" signal.
+  await stampOsFingerprint()
 
   // ── Done ──────────────────────────────────────────────────────────────────────
   broadcast('done', '')
@@ -573,6 +722,43 @@ system.get('/boot', async (c) => {
 
     await settled
   })
+})
+
+// ── Restore plan (OS-wipe / large-repair consent) ─────────────────────────────
+// The pending plan reconcileInstalls recorded, decorated with labels + sizes for
+// the admin-facing RestorePrompt. Admin-only: it both reveals system layout and
+// gates multi-GB downloads.
+
+system.get('/restore', requireAdmin, async (c) => {
+  const plan = await getRestorePlan()
+  if (!plan) return c.json({ plan: null })
+  const components = plan.componentIds.map((id) => {
+    const comp = getInstallComponent(id)
+    return { id, label: comp?.label ?? id, approxBytes: comp?.approxBytes ?? 0 }
+  })
+  const models = plan.modelIds.map((id) => {
+    const m = CATALOG.find((x) => x.id === id)
+    return { id, label: m?.label ?? id, approxBytes: m?.approxBytes ?? 0 }
+  })
+  return c.json({ plan: { ...plan, components, models } })
+})
+
+// One-click consent: hand the whole plan to the durable background queue (force —
+// each id was live-verified missing) and let the global setup widget show progress.
+system.post('/restore/start', requireAdmin, async (c) => {
+  if (await isDownloadBlocked()) return c.json({ error: 'Offline mode is active — downloads are unavailable.' }, 503)
+  const plan = await getRestorePlan()
+  if (!plan) return c.json({ ok: true, queued: 0 })
+  const queued = await enqueueBackground({ modelIds: plan.modelIds, componentIds: plan.componentIds, force: true })
+  await saveRestorePlan({ ...plan, status: 'started' })
+  return c.json({ ok: true, queued })
+})
+
+// "Not now" — stays dismissed across boots unless something NEW goes missing.
+system.post('/restore/dismiss', requireAdmin, async (c) => {
+  const plan = await getRestorePlan()
+  if (plan) await saveRestorePlan({ ...plan, status: 'dismissed' })
+  return c.json({ ok: true })
 })
 
 /**

@@ -150,10 +150,35 @@ try {
   Write-Host ''
   Write-Host "Loki Doki is running at $url  (press Ctrl+C to stop)"
 
-  # Keep the script alive until either server exits (crash) or the user hits
-  # Ctrl+C, then fall through to cleanup.
-  while (-not $backend.HasExited -and -not $frontend.HasExited) {
+  # Supervise: a crashed server restarts automatically instead of taking the whole
+  # app down (previously one backend crash killed everything until a manual re-run).
+  # Capped at 5 restarts per 5 minutes per server so a genuine crash-loop stops
+  # instead of thrashing. Ctrl+C still exits via the finally block below.
+  $restartLog = @{ backend = @(); frontend = @() }
+  function Should-Restart([string]$name) {
+    $now = Get-Date
+    $restartLog[$name] = @($restartLog[$name] | Where-Object { ($now - $_).TotalMinutes -lt 5 })
+    if ($restartLog[$name].Count -ge 5) { return $false }
+    $restartLog[$name] += $now
+    return $true
+  }
+
+  while ($true) {
     Start-Sleep -Milliseconds 500
+    if ($backend.HasExited) {
+      if (-not (Should-Restart 'backend')) { Write-Host 'Backend is crash-looping (5 restarts in 5 min) - giving up. Check data\logs\app.log.'; break }
+      Write-Host "Backend exited (code $($backend.ExitCode)) - restarting it..."
+      Start-Sleep -Seconds 2
+      $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
+        -WorkingDirectory $backendDir -NoNewWindow -PassThru
+    }
+    if ($frontend.HasExited) {
+      if (-not (Should-Restart 'frontend')) { Write-Host 'Frontend is crash-looping (5 restarts in 5 min) - giving up.'; break }
+      Write-Host "Frontend exited (code $($frontend.ExitCode)) - restarting it..."
+      Start-Sleep -Seconds 2
+      $frontend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
+        -WorkingDirectory $frontendDir -NoNewWindow -PassThru
+    }
   }
 }
 finally {

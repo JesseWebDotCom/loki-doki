@@ -1,16 +1,21 @@
-import { existsSync, statSync, chmodSync, createWriteStream, createReadStream, openSync, readSync, closeSync, unlinkSync } from 'node:fs'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { existsSync, statSync, chmodSync, mkdirSync, createWriteStream, createReadStream, unlinkSync } from 'node:fs'
+import { mkdir, rename, rm, writeFile, open, stat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join, resolve, basename, isAbsolute } from 'node:path'
-import { spawn, execSync } from 'node:child_process'
+import { spawn, exec } from 'node:child_process'
+import { promisify } from 'node:util'
 import { CATALOG } from '@/lib/catalog'
 import type { HfSource, CatalogModel } from '@/lib/catalog'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { IS_WIN, extractZip, killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
-import type { ComfyUILaunchConfig } from '@/lib/hwfit'
+import { getCachedGpuPlacement, type ComfyUILaunchConfig } from '@/lib/hwfit'
 
 const ollamaBase = () => (process.env.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/$/, '')
+
+// Async on purpose — a sync exec here (brew upgrade took up to 5 minutes) freezes the
+// single-threaded backend, and with it every request including /api/health.
+const execAsync = promisify(exec)
 
 export const dataDir = resolve(process.cwd(), '../data')
 
@@ -52,19 +57,24 @@ export async function readWithIdleTimeout<T>(
 // Python's safetensors library performs, so a corrupt file is caught here rather
 // than surfacing as a cryptic ComfyUI execution_error at generation time.
 
-export function validateSafetensorsFile(filePath: string): boolean {
+// Async on purpose: this runs at boot (serially over every installed model), right
+// after every finished .safetensors download, AND on the polled /api/image/status
+// route. The old sync openSync/readSync version blocked the whole event loop for the
+// duration of the header read — on a disk busy writing a multi-GB download that was
+// seconds per call, which is exactly when /api/health started timing out.
+export async function validateSafetensorsFile(filePath: string): Promise<boolean> {
+  let fh: Awaited<ReturnType<typeof open>> | undefined
   try {
-    const size = statSync(filePath).size
+    const size = (await stat(filePath)).size
     if (size < 8) return false
-    const fd = openSync(filePath, 'r')
+    fh = await open(filePath, 'r')
     const lenBuf = Buffer.allocUnsafe(8)
-    readSync(fd, lenBuf, 0, 8, 0)
+    await fh.read(lenBuf, 0, 8, 0)
     const headerLen = Number(lenBuf.readBigUInt64LE(0))
     // Sanity-cap: no legitimate model header exceeds 64 MB
-    if (headerLen > 64 * 1024 * 1024 || size < 8 + headerLen) { closeSync(fd); return false }
+    if (headerLen > 64 * 1024 * 1024 || size < 8 + headerLen) return false
     const headerBuf = Buffer.allocUnsafe(headerLen)
-    readSync(fd, headerBuf, 0, headerLen, 8)
-    closeSync(fd)
+    await fh.read(headerBuf, 0, headerLen, 8)
     // Parse tensor descriptors — each has data_offsets: [start, end]. safetensors requires
     // these ranges to exactly tile the data section when sorted: start at 0, no gaps or
     // overlaps, ending precisely at the buffer length. Checking only "does the file fit the
@@ -89,6 +99,8 @@ export function validateSafetensorsFile(filePath: string): boolean {
     return prevEnd === dataLen
   } catch {
     return false
+  } finally {
+    try { await fh?.close() } catch { /* already closed */ }
   }
 }
 
@@ -188,9 +200,9 @@ export async function downloadUrl(
   try { await p } finally { if (downloadLocks.get(destRelative) === p) downloadLocks.delete(destRelative) }
 }
 
-function throwIfCorruptSafetensors(destPath: string): void {
+async function throwIfCorruptSafetensors(destPath: string): Promise<void> {
   if (!destPath.endsWith('.safetensors')) return
-  if (!validateSafetensorsFile(destPath)) {
+  if (!(await validateSafetensorsFile(destPath))) {
     try { unlinkSync(destPath) } catch { /* already gone */ }
     throw new Error(`Downloaded .safetensors file is incomplete — the download was interrupted. It has been removed and will be retried automatically: ${basename(destPath)}`)
   }
@@ -230,7 +242,7 @@ async function _downloadUrlImpl(
   if (res.status === 416) {
     try { await rename(partPath, destPath) } catch (e) { if (!existsSync(destPath)) throw e }
     await verifyDownloadedFile(destPath, 0, opts, onProgress)
-    throwIfCorruptSafetensors(destPath)
+    await throwIfCorruptSafetensors(destPath)
     return
   }
 
@@ -279,7 +291,7 @@ async function _downloadUrlImpl(
     try { await rename(partPath, destPath) } catch (e) { if (!existsSync(destPath)) throw e }
     // Only enforce the size check when the server declared a length for the raw bytes.
     await verifyDownloadedFile(destPath, contentLength > 0 && !wireEncoded ? total : 0, opts, onProgress)
-    throwIfCorruptSafetensors(destPath)
+    await throwIfCorruptSafetensors(destPath)
   } catch (err) {
     fileStream.destroy()
     throw err
@@ -435,7 +447,7 @@ export async function downloadLargeUrl(
           await downloadFileWithAria2(bin, url, destPath, approxBytes, onProgress, signal, opts?.expectedSha256)
           // aria2 already verified the sha256 (--checksum); still enforce size floors.
           await verifyDownloadedFile(destPath, 0, { ...opts, expectedSha256: undefined }, onProgress)
-          throwIfCorruptSafetensors(destPath)
+          await throwIfCorruptSafetensors(destPath)
           return
         }
       } catch (err) {
@@ -565,32 +577,32 @@ export async function downloadSdCppBinary(
   const extractDir = join(dataDir, 'downloads/sd-extract')
 
   await downloadUrl(url, zipDest, onProgress, signal)
-  execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { timeout: 30_000 })
+  await extractZip(zipPath, extractDir, 30_000)
 
   // Prefer sd-server (HTTP server binary) over sd (CLI-only)
-  let sdBin = execSync(
+  let sdBin = (await execAsync(
     `find "${extractDir}" -type f -name "sd-server" 2>/dev/null | head -1`,
     { encoding: 'utf8', timeout: 5_000 },
-  ).trim()
+  )).stdout.trim()
   if (!sdBin) {
-    sdBin = execSync(
+    sdBin = (await execAsync(
       `find "${extractDir}" -type f -name "sd" 2>/dev/null | head -1`,
       { encoding: 'utf8', timeout: 5_000 },
-    ).trim()
+    )).stdout.trim()
   }
   if (!sdBin) throw new Error('Could not find sd binary in sd.cpp release archive')
 
   await mkdir(binDir, { recursive: true })
-  execSync(`cp "${sdBin}" "${binPath}"`)
+  await execAsync(`cp "${sdBin}" "${binPath}"`)
   chmodSync(binPath, 0o755)
 
   // Copy any dynamic libraries (.dylib) the binary needs into the same bin/ dir.
-  const dylibLines = execSync(
+  const dylibLines = (await execAsync(
     `find "${extractDir}" -type f -name "*.dylib" 2>/dev/null`,
     { encoding: 'utf8', timeout: 5_000 },
-  ).trim()
+  )).stdout.trim()
   for (const dylib of dylibLines.split('\n').filter(Boolean)) {
-    execSync(`cp "${dylib}" "${join(binDir, basename(dylib))}"`)
+    await execAsync(`cp "${dylib}" "${join(binDir, basename(dylib))}"`)
   }
 
   await rm(extractDir, { recursive: true, force: true })
@@ -696,15 +708,39 @@ export function findSystemOllama(): string | null {
   return SYSTEM_OLLAMA_CANDIDATES.find(existsSync) ?? null
 }
 
+// Ollama defaults model storage to ~/.ollama/models — outside dataDir, so it does NOT
+// survive an OS reinstall even when the app's own data drive/folder is preserved. Every
+// pulled model (multi-GB weights) would silently vanish on the next fresh OS. Keep it
+// under dataDir instead so "keep the app folder" actually means "keep everything".
+// An operator-set OLLAMA_MODELS takes precedence (matches the pepper/PIN precedent).
+export function ollamaModelsDir(): string {
+  const override = process.env.OLLAMA_MODELS
+  if (override) return override
+  const dir = join(dataDir, 'ollama-models')
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 // A single companion turn touches four models (chat, router LLM, and two embed
 // models) and vision makes five. Ollama's default keeps only 3 loaded, so every
 // turn evicted the biggest model (the 8B chat model) and paid a measured ~930ms
 // reload plus total KV-cache loss on the next call. All five fit in ~12GB.
 export function ollamaServeEnv(): NodeJS.ProcessEnv {
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     OLLAMA_MAX_LOADED_MODELS: process.env.OLLAMA_MAX_LOADED_MODELS ?? '6',
+    OLLAMA_MODELS: ollamaModelsDir(),
   }
+  // Central GPU placement: on a multi-GPU box Ollama is confined to the cards ComfyUI
+  // isn't using, so the family's chats and image generation never contend for VRAM
+  // (see hwfit.resolveGpuPlacement — boot resolves it before the first spawn here).
+  // An operator-set CUDA_VISIBLE_DEVICES always wins.
+  const placement = getCachedGpuPlacement()
+  if (placement.ollamaVisibleDevices && !process.env.CUDA_VISIBLE_DEVICES) {
+    env.CUDA_DEVICE_ORDER = 'PCI_BUS_ID'
+    env.CUDA_VISIBLE_DEVICES = placement.ollamaVisibleDevices
+  }
+  return env
 }
 
 export async function downloadAndStartOllama(
@@ -732,7 +768,7 @@ export async function downloadAndStartOllama(
         await downloadUrl(OLLAMA_ZIP_URL, OLLAMA_ZIP_DEST, onProgress, signal)
         const zipPath    = join(dataDir, OLLAMA_ZIP_DEST)
         const extractDir = join(dataDir, 'downloads/ollama-extract')
-        extractZip(zipPath, extractDir, 60_000)
+        await extractZip(zipPath, extractDir, 60_000)
         await mkdir(join(dataDir, 'bin'), { recursive: true })
         // Copy the FULL runtime, not just the CLI: modern Ollama loads models via a
         // separate `lib/ollama/llama-server` runner. Copying only the `ollama` binary
@@ -740,10 +776,10 @@ export async function downloadAndStartOllama(
         const resourcesDir = join(extractDir, 'Ollama.app/Contents/Resources')
         const macosDir     = join(extractDir, 'Ollama.app/Contents/MacOS')
         if (existsSync(resourcesDir)) {
-          execSync(`cp -R "${resourcesDir}/." "${join(dataDir, 'bin')}/"`, { timeout: 120_000 })
+          await execAsync(`cp -R "${resourcesDir}/." "${join(dataDir, 'bin')}/"`, { timeout: 120_000 })
         }
         if (!existsSync(binPath) && existsSync(join(macosDir, 'ollama'))) {
-          execSync(`cp "${join(macosDir, 'ollama')}" "${binPath}"`)
+          await execAsync(`cp "${join(macosDir, 'ollama')}" "${binPath}"`)
         }
         if (!existsSync(binPath)) throw new Error('Could not locate ollama binary inside Ollama.app')
         chmodSync(binPath, 0o755)
@@ -759,7 +795,7 @@ export async function downloadAndStartOllama(
         const zipPath = join(dataDir, OLLAMA_ZIP_DEST)
         await mkdir(join(dataDir, 'bin'), { recursive: true })
         onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Extracting Ollama…' })
-        extractZip(zipPath, join(dataDir, 'bin'), 180_000)
+        await extractZip(zipPath, join(dataDir, 'bin'), 180_000)
         if (!existsSync(binPath)) {
           throw new Error('Ollama install failed: ollama.exe not found after extracting the Windows build')
         }
@@ -821,9 +857,9 @@ async function latestOllamaVersion(): Promise<string | null> {
   } catch { return null }
 }
 
-function hasHomebrewOllama(): boolean {
+async function hasHomebrewOllama(): Promise<boolean> {
   if (IS_WIN) return false
-  try { execSync('brew list --formula ollama', { timeout: 5_000, stdio: 'ignore' }); return true }
+  try { await execAsync('brew list --formula ollama', { timeout: 5_000 }); return true }
   catch { return false }
 }
 
@@ -831,7 +867,7 @@ function hasHomebrewOllama(): boolean {
  *  whichever binary now resolves first (system install, or our managed copy),
  *  same resolution order as downloadAndStartOllama, just without the install fallback. */
 async function restartOllamaServe(): Promise<void> {
-  killByCommandLine('ollama serve')
+  await killByCommandLine('ollama serve')
   await new Promise<void>((r) => setTimeout(r, 800))
   const bin = findSystemOllama() ?? join(dataDir, OLLAMA_BIN_DEST)
   if (!existsSync(bin)) return
@@ -857,9 +893,9 @@ async function restartOllamaServe(): Promise<void> {
 export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<OllamaUpgradeOutcome> {
   const status = (msg: string) => { logger.info(`[ollama-update] ${msg}`); onStatus?.(msg) }
   try {
-    if (hasHomebrewOllama()) {
+    if (await hasHomebrewOllama()) {
       status('Upgrading Ollama via Homebrew…')
-      execSync('brew upgrade ollama', { timeout: 300_000, stdio: 'ignore' })
+      await execAsync('brew upgrade ollama', { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 })
       await restartOllamaServe()
       const v = await currentOllamaVersion()
       if (v) await setAppSetting(OLLAMA_VERSION_KEY, v)
@@ -884,7 +920,7 @@ export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<O
       // still answering on the port and returns without fetching the update, and on
       // Windows a running ollama.exe can't be overwritten. Match on the binary path so
       // this works whether the process reports as `ollama` or `ollama.exe`.
-      killByCommandLine(managedBin)
+      await killByCommandLine(managedBin)
       await new Promise<void>((r) => setTimeout(r, 800))
       await rm(managedBin, { force: true })
       await downloadAndStartOllama(() => {})
@@ -1613,10 +1649,10 @@ export async function setupComfyUIBase(
     : join(venvDir, 'bin', 'python')
   if (existsSync(venvDir) && existsSync(venvPythonBin)) {
     try {
-      const ver = execSync(
+      const ver = (await execAsync(
         `"${venvPythonBin}" -c "import sys; print(sys.version_info.minor)"`,
         { encoding: 'utf8', timeout: 5_000 },
-      ).trim()
+      )).stdout.trim()
       if (parseInt(ver, 10) < 10) {
         onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Upgrading Python environment to 3.10+…' })
         await rm(venvDir, { recursive: true, force: true })
@@ -1781,7 +1817,7 @@ export async function downloadWeatherIcons(
   const zipPath = join(dataDir, WEATHER_ICONS_ZIP)
   const dest = weatherIconsTargetDir()
   await mkdir(dest, { recursive: true })
-  extractZip(zipPath, dest, 30_000)
+  await extractZip(zipPath, dest, 30_000)
 }
 
 // Downloads a ComfyUI model file from the catalog entry.

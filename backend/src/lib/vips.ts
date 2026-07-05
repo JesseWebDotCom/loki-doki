@@ -55,7 +55,7 @@ async function downloadManagedWindows(): Promise<boolean> {
 
     await rm(installDir, { recursive: true, force: true })
     await mkdir(installDir, { recursive: true })
-    extractZip(archive, installDir, 180_000)
+    await extractZip(archive, installDir, 180_000)
 
     const found = await findFileInTree(installDir, BIN_NAME)
     if (!found) throw new Error('vips.exe not found inside archive')

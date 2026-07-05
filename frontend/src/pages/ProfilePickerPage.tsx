@@ -88,15 +88,67 @@ function PinEntry({ profile, onSuccess, onBack }: PinEntryProps) {
   )
 }
 
+// ── PIN setup (recovery for an admin account stuck with no PIN on record) ────
+
+interface PinSetupProps {
+  profile: Profile
+  onSuccess: () => void
+  onBack: () => void
+}
+
+function PinSetup({ profile, onSuccess, onBack }: PinSetupProps) {
+  const [error, setError]     = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleComplete(pin: string) {
+    if (loading) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/auth/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profile.id, pin }),
+      })
+      if (res.ok) { onSuccess(); return }
+      const body = await res.json().catch(() => null) as { error?: string } | null
+      setError(body?.error ?? 'Could not set PIN.')
+    } catch {
+      setError('Could not set PIN.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center">
+      <Avatar profile={profile} size="sm" />
+      <p className="mt-3 text-base font-semibold">{profile.nickname}</p>
+      <p className="mt-1 max-w-[220px] text-center text-xs text-muted-foreground">
+        This admin account has no PIN set, which is required to log in. Set one now to continue.
+      </p>
+      <PinPad
+        mode="set"
+        onComplete={handleComplete}
+        error={error}
+        loading={loading}
+        onBack={onBack}
+      />
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function ProfilePickerPage() {
   const { refetch } = useAuth()
   const navigate = useNavigate()
-  const [profiles, setProfiles]   = useState<Profile[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [selected, setSelected]   = useState<Profile | null>(null)
-  const [selecting, setSelecting] = useState(false)
+  const [profiles, setProfiles]     = useState<Profile[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [selected, setSelected]     = useState<Profile | null>(null)
+  const [needsPinSetup, setNeedsPinSetup] = useState<Profile | null>(null)
+  const [selecting, setSelecting]   = useState(false)
+  const [selectError, setSelectError] = useState('')
 
   useEffect(() => {
     fetch('/api/auth/profiles')
@@ -111,6 +163,7 @@ export function ProfilePickerPage() {
       return
     }
     setSelecting(true)
+    setSelectError('')
     try {
       const res = await fetch('/api/auth/select', {
         method: 'POST',
@@ -120,7 +173,16 @@ export function ProfilePickerPage() {
       if (res.ok) {
         await refetch()
         navigate('/', { replace: true })
+        return
       }
+      const body = await res.json().catch(() => null) as { error?: string; needsPinSetup?: boolean } | null
+      if (body?.needsPinSetup) {
+        setNeedsPinSetup(profile)
+      } else {
+        setSelectError(body?.error ?? 'Could not log in.')
+      }
+    } catch {
+      setSelectError('Could not log in.')
     } finally {
       setSelecting(false)
     }
@@ -148,7 +210,19 @@ export function ProfilePickerPage() {
           <p className="mt-1 text-xs text-muted-foreground">Your private AI home hub</p>
         </div>
 
-        {!selected ? (
+        {needsPinSetup ? (
+          <PinSetup
+            profile={needsPinSetup}
+            onSuccess={handlePinSuccess}
+            onBack={() => setNeedsPinSetup(null)}
+          />
+        ) : selected ? (
+          <PinEntry
+            profile={selected}
+            onSuccess={handlePinSuccess}
+            onBack={() => setSelected(null)}
+          />
+        ) : (
           <>
             <h2 className="text-title">Who's there?</h2>
             <p className="mt-1 text-sm text-muted-foreground">Choose your profile to continue</p>
@@ -181,13 +255,13 @@ export function ProfilePickerPage() {
                 ))}
               </div>
             )}
+
+            {selectError && (
+              <p className="mt-6 max-w-[260px] text-center text-xs text-destructive animate-in fade-in">
+                {selectError}
+              </p>
+            )}
           </>
-        ) : (
-          <PinEntry
-            profile={selected}
-            onSuccess={handlePinSuccess}
-            onBack={() => setSelected(null)}
-          />
         )}
       </div>
     </div>

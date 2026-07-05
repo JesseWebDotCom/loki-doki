@@ -1,9 +1,18 @@
 // Cross-platform helpers for the install/boot path. macOS and Linux can lean on
 // unix tools (unzip, pkill); Windows has neither, so these route to PowerShell.
+//
+// Everything here is async on purpose: these run in-process on the single-threaded
+// backend, and the old execSync/execFileSync versions froze the event loop (and with
+// it /api/health) for the full duration of an extract — minutes for the ~700 MB
+// Ollama zip on Windows.
 
-import { execSync, execFileSync } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { readdir, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+
+const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 export const IS_WIN = process.platform === 'win32'
 export const IS_MAC = process.platform === 'darwin'
@@ -19,12 +28,12 @@ function psEscape(s: string): string {
  * `Expand-Archive` on Windows (which ships with Windows 10+; `unzip` does not).
  * The source must have a real .zip extension or Expand-Archive rejects it.
  */
-export function extractZip(zipPath: string, destDir: string, timeoutMs = 120_000): void {
+export async function extractZip(zipPath: string, destDir: string, timeoutMs = 120_000): Promise<void> {
   if (IS_WIN) {
     const cmd = `Expand-Archive -LiteralPath '${psEscape(zipPath)}' -DestinationPath '${psEscape(destDir)}' -Force`
-    execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: timeoutMs, stdio: 'ignore' })
+    await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: timeoutMs })
   } else {
-    execSync(`unzip -o "${zipPath}" -d "${destDir}"`, { timeout: timeoutMs })
+    await execAsync(`unzip -o "${zipPath}" -d "${destDir}"`, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 })
   }
 }
 
@@ -35,9 +44,9 @@ export function extractZip(zipPath: string, destDir: string, timeoutMs = 120_000
 export async function extractArchive(archivePath: string, destDir: string, timeoutMs = 180_000): Promise<void> {
   await mkdir(destDir, { recursive: true })
   if (archivePath.endsWith('.zip')) {
-    extractZip(archivePath, destDir, timeoutMs)
+    await extractZip(archivePath, destDir, timeoutMs)
   } else {
-    execFileSync('tar', ['-xf', archivePath, '-C', destDir], { timeout: timeoutMs, stdio: 'ignore' })
+    await execFileAsync('tar', ['-xf', archivePath, '-C', destDir], { timeout: timeoutMs })
   }
 }
 
@@ -67,13 +76,13 @@ export async function findFileInTree(dir: string, name: string): Promise<string 
  * Used to clear orphaned subprocesses (map builds, a stale Ollama binary) left by
  * a previous run. Never throws — a miss just means nothing matched.
  */
-export function killByCommandLine(pattern: string): void {
+export async function killByCommandLine(pattern: string): Promise<void> {
   try {
     if (IS_WIN) {
       const cmd = `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${psEscape(pattern)}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
-      execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: 5_000, stdio: 'ignore' })
+      await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: 5_000 })
     } else {
-      execSync(`pkill -f '${pattern}' 2>/dev/null`, { timeout: 5_000, stdio: 'ignore' })
+      await execAsync(`pkill -f '${pattern}' 2>/dev/null`, { timeout: 5_000 })
     }
   } catch { /* none running — best-effort */ }
 }
