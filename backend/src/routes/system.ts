@@ -430,7 +430,7 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
 
     if (!venvCompatible) {
       step(broadcast, { key: 'image', label: 'Upgrading Python environment for image generation…', status: 'running' })
-      const hw     = detectHardware()
+      const hw     = await detectHardware()
       const config = await resolveComfyUILaunchConfig(hw)
       try {
         await setupComfyUIBase(config, (p) => {

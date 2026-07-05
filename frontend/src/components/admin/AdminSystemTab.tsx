@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Activity, Cpu, MemoryStick, RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { Activity, AlertTriangle, Cpu, MemoryStick, MonitorCog, RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { RichOptionSelect } from '@/components/shared/RichOptionSelect'
+import { cn } from '@/lib/cn'
+import { useGpuHealth, type GpuAlertConfigPatch } from '@/context/GpuHealthContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -99,6 +101,126 @@ function SlotCounter({
         )}
       </div>
     </div>
+  )
+}
+
+// ── GPU health + alerts ─────────────────────────────────────────────────────────
+
+function AlertToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs text-foreground">{label}</span>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  )
+}
+
+function ThresholdInput({ value, suffix, disabled, onCommit }: { value: number; suffix: string; disabled?: boolean; onCommit: (v: number) => void }) {
+  const [v, setV] = useState(String(value))
+  useEffect(() => { setV(String(value)) }, [value])
+  const commit = () => { const n = parseInt(v, 10); if (!Number.isNaN(n) && n !== value) onCommit(n) }
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <input
+        type="number" inputMode="numeric" value={v} disabled={disabled}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+        className="h-6 w-14 rounded-control border border-input bg-background px-1.5 text-right text-xs tabular-nums focus:outline-none disabled:opacity-40"
+      />
+      <span className="text-[11px] text-muted-foreground w-5">{suffix}</span>
+    </div>
+  )
+}
+
+function GpuHealthCard() {
+  const { health, config, saveConfig, resetBaseline } = useGpuHealth()
+  const [showSettings, setShowSettings] = useState(false)
+  // Hide entirely on machines with no NVIDIA GPU (feature N/A).
+  if (!health || !health.supported) return null
+
+  const missing = health.expected.filter((e) => !health.gpus.some((g) => g.uuid === e.uuid))
+  const set = (patch: GpuAlertConfigPatch) => { void saveConfig(patch) }
+
+  return (
+    <Card variant="surface" className="border-border/50 p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
+          <MonitorCog className="size-3" /> GPU health
+        </h3>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="text-xs"><RefreshCw className="size-2.5 mr-1" />live</Badge>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" onClick={() => setShowSettings((s) => !s)}>
+            Alerts
+          </Button>
+        </div>
+      </div>
+
+      {health.issues.length > 0 && (
+        <div className="space-y-1.5 rounded-control border border-warning/30 bg-warning/10 px-3 py-2">
+          {health.issues.map((i) => (
+            <p key={i.key} className={cn('flex items-start gap-1.5 text-xs', i.severity === 'error' ? 'text-destructive' : 'text-warning')}>
+              <AlertTriangle className="size-3.5 shrink-0 mt-px" /> {i.message}
+            </p>
+          ))}
+          {missing.length > 0 && (
+            <button type="button" onClick={() => void resetBaseline()} className="text-[11px] text-muted-foreground underline hover:text-foreground">
+              Removed a GPU on purpose? Reset the expected-GPU baseline.
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="space-y-2.5">
+        {health.gpus.map((g) => (
+          <div key={g.uuid} className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-foreground truncate">{g.name}</span>
+              <span className="tabular-nums text-muted-foreground">{g.temperatureC != null ? `${g.temperatureC}°C` : ''}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <div className="text-[11px] text-muted-foreground">Utilization · {g.utilizationPct != null ? `${g.utilizationPct}%` : '—'}</div>
+                <LoadBar value={g.utilizationPct ?? 0} max={100} />
+              </div>
+              <div className="space-y-1">
+                <div className="text-[11px] text-muted-foreground">VRAM · {g.memUsedMb != null && g.memTotalMb ? `${(g.memUsedMb / 1024).toFixed(1)} / ${(g.memTotalMb / 1024).toFixed(1)} GB` : '—'}</div>
+                <LoadBar value={g.memUsedMb ?? 0} max={g.memTotalMb ?? 1} />
+              </div>
+            </div>
+          </div>
+        ))}
+        {missing.map((e) => (
+          <div key={e.uuid} className="flex items-center gap-1.5 text-xs text-destructive">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span className="truncate">{e.name}</span>
+            <span className="text-muted-foreground">— not detected by CUDA</span>
+          </div>
+        ))}
+      </div>
+
+      {showSettings && config && (
+        <div className="space-y-2 border-t border-border/50 pt-2.5">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Alert me when…</p>
+          <AlertToggle label="A GPU goes missing or is ejected" checked={config.missing.enabled} onChange={(v) => set({ missing: { enabled: v } })} />
+          <AlertToggle label="The GPU driver stops responding" checked={config.driver.enabled} onChange={(v) => set({ driver: { enabled: v } })} />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-foreground">A GPU overheats</span>
+            <div className="flex items-center gap-2">
+              <ThresholdInput value={config.overheat.thresholdC} suffix="°C" disabled={!config.overheat.enabled} onCommit={(n) => set({ overheat: { thresholdC: n } })} />
+              <Switch checked={config.overheat.enabled} onCheckedChange={(v) => set({ overheat: { enabled: v } })} />
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-foreground">VRAM is nearly full</span>
+            <div className="flex items-center gap-2">
+              <ThresholdInput value={config.vram.thresholdPct} suffix="%" disabled={!config.vram.enabled} onCommit={(n) => set({ vram: { thresholdPct: n } })} />
+              <Switch checked={config.vram.enabled} onCheckedChange={(v) => set({ vram: { enabled: v } })} />
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -279,6 +401,8 @@ export function AdminSystemTab() {
           </Card>
         )}
       </div>
+
+      <GpuHealthCard />
 
       {/* Mode selector */}
       <Card variant="surface" className="border-border/50 p-3 space-y-2">

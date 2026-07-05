@@ -10,6 +10,7 @@ import { GenerationProvider } from '@/context/GenerationContext'
 import { PrivacyProvider } from '@/context/PrivacyContext'
 import { ServerHealthProvider } from '@/context/ServerHealthContext'
 import { SetupProgressProvider } from '@/context/SetupProgressContext'
+import { GpuHealthProvider } from '@/context/GpuHealthContext'
 import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
 import { YoutubePlaybackProvider } from '@/context/YoutubePlaybackContext'
 import { RadioProvider } from '@/context/RadioContext'
@@ -287,6 +288,7 @@ export default function App() {
     <ServerHealthProvider>
     <SetupProgressProvider>
     <AuthProvider>
+      <GpuHealthProvider>
       <ThemeProvider>
         <UIContextProvider>
           <BreadcrumbSearchProvider>
@@ -498,6 +500,7 @@ export default function App() {
         </UIContextProvider>
         <AppToaster />
       </ThemeProvider>
+      </GpuHealthProvider>
       <ServerHealthBanner />
     </AuthProvider>
     </SetupProgressProvider>

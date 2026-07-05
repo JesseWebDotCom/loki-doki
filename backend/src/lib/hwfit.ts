@@ -1,6 +1,9 @@
 import os from 'node:os'
-import { execSync } from 'node:child_process'
+import { execSync, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { db } from '@/db'
+
+const execFileAsync = promisify(execFile)
 import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 
@@ -39,18 +42,21 @@ function detectAppleSiliconGeneration(): { mpsBf16Supported: boolean } {
   }
 }
 
-function detectCudaDevices(): CudaDevice[] {
+// Spawned async and directly (no cmd.exe) so it never blocks the event loop — a synchronous
+// spawnSync intermittently times out in the loaded backend process on Windows, which would drop
+// GPU detection and silently fall ComfyUI back to CPU/lowvram.
+async function detectCudaDevices(): Promise<CudaDevice[]> {
   try {
-    const out = execSync(
-      'nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits',
-      { encoding: 'utf8', timeout: 3_000 },
+    const { stdout } = await execFileAsync('nvidia-smi',
+      ['--query-gpu=index,name,memory.total', '--format=csv,noheader,nounits'],
+      { timeout: 8_000, windowsHide: true },
     )
-    return out.trim().split('\n').flatMap((line) => {
+    return stdout.trim().split('\n').flatMap((line) => {
       const parts = line.split(', ')
       if (parts.length < 3) return []
-      const index    = parseInt(parts[0].trim(), 10)
-      const name     = parts[1].trim()
-      const vramMiB  = parseInt(parts[2].trim(), 10)
+      const index    = parseInt((parts[0] ?? '').trim(), 10)
+      const name     = (parts[1] ?? '').trim()
+      const vramMiB  = parseInt((parts[2] ?? '').trim(), 10)
       if (isNaN(index) || isNaN(vramMiB)) return []
       return [{ index, name, vramBytes: vramMiB * 1_048_576 }]
     })
@@ -59,7 +65,7 @@ function detectCudaDevices(): CudaDevice[] {
   }
 }
 
-export function detectHardware(): HardwareInfo {
+export async function detectHardware(): Promise<HardwareInfo> {
   const totalRamGb    = Math.round(os.totalmem() / 1_073_741_824)
   const platform      = process.platform
   const cpuModel      = os.cpus()[0]?.model ?? ''
@@ -77,7 +83,7 @@ export function detectHardware(): HardwareInfo {
     }
   }
 
-  const cudaDevices = detectCudaDevices()
+  const cudaDevices = await detectCudaDevices()
   return {
     platform, totalRamGb, cpus: os.cpus().length,
     isAppleSilicon: false,
@@ -191,7 +197,7 @@ async function setSetting(key: string, value: string): Promise<void> {
 // Seed app_settings with hardware-appropriate defaults on first run.
 // Never overwrites values the admin has already set.
 export async function seedHardwareDefaults(): Promise<HardwareInfo> {
-  const hw = detectHardware()
+  const hw = await detectHardware()
   const models = recommendedModels(hw)
   const queueLimits = recommendedQueueLimits(hw)
 
