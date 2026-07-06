@@ -19,6 +19,17 @@ Engine lives in `backend/src/lib/plex/`. Exposed at `/api/plex` (`backend/src/ro
 
 Each user links their own Plex account in `Settings → Plex` (`POST /api/plex/me/link`, `lib/plex/account.ts`), storing a per-user token. `getUserPlexConnection(userId)` resolves the shared server config plus that user's token for every subsequent call, so library reads use the shared server but watchlist/watched actions act as that specific Plex user.
 
+## YouTube → Plex library export
+
+Each user can get a private Plex library populated from their YouTube downloads. Setup, in `Admin → Plex`:
+
+1. Connect the shared server and link the user's account (above).
+2. Add a **storage location** (`AdminStorageLocationsTab.tsx`, `/api/admin/storage-locations`, `adminStorageLocations.ts`) pointing at a folder Plex can also reach, and assign it to the `youtube` content type — this is what makes YouTube downloads land there instead of the local data root.
+3. Set that location's **Plex path mapping** (how Plex itself sees the same folder — often a different path than the app's own view of it, e.g. across a network share).
+4. Call `POST /api/plex/admin/provision` (`{ userId, contentType: 'youtube' }`), which enqueues `enqueuePlexProvision` (`lib/downloadJobs`) to create and populate the user's Plex library section. Status per user/contentType is tracked in `plexLibrarySections` and readable via `GET /api/plex/admin/library-sections`.
+
+The admin UI checks storage-location + path-mapping readiness up front (`AdminPlexTab.tsx`) so "Provision" isn't clickable until both are actually set — otherwise the job fails with the error only visible server-side.
+
 ## The two-ID-space problem
 
 Plex identifies media by its own metadata GUIDs (IMDb/TVDB); Loki Doki identifies shows by TVMaze id and movies by title+year. `lib/plex/resolve.ts` bridges the two: it extracts IMDb/TVDB GUIDs from a Plex item, resolves the matching TVMaze show id (falling back to title+year when GUIDs are missing), and returns an in-app route the existing `TitleCard` can render and click into. Resolutions are cached hard (30 days) since a Plex item's identity never changes. Movies key directly on title+year, no external lookup needed.
