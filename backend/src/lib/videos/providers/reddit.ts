@@ -17,8 +17,19 @@ const LIST_TTL = 90_000          // listings: 90s — fresh enough, cheap on the
 const ITEM_TTL = 10 * 60_000     // single posts: 10 min
 const ABOUT_TTL = 60 * 60_000    // subreddit about: 1h
 
-// Default browse surface: a multireddit of broadly liked video subs.
+// Default browse surface: a multireddit of broadly liked video subs. Category chips
+// map to topical multireddits of the same shape.
 const DEFAULT_MULTI = 'videos+mealtimevideos+Documentaries+artisanvideos+educationalgifs+nextfuckinglevel+oddlysatisfying+interestingasfuck'
+const FEED_MULTIS: Record<string, { label: string; multi: string }> = {
+  popular: { label: 'Popular', multi: DEFAULT_MULTI },
+  funny: { label: 'Funny', multi: 'funny+ContagiousLaughter+youtubehaiku+instantregret' },
+  docs: { label: 'Documentaries', multi: 'Documentaries+mealtimevideos+lectures' },
+  gaming: { label: 'Gaming', multi: 'gaming+GamePhysics+gamingclips' },
+  nature: { label: 'Nature', multi: 'NatureIsFuckingLit+AnimalsBeingBros+aww' },
+  sports: { label: 'Sports', multi: 'sports+TheOcho+MMA' },
+  science: { label: 'Science & Space', multi: 'space+science+EngineeringPorn+educationalgifs' },
+  food: { label: 'Food', multi: 'food+cooking+GifRecipes' },
+}
 
 const POST_ID = /^[a-z0-9]{4,10}$/i
 const SUB_NAME = /^[A-Za-z0-9_]{2,21}$/
@@ -150,6 +161,7 @@ export const redditProvider: VideoProvider = {
     downloadKinds: ['video'],
     authConfig: 'apiKey',
   },
+  browseFeeds: Object.entries(FEED_MULTIS).map(([id, f]) => ({ id, label: f.label })),
 
   async status() {
     if (await getRedditClientId()) return { configured: true }
@@ -176,7 +188,10 @@ export const redditProvider: VideoProvider = {
   },
 
   async browse({ feed, cursor, allowAdult }) {
-    const multi = feed && /^[A-Za-z0-9_+]+$/.test(feed) ? feed : DEFAULT_MULTI
+    // Category chip ids map to curated multis; anything else (a followed subreddit
+    // chip passes its name) is used directly.
+    const multi = feed && FEED_MULTIS[feed] ? FEED_MULTIS[feed]!.multi
+      : feed && /^[A-Za-z0-9_+]+$/.test(feed) ? feed : DEFAULT_MULTI
     const after = cursor ? `&after=${encodeURIComponent(cursor)}` : ''
     const data = await redditJson<Parameters<typeof listingToPager>[0]>(
       `/r/${multi}/hot.json?raw_json=1&limit=50${after}`, LIST_TTL)

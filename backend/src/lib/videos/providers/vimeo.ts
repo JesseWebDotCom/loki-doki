@@ -18,6 +18,19 @@ const STREAM_TTL = 25 * 60_000
 const VIDEO_ID = /^\d{6,12}$/
 const CHANNEL_ID = /^[a-z0-9]+$/i
 
+// Curated channels double as category chips; every slug verified to serve RSS.
+const VIMEO_CHANNELS: Record<string, { label: string; slug: string }> = {
+  staffpicks: { label: 'Staff Picks', slug: 'staffpicks' },
+  animation: { label: 'Animation', slug: 'animation' },
+  documentary: { label: 'Documentaries', slug: 'documentaryfilm' },
+  comedy: { label: 'Comedy', slug: 'comedy' },
+  music: { label: 'Music Videos', slug: 'musicvideos' },
+  travel: { label: 'Travel', slug: 'travel' },
+  experimental: { label: 'Experimental', slug: 'experimental' },
+  sports: { label: 'Sports', slug: 'sports' },
+  shorts: { label: 'Short Films', slug: 'shortfilms' },
+}
+
 export async function getVimeoToken(): Promise<string | null> {
   const v = await getAppSetting(VIMEO_TOKEN_KEY)
   return typeof v === 'string' && v.trim() ? v.trim() : null
@@ -170,6 +183,7 @@ export const vimeoProvider: VideoProvider = {
     downloadKinds: ['audio', 'video'],
     authConfig: 'apiKey',
   },
+  browseFeeds: Object.entries(VIMEO_CHANNELS).map(([id, ch]) => ({ id, label: ch.label })),
 
   async status() {
     // Staff Picks browse works keyless (yt-dlp + oEmbed); a token only adds search
@@ -190,16 +204,17 @@ export const vimeoProvider: VideoProvider = {
     return null
   },
 
-  async browse({ cursor }) {
-    // Staff Picks is Vimeo's canonical discovery surface. API when a token exists;
-    // otherwise keyless via yt-dlp's flat playlist + per-item oEmbed enrichment.
+  async browse({ feed, cursor }) {
+    // Curated channels are the discovery surface (Staff Picks default). API pages
+    // when a token exists; otherwise the channel's native RSS, keyless.
+    const channel = (feed && VIMEO_CHANNELS[feed]) ? VIMEO_CHANNELS[feed]! : VIMEO_CHANNELS['staffpicks']!
     if (await getVimeoToken()) {
       const data = await vimeoApi<{ data?: VimeoApiVideo[]; paging?: { next?: string | null } }>(
-        `/channels/staffpicks/videos?${pageParams(cursor)}&sort=added`, LIST_TTL)
+        `/channels/${channel.slug}/videos?${pageParams(cursor)}&sort=added`, LIST_TTL)
       return listToPager(data, cursor)
     }
     if (cursor) return { items: [], cursor: null }   // keyless: single page
-    return { items: await vimeoRssItems('/channels/staffpicks/videos/rss', LIST_TTL), cursor: null }
+    return { items: await vimeoRssItems(`/channels/${channel.slug}/videos/rss`, LIST_TTL), cursor: null }
   },
 
   async search(q, { cursor }) {

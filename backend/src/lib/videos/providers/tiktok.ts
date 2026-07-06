@@ -96,6 +96,13 @@ export async function tiktokStreamSource(id: string): Promise<{ url: string; hea
 // extraction is reliable, so "browse" is a rotating pull from broadly popular creators.
 // Follows personalize it; this makes the source alive out of the box.
 const STARTER_CREATORS = ['khaby.lame', 'zachking', 'mrbeast', 'gordonramsayofficial', 'natgeo', 'nasa', 'dude.perfect', 'jamieoliver']
+const CREATOR_GROUPS: Record<string, { label: string; creators: string[] }> = {
+  popular: { label: 'Popular', creators: STARTER_CREATORS },
+  comedy: { label: 'Comedy', creators: ['khaby.lame', 'zachking', 'brittany_broski'] },
+  food: { label: 'Food', creators: ['gordonramsayofficial', 'jamieoliver', 'cookingwithlynja'] },
+  science: { label: 'Science & Space', creators: ['nasa', 'natgeo', 'hankgreen1'] },
+  sports: { label: 'Sports', creators: ['dude.perfect', 'espn', 'f1'] },
+}
 
 async function creatorRecent(handle: string, count: number): Promise<VideoItem[]> {
   return cachedLookup('tiktok:browse', `${handle}:${count}`, PROFILE_TTL, async () => {
@@ -118,10 +125,12 @@ export const tiktokProvider: VideoProvider = {
     downloadKinds: ['audio', 'video'],
     authConfig: 'cookies',
   },
+  browseFeeds: Object.entries(CREATOR_GROUPS).map(([id, g]) => ({ id, label: g.label })),
 
-  async browse({ cursor }) {
+  async browse({ feed, cursor }) {
     if (cursor) return { items: [], cursor: null }   // single page; profiles rotate via cache TTL
-    const feeds = await Promise.all(STARTER_CREATORS.map((h) => creatorRecent(h, 5).catch(() => [] as VideoItem[])))
+    const group = (feed && CREATOR_GROUPS[feed]) ? CREATOR_GROUPS[feed]! : CREATOR_GROUPS['popular']!
+    const feeds = await Promise.all(group.creators.map((h) => creatorRecent(h, 5).catch(() => [] as VideoItem[])))
     const items: VideoItem[] = []
     for (let i = 0; feeds.some((f) => i < f.length); i++) {
       for (const feed of feeds) if (feed[i]) items.push(feed[i]!)

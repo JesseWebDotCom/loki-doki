@@ -57,6 +57,8 @@ export interface VideoProvider {
   source: VideoSource
   label: string
   capabilities: ProviderCapabilities
+  /** Named browse feeds (category chips). browse({feed}) accepts these ids. */
+  browseFeeds?: Array<{ id: string; label: string }>
 
   /** Fast URL sniffing for the universal clipper / deep links. No network. */
   matchUrl(url: URL): UrlMatch | null

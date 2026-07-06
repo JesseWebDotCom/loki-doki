@@ -36,6 +36,7 @@ videosRoute.get('/sources', async (c) => {
     source: p.source,
     label: p.label,
     capabilities: p.capabilities,
+    browseFeeds: p.browseFeeds ?? [],
     status: p.status ? await p.status() : { configured: true },
   })))
   return c.json({ sources })

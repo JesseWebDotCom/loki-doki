@@ -135,7 +135,12 @@ export function RedditBrowsePage() {
       )}
 
       <ChipRow className="mb-5 min-w-0">
-        <Chip label="Popular" active={activeFeed === null} onClick={() => setActiveFeed(null)} />
+        {(reddit?.browseFeeds ?? []).map((f) => (
+          <Chip key={f.id} label={f.label}
+            active={f.id === 'popular' ? activeFeed === null : activeFeed === f.id}
+            onClick={() => setActiveFeed(f.id === 'popular' ? null : f.id)} />
+        ))}
+        {subs.length > 0 && <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />}
         {subs.map((f) => (
           <Chip key={f.id} label={f.title.replace(/^r\//, 'r/')}
             active={activeFeed === f.externalId} onClick={() => setActiveFeed(f.externalId)} />

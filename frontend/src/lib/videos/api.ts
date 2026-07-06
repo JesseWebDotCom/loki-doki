@@ -39,6 +39,7 @@ export interface HubCreator extends HubCreatorRef {
 export interface SourceInfo {
   source: VideoSource
   label: string
+  browseFeeds: Array<{ id: string; label: string }>
   capabilities: {
     browse: boolean
     search: boolean

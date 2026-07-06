@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { Button } from '@/components/ui/button'
@@ -61,13 +62,15 @@ function ConnectVimeoCard({ onConfigured }: { onConfigured: () => void }) {
 
 export function VimeoBrowsePage() {
   const qc = useQueryClient()
+  const [feed, setFeed] = useState<string>('staffpicks')
   const { data: sourcesData, refetch: refetchSources } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const vimeo = sourcesData?.sources.find((s) => s.source === 'vimeo')
   const configured = vimeo?.status.configured ?? true
+  const feeds = vimeo?.browseFeeds ?? []
 
   const feedQuery = useInfiniteQuery({
-    queryKey: ['vimeo-browse'],
-    queryFn: ({ pageParam }) => browseSource('vimeo', { cursor: pageParam }),
+    queryKey: ['vimeo-browse', feed],
+    queryFn: ({ pageParam }) => browseSource('vimeo', { feed, cursor: pageParam }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.cursor,
     enabled: configured,
@@ -99,6 +102,11 @@ export function VimeoBrowsePage() {
   return (
     <PageContainer width="wide" className="pt-1 pb-8">
       {header}
+      {feeds.length > 0 && (
+        <ChipRow className="mb-6">
+          {feeds.map((f) => <Chip key={f.id} label={f.label} active={feed === f.id} onClick={() => setFeed(f.id)} />)}
+        </ChipRow>
+      )}
       {feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : feedQuery.isError ? (

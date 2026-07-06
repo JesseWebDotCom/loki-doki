@@ -9,7 +9,7 @@ import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
-import { addFollow, browseSource, getFollowingFeed, listFollows } from '@/lib/videos/api'
+import { addFollow, browseSource, getFollowingFeed, getVideoSources, listFollows } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
 
@@ -19,7 +19,10 @@ import { HubVideoCard } from '@/components/videos/HubVideoCard'
 export function TikTokBrowsePage() {
   const qc = useQueryClient()
   const [activeCreator, setActiveCreator] = useState<string | null>(null)
+  const [category, setCategory] = useState<string | null>(null)
   const [handleInput, setHandleInput] = useState('')
+  const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
+  const categories = sourcesData?.sources.find((s) => s.source === 'tiktok')?.browseFeeds ?? []
 
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
   const creators = useMemo(() => (followsData?.follows ?? []).filter((f) => f.source === 'tiktok'), [followsData])
@@ -32,10 +35,11 @@ export function TikTokBrowsePage() {
 
   // Zero-setup surface: popular creators' latest videos (cold load takes a few seconds
   // while yt-dlp extracts the first profiles; cached ten minutes after that).
+  const showPopular = creators.length === 0 || category !== null
   const popularQuery = useQuery({
-    queryKey: ['tiktok-popular'],
-    queryFn: () => browseSource('tiktok'),
-    enabled: creators.length === 0,
+    queryKey: ['tiktok-popular', category ?? 'popular'],
+    queryFn: () => browseSource('tiktok', { feed: category ?? undefined }),
+    enabled: showPopular,
     staleTime: 5 * 60_000,
   })
   const items = useMemo(() => {
@@ -77,17 +81,24 @@ export function TikTokBrowsePage() {
         }
       />
 
-      {creators.length > 0 && (
-        <ChipRow className="mb-5 min-w-0">
-          <Chip label="All" active={activeCreator === null} onClick={() => setActiveCreator(null)} />
-          {creators.map((f) => (
-            <Chip key={f.id} label={f.title} active={activeCreator === f.externalId}
-              onClick={() => setActiveCreator(activeCreator === f.externalId ? null : f.externalId)} />
-          ))}
-        </ChipRow>
-      )}
+      <ChipRow className="mb-5 min-w-0">
+        {creators.length > 0 && (
+          <Chip label="Following" active={activeCreator === null && category === null}
+            onClick={() => { setActiveCreator(null); setCategory(null) }} />
+        )}
+        {categories.map((f) => (
+          <Chip key={f.id} label={f.label}
+            active={category === f.id || (creators.length === 0 && category === null && f.id === 'popular')}
+            onClick={() => { setCategory(f.id); setActiveCreator(null) }} />
+        ))}
+        {creators.length > 0 && <span className="mx-1 h-5 w-px shrink-0 self-center bg-border/70" aria-hidden />}
+        {creators.map((f) => (
+          <Chip key={f.id} label={f.title} active={activeCreator === f.externalId}
+            onClick={() => { setActiveCreator(activeCreator === f.externalId ? null : f.externalId); setCategory(null) }} />
+        ))}
+      </ChipRow>
 
-      {creators.length === 0 ? (
+      {showPopular ? (
         popularQuery.isLoading ? (
           <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
             <SkeletonCards count={12} className="w-full md:grid-cols-4 xl:grid-cols-6" />
