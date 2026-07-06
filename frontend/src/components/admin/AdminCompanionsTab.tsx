@@ -94,6 +94,7 @@ function StudioPreview({ style, seed, avatarConfig, speaking, ctl }: { style: st
             seed={seed || 'preview'}
             config={avatarConfig}
             tiltState={effectiveTilt}
+            manualTiltDeg={ctl.manualTilt}
             speaking={speaking}
             mood={ctl.mood}
           />

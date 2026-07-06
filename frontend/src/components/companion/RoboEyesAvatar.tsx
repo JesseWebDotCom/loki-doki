@@ -3,17 +3,17 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import AngryFlames from "./AngryFlames";
 import SleepingZs from "./SleepingZs";
 import ThinkingDots from "./ThinkingDots";
-import type { HeadTiltState } from "./useHeadTilt";
+import { useHeadTilt, type HeadTiltState } from "./useHeadTilt";
 import type { Viseme } from "./visemeMap";
-import type { Mood } from "./moods";
+import { BOUNCE_MOODS, type Mood } from "./moods";
 
-// Procedural "just eyes" renderer (LOOI / Cozmo / EMO-style desk-robot face):
-// two glowing rounded-rect eyes on a transparent background, all expression
-// carried by parametric eyelids + squash/stretch + gaze - no mouth, no head.
+// Procedural "just eyes" renderer (desk-robot-pet face): two glowing
+// rounded-rect eyes on a transparent background, all expression carried by
+// parametric eyelids + squash/stretch + gaze - no mouth, no head.
 // Deliberately NOT a DiceBear style: CharacterAvatar branches here before any
 // of the DiceBear machinery (visemeMap/faceForState/splitDicebearSvg) runs.
 //
-// Parameter model follows the Anki Cozmo/Vector procedural-eye convention:
+// Parameter model follows the classic desk-robot procedural-eye convention:
 // per-eye scale, offset, upper-lid coverage at the inner/outer corner (angled
 // lids), lower-lid lift with an optional smile bow, plus corner-radius
 // roundness. A single rAF loop lerps current → target params (same pattern as
@@ -88,8 +88,8 @@ function faceTarget(tilt: HeadTiltState, mood: Mood): FaceTarget {
 
 const VIEW = 200;
 // Base eye geometry per configured shape (w, h, corner radius). Default keeps
-// Anki Vector's taller-than-wide eye ratio, framed tight so the face fills the
-// viewBox like the DiceBear heads do (store cards render avatars small).
+// the classic taller-than-wide robot-eye ratio, framed tight so the face fills
+// the viewBox like the DiceBear heads do (store cards render avatars small).
 const SHAPES: Record<string, { w: number; h: number; r: number }> = {
   rounded: { w: 72, h: 118, r: 26 },
   circle: { w: 84, h: 84, r: 42 },
@@ -184,6 +184,8 @@ interface Props {
   size?: number;
   className?: string;
   tiltState?: HeadTiltState;
+  /** Explicit tilt override (studio slider); null resumes auto motion. */
+  manualTiltDeg?: number | null;
   /** Tokens streaming → talking (glow pulse + bob fallback when no audio viseme). */
   speaking?: boolean;
   /** Live viseme from the TTS audio bridge - drives the talk pulse on the audio clock. */
@@ -200,17 +202,22 @@ export default function RoboEyesAvatar({
   size,
   className,
   tiltState = "idle",
+  manualTiltDeg,
   speaking = false,
   audioViseme,
   mood = "neutral",
   staticPose = false,
   suppressOverlays = false,
 }: Props) {
-  const color = `#${first(config?.["eyeColor"]) ?? "00e5c3"}`; // Vector's signature teal
+  const color = `#${first(config?.["eyeColor"]) ?? "00e5c3"}`; // signature robot teal
   const shape = SHAPES[first(config?.["eyeShape"]) ?? "rounded"] ?? SHAPES.rounded!;
   const glow = first(config?.["glow"]) ?? "soft";
 
   const phase = useMemo(() => seedPhase(seed || "default"), [seed]);
+  // Same continuous whole-face motion engine as the DiceBear companions: the
+  // per-state sway/tilt (dozing drift, speaking sway, sleeping droop, shocked
+  // snap...) rotates the whole eye pair about the face center.
+  const anim = useHeadTilt(tiltState, manualTiltDeg ?? null, staticPose, phase);
   const [frame, setFrame] = useState<Frame>(initialFrame);
   const frameRef = useRef<Frame>(frame);
 
@@ -305,15 +312,17 @@ export default function RoboEyesAvatar({
         heart: lerp(c.heart, heartT, 1 - Math.exp(-dt * 10)),
       });
 
-      // Idle breathing (slow 1%-amplitude sy sine) + talk bob/glow-pulse.
+      // Idle breathing (slow 1%-amplitude sy sine) + talk bob/glow-pulse, plus
+      // the BOUNCE_MOODS physical flourish (laugh/surprised hop).
       const breathe = asleep ? Math.sin(t * 1.6) * 0.02 : Math.sin(t * 2.2) * 0.008;
+      const hop = BOUNCE_MOODS.has(mood) ? -Math.abs(Math.sin(t * 2 * Math.PI * 2.2)) * 3.5 : 0;
       const next: Frame = {
         l: mix(cur.l, target.l),
         r: mix(cur.r, target.r),
         blink,
         gazeX: lerp(cur.gazeX, m.gazeTX, gazeSmooth),
         gazeY: lerp(cur.gazeY, m.gazeTY, gazeSmooth),
-        bob: playing ? Math.sin(t * 2 * Math.PI * 4.5) * 1.4 : lerp(cur.bob, 0, smooth),
+        bob: (playing ? Math.sin(t * 2 * Math.PI * 4.5) * 1.4 : lerp(cur.bob, 0, smooth)) + hop,
         pulse: playing ? 0.8 + 0.2 * Math.sin(t * 2 * Math.PI * 3.2) : lerp(cur.pulse, 1, smooth),
       };
       next.l.sy += breathe;
@@ -335,12 +344,11 @@ export default function RoboEyesAvatar({
     containerType: "size",
   };
 
-  const filter =
-    tiltState === "sleeping"
-      ? "grayscale(1)"
-      : tiltState === "sick"
-        ? "sepia(0.55) hue-rotate(55deg) saturate(1.6) brightness(0.95)"
-        : "none";
+  const filter = anim.grayscale
+    ? "grayscale(1)"
+    : tiltState === "sick"
+      ? "sepia(0.55) hue-rotate(55deg) saturate(1.6) brightness(0.95)"
+      : "none";
   const isAngry = tiltState === "angry";
 
   // Glow is a STATIC stack of zero-offset drop-shadows (tight core + wide halo);
@@ -356,10 +364,16 @@ export default function RoboEyesAvatar({
     const e = frame[side];
     const mirror = side === "l" ? 1 : -1; // inner corner faces the face center
     const cx = 100 + (side === "l" ? -EYE_CX : EYE_CX);
-    // Squash-and-stretch blink: eyes widen slightly as they close (pycozmo's
-    // BLINK_SCALE_X/BLINK_SCALE_Y trick) so the blink reads cartoon-snappy.
-    const w = shape.w * e.sx * (1 + (1 - frame.blink) * 0.12);
-    const h = Math.max(4, shape.h * e.sy * frame.blink);
+    // The tilt engine can also close the eyes (static sleep pose). Dozing's
+    // periodic eye closure is deliberately ignored: an eyes-only face that
+    // closes vanishes (blank store card) - the drooped lids from the dozing
+    // face target already read as resting.
+    const closedByTilt = anim.eyesClosed && tiltState !== "dozing";
+    const blinkF = closedByTilt ? Math.min(frame.blink, 0.05) : frame.blink;
+    // Squash-and-stretch blink: eyes widen slightly as they close so the
+    // blink reads cartoon-snappy instead of a flat shutter.
+    const w = shape.w * e.sx * (1 + (1 - blinkF) * 0.12);
+    const h = Math.max(4, shape.h * e.sy * blinkF);
     const r = lerp(shape.r, Math.min(w, h) / 2, e.round);
     // Map inner/outer lid drops onto left/right path corners per side.
     const topL = (mirror === 1 ? e.lidOut : e.lidIn) * h;
@@ -373,11 +387,11 @@ export default function RoboEyesAvatar({
 
   return (
     <div className={className} style={wrapperStyle}>
-      {!staticPose && !suppressOverlays && tiltState === "sleeping" ? <SleepingZs tiltDeg={0} grayscale /> : null}
-      {!staticPose && !suppressOverlays && tiltState === "thinking" ? <ThinkingDots tiltDeg={0} /> : null}
+      {!staticPose && !suppressOverlays && tiltState === "sleeping" ? <SleepingZs tiltDeg={anim.headDeg} grayscale={anim.grayscale} /> : null}
+      {!staticPose && !suppressOverlays && tiltState === "thinking" ? <ThinkingDots tiltDeg={anim.headDeg} /> : null}
       {!staticPose && !suppressOverlays && isAngry ? (
         <div style={{ position: "absolute", inset: 0, opacity: 0.5, pointerEvents: "none" }}>
-          <AngryFlames tiltDeg={0} />
+          <AngryFlames tiltDeg={anim.headDeg} />
         </div>
       ) : null}
       <svg
@@ -402,7 +416,10 @@ export default function RoboEyesAvatar({
             50% { transform: translate(1.5px,-1px); } 75% { transform: translate(-1px,-1.5px); }
             100% { transform: translate(0,0); } }`}</style>
         ) : null}
-        <g style={{ ...(glowFilter ? { filter: glowFilter } : null), opacity: frame.pulse.toFixed(3) }}>
+        <g
+          transform={`rotate(${anim.headDeg.toFixed(3)} 100 100)`}
+          style={{ ...(glowFilter ? { filter: glowFilter } : null), opacity: frame.pulse.toFixed(3) }}
+        >
           {renderEye("l")}
           {renderEye("r")}
         </g>

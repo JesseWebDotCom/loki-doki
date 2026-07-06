@@ -84,6 +84,7 @@ export function CharacterAvatar({ character, streaming = false, thinking = false
         size={size}
         className={className}
         tiltState={tilt}
+        manualTiltDeg={manualTiltDeg ?? null}
         speaking={streaming}
         audioViseme={audioLipSync ? audioViseme : undefined}
         mood={mood}
