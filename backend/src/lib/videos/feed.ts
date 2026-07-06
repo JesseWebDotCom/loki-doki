@@ -79,12 +79,27 @@ async function pollOnce(): Promise<void> {
   }
 }
 
+/** Keep the zero-setup browse feeds warm so the hub home never waits on a cold yt-dlp
+ *  profile extraction. Runs on the poller cadence; each provider's own cachedLookup
+ *  TTLs make repeat warms nearly free. */
+async function warmBrowseCaches(): Promise<void> {
+  for (const source of ['tiktok', 'vimeo'] as const) {
+    const provider = getProvider(source)
+    if (!provider?.browse) continue
+    try {
+      await provider.browse({ userId: '__warm__', allowAdult: false })
+    } catch (err) {
+      logger.warn(`[videos-feed] browse warm failed for ${source}: ${err}`)
+    }
+  }
+}
+
 let timer: ReturnType<typeof setInterval> | null = null
 
 /** Start the follows poller (call once at boot; hot-reload safe). */
 export function startVideosFeedPoller(): void {
   if (timer) return
-  timer = setInterval(() => { void pollOnce() }, POLL_INTERVAL_MS)
+  timer = setInterval(() => { void pollOnce(); void warmBrowseCaches() }, POLL_INTERVAL_MS)
   timer.unref?.()
-  setTimeout(() => { void pollOnce() }, 45_000).unref?.()   // first pass shortly after boot
+  setTimeout(() => { void pollOnce(); void warmBrowseCaches() }, 45_000).unref?.()   // first pass shortly after boot
 }

@@ -87,6 +87,43 @@ function listToPager(data: { data?: VimeoApiVideo[]; paging?: { next?: string | 
   return { items, cursor: data.paging?.next ? String(page + 1) : null }
 }
 
+/** Keyless listings via Vimeo's native RSS (one ~300ms fetch: title, link with id,
+ *  thumbnail, duration, pubDate) — far cheaper than yt-dlp + per-item oEmbed. */
+async function vimeoRssItems(feedPath: string, ttl: number): Promise<VideoItem[]> {
+  return cachedLookup('vimeo:rss', feedPath, ttl, async () => {
+    const res = await fetch(`https://vimeo.com${feedPath}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) throw new Error(`vimeo rss ${res.status} for ${feedPath}`)
+    const xml = await res.text()
+    const items: VideoItem[] = []
+    for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+      const block = m[1]!
+      const link = /<link>([^<]+)<\/link>/.exec(block)?.[1] ?? ''
+      const id = link.split('/').pop() ?? ''
+      if (!VIDEO_ID.test(id)) continue
+      const title = /<title>([\s\S]*?)<\/title>/.exec(block)?.[1]?.trim() ?? 'Vimeo video'
+      const thumb = /<media:thumbnail[^>]*url="([^"]+)"/.exec(block)?.[1] ?? null
+      const duration = /<media:content[^>]*duration="(\d+)"/.exec(block)?.[1]
+      const pub = /<pubDate>([^<]+)<\/pubDate>/.exec(block)?.[1]
+      // Creator hides in the description's leading "by …" line when present.
+      const by = /<description>(?:\s*by\s+)([^.<]{2,60})/i.exec(block)?.[1]?.trim()
+      items.push({
+        source: 'vimeo',
+        id,
+        url: `https://vimeo.com/${id}`,
+        title: title.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'"),
+        creator: by ? { id: '', name: by } : null,
+        thumbnailUrl: thumb,
+        durationSec: duration ? parseInt(duration, 10) : null,
+        publishedAt: pub ? Date.parse(pub) : null,
+      })
+    }
+    return items
+  })
+}
+
 /** Keyless item metadata via oEmbed (title/author/thumbnail/duration). */
 async function oembedItem(id: string): Promise<(VideoItem & { description?: string | null }) | null> {
   return cachedLookup('vimeo:oembed', id, ITEM_TTL, async () => {
@@ -162,13 +199,7 @@ export const vimeoProvider: VideoProvider = {
       return listToPager(data, cursor)
     }
     if (cursor) return { items: [], cursor: null }   // keyless: single page
-    const ids = await cachedLookup('vimeo:staffpicks', 'ids', LIST_TTL, async () => {
-      const data = await ytDlpJson<{ entries?: Array<{ id?: string }> }>(
-        'https://vimeo.com/channels/staffpicks', ['--flat-playlist', '-I', '1:24'])
-      return (data.entries ?? []).map((e) => e.id).filter((id): id is string => !!id && VIDEO_ID.test(id))
-    })
-    const items = await Promise.all(ids.map((id) => oembedItem(id).catch(() => null)))
-    return { items: items.filter((x): x is NonNullable<typeof x> => x !== null), cursor: null }
+    return { items: await vimeoRssItems('/channels/staffpicks/videos/rss', LIST_TTL), cursor: null }
   },
 
   async search(q, { cursor }) {
@@ -218,9 +249,13 @@ export const vimeoProvider: VideoProvider = {
 
   async fetchCreatorFeed(externalId) {
     if (!CHANNEL_ID.test(externalId)) return []
-    const data = await vimeoApi<{ data?: VimeoApiVideo[] }>(
-      `/channels/${externalId}/videos?page=1&per_page=10&sort=added`, LIST_TTL)
-    return (data.data ?? []).map(apiToItem).filter((x): x is VideoItem => x !== null)
+    if (await getVimeoToken()) {
+      const data = await vimeoApi<{ data?: VimeoApiVideo[] }>(
+        `/channels/${externalId}/videos?page=1&per_page=10&sort=added`, LIST_TTL)
+      return (data.data ?? []).map(apiToItem).filter((x): x is VideoItem => x !== null)
+    }
+    // Keyless: channel RSS gives the same listing shape.
+    return vimeoRssItems(`/channels/${externalId}/videos/rss`, LIST_TTL).catch(() => [])
   },
 
   async downloadSpec(id) {
