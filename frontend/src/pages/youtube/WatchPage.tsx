@@ -326,6 +326,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const qc = useQueryClient()
   const { shareLink } = useShareLink()
   const [expanded, setExpanded] = useState(false)
+  const [showOriginalDescription, setShowOriginalDescription] = useState(false)
   // One-click Save: yt-dlp downloads this to the Offline library at the user's default quality.
   const savedRemote = useSavedState(videoId)
   const [savingLocal, setSavingLocal] = useState(false)
@@ -345,7 +346,14 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const [subId, setSubId] = useState(meta?.subscriptionId ?? null)
   const [subBusy, setSubBusy] = useState(false)
   const channelId = meta?.channelId ?? null
-  const description = meta?.description ?? null
+  // Smart Description (promotional content stripped) once the background enrichment has
+  // generated one; the raw description is still what's used for chapter parsing above
+  // (descChapters), since chapters are creator-authored timestamps, not promotional content.
+  // "View original" only makes sense (and only shows) when Smart Description actually
+  // changed something — a video whose description had nothing promotional to strip has an
+  // identical descriptionClean, so there'd be nothing to toggle to.
+  const hasOriginalDescription = !!meta?.descriptionClean && !!meta?.description && meta.descriptionClean !== meta.description
+  const description = (showOriginalDescription ? meta?.description : meta?.descriptionClean) ?? meta?.description ?? null
 
   // Sync subscribe state once meta resolves (InfoPanel renders before meta loads).
   useEffect(() => {
@@ -499,9 +507,16 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
       {description && (
         <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
           <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
-          <button onClick={() => setExpanded(e => !e)} className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
-            {expanded ? 'Show less' : '…more'}
-          </button>
+          <div className="mt-1 flex items-center gap-3">
+            <button onClick={() => setExpanded(e => !e)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+              {expanded ? 'Show less' : '…more'}
+            </button>
+            {hasOriginalDescription && (
+              <button onClick={() => setShowOriginalDescription(v => !v)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                {showOriginalDescription ? 'Show cleaned description' : 'View original'}
+              </button>
+            )}
+          </div>
         </Card>
       )}
 

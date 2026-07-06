@@ -1143,6 +1143,11 @@ export const ytVideos = sqliteTable('yt_videos', {
   durationSec: integer('duration_sec'),
   description: text('description'),
   summary: text('summary'),
+  // "Smart Description" — the raw description with promotional/sponsor-read paragraphs
+  // stripped by an LLM pass, or the transcript-based `summary` when nothing worth keeping
+  // survives cleaning. Shown in place of the raw description everywhere (YouTube app +
+  // Plex export) — kept separate from `description` so the original is never lost.
+  descriptionClean: text('description_clean'),
   // Which InnerTube channel tab this came from, when known (null for RSS/playlist-sourced
   // rows) — 'shorts' drives the Plex export's separate "Channel — Shorts" show; legacy/null
   // rows fall back to the durationSec<=90 heuristic used elsewhere in this codebase.

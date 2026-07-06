@@ -13,7 +13,7 @@ import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
 import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
-import { ensureSummary, ensureSavedVideoMeta } from '@/lib/youtube/summarize'
+import { ensureSummary, ensureSavedVideoMeta, ensureSmartDescription } from '@/lib/youtube/summarize'
 import { ytDlpBin, ytDlpAuthArgs } from '@/lib/ytdlp'
 import { ensureFfmpeg, ffmpegLocation, ffprobeBin } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
@@ -191,6 +191,7 @@ async function enrichSavedAsset(assetId: string, videoId: string): Promise<void>
   await fetchTranscript(videoId, ref.userId, firstName, ref.id)
     .then(() => ensureSavedVideoMeta(videoId, ref.title))
     .then(() => ensureSummary(videoId, ref.userId, firstName))
+    .then(() => ensureSmartDescription(videoId, ref.userId, firstName))
     .catch(() => { /* best-effort */ })
 }
 

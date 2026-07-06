@@ -25,3 +25,8 @@ export function sanitizeFilename(name: string): string {
   if (out.length > MAX_LEN) out = out.slice(0, MAX_LEN).trim()
   return out
 }
+
+// Moved to lib/youtube/textClean.ts (2026-07) — description URL-stripping is a general
+// YouTube concern (used by the in-app "Smart Description" feature too), not Plex-specific.
+// Re-exported here so existing Plex-side imports keep working without churn.
+export { stripUrls as sanitizeDescription } from '@/lib/youtube/textClean'

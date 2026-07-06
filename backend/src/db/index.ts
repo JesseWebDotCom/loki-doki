@@ -2633,4 +2633,8 @@ export function runMigrations() {
       UNIQUE(user_id, video_id)
     );
   `)
+
+  // "Smart Description" (see schema.ts ytVideos.descriptionClean) — LLM-cleaned description,
+  // or the transcript summary when the real description is mostly sponsor/ad content.
+  addColumn('yt_videos', 'description_clean', 'TEXT')
 }

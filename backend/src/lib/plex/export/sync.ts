@@ -15,6 +15,7 @@ import { getPlexConnection, type PlexConnection } from '@/lib/plex/index'
 import { userContentRoot } from '@/lib/plex/export/library'
 import { showFolderName, seasonFolderRelPath, episodeFileNames } from '@/lib/plex/export/paths'
 import { buildTvShowNfo, buildEpisodeNfo, showNfoHash } from '@/lib/plex/export/nfo'
+import { sanitizeDescription } from '@/lib/plex/export/sanitize'
 import { writeShowAssets, writeSeasonAssets, writeEpisodeThumb } from '@/lib/plex/export/assets'
 import { placeVideoWithMetadata } from '@/lib/plex/export/placement'
 import { refreshPlexPath } from '@/lib/plex/export/refresh'
@@ -107,7 +108,11 @@ async function ensureShow(
   let meta: { title: string; description: string | null; thumbnailUrl: string | null; bannerUrl: string | null } | null = null
   try {
     const page = await innertubeChannel(channelId, null, 1, 8000, 'videos')
-    if (page.meta) meta = page.meta
+    // Sanitize right at the source — a channel "About" description can carry the same
+    // sponsor-link risk as a video description (confirmed live: a raw affiliate URL
+    // triggered an app-install prompt in a Plex client). Every downstream use of
+    // meta.description in this function inherits the fix from this one spot.
+    if (page.meta) meta = { ...page.meta, description: page.meta.description ? sanitizeDescription(page.meta.description) : page.meta.description }
   } catch { /* best-effort */ }
 
   const title = meta?.title || channelTitleFallback || channelId
@@ -205,6 +210,15 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
 
   const [video] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
   if (!video || !video.channelId) return
+  // Prefer the "Smart Description" (promotional content already stripped by an LLM pass —
+  // see summarize.ts) when the background enrichment has generated one. Sanitize the raw
+  // fallbacks regardless, for the window right after a fresh save before that job finishes —
+  // confirmed live: a raw sponsor URL in a real YouTube description came through as a
+  // tappable link in a Plex client and triggered an app-install/deep-link prompt.
+  const episodePlot = video.descriptionClean
+    ?? (video.description ? sanitizeDescription(video.description) : null)
+    ?? (video.summary ? sanitizeDescription(video.summary) : null)
+    ?? ''
 
   const [asset] = await db.select().from(mediaAssets)
     .where(and(eq(mediaAssets.sourceType, 'youtube'), eq(mediaAssets.sourceId, videoId), eq(mediaAssets.kind, 'video'), eq(mediaAssets.status, 'ready')))
@@ -235,11 +249,11 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   const videoAbsPath = joinUnderRoot(seasonDirAbs, names.video)
 
   const sourceAbsPath = await blobAbsPath(rendition.blobHash)
-  await placeVideoWithMetadata(sourceAbsPath, videoAbsPath, { title: video.title, plot: video.description ?? video.summary ?? '' })
+  await placeVideoWithMetadata(sourceAbsPath, videoAbsPath, { title: video.title, plot: episodePlot })
 
   await mkdir(dirname(videoAbsPath), { recursive: true })
   await writeFile(joinUnderRoot(seasonDirAbs, names.nfo), buildEpisodeNfo({
-    title: video.title, plot: video.description ?? video.summary ?? '', aired: isoDate(video.publishedAt),
+    title: video.title, plot: episodePlot, aired: isoDate(video.publishedAt),
     season: seasonYear, episode: episodeNumber,
   }))
   await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), video.thumbnailUrl, video.durationSec)
