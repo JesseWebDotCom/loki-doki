@@ -369,7 +369,8 @@ export default function App() {
                   <Route path="generate/:id/sample" element={<BookSampleApprovalPage />} />
                   <Route path="generate/:id/progress" element={<BookGenerationProgressPage />} />
                 </Route>
-                <Route path="/video" element={<VideoPage />} />
+                {/* Retired standalone Video app: generation now lives in the hub's Create area. */}
+                <Route path="/video" element={<Navigate to="/videos/create" replace />} />
                 <Route path="/read/:sourceId" element={<ReaderPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
                 <Route path="/category/:category" element={<CategoryPage />} />
@@ -404,6 +405,7 @@ export default function App() {
                   <Route path="liked" element={<YoutubeLikedPage />} />
                   <Route path="offline" element={<YoutubeOfflinePage />} />
                   <Route path="clip" element={<ClipperPage />} />
+                  <Route path="create" element={<VideoPage />} />
                   <Route path="settings/:section?" element={<YoutubeSettingsPage />} />
                   {/* YouTube source area: the retired standalone app lives on here. */}
                   <Route path="youtube" element={<YoutubeHomePage />} />

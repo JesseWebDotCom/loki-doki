@@ -75,7 +75,6 @@ export const APP_GROUPS: AppGroup[] = [
     icon: ImageIcon,
     apps: [
       { id: "imaging", to: "/imaging", label: "Images", description: "Generate & edit with AI",                          gradient: "linear-gradient(135deg,#6d28d9,#db2777)", color: "#db2777", icon: ImageIcon },
-      { id: "video",   to: "/video",   label: "Video",  description: "Text & image to video",                            gradient: "linear-gradient(135deg,#db2777,#f97316)", color: "#ea580c", icon: Clapperboard },
       { id: "canvas",  to: "/canvas",  label: "Canvas", description: "Editable docs & code the companion writes for you", gradient: "linear-gradient(135deg,#3b1a5c,#7c3aed)", color: "#8b5cf6", icon: Sparkles },
     ],
   },
