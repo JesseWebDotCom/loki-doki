@@ -457,7 +457,7 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
             isThinking={thinking}
             autoFocus
             focusKey={engine.focusKey}
-            placeholder={character ? `Ask ${character.name}…` : 'Message LokiDoki…'}
+            placeholder={character ? `Ask ${character.name}…` : 'Message Loki Doki…'}
           />
         </div>,
         document.body,

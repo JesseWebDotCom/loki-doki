@@ -105,7 +105,7 @@ export function BottomTabBar() {
                   isGenerating={engine.busy}
                   isThinking={thinking}
                   autoFocus
-                  placeholder={character ? `Ask ${character.name}…` : "Message LokiDoki…"}
+                  placeholder={character ? `Ask ${character.name}…` : "Message Loki Doki…"}
                 />
                 {!isOnChat && <p className="mt-1 px-1 text-[10px] text-muted-foreground/50">chatting here won’t be saved</p>}
               </div>

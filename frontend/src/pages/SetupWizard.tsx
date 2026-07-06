@@ -209,7 +209,7 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
             <BrandMark glow className="size-10" />
             <div>
               {/* design-ok(raw-h1-in-pages): compact brand wordmark next to the logo mark, mirrors BootScreen */}
-              <h1 className="text-xl font-bold tracking-tight leading-none">LokiDoki</h1>
+              <h1 className="text-xl font-bold tracking-tight leading-none">Loki Doki</h1>
               <p className="text-xs text-muted-foreground mt-0.5">Your private AI home hub</p>
             </div>
           </div>
@@ -266,7 +266,7 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
         {/* Mobile header */}
         <div className="flex items-center gap-2 border-b border-border/50 px-6 py-4 lg:hidden">
           <BrandMark className="size-8" />
-          <span className="font-bold tracking-tight">LokiDoki</span>
+          <span className="font-bold tracking-tight">Loki Doki</span>
           <span className="ml-auto text-xs text-muted-foreground tabular-nums">{Math.max(1, idx)} / {railSteps.length}</span>
         </div>
 

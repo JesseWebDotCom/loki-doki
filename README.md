@@ -1,7 +1,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)"  srcset="assets/hero.svg">
   <source media="(prefers-color-scheme: light)" srcset="assets/hero.svg">
-  <img src="assets/hero.svg" width="100%" alt="LokiDoki: A full AI stack that runs in your home and stays there" />
+  <img src="assets/hero.svg" width="100%" alt="Loki Doki: A full AI stack that runs in your home and stays there" />
 </picture>
 
 <p align="center">

@@ -205,7 +205,7 @@ function EmptyState() {
         <Sparkles className="size-3.5 text-primary/60 mt-0.5 shrink-0" />
         <p className="text-xs text-muted-foreground leading-relaxed">
           <span className="font-medium text-foreground/70">Tip:</span> Your companion is available
-          anywhere in LokiDoki via the bar at the bottom. Use Chat to save conversations or organize work into projects.
+          anywhere in Loki Doki via the bar at the bottom. Use Chat to save conversations or organize work into projects.
         </p>
       </div>
     </div>

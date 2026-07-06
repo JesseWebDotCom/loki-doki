@@ -454,7 +454,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
               <p className="mt-1 text-sm text-muted-foreground">
                 {status?.wifiConfigured
                   ? 'This gets baked into the device. Change the network here if it’s wrong.'
-                  : 'Your device uses this to reach LokiDoki. You only set it once.'}
+                  : 'Your device uses this to reach Loki Doki. You only set it once.'}
               </p>
             </div>
             <div className="flex items-center gap-2 rounded-control border px-3">

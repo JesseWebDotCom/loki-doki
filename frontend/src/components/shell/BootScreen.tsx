@@ -205,7 +205,7 @@ export function BootScreen({ onComplete }: BootScreenProps) {
         {/* Logo */}
         <div className="mb-10 flex flex-col items-center">
           <BrandMark glow className="size-[72px]" />
-          <h1 className="mt-3 text-2xl font-bold tracking-tight">LokiDoki</h1>
+          <h1 className="mt-3 text-2xl font-bold tracking-tight">Loki Doki</h1>
           <p className="mt-1 text-xs text-muted-foreground">Your private AI home hub</p>
         </div>
 

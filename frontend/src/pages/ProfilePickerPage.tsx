@@ -206,7 +206,7 @@ export function ProfilePickerPage() {
         {/* Brand lockup: the glowing logo + wordmark + tagline from boot/setup */}
         <div className="mb-10 flex flex-col items-center">
           <BrandMark glow className="size-16" />
-          <h2 className="mt-3 text-display">LokiDoki</h2>
+          <h2 className="mt-3 text-display">Loki Doki</h2>
           <p className="mt-1 text-xs text-muted-foreground">Your private AI home hub</p>
         </div>
 

@@ -48,7 +48,7 @@ export function BookSourceManager() {
   return (
     <section>
       <h3 className="text-sm font-semibold">Built-in Sources</h3>
-      <p className="mt-0.5 text-xs text-muted-foreground">Controls apply to every user of this LokiDoki instance.</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">Controls apply to every user of this Loki Doki instance.</p>
       <div className="mt-3 space-y-2">
         {SOURCES.map((source) => {
           const Icon = source.icon

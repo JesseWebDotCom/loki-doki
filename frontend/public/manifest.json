@@ -1,6 +1,6 @@
 {
-  "name": "LokiDoki",
-  "short_name": "LokiDoki",
+  "name": "Loki Doki",
+  "short_name": "Loki Doki",
   "description": "Local-first AI assistant",
   "start_url": "/",
   "display": "standalone",

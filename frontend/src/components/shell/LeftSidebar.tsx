@@ -551,7 +551,7 @@ export function LeftSidebar() {
           <BrandMark glow className={cn("relative", isWide ? "size-8" : "size-7")} />
           {isWide && (
             <div className="relative min-w-0">
-              <p className="text-sm font-semibold tracking-tight leading-none truncate text-foreground">LokiDoki</p>
+              <p className="text-sm font-semibold tracking-tight leading-none truncate text-foreground">Loki Doki</p>
               <p className="mt-1 text-[11px] leading-none text-muted-foreground truncate">Your private AI home hub</p>
             </div>
           )}

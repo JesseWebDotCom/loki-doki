@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icons/brand.svg" width="72" alt="LokiDoki" />
+  <img src="assets/icons/brand.svg" width="72" alt="Loki Doki" />
 </p>
 
 # Agent Guidelines - loki-doki-v3
@@ -539,7 +539,7 @@ onChange: (slug: string | null) => void
 
 ### `BrandMark` - `src/components/shared/BrandMark.tsx`
 
-The LokiDoki app logo. Renders the canonical brand mark from `/favicon.svg` (single source of truth, update that SVG and every surface follows: browser tab, sidebar, setup wizard, boot screen). Never re-create the logo inline; always use this component.
+The Loki Doki app logo. Renders the canonical brand mark from `/favicon.svg` (single source of truth, update that SVG and every surface follows: browser tab, sidebar, setup wizard, boot screen). Never re-create the logo inline; always use this component.
 
 **Props:**
 ```ts

@@ -1,7 +1,7 @@
 import { cn } from '@/lib/cn'
 
 /**
- * The LokiDoki app logo. Renders the canonical brand mark from `/favicon.svg`
+ * The Loki Doki app logo. Renders the canonical brand mark from `/favicon.svg`
  * so the tab icon, sidebar, setup wizard, and boot screen all stay in sync —
  * update the SVG once and every surface follows. Size via `className`
  * (e.g. `size-10`); the SVG carries its own rounded tile + gradient.
@@ -13,7 +13,7 @@ export function BrandMark({ className, glow = false }: { className?: string; glo
   return (
     <img
       src="/favicon.svg"
-      alt="LokiDoki"
+      alt="Loki Doki"
       draggable={false}
       className={cn(
         'shrink-0 select-none',

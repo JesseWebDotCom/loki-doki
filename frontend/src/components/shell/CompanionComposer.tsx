@@ -36,7 +36,7 @@ interface Props {
 // The companion's text input. Self-contained local state; the overlay decides where
 // the message goes (chat.submit on /chat, navigate+submit elsewhere). Visual style
 // matches the retired GlobalChatInput InputBar.
-export function CompanionComposer({ onSend, onStop, isGenerating = false, isThinking = false, placeholder = 'Message LokiDoki…', autoFocus = false, onTyping, focusKey, visionAvailable = true }: Props) {
+export function CompanionComposer({ onSend, onStop, isGenerating = false, isThinking = false, placeholder = 'Message Loki Doki…', autoFocus = false, onTyping, focusKey, visionAvailable = true }: Props) {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
   // Document attachments live in chat context (extracted text persists to the conversation).

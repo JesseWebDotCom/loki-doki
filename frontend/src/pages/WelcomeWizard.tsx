@@ -294,7 +294,7 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
           <BrandMark glow className="size-10" />
           <div>
             {/* design-ok(raw-h1-in-pages): compact brand wordmark next to the logo mark, mirrors BootScreen */}
-            <h1 className="text-xl font-bold tracking-tight leading-none">LokiDoki</h1>
+            <h1 className="text-xl font-bold tracking-tight leading-none">Loki Doki</h1>
             <p className="text-xs text-muted-foreground mt-0.5">Your private AI home hub</p>
           </div>
         </div>
@@ -319,7 +319,7 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
         {/* Mobile brand header */}
         <div className="flex items-center gap-2 border-b border-border/50 px-6 py-4 lg:hidden">
           <BrandMark className="size-8" />
-          <span className="text-base font-bold tracking-tight">LokiDoki</span>
+          <span className="text-base font-bold tracking-tight">Loki Doki</span>
         </div>
 
         <div className="flex flex-1 flex-col px-8 py-8">

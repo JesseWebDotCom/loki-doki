@@ -1,5 +1,5 @@
 // Phase maps-skill chunk-05: share place to clipboard.
-// Builds a geo: URI and a LokiDoki deep-link, copies both, fires a toast.
+// Builds a geo: URI and a Loki Doki deep-link, copies both, fires a toast.
 import { toast } from "@/lib/toast";
 
 export function sharePlaceToClipboard(place: {
