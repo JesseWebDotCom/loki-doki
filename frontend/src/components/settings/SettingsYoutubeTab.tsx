@@ -154,7 +154,7 @@ function AccountLinkHint() {
       </span>
       <p className="text-[11px] text-muted-foreground">
         Have a YouTube account?{' '}
-        <Link to="/youtube/settings/account" className="font-medium text-foreground underline underline-offset-2">
+        <Link to="/videos/settings/account" className="font-medium text-foreground underline underline-offset-2">
           Sign in
         </Link>{' '}
         to import your subscriptions and Watch Later automatically, with no manual adding needed.

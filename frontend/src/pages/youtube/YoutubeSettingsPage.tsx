@@ -27,13 +27,13 @@ const SECTIONS: AppSettingsSection[] = [
 export function YoutubeSettingsPage() {
   const { section = 'channels' } = useParams<{ section?: string }>()
   const navigate = useNavigate()
-  const go = useCallback((id: string) => navigate(`/youtube/settings/${id}`, { replace: true }), [navigate])
+  const go = useCallback((id: string) => navigate(`/videos/settings/${id}`, { replace: true }), [navigate])
 
   return (
     <AppSettingsShell
       appId="youtube"
       icon={Play}
-      gradient={getAppByPath('/youtube')?.gradient}
+      gradient={getAppByPath('/videos')?.gradient}
       sections={SECTIONS}
       activeSection={section}
       onNavigate={go}
