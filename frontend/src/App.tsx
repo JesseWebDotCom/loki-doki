@@ -397,7 +397,7 @@ export default function App() {
                   <Route path="my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
                   <Route path="watch/:videoId" element={<WatchPage />} />
                   <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
-                  <Route path="settings" element={<YoutubeSettingsPage />} />
+                  <Route path="settings/:section?" element={<YoutubeSettingsPage />} />
                 </Route>
                 <Route path="/podcasts" element={<PodcastLayout />}>
                   <Route index element={<ListenNowPage />} />

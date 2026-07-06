@@ -98,7 +98,7 @@ export function YoutubeLayout() {
     setQuery,
     onSubmit: () => { const t = query.trim(); if (t) navigate(`/youtube?q=${encodeURIComponent(t)}`) },
     placeholder: mode === 'online' ? 'Search videos, channels, episodes…' : 'Search your offline library…',
-    externalHref: mode === 'online' ? 'https://www.youtube.com' : undefined,
+    settingsHref: '/youtube/settings',
     suggest: mode === 'online' ? youtubeSuggestSource : undefined,
     rightSlot,
   })
