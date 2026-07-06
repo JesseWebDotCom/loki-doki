@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Dialog as RadixDialog } from "radix-ui";
-import { ArrowRight, Pin, PinOff, Search, type LucideIcon } from "lucide-react";
+import { ArrowRight, Search, Star, StarOff, type LucideIcon } from "lucide-react";
 import { Dialog, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { APP_GROUPS } from "@/lib/appCategories";
@@ -80,7 +80,7 @@ function LaunchTile({
   iconNode?: React.ReactNode;
   pinned?: boolean;
   onOpen: () => void;
-  /** When set, a Pin/PinOff affordance appears on hover. */
+  /** When set, a favorite-star affordance appears on hover. */
   onTogglePin?: () => void;
   onIntent?: () => void;
   /** Feeds the footer info bar while the tile is hovered or focused. */
@@ -125,21 +125,21 @@ function LaunchTile({
           className={cn(
             "absolute right-1 top-1 flex size-6 items-center justify-center rounded-full",
             "bg-secondary/90 shadow-sm",
-            // Pinned tiles always show their badge so favorite state is
-            // visible at a glance; unpinned tiles reveal the pin on hover.
+            // Favorited tiles always show their star so favorite state is
+            // visible at a glance; others reveal the star on hover.
             pinned
-              ? "text-brand"
+              ? "text-warning"
               : "text-muted-foreground opacity-0 transition-opacity group-hover/tile:opacity-100 hover:text-foreground",
             "focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
           {pinned ? (
             <>
-              <Pin className="size-3 fill-current group-hover/tile:hidden" aria-hidden="true" />
-              <PinOff className="hidden size-3 group-hover/tile:block" aria-hidden="true" />
+              <Star className="size-3 fill-current group-hover/tile:hidden" aria-hidden="true" />
+              <StarOff className="hidden size-3 group-hover/tile:block" aria-hidden="true" />
             </>
           ) : (
-            <Pin className="size-3" aria-hidden="true" />
+            <Star className="size-3" aria-hidden="true" />
           )}
         </button>
       )}
@@ -348,7 +348,7 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
               onKeyDown={(e) => {
                 if (e.key === "Enter" && firstMatchHref) openPath(firstMatchHref);
               }}
-              placeholder="Search apps and libraries..."
+              placeholder="Search apps and categories..."
               aria-label="Search apps"
               className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/30"
             />
@@ -448,7 +448,7 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
                 </>
               ) : (
                 <span className="text-muted-foreground/60">
-                  {apps.length} apps{archives.length > 0 ? ` · ${archives.length} libraries` : ""}
+                  {apps.length} apps · {categories.length} categories
                 </span>
               )}
             </p>
