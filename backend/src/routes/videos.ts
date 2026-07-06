@@ -60,10 +60,36 @@ videosRoute.get('/home', async (c) => {
     }
   }))
 
+  // Followed-creator uploads join the mix too — this is how TikTok (browse-less) and
+  // followed subreddits/channels surface on Home without their own trending feeds.
+  const follows = await db.select({ id: videoFollows.id, source: videoFollows.source }).from(videoFollows)
+    .where(eq(videoFollows.userId, user.id))
+  const followsWanted = follows.filter((f) => wanted.length === 0 || wanted.includes(f.source))
+  if (followsWanted.length > 0) {
+    const rows = await db.select().from(videoItems)
+      .where(inArray(videoItems.followId, followsWanted.map((f) => f.id)))
+      .orderBy(desc(videoItems.publishedAt), desc(videoItems.createdAt))
+      .limit(40)
+    const followFeed: VideoItem[] = rows
+      .filter((r) => allowAdult || !r.isAdult)
+      .map((r) => ({
+        source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
+        creator: r.creatorId || r.creatorName ? { id: r.creatorId ?? '', name: r.creatorName ?? '' } : null,
+        thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+        publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+        isAdult: r.isAdult, vertical: r.source === 'tiktok',
+      }))
+    if (followFeed.length > 0) feeds.push(followFeed)
+  }
+
   // Round-robin interleave so every enabled source is visible above the fold.
   const items: VideoItem[] = []
+  const seen = new Set<string>()
   for (let i = 0; feeds.some((f) => i < f.length); i++) {
-    for (const feed of feeds) if (feed[i]) items.push(feed[i]!)
+    for (const feed of feeds) {
+      const it = feed[i]
+      if (it && !seen.has(`${it.source}:${it.id}`)) { seen.add(`${it.source}:${it.id}`); items.push(it) }
+    }
   }
   return c.json({ items })
 })

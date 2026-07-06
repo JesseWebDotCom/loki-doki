@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
-import { Play, Film } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Play, Film, Plug } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
@@ -12,7 +12,7 @@ import { SearchResults } from '@/components/youtube/SearchResults'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
-import { getHubHome, getVideoSources, type HubVideoItem, type VideoSource } from '@/lib/videos/api'
+import { getHubHome, getVideoSources, listFollows, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
 
 /** Hub items from the YouTube source render through the existing card system. Items
@@ -77,6 +77,8 @@ function HubLanding() {
         </ChipRow>
       </div>
 
+      <SourceNudges sources={sources} />
+
       <div className="space-y-10">
         {continueWatching.length > 0 ? (
           <MediaShelf title="Continue watching" items={continueWatching} view="grid" />
@@ -104,6 +106,31 @@ function HubLanding() {
         </section>
       </div>
     </PageContainer>
+  )
+}
+
+/** Why a source is quiet: connect nudges for key-gated sources, a follow nudge for
+ *  TikTok. Dismiss = connect (the chip disappears once /sources reports configured). */
+function SourceNudges({ sources }: { sources: SourceInfo[] }) {
+  const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
+  const nudges: Array<{ key: string; to: string; text: string }> = []
+  for (const s of sources) {
+    if (!s.status.configured) {
+      nudges.push({ key: s.source, to: `/videos/${s.source}`, text: `Connect ${s.label} to see its videos here` })
+    } else if (s.source === 'tiktok' && !(followsData?.follows ?? []).some((f) => f.source === 'tiktok')) {
+      nudges.push({ key: 'tiktok', to: '/videos/tiktok', text: 'Follow TikTok creators to mix them in here' })
+    }
+  }
+  if (nudges.length === 0) return null
+  return (
+    <div className="mb-6 flex flex-wrap gap-2">
+      {nudges.map((n) => (
+        <Link key={n.key} to={n.to}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground">
+          <Plug className="size-3.5" /> {n.text}
+        </Link>
+      ))}
+    </div>
   )
 }
 
