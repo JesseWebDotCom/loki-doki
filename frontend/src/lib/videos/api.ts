@@ -128,7 +128,7 @@ export function getSourceCreator(source: VideoSource, id: string, cursor?: strin
 
 export type HubPlayback =
   | { mode: 'native-app' }
-  | { mode: 'proxy-progressive'; upstreamUrl: string }
+  | { mode: 'stream'; streamUrl: string }
   | { mode: 'hls'; manifestUrl: string }
   | { mode: 'file'; assetId: string }
 
@@ -180,6 +180,10 @@ export function savedFileUrl(source: VideoSource, videoId: string, kind: 'audio'
 
 export function putWatchState(source: VideoSource, videoId: string, positionSec: number, completed: boolean): Promise<{ ok: true }> {
   return sendJson('/api/videos/watch-state', 'PUT', { source, videoId, positionSec, completed })
+}
+
+export function getFollowingFeed(source?: VideoSource): Promise<{ items: HubVideoItem[] }> {
+  return getJson(`/api/videos/following-feed${source ? `?source=${source}` : ''}`)
 }
 
 export function getRedditConfig(): Promise<{ configured: boolean; clientId: string }> {

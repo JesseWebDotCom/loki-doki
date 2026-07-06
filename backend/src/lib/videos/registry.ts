@@ -6,10 +6,12 @@ import type { UrlMatch, VideoProvider } from '@/lib/videos/provider'
 import type { VideoSource } from '@/lib/videos/types'
 import { youtubeProvider } from '@/lib/videos/providers/youtube'
 import { redditProvider } from '@/lib/videos/providers/reddit'
+import { tiktokProvider } from '@/lib/videos/providers/tiktok'
 
 const providers = new Map<VideoSource, VideoProvider>([
   ['youtube', youtubeProvider],
   ['reddit', redditProvider],
+  ['tiktok', tiktokProvider],
 ])
 
 export function listProviders(): VideoProvider[] {

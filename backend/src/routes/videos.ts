@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, videoFollows, videoSaves, videoWatchState } from '@/db/schema'
+import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider } from '@/lib/videos/registry'
 import { allowAdultVideos } from '@/lib/videos/policy'
@@ -141,13 +141,83 @@ videosRoute.get('/:source/creator/:id', async (c) => {
 })
 
 videosRoute.get('/:source/item/:id', async (c) => {
-  const provider = getProvider(c.req.param('source'))
+  const source = c.req.param('source')
+  const provider = getProvider(source)
   if (!provider) return c.json({ error: 'unknown source' }, 404)
   const item = await provider.getItem(c.req.param('id'))
   if (!item) return c.json({ error: 'not found' }, 404)
   const user = c.get('user')
   if (item.isAdult && !(await allowAdultVideos(user.id))) return c.json({ error: 'not available' }, 403)
-  return c.json({ item, playback: await provider.getPlayback(item.id) })
+  // Rewrite playback for the client: upstream URLs (signed, Referer-gated) never leave
+  // the server — progressive sources play through our stream proxy below.
+  const playback = await provider.getPlayback(item.id)
+  const clientPlayback = playback.mode === 'proxy-progressive'
+    ? { mode: 'stream' as const, streamUrl: `/api/videos/${source}/stream/${encodeURIComponent(item.id)}` }
+    : playback
+  return c.json({ item, playback: clientPlayback })
+})
+
+// ── Progressive stream proxy: Range-forwarding fetch of the provider's upstream ──
+
+videosRoute.get('/:source/stream/:id', async (c) => {
+  const provider = getProvider(c.req.param('source'))
+  if (!provider) return c.json({ error: 'unknown source' }, 404)
+  const playback = await provider.getPlayback(c.req.param('id')).catch(() => null)
+  if (!playback || playback.mode !== 'proxy-progressive') return c.json({ error: 'not streamable' }, 404)
+
+  const ac = new AbortController()
+  c.req.raw.signal.addEventListener('abort', () => ac.abort(), { once: true })
+  const range = c.req.header('range')
+  try {
+    const upstream = await fetch(playback.upstreamUrl, {
+      signal: AbortSignal.any([ac.signal, AbortSignal.timeout(30_000)]),
+      headers: {
+        ...(range ? { Range: range } : {}),
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        ...(playback.headers ?? {}),
+      },
+    })
+    if (!upstream.ok && upstream.status !== 206) return c.json({ error: `upstream ${upstream.status}` }, 502)
+    const headers = new Headers()
+    for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+      const v = upstream.headers.get(h)
+      if (v) headers.set(h, v)
+    }
+    if (!headers.has('accept-ranges')) headers.set('accept-ranges', 'bytes')
+    if (!headers.has('content-type')) headers.set('content-type', 'video/mp4')
+    headers.set('cache-control', 'private, max-age=0')
+    return new Response(upstream.body, { status: upstream.status, headers })
+  } catch {
+    if (ac.signal.aborted) return new Response(null, { status: 499 })
+    return c.json({ error: 'stream failed' }, 502)
+  }
+})
+
+// ── Following feed: recent uploads from followed creators (poller-fed cache) ─────
+
+videosRoute.get('/following-feed', async (c) => {
+  const user = c.get('user')
+  const source = c.req.query('source')
+  const allowAdult = await allowAdultVideos(user.id)
+  const follows = await db.select({ id: videoFollows.id }).from(videoFollows).where(and(
+    eq(videoFollows.userId, user.id),
+    ...(source && isGenericSource(source) ? [eq(videoFollows.source, source)] : []),
+  ))
+  if (follows.length === 0) return c.json({ items: [] })
+  const rows = await db.select().from(videoItems)
+    .where(inArray(videoItems.followId, follows.map((f) => f.id)))
+    .orderBy(desc(videoItems.publishedAt), desc(videoItems.createdAt))
+    .limit(120)
+  const items = rows
+    .filter((r) => allowAdult || !r.isAdult)
+    .map((r) => ({
+      source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
+      creator: r.creatorId || r.creatorName ? { id: r.creatorId ?? '', name: r.creatorName ?? '' } : null,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+      publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+      isAdult: r.isAdult, vertical: r.source === 'tiktok',
+    }))
+  return c.json({ items })
 })
 
 videosRoute.get('/:source/comments/:id', async (c) => {

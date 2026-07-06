@@ -42,8 +42,8 @@ function usePlaybackAttach(videoRef: React.RefObject<HTMLVideoElement | null>, p
       }
       return () => { cancelled = true; hls?.destroy() }
     }
-    if (playback.mode === 'proxy-progressive') {
-      video.src = playback.upstreamUrl
+    if (playback.mode === 'stream') {
+      video.src = playback.streamUrl
       return
     }
   }, [videoRef, playback, localUrl])
