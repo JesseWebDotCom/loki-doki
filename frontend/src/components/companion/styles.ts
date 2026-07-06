@@ -9,3 +9,8 @@ export function isCharacterStyle(value: unknown): value is CharacterStyle {
 export function coerceStyle(value: unknown): CharacterStyle {
   return isCharacterStyle(value) ? value : "avataaars";
 }
+
+// Non-DiceBear style ids live OUTSIDE CHARACTER_STYLES so the DiceBear machinery
+// (STYLE_MAP / visemeMap / faceForState / splitDicebearSvg) never sees them:
+// CharacterAvatar branches to the dedicated renderer before coerceStyle runs.
+export const ROBO_EYES_STYLE = "robo-eyes";

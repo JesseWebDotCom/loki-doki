@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Shuffle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import RiggedDicebearAvatar from '@/components/companion/RiggedDicebearAvatar'
-import { coerceStyle } from '@/components/companion/styles'
+import RoboEyesAvatar from '@/components/companion/RoboEyesAvatar'
+import { coerceStyle, ROBO_EYES_STYLE } from '@/components/companion/styles'
 import type { HeadTiltState } from '@/components/companion/useHeadTilt'
 import { AVATAR_STYLES, fieldsForStyle, randomSeed, type RigField } from '@/components/companion/styleSchemas'
 import { cn } from '@/lib/cn'
@@ -102,13 +103,22 @@ export function DicebearAvatarPicker({ style, seed, config, onChange, vertical }
         className="overflow-hidden rounded-full border border-border bg-card"
         style={{ width: avatarSize, height: avatarSize, ...bgStyle }}
       >
-        <RiggedDicebearAvatar
-          style={coerceStyle(style)}
-          seed={seed || 'preview'}
-          baseOptions={config}
-          tiltState={pose}
-          size={avatarSize}
-        />
+        {style === ROBO_EYES_STYLE ? (
+          <RoboEyesAvatar
+            seed={seed || 'preview'}
+            config={config}
+            tiltState={pose}
+            size={avatarSize}
+          />
+        ) : (
+          <RiggedDicebearAvatar
+            style={coerceStyle(style)}
+            seed={seed || 'preview'}
+            baseOptions={config}
+            tiltState={pose}
+            size={avatarSize}
+          />
+        )}
       </div>
       <div className="flex gap-0.5">
         {POSES.map((p) => (

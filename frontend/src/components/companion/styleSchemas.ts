@@ -11,6 +11,7 @@ export const AVATAR_STYLES: { id: string; label: string }[] = [
   { id: 'avataaars', label: 'Avataaars' },
   { id: 'bottts', label: 'Bottts' },
   { id: 'toon-head', label: 'Toon Head' },
+  { id: 'robo-eyes', label: 'Robo Eyes' },
 ]
 
 const color = (hex: string): RigOption => ({ value: hex, color: hex === 'transparent' ? undefined : `#${hex}`, label: hex })
@@ -53,10 +54,40 @@ const TOON_HEAD_FIELDS: RigField[] = [
   { key: 'skinColor', label: 'Skin', isColor: true, options: ['ffdbb4', 'edb98a', 'd08b5b', 'ae5d29', '614335'].map(color) },
 ]
 
+// Robo Eyes is a procedural renderer (RoboEyesAvatar), not a DiceBear collection:
+// these keys are read by that component, not passed to createAvatar. Values still
+// use the ["value"] array convention so the picker's setRig plumbing works as-is.
+const ROBO_EYES_FIELDS: RigField[] = [
+  { key: 'eyeType', label: 'Eye type', options: [
+    { value: 'screen', label: 'Screen glow' },
+    { value: 'lens', label: 'Camera lens' },
+    { value: 'pixel', label: 'Pixel matrix' },
+    { value: 'scanline', label: 'Scanlines' },
+    { value: 'anime', label: 'Anime' },
+    { value: 'reticle', label: 'Scanner reticle' },
+    { value: 'halo', label: 'Glowing core' },
+    { value: 'dot', label: 'Minimal dots' },
+    { value: 'dash', label: 'Dash' },
+  ] },
+  { key: 'eyeColor', label: 'Eye color', isColor: true, options: ['00e5c3', '22d3ee', '60a5fa', '4ade80', 'fbbf24', 'f472b6', 'a78bfa', 'f8fafc', 'f87171'].map(color) },
+  { key: 'eyeShape', label: 'Eye shape', options: [
+    { value: 'rounded', label: 'Rounded square' },
+    { value: 'circle', label: 'Circle' },
+    { value: 'tall', label: 'Tall oval' },
+    { value: 'wide', label: 'Wide' },
+  ] },
+  { key: 'glow', label: 'Glow', options: [
+    { value: 'soft', label: 'Soft' },
+    { value: 'strong', label: 'Strong' },
+    { value: 'none', label: 'None' },
+  ] },
+]
+
 export function fieldsForStyle(style: string): RigField[] {
   if (style === 'avataaars') return [...AVATAAARS_FIELDS, BACKGROUND_FIELD]
   if (style === 'bottts')    return [...BOTTTS_FIELDS,    BACKGROUND_FIELD]
   if (style === 'toon-head') return [...TOON_HEAD_FIELDS, BACKGROUND_FIELD]
+  if (style === 'robo-eyes') return [...ROBO_EYES_FIELDS, BACKGROUND_FIELD]
   return [BACKGROUND_FIELD]
 }
 
