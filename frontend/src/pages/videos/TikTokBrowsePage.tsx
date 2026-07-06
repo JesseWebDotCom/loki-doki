@@ -9,7 +9,7 @@ import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
-import { addFollow, getFollowingFeed, listFollows } from '@/lib/videos/api'
+import { addFollow, browseSource, getFollowingFeed, listFollows } from '@/lib/videos/api'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
 
 // TikTok has no browsable trending here (scrape-only, flaky), so this page is the
@@ -27,6 +27,15 @@ export function TikTokBrowsePage() {
     queryKey: ['videos-following-feed', 'tiktok'],
     queryFn: () => getFollowingFeed('tiktok'),
     enabled: creators.length > 0,
+  })
+
+  // Zero-setup surface: popular creators' latest videos (cold load takes a few seconds
+  // while yt-dlp extracts the first profiles; cached ten minutes after that).
+  const popularQuery = useQuery({
+    queryKey: ['tiktok-popular'],
+    queryFn: () => browseSource('tiktok'),
+    enabled: creators.length === 0,
+    staleTime: 5 * 60_000,
   })
   const items = useMemo(() => {
     const all = feedData?.items ?? []
@@ -70,17 +79,36 @@ export function TikTokBrowsePage() {
       </div>
 
       {creators.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
-          <UserRound className="mb-3 size-10 opacity-30" />
-          <p className="text-sm font-medium">Follow a TikTok creator to build your feed</p>
-          <p className="mt-1 max-w-sm text-xs">
-            Add an @handle above, or paste any TikTok link into{' '}
-            <Link to="/videos/clip" className="inline-flex items-center gap-0.5 font-medium text-foreground underline underline-offset-2">
-              <Link2 className="size-3" /> Clip a Link
-            </Link>{' '}
-            to watch or save it.
-          </p>
-        </div>
+        popularQuery.isLoading ? (
+          <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
+            <SkeletonCards count={12} className="w-full md:grid-cols-4 xl:grid-cols-6" />
+            <p className="text-xs">Fetching popular creators, this takes a few seconds the first time…</p>
+          </div>
+        ) : (popularQuery.data?.items.length ?? 0) > 0 ? (
+          <>
+            <p className="mb-4 text-xs text-muted-foreground">
+              Popular right now. Follow creators above to make this feed yours, or paste any TikTok link into{' '}
+              <Link to="/videos/clip" className="inline-flex items-center gap-0.5 font-medium text-foreground underline underline-offset-2">
+                <Link2 className="size-3" /> Clip a Link
+              </Link>.
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+              {popularQuery.data!.items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
+            <UserRound className="mb-3 size-10 opacity-30" />
+            <p className="text-sm font-medium">Follow a TikTok creator to build your feed</p>
+            <p className="mt-1 max-w-sm text-xs">
+              Add an @handle above, or paste any TikTok link into{' '}
+              <Link to="/videos/clip" className="inline-flex items-center gap-0.5 font-medium text-foreground underline underline-offset-2">
+                <Link2 className="size-3" /> Clip a Link
+              </Link>{' '}
+              to watch or save it.
+            </p>
+          </div>
+        )
       ) : isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : items.length === 0 ? (

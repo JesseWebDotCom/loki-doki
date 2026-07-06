@@ -87,6 +87,25 @@ function listToPager(data: { data?: VimeoApiVideo[]; paging?: { next?: string | 
   return { items, cursor: data.paging?.next ? String(page + 1) : null }
 }
 
+/** Keyless item metadata via oEmbed (title/author/thumbnail/duration). */
+async function oembedItem(id: string): Promise<(VideoItem & { description?: string | null }) | null> {
+  return cachedLookup('vimeo:oembed', id, ITEM_TTL, async () => {
+    const res = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(`https://vimeo.com/${id}`)}`)
+    if (!res.ok) return null
+    const o = await res.json() as { title?: string; author_name?: string; thumbnail_url?: string; duration?: number; width?: number; height?: number }
+    return {
+      source: 'vimeo' as const,
+      id,
+      url: `https://vimeo.com/${id}`,
+      title: o.title ?? 'Vimeo video',
+      creator: o.author_name ? { id: '', name: o.author_name } : null,
+      thumbnailUrl: o.thumbnail_url ?? null,
+      durationSec: o.duration ?? null,
+      vertical: !!(o.width && o.height && o.height > o.width),
+    }
+  })
+}
+
 /** Progressive stream via yt-dlp (works with or without a token). Exported for the proxy. */
 export async function vimeoStreamSource(id: string): Promise<{ url: string; headers: Record<string, string> } | null> {
   if (!VIDEO_ID.test(id)) return null
@@ -116,10 +135,12 @@ export const vimeoProvider: VideoProvider = {
   },
 
   async status() {
-    const configured = !!(await getVimeoToken())
-    return configured
-      ? { configured }
-      : { configured, note: 'Add a free Vimeo API token (developer.vimeo.com/apps) to enable browsing.' }
+    // Staff Picks browse works keyless (yt-dlp + oEmbed); a token only adds search
+    // and richer channel pages, so the source counts as configured either way.
+    const hasToken = !!(await getVimeoToken())
+    return hasToken
+      ? { configured: true }
+      : { configured: true, note: 'Optional: a free Vimeo API token (developer.vimeo.com/apps) adds search and channel browsing.' }
   },
 
   matchUrl(url) {
@@ -133,10 +154,21 @@ export const vimeoProvider: VideoProvider = {
   },
 
   async browse({ cursor }) {
-    // Staff Picks is Vimeo's canonical discovery surface.
-    const data = await vimeoApi<{ data?: VimeoApiVideo[]; paging?: { next?: string | null } }>(
-      `/channels/staffpicks/videos?${pageParams(cursor)}&sort=added`, LIST_TTL)
-    return listToPager(data, cursor)
+    // Staff Picks is Vimeo's canonical discovery surface. API when a token exists;
+    // otherwise keyless via yt-dlp's flat playlist + per-item oEmbed enrichment.
+    if (await getVimeoToken()) {
+      const data = await vimeoApi<{ data?: VimeoApiVideo[]; paging?: { next?: string | null } }>(
+        `/channels/staffpicks/videos?${pageParams(cursor)}&sort=added`, LIST_TTL)
+      return listToPager(data, cursor)
+    }
+    if (cursor) return { items: [], cursor: null }   // keyless: single page
+    const ids = await cachedLookup('vimeo:staffpicks', 'ids', LIST_TTL, async () => {
+      const data = await ytDlpJson<{ entries?: Array<{ id?: string }> }>(
+        'https://vimeo.com/channels/staffpicks', ['--flat-playlist', '-I', '1:24'])
+      return (data.entries ?? []).map((e) => e.id).filter((id): id is string => !!id && VIDEO_ID.test(id))
+    })
+    const items = await Promise.all(ids.map((id) => oembedItem(id).catch(() => null)))
+    return { items: items.filter((x): x is NonNullable<typeof x> => x !== null), cursor: null }
   },
 
   async search(q, { cursor }) {
@@ -175,21 +207,7 @@ export const vimeoProvider: VideoProvider = {
       return item ? { ...item, description: v.description ?? null } : null
     }
     // Keyless: oEmbed metadata (title/author/thumbnail/duration), no API needed.
-    return cachedLookup('vimeo:oembed', id, ITEM_TTL, async () => {
-      const res = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(`https://vimeo.com/${id}`)}`)
-      if (!res.ok) return null
-      const o = await res.json() as { title?: string; author_name?: string; thumbnail_url?: string; duration?: number; width?: number; height?: number }
-      return {
-        source: 'vimeo' as const,
-        id,
-        url: `https://vimeo.com/${id}`,
-        title: o.title ?? 'Vimeo video',
-        creator: o.author_name ? { id: '', name: o.author_name } : null,
-        thumbnailUrl: o.thumbnail_url ?? null,
-        durationSec: o.duration ?? null,
-        vertical: !!(o.width && o.height && o.height > o.width),
-      }
-    })
+    return oembedItem(id)
   },
 
   async getPlayback(id) {

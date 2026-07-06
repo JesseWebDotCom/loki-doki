@@ -92,17 +92,41 @@ export async function tiktokStreamSource(id: string): Promise<{ url: string; hea
   })
 }
 
+// Zero-setup browse surface: TikTok's trending page is scrape-hostile, but profile
+// extraction is reliable, so "browse" is a rotating pull from broadly popular creators.
+// Follows personalize it; this makes the source alive out of the box.
+const STARTER_CREATORS = ['khaby.lame', 'zachking', 'mrbeast', 'gordonramsayofficial', 'natgeo', 'nasa', 'dude.perfect', 'jamieoliver']
+
+async function creatorRecent(handle: string, count: number): Promise<VideoItem[]> {
+  return cachedLookup('tiktok:browse', `${handle}:${count}`, PROFILE_TTL, async () => {
+    const data = await ytDlpJson<{ entries?: TikTokEntry[] }>(
+      `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', `1:${count}`])
+    return (data.entries ?? []).map(toItem).filter((x): x is VideoItem => x !== null)
+      .map((it) => ({ ...it, creator: it.creator ?? { id: handle, name: `@${handle}` } }))
+  })
+}
+
 export const tiktokProvider: VideoProvider = {
   source: 'tiktok',
   label: 'TikTok',
   capabilities: {
-    browse: false,          // no trending in v1: followed-creators feed + paste-a-link
+    browse: true,
     search: false,
     creators: true,
     comments: false,
     live: false,
     downloadKinds: ['audio', 'video'],
     authConfig: 'cookies',
+  },
+
+  async browse({ cursor }) {
+    if (cursor) return { items: [], cursor: null }   // single page; profiles rotate via cache TTL
+    const feeds = await Promise.all(STARTER_CREATORS.map((h) => creatorRecent(h, 5).catch(() => [] as VideoItem[])))
+    const items: VideoItem[] = []
+    for (let i = 0; feeds.some((f) => i < f.length); i++) {
+      for (const feed of feeds) if (feed[i]) items.push(feed[i]!)
+    }
+    return { items, cursor: null }
   },
 
   matchUrl(url) {
