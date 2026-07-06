@@ -728,6 +728,7 @@ interface LoraRow {
   id: string; name: string; description: string | null; categoryName: string | null
   triggerTokens: string[]; enabled: boolean; thumbnailUrl: string | null
   styleLabel: string | null; sizeBytes: number | null; fileExists: boolean
+  isAdult: boolean
 }
 
 function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean; query: string }) {
@@ -737,6 +738,7 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
   const [deleting, setDeleting]         = useState<Set<string>>(new Set())
   const [toggling, setToggling]         = useState<Set<string>>(new Set())
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [showAdult, setShowAdult]       = useState(false)
 
   const loadLoras = useCallback(() => {
     setLoading(true)
@@ -779,10 +781,18 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
           LoRA Styles {loras.length > 0 && `· ${loras.filter(l => l.enabled).length}/${loras.length} enabled`}
         </span>
         {imageGenInstalled && (
-          <Button type="button" variant="outline" size="sm" onClick={() => setBrowsing(true)}
-            className="gap-1.5 text-muted-foreground">
-            <Search className="size-3" /> Browse CivitAI
-          </Button>
+          <div className="flex items-center gap-2">
+            {loras.some(l => l.isAdult) && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowAdult(v => !v)}
+                className={cn('gap-1.5', showAdult ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : 'text-muted-foreground')}>
+                {showAdult ? '🔞 Adult on' : 'Adult off'}
+              </Button>
+            )}
+            <Button type="button" variant="outline" size="sm" onClick={() => setBrowsing(true)}
+              className="gap-1.5 text-muted-foreground">
+              <Search className="size-3" /> Browse CivitAI
+            </Button>
+          </div>
         )}
       </div>
 
@@ -807,7 +817,7 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
               <div className={cn('relative aspect-[3/4] overflow-hidden rounded-card border',
                 lora.enabled ? 'border-border/60' : 'border-border/30 opacity-50')}>
                 {lora.thumbnailUrl ? (
-                  <img src={proxyImg(lora.thumbnailUrl)} alt="" className="absolute inset-0 size-full object-cover" />
+                  <img src={proxyImg(lora.thumbnailUrl)} alt="" className={cn('absolute inset-0 size-full object-cover', lora.isAdult && !showAdult && 'blur-xl')} />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-muted">
                     <Sparkles className="size-5 text-muted-foreground/20" />
