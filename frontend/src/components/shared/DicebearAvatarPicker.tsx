@@ -90,11 +90,17 @@ export function DicebearAvatarPicker({ style, seed, config, onChange, vertical }
 
   const avatarSize = vertical ? 96 : 88
 
+  // Preview the chosen background color on the container itself (the rigged avatar
+  // renders transparent so companions stay floating). A solid color reads as a
+  // colored circle behind the head; transparent/unset falls back to the card surface.
+  const bgColor = (config.backgroundColor as string[] | undefined)?.[0]
+  const bgStyle = bgColor && bgColor !== 'transparent' ? { background: `#${bgColor}` } : undefined
+
   const preview = (
     <div className={cn('flex flex-col items-center gap-1.5', !vertical && 'shrink-0')}>
       <div
         className="overflow-hidden rounded-full border border-border bg-card"
-        style={{ width: avatarSize, height: avatarSize }}
+        style={{ width: avatarSize, height: avatarSize, ...bgStyle }}
       >
         <RiggedDicebearAvatar
           style={coerceStyle(style)}

@@ -240,7 +240,6 @@ export default function RiggedDicebearAvatar({
   const rotation = `rotate(${anim.headDeg.toFixed(3)} ${split.pivotX} ${split.pivotY})`;
   const markup =
     split.defs +
-    (split.background ?? "") +
     `<g transform="${rotation}">${split.backHair}</g>` +
     `<g>${split.body}</g>` +
     `<g transform="${rotation}">${split.headSkin}</g>` +
