@@ -399,7 +399,17 @@ videosRoute.delete('/follows/:id', async (c) => {
 
 videosRoute.put('/watch-state', async (c) => {
   const user = c.get('user')
-  const body = await c.req.json<{ source?: string; videoId?: string; positionSec?: number; completed?: boolean }>().catch(() => ({}) as Record<string, never>)
+  const body = await c.req.json<{
+    source?: string; videoId?: string; positionSec?: number; completed?: boolean
+    // Optional item snapshot: the caller already has this in memory (from getSourceItem),
+    // so it's cheapest to carry it here rather than re-resolve it server-side. Without
+    // this, "Continue watching" can only show a title/thumbnail for videos that happen
+    // to already be cached in video_items by the followed-creator feed poller — anything
+    // watched directly (search, a pasted link, browsing a non-followed feed) had no such
+    // row, so the join fell back to displaying the raw video id.
+    title?: string; thumbnailUrl?: string | null; creatorId?: string | null; creatorName?: string | null
+    durationSec?: number | null; isAdult?: boolean
+  }>().catch(() => ({}) as Record<string, never>)
   const source = body.source ?? ''
   if (!isGenericSource(source) || !body.videoId) return c.json({ error: 'source and videoId required' }, 400)
   const now = new Date()
@@ -410,6 +420,20 @@ videosRoute.put('/watch-state', async (c) => {
     target: [videoWatchState.userId, videoWatchState.source, videoWatchState.videoId],
     set: { positionSec: body.positionSec ?? 0, completed: !!body.completed, updatedAt: now },
   })
+  if (body.title) {
+    await db.insert(videoItems).values({
+      id: randomUUID(), source, externalId: body.videoId, title: body.title,
+      creatorId: body.creatorId ?? null, creatorName: body.creatorName ?? null,
+      thumbnailUrl: body.thumbnailUrl ?? null, durationSec: body.durationSec ?? null,
+      isAdult: !!body.isAdult, createdAt: now,
+    }).onConflictDoUpdate({
+      target: [videoItems.source, videoItems.externalId],
+      set: {
+        title: body.title, creatorId: body.creatorId ?? null, creatorName: body.creatorName ?? null,
+        thumbnailUrl: body.thumbnailUrl ?? null, durationSec: body.durationSec ?? null, isAdult: !!body.isAdult,
+      },
+    })
+  }
   return c.json({ ok: true })
 })
 

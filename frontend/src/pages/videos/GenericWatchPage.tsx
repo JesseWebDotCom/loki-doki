@@ -77,19 +77,23 @@ export function GenericWatchPage() {
   useEffect(() => {
     const video = videoRef.current
     if (!video || !item) return
+    const snapshot = {
+      title: item.title, thumbnailUrl: item.thumbnailUrl, creatorId: item.creator?.id ?? null,
+      creatorName: item.creator?.name ?? null, durationSec: item.durationSec, isAdult: item.isAdult,
+    }
     const onTime = () => {
       const now = Date.now()
       if (now - lastSent.current < 10_000) return
       lastSent.current = now
       const completed = video.duration > 0 && video.currentTime / video.duration > 0.9
-      void putWatchState(source, id, Math.floor(video.currentTime), completed).catch(() => {})
+      void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
     }
     video.addEventListener('timeupdate', onTime)
     return () => {
       video.removeEventListener('timeupdate', onTime)
       if (video.currentTime > 5) {
         const completed = video.duration > 0 && video.currentTime / video.duration > 0.9
-        void putWatchState(source, id, Math.floor(video.currentTime), completed).catch(() => {})
+        void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
       }
     }
   }, [source, id, item])

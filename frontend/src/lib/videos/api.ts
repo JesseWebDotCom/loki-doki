@@ -179,8 +179,23 @@ export function savedFileUrl(source: VideoSource, videoId: string, kind: 'audio'
   return `/api/videos/${source}/file/${encodeURIComponent(videoId)}/${kind}`
 }
 
-export function putWatchState(source: VideoSource, videoId: string, positionSec: number, completed: boolean): Promise<{ ok: true }> {
-  return sendJson('/api/videos/watch-state', 'PUT', { source, videoId, positionSec, completed })
+export interface WatchStateSnapshot {
+  title: string
+  thumbnailUrl?: string | null
+  creatorId?: string | null
+  creatorName?: string | null
+  durationSec?: number | null
+  isAdult?: boolean
+}
+
+/** `snapshot` lets "Continue watching" show a real title/thumbnail even for videos that
+ *  aren't in a followed creator's feed cache (direct links, search, browsing without
+ *  following) — pass the item you already have in hand rather than making history depend
+ *  on a separate cache table that only the followed-feed poller populates. */
+export function putWatchState(
+  source: VideoSource, videoId: string, positionSec: number, completed: boolean, snapshot?: WatchStateSnapshot,
+): Promise<{ ok: true }> {
+  return sendJson('/api/videos/watch-state', 'PUT', { source, videoId, positionSec, completed, ...snapshot })
 }
 
 export interface HubHistoryRow {
