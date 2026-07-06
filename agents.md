@@ -526,6 +526,17 @@ Notes:
 - Keyframes live in `index.css` (`star-twinkle` reused; `space-shoot`, `ufo-drift` added). Per-star randomized values are inline styles (genuinely dynamic).
 - Place it as an `absolute inset-0 z-0` layer with the real content in a `relative z-10` sibling. Over a dark space backdrop, wrap content in `data-theme="dark"` so themed tokens (foreground/card) stay readable regardless of the app's active theme.
 
+### `ViewToggle` - `src/components/shared/ViewToggle.tsx`
+
+Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a page offers both a grid and a list layout instead of hand-rolling the two-button group. Pair it with `useViewPreference(key, fallback)` (`src/hooks/useViewPreference.ts`) to persist the choice per-user in `user_preferences` (dotted key, e.g. `youtube.channel_view`) so it survives reloads and syncs across devices.
+
+```ts
+// ViewToggle
+{ value: 'grid' | 'list'; onChange: (v: 'grid' | 'list') => void; className?: string }
+// useViewPreference -> [view, setView]
+useViewPreference(key: string, fallback?: 'grid' | 'list')
+```
+
 ### Toasts (app-wide) - `sonner`
 
 Toasts are mounted globally via `AppToaster` (`src/components/shared/AppToaster.tsx`, rendered once in `App.tsx`, theme-synced to light/dark). To show transient feedback after a save or destructive action, call `toast.success(...)` / `toast.error(...)` from `sonner` anywhere. Do **not** build inline "Saving…/Saved" text for new code. Prefer toasts for success/error confirmation; keep optimistic UI updates as-is.

@@ -2594,6 +2594,11 @@ export function runMigrations() {
   // unlocks the Plex export's separate Shorts show without re-deriving it from duration alone.
   addColumn('yt_videos', 'tab', 'TEXT')
 
+  // View count (raw text; displayed via fmtViews) so Offline/Feed/History cards and the watch
+  // page show views like the live discovery cards do. Populated by the channel reconcile scan
+  // and lazily by the watch route on first resolve.
+  addColumn('yt_videos', 'views', 'TEXT')
+
   // YouTube → Plex export tree tracking (see schema.ts ytPlexShows/ytPlexEpisodes).
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS yt_plex_shows (

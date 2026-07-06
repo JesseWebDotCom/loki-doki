@@ -37,6 +37,7 @@ interface FeedEntry {
   channelId: string | null
   thumbnailUrl: string | null
   publishedAt: number | null   // Unix ms
+  views: string | null         // from <media:community><media:statistics views="…">
   description: string | null
 }
 
@@ -62,6 +63,7 @@ function parseFeed(xml: string, subscriptionId: string): FeedEntry[] {
       channelId: extractTag(block, 'yt:channelId') || null,
       thumbnailUrl,
       publishedAt: pubMs && !isNaN(pubMs) ? pubMs : null,
+      views: extractAttr(block, 'media:statistics', 'views') || null,
       description: extractTag(block, 'media:description') || extractTag(block, 'summary') || null,
     })
   }
@@ -108,6 +110,7 @@ export interface UpsertVideo {
   thumbnailUrl: string | null
   publishedAt: number | null   // Unix ms (null when the source only gives relative text)
   durationSec: number | null
+  views: string | null         // raw view-count text (null when the source doesn't carry it, e.g. RSS)
   description: string | null
   // Which InnerTube channel tab this came from ('videos'|'shorts'|'live'), when known — used
   // by the Plex export to split Shorts into their own show instead of mixing them into the
@@ -152,6 +155,7 @@ export async function upsertSubscriptionVideos(
       thumbnailUrl: v.thumbnailUrl,
       publishedAt: v.publishedAt ?? null,
       durationSec: v.durationSec ?? null,
+      views: v.views ?? null,
       description: v.description,
       tab: v.tab ?? null,
       summary: null,
@@ -208,6 +212,7 @@ async function fetchAndUpsertFeed(sub: typeof ytSubscriptions.$inferSelect): Pro
     thumbnailUrl: e.thumbnailUrl,
     publishedAt: e.publishedAt,
     durationSec: null,
+    views: e.views,
     description: e.description,
   })))
 

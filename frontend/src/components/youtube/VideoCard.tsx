@@ -5,7 +5,7 @@ import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload, Sparkles } 
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Spinner } from '@/components/ui/spinner'
-import { fmtAge, fmtDur } from '@/lib/youtube/format'
+import { fmtAge, fmtDur, fmtViews } from '@/lib/youtube/format'
 import { watchProgress, type VideoItem } from '@/lib/youtube/types'
 import { saveOffline } from '@/lib/youtube/api'
 import { useSavedState } from '@/lib/youtube/useData'
@@ -134,6 +134,7 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave 
 /** Vertical video card: thumbnail, title, channel · age. Click opens the watch (or Shorts) page. */
 export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   // DeArrow swaps clickbait titles/thumbnails for community-voted ones (no-op when off).
   const da = useDeArrow(item.videoId)
@@ -152,11 +153,7 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
         )}
         <div className="min-w-0 flex-1">
           <p className={cn('line-clamp-2 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-          {(item.author || age) && (
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {item.author}{item.author && age ? ' · ' : ''}{age}
-            </p>
-          )}
+          {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
         </div>
       </div>
     </>
@@ -175,9 +172,53 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
   )
 }
 
+/** Full-width horizontal list row: wide thumbnail + title, channel · age. Used by the
+ *  channel page's list view; mirrors VideoCard's ghost/save/navigation behavior. */
+export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
+  const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
+  const { ghosted, onClick } = useGhost(item)
+  const da = useDeArrow(item.videoId)
+  const title = da?.title || item.title
+  const { previewSrc, bind } = useCardHoverPreview(item)
+  const { saveState, onSave } = useCardSave(item, title)
+  const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
+  const body = (
+    <>
+      <div className={cn('shrink-0', aspect === 'short' ? 'w-24 sm:w-28' : 'w-40 sm:w-56')}>
+        <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
+      </div>
+      <div className="min-w-0 flex-1 py-0.5">
+        <p className={cn('line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
+        {metaLine && (
+          <div className="mt-1.5 flex items-center gap-2">
+            {item.author && <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-border/40', ghosted && 'grayscale')} />}
+            <p className="truncate text-xs text-muted-foreground">{metaLine}</p>
+          </div>
+        )}
+      </div>
+    </>
+  )
+  if (ghosted) {
+    return (
+      // design-ok(hand-styled-button): the whole media row is the tap target (card-shaped ghost row)
+      <button type="button" onClick={onClick} className="group flex w-full gap-3 rounded-card p-1.5 text-left transition-colors hover:bg-accent/50 sm:gap-4">
+        {body}
+      </button>
+    )
+  }
+  return (
+    <Link to={to} state={{ title, author: item.author, channelThumb: item.channelThumb }}
+      className="group flex gap-3 rounded-card p-1.5 transition-colors hover:bg-accent/50 sm:gap-4" {...bind}>
+      {body}
+    </Link>
+  )
+}
+
 /** Compact horizontal row, used in the watch page "Up next" column. */
 export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const stats = [fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
@@ -190,7 +231,7 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
       <div className="min-w-0 flex-1 py-0.5">
         <p className={cn('line-clamp-2 text-[13px] font-semibold leading-snug', ghosted && 'text-muted-foreground')}>{title}</p>
         {item.author && <p className="mt-1 truncate text-xs text-muted-foreground">{item.author}</p>}
-        {age && <p className="truncate text-xs text-muted-foreground">{age}</p>}
+        {stats && <p className="truncate text-xs text-muted-foreground">{stats}</p>}
       </div>
     </>
   )

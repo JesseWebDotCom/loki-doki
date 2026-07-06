@@ -32,6 +32,7 @@ import {
   ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
+import { fmtViews } from '@/lib/youtube/format'
 import { parseChapters } from '@/lib/youtube/chapters'
 import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
@@ -354,6 +355,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   // identical descriptionClean, so there'd be nothing to toggle to.
   const hasOriginalDescription = !!meta?.descriptionClean && !!meta?.description && meta.descriptionClean !== meta.description
   const description = (showOriginalDescription ? meta?.description : meta?.descriptionClean) ?? meta?.description ?? null
+  const views = fmtViews(meta?.views)
 
   // Sync subscribe state once meta resolves (InfoPanel renders before meta loads).
   useEffect(() => {
@@ -504,19 +506,24 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
         </div>
       </div>
 
-      {description && (
+      {(views || description) && (
         <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
-          <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
-          <div className="mt-1 flex items-center gap-3">
-            <button onClick={() => setExpanded(e => !e)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
-              {expanded ? 'Show less' : '…more'}
-            </button>
-            {hasOriginalDescription && (
-              <button onClick={() => setShowOriginalDescription(v => !v)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
-                {showOriginalDescription ? 'Show cleaned description' : 'View original'}
-              </button>
-            )}
-          </div>
+          {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
+          {description && (
+            <>
+              <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
+              <div className="mt-1 flex items-center gap-3">
+                <button onClick={() => setExpanded(e => !e)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                  {expanded ? 'Show less' : '…more'}
+                </button>
+                {hasOriginalDescription && (
+                  <button onClick={() => setShowOriginalDescription(v => !v)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                    {showOriginalDescription ? 'Show cleaned description' : 'View original'}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </Card>
       )}
 

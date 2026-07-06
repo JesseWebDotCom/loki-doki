@@ -420,6 +420,7 @@ youtubeRoute.get('/downloads', async (c) => {
     channelId: ytVideos.channelId,
     publishedAt: ytVideos.publishedAt,
     durationSec: ytVideos.durationSec,
+    views: ytVideos.views,
     // Channel avatar so Offline cards/rails show real logos exactly like the Online feed.
     // Prefer the subscription's stored thumbnail; fall back to the avatar resolved + warmed
     // at save time (yt_videos.channel_thumb), which covers non-subscribed channels too.
@@ -987,14 +988,21 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     // theoretically still be live, but this fast path is dominated by long-finished feed/saved
     // videos, so defaulting false here (rather than always paying for an InnerTube call) is the
     // right tradeoff. The Record button re-verifies via getLiveStatus() before it ever records.
-    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
+    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
   }
 
   // Fast metadata path: InnerTube's player endpoint (structured JSON, no subprocess).
   // Only fall through to yt-dlp if it comes back empty.
   const it = await tryInnertube('playerMeta', () => innertubePlayerMeta(videoId), null)
   if (it?.title) {
-    if (v && it.description) await db.update(ytVideos).set({ description: it.description }).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    // Persist description + view count back onto the row so the cached path (above) and the
+    // Offline/Feed cards can show them without re-resolving.
+    if (v && (it.description || it.views)) {
+      const patch: Partial<typeof ytVideos.$inferInsert> = {}
+      if (it.description) patch.description = it.description
+      if (it.views) patch.views = it.views
+      await db.update(ytVideos).set(patch).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    }
     const channelId = it.channelId ?? v?.channelId ?? null
     const sub = await subFor(channelId)
     return c.json({
@@ -1002,6 +1010,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       channelThumb: await avatarFor(sub, channelId), description: it.description ?? v?.description ?? null,
       descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null, durationSec: it.durationSec ?? v?.durationSec ?? null,
+      views: it.views ?? v?.views ?? null,
       positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: it.isLive,
     })
   }
@@ -1015,9 +1024,15 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       proc.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
       proc.on('error', reject)
     })
-    const m = JSON.parse(json) as { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; is_live?: boolean }
-    // Persist the description back onto the row when we have one.
-    if (v && m.description) await db.update(ytVideos).set({ description: m.description }).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    const m = JSON.parse(json) as { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; is_live?: boolean; view_count?: number }
+    const mViews = m.view_count != null ? String(m.view_count) : null
+    // Persist description + view count back onto the row when we have them.
+    if (v && (m.description || mViews)) {
+      const patch: Partial<typeof ytVideos.$inferInsert> = {}
+      if (m.description) patch.description = m.description
+      if (mViews) patch.views = mViews
+      await db.update(ytVideos).set(patch).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    }
     const channelId = m.channel_id ?? v?.channelId ?? null
     const sub = await subFor(channelId)
     return c.json({
@@ -1030,6 +1045,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null,
       durationSec: m.duration ?? v?.durationSec ?? null,
+      views: mViews ?? v?.views ?? null,
       positionSec,
       subscribed: !!sub,
       subscriptionId: sub?.id ?? null,
@@ -1037,7 +1053,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     })
   } catch {
     const sub = await subFor(v?.channelId)
-    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
+    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, views: v?.views ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
   }
 })
 
@@ -1688,6 +1704,7 @@ youtubeRoute.get('/history', async (c) => {
     author: ytVideos.author,
     channelId: ytVideos.channelId,
     durationSec: ytVideos.durationSec,
+    views: ytVideos.views,
     channelThumbSub: ytSubscriptions.thumbnailUrl,
     channelThumbVid: ytVideos.channelThumb,
   })
@@ -1706,6 +1723,7 @@ youtubeRoute.get('/history', async (c) => {
     // Prefer the subscription thumb, then the avatar persisted + warmed for offline.
     channelThumb: r.channelThumbSub ?? r.channelThumbVid ?? null,
     durationSec: r.durationSec ?? null,
+    views: r.views ?? null,
     positionSec: r.positionSec,
     completed: r.completed,
     updatedAt: r.updatedAt ? r.updatedAt.getTime() : 0,

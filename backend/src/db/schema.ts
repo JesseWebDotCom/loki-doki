@@ -1141,6 +1141,7 @@ export const ytVideos = sqliteTable('yt_videos', {
   channelThumb: text('channel_thumb'),         // channel avatar URL (resolved at save time so Offline cards show real logos)
   publishedAt: integer('published_at'),        // Unix ms
   durationSec: integer('duration_sec'),
+  views: text('views'),                        // raw view-count text (e.g. "1.2M views" / "1234567"); display via fmtViews
   description: text('description'),
   summary: text('summary'),
   // "Smart Description" — the raw description with promotional/sponsor-read paragraphs

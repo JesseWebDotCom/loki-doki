@@ -11,6 +11,7 @@ export interface VideoItem {
   channelThumb?: string | null
   publishedAt?: number | null
   ageLabel?: string               // pre-formatted relative age (e.g. search's "11 months ago")
+  views?: string | null           // raw view-count text (formatted for display via fmtViews)
   durationSec?: number | null
   watch?: { positionSec: number; completed: boolean } | null
   localKind?: 'audio' | 'video'   // present ⇒ available offline (play local file)
@@ -33,6 +34,7 @@ export function feedToItem(v: FeedVideo, durationFallback?: number | null): Vide
     videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
     channelThumb: v.channelThumb, publishedAt: v.publishedAt,
     durationSec: v.durationSec ?? durationFallback ?? null,
+    views: v.views,
     watch: v.watchState,
   }
 }
@@ -41,7 +43,7 @@ export function savedToItem(r: SavedRow, qualityBadge: string): VideoItem {
   return {
     videoId: r.videoId, title: r.title || r.videoId, author: r.author, channelId: r.channelId,
     channelThumb: r.channelThumb ?? null,
-    publishedAt: r.publishedAt, durationSec: r.durationSec ?? null,
+    publishedAt: r.publishedAt, durationSec: r.durationSec ?? null, views: r.views,
     watch: r.positionSec != null ? { positionSec: r.positionSec, completed: !!r.completed } : null,
     localKind: r.kind, qualityBadge, enhance: r.enhance,
   }
@@ -51,7 +53,7 @@ export function savedToItem(r: SavedRow, qualityBadge: string): VideoItem {
 export function historyToItem(h: HistoryRow): VideoItem {
   return {
     videoId: h.videoId, title: h.title, author: h.author, channelId: h.channelId,
-    channelThumb: h.channelThumb, durationSec: h.durationSec,
+    channelThumb: h.channelThumb, durationSec: h.durationSec, views: h.views,
     watch: { positionSec: h.positionSec, completed: h.completed },
   }
 }
@@ -66,6 +68,7 @@ export function itToItem(v: ItVideo): VideoItem {
     channelThumb: v.channelThumb ?? null,
     durationSec: v.durationSec ?? null,
     ageLabel: v.publishedText ?? undefined,
+    views: v.views ?? null,
   }
 }
 
@@ -78,5 +81,6 @@ export function searchToItem(v: SearchResult): VideoItem {
     channelThumb: v.channelThumb ?? null,
     durationSec: v.durationSec ?? null,
     ageLabel: v.publishedText ?? undefined,
+    views: v.views ?? null,
   }
 }
