@@ -87,16 +87,16 @@ function faceTarget(tilt: HeadTiltState, mood: Mood): FaceTarget {
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
 const VIEW = 200;
-// Base eye geometry per configured shape (w, h, corner radius). Default follows
-// Anki Vector's proportions: eyes taller than wide (43×57) with center-to-center
-// spacing ≈ 2.1× eye width - wider-set eyes are what make the face read "robot".
+// Base eye geometry per configured shape (w, h, corner radius). Default keeps
+// Anki Vector's taller-than-wide eye ratio, framed tight so the face fills the
+// viewBox like the DiceBear heads do (store cards render avatars small).
 const SHAPES: Record<string, { w: number; h: number; r: number }> = {
-  rounded: { w: 48, h: 62, r: 16 },
-  circle: { w: 56, h: 56, r: 28 },
-  tall: { w: 40, h: 70, r: 18 },
-  wide: { w: 62, h: 48, r: 15 },
+  rounded: { w: 72, h: 118, r: 26 },
+  circle: { w: 84, h: 84, r: 42 },
+  tall: { w: 58, h: 130, r: 28 },
+  wide: { w: 88, h: 84, r: 24 },
 };
-const EYE_CX = 48; // eye-center distance from face center
+const EYE_CX = 50; // eye-center distance from face center
 const EYE_CY = 100;
 
 /**
@@ -389,6 +389,8 @@ export default function RoboEyesAvatar({
           display: "block",
           position: "relative",
           zIndex: 1,
+          // Tight framing: let the glow halo render past the viewBox edges.
+          overflow: "visible",
           filter,
           transition: "filter 600ms ease",
           ...(isAngry && !staticPose ? { animation: "ld-roboeyes-shake 0.18s linear infinite" } : null),
