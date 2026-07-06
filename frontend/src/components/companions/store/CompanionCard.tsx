@@ -88,7 +88,7 @@ export function CompanionMiniCard({ c }: { c: CompanionRecord }) {
       className={cn(cardVariants({ variant: 'interactive' }), 'flex w-56 shrink-0 flex-col gap-3 p-4')}
     >
       <div className="flex items-center gap-3">
-        <div className={cn('size-12 shrink-0 overflow-hidden rounded-full ring-1 ring-border/40', locked && 'grayscale')}>
+        <div className={cn('size-12 shrink-0', locked && 'grayscale')}>
           <CharacterAvatar character={c} size={48} viewPreset="head" pokeable={false} suppressOverlays ambient={!locked} />
         </div>
         <div className="min-w-0">
