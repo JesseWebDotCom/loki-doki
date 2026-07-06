@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload } from 'lucide-react'
+import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Spinner } from '@/components/ui/spinner'
@@ -95,6 +95,12 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave 
         // design-ok(raw-palette-semantic): status tint on a theme-invariant black chip over the thumbnail
         <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
           <CheckCircle2 className="size-3" /> Watched
+        </span>
+      )}
+      {!ghosted && i.enhance && (
+        <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+          {i.enhance === 'enhancing' ? <Spinner size="sm" /> : <Sparkles className="size-3" />}
+          {i.enhance === 'enhancing' ? 'Enhancing…' : 'Enhanced'}
         </span>
       )}
       {onSave && !ghosted && (

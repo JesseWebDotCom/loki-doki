@@ -14,7 +14,7 @@ import { cleanAutoTitle } from '@/lib/cleanTitle'
 import { resolveYouTubeInput, parseTakeoutCsv } from '@/lib/youtube/resolve'
 import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
-import { ensureSummary, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
+import { ensureSummary, ensureSmartDescription, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
@@ -37,7 +37,7 @@ import {
   isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
 } from '@/lib/youtube/automation'
 import { resolveUserPath } from '@/lib/storage/paths'
-import { resolveRefBlob, releaseAssetsIfOrphaned } from '@/lib/youtube/assets'
+import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets } from '@/lib/youtube/assets'
 import { startLiveRecording, getLiveStatus, stopLiveRecording } from '@/lib/youtube/live'
 import { getYoutubeSuggestions } from '@/lib/youtube/suggest'
 import { acquireRead, releaseRead } from '@/lib/content/store'
@@ -467,10 +467,16 @@ youtubeRoute.get('/downloads', async (c) => {
     }
   }
 
+  // Enhanced-rendition status for the "Enhancing…/Enhanced" chip (video rows only).
+  const enhanceMap = await enhancedStatusForAssets(
+    rows.filter(r => r.kind === 'video' && r.assetId).map(r => r.assetId!),
+  )
+
   const downloads = rows.map(({ channelThumbSub, channelThumbVid, assetId, ...r }) => ({
     ...r,
     channelThumb: channelThumbSub ?? channelThumbVid ?? null,
     progress: assetId ? progressByAsset.get(assetId) ?? null : null,
+    enhance: assetId ? enhanceMap.get(assetId) ?? null : null,
     positionSec: watchMap.get(r.videoId)?.positionSec ?? null,
     completed: watchMap.get(r.videoId)?.completed ?? null,
   }))
@@ -828,7 +834,8 @@ youtubeRoute.get('/file/:videoId/:kind', async (c) => {
 
   // Prefer the shared content blob (the user holds a ready ref → owns access); fall back to a
   // legacy per-user relPath for rows the background dedup migration hasn't linked yet.
-  const blob = await resolveRefBlob(dl)
+  // resolvePlaybackBlob transparently prefers the user's enhanced rendition when opted in.
+  const blob = await resolvePlaybackBlob({ ...dl, userId: user.id })
   let absPath: string
   let contentType: string
   let trackHash: string | null = null
@@ -944,6 +951,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     const firstName = await getUserFirstName(user.id)
     await ensureTranscript(videoId, user.id, firstName)
     await ensureSummary(videoId, user.id, firstName)
+    await ensureSmartDescription(videoId, user.id, firstName)
   })().catch(() => { /* enrichment is best-effort */ })
 
   const [v] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
@@ -979,7 +987,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     // theoretically still be live, but this fast path is dominated by long-finished feed/saved
     // videos, so defaulting false here (rather than always paying for an InnerTube call) is the
     // right tradeoff. The Record button re-verifies via getLiveStatus() before it ever records.
-    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, summary: v.summary, durationSec: v.durationSec, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
+    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
   }
 
   // Fast metadata path: InnerTube's player endpoint (structured JSON, no subprocess).
@@ -992,6 +1000,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     return c.json({
       videoId, title: it.title, author: it.author ?? v?.author ?? null, channelId,
       channelThumb: await avatarFor(sub, channelId), description: it.description ?? v?.description ?? null,
+      descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null, durationSec: it.durationSec ?? v?.durationSec ?? null,
       positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: it.isLive,
     })
@@ -1018,6 +1027,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       channelId,
       channelThumb: await avatarFor(sub, channelId),
       description: m.description ?? v?.description ?? null,
+      descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null,
       durationSec: m.duration ?? v?.durationSec ?? null,
       positionSec,

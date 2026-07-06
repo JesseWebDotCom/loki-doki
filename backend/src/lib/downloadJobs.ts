@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'plex-provision' | 'plex-sync' | 'plex-cut'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
 // one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
@@ -41,7 +41,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -620,6 +620,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runPlexCutJob(payload, signal)
       return
     }
+    case 'media-enhance': {
+      const payload = JSON.parse(job.refId) as import('@/lib/media/enhanceJob').MediaEnhanceJobPayload
+      const { runEnhanceJob } = await import('@/lib/media/enhanceJob')
+      await runEnhanceJob(payload, signal)
+      return
+    }
   }
 }
 
@@ -674,6 +680,34 @@ export async function enqueuePlexCut(videoId: string, cutSetHash: string, enable
   await db.insert(downloadJobs).values({
     id: randomUUID(), type: 'plex-cut', refId: JSON.stringify({ videoId, cutSetHash, enabledCategories }), variantKey: vk,
     domain: 'plex-cut', sizeClass: 'small', label: 'Trim video for Plex', priority: 60,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Coalesced enqueue of a background enhance for one media asset — every user who saved this
+ *  video shares ONE enhance job/rendition. CPU/GPU-bound: domain 'media-enhance' is its own
+ *  compute lane (see COMPUTE_LANE_TYPES), so an enhance re-encode runs concurrently with map
+ *  builds and plex-cut without contending for a network slot. A finished/failed prior job is
+ *  reset to pending so a base-quality upgrade (store-the-max) re-derives the enhanced rendition. */
+export async function enqueueMediaEnhance(assetId: string, label = 'Enhance video'): Promise<void> {
+  const vk = `media-enhance:${assetId}`
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'media-enhance'), eq(downloadJobs.variantKey, vk)))
+    .limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return // coalesce
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'media-enhance', refId: JSON.stringify({ assetId }), variantKey: vk,
+    domain: 'media-enhance', sizeClass: 'small', label: label.slice(0, 120), priority: 65,
     status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })

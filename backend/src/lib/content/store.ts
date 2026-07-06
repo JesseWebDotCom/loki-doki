@@ -18,7 +18,8 @@ import { createHash } from 'node:crypto'
 import { createReadStream, statSync } from 'node:fs'
 import { mkdir, rename, cp, rm, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { and, eq, lt, ne, notExists, or } from 'drizzle-orm'
+import { and, eq, exists, like, lt, ne, notExists, notLike, or } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '@/db'
 import { blobs, mediaAssets, narrationSessions, podcastDownloads, ytDownloads, bookLibrary } from '@/db/schema'
 import { resolveUserPath } from '@/lib/storage/paths'
@@ -180,6 +181,14 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
   // Books (sourceType='book') are a shared household catalog like podcasts/YouTube, but
   // bookLibrary has no assetId FK — it points at bookId, which equals mediaAssets.sourceId
   // for book assets — so its ref check joins on sourceId instead of assetId like the others.
+  //
+  // Enhanced renditions (format like '%enhanced%', produced by the media-enhance job) are
+  // DERIVED siblings that no ref row points at directly — they'd otherwise be orphaned the
+  // moment they're written. Instead they inherit their parent's pin: an enhanced rendition is
+  // kept while a sibling base 'mp4' asset (same source+kind) still has a yt_downloads ref. This
+  // ties enhanced lifetime to the original's, so it survives normal deletes AND user-cascade
+  // deletes, and is reclaimed only once the last user unpins the video.
+  const baseSibling = alias(mediaAssets, 'base_sibling')
   const orphanAssets = await db.delete(mediaAssets).where(and(
     lt(mediaAssets.createdAt, cutoff),
     notExists(db.select().from(ytDownloads).where(eq(ytDownloads.assetId, mediaAssets.id))),
@@ -191,6 +200,16 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
     or(
       ne(mediaAssets.sourceType, 'book'),
       notExists(db.select().from(bookLibrary).where(eq(bookLibrary.bookId, mediaAssets.sourceId))),
+    ),
+    or(
+      notLike(mediaAssets.format, '%enhanced%'),
+      notExists(db.select().from(baseSibling).where(and(
+        eq(baseSibling.sourceType, mediaAssets.sourceType),
+        eq(baseSibling.sourceId, mediaAssets.sourceId),
+        eq(baseSibling.kind, mediaAssets.kind),
+        eq(baseSibling.format, 'mp4'),
+        exists(db.select().from(ytDownloads).where(eq(ytDownloads.assetId, baseSibling.id))),
+      ))),
     ),
   )).returning({ id: mediaAssets.id })
 

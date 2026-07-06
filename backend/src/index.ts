@@ -35,6 +35,7 @@ import { startDropSweep } from '@/lib/drop/service'
 import { adminImageLoras } from '@/routes/adminImageLoras'
 import { adminQueue } from '@/routes/adminQueue'
 import { adminGpu } from '@/routes/adminGpu'
+import { adminMedia } from '@/routes/adminMedia'
 import { adminInstall } from '@/routes/adminInstall'
 import { adminUninstall } from '@/routes/adminUninstall'
 import { archives } from '@/routes/archives'
@@ -481,6 +482,7 @@ app.route('/api/drop', drop)
 app.route('/api/admin/image-loras', adminImageLoras)
 app.route('/api/admin/queue', adminQueue)
 app.route('/api/admin/gpu', adminGpu)
+app.route('/api/admin/media', adminMedia)
 app.route('/api/admin/install', adminInstall)
 app.route('/api/admin/uninstall', adminUninstall)
 app.route('/api/archives', archives)

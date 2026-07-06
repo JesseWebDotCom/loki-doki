@@ -15,6 +15,7 @@ export interface VideoItem {
   watch?: { positionSec: number; completed: boolean } | null
   localKind?: 'audio' | 'video'   // present ⇒ available offline (play local file)
   qualityBadge?: string           // offline only
+  enhance?: 'enhancing' | 'enhanced' | null   // offline video: background enhancement state
 }
 
 export const SHORT_MAX_SEC = 60
@@ -42,7 +43,7 @@ export function savedToItem(r: SavedRow, qualityBadge: string): VideoItem {
     channelThumb: r.channelThumb ?? null,
     publishedAt: r.publishedAt, durationSec: r.durationSec ?? null,
     watch: r.positionSec != null ? { positionSec: r.positionSec, completed: !!r.completed } : null,
-    localKind: r.kind, qualityBadge,
+    localKind: r.kind, qualityBadge, enhance: r.enhance,
   }
 }
 

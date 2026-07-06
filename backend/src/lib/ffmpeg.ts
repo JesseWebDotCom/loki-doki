@@ -110,3 +110,38 @@ export function ensureFfmpeg(): Promise<string> {
   resolvePromise.then((bin) => { if (bin === 'ffmpeg' && !existsSync(MANAGED_PATH)) resolvePromise = null }).catch(() => { resolvePromise = null })
   return resolvePromise
 }
+
+/** Whether a given ffmpeg binary advertises an encoder (e.g. 'h264_nvenc') in `-encoders`.
+ *  Not every static/PATH build is compiled with the same encoder set. Best-effort: a failed
+ *  probe reports false so the caller falls back to a CPU encoder. */
+export async function ffmpegHasEncoder(bin: string, encoder: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(bin, ['-hide_banner', '-encoders'], { timeout: 10_000 })
+    return new RegExp(`\\b${encoder}\\b`).test(stdout)
+  } catch { return false }
+}
+
+// Force-download of an NVENC-capable build is a one-time resolution shared by concurrent callers.
+let nvencPromise: Promise<string> | null = null
+
+/**
+ * Resolve an ffmpeg that can encode with NVENC (`h264_nvenc`) and return its path. A random
+ * ffmpeg already on PATH may be built WITHOUT NVENC; our managed BtbN `*-gpl` static build ships
+ * it (`--enable-nvenc`). So on a box with an NVIDIA GPU, if the currently resolved binary lacks
+ * h264_nvenc we force-download the managed build and re-point to it. Returns the resolved path
+ * regardless — the caller checks capability again and falls back to a CPU encoder if NVENC is
+ * still unavailable (e.g. the managed fetch failed, or the driver is too old at encode time).
+ */
+export function ensureNvencFfmpeg(): Promise<string> {
+  if (nvencPromise) return nvencPromise
+  nvencPromise = (async () => {
+    const bin = await ensureFfmpeg()
+    if (await ffmpegHasEncoder(bin, 'h264_nvenc')) return bin
+    logger.info('[ffmpeg] NVIDIA GPU present but current ffmpeg lacks h264_nvenc — fetching NVENC-capable managed build')
+    await downloadManaged()  // BtbN gpl build enables NVENC; sets resolvedBin = MANAGED_PATH on success
+    return resolvedBin
+  })()
+  // Let a later attempt retry if the managed fetch failed and we still lack NVENC.
+  nvencPromise.then((bin) => ffmpegHasEncoder(bin, 'h264_nvenc')).then((ok) => { if (!ok) nvencPromise = null }).catch(() => { nvencPromise = null })
+  return nvencPromise
+}

@@ -73,6 +73,9 @@ export interface SavedRow {
   maxHeight: number | null
   /** Download progress 0..1 for in-flight saves (pending/downloading); null otherwise. */
   progress: number | null
+  /** Background enhancement state (video only): 'enhancing' while re-encoding, 'enhanced' when
+   *  the crisper rendition is ready and serving; null otherwise. */
+  enhance: 'enhancing' | 'enhanced' | null
   createdAt: string
   author: string | null
   channelId: string | null
@@ -99,6 +102,7 @@ export interface VideoMeta {
   channelId: string | null
   channelThumb?: string | null
   description: string | null
+  descriptionClean?: string | null
   summary?: string | null
   positionSec: number
   durationSec: number | null

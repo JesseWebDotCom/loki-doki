@@ -154,6 +154,15 @@ export async function completeAsset(
     for (const ref of waitingRefs) void enqueuePlexSync(ref.userId, ref.videoId, 'add').catch(() => {})
   }
 
+  // If any referring user opted into enhancement, kick a background enhance of this base video.
+  // Fire-and-forget (like the Plex sync above) so it never blocks or fails the save; coalesced
+  // per asset by the queue. Only the base 'mp4' rendition — the derived 'mp4:enhanced' rendition
+  // is written directly by the enhance job and never flows through completeAsset. Re-runs on a
+  // store-the-max height upgrade (enqueueMediaEnhance resets a finished job).
+  if (asset.kind === 'video' && asset.format === assetFormat('video')) {
+    void maybeEnqueueEnhance(assetId).catch(() => {})
+  }
+
   // Chase a higher tier only when we actually improved this round (prevents looping when the
   // source simply can't deliver the requested height — the next attempt won't improve).
   const desired = await desiredHeight(assetId, asset.kind)
@@ -191,6 +200,77 @@ export async function resolveRefBlob(
   if (!asset || asset.status !== 'ready' || !asset.blobHash) return null
   const mime = asset.format === 'mp3' ? 'audio/mpeg' : asset.kind === 'audio' ? 'audio/mp4' : 'video/mp4'
   return { hash: asset.blobHash, absPath: await blobAbsPath(asset.blobHash), mime }
+}
+
+/** Format of the derived enhanced rendition (kept in sync with lib/media/enhanceJob's
+ *  ENHANCED_FORMAT; inlined to avoid pulling the ffmpeg/encoder module graph into this
+ *  widely-imported file). */
+const ENHANCED_FORMAT = 'mp4:enhanced'
+
+/** If any user referencing this base video asset opted into enhancement, enqueue a background
+ *  enhance. Best-effort helper for completeAsset — coalesced per asset by the queue. */
+async function maybeEnqueueEnhance(assetId: string): Promise<void> {
+  const { shouldEnhance } = await import('@/lib/media/enhancePolicy')
+  const refs = await db.select({ userId: ytDownloads.userId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.assetId, assetId), ne(ytDownloads.status, 'failed')))
+  const userIds = [...new Set(refs.map((r) => r.userId))]
+  let wanted = false
+  for (const uid of userIds) { if (await shouldEnhance(uid)) { wanted = true; break } }
+  if (!wanted) return
+  const { enqueueMediaEnhance } = await import('@/lib/downloadJobs')
+  await enqueueMediaEnhance(assetId)
+}
+
+/** Resolve the blob a ready ref should stream from, preferring the user's enhanced rendition
+ *  when they've opted in and it's current. Falls back to the base blob otherwise. The enhanced
+ *  rendition is only preferred when its height matches the base's current height (the freshness
+ *  proxy — see enhanceJob): after a store-the-max upgrade, a stale lower-res enhanced rendition
+ *  is skipped in favor of the taller base until the re-enhance completes. */
+export async function resolvePlaybackBlob(
+  ref: { assetId: string | null; status: string; userId: string },
+): Promise<{ hash: string; absPath: string; mime: string } | null> {
+  const base = await resolveRefBlob(ref)
+  if (!base || !ref.assetId) return base
+  const { shouldEnhance } = await import('@/lib/media/enhancePolicy')
+  if (!(await shouldEnhance(ref.userId))) return base
+  const [baseAsset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, ref.assetId)).limit(1)
+  if (!baseAsset || baseAsset.kind !== 'video') return base
+  const [enh] = await db.select().from(mediaAssets).where(and(
+    eq(mediaAssets.sourceType, baseAsset.sourceType), eq(mediaAssets.sourceId, baseAsset.sourceId),
+    eq(mediaAssets.kind, 'video'), eq(mediaAssets.format, ENHANCED_FORMAT), eq(mediaAssets.status, 'ready'),
+  )).limit(1)
+  if (enh?.blobHash && enh.height === baseAsset.height) {
+    return { hash: enh.blobHash, absPath: await blobAbsPath(enh.blobHash), mime: 'video/mp4' }
+  }
+  return base
+}
+
+export type EnhanceStatus = 'enhancing' | 'enhanced'
+
+/** Enhanced-rendition status for many base video assets at once (the Saved list is polled
+ *  frequently, so this batches instead of per-row queries). Maps base assetId →
+ *  'enhancing' (job in flight) | 'enhanced' (ready & current). Absent = none/stale/failed. */
+export async function enhancedStatusForAssets(baseAssetIds: string[]): Promise<Map<string, EnhanceStatus>> {
+  const out = new Map<string, EnhanceStatus>()
+  const ids = [...new Set(baseAssetIds)]
+  if (!ids.length) return out
+  const bases = await db.select({ id: mediaAssets.id, sourceType: mediaAssets.sourceType, sourceId: mediaAssets.sourceId, height: mediaAssets.height })
+    .from(mediaAssets).where(and(inArray(mediaAssets.id, ids), eq(mediaAssets.kind, 'video')))
+  if (!bases.length) return out
+  const enhanced = await db.select({ sourceType: mediaAssets.sourceType, sourceId: mediaAssets.sourceId, height: mediaAssets.height, blobHash: mediaAssets.blobHash, status: mediaAssets.status })
+    .from(mediaAssets)
+    .where(and(
+      eq(mediaAssets.kind, 'video'), eq(mediaAssets.format, ENHANCED_FORMAT),
+      inArray(mediaAssets.sourceId, [...new Set(bases.map((b) => b.sourceId))]),
+    ))
+  const enhByKey = new Map(enhanced.map((e) => [`${e.sourceType}:${e.sourceId}`, e]))
+  for (const b of bases) {
+    const e = enhByKey.get(`${b.sourceType}:${b.sourceId}`)
+    if (!e) continue
+    if (e.status === 'ready' && e.blobHash && e.height === b.height) out.set(b.id, 'enhanced')
+    else if (e.status === 'pending' || e.status === 'downloading') out.set(b.id, 'enhancing')
+  }
+  return out
 }
 
 /** After deleting ref rows, drop any asset that now has zero references so its blob becomes

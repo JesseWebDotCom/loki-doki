@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { SkipForward, Wand2 } from 'lucide-react'
+import { SkipForward, Wand2, FileText } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/context/AuthContext'
 import { readDeArrowEnabled, writeDeArrowEnabled } from '@/lib/youtube/dearrow'
+import { EnhanceVideoUserSetting } from './EnhanceVideoSetting'
+
+const SMART_DESCRIPTION_PREF_KEY = 'youtube.smart_description'
 
 // Mirror of backend SKIP_CATEGORIES (sponsorblock.ts) — keep keys + defaults in sync.
 export type SkipCategory =
@@ -31,6 +34,7 @@ export function SettingsYoutubeTab() {
   const [prefs, setPrefs] = useState<Record<SkipCategory, boolean>>(DEFAULTS)
   const [saving, setSaving] = useState(false)
   const [dearrow, setDearrow] = useState(readDeArrowEnabled)
+  const [smartDescription, setSmartDescription] = useState(true)
 
   useEffect(() => {
     if (!user?.id) return
@@ -40,6 +44,9 @@ export function SettingsYoutubeTab() {
         const saved = data?.[PREF_KEY]
         if (saved && typeof saved === 'object') {
           setPrefs({ ...DEFAULTS, ...(saved as Partial<Record<SkipCategory, boolean>>) })
+        }
+        if (typeof data?.[SMART_DESCRIPTION_PREF_KEY] === 'boolean') {
+          setSmartDescription(data[SMART_DESCRIPTION_PREF_KEY] as boolean)
         }
       })
       .catch(() => {})
@@ -66,6 +73,18 @@ export function SettingsYoutubeTab() {
     const next = !dearrow
     setDearrow(next)
     writeDeArrowEnabled(next)
+  }
+
+  function toggleSmartDescription() {
+    if (!user?.id) return
+    const next = !smartDescription
+    setSmartDescription(next)
+    fetch(`/api/users/${user.id}/preferences`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [SMART_DESCRIPTION_PREF_KEY]: next }),
+    }).catch(() => {})
   }
 
   return (
@@ -96,6 +115,8 @@ export function SettingsYoutubeTab() {
         </div>
       </div>
 
+      <EnhanceVideoUserSetting />
+
       <div>
         <p className="text-sm font-medium mb-1">Titles &amp; thumbnails</p>
         <p className="text-xs text-muted-foreground mb-4">
@@ -110,6 +131,24 @@ export function SettingsYoutubeTab() {
             </p>
           </div>
           <Switch checked={dearrow} onCheckedChange={toggleDearrow} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1">Descriptions</p>
+        <p className="text-xs text-muted-foreground mb-4">
+          Applies everywhere in the app, and to Plex libraries too.
+        </p>
+        <div className="flex items-center gap-4 rounded-control px-3 py-3 hover:bg-muted/40 transition-colors">
+          <FileText className="size-4 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">Smart Description</p>
+            <p className="text-xs text-muted-foreground">
+              Strip sponsor reads and promotional links from descriptions, or write one from
+              the video's content when the real description is mostly ads.
+            </p>
+          </div>
+          <Switch checked={smartDescription} onCheckedChange={toggleSmartDescription} />
         </div>
       </div>
     </div>

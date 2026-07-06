@@ -3,6 +3,7 @@ import { RefreshCw, CheckCircle2, AlertTriangle, Upload, X } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/lib/toast'
+import { EnhanceVideoAdminSetting } from '@/components/settings/EnhanceVideoSetting'
 
 // Admin control for Save-quality caps: one global ceiling plus optional per-user
 // overrides. Mirrors the protections/grant admin patterns — writes go straight to
@@ -106,6 +107,8 @@ export function AdminYoutubeLimitsSection() {
         </div>
       )}
       </div>
+
+      <EnhanceVideoAdminSetting />
     </div>
   )
 }
