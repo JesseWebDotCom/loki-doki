@@ -3,13 +3,15 @@ import { useParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Plus } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
 import { addFollow, getSourceCreator, listFollows, removeFollow, type VideoSource } from '@/lib/videos/api'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 
 /** Creator page for non-YouTube sources (subreddits, TikTok creators, Vimeo channels).
  *  YouTube channels keep their richer native page. */
@@ -17,6 +19,7 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
   const params = useParams<{ id: string }>()
   const id = params.id ?? ''
   const qc = useQueryClient()
+  const [view, setView] = useViewPreference(`videos.${source}_creator_view`, 'grid')
 
   const creatorQuery = useInfiniteQuery({
     queryKey: ['videos-creator', source, id],
@@ -86,9 +89,10 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
         <p className="py-20 text-center text-sm text-muted-foreground">No playable videos here right now.</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
-            {items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
+          <div className="mb-4 flex justify-end">
+            <ViewToggle value={view} onChange={setView} className="shrink-0" />
           </div>
+          <HubVideoCollection items={items} view={view} showSource={false} />
           {creatorQuery.hasNextPage && (
             <div className="mt-8 flex justify-center">
               <Button variant="outline" onClick={() => void creatorQuery.fetchNextPage()} disabled={creatorQuery.isFetchingNextPage}>

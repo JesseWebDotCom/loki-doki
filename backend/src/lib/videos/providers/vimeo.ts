@@ -156,14 +156,18 @@ async function oembedItem(id: string): Promise<(VideoItem & { description?: stri
   })
 }
 
-/** Progressive stream via yt-dlp (works with or without a token). Exported for the proxy. */
+/** Progressive stream via yt-dlp (works with or without a token). Exported for the proxy.
+ *  Vimeo's extractor leaves `acodec` unset (null, not the string 'none') on its own
+ *  combined progressive files — format_id `http-<height>p` with no -sd/-hd/-uhd suffix
+ *  (verified live: these single-file mp4s do carry audio despite the missing field) —
+ *  so selection goes by format_id shape, not codec fields. The suffixed variants and the
+ *  `-sd`/`-uhd` "download" links point at a different (frequently unreachable) redirector. */
 export async function vimeoStreamSource(id: string): Promise<{ url: string; headers: Record<string, string> } | null> {
   if (!VIDEO_ID.test(id)) return null
   return cachedLookup('vimeo:stream', id, STREAM_TTL, async () => {
-    const data = await ytDlpJson<{ formats?: Array<{ url?: string; vcodec?: string; acodec?: string; protocol?: string; height?: number }> }>(
+    const data = await ytDlpJson<{ formats?: Array<{ format_id?: string; url?: string; height?: number }> }>(
       `https://vimeo.com/${id}`, ['--no-playlist'])
-    const progressive = (data.formats ?? []).filter((f) =>
-      f.url && f.vcodec && f.vcodec !== 'none' && f.acodec && f.acodec !== 'none' && (f.protocol ?? '').startsWith('http'))
+    const progressive = (data.formats ?? []).filter((f) => f.url && /^http-\d+p$/.test(f.format_id ?? ''))
     const pick = progressive.sort((a, b) => (b.height ?? 0) - (a.height ?? 0))
       .find((f) => (f.height ?? 0) <= 1080) ?? progressive[0]
     if (!pick?.url) return null

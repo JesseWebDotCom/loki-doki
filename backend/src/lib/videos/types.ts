@@ -59,8 +59,14 @@ export interface Pager<T> {
 export type PlaybackInfo =
   /** YouTube: the frontend routes to the native WatchPage + /api/youtube/stream. */
   | { mode: 'native-app' }
-  /** Progressive proxy: /api/videos/:source/stream/:id forwards Range requests upstream. */
+  /** Progressive proxy: /api/videos/:source/stream/:id forwards Range requests upstream.
+   *  Only viable when the CDN accepts a plain server-side fetch (Vimeo does; TikTok's
+   *  CDN 403s a bare fetch even with yt-dlp's exact headers, likely TLS/HTTP2
+   *  fingerprinting — those sources use 'ytdlp-pipe' instead). */
   | { mode: 'proxy-progressive'; upstreamUrl: string; headers?: Record<string, string> }
+  /** Live-piped through a yt-dlp subprocess: no Range/seek support, but works against
+   *  CDNs that reject direct fetches. `formatSelector` is yt-dlp's -f argument. */
+  | { mode: 'ytdlp-pipe'; pageUrl: string; formatSelector?: string }
   /** HLS through the manifest/segment proxy (v.redd.it). */
   | { mode: 'hls'; manifestUrl: string }
   /** Already downloaded: play the blob-store asset. */

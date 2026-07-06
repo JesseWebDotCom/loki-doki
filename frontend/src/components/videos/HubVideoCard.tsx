@@ -9,7 +9,7 @@ import { SOURCE_META } from '@/lib/videos/sources'
 import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 
 /** Ready offline renditions keyed source:videoId (one shared query, cached). */
-function useOfflineSet(): Set<string> {
+export function useOfflineSet(): Set<string> {
   const { data } = useQuery({ queryKey: ['videos-saves', 'all'], queryFn: () => listSaves(), staleTime: 30_000 })
   return new Set((data?.saves ?? []).filter((s) => s.status === 'ready').map((s) => `${s.source}:${s.videoId}`))
 }

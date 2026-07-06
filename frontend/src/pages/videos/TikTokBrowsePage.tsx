@@ -6,26 +6,43 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
-import { addFollow, browseSource, getFollowingFeed, getVideoSources, listFollows } from '@/lib/videos/api'
+import {
+  addFollow, browseSource, getFollowingFeed, getHubHistory, getVideoSources, listFollows,
+  type HubVideoItem,
+} from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
+import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
+import { HubCreatorRail } from '@/components/videos/HubCreatorRail'
 
-// TikTok has no browsable trending here (scrape-only, flaky), so this page is the
-// followed-creators feed: follow @handles and their latest videos accumulate via the
+// TikTok has no browsable trending here (scrape-only, flaky), so this page defaults to
+// popular starter creators until you follow your own; follows accumulate via the
 // background poller. Individual links always work through Clip a Link.
 export function TikTokBrowsePage() {
   const qc = useQueryClient()
   const [activeCreator, setActiveCreator] = useState<string | null>(null)
   const [category, setCategory] = useState<string | null>(null)
   const [handleInput, setHandleInput] = useState('')
+  const [view, setView] = useViewPreference('videos.tiktok_view', 'grid')
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const categories = sourcesData?.sources.find((s) => s.source === 'tiktok')?.browseFeeds ?? []
 
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
   const creators = useMemo(() => (followsData?.follows ?? []).filter((f) => f.source === 'tiktok'), [followsData])
+
+  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory })
+  const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
+    .filter((r) => r.source === 'tiktok' && !r.completed && r.positionSec > 5)
+    .map((r) => ({
+      source: r.source, id: r.videoId, url: '', title: r.title,
+      creator: r.creatorName ? { id: '', name: r.creatorName } : null,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, vertical: true,
+    })), [hubHist])
 
   const { data: feedData, isLoading } = useQuery({
     queryKey: ['videos-following-feed', 'tiktok'],
@@ -81,22 +98,25 @@ export function TikTokBrowsePage() {
         }
       />
 
-      <ChipRow className="mb-5 min-w-0">
-        {creators.length > 0 && (
-          <Chip label="Following" active={activeCreator === null && category === null}
-            onClick={() => { setActiveCreator(null); setCategory(null) }} />
-        )}
-        {categories.map((f) => (
-          <Chip key={f.id} label={f.label}
-            active={category === f.id || (creators.length === 0 && category === null && f.id === 'popular')}
-            onClick={() => { setCategory(f.id); setActiveCreator(null) }} />
-        ))}
-        {creators.length > 0 && <span className="mx-1 h-5 w-px shrink-0 self-center bg-border/70" aria-hidden />}
-        {creators.map((f) => (
-          <Chip key={f.id} label={f.title} active={activeCreator === f.externalId}
-            onClick={() => { setActiveCreator(activeCreator === f.externalId ? null : f.externalId); setCategory(null) }} />
-        ))}
-      </ChipRow>
+      <div className="mb-5 flex items-center gap-3">
+        <ChipRow className="mb-0 min-w-0 flex-1">
+          {creators.length > 0 && (
+            <Chip label="Following" active={activeCreator === null && category === null} activeClassName={SOURCE_META.tiktok.pillActiveClass}
+              onClick={() => { setActiveCreator(null); setCategory(null) }} />
+          )}
+          {categories.map((f) => (
+            <Chip key={f.id} label={f.label} activeClassName={SOURCE_META.tiktok.pillActiveClass}
+              active={category === f.id || (creators.length === 0 && category === null && f.id === 'popular')}
+              onClick={() => { setCategory(f.id); setActiveCreator(null) }} />
+          ))}
+          {creators.length > 0 && <span className="mx-1 h-5 w-px shrink-0 self-center bg-border/70" aria-hidden />}
+          {creators.map((f) => (
+            <Chip key={f.id} label={f.title} active={activeCreator === f.externalId} activeClassName={SOURCE_META.tiktok.pillActiveClass}
+              onClick={() => { setActiveCreator(activeCreator === f.externalId ? null : f.externalId); setCategory(null) }} />
+          ))}
+        </ChipRow>
+        <ViewToggle value={view} onChange={setView} className="shrink-0" />
+      </div>
 
       {showPopular ? (
         popularQuery.isLoading ? (
@@ -105,9 +125,7 @@ export function TikTokBrowsePage() {
             <p className="text-xs">Fetching popular creators, this takes a few seconds the first time…</p>
           </div>
         ) : (popularQuery.data?.items.length ?? 0) > 0 ? (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-            {popularQuery.data!.items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
-          </div>
+          <HubVideoCollection items={popularQuery.data!.items} view={view} showSource={false} />
         ) : (
           <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
             <UserRound className="mb-3 size-10 opacity-30" />
@@ -128,8 +146,17 @@ export function TikTokBrowsePage() {
           Nothing here yet. New uploads appear within about 15 minutes of following.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-          {items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
+        <div className="space-y-10">
+          {!activeCreator && continueWatching.length > 0 && (
+            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} showSource={false} />
+          )}
+          {!activeCreator && creators.length > 0 && (
+            <HubCreatorRail title="Following" source="tiktok"
+              creators={creators.map((c) => ({ id: c.externalId, title: c.title, thumbnailUrl: c.thumbnailUrl ?? null }))} />
+          )}
+          <section>
+            <HubVideoCollection items={items} view={view} showSource={false} />
+          </section>
         </div>
       )}
     </PageContainer>

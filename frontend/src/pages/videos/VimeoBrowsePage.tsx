@@ -5,14 +5,17 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
-import { browseSource, getVideoSources, putVimeoConfig } from '@/lib/videos/api'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { browseSource, getHubHistory, getVideoSources, putVimeoConfig, type HubVideoItem } from '@/lib/videos/api'
+import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
+import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
 import { SOURCE_META } from '@/lib/videos/sources'
 
 function ConnectVimeoCard({ onConfigured }: { onConfigured: () => void }) {
@@ -63,10 +66,20 @@ function ConnectVimeoCard({ onConfigured }: { onConfigured: () => void }) {
 export function VimeoBrowsePage() {
   const qc = useQueryClient()
   const [feed, setFeed] = useState<string>('staffpicks')
+  const [view, setView] = useViewPreference('videos.vimeo_view', 'grid')
   const { data: sourcesData, refetch: refetchSources } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const vimeo = sourcesData?.sources.find((s) => s.source === 'vimeo')
   const configured = vimeo?.status.configured ?? true
   const feeds = vimeo?.browseFeeds ?? []
+
+  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured })
+  const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
+    .filter((r) => r.source === 'vimeo' && !r.completed && r.positionSec > 5)
+    .map((r) => ({
+      source: r.source, id: r.videoId, url: '', title: r.title,
+      creator: r.creatorName ? { id: '', name: r.creatorName } : null,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+    })), [hubHist])
 
   const feedQuery = useInfiniteQuery({
     queryKey: ['vimeo-browse', feed],
@@ -82,7 +95,6 @@ export function VimeoBrowsePage() {
       title={SOURCE_META.vimeo.label}
       icon={SOURCE_META.vimeo.icon}
       gradient={SOURCE_META.vimeo.gradient}
-     
       subtitle="Staff Picks, handpicked by Vimeo."
       className="pt-4 pb-4"
     />
@@ -102,11 +114,17 @@ export function VimeoBrowsePage() {
   return (
     <PageContainer width="wide" className="pt-1 pb-8">
       {header}
-      {feeds.length > 0 && (
-        <ChipRow className="mb-6">
-          {feeds.map((f) => <Chip key={f.id} label={f.label} active={feed === f.id} onClick={() => setFeed(f.id)} />)}
-        </ChipRow>
-      )}
+      <div className="mb-6 flex items-center gap-3">
+        {feeds.length > 0 && (
+          <ChipRow className="mb-0 min-w-0 flex-1">
+            {feeds.map((f) => (
+              <Chip key={f.id} label={f.label} active={feed === f.id} activeClassName={SOURCE_META.vimeo.pillActiveClass}
+                onClick={() => setFeed(f.id)} />
+            ))}
+          </ChipRow>
+        )}
+        <ViewToggle value={view} onChange={setView} className="shrink-0" />
+      </div>
       {feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : feedQuery.isError ? (
@@ -114,18 +132,21 @@ export function VimeoBrowsePage() {
           {feedQuery.error instanceof Error ? feedQuery.error.message : 'Could not load Vimeo right now.'}
         </Card>
       ) : (
-        <>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
-            {items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
-          </div>
-          {feedQuery.hasNextPage && (
-            <div className="mt-8 flex justify-center">
-              <Button variant="outline" onClick={() => void feedQuery.fetchNextPage()} disabled={feedQuery.isFetchingNextPage}>
-                {feedQuery.isFetchingNextPage ? <Spinner size="sm" /> : 'Load more'}
-              </Button>
-            </div>
+        <div className="space-y-10">
+          {feed === 'staffpicks' && continueWatching.length > 0 && (
+            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} showSource={false} />
           )}
-        </>
+          <section>
+            <HubVideoCollection items={items} view={view} showSource={false} />
+            {feedQuery.hasNextPage && (
+              <div className="mt-8 flex justify-center">
+                <Button variant="outline" onClick={() => void feedQuery.fetchNextPage()} disabled={feedQuery.isFetchingNextPage}>
+                  {feedQuery.isFetchingNextPage ? <Spinner size="sm" /> : 'Load more'}
+                </Button>
+              </div>
+            )}
+          </section>
+        </div>
       )}
     </PageContainer>
   )

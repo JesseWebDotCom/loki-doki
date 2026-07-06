@@ -5,6 +5,8 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,9 +14,12 @@ import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
 import {
-  addFollow, browseSource, getVideoSources, listFollows, putRedditConfig,
+  addFollow, browseSource, getHubHistory, getVideoSources, listFollows, putRedditConfig,
+  type HubVideoItem,
 } from '@/lib/videos/api'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
+import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
+import { HubCreatorRail } from '@/components/videos/HubCreatorRail'
 import { SOURCE_META } from '@/lib/videos/sources'
 
 /** Inline connect card: Reddit locked down anonymous access, so browsing needs a free
@@ -69,6 +74,7 @@ export function RedditBrowsePage() {
   const qc = useQueryClient()
   const [activeFeed, setActiveFeed] = useState<string | null>(null)
   const [subInput, setSubInput] = useState('')
+  const [view, setView] = useViewPreference('videos.reddit_view', 'grid')
 
   const { data: sourcesData, refetch: refetchSources } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const reddit = sourcesData?.sources.find((s) => s.source === 'reddit')
@@ -76,6 +82,15 @@ export function RedditBrowsePage() {
 
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows, enabled: configured })
   const subs = useMemo(() => (followsData?.follows ?? []).filter((f) => f.source === 'reddit'), [followsData])
+
+  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured })
+  const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
+    .filter((r) => r.source === 'reddit' && !r.completed && r.positionSec > 5)
+    .map((r) => ({
+      source: r.source, id: r.videoId, url: '', title: r.title,
+      creator: r.creatorName ? { id: '', name: r.creatorName } : null,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+    })), [hubHist])
 
   const feedQuery = useInfiniteQuery({
     queryKey: ['reddit-browse', activeFeed],
@@ -101,7 +116,6 @@ export function RedditBrowsePage() {
       title={SOURCE_META.reddit.label}
       icon={SOURCE_META.reddit.icon}
       gradient={SOURCE_META.reddit.gradient}
-     
       subtitle={configured ? 'Video posts from the communities you follow.' : 'Connect Reddit to browse video communities.'}
       className="pt-4 pb-4"
       actions={extra}
@@ -134,18 +148,21 @@ export function RedditBrowsePage() {
         </form>,
       )}
 
-      <ChipRow className="mb-5 min-w-0">
-        {(reddit?.browseFeeds ?? []).map((f) => (
-          <Chip key={f.id} label={f.label}
-            active={f.id === 'popular' ? activeFeed === null : activeFeed === f.id}
-            onClick={() => setActiveFeed(f.id === 'popular' ? null : f.id)} />
-        ))}
-        {subs.length > 0 && <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />}
-        {subs.map((f) => (
-          <Chip key={f.id} label={f.title.replace(/^r\//, 'r/')}
-            active={activeFeed === f.externalId} onClick={() => setActiveFeed(f.externalId)} />
-        ))}
-      </ChipRow>
+      <div className="mb-5 flex items-center gap-3">
+        <ChipRow className="mb-0 min-w-0 flex-1">
+          {(reddit?.browseFeeds ?? []).map((f) => (
+            <Chip key={f.id} label={f.label} activeClassName={SOURCE_META.reddit.pillActiveClass}
+              active={f.id === 'popular' ? activeFeed === null : activeFeed === f.id}
+              onClick={() => setActiveFeed(f.id === 'popular' ? null : f.id)} />
+          ))}
+          {subs.length > 0 && <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />}
+          {subs.map((f) => (
+            <Chip key={f.id} label={f.title.replace(/^r\//, 'r/')} activeClassName={SOURCE_META.reddit.pillActiveClass}
+              active={activeFeed === f.externalId} onClick={() => setActiveFeed(f.externalId)} />
+          ))}
+        </ChipRow>
+        <ViewToggle value={view} onChange={setView} className="shrink-0" />
+      </div>
 
       {feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
@@ -156,18 +173,25 @@ export function RedditBrowsePage() {
       ) : items.length === 0 ? (
         <p className="py-20 text-center text-sm text-muted-foreground">No playable video posts here right now.</p>
       ) : (
-        <>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
-            {items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
-          </div>
-          {feedQuery.hasNextPage && (
-            <div className="mt-8 flex justify-center">
-              <Button variant="outline" onClick={() => void feedQuery.fetchNextPage()} disabled={feedQuery.isFetchingNextPage}>
-                {feedQuery.isFetchingNextPage ? <Spinner size="sm" /> : 'Load more'}
-              </Button>
-            </div>
+        <div className="space-y-10">
+          {!activeFeed && continueWatching.length > 0 && (
+            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} showSource={false} />
           )}
-        </>
+          {!activeFeed && subs.length > 0 && (
+            <HubCreatorRail title="Your communities" source="reddit"
+              creators={subs.map((s) => ({ id: s.externalId, title: s.title, thumbnailUrl: s.thumbnailUrl ?? null }))} />
+          )}
+          <section>
+            <HubVideoCollection items={items} view={view} showSource={false} />
+            {feedQuery.hasNextPage && (
+              <div className="mt-8 flex justify-center">
+                <Button variant="outline" onClick={() => void feedQuery.fetchNextPage()} disabled={feedQuery.isFetchingNextPage}>
+                  {feedQuery.isFetchingNextPage ? <Spinner size="sm" /> : 'Load more'}
+                </Button>
+              </div>
+            )}
+          </section>
+        </div>
       )}
     </PageContainer>
   )

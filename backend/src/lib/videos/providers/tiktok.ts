@@ -1,9 +1,10 @@
 // TikTok provider: yt-dlp does all extraction (no official API). Creator profiles come
 // from flat-playlist dumps; individual videos from -J on the canonical URL. Trending is
 // deliberately not offered (scrape-based and flaky), so the TikTok area is a
-// followed-creators feed plus paste-a-link. Playback goes through the hub's progressive
-// stream proxy because TikTok's CDN URLs are signed, expire, and require a Referer.
-// Cookies (the shared yt-dlp cookies.txt admins can upload) improve reliability.
+// followed-creators feed plus paste-a-link. Playback pipes a live yt-dlp subprocess
+// (see getPlayback) rather than proxying a resolved CDN URL: TikTok's CDN 403s a bare
+// server-side fetch even given yt-dlp's own exact headers, but yt-dlp's process itself
+// gets through. Cookies (the shared yt-dlp cookies.txt admins can upload) improve reliability.
 
 import { cachedLookup } from '@/lib/lookupCache'
 import { ytDlpJson } from '@/lib/videos/ytdlpJson'
@@ -12,10 +13,11 @@ import type { VideoItem } from '@/lib/videos/types'
 
 const ITEM_TTL = 10 * 60_000       // full -J extraction is slow; cache aggressively
 const PROFILE_TTL = 10 * 60_000    // cold profile extraction takes 5-15s
-const STREAM_TTL = 25 * 60_000     // signed CDN URLs expire around the 30-min mark
 
 const VIDEO_ID = /^\d{15,21}$/
 const HANDLE = /^@?[A-Za-z0-9_.]{2,24}$/
+// Prefer h264 (plays everywhere); shared by playback (yt-dlp -f) and downloadSpec.
+const H264_FORMAT_SELECTOR = 'bv*[vcodec^=h264]+ba/b[vcodec^=h264]/bv*+ba/b'
 
 interface TikTokEntry {
   id?: string
@@ -33,7 +35,6 @@ interface TikTokEntry {
   height?: number
   webpage_url?: string
   url?: string
-  formats?: Array<{ url?: string; ext?: string; vcodec?: string; acodec?: string; protocol?: string; format_note?: string; height?: number; http_headers?: Record<string, string> }>
 }
 
 function canonicalUrl(id: string, uploader?: string | null): string {
@@ -69,26 +70,6 @@ async function fetchItem(id: string): Promise<(VideoItem & { description?: strin
     const data = await ytDlpJson<TikTokEntry>(canonicalUrl(id), ['--no-playlist'])
     const item = toItem(data)
     return item ? { ...item, description: data.description ?? null } : null
-  })
-}
-
-/** Best progressive stream URL + the headers TikTok's CDN insists on. Cached briefly;
- *  exported for the hub's generic stream proxy. */
-export async function tiktokStreamSource(id: string): Promise<{ url: string; headers: Record<string, string> } | null> {
-  if (!VIDEO_ID.test(id)) return null
-  return cachedLookup('tiktok:stream', id, STREAM_TTL, async () => {
-    const data = await ytDlpJson<TikTokEntry>(canonicalUrl(id), ['--no-playlist'])
-    const formats = (data.formats ?? []).filter((f) =>
-      f.url && f.vcodec && f.vcodec !== 'none' && f.acodec && f.acodec !== 'none' && (f.protocol ?? '').startsWith('http'))
-    // Prefer h264 (plays everywhere) and the un-watermarked API formats yt-dlp surfaces.
-    const pick = formats.find((f) => f.vcodec!.startsWith('h264') && !/watermark/i.test(f.format_note ?? ''))
-      ?? formats.find((f) => !/watermark/i.test(f.format_note ?? ''))
-      ?? formats.at(-1)
-    if (!pick?.url) return null
-    return {
-      url: pick.url,
-      headers: { Referer: 'https://www.tiktok.com/', ...(pick.http_headers ?? {}) },
-    }
   })
 }
 
@@ -184,9 +165,14 @@ export const tiktokProvider: VideoProvider = {
   },
 
   async getPlayback(id) {
-    const src = await tiktokStreamSource(id)
-    if (!src) throw new Error('no playable stream for this video')
-    return { mode: 'proxy-progressive', upstreamUrl: src.url, headers: src.headers }
+    const item = await fetchItem(id)
+    if (!item) throw new Error('video not found')
+    // TikTok's CDN 403s a bare server-side fetch even with yt-dlp's own exact headers
+    // (verified: same headers, same URL, still 403 — almost certainly TLS/HTTP2
+    // fingerprinting on their edge, not a header the client can fake). yt-dlp's own
+    // process succeeds where a raw fetch doesn't, so the stream route pipes its stdout
+    // live instead of proxying a resolved CDN URL.
+    return { mode: 'ytdlp-pipe', pageUrl: item.url, formatSelector: H264_FORMAT_SELECTOR }
   },
 
   async fetchCreatorFeed(externalId) {
@@ -204,8 +190,7 @@ export const tiktokProvider: VideoProvider = {
     return {
       method: 'ytdlp',
       url: item.url,
-      // Prefer h264 + the un-watermarked API rendition when TikTok offers one.
-      ytdlpArgs: kind === 'video' ? ['-f', 'bv*[vcodec^=h264]+ba/b[vcodec^=h264]/bv*+ba/b'] : [],
+      ytdlpArgs: kind === 'video' ? ['-f', H264_FORMAT_SELECTOR] : [],
     }
   },
 }

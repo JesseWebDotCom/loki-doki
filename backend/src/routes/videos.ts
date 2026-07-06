@@ -177,22 +177,76 @@ videosRoute.get('/:source/item/:id', async (c) => {
   const user = c.get('user')
   if (item.isAdult && !(await allowAdultVideos(user.id))) return c.json({ error: 'not available' }, 403)
   // Rewrite playback for the client: upstream URLs (signed, Referer-gated) never leave
-  // the server — progressive sources play through our stream proxy below.
+  // the server — progressive and yt-dlp-piped sources both play through /stream below,
+  // just via a different server-side strategy depending on the provider.
   const playback = await provider.getPlayback(item.id)
-  const clientPlayback = playback.mode === 'proxy-progressive'
+  const clientPlayback = (playback.mode === 'proxy-progressive' || playback.mode === 'ytdlp-pipe')
     ? { mode: 'stream' as const, streamUrl: `/api/videos/${source}/stream/${encodeURIComponent(item.id)}` }
     : playback
   return c.json({ item, playback: clientPlayback })
 })
 
-// ── Progressive stream proxy: Range-forwarding fetch of the provider's upstream ──
+// ── Stream proxy: either a Range-forwarding fetch, or a live yt-dlp pipe ────────
+//
+// Two server-side strategies behind one client-facing endpoint, chosen by the
+// provider's PlaybackInfo mode:
+//  - proxy-progressive: fetch the resolved CDN URL ourselves and forward Range
+//    (works when the CDN accepts a plain server fetch — Vimeo).
+//  - ytdlp-pipe: spawn yt-dlp against the page URL and pipe its stdout directly.
+//    No Range/seek support (a live process, not a static resource), but this is the
+//    only thing that gets past CDNs that reject direct fetches even with identical
+//    headers (TikTok) — yt-dlp's own request succeeds where our fetch() doesn't.
 
 videosRoute.get('/:source/stream/:id', async (c) => {
   const provider = getProvider(c.req.param('source'))
   if (!provider) return c.json({ error: 'unknown source' }, 404)
   const playback = await provider.getPlayback(c.req.param('id')).catch(() => null)
-  if (!playback || playback.mode !== 'proxy-progressive') return c.json({ error: 'not streamable' }, 404)
+  if (!playback) return c.json({ error: 'not streamable' }, 404)
 
+  if (playback.mode === 'ytdlp-pipe') {
+    const { ytDlpBin } = await import('@/lib/ytdlp')
+    const { spawn } = await import('node:child_process')
+    const { Readable } = await import('node:stream')
+    const args = [
+      ...(playback.formatSelector ? ['-f', playback.formatSelector] : []),
+      '--no-playlist', '--no-warnings', '--merge-output-format', 'mp4', '-o', '-', playback.pageUrl,
+    ]
+    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    let errTail = ''
+    proc.stderr.on('data', (d: Buffer) => { errTail = (errTail + d.toString()).slice(-2048) })
+    c.req.raw.signal.addEventListener('abort', () => { try { proc.kill('SIGTERM') } catch { /* gone */ } }, { once: true })
+    proc.on('error', () => {})
+    proc.stdout.once('error', () => {})
+
+    // First-byte guard: if yt-dlp fails immediately (bad url, extractor error), surface
+    // a real error instead of a 200 response that silently carries zero bytes. Pulled
+    // exclusively through the stream's own async iterator (never `.once('data', ...)`,
+    // which forces flowing mode and can drop chunks emitted before a later `for await`
+    // reattaches — a classic Node streams footgun for exactly this "peek then resume"
+    // pattern) so no bytes between the first chunk and the rest are ever lost.
+    let exitCode: number | null = null
+    const closed = new Promise<void>((resolve) => proc.once('close', (code) => { exitCode = code; resolve() }))
+    const iter = proc.stdout[Symbol.asyncIterator]() as AsyncIterator<Buffer>
+    const first = await iter.next()
+    if (first.done) {
+      await closed
+      if (exitCode !== 0) {
+        return c.json({ error: `stream failed: ${errTail.trim().split('\n').slice(-2).join(' | ').slice(-300) || 'yt-dlp exited early'}` }, 502)
+      }
+    }
+    const prefixed = (async function* () {
+      if (!first.done) yield first.value
+      while (true) {
+        const next = await iter.next()
+        if (next.done) return
+        yield next.value
+      }
+    })()
+    const body = Readable.toWeb(Readable.from(prefixed)) as unknown as ReadableStream
+    return new Response(body, { headers: { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, max-age=0' } })
+  }
+
+  if (playback.mode !== 'proxy-progressive') return c.json({ error: 'not streamable' }, 404)
   const ac = new AbortController()
   c.req.raw.signal.addEventListener('abort', () => ac.abort(), { once: true })
   const range = c.req.header('range')
