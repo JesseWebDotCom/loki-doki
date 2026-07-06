@@ -211,7 +211,7 @@ async function generateSmartDescription(videoId: string, userId: string, firstNa
   return cleaned
 }
 
-interface YtDlpMeta { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; timestamp?: number; release_timestamp?: number; upload_date?: string; thumbnail?: string }
+interface YtDlpMeta { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; timestamp?: number; release_timestamp?: number; upload_date?: string; thumbnail?: string; like_count?: number; view_count?: number }
 
 /** Publish time in Unix ms from yt-dlp metadata. Prefers the exact release/upload timestamp;
  *  falls back to the date-only upload_date (YYYYMMDD, parsed as UTC midnight). The Plex export
@@ -262,6 +262,8 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
             durationSec: m.duration ?? null,
             publishedAt,
             thumbnailUrl: m.thumbnail ?? null,
+            likeCount: m.like_count ?? null,
+            viewCount: m.view_count ?? null,
             createdAt: new Date(),
           })
           .onConflictDoUpdate({
@@ -274,6 +276,8 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
               // the Plex export needs both (season/episode numbering + episode thumb).
               ...(publishedAt != null ? { publishedAt } : {}),
               ...(m.thumbnail ? { thumbnailUrl: m.thumbnail } : {}),
+              ...(m.like_count != null ? { likeCount: m.like_count } : {}),
+              ...(m.view_count != null ? { viewCount: m.view_count } : {}),
             },
           })
       }

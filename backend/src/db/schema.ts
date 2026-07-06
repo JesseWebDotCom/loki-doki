@@ -1146,6 +1146,8 @@ export const ytVideos = sqliteTable('yt_videos', {
   publishedAt: integer('published_at'),        // Unix ms
   durationSec: integer('duration_sec'),
   views: text('views'),                        // raw view-count text (e.g. "1.2M views" / "1234567"); display via fmtViews
+  likeCount: integer('like_count'),            // numeric, from yt-dlp; feeds the Plex show audience rating
+  viewCount: integer('view_count'),            // numeric, from yt-dlp (views above is display text)
   description: text('description'),
   summary: text('summary'),
   // "Smart Description" — the raw description with promotional/sponsor-read paragraphs

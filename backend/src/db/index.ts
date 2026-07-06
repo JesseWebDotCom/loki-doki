@@ -2685,6 +2685,11 @@ export function runMigrations() {
   // or the transcript summary when the real description is mostly sponsor/ad content.
   addColumn('yt_videos', 'description_clean', 'TEXT')
 
+  // Numeric engagement counts from yt-dlp metadata (views is legacy TEXT display data) —
+  // feed the Plex export's show-level audience rating (like/view ratio).
+  addColumn('yt_videos', 'like_count', 'INTEGER')
+  addColumn('yt_videos', 'view_count', 'INTEGER')
+
   // Videos hub: generic multi-source persistence (see schema.ts videoFollows/videoItems/
   // videoWatchState/videoSaves; plan at ~/.claude/plans/valiant-skipping-fiddle.md).
   // YouTube stays in yt_*; these tables carry reddit/tiktok/vimeo with a source column.
