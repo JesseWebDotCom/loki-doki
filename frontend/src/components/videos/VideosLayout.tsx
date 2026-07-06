@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { youtubeSuggestSource } from '@/lib/youtube/api'
-import { YoutubeRail } from '@/components/youtube/YoutubeRail'
+import { VideosRail } from '@/components/videos/VideosRail'
 import { DownloadDialog, SaveDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
 import { hydrateCollections } from '@/lib/youtube/collections'
 import { DeArrowProvider } from '@/lib/youtube/dearrow'
@@ -21,7 +21,7 @@ interface YoutubeUI {
 const YoutubeUICtx = createContext<YoutubeUI | null>(null)
 export function useYoutubeUI() {
   const ctx = useContext(YoutubeUICtx)
-  if (!ctx) throw new Error('useYoutubeUI must be inside YoutubeLayout')
+  if (!ctx) throw new Error('useYoutubeUI must be inside VideosLayout')
   return ctx
 }
 /** Convenience accessor for just the online/offline mode. */
@@ -35,9 +35,9 @@ export function useYoutubeUIOptional(): YoutubeUI | null { return useContext(You
 // Online = red identity, Offline = emerald, so you always know which side you're on.
 // The accent feeds CSS variables consumed by the whole app via `bg-[var(--yt-accent)]` etc.
 const ACCENT: Record<YoutubeMode, { base: string; hover: string; fg: string }> = {
-  // design-ok(hex-in-tsx): mode identity accents (YouTube brand red / offline emerald) fed into CSS vars + color-mix
+  // design-ok(hex-in-tsx): mode identity accents (Videos brand red / offline emerald) fed into CSS vars + color-mix
   online: { base: '#dc2626', hover: '#ef4444', fg: '#f87171' },
-  // design-ok(hex-in-tsx): mode identity accents (YouTube brand red / offline emerald) fed into CSS vars + color-mix
+  // design-ok(hex-in-tsx): mode identity accents (Videos brand red / offline emerald) fed into CSS vars + color-mix
   offline: { base: '#059669', hover: '#10b981', fg: '#34d399' },
 }
 const MODE_KEY = 'yt.mode'
@@ -50,7 +50,7 @@ function ModeToggle({ mode, onChange }: { mode: YoutubeMode; onChange: (m: Youtu
         <button key={m} type="button" onClick={() => onChange(m)}
           className={cn('rounded-full px-2.5 py-1 capitalize transition-colors',
             mode === m
-              // design-ok(raw-palette-semantic): online/offline mode identity fills (YouTube brand red / offline emerald)
+              // design-ok(raw-palette-semantic): online/offline mode identity fills (Videos brand red / offline emerald)
               ? (m === 'online' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white')
               : 'text-muted-foreground hover:text-foreground')}>
           {m}
@@ -60,7 +60,10 @@ function ModeToggle({ mode, onChange }: { mode: YoutubeMode; onChange: (m: Youtu
   )
 }
 
-export function YoutubeLayout() {
+/** Paths that host YouTube search results (the search box submits here). */
+const SEARCH_HOME_PATHS = new Set(['/videos', '/videos/', '/videos/youtube', '/videos/youtube/'])
+
+export function VideosLayout() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -73,7 +76,7 @@ export function YoutubeLayout() {
   const [downloadTarget, setDownloadTarget] = useState<DownloadTarget | null>(null)
   const [query, setQuery] = useState(params.get('q') ?? '')
 
-  usePublishUIContext({ label: 'YouTube', description: `User is browsing the YouTube app (${mode}).` })
+  usePublishUIContext({ label: 'Videos', description: `User is browsing the Videos app (${mode}).` })
 
   // The right pane is a persistent scroller, so reset it to the top whenever the
   // route changes (e.g. opening a video) instead of inheriting the prior scroll.
@@ -83,10 +86,10 @@ export function YoutubeLayout() {
   // Pull server-side Watch Later / Liked into localStorage once per session.
   useEffect(() => { void hydrateCollections() }, [])
 
-  // Keep the search box in sync with the URL query (search results live on Home).
+  // Keep the search box in sync with the URL query (search results live on the YouTube home).
   const urlQ = params.get('q') ?? ''
   useEffect(() => {
-    if (pathname === '/youtube' || pathname === '/youtube/') setQuery(urlQ)
+    if (SEARCH_HOME_PATHS.has(pathname)) setQuery(urlQ)
   }, [pathname, urlQ])
 
   // Publish the breadcrumb search + the Online/Offline toggle (upper-right).
@@ -94,9 +97,9 @@ export function YoutubeLayout() {
   useAppHeader({
     query,
     setQuery,
-    onSubmit: () => { const t = query.trim(); if (t) navigate(`/youtube?q=${encodeURIComponent(t)}`) },
+    onSubmit: () => { const t = query.trim(); if (t) navigate(`/videos/youtube?q=${encodeURIComponent(t)}`) },
     placeholder: mode === 'online' ? 'Search videos, channels, episodes…' : 'Search your offline library…',
-    settingsHref: '/youtube/settings',
+    settingsHref: '/videos/settings',
     suggest: mode === 'online' ? youtubeSuggestSource : undefined,
     rightSlot,
   })
@@ -122,7 +125,7 @@ export function YoutubeLayout() {
     <YoutubeUICtx.Provider value={ui}>
      <DeArrowProvider>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background" style={accentVars}>
-        <YoutubeRail />
+        <VideosRail />
         <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none pb-28 md:pb-32"><Outlet /></div>
       </div>
 

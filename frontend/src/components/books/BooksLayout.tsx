@@ -30,7 +30,7 @@ const ACCENT: Record<BooksMode, { base: string; hover: string; fg: string; contr
 }
 
 /** Segmented Online/Offline control in the breadcrumb's right slot, the exact
- *  pattern YouTube/Music use (see YoutubeLayout.tsx/MusicLayout.tsx's ModeToggle):
+ *  pattern YouTube/Music use (see VideosLayout.tsx/MusicLayout.tsx's ModeToggle):
  *  a localStorage-backed mode filters already-fetched content client-side rather
  *  than switching endpoints. */
 function ModeToggle({ mode, onChange }: { mode: BooksMode; onChange: (m: BooksMode) => void }) {

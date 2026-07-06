@@ -27,6 +27,7 @@ export function classifyRoute(pathname: string): RouteChrome {
     pathname.startsWith("/maps") ||
     isReader ||
     pathname.startsWith("/imaging") ||
+    // "/video" also covers the "/videos" hub (and the legacy "/youtube" era redirects there).
     pathname.startsWith("/video") ||
     pathname.startsWith("/youtube") ||
     pathname.startsWith("/music") ||

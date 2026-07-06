@@ -70,7 +70,7 @@ export function YoutubeMiniBar() {
     if (pb.expandRequest > 0 && online) setExpanded(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pb.expandRequest])
-  const hidden = !track || location.pathname.startsWith('/youtube/watch') || location.pathname.startsWith('/youtube/shorts') || location.pathname.startsWith('/music/watch')
+  const hidden = !track || location.pathname.startsWith('/videos/youtube/watch') || location.pathname.startsWith('/videos/youtube/shorts') || location.pathname.startsWith('/music/watch')
 
   // ── Online: drive the YouTube IFrame embed ───────────────────────────────────
   useEffect(() => {
@@ -91,7 +91,7 @@ export function YoutubeMiniBar() {
             else if (e.data === 2) setPlaying(false)
             else if (e.data === 3) setLoading(true)
             if (e.data === YT.PlayerState?.ENDED) {
-              void saveWatchState(track.videoId, 0, true)
+              void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined)
               if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close()
             }
           },
@@ -128,7 +128,7 @@ export function YoutubeMiniBar() {
     // the proxy mid-watch resumes at wherever the iframe had actually gotten to.
     const startAt = online ? pipSwitchPos.current : pb.startSec
     const onMeta = () => { try { el.currentTime = startAt } catch { /* not seekable */ } }
-    const onEnd = () => { void saveWatchState(track.videoId, 0, true); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
+    const onEnd = () => { void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
     el.addEventListener('loadedmetadata', onMeta, { once: true })
     el.addEventListener('ended', onEnd)
     void el.play().then(() => {
@@ -165,7 +165,7 @@ export function YoutubeMiniBar() {
       pb.reportPosition(s.t); if (s.d) setDur(s.d)
       if (s.playing) setLoading(false)
       const now = Date.now()
-      if (s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false) }
+      if (s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.expandTo ? { origin: 'music' } : undefined) }
     }, 500)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -204,7 +204,7 @@ export function YoutubeMiniBar() {
     // Music video stations re-open in their own in-music Watch page (expandTo), not the YouTube app.
     if (track!.expandTo) { navigate(track!.expandTo); return }
     navigate(
-      `/youtube/watch/${track!.videoId}${track!.localKind ? `?k=${track!.localKind}` : ''}`,
+      `/videos/youtube/watch/${track!.videoId}${track!.localKind ? `?k=${track!.localKind}` : ''}`,
       { state: { title: track!.title, author: track!.author, channelThumb: track!.channelThumb ?? null } },
     )
   }
@@ -258,7 +258,7 @@ export function YoutubeMiniBar() {
   }
 
   const onClose = () => {
-    if (!isStream) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false) }
+    if (!isStream) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.expandTo ? { origin: 'music' } : undefined) }
     if (isStream) { audioStreamRef.current?.pause() }
     pb.close()
   }
@@ -325,13 +325,13 @@ export function YoutubeMiniBar() {
   // player, and we're not already on the full radio tab.
   const onRadioTab = location.pathname === '/music' && new URLSearchParams(location.search).get('tab') === 'radio'
   const showRadio = radio.active && !track && !onRadioTab
-    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
+    && !location.pathname.startsWith('/videos/youtube/watch') && !location.pathname.startsWith('/videos/youtube/shorts')
   if (showRadio) return <RadioMiniBar />
 
   // Live internet radio: same slot, when nothing else claims it (the mediaCoordinator's
   // acquireAudio already guarantees only one engine plays at a time).
   const showLiveRadio = liveRadio.active && !track && !radio.active
-    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
+    && !location.pathname.startsWith('/videos/youtube/watch') && !location.pathname.startsWith('/videos/youtube/shorts')
   if (showLiveRadio) return <LiveRadioMiniBar />
 
   if (hidden) return null

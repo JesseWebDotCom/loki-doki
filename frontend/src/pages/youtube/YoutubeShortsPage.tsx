@@ -45,7 +45,7 @@ export function YoutubeShortsPage() {
     const target = queue[(base + queue.length) % queue.length]
     if (!target) return
     if (target.videoId === videoId) { playerRef.current?.seek(0); return }   // single-short feed → just replay
-    navigate(`/youtube/shorts/${target.videoId}`,
+    navigate(`/videos/youtube/shorts/${target.videoId}`,
       { state: { title: target.title, author: target.author, channelThumb: target.channelThumb, dir } })
   }, [index, queue, navigate, videoId])
 
@@ -109,7 +109,7 @@ export function YoutubeShortsPage() {
           videoMeta={{ title, author, channelId, durationSec: meta?.durationSec ?? null }} />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pt-14">
           {author && (channelId ? (
-            <Link to={`/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
+            <Link to={`/videos/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
               className="pointer-events-auto inline-flex items-center gap-2.5">
               <ChannelAvatar title={author} src={channelThumb} className="size-9 text-xs ring-2 ring-white/70" />
               <span className="text-sm font-semibold text-white">{author}</span>
@@ -135,7 +135,7 @@ export function YoutubeShortsPage() {
         </div>
         <RailBtn icon={Heart} label="Like" active={liked} onClick={() => toggleCollection('liked', snapshot)} />
         <RailBtn icon={Clock} label="Later" active={watchLater} onClick={() => toggleCollection('watch-later', snapshot)} />
-        <Link to={`/youtube/watch/${videoId}`} className="flex flex-col items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+        <Link to={`/videos/youtube/watch/${videoId}`} className="flex flex-col items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
           <span className="flex size-12 items-center justify-center rounded-full bg-muted"><Maximize2 className="size-5" /></span>
           Full
         </Link>

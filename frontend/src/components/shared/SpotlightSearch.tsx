@@ -40,7 +40,7 @@ interface LibraryItem {
 // Mirrors backend SearchHit (routes/search.ts).
 interface ContentHit {
   kind: "content";
-  type: "bookmark" | "news" | "companion" | "device" | "youtube" | "podcast";
+  type: "bookmark" | "news" | "companion" | "device" | "youtube" | "podcast" | "clip" | "video";
   id: string;
   title: string;
   subtitle: string | null;
@@ -86,6 +86,8 @@ const CONTENT_ICON: Record<ContentHit["type"], LucideIcon> = {
   device: Package,
   youtube: Play,
   podcast: Mic,
+  clip: Play,
+  video: Play,
 };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);

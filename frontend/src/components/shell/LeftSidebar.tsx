@@ -419,7 +419,7 @@ export function LeftSidebar() {
         if (imaging.doneAt && Date.now() - imaging.doneAt < BADGE_EXPIRY_MS) return 'done'
       }
     }
-    if (href === '/video') {
+    if (href === '/videos') {
       const isAdultHidden = privacyEnabled && video.isAdult && !adultVisible
       if (!isAdultHidden && video.state.status === 'generating') return 'busy'
       if (!isAdultHidden && video.state.status === 'done' && !pathname.startsWith('/video')) {

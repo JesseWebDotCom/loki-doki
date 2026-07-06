@@ -67,7 +67,7 @@ export function YoutubePlaylistPage() {
           {/* design-ok(raw-h1-in-pages): playlist identity header (content title, not app chrome) */}
           <h1 className="truncate text-display">{title}</h1>
           {owner?.channelId ? (
-            <Link to={`/youtube/channel/${encodeURIComponent(owner.channelId)}`}
+            <Link to={`/videos/youtube/channel/${encodeURIComponent(owner.channelId)}`}
               state={{ title: owner.name, thumbnailUrl: owner.thumbnailUrl }}
               className="mt-1 inline-flex items-center gap-2 rounded-full py-0.5 pr-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
               <ChannelAvatar title={owner.name ?? 'Channel'} src={owner.thumbnailUrl} className="size-6 text-[10px] ring-1 ring-border/40" />

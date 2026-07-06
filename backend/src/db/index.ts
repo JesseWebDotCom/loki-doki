@@ -2684,4 +2684,131 @@ export function runMigrations() {
   // "Smart Description" (see schema.ts ytVideos.descriptionClean) — LLM-cleaned description,
   // or the transcript summary when the real description is mostly sponsor/ad content.
   addColumn('yt_videos', 'description_clean', 'TEXT')
+
+  // Videos hub: generic multi-source persistence (see schema.ts videoFollows/videoItems/
+  // videoWatchState/videoSaves; plan at ~/.claude/plans/valiant-skipping-fiddle.md).
+  // YouTube stays in yt_*; these tables carry reddit/tiktok/vimeo with a source column.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS video_follows (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'creator',
+      external_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      handle TEXT,
+      thumbnail_url TEXT,
+      description TEXT,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      last_fetched_at INTEGER,
+      auto_save INTEGER NOT NULL DEFAULT 0,
+      auto_save_kind TEXT NOT NULL DEFAULT 'video',
+      auto_save_keep INTEGER,
+      added_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, external_id)
+    );
+    CREATE TABLE IF NOT EXISTS video_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      follow_id TEXT REFERENCES video_follows(id) ON DELETE SET NULL,
+      title TEXT NOT NULL DEFAULT '',
+      creator_id TEXT,
+      creator_name TEXT,
+      url TEXT,
+      thumbnail_url TEXT,
+      duration_sec INTEGER,
+      published_at INTEGER,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      meta_json TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(source, external_id)
+    );
+    CREATE INDEX IF NOT EXISTS video_items_follow_idx ON video_items(follow_id, published_at);
+    CREATE TABLE IF NOT EXISTS video_watch_state (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      position_sec REAL NOT NULL DEFAULT 0,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, video_id)
+    );
+    CREATE TABLE IF NOT EXISTS video_saves (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'video',
+      status TEXT NOT NULL DEFAULT 'pending',
+      asset_id TEXT,
+      size_bytes INTEGER,
+      max_height INTEGER,
+      thumbnail_url TEXT,
+      creator_name TEXT,
+      duration_sec INTEGER,
+      source_url TEXT,
+      auto INTEGER NOT NULL DEFAULT 0,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, video_id, kind)
+    );
+    CREATE INDEX IF NOT EXISTS video_saves_user_idx ON video_saves(user_id, created_at);
+  `)
+
+  // Cross-source collections/playlists: YouTube rows keep the default; new sources tag
+  // theirs. Named video_source because yt_collections.source already means local-vs-google
+  // account-sync ownership. (The existing unique constraints can't gain video_source
+  // without a table rebuild — IDs across sources can't realistically collide; accept it.)
+  addColumn('yt_collections', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
+  addColumn('yt_playlist_videos', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
+
+  // Watch-history hygiene: Music-station plays share the YouTube player but belong to
+  // the Music app (see schema.ts ytWatchState.origin). Retro-tag rows whose video only
+  // exists as a music-origin/prefetch download so they leave the Videos history.
+  addColumn('yt_watch_state', 'origin', "TEXT NOT NULL DEFAULT 'youtube'")
+  sqlite.exec(`
+    UPDATE yt_watch_state SET origin = 'music' WHERE origin = 'youtube' AND video_id IN (
+      SELECT video_id FROM yt_downloads WHERE origin = 'music' OR prefetch = 1
+    ) AND video_id NOT IN (SELECT video_id FROM yt_collections)
+  `)
+
+  // Videos Create studio (see schema.ts studioProjects/studioMedia/studioProjectAssets).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS studio_projects (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      edl_json TEXT NOT NULL,
+      duration_sec REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS studio_media (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      origin TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'video',
+      asset_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      duration_sec REAL,
+      width INTEGER,
+      height INTEGER,
+      source_meta TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS studio_media_user_idx ON studio_media(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS studio_project_assets (
+      project_id TEXT NOT NULL REFERENCES studio_projects(id) ON DELETE CASCADE,
+      asset_id TEXT NOT NULL,
+      UNIQUE(project_id, asset_id)
+    );
+  `)
 }

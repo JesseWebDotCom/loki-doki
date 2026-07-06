@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertCircle, Clock, Download, Film, Globe, Music2, Play, Scissors, X,
+  AlertCircle, ArrowUpRight, Clock, Download, Film, Globe, Music2, Play, Scissors, X,
 } from 'lucide-react'
 
 import { PageShell } from '@/components/shared/PageShell'
@@ -24,6 +25,17 @@ import {
   checkDirectPlay, clipFileUrl, clipStreamUrl, listClips, resolveClipUrl, saveClip,
   type Clip, type ClipKind, type ClipPreview,
 } from '@/lib/clipper/api'
+import { resolveVideoUrl, type ResolveResult, type VideoSource } from '@/lib/videos/api'
+
+/** Deep-link targets inside the hub for provider-claimed URLs. */
+const SOURCE_PATHS: Record<VideoSource, { watch: (id: string) => string; creator: (id: string) => string }> = {
+  youtube: { watch: (id) => `/videos/youtube/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/youtube/channel/${encodeURIComponent(id)}` },
+  reddit: { watch: (id) => `/videos/reddit/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/reddit/r/${encodeURIComponent(id)}` },
+  tiktok: { watch: (id) => `/videos/tiktok/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/tiktok/creator/${encodeURIComponent(id)}` },
+  vimeo: { watch: (id) => `/videos/vimeo/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/vimeo/channel/${encodeURIComponent(id)}` },
+}
+
+type ProviderHit = Extract<ResolveResult, { kind: 'provider' }>
 
 const CLIPS_QUERY_KEY = ['clipper-clips']
 
@@ -58,6 +70,7 @@ export function ClipperPage() {
   const [urlError, setUrlError] = useState<string | null>(null)
   const [resolving, setResolving] = useState(false)
   const [resolveError, setResolveError] = useState<string | null>(null)
+  const [providerHit, setProviderHit] = useState<ProviderHit | null>(null)
   const [preview, setPreview] = useState<ClipPreview | null>(null)
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null)
   const [canPlay, setCanPlay] = useState<boolean | null>(null)
@@ -96,16 +109,50 @@ export function ClipperPage() {
     setUrlError(null)
     setResolveError(null)
     setResolving(true)
+    setProviderHit(null)
     setPreview(null)
     setResolvedUrl(null)
     setCanPlay(null)
     setPlayerActive(false)
     try {
-      const meta = await resolveClipUrl(trimmed)
+      // Provider-aware resolve: URLs a hub source claims (YouTube video/channel, and
+      // Reddit/TikTok/Vimeo as they land) get a rich card with an in-app Open link;
+      // everything else falls through to the classic yt-dlp clip preview.
+      const result = await resolveVideoUrl(trimmed)
+      if (result.kind === 'provider') {
+        setProviderHit(result)
+        setResolvedUrl(trimmed)
+      } else {
+        setPreview({
+          title: result.title,
+          thumbnailUrl: result.thumbnailUrl,
+          durationSeconds: result.durationSeconds,
+          extractor: result.extractor,
+          formats: result.formats,
+        })
+        setResolvedUrl(trimmed)
+        setCheckingPlay(true)
+        checkDirectPlay(trimmed)
+          .then(setCanPlay)
+          .finally(() => setCheckingPlay(false))
+      }
+    } catch (err) {
+      setResolveError(err instanceof Error ? err.message : 'Could not resolve that link')
+    } finally {
+      setResolving(false)
+    }
+  }
+
+  /** "Clip anyway": treat a provider-claimed URL as a plain clip (classic flow). */
+  async function handleClipAnyway() {
+    if (!resolvedUrl) return
+    setResolving(true)
+    setProviderHit(null)
+    try {
+      const meta = await resolveClipUrl(resolvedUrl)
       setPreview(meta)
-      setResolvedUrl(trimmed)
       setCheckingPlay(true)
-      checkDirectPlay(trimmed)
+      checkDirectPlay(resolvedUrl)
         .then(setCanPlay)
         .finally(() => setCheckingPlay(false))
     } catch (err) {
@@ -163,6 +210,53 @@ export function ClipperPage() {
           <Card variant="flat" className="mt-4 flex items-start gap-2.5 p-4">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
             <p className="text-sm text-foreground/90">{resolveError}</p>
+          </Card>
+        )}
+
+        {/* Provider hit: the URL belongs to a hub source, so offer the rich in-app view. */}
+        {providerHit && (
+          <Card className="mt-4 overflow-hidden">
+            <div className="flex flex-col gap-4 p-4 sm:flex-row">
+              <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-control bg-muted sm:w-64">
+                {(providerHit.match === 'video' ? providerHit.item.thumbnailUrl : providerHit.creator.avatarUrl) ? (
+                  <img
+                    src={proxyImg((providerHit.match === 'video' ? providerHit.item.thumbnailUrl : providerHit.creator.avatarUrl)!)}
+                    alt="" className="size-full object-cover"
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center">
+                    <Film className="size-8 text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <p className="truncate text-base font-semibold">
+                  {providerHit.match === 'video' ? (providerHit.item.title || 'Untitled video') : providerHit.creator.name}
+                </p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1 capitalize"><Globe className="size-3" /> {providerHit.source}</span>
+                  {providerHit.match === 'video' && providerHit.item.creator?.name && <span>{providerHit.item.creator.name}</span>}
+                  {providerHit.match === 'video' && providerHit.item.durationSec != null && (
+                    <span className="flex items-center gap-1"><Clock className="size-3" /> {fmtTime(providerHit.item.durationSec)}</span>
+                  )}
+                </div>
+                <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
+                  <Button asChild size="sm" className="gap-1.5">
+                    <Link to={providerHit.match === 'video'
+                      ? SOURCE_PATHS[providerHit.source].watch(providerHit.item.id)
+                      : SOURCE_PATHS[providerHit.source].creator(providerHit.creator.id)}>
+                      <ArrowUpRight className="size-4" />
+                      {providerHit.match === 'video' ? 'Open to watch or save' : 'Open channel'}
+                    </Link>
+                  </Button>
+                  {providerHit.match === 'video' && (
+                    <Button size="sm" variant="outline" className="gap-1.5" disabled={resolving} onClick={() => void handleClipAnyway()}>
+                      <Scissors className="size-4" /> Clip anyway
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
           </Card>
         )}
 

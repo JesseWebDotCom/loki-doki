@@ -129,7 +129,7 @@ export function ControllerDisplay({ page, interactive = false, deviceId = '' }: 
         else if (a.action === 'next_track') radio.skip()
         else if (a.action === 'prev_track') radio.seek(0)
       } else if (a.type === 'navigate') {
-        if (a.app === 'youtube' && typeof a.videoId === 'string') navigate(`/youtube/watch/${a.videoId}`)
+        if (a.app === 'youtube' && typeof a.videoId === 'string') navigate(`/videos/youtube/watch/${a.videoId}`)
         else if (typeof a.app === 'string') navigate(`/${a.app}`)
       }
     } catch (e) { console.warn('[controller] action failed', e) }

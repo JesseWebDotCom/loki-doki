@@ -161,6 +161,7 @@ export async function installKiwixTools(
     const proc = spawn('npm', ['install', '@openzim/libzim'], {
       cwd: BACKEND_DIR,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     })
 
     proc.stdout.on('data', (chunk: Buffer) => {
@@ -389,6 +390,7 @@ export function spawnKiwix(zimPaths: string[]): void {
     cwd: BACKEND_DIR,
     detached: true,
     stdio: 'ignore',
+    windowsHide: true,
   })
   kiwixProc = child
   watchProc(child)

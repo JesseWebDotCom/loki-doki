@@ -198,6 +198,12 @@ const MAX_PAGES = 20
  * channels derived from the FEsubscriptions video feed (only channels with recent
  * uploads, but never empty for an account that has any activity).
  */
+/** The linked account's watch history (FEhistory browse), newest first. */
+export async function fetchWatchHistory(accessToken: string, limit = 60): Promise<TvVideo[]> {
+  const data = await tvCall('browse', accessToken, { browseId: 'FEhistory' })
+  return collectVideosDeep(data).slice(0, limit)
+}
+
 export async function fetchSubscribedChannels(accessToken: string): Promise<TvChannel[]> {
   const channels = new Map<string, TvChannel>()
 

@@ -25,7 +25,21 @@ import { computeKeepRanges, type Range } from '@/lib/plex/cut/videoCut'
 import { cutAndRenderSrt } from '@/lib/plex/cut/subtitleCut'
 import { rm, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, basename } from 'node:path'
+import { spawn } from 'node:child_process'
+import { ffprobeBin } from '@/lib/ffmpeg'
 import { logger } from '@/lib/logger'
+
+/** Container duration in seconds via ffprobe (same probe media/enhance.ts uses); 0 when
+ *  unreadable — which makes writeEpisodeThumb skip rather than publish a badge-less thumb. */
+function probeDurationSec(path: string): Promise<number> {
+  return new Promise((resolve) => {
+    const p = spawn(ffprobeBin(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    let out = ''
+    p.stdout?.on('data', (c: Buffer) => { out += c.toString() })
+    p.on('close', () => { const n = parseFloat(out.trim()); resolve(Number.isFinite(n) && n > 0 ? n : 0) })
+    p.on('error', () => resolve(0))
+  })
+}
 
 const CONTENT_TYPE = 'youtube'
 
@@ -57,6 +71,18 @@ function seasonDisplayName(variant: 'main' | 'shorts', seasonYear: number): stri
 
 const PLEX_TIMEOUT_MS = 15_000
 
+/** BCP-47-ish caption code ("en", "en-US", "pt-BR") → the ISO 639-2 code MP4 language atoms
+ *  want. Unmapped languages return 'und' — which Plex shows as "Unknown", same as untagged,
+ *  so an exotic language never regresses below the status quo. */
+const ISO639_2: Record<string, string> = {
+  en: 'eng', es: 'spa', fr: 'fra', de: 'deu', it: 'ita', pt: 'por', nl: 'nld', sv: 'swe',
+  no: 'nor', da: 'dan', fi: 'fin', pl: 'pol', ru: 'rus', uk: 'ukr', cs: 'ces', tr: 'tur',
+  ar: 'ara', he: 'heb', hi: 'hin', ja: 'jpn', ko: 'kor', zh: 'zho', vi: 'vie', th: 'tha', id: 'ind',
+}
+function toIso639_2(captionLang: string): string {
+  return ISO639_2[captionLang.toLowerCase().split('-')[0] ?? ''] ?? 'und'
+}
+
 async function resolveShowRatingKey(conn: PlexConnection, sectionKey: string, showTitle: string): Promise<string | null> {
   try {
     const res = await fetch(`${conn.baseUrl}/library/sections/${encodeURIComponent(sectionKey)}/all?type=2&X-Plex-Token=${encodeURIComponent(conn.token)}`, {
@@ -80,7 +106,12 @@ async function setShowDescription(sectionKey: string, showTitle: string, descrip
   if (!description) return
   const conn = await getPlexConnection()
   if (!conn) return
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // A brand-new show isn't in Plex's index until a section scan finds it — and on a fresh
+  // section that's the DEBOUNCED full scan (30s trailing, see refresh.ts), not the instant
+  // targeted refresh. The old 3×1.5s retry window always expired first, so every show in a
+  // recreated library ended up with no description (confirmed live). Fire-and-forget caller,
+  // so a patient window is free: ~3 minutes at 15s spacing.
+  for (let attempt = 0; attempt < 12; attempt++) {
     const ratingKey = await resolveShowRatingKey(conn, sectionKey, showTitle)
     if (ratingKey) {
       const params = new URLSearchParams({ type: '2', id: ratingKey, 'summary.value': description, 'summary.locked': '1', 'X-Plex-Token': conn.token })
@@ -93,8 +124,9 @@ async function setShowDescription(sectionKey: string, showTitle: string, descrip
         logger.warn(`[plex-export] setShowDescription PUT failed for "${showTitle}": ${err}`)
       }
     }
-    if (attempt < 2) await new Promise(r => setTimeout(r, 1500))
+    if (attempt < 11) await new Promise(r => setTimeout(r, 15_000))
   }
+  logger.warn(`[plex-export] gave up setting description for "${showTitle}" — show never appeared in Plex's index`)
 }
 
 async function ensureShow(
@@ -253,27 +285,47 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   const seasonDirAbs = joinUnderRoot(root, seasonRel)
   const videoAbsPath = joinUnderRoot(seasonDirAbs, names.video)
 
+  // Transcript first: its language is the only audio-language signal we have (YouTube's
+  // API doesn't expose one reliably), and the placement remux wants it for the audio
+  // stream's language atom — untagged audio lists as "Unknown" in Plex's stream picker.
+  let vttPath: string | null = null
+  let captionLang = 'en'
+  try {
+    vttPath = await ensureTranscript(videoId, userId, user.firstName)
+    if (vttPath) captionLang = basename(vttPath).match(/\.([a-zA-Z-]+)\.vtt$/)?.[1] ?? 'en'
+  } catch { /* transcript is optional; language falls back below */ }
+
   const sourceAbsPath = await blobAbsPath(rendition.blobHash)
-  await placeVideoWithMetadata(sourceAbsPath, videoAbsPath, { title: video.title, plot: episodePlot })
+  await placeVideoWithMetadata(sourceAbsPath, videoAbsPath, { title: video.title, plot: episodePlot, audioLang: toIso639_2(captionLang) })
 
   await mkdir(dirname(videoAbsPath), { recursive: true })
   await writeFile(joinUnderRoot(seasonDirAbs, names.nfo), buildEpisodeNfo({
     title: video.title, plot: episodePlot, aired: isoDate(video.publishedAt),
     season: seasonYear, episode: episodeNumber,
   }))
-  await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), video.thumbnailUrl, video.durationSec)
+  // A row saved outside a subscription feed may have no stored thumbnail URL, but YouTube
+  // thumbnail URLs are deterministic from the videoId — fall back through the standard
+  // sizes (maxres only exists for some videos; hqdefault always does). writeEpisodeThumb
+  // refuses to publish a badge-less thumb, so resolve a real duration first: DB value,
+  // else ffprobe the just-placed file (its container always knows).
+  const badgeDurationSec = video.durationSec ?? await probeDurationSec(videoAbsPath)
+  if (badgeDurationSec && !video.durationSec) {
+    await db.update(ytVideos).set({ durationSec: Math.round(badgeDurationSec) }).where(eq(ytVideos.videoId, videoId))
+  }
+  for (const cand of [video.thumbnailUrl, `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`, `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`]) {
+    if (cand && await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), cand, badgeDurationSec)) break
+  }
 
   // Captions: re-time against the SAME keepRanges used for the video (identity when
   // nothing was cut) so they can never drift out of sync with what's actually playing.
+  // (vttPath/captionLang resolved above, before placement, for the audio-language atom.)
   let srtWritten = false
   try {
-    const vttPath = await ensureTranscript(videoId, userId, user.firstName)
     if (vttPath) {
-      const lang = basename(vttPath).match(/\.([a-zA-Z-]+)\.vtt$/)?.[1] ?? 'en'
       const vtt = await readFile(vttPath, 'utf8')
       const srt = cutAndRenderSrt(vtt, rendition.keepRanges)
       if (srt.trim()) {
-        await writeFile(joinUnderRoot(seasonDirAbs, names.srt(lang)), srt)
+        await writeFile(joinUnderRoot(seasonDirAbs, names.srt(captionLang)), srt)
         srtWritten = true
       }
     }

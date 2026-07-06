@@ -48,10 +48,13 @@ function releaseUrl(): string {
   return `${base}/yt-dlp_linux`
 }
 
-// The binary every other module shells out to. Defaults to PATH; ensureYtDlp() promotes
-// it to the managed copy when that's the better/only option. Read synchronously by the
-// spawn call sites — safe because it only ever moves from 'yt-dlp' → an absolute path.
-let resolvedBin = 'yt-dlp'
+// The binary every other module shells out to. ensureYtDlp() (boot) verifies and promotes
+// as needed; read synchronously by the spawn call sites. The DEFAULT must already prefer an
+// existing managed copy: bun --hot re-evaluates this module on any backend file change,
+// wiping the boot-time promotion — with a bare 'yt-dlp' default (not on PATH here), every
+// download/save after a hot reload failed with uv_spawn ENOENT until the next full restart
+// (confirmed live 2026-07-06: 20 saves failed in one burst mid-dev-session).
+let resolvedBin = existsSync(MANAGED_PATH) ? MANAGED_PATH : 'yt-dlp'
 export function ytDlpBin(): string { return resolvedBin }
 
 // Bound concurrent yt-dlp subprocesses spawned by synchronous request paths (stream

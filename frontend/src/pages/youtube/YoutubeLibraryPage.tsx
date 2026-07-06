@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock, Heart, History, Trash2, Download, ListVideo, Plus, Search, X, type LucideIcon } from 'lucide-react'
+import { Clock, Heart, History, Trash2, ListVideo, Plus, Search, X, type LucideIcon } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -15,7 +15,10 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { useYtDownloads } from '@/lib/youtube/useData'
-import { getHistory, deleteDownloads, cancelDownloads, clearHistory, removeHistoryItem, type HistoryRow, type SavedRow } from '@/lib/youtube/api'
+import { getHistoryFull, deleteDownloads, cancelDownloads, clearHistory, removeHistoryItem, type HistoryRow, type SavedRow } from '@/lib/youtube/api'
+import { getHubHistory, type VideoSource } from '@/lib/videos/api'
+import { LibrarySourceRow, type LibrarySourceFilter } from '@/components/videos/LibrarySourceRow'
+import { HubVideoCard } from '@/components/videos/HubVideoCard'
 import { savedToItem, historyToItem, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge, fmtBytes } from '@/lib/youtube/format'
 import { VideoThumb } from '@/components/youtube/media'
@@ -32,7 +35,7 @@ const toVid = (item: VideoItem) => ({ videoId: item.videoId, title: item.title, 
 
 const metaToItem = (m: SavedVideoMeta): VideoItem => ({ videoId: m.videoId, title: m.title, author: m.author, channelId: m.channelId, channelThumb: m.channelThumb, durationSec: m.durationSec })
 
-// Each library section is its own page/route with its own header — click "History"
+// Each library section is its own page/route with its own header: click "History"
 // and you land on a dedicated History page, not a shared "Library" shell with tabs.
 function LibraryPage({ title, icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
@@ -47,7 +50,7 @@ export function YoutubeHistoryPage() {
   return <LibraryPage title="History" icon={History}><HistoryTab /></LibraryPage>
 }
 export function YoutubePlaylistsPage() {
-  return <LibraryPage title="Playlists" icon={ListVideo}><PlaylistsTab /></LibraryPage>
+  return <LibraryPage title="Playlists" icon={ListVideo}><PlaylistsTabSourceRowHost><PlaylistsTab /></PlaylistsTabSourceRowHost></LibraryPage>
 }
 export function YoutubeWatchLaterPage() {
   return <LibraryPage title="Watch Later" icon={Clock}><CollectionTab kind="watch-later" empty="Nothing in Watch Later yet." /></LibraryPage>
@@ -55,9 +58,7 @@ export function YoutubeWatchLaterPage() {
 export function YoutubeLikedPage() {
   return <LibraryPage title="Liked" icon={Heart}><CollectionTab kind="liked" empty="No liked videos yet." /></LibraryPage>
 }
-export function YoutubeOfflinePage() {
-  return <LibraryPage title="Offline" icon={Download}><SavedTab /></LibraryPage>
-}
+export { LibraryPage }
 
 // Bucket history rows into YouTube-style date sections (rows arrive newest-first).
 function groupHistoryByDate(rows: HistoryRow[]): { label: string; rows: HistoryRow[] }[] {
@@ -79,7 +80,18 @@ function groupHistoryByDate(rows: HistoryRow[]): { label: string; rows: HistoryR
 
 function HistoryTab() {
   const qc = useQueryClient()
-  const { data: history = [], isPending } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
+  const { data: full, isPending } = useQuery({ queryKey: ['yt-history-full'], queryFn: getHistoryFull })
+  const history = full?.history ?? []
+  const accountHistory = full?.accountHistory ?? []
+  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory })
+  const hubRows = hubHist?.history ?? []
+  const [sourceFilter, setSourceFilter] = useState<LibrarySourceFilter>('all')
+  const availableSources = useMemo(() => {
+    const set = new Set<VideoSource>()
+    if (history.length || accountHistory.length) set.add('youtube')
+    for (const r of hubRows) set.add(r.source)
+    return [...set]
+  }, [history.length, accountHistory.length, hubRows])
   const [q, setQ] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
   const [view, setView] = useViewPreference('youtube.library_history_view', 'grid')
@@ -92,20 +104,30 @@ function HistoryTab() {
   const groups = useMemo(() => groupHistoryByDate(filtered), [filtered])
 
   const remove = async (videoId: string) => {
-    qc.setQueryData<HistoryRow[]>(['yt-history'], prev => (prev ?? []).filter(h => h.videoId !== videoId))
+    qc.setQueryData<{ history: HistoryRow[]; accountHistory: unknown[] }>(['yt-history-full'],
+      prev => prev ? { ...prev, history: prev.history.filter(h => h.videoId !== videoId) } : prev)
     try { await removeHistoryItem(videoId) }
-    catch { toast.error('Could not remove'); qc.invalidateQueries({ queryKey: ['yt-history'] }) }
+    catch { toast.error('Could not remove'); qc.invalidateQueries({ queryKey: ['yt-history-full'] }) }
   }
   const clearAll = async () => {
-    try { await clearHistory(); qc.setQueryData(['yt-history'], []); toast.success('Watch history cleared') }
+    try {
+      await clearHistory()
+      qc.setQueryData<{ history: HistoryRow[]; accountHistory: unknown[] }>(['yt-history-full'],
+        prev => prev ? { ...prev, history: [] } : prev)
+      toast.success('Watch history cleared')
+    }
     catch { toast.error('Could not clear history') }
   }
 
   if (isPending) return <SkeletonCards count={8} className="xl:grid-cols-4" />
-  if (!history.length) return <Empty label="No watch history yet. Videos you play show up here." />
+  if (!history.length && !accountHistory.length && !hubRows.length) return <Empty label="No watch history yet. Videos you play show up here." />
+
+  const showYt = sourceFilter === 'all' || sourceFilter === 'youtube'
+  const shownHubRows = hubRows.filter(r => sourceFilter === 'all' ? true : r.source === sourceFilter)
 
   return (
     <div>
+      <LibrarySourceRow available={availableSources} active={sourceFilter} onChange={setSourceFilter} />
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="relative min-w-0 flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -117,7 +139,7 @@ function HistoryTab() {
         <ViewToggle value={view} onChange={setView} className="ml-auto shrink-0" />
       </div>
 
-      {!groups.length ? (
+      {!showYt ? null : !groups.length ? (
         <Empty label={`No history matches “${q}”.`} />
       ) : (
         <div className="space-y-8">
@@ -139,6 +161,34 @@ function HistoryTab() {
         </div>
       )}
 
+      {shownHubRows.length > 0 && sourceFilter !== 'youtube' && (
+        <section className="mt-10">
+          <h3 className="mb-3 text-sm font-semibold text-muted-foreground">From other sources</h3>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
+            {shownHubRows.map(r => (
+              <HubVideoCard key={`${r.source}:${r.videoId}`} item={{
+                source: r.source, id: r.videoId, url: '', title: r.title,
+                creator: r.creatorName ? { id: '', name: r.creatorName } : null,
+                thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+              }} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {accountHistory.length > 0 && showYt && (
+        <section className="mt-10">
+          <h3 className="mb-3 text-sm font-semibold text-muted-foreground">Watched on your YouTube account</h3>
+          <VideoCollection
+            items={accountHistory.map(v => ({
+              videoId: v.videoId, title: v.title, author: v.author,
+              channelId: v.channelId, durationSec: v.durationSec,
+            }))}
+            view={view}
+          />
+        </section>
+      )}
+
       <ConfirmDialog open={confirmClear} onOpenChange={setConfirmClear} title="Clear all watch history?"
         description="This removes every video from your history and resets their resume positions." destructive
         confirmLabel="Clear all" onConfirm={() => void clearAll()} />
@@ -147,7 +197,7 @@ function HistoryTab() {
 }
 
 // Everything saved for offline, findable regardless of the app's Online/Offline mode.
-function SavedTab() {
+export function SavedTab() {
   const qc = useQueryClient()
   const { data: downloads = [], isPending } = useYtDownloads()
   // In-flight saves (queued or downloading) show at the top with a live progress bar, so a
@@ -168,7 +218,7 @@ function SavedTab() {
 
   // Manual trigger while the Plex export feature is new (automatic sync on save/prune
   // is a separate, later piece of the same feature). Requires a Plex library already
-  // provisioned for this user (Admin → Plex) — the backend now fails loudly with a real
+  // provisioned for this user (Admin → Plex); the backend now fails loudly with a real
   // error if not, rather than silently enqueueing jobs that no-op (that used to look
   // identical to success: "completed" jobs that did nothing because the library didn't
   // exist yet when they ran).
@@ -303,6 +353,18 @@ function DownloadingCard({ row, onCancel }: { row: SavedRow; onCancel?: () => vo
   )
 }
 
+function PlaylistsTabSourceRowHost({ children }: { children: React.ReactNode }) {
+  // Playlists are cross-source at the data layer (yt_playlist_videos.video_source);
+  // the row appears here for consistency and grows as non-YouTube items land.
+  const [sourceFilter, setSourceFilter] = useState<LibrarySourceFilter>('all')
+  return (
+    <div>
+      <LibrarySourceRow available={['youtube']} active={sourceFilter} onChange={setSourceFilter} className="mb-4" />
+      {children}
+    </div>
+  )
+}
+
 function PlaylistsTab() {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -350,7 +412,7 @@ function PlaylistsTab() {
       {!all.length ? <Empty label="Create a playlist to collect your favorite videos." /> : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {all.map(p => (
-            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/youtube/my-playlist/${p.id}`)}>
+            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/videos/youtube/my-playlist/${p.id}`)}>
               <PlaylistCover videoIds={p.coverVideoIds ?? []} title={p.name} count={p.videoCount} className="mb-2" />
               <p className="truncate text-sm font-semibold">{p.name}</p>
               <p className="truncate text-xs text-muted-foreground">
@@ -368,10 +430,12 @@ function PlaylistsTab() {
 function CollectionTab({ kind, empty }: { kind: 'watch-later' | 'liked'; empty: string }) {
   const list = useCollection(kind)
   const [view, setView] = useViewPreference(`youtube.library_${kind}_view`, 'grid')
+  const [sourceFilter, setSourceFilter] = useState<LibrarySourceFilter>('all')
   if (!list.length) return <Empty label={empty} />
   return (
     <div>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center gap-3">
+        <LibrarySourceRow available={['youtube']} active={sourceFilter} onChange={setSourceFilter} className="mb-0 min-w-0 flex-1" />
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
       <VideoCollection items={list.map(metaToItem)} view={view} wrap={(item, node) => (

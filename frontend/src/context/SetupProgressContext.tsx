@@ -56,7 +56,7 @@ function jobToPaths(j: JobInfo): string[] {
   if (j.type === 'map') return ['/maps']
   if (j.type === 'model') return ['/chat']  // background models = vision etc.
   if (j.type === 'component') {
-    if (j.refId.startsWith('comfyui') || j.domain === 'comfyui') return ['/imaging', '/video']
+    if (j.refId.startsWith('comfyui') || j.domain === 'comfyui') return ['/imaging', '/videos']
     if (j.refId === 'maps-toolchain') return ['/maps']
     if (j.refId === 'tesseract') return ['/home-inventory']
   }

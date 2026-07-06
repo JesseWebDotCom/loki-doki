@@ -8,7 +8,7 @@ export function OpenInYoutubeButton({ videoId, title, className }: { videoId: st
   const navigate = useNavigate()
   return (
     <button type="button" aria-label="Watch the original video" title="Watch the original video on YouTube"
-      onClick={e => { e.stopPropagation(); navigate(`/youtube/watch/${videoId}`, { state: { title } }) }}
+      onClick={e => { e.stopPropagation(); navigate(`/videos/youtube/watch/${videoId}`, { state: { title } }) }}
       className={cn('flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition',
         'opacity-0 hover:bg-accent/60 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100', className)}>
       <MonitorPlay className="size-4" />

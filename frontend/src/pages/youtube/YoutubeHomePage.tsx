@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Rss } from 'lucide-react'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { PageContainer } from '@/components/shared/PageContainer'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { SOURCE_META } from '@/lib/videos/sources'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ChannelAvatar } from '@/components/youtube/media'
@@ -17,7 +19,7 @@ import { VideoCollection } from '@/components/youtube/VideoCollection'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { ViewToggle, type CardListView } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
-import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeMode } from '@/components/videos/VideosLayout'
 
 type Filter = 'all' | 'videos' | 'shorts' | 'channels'
 const FILTERS: [Filter, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['channels', 'Channels']]
@@ -106,7 +108,14 @@ function HomeLanding() {
   if (online && loading) return <Loading />
 
   return (
-    <PageContainer width="wide" className="py-6">
+    <PageContainer width="wide" className="pt-1 pb-6">
+      <PageHeader
+        title={SOURCE_META.youtube.label}
+        icon={SOURCE_META.youtube.icon}
+        gradient={SOURCE_META.youtube.gradient}
+        subtitle={online ? 'Your subscriptions, recommendations & trending.' : 'Your saved YouTube library.'}
+        className="pt-4 pb-4"
+      />
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
           {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} onClick={() => { setTopic(null); setFilter(k) }} />)}
@@ -194,7 +203,7 @@ function ChannelGrid({ channels }: { channels: ChannelEntry[] }) {
   return (
     <div className="grid grid-cols-3 gap-6 sm:grid-cols-4 xl:grid-cols-6">
       {channels.map(c => (
-        <Link key={c.id} to={`/youtube/channel/${encodeURIComponent(c.id)}`} className="group flex flex-col items-center gap-2 text-center">
+        <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`} className="group flex flex-col items-center gap-2 text-center">
           <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-24 text-3xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
           <p className="line-clamp-2 text-sm font-semibold">{c.title}</p>
         </Link>

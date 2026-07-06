@@ -153,20 +153,29 @@ const BookBibleReviewPage = lazy(() => import('@/pages/books/generate/BookBibleR
 const BookSampleApprovalPage = lazy(() => import('@/pages/books/generate/BookSampleApprovalPage').then((m) => ({ default: m.BookSampleApprovalPage })))
 const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/BookGenerationProgressPage').then((m) => ({ default: m.BookGenerationProgressPage })))
 
-const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
+const VideosLayout = lazy(() => import('@/components/videos/VideosLayout').then((m) => ({ default: m.VideosLayout })))
+const VideosHomePage = lazy(() => import('@/pages/videos/VideosHomePage').then((m) => ({ default: m.VideosHomePage })))
+const RedditBrowsePage = lazy(() => import('@/pages/videos/RedditBrowsePage').then((m) => ({ default: m.RedditBrowsePage })))
+const VideosOfflinePage = lazy(() => import('@/pages/videos/VideosOfflinePage').then((m) => ({ default: m.VideosOfflinePage })))
+const TikTokBrowsePage = lazy(() => import('@/pages/videos/TikTokBrowsePage').then((m) => ({ default: m.TikTokBrowsePage })))
+const VimeoBrowsePage = lazy(() => import('@/pages/videos/VimeoBrowsePage').then((m) => ({ default: m.VimeoBrowsePage })))
+const MyVideosPage = lazy(() => import('@/pages/videos/create/MyVideosPage').then((m) => ({ default: m.MyVideosPage })))
+const StudioEditorPage = lazy(() => import('@/pages/videos/create/StudioEditorPage').then((m) => ({ default: m.StudioEditorPage })))
+const SourceCreatorPage = lazy(() => import('@/pages/videos/SourceCreatorPage').then((m) => ({ default: m.SourceCreatorPage })))
+const GenericWatchPage = lazy(() => import('@/pages/videos/GenericWatchPage').then((m) => ({ default: m.GenericWatchPage })))
+const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
 const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
 const YoutubePlaylistsPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubePlaylistsPage })))
 const YoutubeWatchLaterPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeWatchLaterPage })))
 const YoutubeLikedPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLikedPage })))
-const YoutubeOfflinePage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeOfflinePage })))
 const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage').then((m) => ({ default: m.YoutubeChannelPage })))
 const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
 const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPage').then((m) => ({ default: m.YoutubePlaylistPage })))
 const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
 const WatchPage = lazy(() => import('@/pages/youtube/WatchPage').then((m) => ({ default: m.WatchPage })))
-const YoutubeSettingsPage = lazy(() => import('@/pages/youtube/YoutubeSettingsPage').then((m) => ({ default: m.YoutubeSettingsPage })))
+const VideosSettingsPage = lazy(() => import('@/pages/videos/VideosSettingsPage').then((m) => ({ default: m.VideosSettingsPage })))
 
 function AppLoading() {
   return (
@@ -367,7 +376,8 @@ export default function App() {
                   <Route path="generate/:id/sample" element={<BookSampleApprovalPage />} />
                   <Route path="generate/:id/progress" element={<BookGenerationProgressPage />} />
                 </Route>
-                <Route path="/video" element={<VideoPage />} />
+                {/* Retired standalone Video app: generation now lives in the hub's Create area. */}
+                <Route path="/video" element={<Navigate to="/videos/create" replace />} />
                 <Route path="/read/:sourceId" element={<ReaderPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
                 <Route path="/category/:category" element={<CategoryPage />} />
@@ -393,25 +403,45 @@ export default function App() {
                   <Route path="studio" element={<CompanionStudioPage />} />
                 </Route>
                 <Route path="/bored" element={<BoredPage />} />
-                <Route path="/youtube" element={<YoutubeLayout />}>
-                  <Route index element={<YoutubeHomePage />} />
-                  {/* Discover was merged into Home — keep the old path working. */}
-                  <Route path="discover" element={<Navigate to="/youtube" replace />} />
-                  {/* Library sections are now individual pages, each with its own header. */}
-                  <Route path="library" element={<Navigate to="/youtube/history" replace />} />
+                <Route path="/videos" element={<VideosLayout />}>
+                  <Route index element={<VideosHomePage />} />
+                  {/* Cross-source library (YouTube-only until more providers land). */}
                   <Route path="history" element={<YoutubeHistoryPage />} />
                   <Route path="playlists" element={<YoutubePlaylistsPage />} />
                   <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
                   <Route path="liked" element={<YoutubeLikedPage />} />
-                  <Route path="offline" element={<YoutubeOfflinePage />} />
-                  <Route path="subscriptions" element={<YoutubeSubscriptionsPage />} />
-                  <Route path="channel/:id" element={<YoutubeChannelPage />} />
-                  <Route path="playlist/:id" element={<YoutubePlaylistPage />} />
-                  <Route path="my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
-                  <Route path="watch/:videoId" element={<WatchPage />} />
-                  <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
-                  <Route path="settings/:section?" element={<YoutubeSettingsPage />} />
+                  <Route path="offline" element={<VideosOfflinePage />} />
+                  <Route path="clip" element={<ClipperPage />} />
+                  {/* Mine: your videos + the studio and AI generation (former /video app). */}
+                  <Route path="mine" element={<MyVideosPage />} />
+                  <Route path="mine/generate" element={<VideoPage />} />
+                  <Route path="mine/:projectId" element={<StudioEditorPage />} />
+                  <Route path="create" element={<Navigate to="/videos/mine" replace />} />
+                  <Route path="create/generate" element={<Navigate to="/videos/mine/generate" replace />} />
+                  <Route path="create/:projectId" element={<StudioEditorPage />} />
+                  <Route path="settings/:section?" element={<VideosSettingsPage />} />
+                  {/* Reddit source area. */}
+                  <Route path="reddit" element={<RedditBrowsePage />} />
+                  <Route path="reddit/r/:id" element={<SourceCreatorPage source="reddit" />} />
+                  {/* TikTok source area. */}
+                  <Route path="tiktok" element={<TikTokBrowsePage />} />
+                  <Route path="tiktok/creator/:id" element={<SourceCreatorPage source="tiktok" />} />
+                  {/* Vimeo source area. */}
+                  <Route path="vimeo" element={<VimeoBrowsePage />} />
+                  <Route path="vimeo/channel/:id" element={<SourceCreatorPage source="vimeo" />} />
+                  <Route path=":source/watch/:id" element={<GenericWatchPage />} />
+                  {/* YouTube source area: the retired standalone app lives on here. */}
+                  <Route path="youtube" element={<YoutubeHomePage />} />
+                  <Route path="youtube/subscriptions" element={<YoutubeSubscriptionsPage />} />
+                  <Route path="youtube/channel/:id" element={<YoutubeChannelPage />} />
+                  <Route path="youtube/playlist/:id" element={<YoutubePlaylistPage />} />
+                  <Route path="youtube/my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
+                  <Route path="youtube/watch/:videoId" element={<WatchPage />} />
+                  <Route path="youtube/shorts/:videoId" element={<YoutubeShortsPage />} />
                 </Route>
+                {/* Retired /youtube app: permanent redirects into the Videos hub. */}
+                <Route path="/youtube/*" element={<LegacyYoutubeRedirect />} />
+                <Route path="/youtube" element={<LegacyYoutubeRedirect />} />
                 <Route path="/podcasts" element={<PodcastLayout />}>
                   <Route index element={<ListenNowPage />} />
                   <Route path="browse" element={<PodcastBrowsePage />} />
@@ -441,7 +471,7 @@ export default function App() {
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/drop" element={<DropPage />} />
-                <Route path="/clipper" element={<ClipperPage />} />
+                <Route path="/clipper" element={<Navigate to="/videos/clip" replace />} />
                 <Route path="/canvas" element={<CanvasPage />} />
                 <Route path="/time" element={<TimePage />} />
                 {/* Dictionary + Medical are now sections of the Reference app. */}
