@@ -50,7 +50,7 @@ export function CompanionCard({ c, className }: { c: CompanionRecord; className?
       )}
     >
       <div className="flex items-start justify-between">
-        <div className={cn('size-16 overflow-hidden rounded-full ring-1 ring-border/40', locked && 'grayscale')}>
+        <div className={cn('size-16 shrink-0', locked && 'grayscale')}>
           <CharacterAvatar character={c} size={64} viewPreset="head" pokeable={!locked} suppressOverlays ambient={!locked} />
         </div>
         <div className="flex items-center gap-1.5">
@@ -117,7 +117,7 @@ export function CompanionRow({ c }: { c: CompanionRecord }) {
         locked && 'opacity-70',
       )}
     >
-      <div className={cn('size-10 shrink-0 overflow-hidden rounded-full ring-1 ring-border/40', locked && 'grayscale')}>
+      <div className={cn('size-10 shrink-0', locked && 'grayscale')}>
         <CharacterAvatar character={c} size={40} viewPreset="head" pokeable={false} suppressOverlays ambient={!locked} />
       </div>
       <div className="min-w-0 flex-1">
