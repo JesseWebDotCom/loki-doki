@@ -25,7 +25,7 @@ async function runHeadlessTask(userId: string, task: string): Promise<void> {
   let stdout = ''
   let stderr = ''
   const exitCode = await new Promise<number | null>((resolve) => {
-    const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     const timer = setTimeout(() => { try { child.kill('SIGTERM') } catch { /* already gone */ } }, TASK_TIMEOUT_MS)
     child.stdout.on('data', (c: Buffer) => { stdout += c.toString() })
     child.stderr.on('data', (c: Buffer) => { stderr += c.toString() })

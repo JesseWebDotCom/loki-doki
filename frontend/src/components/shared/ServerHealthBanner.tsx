@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ServerOff } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocation } from 'react-router-dom'
@@ -8,8 +9,16 @@ import { useServerHealth } from '@/context/ServerHealthContext'
 export function ServerHealthBanner() {
   const { reachable } = useServerHealth()
   const { pathname } = useLocation()
+  // Brief grace before showing: an outage that resolves within a couple of seconds
+  // (backend hot-reload, hiccup under load) never deserves a full-width alarm strip.
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    if (reachable) { setShow(false); return }
+    const t = setTimeout(() => setShow(true), 2_000)
+    return () => clearTimeout(t)
+  }, [reachable])
 
-  if (reachable || pathname.startsWith('/setup')) return null
+  if (reachable || !show || pathname.startsWith('/setup')) return null
 
   // On the device's ambient display (/display) this is read from across a room, so use
   // a short, large message instead of the small full-sentence app banner.

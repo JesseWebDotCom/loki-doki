@@ -24,7 +24,7 @@ export type UpscaleProgress = (fraction: number, note: string) => void
 
 function run(bin: string, args: string[], signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
     let err = ''
     child.stderr?.on('data', (d) => { err += d.toString(); if (err.length > 64_000) err = err.slice(-32_000) })
     const onAbort = () => child.kill('SIGKILL')
@@ -46,7 +46,7 @@ async function countFrames(dir: string): Promise<number> {
 /** Source video height (px), for the caller's low-res gating. 0 if it can't be read. */
 export async function probeHeight(inputPath: string): Promise<number> {
   return new Promise((resolve) => {
-    const p = spawn(ffprobeBin(), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=height', '-of', 'csv=p=0', inputPath], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const p = spawn(ffprobeBin(), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=height', '-of', 'csv=p=0', inputPath], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     let out = ''
     p.stdout?.on('data', (c: Buffer) => { out += c.toString() })
     p.on('close', () => { const h = parseInt(out.trim(), 10); resolve(Number.isFinite(h) ? h : 0) })

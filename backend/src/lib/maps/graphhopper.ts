@@ -204,7 +204,7 @@ async function ensureSidecar(regionId: string): Promise<void> {
   const proc = spawn(
     javaBin(),
     [`-Xmx${GH_HEAP_MB}m`, '-jar', graphhopperJar(), 'server', configPath],
-    { stdio: 'ignore', detached: false },
+    { stdio: 'ignore', detached: false, windowsHide: true },
   )
   sidecar = { proc, regionId, ready: false }
   // Crash accelerator, post-ready only (a JVM dying during graph load is handled by

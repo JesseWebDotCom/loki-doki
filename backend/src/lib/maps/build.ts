@@ -41,7 +41,7 @@ const GH_BUILD_HEAP_MB = parseInt(process.env.LOKIDOKI_GRAPHHOPPER_HEAP_MB ?? '4
 
 function runJava(args: string[], onLine?: (line: string) => void, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(javaBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(javaBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     const handle = (chunk: Buffer) => { const l = chunk.toString().trim(); if (l && onLine) onLine(l) }
     proc.stdout.on('data', handle)
     proc.stderr.on('data', handle)
@@ -118,7 +118,7 @@ async function buildRouting(regionId: string, onEvent: OnEvent, signal?: AbortSi
 // ── osmium export → FTS5 geocoder ────────────────────────────────────────────
 function osmiumAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
-    const proc = spawn('osmium', ['--version'], { stdio: 'ignore' })
+    const proc = spawn('osmium', ['--version'], { stdio: 'ignore', windowsHide: true })
     proc.on('close', (code) => resolve(code === 0))
     proc.on('error', () => resolve(false))
   })

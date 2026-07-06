@@ -79,7 +79,7 @@ export async function withYtDlpSlot<T>(fn: () => Promise<T>): Promise<T> {
 async function versionOf(bin: string, attempts = 1): Promise<string | null> {
   for (let i = 0; i < attempts; i++) {
     try {
-      const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 30_000 })
+      const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 30_000, windowsHide: true })
       const v = stdout.trim()
       if (v) return v
     } catch { /* slow cold start or transient failure — retry */ }
@@ -96,7 +96,7 @@ function looksCorrupt(path: string): boolean {
 
 async function selfUpdate(bin: string): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync(bin, ['-U'], { timeout: 180_000 })
+    const { stdout } = await execFileAsync(bin, ['-U'], { timeout: 180_000, windowsHide: true })
     const line = stdout.trim().split('\n').filter(Boolean).pop() ?? ''
     logger.info(`[yt-dlp] update check (${bin}): ${line || 'up to date'}`)
     return true

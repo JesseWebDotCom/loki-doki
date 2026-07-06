@@ -13,12 +13,15 @@
 // as install progress so the first real flash isn't a multi-minute surprise.
 
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
-import { spawn } from 'node:child_process'
+import { existsSync, rmSync } from 'node:fs'
+import { spawn, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { dataDir } from '@/lib/download'
 import { ensurePython } from '@/lib/python'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
+
+const execFileAsync = promisify(execFile)
 
 export const ESPHOME_VENV = join(dataDir, 'esphome-venv')
 
@@ -63,6 +66,7 @@ export function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<vo
       // very next flash fail with "Resource busy" (a top cause of the retry loop).
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     })
     // SIGTERM the group, then SIGKILL if it doesn't die. Without escalation an aborted/
     // timed-out build never fires 'exit' → this promise never settles → the flash stays
@@ -151,6 +155,19 @@ export async function installESPHome(onStatus: StatusFn = () => {}, signal?: Abo
     const python = await ensurePython()
     if (!python) throw new Error('no suitable Python (≥3.10) could be resolved')
 
+    // A venv that survived on disk (e.g. the data drive kept it through an OS
+    // reinstall) can look installed to existsSync while its python.exe points at a
+    // base interpreter that's gone — every pip/esphome invocation then fails
+    // immediately and the install job retries forever without fixing anything
+    // (same failure mode as lib/searxng.ts). Verify it runs; rebuild if not.
+    if (existsSync(esphomeVenvBin('python'))) {
+      const venvOk = await execFileAsync(esphomeVenvBin('python'), ['--version'], { timeout: 10_000, windowsHide: true })
+        .then(() => true).catch(() => false)
+      if (!venvOk) {
+        onStatus('Existing Python virtualenv is broken — rebuilding…')
+        rmSync(ESPHOME_VENV, { recursive: true, force: true })
+      }
+    }
     if (!existsSync(esphomeVenvBin('python'))) {
       onStatus('Creating Python virtualenv…')
       await run(python, ['-m', 'venv', ESPHOME_VENV], { signal, onLine: onStatus })

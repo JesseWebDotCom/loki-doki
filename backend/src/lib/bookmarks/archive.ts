@@ -40,7 +40,7 @@ async function capturePageMedia(url: string, absDir: string): Promise<string | n
       const proc = spawn(ytDlpBin(), [
         '--no-playlist', '--no-warnings', '-f', 'bv*+ba/b', '--max-filesize', '500M',
         '-o', join(absDir, 'media.%(ext)s'), url,
-      ], { stdio: 'ignore' })
+      ], { stdio: 'ignore', windowsHide: true })
       proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`yt-dlp exit ${code}`))))
       proc.on('error', reject)
     }))

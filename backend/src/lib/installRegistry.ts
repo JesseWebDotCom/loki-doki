@@ -11,7 +11,7 @@
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { exec } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   dataDir,
@@ -43,10 +43,10 @@ import {
   downloadSdxlVae,
   type DownloadProgress,
 } from '@/lib/download'
-import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI } from '@/lib/comfyui'
+import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI, venvPython } from '@/lib/comfyui'
 import { isVtracerInstalled, ensureVtracer } from '@/lib/vtracer'
-import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG } from '@/lib/searxng'
-import { isESPHomeInstalled, installESPHome } from '@/lib/esphome'
+import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG, searxngVenvPython } from '@/lib/searxng'
+import { isESPHomeInstalled, installESPHome, esphomeVenvBin } from '@/lib/esphome'
 import { warmUpToolchain } from '@/lib/pod/firmware'
 import { isKiwixInstalled, installKiwixTools } from '@/lib/kiwix'
 import { isVoiceServerInstalled, installVoiceModels, maybeSpawnVoiceServer } from '@/lib/voiceServer'
@@ -60,6 +60,7 @@ import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 // Shared across setup.ts, system.ts and adminInstall.ts — previously copy-pasted
 // (and `video_gen` was missing from two of the three copies, breaking svd-xt).
@@ -75,6 +76,20 @@ export interface InstallComponent {
   group: string
   label: string
   isInstalled: () => boolean
+  /** Deeper async health probe for components whose files can survive an OS wipe on the
+   *  data drive but still be broken (a venv whose pyvenv.cfg points at a wiped base
+   *  interpreter). Only consulted when isInstalled() is true; false means "present but
+   *  broken — treat as missing and repair". */
+  verify?: () => Promise<boolean>
+  /** Rough download size of a repair — lets boot decide silent background heal vs.
+   *  asking the admin first (see reconcileInstalls / the restore plan). */
+  approxBytes?: number
+  /** Repair triggers an interactive OS-admin approval (password / UAC / pkexec) — never
+   *  auto-run it; surface it as an attention item instead. */
+  needsElevation?: boolean
+  /** Repair shells out to a system package manager (winget/choco/brew/apt) which may
+   *  itself be gone after an OS wipe — pre-check availability before enqueueing. */
+  needsPackageManager?: boolean
   /** Runs the install/repair, streaming byte/status progress; throws on failure; honors the abort signal. */
   repair: (onProgress: InstallProgressFn, signal: AbortSignal) => Promise<void>
 }
@@ -86,6 +101,43 @@ const statusAdapter = (onProgress: InstallProgressFn) => (msg: string): void => 
 
 async function comfyConfig() {
   return resolveComfyUILaunchConfig(await detectHardware())
+}
+
+/** Package managers usable for repairs on this machine right now. After an OS wipe the
+ *  manager itself is often gone (choco/scoop/brew), so components flagged
+ *  needsPackageManager must pre-check this before being auto-enqueued — otherwise their
+ *  repair just throws in the background where nobody sees it. */
+export function availablePackageManagers(): string[] {
+  const found: string[] = []
+  if (process.platform === 'win32') {
+    if (existsSync('C:\\Windows\\System32\\winget.exe') ||
+        existsSync(`${process.env.LOCALAPPDATA}\\Microsoft\\WindowsApps\\winget.exe`)) found.push('winget')
+    if (existsSync('C:\\ProgramData\\chocolatey\\bin\\choco.exe')) found.push('choco')
+    if (existsSync(`${process.env.USERPROFILE}\\scoop\\shims\\scoop.cmd`)) found.push('scoop')
+  } else {
+    if (existsSync('/opt/homebrew/bin/brew') || existsSync('/usr/local/bin/brew')) found.push('brew')
+    if (existsSync('/usr/bin/apt-get')) found.push('apt-get')
+  }
+  return found
+}
+
+// Functional probe: does this executable actually run? existsSync passes for a venv
+// whose base interpreter was wiped with the OS drive; actually executing it is the only
+// honest check. Memoized briefly so repeated reconcile passes don't re-spawn processes.
+const probeCache = new Map<string, { ok: boolean; at: number }>()
+const PROBE_CACHE_MS = 60_000
+
+async function probeRuns(bin: string, args: string[]): Promise<boolean> {
+  const key = `${bin} ${args.join(' ')}`
+  const hit = probeCache.get(key)
+  if (hit && Date.now() - hit.at < PROBE_CACHE_MS) return hit.ok
+  let ok = false
+  try {
+    await execFileAsync(bin, args, { timeout: 10_000, windowsHide: true })
+    ok = true
+  } catch { ok = false }
+  probeCache.set(key, { ok, at: Date.now() })
+  return ok
 }
 
 export function isTesseractInstalled(): boolean {
@@ -119,7 +171,7 @@ async function installTesseract(onProgress: InstallProgressFn): Promise<void> {
     else throw new Error('No package manager found (brew/apt-get). Install Tesseract manually: https://tesseract-ocr.github.io/tessdoc/Installation.html')
   }
   status(`Installing Tesseract via ${mgr}…`)
-  await execAsync(cmd, { timeout: 120_000 })
+  await execAsync(cmd, { timeout: 120_000, windowsHide: true })
   status('Tesseract installed')
 }
 
@@ -172,17 +224,21 @@ async function installCodingPackage(onProgress: InstallProgressFn, signal?: Abor
 const STATIC_COMPONENTS: InstallComponent[] = [
   {
     id: 'weather-icons', group: 'weather-icons', label: 'amCharts SVG Icons',
+    approxBytes: 68_000,
     isInstalled: isWeatherIconsInstalled,
     repair: (onP, sig) => downloadWeatherIcons(onP, sig),
   },
   {
     id: 'kiwix-tools', group: 'library', label: 'Offline Library Runtime',
+    approxBytes: 15_000_000,
     isInstalled: isKiwixInstalled,
     repair: (onP, sig) => installKiwixTools(statusAdapter(onP), sig),
   },
   {
     id: 'searxng', group: 'search', label: 'Web Search Engine (SearXNG)',
+    approxBytes: 300_000_000,
     isInstalled: isSearXNGInstalled,
+    verify: () => probeRuns(searxngVenvPython(), ['--version']),
     repair: async (onP, sig) => {
       await installSearXNG((msg) => statusAdapter(onP)(msg), sig)
       maybeSpawnSearXNG()
@@ -190,7 +246,9 @@ const STATIC_COMPONENTS: InstallComponent[] = [
   },
   {
     id: 'esphome', group: 'devices', label: 'Device Firmware Builder (ESPHome)',
+    approxBytes: 1_000_000_000,
     isInstalled: isESPHomeInstalled,
+    verify: () => probeRuns(esphomeVenvBin('python'), ['--version']),
     repair: async (onP, sig) => {
       await installESPHome((msg) => statusAdapter(onP)(msg), sig)
       // Best-effort: pre-download the ESP32 toolchain so the first flash is fast.
@@ -201,6 +259,7 @@ const STATIC_COMPONENTS: InstallComponent[] = [
   },
   {
     id: 'voice-core', group: 'voice', label: 'Voice (Kokoro TTS + Whisper STT)',
+    approxBytes: 320_000_000,
     isInstalled: isVoiceServerInstalled,
     repair: async (onP, sig) => {
       await installVoiceModels(statusAdapter(onP), sig)
@@ -209,6 +268,7 @@ const STATIC_COMPONENTS: InstallComponent[] = [
   },
   {
     id: 'wakeword-core', group: 'voice', label: 'OpenWakeWord',
+    approxBytes: 6_000_000,
     isInstalled: isWakewordCoreInstalled,
     repair: (onP, sig) => downloadWakewordCore(onP, sig),
   },
@@ -217,11 +277,13 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // (see the reconcile bridge in routes/system.ts); both consumers fall back
     // to energy-only VAD while it's absent, so repair is never blocking.
     id: 'silero-vad', group: 'voice', label: 'Silero Voice Detection',
+    approxBytes: 2_300_000,
     isInstalled: isSileroVadInstalled,
     repair: (onP, sig) => downloadSileroVad(onP, sig),
   },
   {
     id: 'wakeword-train', group: 'voice', label: 'onnxruntime + scikit-learn',
+    approxBytes: 160_000_000,
     isInstalled: isWakewordTrainInstalled,
     repair: (onP, sig) => installWakewordTrainDeps(onP, sig),
   },
@@ -231,22 +293,28 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // independently — without re-running the training-deps pip install, and without
     // gating training itself (the trainer falls back to procedural reverb if absent).
     id: 'wakeword-train-rir', group: 'voice', label: 'Wake Word Reverb Pack',
+    approxBytes: 50_000_000,
     isInstalled: isWakewordRirInstalled,
     repair: (onP, sig) => downloadWakewordRirPack(onP, sig),
   },
   {
     id: 'maps-toolchain', group: 'maps', label: 'Maps Runtime',
+    approxBytes: 480_000_000,
     isInstalled: isMapsToolchainInstalled,
     repair: (onP, sig) => installMapsToolchain(statusAdapter(onP), sig),
   },
   {
     id: 'tesseract', group: 'home-inventory', label: 'Tesseract OCR',
+    approxBytes: 30_000_000,
+    needsPackageManager: true,
     isInstalled: isTesseractInstalled,
     repair: (onP) => installTesseract(onP),
   },
   {
     id: 'comfyui-base', group: 'image', label: 'ComfyUI Runtime',
+    approxBytes: 2_500_000_000,  // venv + torch wheels dominate
     isInstalled: isComfyUIInstalled,
+    verify: () => probeRuns(venvPython(), ['--version']),
     repair: async (onP, sig) => {
       const config = await comfyConfig()
       await setupComfyUIBase(config, onP, sig)
@@ -257,11 +325,13 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // standalone binary; the generator falls back to the raster artifact if it's absent,
     // so repair is never blocking.
     id: 'vtracer', group: 'image', label: 'Vector Tracer (vtracer)',
+    approxBytes: 5_000_000,
     isInstalled: isVtracerInstalled,
     repair: (onP, sig) => ensureVtracer((msg) => statusAdapter(onP)(msg), sig),
   },
   {
     id: 'comfyui-nodes', group: 'image', label: 'ComfyUI Extensions',
+    approxBytes: 200_000_000,
     isInstalled: () =>
       isComfyUIInstalled() &&
       existsSync(join(COMFYUI_DIR, 'custom_nodes', 'ComfyUI_IPAdapter_plus')) &&
@@ -273,6 +343,7 @@ const STATIC_COMPONENTS: InstallComponent[] = [
   },
   {
     id: 'comfyui-facerestore', group: 'image', label: 'FaceRestore ComfyUI Node',
+    approxBytes: 10_000_000,
     isInstalled: isFaceRestoreNodeInstalled,
     repair: async (onP, sig) => {
       await installFaceRestoreNode(onP, sig)
@@ -281,26 +352,31 @@ const STATIC_COMPONENTS: InstallComponent[] = [
   },
   {
     id: 'esrgan', group: 'image', label: 'ESRGAN Upscale Model',
+    approxBytes: 67_000_000,
     isInstalled: isEsrganInstalled,
     repair: (onP, sig) => downloadEsrganModel(onP, sig),
   },
   {
     id: 'codeformer', group: 'image', label: 'CodeFormer',
+    approxBytes: 352_000_000,
     isInstalled: isCodeFormerInstalled,
     repair: (onP, sig) => downloadCodeFormerModel(onP, sig),
   },
   {
     id: 'gfpgan', group: 'image', label: 'GFPGAN',
+    approxBytes: 348_000_000,
     isInstalled: isGFPGANInstalled,
     repair: (onP, sig) => downloadGFPGANModel(onP, sig),
   },
   {
     id: 'sdxl-vae', group: 'image', label: 'SDXL VAE (fp16-fix)',
+    approxBytes: 335_000_000,
     isInstalled: isSdxlVaeInstalled,
     repair: (onP, sig) => downloadSdxlVae(onP, sig),
   },
   {
     id: 'podcast-stinger-sf', group: 'podcast', label: 'Podcast Stinger SoundFont',
+    approxBytes: 40_000_000,
     isInstalled: isStingerSoundfontInstalled,
     repair: (onP, sig) => downloadStingerSoundfont(onP, sig),
   },
@@ -308,6 +384,7 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // Sessions are per-user and spawned on demand (see codingServer.ts): install
     // just needs the binary present; nothing to pre-warm here.
     id: 'claude-code', group: 'coding', label: 'Coding (Claude Code)',
+    approxBytes: 60_000_000,
     isInstalled: isClaudeCodeInstalled,
     repair: (onP, sig) => installCodingPackage(onP, sig),
   },
@@ -315,6 +392,8 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // Session multiplexing (splits + reload-persistence) for the Coding app's
     // terminal — see codingServer.ts's ensureTmuxSession/paneControl.
     id: 'tmux', group: 'coding', label: 'Coding Terminal Multiplexer (tmux)',
+    approxBytes: 1_000_000,
+    needsPackageManager: true,
     isInstalled: isTmuxInstalled,
     repair: (onP) => installTmux(onP),
   },
@@ -326,6 +405,7 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // one-time OS admin approval (native password/Touch ID dialog on macOS,
     // pkexec on Linux); every later sidecar spawn is silent after that.
     id: 'coding-sandbox-user', group: 'coding', label: 'Coding Sandbox Isolation',
+    needsElevation: true,
     isInstalled: isSandboxUserInstalled,
     repair: (onP) => installSandboxUser(statusAdapter(onP)),
   },
@@ -334,6 +414,7 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // Previously lazy-installed on first use with no boot heal; now a first-class
     // component so the wizard provisions it and reconcileInstalls repairs it.
     id: 'chromium-render', group: 'chat', label: 'Document export (PDF)',
+    approxBytes: 150_000_000,
     isInstalled: isChromiumInstalled,
     repair: (onP, sig) => installChromium(statusAdapter(onP), sig),
   },
@@ -351,6 +432,7 @@ const IMAGE_MODEL_COMPONENTS: InstallComponent[] = CATALOG
       id: model.id,
       group: 'image',
       label: model.label,
+      approxBytes: model.approxBytes,
       isInstalled: () => (dest ? existsSync(join(dataDir, dest)) : false),
       repair: (onP, sig) => downloadComfyUIModel(model, onP, sig),
     }

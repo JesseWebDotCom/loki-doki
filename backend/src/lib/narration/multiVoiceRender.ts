@@ -101,7 +101,7 @@ export async function wavToMp3(wavPath: string, mp3Path: string, title: string):
   const ffmpeg = await ensureFfmpeg()
   const args = ['-y', '-i', wavPath, '-metadata', `title=${title}`, '-codec:a', 'libmp3lame', '-q:a', '2', mp3Path]
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ffmpeg, args, { stdio: 'ignore' })
+    const proc = spawn(ffmpeg, args, { stdio: 'ignore', windowsHide: true })
     const timer = setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('ffmpeg timed out')) }, 5 * 60_000)
     proc.on('close', (code) => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)) })
     proc.on('error', (err) => { clearTimeout(timer); reject(err) })

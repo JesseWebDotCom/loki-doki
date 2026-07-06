@@ -52,7 +52,7 @@ export function createMbtiles(path: string, meta: Record<string, string | number
 
 export function runPmtilesConvert(input: string, output: string, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(pmtilesBin(), ['convert', input, output], { stdio: 'ignore' })
+    const proc = spawn(pmtilesBin(), ['convert', input, output], { stdio: 'ignore', windowsHide: true })
     proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`pmtiles convert exited ${code}`))))
     proc.on('error', reject)
     signal?.addEventListener('abort', () => {

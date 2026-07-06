@@ -40,7 +40,7 @@ export function vipsAvailable(): boolean { return available }
 const WIN_BUILD_URL = 'https://github.com/libvips/build-win64-mxe/releases/download/v8.16.0/vips-dev-w64-web-8.16.0.zip'
 
 async function works(bin: string): Promise<boolean> {
-  try { await execFileAsync(bin, ['--version'], { timeout: 10_000 }); return true } catch { return false }
+  try { await execFileAsync(bin, ['--version'], { timeout: 10_000, windowsHide: true }); return true } catch { return false }
 }
 
 async function downloadManagedWindows(): Promise<boolean> {
@@ -55,7 +55,7 @@ async function downloadManagedWindows(): Promise<boolean> {
 
     await rm(installDir, { recursive: true, force: true })
     await mkdir(installDir, { recursive: true })
-    extractZip(archive, installDir, 180_000)
+    await extractZip(archive, installDir, 180_000)
 
     const found = await findFileInTree(installDir, BIN_NAME)
     if (!found) throw new Error('vips.exe not found inside archive')

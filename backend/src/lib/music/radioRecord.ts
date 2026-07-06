@@ -68,7 +68,7 @@ async function probeDurationSec(absPath: string): Promise<number | null> {
   try {
     const { stdout } = await execFileAsync(ffprobeBin(), [
       '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', absPath,
-    ], { timeout: 20_000 })
+    ], { timeout: 20_000, windowsHide: true })
     const dur = Number.parseFloat(stdout.trim())
     return Number.isFinite(dur) && dur > 0 ? dur : null
   } catch {
@@ -153,7 +153,7 @@ export async function runRadioRecordJob(
       ...(copyCodec ? ['-c:a', 'copy'] : ['-c:a', 'libmp3lame', '-b:a', '160k']),
       '-f', 'mp3', absPath,
     ]
-    const proc = spawn(ffmpeg, args, { stdio: ['pipe', 'ignore', 'pipe'] })
+    const proc = spawn(ffmpeg, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true })
     const entry = { proc, requestedStop: false }
     active.set(recordingId, entry)
 

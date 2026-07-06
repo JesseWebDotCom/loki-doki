@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { useServerHealth } from '@/context/ServerHealthContext'
 
 // Tracks the backend background-download queue (the non-essential set that finishes after
 // the app boots on essentials). One poller shared by the global widget and per-app
@@ -96,6 +97,12 @@ let pollGeneration = 0
 export function SetupProgressProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<JobsStatus | null>(null)
   const statusRef = useRef<JobsStatus | null>(null)
+  // This is the most frequent background fetch in the app (4s while downloads run) —
+  // feed every success into the server-health context so its starved /api/health probe
+  // never false-alarms while heavy downloads hog the per-host connection budget.
+  const { reportAlive } = useServerHealth()
+  const reportAliveRef = useRef(reportAlive)
+  reportAliveRef.current = reportAlive
 
   useEffect(() => {
     const myGen = ++pollGeneration
@@ -107,6 +114,7 @@ export function SetupProgressProvider({ children }: { children: React.ReactNode 
       if (!alive()) return
       try {
         const r = await fetch('/api/jobs/status', { credentials: 'include', signal: AbortSignal.timeout(6000) })
+        if (r.ok) reportAliveRef.current()
         if (alive() && r.ok) {
           const data = (await r.json()) as JobsStatus
           statusRef.current = data

@@ -255,6 +255,13 @@ usersRoute.delete('/:id/pin', requireAuth, async (c) => {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
+  // Admin login always requires a PIN (see auth.ts /select) — removing it here would
+  // leave the account permanently unable to log in, with no recovery path.
+  const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, targetId)).limit(1)
+  if (target?.role === 'admin') {
+    return c.json({ error: 'Admin accounts must keep a PIN set' }, 400)
+  }
+
   await db.delete(profilePins).where(eq(profilePins.userId, targetId))
   return c.json({ success: true })
 })

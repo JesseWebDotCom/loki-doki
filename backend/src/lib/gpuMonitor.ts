@@ -36,11 +36,13 @@ export interface GpuAlertConfig {
   vram:     { enabled: boolean; thresholdPct: number }
 }
 
+// All off by default — this is a home box, not a monitored datacenter fleet; alerts
+// are opt-in (Admin → System → GPU health → Alerts) rather than firing out of the box.
 export const DEFAULT_GPU_ALERT_CONFIG: GpuAlertConfig = {
-  missing:  { enabled: true },
-  driver:   { enabled: true },
-  overheat: { enabled: true, thresholdC: 85 },
-  vram:     { enabled: true, thresholdPct: 95 },
+  missing:  { enabled: false },
+  driver:   { enabled: false },
+  overheat: { enabled: false, thresholdC: 85 },
+  vram:     { enabled: false, thresholdPct: 95 },
 }
 
 export interface GpuHealth {

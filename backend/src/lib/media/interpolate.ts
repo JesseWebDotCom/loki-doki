@@ -22,7 +22,7 @@ export type InterpolateProgress = (fraction: number, note: string) => void
 /** Run a child process to completion, honoring abort. Rejects with a tail of stderr on failure. */
 function run(bin: string, args: string[], signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
     let err = ''
     child.stderr?.on('data', (d) => { err += d.toString(); if (err.length > 64_000) err = err.slice(-32_000) })
     const onAbort = () => child.kill('SIGKILL')
@@ -40,7 +40,7 @@ function run(bin: string, args: string[], signal?: AbortSignal): Promise<void> {
 /** Source frame rate from ffprobe's r_frame_rate ("30000/1001" → 29.97). Falls back to 30. */
 async function probeFps(inputPath: string): Promise<number> {
   return new Promise((resolve) => {
-    const p = spawn(ffprobeBin(), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', inputPath], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const p = spawn(ffprobeBin(), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', inputPath], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     let out = ''
     p.stdout?.on('data', (c: Buffer) => { out += c.toString() })
     p.on('close', () => {

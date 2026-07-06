@@ -37,7 +37,7 @@ export const vipsEngine: Engine = {
     }
 
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(bin, ['copy', inPath, target], { stdio: ['ignore', 'ignore', 'pipe'] })
+      const child = spawn(bin, ['copy', inPath, target], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
       let err = ''
       child.stderr.on('data', (d) => { err += d.toString(); if (err.length > 64_000) err = err.slice(-32_000) })
       const onAbort = () => child.kill('SIGKILL')

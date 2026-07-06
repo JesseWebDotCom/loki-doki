@@ -2,13 +2,12 @@ import { Hono } from 'hono'
 import { readdir, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, isAbsolute } from 'node:path'
-import { homedir } from 'node:os'
 import { db } from '@/db'
 import { users } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { getDataRoot, userSlug } from '@/lib/storage/paths'
-import { dataDir } from '@/lib/download'
+import { dataDir, ollamaModelsDir } from '@/lib/download'
 import { checkDirectoryAccess, freeBytesAt, formatBytes as sharedFormatBytes, crossPlatformPathHint } from '@/lib/storage/accessCheck'
 
 const app = new Hono()
@@ -44,7 +43,6 @@ app.get('/', async (c) => {
   const allUsers = await db.select({ id: users.id, firstName: users.firstName }).from(users)
 
   // Measure all these in parallel
-  const ollamaModelsDir = process.env.OLLAMA_MODELS ?? join(homedir(), '.ollama', 'models')
   const [userUsageRaw, appDataBytes, ollamaBytes, free] = await Promise.all([
     Promise.all(allUsers.map(async (u) => {
       const slug = userSlug(u.id, u.firstName)
@@ -53,14 +51,15 @@ app.get('/', async (c) => {
       return { userId: u.id, firstName: u.firstName, slug, bytes, formatted: formatBytes(bytes) }
     })),
     dirSize(dataDir),
-    dirSize(ollamaModelsDir),
+    dirSize(ollamaModelsDir()),
     freeBytes(root),
   ])
 
   const userUsage = userUsageRaw
   const totalBytes = userUsage.reduce((s, u) => s + u.bytes, 0)
-  // App total = everything in dataDir + Ollama models (which live outside dataDir by default)
-  const appTotalBytes = appDataBytes + ollamaBytes
+  // Ollama models now live under dataDir/ollama-models (see lib/download.ts ollamaModelsDir),
+  // so appDataBytes already includes them — don't double-count in the total.
+  const appTotalBytes = appDataBytes
 
   return c.json({
     root,
@@ -69,6 +68,8 @@ app.get('/', async (c) => {
     totalFormatted: formatBytes(totalBytes),
     appTotalBytes,
     appTotalFormatted: formatBytes(appTotalBytes),
+    ollamaBytes,
+    ollamaFormatted: formatBytes(ollamaBytes),
     freeBytes: free,
     freeFormatted: free != null ? formatBytes(free) : null,
     users: userUsage,

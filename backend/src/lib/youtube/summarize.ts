@@ -211,7 +211,18 @@ async function generateSmartDescription(videoId: string, userId: string, firstNa
   return cleaned
 }
 
-interface YtDlpMeta { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number }
+interface YtDlpMeta { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; timestamp?: number; release_timestamp?: number; upload_date?: string }
+
+/** Publish time in Unix ms from yt-dlp metadata. Prefers the exact release/upload timestamp;
+ *  falls back to the date-only upload_date (YYYYMMDD, parsed as UTC midnight). The Plex export
+ *  derives season year + episode number from this, so date-only precision is fine. */
+function ytDlpPublishedAtMs(m: YtDlpMeta): number | null {
+  const ts = m.release_timestamp ?? m.timestamp
+  if (ts && Number.isFinite(ts)) return ts * 1000
+  const d = m.upload_date?.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (d) return Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]))
+  return null
+}
 
 /**
  * Ensure a yt_videos row exists with a description for a saved video, fetching it via
@@ -221,11 +232,13 @@ interface YtDlpMeta { title?: string; channel?: string; uploader?: string; chann
 export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''): Promise<void> {
   const [v] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
 
-  // Fetch yt-dlp metadata only when the description (what the offline tabs need) is missing.
+  // Fetch yt-dlp metadata when the description (what the offline tabs need) OR the publish
+  // date (what the Plex export derives season/episode numbering from — a null here lands
+  // every episode in a "Season 0000" specials bucket) is missing.
   let channelId = v?.channelId ?? null
-  if (!v?.description) {
+  if (!v?.description || !v?.publishedAt) {
     const json = await new Promise<string>((resolve, reject) => {
-      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'] })
+      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       let out = ''
       proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
       proc.on('close', code => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
@@ -237,6 +250,7 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
       try { m = JSON.parse(json) as YtDlpMeta } catch { /* malformed — keep what we have */ }
       if (m) {
         channelId = m.channel_id ?? channelId
+        const publishedAt = ytDlpPublishedAtMs(m)
         await db.insert(ytVideos)
           .values({
             id: crypto.randomUUID(),
@@ -246,11 +260,18 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
             channelId: m.channel_id ?? null,
             description: m.description ?? null,
             durationSec: m.duration ?? null,
+            publishedAt,
             createdAt: new Date(),
           })
           .onConflictDoUpdate({
             target: ytVideos.videoId,
-            set: { description: m.description ?? null, channelId: m.channel_id ?? null, durationSec: m.duration ?? null },
+            set: {
+              description: m.description ?? null,
+              channelId: m.channel_id ?? null,
+              durationSec: m.duration ?? null,
+              // Never clobber a known date with null (e.g. feed rows already carry one).
+              ...(publishedAt != null ? { publishedAt } : {}),
+            },
           })
       }
     }

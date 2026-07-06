@@ -60,6 +60,7 @@ export async function installVoiceModels(onStatus: (msg: string) => void, signal
     const proc = spawn(nodeExe, [VOICE_SCRIPT, 'warm'], {
       cwd: BACKEND_DIR,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
       env: { ...process.env, VOICE_CACHE_DIR: voiceModelsDir },
     })
     const onLine = (chunk: Buffer) => {
@@ -179,6 +180,7 @@ export function spawnVoiceServer(): void {
       cwd: BACKEND_DIR,
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
       env: { ...process.env, VOICE_SERVER_PORT: String(VOICE_PORT), VOICE_CACHE_DIR: voiceModelsDir },
     })
     proc = child

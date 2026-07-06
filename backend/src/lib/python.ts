@@ -40,7 +40,7 @@ function triple(): string {
 // Returns the Python minor version (3.x) if the interpreter runs and is ≥3.10, else null.
 async function suitableMinor(bin: string): Promise<number | null> {
   try {
-    const { stdout } = await execFileAsync(bin, ['-c', 'import sys;print(sys.version_info.major,sys.version_info.minor)'], { timeout: 10_000 })
+    const { stdout } = await execFileAsync(bin, ['-c', 'import sys;print(sys.version_info.major,sys.version_info.minor)'], { timeout: 10_000, windowsHide: true })
     const parts = stdout.trim().split(/\s+/).map(Number)
     const maj = parts[0], min = parts[1]
     return maj === 3 && min !== undefined && min >= 10 ? min : null

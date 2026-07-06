@@ -109,4 +109,60 @@ FRONTEND_PID=$!
 while ! lsof -ti :5173 &>/dev/null; do sleep 0.2; done
 open -na "Google Chrome" --args --new-window "http://localhost:5173" 2>/dev/null || open "http://localhost:5173"
 
-wait $FRONTEND_PID $BACKEND_PID
+# Supervise: a crashed server restarts automatically instead of taking the whole
+# app down (previously one backend crash ended the script and killed everything).
+# Capped at 5 restarts per 5-minute window per server so a genuine crash-loop
+# stops instead of thrashing. Ctrl+C still exits via the EXIT trap.
+# Wait for a port to actually clear (not just the PID to die — `bun run dev` spawns a
+# grandchild for the real `--hot` listener, which can outlive the wrapper briefly).
+# Restarting into a still-bound port crashes immediately with EADDRINUSE, and that
+# crash-loops through the whole restart budget in seconds while every attempt re-runs
+# the full boot sequence (previously observed: exactly this, on the Windows sibling).
+wait_port_free() {
+  port="$1"
+  for _ in $(seq 1 20); do
+    lsof -ti ":$port" &>/dev/null || return 0
+    kill_port "$port"
+    sleep 0.3
+  done
+  ! lsof -ti ":$port" &>/dev/null
+}
+
+BACKEND_RESTARTS=0
+FRONTEND_RESTARTS=0
+WINDOW_START=$(date +%s)
+while true; do
+  sleep 1
+  now=$(date +%s)
+  if [ $((now - WINDOW_START)) -gt 300 ]; then
+    BACKEND_RESTARTS=0; FRONTEND_RESTARTS=0; WINDOW_START=$now
+  fi
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    BACKEND_RESTARTS=$((BACKEND_RESTARTS + 1))
+    if [ "$BACKEND_RESTARTS" -gt 5 ]; then
+      echo "Backend is crash-looping (>5 restarts in 5 min) — giving up. Check data/logs/app.log."
+      break
+    fi
+    echo "Backend exited — restarting it..."
+    if ! wait_port_free 3000; then
+      echo "Port 3000 would not clear — giving up."
+      break
+    fi
+    (cd "$ROOT/backend" && bun run dev) &
+    BACKEND_PID=$!
+  fi
+  if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+    FRONTEND_RESTARTS=$((FRONTEND_RESTARTS + 1))
+    if [ "$FRONTEND_RESTARTS" -gt 5 ]; then
+      echo "Frontend is crash-looping (>5 restarts in 5 min) — giving up."
+      break
+    fi
+    echo "Frontend exited — restarting it..."
+    if ! wait_port_free 5173; then
+      echo "Port 5173 would not clear — giving up."
+      break
+    fi
+    (cd "$ROOT/frontend" && bun run dev) &
+    FRONTEND_PID=$!
+  fi
+done

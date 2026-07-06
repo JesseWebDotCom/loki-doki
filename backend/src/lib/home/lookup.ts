@@ -287,7 +287,7 @@ async function tryFetchManualPdf(url: string, deviceId: string): Promise<{ path:
 
     let text: string | null = null
     try {
-      const { stdout } = await execAsync(`pdftotext "${path}" -`, { timeout: 15_000 })
+      const { stdout } = await execAsync(`pdftotext "${path}" -`, { timeout: 15_000, windowsHide: true })
       text = stdout.slice(0, 40_000).trim() || null
     } catch { /* pdftotext not available */ }
 

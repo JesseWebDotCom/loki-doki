@@ -34,6 +34,7 @@ export async function installClaudeCode(onStatus: (msg: string) => void, signal?
     const proc = spawn('bun', ['add', `@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}`], {
       cwd: CLAUDE_CODE_DIR,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     })
     const onLine = (chunk: Buffer) => {
       const line = chunk.toString().trim()

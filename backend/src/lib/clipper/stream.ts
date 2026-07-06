@@ -25,7 +25,7 @@ interface YtDlpMetaRaw { formats?: YtDlpFormatRaw[] }
 
 function runYtDlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let out = ''
     let errTail = ''
     proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })

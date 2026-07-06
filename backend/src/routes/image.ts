@@ -127,7 +127,7 @@ function runPilScript(label: string, script: string, inputBytes: Buffer): Promis
   if (!existsSync(python)) throw new Error('ComfyUI Python venv not found — ensure ComfyUI is installed.')
 
   return new Promise<Buffer>((resolve, reject) => {
-    const proc = spawn(python, ['-c', script], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const proc = spawn(python, ['-c', script], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     const out: Buffer[] = []
     const err: Buffer[] = []
     const timer = setTimeout(() => {
@@ -1266,13 +1266,13 @@ image.get('/status', async (c) => {
   }
   // Validate the active checkpoint file every status call — this is the earliest
   // possible signal that a model is missing/corrupt, before any generation attempt.
-  // A synchronous file-existence + header check catches both boot-scan deletions and
+  // The file-existence + header check catches both boot-scan deletions and
   // corrupt-but-present files, surfacing them immediately on page load.
   async function checkCheckpoint(): Promise<{ label: string; pct: number | null } | null> {
     const info = await getActiveCheckpointInfo()
     if (!info) return null
     const missing  = !existsSync(info.path)
-    const corrupt  = !missing && !validateSafetensorsFile(info.path)
+    const corrupt  = !missing && !(await validateSafetensorsFile(info.path))
     if (!missing && !corrupt) return null
     // File is gone or invalid — delete it (if still present) and queue a repair.
     if (corrupt) { try { require('node:fs').unlinkSync(info.path) } catch { /* ignore */ } }

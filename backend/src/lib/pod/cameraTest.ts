@@ -16,7 +16,7 @@ import { logger } from '@/lib/logger'
 // an uncaught exception that kills the whole backend. On failure we kick the managed
 // download so the next attempt (watchdog retry / user retry) picks up the local copy.
 function spawnFfmpeg(args: string[], onError: () => void): ChildProcess {
-  const proc = spawn(ffmpegBin(), args)
+  const proc = spawn(ffmpegBin(), args, { windowsHide: true })
   proc.on('error', (err) => {
     logger.error(`[pod-camera] ffmpeg spawn failed: ${err.message}`)
     void ensureFfmpeg().catch(() => { /* logged inside */ })

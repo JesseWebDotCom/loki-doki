@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, sessions, profilePins } from '@/db/schema'
 import { hashSessionToken, issueSession } from '@/lib/session'
-import { verifyPin, lockoutDuration } from '@/lib/pin'
+import { verifyPin, hashPin, lockoutDuration } from '@/lib/pin'
 import { getClientIp, pinThrottleCheck, pinThrottleFail, pinThrottleReset } from '@/lib/pinThrottle'
 import { requireAuth, invalidateSessionCache } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
@@ -34,7 +34,7 @@ auth.get('/profiles', async (c) => {
 
 // Select a PIN-free profile
 auth.post('/select', async (c) => {
-  const { userId } = (await c.req.json()) as { userId: string }
+  const { userId, pin: newPin } = (await c.req.json()) as { userId: string; pin?: string }
 
   const [user] = await db
     .select({ id: users.id, role: users.role })
@@ -46,7 +46,33 @@ auth.post('/select', async (c) => {
 
   // Admins must authenticate with a PIN. Without this guard, a PIN-free admin
   // profile would be a one-request takeover for anyone who can reach the API.
-  if (user.role === 'admin') return c.json({ error: 'PIN required' }, 400)
+  if (user.role === 'admin') {
+    const [existingPin] = await db
+      .select({ id: profilePins.id })
+      .from(profilePins)
+      .where(eq(profilePins.userId, userId))
+      .limit(1)
+
+    if (existingPin) return c.json({ error: 'PIN required' }, 400)
+
+    // Admin exists but has no PIN on record — a broken state (e.g. from an older
+    // bug that allowed removing it) with otherwise no way back in. Let the picker
+    // walk the user through setting one here instead of dead-ending.
+    if (!newPin) return c.json({ error: 'PIN required', needsPinSetup: true }, 400)
+    if (!/^\d{4,6}$/.test(newPin)) return c.json({ error: 'PIN must be 4–6 digits' }, 400)
+
+    const now = new Date()
+    await db.insert(profilePins).values({
+      id: crypto.randomUUID(),
+      userId,
+      pinHash: await hashPin(newPin),
+      failedAttempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    await issueSession(c, userId)
+    return c.json({ success: true })
+  }
 
   const [pin] = await db
     .select({ id: profilePins.id })
