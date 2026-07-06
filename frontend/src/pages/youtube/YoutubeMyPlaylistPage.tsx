@@ -215,7 +215,7 @@ export function YoutubeMyPlaylistPage() {
       await deleteYtPlaylist(id)
       qc.invalidateQueries({ queryKey: ['yt-playlists'] })
       toast.success('Playlist deleted')
-      navigate('/youtube/library?tab=playlists')
+      navigate('/youtube/playlists')
     } catch { toast.error('Could not delete playlist') }
   }
 
@@ -238,7 +238,7 @@ export function YoutubeMyPlaylistPage() {
 
   return (
     <PageContainer width="wide" className="pt-6 pb-10">
-      <button onClick={() => navigate('/youtube/library?tab=playlists')} className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <button onClick={() => navigate('/youtube/playlists')} className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> Library
       </button>
 
