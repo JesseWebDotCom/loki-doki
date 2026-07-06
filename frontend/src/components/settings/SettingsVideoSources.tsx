@@ -1,15 +1,65 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Cookie, KeyRound } from 'lucide-react'
+import { Cookie, Eye, KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
 import {
-  getRedditConfig, getVideoSources, getVimeoConfig, putRedditConfig, putVimeoConfig,
+  getRedditConfig, getVideoSources, getVimeoConfig, putEnabledSources, putRedditConfig, putVimeoConfig,
+  type VideoSource,
 } from '@/lib/videos/api'
+
+const ALL_SOURCES: VideoSource[] = ['youtube', 'reddit', 'tiktok', 'vimeo']
+
+/** Which sources show up on discovery surfaces (rail, home feed, browse pages).
+ *  Admin-only control; everyone can see the current state. Already-followed/saved
+ *  items and direct playback from a hidden source keep working: this just hides
+ *  where you'd discover more of it. */
+function DisplayedSourcesCard({ sources, isAdmin }: { sources: Array<{ source: VideoSource; label: string; enabled: boolean }>; isAdmin: boolean }) {
+  const qc = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (next: VideoSource[]) => putEnabledSources(next),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['videos-sources'] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not save'),
+  })
+  const enabledSet = new Set(sources.filter((s) => s.enabled).map((s) => s.source))
+
+  function toggle(source: VideoSource, checked: boolean) {
+    const next = checked ? [...enabledSet, source] : [...enabledSet].filter((s) => s !== source)
+    mutation.mutate(next)
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-start gap-3">
+        <Eye className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Displayed sources</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Which sources show up in the sidebar, the mixed home feed, and browse pages.
+            {!isAdmin && ' Only an admin can change this.'}
+          </p>
+          <div className="mt-3 space-y-2.5">
+            {ALL_SOURCES.map((source) => {
+              const info = sources.find((s) => s.source === source)
+              return (
+                <label key={source} className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-foreground">{info?.label ?? source}</span>
+                  <Switch checked={info?.enabled ?? true} disabled={!isAdmin || mutation.isPending}
+                    onCheckedChange={(checked) => toggle(source, checked)} />
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </Card>
+  )
+}
 
 function SourceCard({ title, icon: Icon, blurb, children }: {
   title: string
@@ -84,6 +134,11 @@ export function SettingsVideoSources() {
 
   return (
     <div className="space-y-4">
+      <DisplayedSourcesCard
+        isAdmin={isAdmin}
+        sources={(sourcesData?.sources ?? []).map((s) => ({ source: s.source, label: s.label, enabled: s.enabled }))}
+      />
+
       <SourceCard
         title={`Reddit ${status('reddit')?.configured ? '· Connected' : ''}`}
         icon={KeyRound}

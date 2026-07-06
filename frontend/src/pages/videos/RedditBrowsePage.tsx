@@ -20,6 +20,7 @@ import {
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
 import { HubCreatorRail } from '@/components/videos/HubCreatorRail'
+import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 import { SOURCE_META } from '@/lib/videos/sources'
 
 /** Inline connect card: Reddit locked down anonymous access, so browsing needs a free
@@ -79,11 +80,12 @@ export function RedditBrowsePage() {
   const { data: sourcesData, refetch: refetchSources } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const reddit = sourcesData?.sources.find((s) => s.source === 'reddit')
   const configured = reddit?.status.configured ?? true
+  const enabled = reddit?.enabled ?? true
 
-  const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows, enabled: configured })
+  const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows, enabled: configured && enabled })
   const subs = useMemo(() => (followsData?.follows ?? []).filter((f) => f.source === 'reddit'), [followsData])
 
-  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured })
+  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured && enabled })
   const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
     .filter((r) => r.source === 'reddit' && !r.completed && r.positionSec > 5)
     .map((r) => ({
@@ -97,7 +99,7 @@ export function RedditBrowsePage() {
     queryFn: ({ pageParam }) => browseSource('reddit', { feed: activeFeed ?? undefined, cursor: pageParam }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.cursor,
-    enabled: configured,
+    enabled: configured && enabled,
   })
   const items = useMemo(() => (feedQuery.data?.pages ?? []).flatMap((p) => p.items), [feedQuery.data])
 
@@ -116,11 +118,20 @@ export function RedditBrowsePage() {
       title={SOURCE_META.reddit.label}
       icon={SOURCE_META.reddit.icon}
       gradient={SOURCE_META.reddit.gradient}
-      subtitle={configured ? 'Video posts from the communities you follow.' : 'Connect Reddit to browse video communities.'}
+      subtitle={!enabled ? 'Turned off by an admin.' : configured ? 'Video posts from the communities you follow.' : 'Connect Reddit to browse video communities.'}
       className="pt-4 pb-4"
       actions={extra}
     />
   )
+
+  if (!enabled) {
+    return (
+      <PageContainer width="wide" className="pt-1 pb-8">
+        {header()}
+        <div className="py-8"><SourceDisabledCard label={SOURCE_META.reddit.label} /></div>
+      </PageContainer>
+    )
+  }
 
   if (!configured) {
     return (

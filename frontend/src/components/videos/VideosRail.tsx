@@ -7,6 +7,14 @@ import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { getSubscriptions } from '@/lib/youtube/api'
+import { getVideoSources, type VideoSource } from '@/lib/videos/api'
+
+const SOURCE_LINKS: Record<VideoSource, { to: string; icon: LucideIcon; label: string }> = {
+  youtube: { to: '/videos/youtube', icon: Play, label: 'YouTube' },
+  reddit: { to: '/videos/reddit', icon: MessagesSquare, label: 'Reddit' },
+  tiktok: { to: '/videos/tiktok', icon: Music2, label: 'TikTok' },
+  vimeo: { to: '/videos/vimeo', icon: Clapperboard, label: 'Vimeo' },
+}
 
 function RailLink({ to, icon: Icon, label, end, className }: { to: string; icon: LucideIcon; label: string; end?: boolean; className?: string }) {
   return (
@@ -27,6 +35,12 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function VideosRail() {
   const { data: subs = [] } = useQuery({ queryKey: ['yt-subs'], queryFn: getSubscriptions })
+  const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
+  // Before the sources list loads, show every source rather than none: an empty rail
+  // on first paint looks broken, and this is just discovery-surface visibility, not a gate.
+  const enabledSources = sourcesData
+    ? sourcesData.sources.filter((s) => s.enabled).map((s) => s.source)
+    : (Object.keys(SOURCE_LINKS) as VideoSource[])
 
   return (
     <nav className="hidden h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto overscroll-none border-r border-border/40 px-3 py-5 lg:flex">
@@ -37,13 +51,13 @@ export function VideosRail() {
       <RailLink to="/videos" icon={Home} label="Home" end />
       <RailLink to="/videos/clip" icon={Link2} label="Clip a Link" />
 
-      {/* Sources grow as providers land (Reddit, TikTok, Vimeo). */}
+      {/* Which of these show up is admin-controlled (Videos → Settings → Sources). */}
       <SectionLabel>Sources</SectionLabel>
       <RailLink to="/videos/mine" icon={Video} label="Mine" />
-      <RailLink to="/videos/youtube" icon={Play} label="YouTube" end />
-      <RailLink to="/videos/reddit" icon={MessagesSquare} label="Reddit" end />
-      <RailLink to="/videos/tiktok" icon={Music2} label="TikTok" end />
-      <RailLink to="/videos/vimeo" icon={Clapperboard} label="Vimeo" end />
+      {enabledSources.map((s) => {
+        const { to, icon, label } = SOURCE_LINKS[s]
+        return <RailLink key={s} to={to} icon={icon} label={label} end />
+      })}
 
       <SectionLabel>Your Library</SectionLabel>
       <RailLink to="/videos/history" icon={History} label="History" />

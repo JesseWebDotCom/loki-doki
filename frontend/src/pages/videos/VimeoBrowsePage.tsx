@@ -16,6 +16,7 @@ import { toast } from '@/lib/toast'
 import { browseSource, getHubHistory, getVideoSources, putVimeoConfig, type HubVideoItem } from '@/lib/videos/api'
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
+import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 import { SOURCE_META } from '@/lib/videos/sources'
 
 function ConnectVimeoCard({ onConfigured }: { onConfigured: () => void }) {
@@ -70,9 +71,10 @@ export function VimeoBrowsePage() {
   const { data: sourcesData, refetch: refetchSources } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const vimeo = sourcesData?.sources.find((s) => s.source === 'vimeo')
   const configured = vimeo?.status.configured ?? true
+  const enabled = vimeo?.enabled ?? true
   const feeds = vimeo?.browseFeeds ?? []
 
-  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured })
+  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured && enabled })
   const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
     .filter((r) => r.source === 'vimeo' && !r.completed && r.positionSec > 5)
     .map((r) => ({
@@ -86,7 +88,7 @@ export function VimeoBrowsePage() {
     queryFn: ({ pageParam }) => browseSource('vimeo', { feed, cursor: pageParam }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.cursor,
-    enabled: configured,
+    enabled: configured && enabled,
   })
   const items = useMemo(() => (feedQuery.data?.pages ?? []).flatMap((p) => p.items), [feedQuery.data])
 
@@ -95,10 +97,19 @@ export function VimeoBrowsePage() {
       title={SOURCE_META.vimeo.label}
       icon={SOURCE_META.vimeo.icon}
       gradient={SOURCE_META.vimeo.gradient}
-      subtitle="Staff Picks, handpicked by Vimeo."
+      subtitle={!enabled ? 'Turned off by an admin.' : 'Staff Picks, handpicked by Vimeo.'}
       className="pt-4 pb-4"
     />
   )
+
+  if (!enabled) {
+    return (
+      <PageContainer width="wide" className="pt-1 pb-8">
+        {header}
+        <div className="py-8"><SourceDisabledCard label={SOURCE_META.vimeo.label} /></div>
+      </PageContainer>
+    )
+  }
 
   if (!configured) {
     return (

@@ -46,7 +46,7 @@ function HubLanding() {
   const { selected, toggle } = useSourceFilter()
 
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
-  const sources = sourcesData?.sources ?? []
+  const sources = (sourcesData?.sources ?? []).filter((s) => s.enabled)
   const allIds = useMemo(() => sources.map((s) => s.source), [sources])
   const active: VideoSource[] = selected.length === 0 ? allIds : selected
 

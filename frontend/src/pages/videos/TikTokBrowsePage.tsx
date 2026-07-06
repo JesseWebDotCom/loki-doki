@@ -19,6 +19,7 @@ import { SOURCE_META } from '@/lib/videos/sources'
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
 import { HubCreatorRail } from '@/components/videos/HubCreatorRail'
+import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 
 // TikTok has no browsable trending here (scrape-only, flaky), so this page defaults to
 // popular starter creators until you follow your own; follows accumulate via the
@@ -30,7 +31,9 @@ export function TikTokBrowsePage() {
   const [handleInput, setHandleInput] = useState('')
   const [view, setView] = useViewPreference('videos.tiktok_view', 'grid')
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
-  const categories = sourcesData?.sources.find((s) => s.source === 'tiktok')?.browseFeeds ?? []
+  const tiktokSource = sourcesData?.sources.find((s) => s.source === 'tiktok')
+  const categories = tiktokSource?.browseFeeds ?? []
+  const enabled = tiktokSource?.enabled ?? true
 
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
   const creators = useMemo(() => (followsData?.follows ?? []).filter((f) => f.source === 'tiktok'), [followsData])
@@ -47,7 +50,7 @@ export function TikTokBrowsePage() {
   const { data: feedData, isLoading } = useQuery({
     queryKey: ['videos-following-feed', 'tiktok'],
     queryFn: () => getFollowingFeed('tiktok'),
-    enabled: creators.length > 0,
+    enabled: enabled && creators.length > 0,
   })
 
   // Zero-setup surface: popular creators' latest videos (cold load takes a few seconds
@@ -56,7 +59,7 @@ export function TikTokBrowsePage() {
   const popularQuery = useQuery({
     queryKey: ['tiktok-popular', category ?? 'popular'],
     queryFn: () => browseSource('tiktok', { feed: category ?? undefined }),
-    enabled: showPopular,
+    enabled: enabled && showPopular,
     staleTime: 5 * 60_000,
   })
   const items = useMemo(() => {
@@ -75,6 +78,16 @@ export function TikTokBrowsePage() {
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not follow that creator'),
   })
+
+  if (!enabled) {
+    return (
+      <PageContainer width="wide" className="pt-1 pb-8">
+        <PageHeader title={SOURCE_META.tiktok.label} icon={SOURCE_META.tiktok.icon} gradient={SOURCE_META.tiktok.gradient}
+          subtitle="Turned off by an admin." className="pt-4 pb-4" />
+        <div className="py-8"><SourceDisabledCard label={SOURCE_META.tiktok.label} /></div>
+      </PageContainer>
+    )
+  }
 
   return (
     <PageContainer width="wide" className="pt-1 pb-8">

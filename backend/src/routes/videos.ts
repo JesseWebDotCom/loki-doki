@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
 import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
-import { getProvider, listProviders, matchUrlToProvider } from '@/lib/videos/registry'
+import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos } from '@/lib/videos/policy'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
@@ -32,14 +32,25 @@ videosRoute.use('*', requireAuth)
 // ── Sources: capabilities + config status (drives the rail + settings nudges) ──
 
 videosRoute.get('/sources', async (c) => {
+  const enabled = await getEnabledSources()
   const sources = await Promise.all(listProviders().map(async (p) => ({
     source: p.source,
     label: p.label,
     capabilities: p.capabilities,
     browseFeeds: p.browseFeeds ?? [],
     status: p.status ? await p.status() : { configured: true },
+    enabled: enabled.includes(p.source),
   })))
   return c.json({ sources })
+})
+
+// Admin: which sources show up on discovery surfaces (rail, home feed, browse pages).
+videosRoute.put('/config/sources', requireAdmin, async (c) => {
+  const body = await c.req.json<{ sources?: string[] }>().catch(() => ({}) as Record<string, never>)
+  const valid = new Set(listProviders().map((p) => p.source))
+  const sources = (body.sources ?? []).filter((s): s is VideoSource => valid.has(s as VideoSource))
+  await setEnabledSources(sources)
+  return c.json({ ok: true })
 })
 
 // ── Mixed home: interleave provider browse feeds, policy-filtered ──────────────
@@ -48,9 +59,10 @@ videosRoute.get('/home', async (c) => {
   const user = c.get('user')
   const allowAdult = await allowAdultVideos(user.id)
   const wanted = (c.req.query('sources') ?? '').split(',').filter(Boolean)
+  const enabled = await getEnabledSources()
 
   const active = listProviders().filter((p) =>
-    p.browse && p.capabilities.browse && (wanted.length === 0 || wanted.includes(p.source)))
+    p.browse && p.capabilities.browse && enabled.includes(p.source) && (wanted.length === 0 || wanted.includes(p.source)))
 
   const feeds = await Promise.all(active.map(async (p) => {
     try {
@@ -65,7 +77,7 @@ videosRoute.get('/home', async (c) => {
   // followed subreddits/channels surface on Home without their own trending feeds.
   const follows = await db.select({ id: videoFollows.id, source: videoFollows.source }).from(videoFollows)
     .where(eq(videoFollows.userId, user.id))
-  const followsWanted = follows.filter((f) => wanted.length === 0 || wanted.includes(f.source))
+  const followsWanted = follows.filter((f) => enabled.includes(f.source) && (wanted.length === 0 || wanted.includes(f.source)))
   if (followsWanted.length > 0) {
     const rows = await db.select().from(videoItems)
       .where(inArray(videoItems.followId, followsWanted.map((f) => f.id)))

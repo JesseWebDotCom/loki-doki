@@ -50,6 +50,9 @@ export interface SourceInfo {
     authConfig: 'none' | 'apiKey' | 'cookies'
   }
   status: { configured: boolean; note?: string }
+  /** Admin-controlled: whether this source shows up on discovery surfaces (rail, home
+   *  feed, browse pages). Already-followed/saved items and direct playback are unaffected. */
+  enabled: boolean
 }
 
 export type ResolveResult =
@@ -190,7 +193,7 @@ export interface WatchStateSnapshot {
 
 /** `snapshot` lets "Continue watching" show a real title/thumbnail even for videos that
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
- *  following) — pass the item you already have in hand rather than making history depend
+ *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
 export function putWatchState(
   source: VideoSource, videoId: string, positionSec: number, completed: boolean, snapshot?: WatchStateSnapshot,
@@ -231,6 +234,11 @@ export function getVimeoConfig(): Promise<{ configured: boolean; token: string }
 }
 export function putVimeoConfig(token: string): Promise<{ ok: true }> {
   return sendJson('/api/videos/config/vimeo', 'PUT', { token })
+}
+
+/** Admin-only: which sources show up on discovery surfaces (rail, home feed, browse). */
+export function putEnabledSources(sources: VideoSource[]): Promise<{ ok: true }> {
+  return sendJson('/api/videos/config/sources', 'PUT', { sources })
 }
 
 export async function resolveVideoUrl(url: string): Promise<ResolveResult> {
