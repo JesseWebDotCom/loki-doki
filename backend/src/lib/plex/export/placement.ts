@@ -54,7 +54,7 @@ function tailStderr(buf: string, lines = 8): string {
  * placement entirely on a remux error.
  */
 export async function placeVideoWithMetadata(
-  sourceAbsPath: string, destAbsPath: string, meta: { title: string; plot: string },
+  sourceAbsPath: string, destAbsPath: string, meta: { title: string; plot: string; audioLang?: string | null },
 ): Promise<void> {
   await mkdir(dirname(destAbsPath), { recursive: true })
   try { await unlink(destAbsPath) } catch { /* fine if nothing was there yet */ }
@@ -66,6 +66,9 @@ export async function placeVideoWithMetadata(
       '-c', 'copy', '-movflags', 'use_metadata_tags',
       '-metadata', `title=${meta.title}`,
       '-metadata', `description=${meta.plot}`,
+      // yt-dlp output carries no language atom on the audio track, so Plex lists the
+      // stream as "Unknown". Tag it (ISO 639-2, caller-resolved) during the same remux.
+      ...(meta.audioLang ? ['-metadata:s:a:0', `language=${meta.audioLang}`] : []),
       destAbsPath,
     ]
     await new Promise<void>((resolve, reject) => {
