@@ -58,8 +58,9 @@ export function MyVideosPage() {
       <PageHeader
         title="Mine"
         icon={Video}
-        // design-ok(hex-in-tsx): Mine identity tile gradient
-        gradient="linear-gradient(135deg,#312e81,#7c3aed)"
+        // design-ok(hex-in-tsx): Mine identity tile gradient (amber: distinct from the other
+        // sources' red/orange/black/sky and from the hub's own cyan + the site's violet apps)
+        gradient="linear-gradient(135deg,#78350f,#f59e0b)"
         subtitle="Your exports, uploads & AI clips, plus the projects that make them."
         className="pt-4 pb-4"
         actions={

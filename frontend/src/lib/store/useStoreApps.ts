@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Cloud, Search, Calculator, Newspaper, BookOpen, Tv, Clock, Moon,
-  Image as ImageIcon, Stethoscope, Play, Calendar, Package, Home, CalendarDays,
-  MapPin, Star, Zap, MessageSquare, ShieldCheck, Wrench, type LucideIcon,
+  Search, Calculator, Newspaper, BookOpen, Clock,
+  Image as ImageIcon, Stethoscope,
+  MessageSquare, ShieldCheck, Wrench, type LucideIcon,
 } from 'lucide-react'
 import type { AppTool } from '@/components/shared/InstallDisclosureModal'
 import type { DataSource } from '@/components/shared/ServiceConsentCard'
@@ -88,34 +88,27 @@ export const TOOL_ROUTES: Record<string, string> = {
   shopping:         '/shopping',
 }
 
-// ── Fallback meta for tools not represented in APP_GROUPS ──────────────────────
+// ── Fallback meta for tools genuinely NOT represented in APP_GROUPS ────────────
+// Entries here must be tools with no matching AppItem (by id or toolId): anything
+// with a catalog match already resolves its icon/gradient from there (see fromTool()
+// below: `catalog?.item.icon ?? fallback?.icon`), so a duplicate entry here is dead
+// code that silently drifts from the real one (this list used to carry a stale
+// `youtube: { icon: Play, colorClass: 'from-destructive...' }` entry from when the app
+// was YouTube-red, long after the app itself moved to the Videos hub's own identity;
+// the catalog always won, so nobody noticed until this comment did.
 // colorClass gradients stay on design tokens (nearest semantic hue family) so
 // fallback icon tiles never reintroduce the raw Tailwind palette.
 interface FallbackMeta { icon: LucideIcon; colorClass: string; category: string }
 const APP_META: Record<string, FallbackMeta> = {
-  weather:          { icon: Cloud,       colorClass: 'from-info to-info/60',                         category: 'Maps & Weather'      },
   search:           { icon: Search,      colorClass: 'from-brand to-brand/60',                       category: 'Utilities'           },
   calculator:       { icon: Calculator,  colorClass: 'from-warning to-warning/60',                   category: 'Utilities'           },
   unit_conversion:  { icon: Wrench,      colorClass: 'from-muted-foreground to-muted-foreground/60', category: 'Utilities'           },
-  jokes:            { icon: Star,        colorClass: 'from-warning to-warning/60',                   category: 'Entertainment'       },
-  news:             { icon: Newspaper,   colorClass: 'from-destructive to-destructive/60',           category: 'News & Sports'       },
-  recipes:          { icon: BookOpen,    colorClass: 'from-success to-success/60',                   category: 'Lifestyle'           },
   dictionary:       { icon: BookOpen,    colorClass: 'from-info to-info/60',                         category: 'Reading & Reference' },
-  youtube:          { icon: Play,        colorClass: 'from-destructive to-destructive/70',           category: 'Entertainment'       },
-  tvshows:          { icon: Tv,          colorClass: 'from-brand to-brand/60',                       category: 'Entertainment'       },
   datetime:         { icon: Clock,       colorClass: 'from-info to-info/60',                         category: 'Utilities'           },
-  moonphase:        { icon: Moon,        colorClass: 'from-muted-foreground to-muted-foreground/60', category: 'Maps & Weather'      },
   image_gen:        { icon: ImageIcon,   colorClass: 'from-brand to-brand/60',                       category: 'Creativity'          },
   medical:          { icon: Stethoscope, colorClass: 'from-success to-success/60',                   category: 'Reading & Reference' },
-  'where-to-watch': { icon: Play,        colorClass: 'from-warning to-warning/60',                   category: 'Entertainment'       },
-  holidays:         { icon: Calendar,    colorClass: 'from-destructive to-destructive/60',           category: 'Lifestyle'           },
-  home_inventory:   { icon: Home,        colorClass: 'from-info to-info/60',                         category: 'Home & Devices'      },
-  onthisday:        { icon: CalendarDays,colorClass: 'from-warning to-warning/60',                   category: 'News & Sports'       },
-  localEvents:      { icon: MapPin,      colorClass: 'from-success to-success/60',                   category: 'Lifestyle'           },
   localNews:        { icon: Newspaper,   colorClass: 'from-destructive to-destructive/60',           category: 'News & Sports'       },
   contentRating:    { icon: ShieldCheck, colorClass: 'from-muted-foreground to-muted-foreground/60', category: 'Utilities'           },
-  sports:           { icon: Zap,         colorClass: 'from-success to-success/60',                   category: 'News & Sports'       },
-  homeAssistant:    { icon: Package,     colorClass: 'from-info to-info/60',                         category: 'Home & Devices'      },
 }
 
 // ── Lookups from APP_GROUPS (by app id, toolId, and route) ─────────────────────

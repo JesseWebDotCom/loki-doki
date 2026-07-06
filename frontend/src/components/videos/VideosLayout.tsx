@@ -32,27 +32,29 @@ export function useYoutubeModeOptional(): YoutubeMode { return useContext(Youtub
 /** UI accessor that returns null outside the provider (for shared cards). */
 export function useYoutubeUIOptional(): YoutubeUI | null { return useContext(YoutubeUICtx) }
 
-// Online = red identity, Offline = emerald, so you always know which side you're on.
-// The accent feeds CSS variables consumed by the whole app via `bg-[var(--yt-accent)]` etc.
+// Online = the Videos app's own cyan identity (matches appCategories.ts; not YouTube's
+// red, and not the violet/fuchsia already claimed by Chat, Movies, Podcasts, Companions
+// etc. this wash paints the whole hub, every source, not just YouTube). Offline =
+// emerald so the two states stay visually distinct. Feeds CSS vars app-wide via `bg-[var(--yt-accent)]` etc.
 const ACCENT: Record<YoutubeMode, { base: string; hover: string; fg: string }> = {
-  // design-ok(hex-in-tsx): mode identity accents (Videos brand red / offline emerald) fed into CSS vars + color-mix
-  online: { base: '#dc2626', hover: '#ef4444', fg: '#f87171' },
-  // design-ok(hex-in-tsx): mode identity accents (Videos brand red / offline emerald) fed into CSS vars + color-mix
+  // design-ok(hex-in-tsx): mode identity accents (Videos brand cyan / offline emerald) fed into CSS vars + color-mix
+  online: { base: '#0891b2', hover: '#06b6d4', fg: '#22d3ee' },
+  // design-ok(hex-in-tsx): mode identity accents (Videos brand cyan / offline emerald) fed into CSS vars + color-mix
   offline: { base: '#059669', hover: '#10b981', fg: '#34d399' },
 }
 const MODE_KEY = 'yt.mode'
 
-/** Segmented Online/Offline control that lives in the breadcrumb's right slot. */
+/** Segmented Online/Offline control that lives in the breadcrumb's right slot. Active
+ *  fill uses each mode's ACCENT hex directly (inline style, not a Tailwind class) so it
+ *  always matches the page-wide wash instead of drifting to an unrelated palette. */
 function ModeToggle({ mode, onChange }: { mode: YoutubeMode; onChange: (m: YoutubeMode) => void }) {
   return (
     <div className="flex h-8 shrink-0 items-center rounded-full border border-border bg-background p-0.5 text-xs font-semibold">
       {(['online', 'offline'] as YoutubeMode[]).map(m => (
         <button key={m} type="button" onClick={() => onChange(m)}
           className={cn('rounded-full px-2.5 py-1 capitalize transition-colors',
-            mode === m
-              // design-ok(raw-palette-semantic): online/offline mode identity fills (Videos brand red / offline emerald)
-              ? (m === 'online' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white')
-              : 'text-muted-foreground hover:text-foreground')}>
+            mode === m ? 'text-white' : 'text-muted-foreground hover:text-foreground')}
+          style={mode === m ? { backgroundColor: ACCENT[m].base } : undefined}>
           {m}
         </button>
       ))}
@@ -116,7 +118,7 @@ export function VideosLayout() {
     '--yt-accent-hover': a.hover,
     '--yt-accent-fg': a.fg,
     '--yt-accent-soft': `color-mix(in oklab, ${a.fg} 15%, transparent)`,
-    // A faint accent wash over the page background so Online (red) and Offline
+    // A faint accent wash over the page background so Online (cyan) and Offline
     // (emerald) are distinguishable at a glance. Layered on top of bg-background.
     backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 7%, transparent)`}, ${`color-mix(in oklab, ${a.base} 7%, transparent)`})`,
   } as CSSProperties

@@ -118,11 +118,11 @@ function HomeLanding() {
       />
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
-          {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} onClick={() => { setTopic(null); setFilter(k) }} />)}
+          {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} activeClassName={SOURCE_META.youtube.pillActiveClass} onClick={() => { setTopic(null); setFilter(k) }} />)}
           {online && (
             <>
               <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />
-              {TOPICS.map(t => <Chip key={t} label={t} active={topic === t} onClick={() => setTopic(topic === t ? null : t)} />)}
+              {TOPICS.map(t => <Chip key={t} label={t} active={topic === t} activeClassName={SOURCE_META.youtube.pillActiveClass} onClick={() => setTopic(topic === t ? null : t)} />)}
             </>
           )}
         </ChipRow>

@@ -5,9 +5,11 @@ interface ChipProps {
   active?: boolean
   onClick?: () => void
   className?: string
+  /** Override the active-state fill (e.g. a source's brand color instead of bg-brand). */
+  activeClassName?: string
 }
 
-export function Chip({ label, active, onClick, className }: ChipProps) {
+export function Chip({ label, active, onClick, className, activeClassName }: ChipProps) {
   return (
     <button
       type="button"
@@ -15,7 +17,7 @@ export function Chip({ label, active, onClick, className }: ChipProps) {
       className={cn(
         'inline-flex shrink-0 items-center rounded-full px-3 py-1 text-sm font-medium transition-colors',
         active
-          ? 'bg-brand text-brand-foreground'
+          ? (activeClassName ?? 'bg-brand text-brand-foreground')
           : 'bg-foreground/8 text-foreground hover:bg-foreground/12',
         className,
       )}
