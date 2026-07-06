@@ -1,3 +1,5 @@
+// Keep this first: locks PLAYWRIGHT_BROWSERS_PATH before anything can load playwright.
+import '@/lib/playwrightEnv'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Hono } from 'hono'

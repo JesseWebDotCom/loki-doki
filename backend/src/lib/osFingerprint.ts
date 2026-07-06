@@ -39,7 +39,7 @@ async function currentOsId(): Promise<string | null> {
     if (process.platform === 'win32') {
       const { stdout } = await execFileAsync(
         'reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
-        { timeout: 8_000 },
+        { timeout: 8_000, windowsHide: true },
       )
       const m = stdout.match(/MachineGuid\s+REG_SZ\s+(\S+)/)
       return m ? `win:${m[1]}` : null

@@ -48,7 +48,7 @@ export async function extractArchive(archivePath: string, destDir: string, timeo
   if (archivePath.endsWith('.zip')) {
     await extractZip(archivePath, destDir, timeoutMs)
   } else {
-    await execFileAsync('tar', ['-xf', archivePath, '-C', destDir], { timeout: timeoutMs })
+    await execFileAsync('tar', ['-xf', archivePath, '-C', destDir], { timeout: timeoutMs, windowsHide: true })
   }
 }
 

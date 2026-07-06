@@ -1,0 +1,5 @@
+# Runs before the entrypoint's import graph. Required for playwrightEnv: bun does
+# not reliably execute a first side-effect import before sibling imports' deps load,
+# so setting PLAYWRIGHT_BROWSERS_PATH inside the graph is too late — playwright-core
+# locks its browser registry path the moment the playwright module loads.
+preload = ["./src/lib/playwrightEnv.ts"]

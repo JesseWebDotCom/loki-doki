@@ -22,7 +22,7 @@ async function toWav(input: Uint8Array): Promise<Uint8Array> {
   await writeFile(tmpIn, input)
   try {
     const proc = Bun.spawn([ffmpegBin(), '-i', tmpIn, '-ar', '16000', '-ac', '1', '-f', 'wav', 'pipe:1'], {
-      stdout: 'pipe', stderr: 'ignore',
+      stdout: 'pipe', stderr: 'ignore', windowsHide: true,
     })
     const wav = new Uint8Array(await new Response(proc.stdout).arrayBuffer())
     await proc.exited

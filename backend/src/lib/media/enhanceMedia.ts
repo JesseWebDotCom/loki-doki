@@ -32,7 +32,7 @@ export interface EnhanceMediaOpts {
 
 function run(bin: string, args: string[], signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
     let err = ''
     child.stderr?.on('data', (d) => { err += d.toString(); if (err.length > 32_000) err = err.slice(-16_000) })
     const onAbort = () => child.kill('SIGKILL')

@@ -171,7 +171,7 @@ async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: St
         '--force-ipv4',
         '--extractor-args', 'youtube:player_client=android_vr,web_safari,web',
         `https://www.youtube.com/watch?v=${videoId}`,
-      ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }))
+      ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }))
 
       // -g prints one URL per selected stream; the first line is our progressive/audio URL.
       const url = stdout.split('\n').map(l => l.trim()).find(Boolean) ?? null

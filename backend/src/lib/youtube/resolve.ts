@@ -95,7 +95,7 @@ async function ytJson(url: string): Promise<Record<string, any>> {
   const { stdout } = await execFileAsync(ytDlpBin(), [
     '-J', '--flat-playlist', '--playlist-items', '0',
     '--no-warnings', '--quiet', url,
-  ], { timeout: 30_000, maxBuffer: 32 * 1024 * 1024 })
+  ], { timeout: 30_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true })
   return JSON.parse(stdout) as Record<string, any>
 }
 

@@ -32,7 +32,10 @@ export function isChromiumInstalled(): boolean {
 
 async function systemBrowserWorks(): Promise<boolean> {
   for (const channel of ['chrome', 'msedge'] as const) {
-    try { const b = await chromium.launch({ channel, headless: true }); await b.close(); return true } catch { /* not this one */ }
+    // Short timeout: this probe runs inside the setup wizard's retry loop, and the
+    // default 30s (per channel, per attempt) held the "Checking for a usable browser"
+    // step for minutes when neither browser cooperated.
+    try { const b = await chromium.launch({ channel, headless: true, timeout: 10_000 }); await b.close(); return true } catch { /* not this one */ }
   }
   return false
 }
@@ -46,13 +49,15 @@ export async function installChromium(onStatus: (msg: string) => void, signal?: 
   if (await systemBrowserWorks()) { onStatus('Using system browser'); return }
   if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
   onStatus('Installing Chromium (~150MB)…')
-  const ok = await new Promise<boolean>((resolve) => {
+  const errTail = await new Promise<string | null>((resolve) => {
     // `playwright install chromium` honors PLAYWRIGHT_BROWSERS_PATH from the env.
-    const proc = spawn('bun', ['x', 'playwright', 'install', 'chromium'], { env: process.env, stdio: 'ignore', windowsHide: true })
+    const proc = spawn('bun', ['x', 'playwright', 'install', 'chromium'], { env: process.env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    let err = ''
+    proc.stderr?.on('data', (d) => { err += d.toString(); if (err.length > 16_000) err = err.slice(-8_000) })
     signal?.addEventListener('abort', () => { try { proc.kill() } catch { /* already gone */ } })
-    proc.on('exit', (code) => resolve(code === 0))
-    proc.on('error', () => resolve(false))
+    proc.on('exit', (code) => resolve(code === 0 ? null : (err.trim().split('\n').slice(-3).join(' | ') || `exit ${code}`)))
+    proc.on('error', (e) => resolve(e.message))
   })
-  if (!ok || !isChromiumInstalled()) throw new Error('Chromium install failed')
+  if (errTail !== null || !isChromiumInstalled()) throw new Error(`Chromium install failed${errTail ? `: ${errTail}` : ' (installer ok but browser missing at expected path)'}`)
   onStatus('Chromium ready')
 }

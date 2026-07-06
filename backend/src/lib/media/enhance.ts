@@ -33,7 +33,7 @@ function tailStderr(buf: string, lines = 8): string {
 /** Source duration in seconds via ffprobe (for the progress fraction). 0 if it can't be read. */
 async function probeDurationSec(inputPath: string): Promise<number> {
   return new Promise((resolve) => {
-    const proc = spawn(ffprobeBin(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', inputPath], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const proc = spawn(ffprobeBin(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', inputPath], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     let out = ''
     proc.stdout?.on('data', (c: Buffer) => { out += c.toString() })
     proc.on('close', () => { const n = parseFloat(out.trim()); resolve(Number.isFinite(n) && n > 0 ? n : 0) })
@@ -53,7 +53,7 @@ async function runEncode(inputPath: string, outputPath: string, enc: VideoEncode
   ]
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let err = ''
     child.stderr?.on('data', (d) => { err += d.toString(); if (err.length > 64_000) err = err.slice(-32_000) })
 

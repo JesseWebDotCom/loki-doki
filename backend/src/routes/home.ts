@@ -834,7 +834,7 @@ async function extractPdfTextAsync(deviceId: string, pdfPath: string) {
     const { exec } = await import('node:child_process')
     const { promisify } = await import('node:util')
     const execAsync = promisify(exec)
-    const { stdout } = await execAsync(`pdftotext "${pdfPath}" -`, { timeout: 15_000 })
+    const { stdout } = await execAsync(`pdftotext "${pdfPath}" -`, { timeout: 15_000, windowsHide: true })
     const text = stdout.slice(0, 40_000).trim()
     if (text) {
       await db.update(homeDevices)

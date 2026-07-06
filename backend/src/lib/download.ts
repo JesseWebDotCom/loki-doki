@@ -906,17 +906,26 @@ export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<O
     const systemBin = findSystemOllama()
     const managedBin = join(dataDir, OLLAMA_BIN_DEST)
     if (!systemBin && existsSync(managedBin)) {
-      // Skip a needless ~700MB re-download when the running build already matches the
-      // latest release. If we can't determine either version, fall through and refresh
-      // (safe default). This is what makes the weekly cadence cheap on Windows, where
-      // the managed binary is the normal install rather than a rare fallback.
+      // Skip a needless ~700MB re-download when the installed build already matches the
+      // latest release. The server's /api/version is only trustworthy when it answers —
+      // at boot this check races `ollama serve` binding, so a null there must NOT mean
+      // "stale": it used to fall through to a kill + delete + full re-download on every
+      // boot, taking Ollama down mid-startup ("Ollama unreachable"). Ask the binary
+      // itself as the fallback, and never wipe a working install on unknown versions.
       const [running, latest] = await Promise.all([currentOllamaVersion(), latestOllamaVersion()])
-      if (running && latest && running === latest) {
-        await setAppSetting(OLLAMA_VERSION_KEY, running)
-        status(`Ollama already current (${running})`)
+      const installed = running ?? await execAsync(`"${managedBin}" --version`, { timeout: 8_000, windowsHide: true })
+        .then(({ stdout, stderr }) => `${stdout}\n${stderr}`.match(/(\d+\.\d+\.\d+)/)?.[1] ?? null)
+        .catch(() => null)
+      if (installed && latest && installed === latest) {
+        await setAppSetting(OLLAMA_VERSION_KEY, installed)
+        status(`Ollama already current (${installed})`)
         return 'up-to-date'
       }
-      status(`Updating Ollama${latest ? ` to ${latest}` : ''}…`)
+      if (!installed || !latest) {
+        status(`Skipping Ollama refresh — ${!latest ? 'latest release unknown (offline?)' : 'installed version unknown'}; will retry next cycle`)
+        return 'up-to-date'
+      }
+      status(`Updating Ollama ${installed} → ${latest}…`)
       // Stop the running server first: otherwise downloadAndStartOllama sees Ollama
       // still answering on the port and returns without fetching the update, and on
       // Windows a running ollama.exe can't be overwritten. Match on the binary path so
@@ -1653,7 +1662,7 @@ export async function setupComfyUIBase(
     try {
       const ver = (await execAsync(
         `"${venvPythonBin}" -c "import sys; print(sys.version_info.minor)"`,
-        { encoding: 'utf8', timeout: 5_000 },
+        { encoding: 'utf8', timeout: 5_000, windowsHide: true },
       )).stdout.trim()
       if (parseInt(ver, 10) < 10) {
         onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Upgrading Python environment to 3.10+…' })

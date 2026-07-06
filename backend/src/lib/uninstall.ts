@@ -127,7 +127,7 @@ function killByPort(port: number): void {
 function killByName(pattern: string): void {
   try {
     if (process.platform === 'win32') {
-      execSync(`taskkill /F /IM ${pattern} 2>nul`, { timeout: 5_000 })
+      execSync(`taskkill /F /IM ${pattern} 2>nul`, { timeout: 5_000, windowsHide: true })
     } else {
       // -i = case-insensitive: macOS Ollama runs as ".../MacOS/Ollama" (capital O),
       // which a case-sensitive match on "ollama" would miss.

@@ -59,7 +59,7 @@ export function isVtracerInstalled(): boolean {
 
 async function versionOf(bin: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 30_000 })
+    const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 30_000, windowsHide: true })
     return stdout.trim() || null
   } catch {
     return null
@@ -101,9 +101,9 @@ async function downloadManaged(onStatus?: (msg: string) => void, signal?: AbortS
     onStatus?.('Extracting Vector Tracer…')
     await mkdir(workDir, { recursive: true })
     if (asset.endsWith('.zip')) {
-      await execFileAsync('unzip', ['-o', archivePath, '-d', workDir], { timeout: 120_000 })
+      await execFileAsync('unzip', ['-o', archivePath, '-d', workDir], { timeout: 120_000, windowsHide: true })
     } else {
-      await execFileAsync('tar', ['-xzf', archivePath, '-C', workDir], { timeout: 120_000 })
+      await execFileAsync('tar', ['-xzf', archivePath, '-C', workDir], { timeout: 120_000, windowsHide: true })
     }
 
     const extracted = await findBinary(workDir)
@@ -178,7 +178,7 @@ export async function traceToSvg(pngBuf: Buffer, opts: TraceOptions = {}): Promi
         '--color_precision', String(Math.max(1, Math.min(8, Math.round(colorPrecision)))),
         '--filter_speckle', String(Math.max(0, Math.round(filterSpeckle))),
       ],
-      { timeout: 120_000 },
+      { timeout: 120_000, windowsHide: true },
     )
     return await readFile(outPath)
   } finally {

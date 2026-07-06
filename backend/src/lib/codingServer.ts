@@ -81,7 +81,7 @@ function sandboxWrap(cmdArgs: string[]): SandboxedSpawn {
 async function runSandboxed(cmdArgs: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
   const { bin, args } = sandboxWrap(cmdArgs)
   try {
-    const { stdout, stderr } = await execFileAsync(bin, args, { cwd, timeout: 10_000 })
+    const { stdout, stderr } = await execFileAsync(bin, args, { cwd, timeout: 10_000, windowsHide: true })
     return { code: 0, stdout, stderr }
   } catch (err) {
     const e = err as { code?: number; stdout?: string; stderr?: string }
