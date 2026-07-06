@@ -92,7 +92,7 @@ export function invalidateFastModelCache(): void {
 // Returns the best available vision-capable model:
 // 1. Explicitly configured vision_model setting
 // 2. The current chat model if it has builtinVision (e.g. Gemma 4 12B)
-// 3. Fallback: gemma3:4b (the catalog vision role default)
+// 3. Fallback: gemma3:4b-it-qat (the catalog vision role default)
 export async function getVisionModel(): Promise<string> {
   const explicit = await getSetting('vision_model')
   if (explicit) return explicit
@@ -101,7 +101,7 @@ export async function getVisionModel(): Promise<string> {
   const chatEntry = CATALOG.find(m => m.ollamaTag === chatModel || m.id === chatModel)
   if (chatEntry?.builtinVision) return chatModel
 
-  return 'gemma3:4b'
+  return 'gemma3:4b-it-qat'
 }
 
 // Shared warmup promise — callers that need to wait for warmup to finish (e.g. the boot

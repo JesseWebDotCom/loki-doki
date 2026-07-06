@@ -572,6 +572,21 @@ export function runMigrations() {
     console.warn('[migrations] ha security grant migration failed:', err instanceof Error ? err.message : err)
   }
 
+  // One-time: vision model swapped to Google's QAT checkpoint (gemma3:4b → gemma3:4b-it-qat).
+  // Same footprint, near-bf16 quality. Only rewrite the setting when it still holds the exact
+  // old tag, so an admin who deliberately picked a different vision model is left untouched.
+  // Values in app_settings are JSON-encoded, hence the quoted match/replacement.
+  try {
+    const done = sqlite.query(`SELECT 1 FROM app_settings WHERE key='migr.vision_gemma3_qat'`).get()
+    if (!done) {
+      sqlite.exec(`UPDATE app_settings SET value='"gemma3:4b-it-qat"', updated_at=${Date.now()} WHERE key='vision_model' AND value='"gemma3:4b"';`)
+      sqlite.exec(`INSERT OR IGNORE INTO app_settings (id, key, value, updated_at) VALUES (lower(hex(randomblob(16))), 'migr.vision_gemma3_qat', '"done"', ${Date.now()});`)
+      console.warn('[migrations] migrated vision model gemma3:4b → gemma3:4b-it-qat (QAT)')
+    }
+  } catch (err) {
+    console.warn('[migrations] vision QAT migration failed:', err instanceof Error ? err.message : err)
+  }
+
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
   addColumn('music_stations', 'category', 'TEXT')
   addColumn('music_stations', 'loading_messages', 'TEXT')
