@@ -3,6 +3,7 @@ import { Film } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import type { HubVideoItem } from '@/lib/videos/api'
+import { SOURCE_META } from '@/lib/videos/sources'
 
 /** Deep-link targets per source (creator paths differ per source vocabulary). */
 export const HUB_PATHS = {
@@ -12,15 +13,6 @@ export const HUB_PATHS = {
   vimeo: { watch: (id: string) => `/videos/vimeo/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/vimeo/channel/${encodeURIComponent(id)}` },
 } as const
 
-const SOURCE_BADGE: Record<HubVideoItem['source'], { label: string; className: string }> = {
-  // design-ok(raw-palette-semantic): per-source brand identity chips (YouTube red, Reddit orange, TikTok neutral, Vimeo blue)
-  youtube: { label: 'YouTube', className: 'bg-red-600/90 text-white' },
-  // design-ok(raw-palette-semantic): per-source brand identity chips
-  reddit: { label: 'Reddit', className: 'bg-orange-600/90 text-white' },
-  tiktok: { label: 'TikTok', className: 'bg-black/80 text-white ring-1 ring-white/30' },
-  // design-ok(raw-palette-semantic): per-source brand identity chips
-  vimeo: { label: 'Vimeo', className: 'bg-sky-600/90 text-white' },
-}
 
 function fmtDur(sec?: number | null): string | null {
   if (sec == null || sec <= 0) return null
@@ -43,7 +35,7 @@ export function HubVideoCard({ item, showSource = true }: { item: HubVideoItem; 
   const dur = fmtDur(item.durationSec)
   const metaLine = [item.creator?.name, item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)]
     .filter(Boolean).join(' · ')
-  const badge = SOURCE_BADGE[item.source]
+  const badge = SOURCE_META[item.source]
 
   return (
     <Link to={HUB_PATHS[item.source].watch(item.id)} className="group flex flex-col gap-2.5">
@@ -60,8 +52,8 @@ export function HubVideoCard({ item, showSource = true }: { item: HubVideoItem; 
           </div>
         )}
         {showSource && (
-          <span className={cn('absolute left-1.5 top-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.className)}>
-            {badge.label}
+          <span className={cn('absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.badgeClass)}>
+            <badge.icon className="size-2.5" aria-hidden /> {badge.label}
           </span>
         )}
         {dur && (

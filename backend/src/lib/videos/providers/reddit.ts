@@ -253,8 +253,31 @@ export const redditProvider: VideoProvider = {
       }))
   },
 
-  async fetchCreatorFeed(externalId) {
+  async fetchCreatorFeed(externalId, knownIds) {
     if (!SUB_NAME.test(externalId)) return []
+    // RSS-first (free: subreddit .rss serves with a browser UA and costs no API quota).
+    // Only when it lists post ids we haven't stored does ONE batched by_id call fetch
+    // full data (over_18, v.redd.it urls, duration) for exactly the new posts.
+    if (knownIds) {
+      try {
+        const res = await fetch(`https://www.reddit.com/r/${externalId}/new/.rss`, {
+          headers: { 'User-Agent': BROWSER_UA }, signal: AbortSignal.timeout(10_000),
+        })
+        if (res.ok) {
+          const xml = await res.text()
+          if (xml.trimStart().startsWith('<?xml')) {
+            const ids = [...xml.matchAll(/<id>t3_([a-z0-9]+)<\/id>/gi)].map((m) => m[1]!)
+            const fresh = ids.filter((id) => !knownIds.has(id)).slice(0, 25)
+            if (ids.length > 0 && fresh.length === 0) return []   // nothing new: zero API calls
+            if (fresh.length > 0) {
+              const data = await redditJson<{ data?: { children?: Array<{ data: RedditPost }> } }>(
+                `/by_id/${fresh.map((id) => `t3_${id}`).join(',')}.json?raw_json=1`, LIST_TTL)
+              return (data.data?.children ?? []).map((c) => toItem(c.data)).filter((x): x is VideoItem => x !== null)
+            }
+          }
+        }
+      } catch { /* RSS unavailable: fall through to the listing call */ }
+    }
     const data = await redditJson<Parameters<typeof listingToPager>[0]>(
       `/r/${externalId}/new.json?raw_json=1&limit=25`, LIST_TTL)
     return listingToPager(data).items

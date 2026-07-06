@@ -71,8 +71,10 @@ export interface VideoProvider {
   getPlayback(id: string, kind?: 'audio' | 'video'): Promise<PlaybackInfo>
   getComments?(id: string): Promise<Array<{ author: string; text: string; likes?: string | null; publishedText?: string | null }>>
 
-  /** Poll new uploads for a followed creator (drives video_items). */
-  fetchCreatorFeed?(externalId: string): Promise<VideoItem[]>
+  /** Poll new uploads for a followed creator (drives video_items). `knownIds` lets a
+   *  provider skip expensive fetches when nothing is new (e.g. reddit checks its free
+   *  RSS first and only spends API quota on genuinely fresh posts). */
+  fetchCreatorFeed?(externalId: string, knownIds?: ReadonlySet<string>): Promise<VideoItem[]>
 
   /** How the download job invokes yt-dlp for this item. */
   downloadSpec(id: string, kind: 'audio' | 'video', maxHeight?: number | null): Promise<DownloadSpec>

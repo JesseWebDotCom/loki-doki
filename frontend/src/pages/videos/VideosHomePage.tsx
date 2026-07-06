@@ -4,15 +4,17 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Play, Film, Plug } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
-import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { ChipRow } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { SourceChip } from '@/components/videos/SourceChip'
 import { getHistory, getSubscriptions } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
 import { getHubHome, getVideoSources, listFollows, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
+import { SOURCE_META } from '@/lib/videos/sources'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
 
 /** Hub items from the YouTube source render through the existing card system. Items
@@ -67,9 +69,9 @@ function HubLanding() {
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
           {sources.map((s) => (
-            <Chip
+            <SourceChip
               key={s.source}
-              label={s.label}
+              source={s.source}
               active={active.includes(s.source)}
               onClick={() => toggle(s.source, allIds)}
             />
@@ -92,8 +94,9 @@ function HubLanding() {
             <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
               {feedItems.map((it) => it.source === 'youtube' ? (
                 <div key={`yt:${it.id}`} className="relative">
-                  {/* design-ok(raw-palette-semantic): YouTube brand identity chip on mixed-feed cards */}
-                  <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded-full bg-red-600/90 px-2 py-0.5 text-[10px] font-semibold text-white">YouTube</span>
+                  <span className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${SOURCE_META.youtube.badgeClass}`}>
+                    <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
+                  </span>
                   <VideoCard item={hubToYtItem(it)} />
                 </div>
               ) : (

@@ -19,7 +19,11 @@ async function pollFollow(follow: typeof videoFollows.$inferSelect): Promise<voi
   const provider = getProvider(follow.source)
   if (!provider?.fetchCreatorFeed) return
 
-  const items = await provider.fetchCreatorFeed(follow.externalId)
+  // What we already have, so quota-aware providers can skip fetching unchanged feeds.
+  const known = await db.select({ externalId: videoItems.externalId }).from(videoItems)
+    .where(eq(videoItems.followId, follow.id))
+    .orderBy(desc(videoItems.createdAt)).limit(200)
+  const items = await provider.fetchCreatorFeed(follow.externalId, new Set(known.map((k) => k.externalId)))
   const now = new Date()
   const fresh: string[] = []
   for (const it of items) {
