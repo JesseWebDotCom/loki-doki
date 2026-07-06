@@ -93,7 +93,7 @@ export function DicebearAvatarPicker({ style, seed, config, onChange, vertical }
   const preview = (
     <div className={cn('flex flex-col items-center gap-1.5', !vertical && 'shrink-0')}>
       <div
-        className="overflow-hidden rounded-card border border-border bg-card"
+        className="overflow-hidden rounded-full border border-border bg-card"
         style={{ width: avatarSize, height: avatarSize }}
       >
         <RiggedDicebearAvatar

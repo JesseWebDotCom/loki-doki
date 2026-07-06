@@ -592,19 +592,12 @@ export function LeftSidebar() {
                       : "size-10 justify-center hover:bg-foreground/5",
                   )}
                 >
-                  <span className="relative shrink-0">
+                  <span className="shrink-0">
                     <UserAvatar
                       user={user}
                       size={isWide ? 32 : 28}
                       className={cn("rounded-control", isWide ? "size-8" : "size-7")}
                     />
-                    {currentStatusPreset && (
-                      <span
-                        className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-sidebar"
-                        style={{ backgroundColor: currentStatusPreset.color }}
-                        title={currentStatusPreset.label}
-                      />
-                    )}
                   </span>
                   {isWide && (
                     <>

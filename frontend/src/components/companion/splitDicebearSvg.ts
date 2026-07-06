@@ -9,6 +9,8 @@ export type SplitResult =
       riggable: true;
       viewBox: string;
       defs: string;
+      /** DiceBear background rect(s), rendered statically (un-rotated) behind the rig. */
+      background?: string;
       backHair: string;
       body: string;
       headSkin: string;
@@ -219,12 +221,36 @@ export function splitDicebearSvg(
   }
   const svg = doc.documentElement;
   const viewBox = svg.getAttribute("viewBox") || "0 0 280 280";
+
+  // Pull the DiceBear background rect(s) out of the viewbox-mask group BEFORE splitting.
+  // DiceBear emits the chosen backgroundColor as a full-canvas <rect> that is the first
+  // child of `g[mask="url(#viewboxMask)"]`. The style splitters reassemble the avatar from
+  // named parts and never include it, so the background silently vanished on rigged avatars.
+  // Extracting it here (and removing it so the splitters see their expected structure) lets
+  // us paint it statically behind the rig, and keeps it out of the head-rotation transform.
+  let background = "";
+  const maskGroup = svg.querySelector('g[mask="url(#viewboxMask)"]');
+  if (maskGroup) {
+    for (const child of Array.from(maskGroup.children)) {
+      if (child.tagName === "rect") {
+        background += serialize(child);
+        maskGroup.removeChild(child);
+      }
+    }
+  }
+
   try {
-    if (style === "avataaars") return splitAvataaars(doc, viewBox);
-    if (style === "toon-head") return splitToonHead(doc, viewBox);
-    if (style === "bottts") return splitBottts(doc, viewBox);
+    let result: SplitResult | null = null;
+    if (style === "avataaars") result = splitAvataaars(doc, viewBox);
+    else if (style === "toon-head") result = splitToonHead(doc, viewBox);
+    else if (style === "bottts") result = splitBottts(doc, viewBox);
+    if (result) {
+      if (result.riggable) result.background = background;
+      else result.inner = background + result.inner;
+      return result;
+    }
   } catch (error) {
     console.error("[splitDicebearSvg] failed", style, error);
   }
-  return { riggable: false, viewBox, inner: svg.innerHTML };
+  return { riggable: false, viewBox, inner: background + svg.innerHTML };
 }
