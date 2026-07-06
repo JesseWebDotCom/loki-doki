@@ -1,6 +1,6 @@
 // Single source of truth for per-source brand identity in the hub UI (pills, card
-// badges, labels). Icons are generic Lucide glyphs (NOT trademarked brand logos) — the
-// same ones the rail uses — paired with brand-adjacent colors and the referential name.
+// badges, labels). Icons are generic Lucide glyphs (NOT trademarked brand logos), the
+// same ones the rail uses, paired with brand-adjacent colors and the referential name.
 // Tailwind can't see computed class names, so these are full strings.
 
 import { Clapperboard, MessagesSquare, Music2, Play, type LucideIcon } from 'lucide-react'
