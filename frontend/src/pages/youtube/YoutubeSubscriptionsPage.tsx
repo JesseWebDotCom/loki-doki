@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -14,7 +15,7 @@ import { MediaShelf, ChannelRail, type ChannelEntry } from '@/components/youtube
 import { VideoCollection } from '@/components/youtube/VideoCollection'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
-import { useYoutubeMode, useYoutubeUI } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
 
 // Round-robin a recency-sorted list across its channels so one frequent uploader
 // doesn't bury everyone else; "Latest" leads with each channel's newest in turn.
@@ -37,7 +38,6 @@ function interleaveByChannel(items: VideoItem[]): VideoItem[] {
 /** The subscription feed: latest uploads from every channel you follow, YouTube-style. */
 export function YoutubeSubscriptionsPage() {
   const online = useYoutubeMode() === 'online'
-  const { openManage } = useYoutubeUI()
   const [view, setView] = useViewPreference('youtube.subscriptions_view', 'grid')
   const { items: feedItems, loading } = useYtFeed()
   const { data: subs = [] } = useYtSubs()
@@ -70,8 +70,8 @@ export function YoutubeSubscriptionsPage() {
         subtitle={`${subs.length} ${subs.length === 1 ? 'channel' : 'channels'} you follow`}
         className="pt-6 pb-5"
         actions={
-          <Button variant="outline" onClick={openManage} className="shrink-0 gap-2 text-muted-foreground hover:text-foreground">
-            <Settings2 className="size-4" /> Manage
+          <Button asChild variant="outline" className="shrink-0 gap-2 text-muted-foreground hover:text-foreground">
+            <Link to="/youtube/settings/channels"><Settings2 className="size-4" /> Manage</Link>
           </Button>
         } />
 
@@ -90,7 +90,7 @@ export function YoutubeSubscriptionsPage() {
         <Card variant="dashed" className="p-10 text-center text-sm text-muted-foreground">
           {subs.length === 0 ? (
             <>You haven't added any channels yet.{' '}
-              <button onClick={openManage} className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</button>
+              <Link to="/youtube/settings/channels" className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</Link>
               {' '}to build your feed.</>
           ) : 'No recent uploads from your subscriptions.'}
         </Card>

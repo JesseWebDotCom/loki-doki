@@ -1,10 +1,9 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Home, Clock, Heart, History, Download, ListVideo, Settings2, SlidersHorizontal, type LucideIcon,
+  Home, Clock, Heart, History, Download, ListVideo, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { Button } from '@/components/ui/button'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { getSubscriptions } from '@/lib/youtube/api'
@@ -40,7 +39,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="mb-1 mt-5 px-3 text-overline text-muted-foreground/60">{children}</p>
 }
 
-export function YoutubeRail({ onManage }: { onManage: () => void }) {
+export function YoutubeRail() {
   const { data: subs = [] } = useQuery({ queryKey: ['yt-subs'], queryFn: getSubscriptions })
 
   return (
@@ -58,16 +57,10 @@ export function YoutubeRail({ onManage }: { onManage: () => void }) {
       <LibTab tab="liked" icon={Heart} label="Liked Videos" />
       <LibTab tab="saved" icon={Download} label="Offline" />
 
-      <div className="mb-1 mt-5 flex items-center justify-between px-3">
-        <Link to="/youtube/subscriptions"
-          className="text-overline text-muted-foreground/60 transition-colors hover:text-foreground">
-          Subscriptions
-        </Link>
-        <Button variant="ghost" size="icon-sm" onClick={onManage} title="Manage channels" aria-label="Manage channels"
-          className="text-muted-foreground/70 hover:text-foreground">
-          <Settings2 className="size-3.5" />
-        </Button>
-      </div>
+      <Link to="/youtube/subscriptions"
+        className="mb-1 mt-5 block px-3 text-overline text-muted-foreground/60 transition-colors hover:text-foreground">
+        Subscriptions
+      </Link>
       {subs.length > 0 ? (
         <div className="space-y-0.5">
           {subs.slice(0, 8).map(s => (
@@ -85,13 +78,11 @@ export function YoutubeRail({ onManage }: { onManage: () => void }) {
           )}
         </div>
       ) : (
-        <Button variant="ghost" size="sm" onClick={onManage}
-          className="justify-start px-3 font-normal text-xs text-muted-foreground/70 hover:text-foreground">
+        <Link to="/youtube/settings/channels"
+          className="rounded-control px-3 py-1.5 text-xs font-normal text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground">
           + Add channels &amp; playlists
-        </Button>
+        </Link>
       )}
-
-      <RailLink to="/youtube/settings" icon={SlidersHorizontal} label="Settings" className="mt-5" />
     </nav>
   )
 }

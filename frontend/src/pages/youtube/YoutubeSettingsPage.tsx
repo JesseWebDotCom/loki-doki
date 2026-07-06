@@ -1,13 +1,13 @@
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SkipForward, Sparkles, Wand2, FileText, Menu } from 'lucide-react'
+import { SkipForward, Sparkles, Wand2, FileText, Menu, Rss } from 'lucide-react'
 import type { PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { PageHeader } from '@/components/shared/PageHeader'
 import {
-  SettingsYoutubeAutoSkip, SettingsYoutubeVideoQuality,
+  SettingsYoutubeChannels, SettingsYoutubeAutoSkip, SettingsYoutubeVideoQuality,
   SettingsYoutubeTitlesThumbnails, SettingsYoutubeDescriptions,
 } from '@/components/settings/SettingsYoutubeTab'
 
@@ -15,17 +15,19 @@ import {
 // requested directly: "the admin panel has a distinct left column for its settings, the
 // user settings has a distinct left column, put that same column on YouTube settings."
 const SECTIONS: PanelSection[] = [
+  { id: 'channels',     label: 'Channels',             icon: Rss },
   { id: 'auto-skip',    label: 'Auto-skip',            icon: SkipForward },
   { id: 'quality',      label: 'Video quality',        icon: Sparkles },
   { id: 'titles',       label: 'Titles & thumbnails',  icon: Wand2 },
   { id: 'descriptions', label: 'Descriptions',         icon: FileText },
 ]
 
-// Standard per-app Settings home for YouTube. Currently user-scoped only (SponsorBlock /
-// DeArrow / Smart Description prefs); admin/app config still lives in central Admin → Apps.
-// If YouTube gains admin-specific settings later, add an <AdminSection> here.
+// Standard per-app Settings home for YouTube: channel management (subscriptions, auto-save,
+// save quality, pause automation) plus the user-scoped viewing prefs (SponsorBlock / DeArrow /
+// Smart Description). The Channels section surfaces the one admin control (default keep-N)
+// inline when the viewer is an admin; broader app config still lives in central Admin → Apps.
 export function YoutubeSettingsPage() {
-  const { section = 'auto-skip' } = useParams<{ section?: string }>()
+  const { section = 'channels' } = useParams<{ section?: string }>()
   const navigate = useNavigate()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('youtube.settingsSidebarCollapsed') === '1')
@@ -42,7 +44,7 @@ export function YoutubeSettingsPage() {
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         title="Settings" className="px-4 pt-6 pb-5 sm:px-6 lg:px-8"
-        leftSlot={(
+        actions={(
           <Button variant="ghost" size="icon-sm" onClick={() => setMobileNavOpen(true)} className="md:hidden" aria-label="Open navigation">
             <Menu className="size-5" />
           </Button>
@@ -64,6 +66,7 @@ export function YoutubeSettingsPage() {
         </Sheet>
 
         <div className="min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
+          {section === 'channels'     && <SettingsYoutubeChannels />}
           {section === 'auto-skip'    && <SettingsYoutubeAutoSkip />}
           {section === 'quality'      && <SettingsYoutubeVideoQuality />}
           {section === 'titles'       && <SettingsYoutubeTitlesThumbnails />}

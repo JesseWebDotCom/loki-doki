@@ -6,7 +6,7 @@ import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { youtubeSuggestSource } from '@/lib/youtube/api'
 import { YoutubeRail } from '@/components/youtube/YoutubeRail'
-import { DownloadDialog, SaveDialog, ManageChannelsDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
+import { DownloadDialog, SaveDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
 import { hydrateCollections } from '@/lib/youtube/collections'
 import { DeArrowProvider } from '@/lib/youtube/dearrow'
 
@@ -15,7 +15,6 @@ export type YoutubeMode = 'online' | 'offline'
 interface YoutubeUI {
   mode: YoutubeMode
   setMode: (m: YoutubeMode) => void
-  openManage: () => void
   openSave: (videoId: string, title: string) => void
   openDownload: (videoId: string, title: string, savedKind?: 'audio' | 'video') => void
 }
@@ -70,7 +69,6 @@ export function YoutubeLayout() {
   const [mode, setModeState] = useState<YoutubeMode>(() => (localStorage.getItem(MODE_KEY) as YoutubeMode) || 'online')
   const setMode = (m: YoutubeMode) => { setModeState(m); try { localStorage.setItem(MODE_KEY, m) } catch { /* quota */ } }
 
-  const [manageOpen, setManageOpen] = useState(false)
   const [saveTarget, setSaveTarget] = useState<SaveTarget | null>(null)
   const [downloadTarget, setDownloadTarget] = useState<DownloadTarget | null>(null)
   const [query, setQuery] = useState(params.get('q') ?? '')
@@ -105,7 +103,6 @@ export function YoutubeLayout() {
 
   const ui: YoutubeUI = {
     mode, setMode,
-    openManage: () => setManageOpen(true),
     openSave: (videoId, title) => setSaveTarget({ videoId, title }),
     openDownload: (videoId, title, savedKind) => setDownloadTarget({ videoId, title, savedKind }),
   }
@@ -125,12 +122,10 @@ export function YoutubeLayout() {
     <YoutubeUICtx.Provider value={ui}>
      <DeArrowProvider>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background" style={accentVars}>
-        <YoutubeRail onManage={ui.openManage} />
+        <YoutubeRail />
         <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none pb-28 md:pb-32"><Outlet /></div>
       </div>
 
-      <ManageChannelsDialog open={manageOpen} onClose={() => setManageOpen(false)}
-        onChanged={() => { qc.invalidateQueries({ queryKey: ['yt-subs'] }); qc.invalidateQueries({ queryKey: ['yt-feed'] }) }} />
       <SaveDialog target={saveTarget} onClose={() => setSaveTarget(null)}
         onSaved={() => qc.invalidateQueries({ queryKey: ['yt-downloads'] })} />
       <DownloadDialog target={downloadTarget} onClose={() => setDownloadTarget(null)} />
