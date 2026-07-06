@@ -105,6 +105,7 @@ export function spawnCodingPtySidecar(): void {
       cwd: BACKEND_DIR,
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
       env: { ...process.env, CODING_PTY_SIDECAR_PORT: String(CODING_PTY_PORT) },
     })
     proc = child

@@ -743,7 +743,7 @@ youtubeRoute.get('/formats/:videoId', async (c) => {
   const url = `https://www.youtube.com/watch?v=${videoId}`
   try {
     const json = await withYtDlpSlot(() => new Promise<string>((resolve, reject) => {
-      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', url], { stdio: ['ignore', 'pipe', 'ignore'] })
+      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', url], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       let out = ''
       proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
       proc.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
@@ -1048,7 +1048,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
   try {
     const url = `https://www.youtube.com/watch?v=${videoId}`
     const json = await new Promise<string>((resolve, reject) => {
-      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', url], { stdio: ['ignore', 'pipe', 'ignore'] })
+      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', url], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       let out = ''
       proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
       proc.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))

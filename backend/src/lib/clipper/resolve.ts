@@ -49,7 +49,7 @@ interface YtDlpMetaRaw {
 
 function runYtDlpJson(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', '--no-warnings', url], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', '--no-warnings', url], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let out = ''
     let errTail = ''
     proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })

@@ -56,7 +56,19 @@ function Stop-Port([int]$Port) {
   try {
     Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
       Select-Object -ExpandProperty OwningProcess -Unique |
-      ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+      ForEach-Object {
+        if (Get-Process -Id $_ -ErrorAction SilentlyContinue) {
+          Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+        } else {
+          # Owning process is already dead but the port is still bound: on Windows a
+          # detached child inherits the parent's listen-socket handle and keeps the
+          # port alive, while netstat still attributes it to the dead parent (observed:
+          # ollama.exe holding port 3000 after a backend crash, bricking every restart).
+          # Ollama is the only sidecar deliberately left running across restarts, so
+          # it's the only inheritor that can still be standing — restart it.
+          Stop-Process -Name 'ollama' -Force -ErrorAction SilentlyContinue
+        }
+      }
   } catch { }
 }
 
@@ -163,19 +175,34 @@ try {
     return $true
   }
 
+  # Wait for a port to actually clear (not just the wrapper PID to report exited —
+  # `bun run dev` spawns a grandchild for the real `--hot` listener, which can outlive
+  # the wrapper briefly). Restarting into a still-bound port crashes immediately with
+  # EADDRINUSE, and that crash-loops through the whole restart budget in seconds while
+  # every attempt re-runs the full boot sequence (previously observed: exactly this).
+  function Wait-PortFree([int]$Port, [int]$TimeoutSeconds = 10) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+      if (-not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)) { return $true }
+      Stop-Port $Port
+      Start-Sleep -Milliseconds 300
+    }
+    return -not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+  }
+
   while ($true) {
     Start-Sleep -Milliseconds 500
     if ($backend.HasExited) {
       if (-not (Should-Restart 'backend')) { Write-Host 'Backend is crash-looping (5 restarts in 5 min) - giving up. Check data\logs\app.log.'; break }
       Write-Host "Backend exited (code $($backend.ExitCode)) - restarting it..."
-      Start-Sleep -Seconds 2
+      if (-not (Wait-PortFree 3000)) { Write-Host 'Port 3000 would not clear - giving up.'; break }
       $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
         -WorkingDirectory $backendDir -NoNewWindow -PassThru
     }
     if ($frontend.HasExited) {
       if (-not (Should-Restart 'frontend')) { Write-Host 'Frontend is crash-looping (5 restarts in 5 min) - giving up.'; break }
       Write-Host "Frontend exited (code $($frontend.ExitCode)) - restarting it..."
-      Start-Sleep -Seconds 2
+      if (-not (Wait-PortFree 5173)) { Write-Host 'Port 5173 would not clear - giving up.'; break }
       $frontend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
         -WorkingDirectory $frontendDir -NoNewWindow -PassThru
     }

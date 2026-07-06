@@ -14,15 +14,18 @@
 // health poll on /healthz. Install/repair is wired through lib/installRegistry.
 
 import { join } from 'node:path'
-import { existsSync, writeFileSync, readFileSync, statSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, writeFileSync, readFileSync, statSync, renameSync, rmSync, mkdirSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { execSync, spawn } from 'node:child_process'
+import { execSync, execFile, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { promisify } from 'node:util'
 import { dataDir } from '@/lib/download'
 import { ensurePython } from '@/lib/python'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+
+const execFileAsync = promisify(execFile)
 
 export const SEARXNG_PORT = 8091
 export const SEARXNG_DIR   = join(dataDir, 'searxng')          // shallow git checkout
@@ -240,7 +243,7 @@ type StatusFn = (msg: string) => void
 
 function run(cmd: string, args: string[], opts: { cwd?: string; signal?: AbortSignal; onStatus?: StatusFn } = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(cmd, args, { cwd: opts.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     const onAbort = () => { try { child.kill('SIGTERM') } catch { /* dead */ } }
     opts.signal?.addEventListener('abort', onAbort, { once: true })
     let lastErr = ''
@@ -294,6 +297,20 @@ export async function installSearXNG(onStatus: StatusFn = () => {}, signal?: Abo
       }
     }
 
+    // A venv that survived on disk (e.g. the data drive kept it through an OS
+    // reinstall, or an interpreter it points to got moved/removed) can look
+    // installed to existsSync while its python.exe is actually dead — every
+    // pip/webapp invocation then fails immediately ("No Python", exit 103) and
+    // the job retries forever without ever fixing anything. Verify it actually
+    // runs before trusting it; rebuild from scratch if not.
+    if (existsSync(venvBin('python'))) {
+      const venvOk = await execFileAsync(venvBin('python'), ['--version'], { timeout: 10_000, windowsHide: true })
+        .then(() => true).catch(() => false)
+      if (!venvOk) {
+        onStatus('Existing Python virtualenv is broken — rebuilding…')
+        rmSync(SEARXNG_VENV, { recursive: true, force: true })
+      }
+    }
     if (!existsSync(venvBin('python'))) {
       onStatus('Creating Python virtualenv…')
       await run(python, ['-m', 'venv', SEARXNG_VENV], { signal, onStatus })
@@ -305,6 +322,15 @@ export async function installSearXNG(onStatus: StatusFn = () => {}, signal?: Abo
     onStatus('Installing SearXNG dependencies (this can take a few minutes)…')
     await run(venvBin('python'), ['-m', 'pip', 'install', '-r', join(SEARXNG_DIR, 'requirements.txt')], { signal, onStatus })
 
+    if (IS_WIN) {
+      // Standalone Windows Python ships no timezone database (no /usr/share/zoneinfo
+      // equivalent), so ZoneInfo(...) raises and every engine that stamps timestamps
+      // (bilibili, others as upstream adds them) fails to register at startup. The
+      // `tzdata` PyPI package is the stdlib's documented fallback source.
+      onStatus('Installing timezone database…')
+      await run(venvBin('python'), ['-m', 'pip', 'install', 'tzdata'], { signal, onStatus })
+    }
+
     writeSettings()
     onStatus('SearXNG installed.')
     state.current = 'idle'  // ready to spawn
@@ -314,20 +340,60 @@ export async function installSearXNG(onStatus: StatusFn = () => {}, signal?: Abo
   }
 }
 
+// ── Windows compat shim ──────────────────────────────────────────────────────
+// searx/valkeydb.py unconditionally does `import pwd` at module load — a Unix-only
+// stdlib module that doesn't exist on Windows at all, crashing the whole process
+// before it can even bind its port. The only real use (pwd.getpwuid, inside an
+// `except ValkeyError` branch logging a failed connection) is unreachable for this
+// app: we never set valkey.url/redis.url, so initialize() returns early long before
+// that line. A stub module that merely satisfies the import — placed in a directory
+// we own (NOT the vendored checkout, which a `git reset --hard` during auto-update
+// would wipe) and prepended to PYTHONPATH — is the standard, safe fix for a portable
+// Python app that assumes POSIX for a code path it doesn't actually need.
+const WIN_STUB_DIR = join(dataDir, 'searxng-winstubs')
+
+function ensureWindowsStubs(): void {
+  if (!IS_WIN) return
+  try {
+    mkdirSync(WIN_STUB_DIR, { recursive: true })
+    const stubPath = join(WIN_STUB_DIR, 'pwd.py')
+    if (!existsSync(stubPath)) {
+      writeFileSync(stubPath, [
+        '# Stub for Windows: the real `pwd` module is POSIX-only. Only satisfies',
+        '# `import pwd` for code paths this app never exercises (no valkey/redis',
+        '# configured) — see backend/src/lib/searxng.ts ensureWindowsStubs().',
+        'from collections import namedtuple',
+        "_Passwd = namedtuple('struct_passwd', ['pw_name', 'pw_uid', 'pw_gid', 'pw_gecos', 'pw_dir', 'pw_shell'])",
+        'def getpwuid(uid):',
+        "    import os",
+        "    return _Passwd(os.environ.get('USERNAME', 'unknown'), uid, 0, '', '', '')",
+        '',
+      ].join('\n'))
+    }
+  } catch (err) {
+    logger.warn(`[searxng] could not write Windows pwd stub: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
 // ── spawn / lifecycle (mirrors comfyui) ─────────────────────────────────────────
 
 export function spawnSearXNG(): void {
   if (state.current === 'starting' || state.current === 'ready') return
   if (!isSearXNGInstalled()) return
   writeSettings()  // refresh so config/port changes always take effect
+  ensureWindowsStubs()
 
   const python = venvBin('python')
-  const env = { ...process.env, SEARXNG_SETTINGS_PATH: SETTINGS_FILE }
+  const env = {
+    ...process.env,
+    SEARXNG_SETTINGS_PATH: SETTINGS_FILE,
+    ...(IS_WIN ? { PYTHONPATH: [WIN_STUB_DIR, process.env.PYTHONPATH].filter(Boolean).join(';') } : {}),
+  }
 
   let child: ChildProcess
   if (IS_WIN) {
     // No shell redirect; logs uncaptured on Windows (matches comfyui).
-    child = spawn(python, ['-m', 'searx.webapp'], { cwd: SEARXNG_DIR, detached: true, stdio: 'ignore', env })
+    child = spawn(python, ['-m', 'searx.webapp'], { cwd: SEARXNG_DIR, detached: true, stdio: 'ignore', windowsHide: true, env })
   } else {
     // `exec` so child.pid IS the Python PID; file redirect avoids EPIPE on hot-reload.
     const shellCmd = `exec "$SX_PY" -m searx.webapp >> "$SX_LOG" 2>&1`
@@ -418,8 +484,14 @@ function startHealthPoll(): void {
 
 // ── auto-update (git pull + pip + restart, mirrors the yt-dlp manager) ──────────
 
+// `-c safe.directory` on every git invocation: after an OS reinstall the data drive
+// survives but the user account's SID doesn't, so the checkout is "owned by" a SID
+// that no longer resolves and git refuses to touch it ("detected dubious ownership").
+// Forward slashes — git canonicalizes safe.directory entries that way even on Windows.
+const GIT_SAFE_ARGS = ['-c', `safe.directory=${SEARXNG_DIR.replace(/\\/g, '/')}`]
+
 function execGit(args: string[]): string {
-  return execSync(`git ${args.map(a => `"${a}"`).join(' ')}`, { cwd: SEARXNG_DIR, encoding: 'utf8', timeout: 60_000 }).trim()
+  return execSync(`git ${[...GIT_SAFE_ARGS, ...args].map(a => `"${a}"`).join(' ')}`, { cwd: SEARXNG_DIR, encoding: 'utf8', timeout: 60_000, windowsHide: true }).trim()
 }
 
 /** Current checkout version: `git describe` (tag-ish), falling back to the short SHA. */
@@ -447,7 +519,7 @@ export async function maybeUpdateSearXNG(force = false): Promise<void> {
     // Shallow checkout → fetch the tip and hard-reset (a normal `pull` can't fast-forward
     // a depth-1 clone). Use the async run() helper so the event loop stays unblocked
     // during the network fetch — execSync here would stall health probes for up to 60s.
-    await run('git', ['fetch', '--depth', '1', 'origin', branch], { cwd: SEARXNG_DIR })
+    await run('git', [...GIT_SAFE_ARGS, 'fetch', '--depth', '1', 'origin', branch], { cwd: SEARXNG_DIR })
     if (IS_WIN) {
       // `git reset --hard` aborts the ENTIRE update on Windows: SearXNG ships deploy
       // templates whose filenames contain a colon (e.g. `searxng.conf:socket`), illegal on
@@ -457,10 +529,10 @@ export async function maybeUpdateSearXNG(force = false): Promise<void> {
       // valid file and skips the colon paths with an "invalid path" warning, exiting 0
       // (a hard-reset never gets that far). The index is left untouched — cosmetic only;
       // every consumer reads commit/ref state, never the index.
-      await run('git', ['update-ref', `refs/heads/${branch}`, 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
-      await run('git', ['restore', '--source', branch, '--worktree', '--', ':/'], { cwd: SEARXNG_DIR })
+      await run('git', [...GIT_SAFE_ARGS, 'update-ref', `refs/heads/${branch}`, 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+      await run('git', [...GIT_SAFE_ARGS, 'restore', '--source', branch, '--worktree', '--', ':/'], { cwd: SEARXNG_DIR })
     } else {
-      await run('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+      await run('git', [...GIT_SAFE_ARGS, 'reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
     }
     const after = (() => { try { return execGit(['rev-parse', 'HEAD']) } catch { return '' } })()
 

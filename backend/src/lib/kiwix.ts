@@ -265,7 +265,7 @@ export async function validateZimWindows(zimPath: string): Promise<boolean> {
   if (!existsSync(KIWIX_MANAGE_BIN)) return true  // can't check → don't block the download
   const tmpLib = join(kiwixZimDir, `_validate_${Date.now()}.xml`)
   try {
-    await execFileAsync(KIWIX_MANAGE_BIN, [tmpLib, 'add', zimPath], { timeout: 30_000 })
+    await execFileAsync(KIWIX_MANAGE_BIN, [tmpLib, 'add', zimPath], { timeout: 30_000, windowsHide: true })
     return existsSync(tmpLib)  // a successful add wrote a library entry
   } catch {
     return false
@@ -404,7 +404,7 @@ async function spawnKiwixServe(validZims: string[]): Promise<void> {
   await mkdir(kiwixZimDir, { recursive: true })
   await rm(KIWIX_LIBRARY_XML, { force: true }).catch(() => {})
   for (const zim of validZims) {
-    try { await execFileAsync(KIWIX_MANAGE_BIN, [KIWIX_LIBRARY_XML, 'add', zim], { timeout: 30_000 }) }
+    try { await execFileAsync(KIWIX_MANAGE_BIN, [KIWIX_LIBRARY_XML, 'add', zim], { timeout: 30_000, windowsHide: true }) }
     catch (err) { logger.warn(`[kiwix] kiwix-manage add failed for ${zim}: ${err}`) }
   }
   winBookNames = parseLibrary(KIWIX_LIBRARY_XML)
@@ -413,6 +413,7 @@ async function spawnKiwixServe(validZims: string[]): Promise<void> {
     cwd: BACKEND_DIR,
     detached: true,
     stdio: 'ignore',
+    windowsHide: true,
   })
   kiwixProc = child
   watchProc(child)

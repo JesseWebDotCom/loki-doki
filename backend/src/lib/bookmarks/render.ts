@@ -57,7 +57,7 @@ function installManagedChromium(): Promise<boolean> {
     logger.info('[reader/render] installing managed Chromium (first run, ~150MB)…')
     // `playwright install chromium` honors PLAYWRIGHT_BROWSERS_PATH from the env.
     const proc = spawn('bun', ['x', 'playwright', 'install', 'chromium'], {
-      env: process.env, stdio: 'ignore',
+      env: process.env, stdio: 'ignore', windowsHide: true,
     })
     proc.on('exit', (code) => resolve(code === 0))
     proc.on('error', () => resolve(false))

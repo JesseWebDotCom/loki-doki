@@ -50,7 +50,7 @@ function tsCapable(version: string): boolean {
 }
 
 async function versionOf(bin: string): Promise<string | null> {
-  try { const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 10_000 }); return stdout.trim() || null } catch { return null }
+  try { const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 10_000, windowsHide: true }); return stdout.trim() || null } catch { return null }
 }
 
 // nodejs.org publishes SHASUMS256.txt alongside every release — verify the archive

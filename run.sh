@@ -113,6 +113,21 @@ open -na "Google Chrome" --args --new-window "http://localhost:5173" 2>/dev/null
 # app down (previously one backend crash ended the script and killed everything).
 # Capped at 5 restarts per 5-minute window per server so a genuine crash-loop
 # stops instead of thrashing. Ctrl+C still exits via the EXIT trap.
+# Wait for a port to actually clear (not just the PID to die — `bun run dev` spawns a
+# grandchild for the real `--hot` listener, which can outlive the wrapper briefly).
+# Restarting into a still-bound port crashes immediately with EADDRINUSE, and that
+# crash-loops through the whole restart budget in seconds while every attempt re-runs
+# the full boot sequence (previously observed: exactly this, on the Windows sibling).
+wait_port_free() {
+  port="$1"
+  for _ in $(seq 1 20); do
+    lsof -ti ":$port" &>/dev/null || return 0
+    kill_port "$port"
+    sleep 0.3
+  done
+  ! lsof -ti ":$port" &>/dev/null
+}
+
 BACKEND_RESTARTS=0
 FRONTEND_RESTARTS=0
 WINDOW_START=$(date +%s)
@@ -129,7 +144,10 @@ while true; do
       break
     fi
     echo "Backend exited — restarting it..."
-    sleep 2
+    if ! wait_port_free 3000; then
+      echo "Port 3000 would not clear — giving up."
+      break
+    fi
     (cd "$ROOT/backend" && bun run dev) &
     BACKEND_PID=$!
   fi
@@ -140,7 +158,10 @@ while true; do
       break
     fi
     echo "Frontend exited — restarting it..."
-    sleep 2
+    if ! wait_port_free 5173; then
+      echo "Port 5173 would not clear — giving up."
+      break
+    fi
     (cd "$ROOT/frontend" && bun run dev) &
     FRONTEND_PID=$!
   fi

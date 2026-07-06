@@ -31,7 +31,9 @@ function psEscape(s: string): string {
 export async function extractZip(zipPath: string, destDir: string, timeoutMs = 120_000): Promise<void> {
   if (IS_WIN) {
     const cmd = `Expand-Archive -LiteralPath '${psEscape(zipPath)}' -DestinationPath '${psEscape(destDir)}' -Force`
-    await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: timeoutMs })
+    // windowsHide: without it, node spawns a visible conhost window for the instant
+    // powershell.exe runs — detached/stdio:'ignore' do NOT suppress that on Windows.
+    await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: timeoutMs, windowsHide: true })
   } else {
     await execAsync(`unzip -o "${zipPath}" -d "${destDir}"`, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 })
   }
@@ -80,7 +82,7 @@ export async function killByCommandLine(pattern: string): Promise<void> {
   try {
     if (IS_WIN) {
       const cmd = `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${psEscape(pattern)}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
-      await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: 5_000 })
+      await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: 5_000, windowsHide: true })
     } else {
       await execAsync(`pkill -f '${pattern}' 2>/dev/null`, { timeout: 5_000 })
     }

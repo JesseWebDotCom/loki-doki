@@ -36,7 +36,7 @@ export async function getLiveStatus(videoId: string): Promise<{ isLive: boolean;
     try {
       const { stdout } = await execFileAsync(ytDlpBin(),
         ['-J', '--no-warnings', '--no-playlist', ...ytDlpAuthArgs(), `${YT_WATCH_BASE}${videoId}`],
-        { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 })
+        { timeout: 15_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true })
       const info = JSON.parse(stdout) as { is_live?: boolean; live_status?: string }
       return { isLive: !!info.is_live || info.live_status === 'is_live', liveStatus: info.live_status ?? null }
     } catch {
@@ -174,7 +174,7 @@ export async function runYtLiveRecordJob(
   ]
   if (ffLoc) args.push('--ffmpeg-location', ffLoc)
 
-  const entry = { proc: spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] }), requestedStop: false }
+  const entry = { proc: spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }), requestedStop: false }
   active.set(videoId, entry)
 
   let errTail = ''

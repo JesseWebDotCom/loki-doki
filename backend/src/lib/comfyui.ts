@@ -243,6 +243,7 @@ export function spawnComfyUI(config: ComfyUILaunchConfig): void {
     child = spawn(python, args, {
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
       env: { ...process.env, ...config.env },
     })
   } else {
@@ -365,7 +366,7 @@ export async function maybeSpawnComfyUI(): Promise<boolean> {
     try {
       const minor = execSync(
         `"${venvPython()}" -c "import sys; print(sys.version_info.minor)"`,
-        { encoding: 'utf8', timeout: 5_000 },
+        { encoding: 'utf8', timeout: 5_000, windowsHide: true },
       ).trim()
       if (parseInt(minor, 10) < 10) return false
     } catch { /* assume compatible */ }

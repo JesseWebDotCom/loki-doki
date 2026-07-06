@@ -93,7 +93,7 @@ async function adoptiumSha256(assetUrl: string): Promise<string | undefined> {
 
 function run(cmd: string, args: string[], cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { cwd, stdio: 'ignore' })
+    const proc = spawn(cmd, args, { cwd, stdio: 'ignore', windowsHide: true })
     proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`))))
     proc.on('error', reject)
   })
@@ -109,7 +109,7 @@ async function extract(archive: string, destDir: string, ext: string): Promise<v
 // Run java (planetiler), surfacing throttled progress lines as status text.
 function runJavaStreaming(args: string[], onStatus: OnStatus, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(javaBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(javaBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let last = 0
     const handle = (chunk: Buffer) => {
       const line = chunk.toString().trim()

@@ -36,7 +36,7 @@ const SYSTEM_CANDIDATES = IS_WIN
   : ['/opt/homebrew/bin/aria2c', '/usr/local/bin/aria2c', '/usr/bin/aria2c']
 
 async function works(bin: string): Promise<boolean> {
-  try { await execFileAsync(bin, ['--version'], { timeout: 8_000 }); return true } catch { return false }
+  try { await execFileAsync(bin, ['--version'], { timeout: 8_000, windowsHide: true }); return true } catch { return false }
 }
 
 async function downloadWindowsBuild(): Promise<boolean> {
@@ -212,7 +212,7 @@ function runAria2(
   signal: AbortSignal,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     const onAbort = () => { try { child.kill('SIGTERM') } catch { /* already dead */ } }
     signal.addEventListener('abort', onAbort, { once: true })
 

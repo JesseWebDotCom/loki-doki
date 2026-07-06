@@ -144,15 +144,28 @@ function selectComfyUIDevice(devices: CudaDevice[]): CudaDevice {
 // ONE place decides which card every GPU workload uses. Today there are two such
 // workloads: ComfyUI (pinned via CUDA_VISIBLE_DEVICES on its process) and Ollama
 // (pinnable the same way on its serve process); voice/VAD/wake-word are CPU-only.
-// Goal on a multi-GPU box: the family's chats (Ollama) and image generation
-// (ComfyUI) land on DIFFERENT cards and never fight over VRAM.
 //
-// Policy (admin-overridable):
-//   • `comfyui_gpu_index` app-setting pins ComfyUI to a specific card.
-//   • `gpu.placement_mode` = 'shared' disables Ollama pinning (all GPUs visible).
-//   • Otherwise ComfyUI gets selectComfyUIDevice()'s pick, and Ollama is confined
-//     to the remaining cards — but only when their combined VRAM is at least
-//     ComfyUI's card, so the LLM is never starved to protect image gen.
+// Default policy on a multi-GPU box:
+//   • ComfyUI claims card 2 (index 1) by default — simple and predictable, not a
+//     live-usage guess. Card 1 is left for the OS: on most desktops the primary
+//     GPU is what drives the display compositor/browser acceleration, so parking
+//     image gen there means it's permanently sharing VRAM and cycles with the
+//     desktop itself. Falls back to selectComfyUIDevice()'s free-VRAM-aware pick
+//     only if card 2 doesn't exist or is too small for image gen (<8GB).
+//   • Ollama is left UNPINNED (sees every GPU) so its own scheduler can spread
+//     loaded models across all of them — two small cards (e.g. two 8GB GPUs) are
+//     more useful to the LLM combined than either one alone. This does mean Ollama
+//     and ComfyUI can occasionally contend for the same card during simultaneous
+//     heavy use; that trade-off is preferred here over starving the LLM of VRAM
+//     the rest of the time.
+//
+// Admin overrides (both app-settings):
+//   • `comfyui_gpu_index` pins ComfyUI to a specific card, bypassing the "card 2"
+//     default entirely.
+//   • `gpu.placement_mode` = 'segregated' restores the old behavior: Ollama is
+//     confined away from ComfyUI's card (only when the remaining cards' combined
+//     VRAM is at least ComfyUI's card, so the LLM is never starved to protect
+//     image gen).
 //
 // The decision is cached so sync spawn paths (ollamaServeEnv) can read it: boot
 // resolves it before the first Ollama spawn, and every ComfyUI (re)spawn re-resolves
@@ -178,13 +191,15 @@ export async function resolveGpuPlacement(hw?: HardwareInfo): Promise<GpuPlaceme
   }
   const overrideRaw = await getSetting('comfyui_gpu_index')
   const overrideIdx = overrideRaw !== null ? parseInt(overrideRaw, 10) : NaN
+  const cardTwo = h.cudaDevices.find((d) => d.index === 1 && d.vramBytes >= MIN_COMFY_VRAM)
   const comfy = (!isNaN(overrideIdx) ? h.cudaDevices.find((d) => d.index === overrideIdx) : undefined)
+    ?? cardTwo
     ?? selectComfyUIDevice(h.cudaDevices)
 
   let ollamaVisible: string | null = null
   if (h.cudaDevices.length >= 2) {
     const mode = await getSetting('gpu.placement_mode')
-    if (mode !== 'shared') {
+    if (mode === 'segregated') {
       const others = h.cudaDevices.filter((d) => d.index !== comfy.index)
       const othersVram = others.reduce((s, d) => s + d.vramBytes, 0)
       if (othersVram >= comfy.vramBytes) ollamaVisible = others.map((d) => d.index).join(',')

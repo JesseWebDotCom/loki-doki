@@ -35,7 +35,7 @@ function parseProgress(line: string): Partial<DownloadProgress> | null {
 
 async function runYtDlpDownload(args: string[], onProgress: (p: DownloadProgress & { note?: string }) => void, kind: 'audio' | 'video', signal: AbortSignal): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let killTimer: ReturnType<typeof setTimeout> | null = null
     // Drain stderr, keeping only a small rolling tail — an unread pipe fills (~64KB) and
     // blocks yt-dlp on a chatty failure.

@@ -545,7 +545,7 @@ export async function trainWakeword(
         '--embed-script',  EMBED_SCRIPT,
         ...rirArgs,
         ...calibArgs,
-      ])
+      ], { windowsHide: true })
 
       signal?.addEventListener('abort', () => proc.kill())
 

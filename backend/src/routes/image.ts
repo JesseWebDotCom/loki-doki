@@ -127,7 +127,7 @@ function runPilScript(label: string, script: string, inputBytes: Buffer): Promis
   if (!existsSync(python)) throw new Error('ComfyUI Python venv not found — ensure ComfyUI is installed.')
 
   return new Promise<Buffer>((resolve, reject) => {
-    const proc = spawn(python, ['-c', script], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const proc = spawn(python, ['-c', script], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     const out: Buffer[] = []
     const err: Buffer[] = []
     const timer = setTimeout(() => {

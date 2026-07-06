@@ -25,7 +25,7 @@ const YT_WATCH_BASE = 'https://www.youtube.com/watch?v='
 /** Probe a video file's pixel height with ffprobe (for the quality badge). */
 export async function probeHeight(absPath: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const proc = spawn(ffprobeBin(), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=height', '-of', 'csv=p=0', absPath], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const proc = spawn(ffprobeBin(), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=height', '-of', 'csv=p=0', absPath], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     let out = ''
     proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
     proc.on('close', () => { const h = parseInt(out.trim(), 10); resolve(Number.isFinite(h) && h > 0 ? h : null) })
@@ -139,7 +139,7 @@ export async function runYtMediaJob(
     args.push(...ytDlpAuthArgs())
 
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
       let killTimer: ReturnType<typeof setTimeout> | null = null
       // Drain stderr, keeping only a small rolling tail. Without a data handler the OS pipe
       // buffer (~64KB) fills on a chatty failure and yt-dlp blocks on write — hanging forever.
@@ -251,7 +251,7 @@ export async function runYtExportJob(
   args.push(...ytDlpAuthArgs())
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let killTimer: ReturnType<typeof setTimeout> | null = null
     // Drain stderr with a small rolling tail — an unread pipe fills (~64KB) and blocks yt-dlp.
     let errTail = ''
@@ -286,7 +286,7 @@ async function detectSubtitleLang(videoId: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync(ytDlpBin(),
       ['-J', '--skip-download', '--no-warnings', '--no-playlist', ...ytDlpAuthArgs(), url],
-      { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 })
+      { timeout: 15_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true })
     const info = JSON.parse(stdout) as { language?: string; subtitles?: Record<string, unknown>; automatic_captions?: Record<string, unknown> }
     if (info.language) return info.language
     const real = Object.keys(info.subtitles ?? {})
@@ -331,7 +331,7 @@ export async function ensureTranscript(
         '--quiet',
         ...ytDlpAuthArgs(),
         url,
-      ], { stdio: 'ignore' })
+      ], { stdio: 'ignore', windowsHide: true })
       proc.on('close', code => code === 0 ? resolve() : reject(new Error(`code ${code}`)))
       proc.on('error', reject)
     })

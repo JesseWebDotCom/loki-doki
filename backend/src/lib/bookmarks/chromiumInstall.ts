@@ -48,7 +48,7 @@ export async function installChromium(onStatus: (msg: string) => void, signal?: 
   onStatus('Installing Chromium (~150MB)…')
   const ok = await new Promise<boolean>((resolve) => {
     // `playwright install chromium` honors PLAYWRIGHT_BROWSERS_PATH from the env.
-    const proc = spawn('bun', ['x', 'playwright', 'install', 'chromium'], { env: process.env, stdio: 'ignore' })
+    const proc = spawn('bun', ['x', 'playwright', 'install', 'chromium'], { env: process.env, stdio: 'ignore', windowsHide: true })
     signal?.addEventListener('abort', () => { try { proc.kill() } catch { /* already gone */ } })
     proc.on('exit', (code) => resolve(code === 0))
     proc.on('error', () => resolve(false))

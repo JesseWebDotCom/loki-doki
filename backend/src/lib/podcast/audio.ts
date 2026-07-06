@@ -161,7 +161,7 @@ async function wavToMp3(
   const ffmpeg = await ensureFfmpeg()
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ffmpeg, args, { stdio: 'ignore' })
+    const proc = spawn(ffmpeg, args, { stdio: 'ignore', windowsHide: true })
     // A wedged ffmpeg (e.g. a corrupt cover image) would otherwise hang the job forever and
     // hold the queue's single local slot — bound it and SIGKILL on timeout.
     const timer = setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('ffmpeg timed out')) }, 5 * 60_000)

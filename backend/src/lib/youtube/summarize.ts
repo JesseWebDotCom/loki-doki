@@ -225,7 +225,7 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
   let channelId = v?.channelId ?? null
   if (!v?.description) {
     const json = await new Promise<string>((resolve, reject) => {
-      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'] })
+      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       let out = ''
       proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
       proc.on('close', code => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))

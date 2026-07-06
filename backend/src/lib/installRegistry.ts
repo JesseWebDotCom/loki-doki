@@ -133,7 +133,7 @@ async function probeRuns(bin: string, args: string[]): Promise<boolean> {
   if (hit && Date.now() - hit.at < PROBE_CACHE_MS) return hit.ok
   let ok = false
   try {
-    await execFileAsync(bin, args, { timeout: 10_000 })
+    await execFileAsync(bin, args, { timeout: 10_000, windowsHide: true })
     ok = true
   } catch { ok = false }
   probeCache.set(key, { ok, at: Date.now() })
@@ -171,7 +171,7 @@ async function installTesseract(onProgress: InstallProgressFn): Promise<void> {
     else throw new Error('No package manager found (brew/apt-get). Install Tesseract manually: https://tesseract-ocr.github.io/tessdoc/Installation.html')
   }
   status(`Installing Tesseract via ${mgr}…`)
-  await execAsync(cmd, { timeout: 120_000 })
+  await execAsync(cmd, { timeout: 120_000, windowsHide: true })
   status('Tesseract installed')
 }
 

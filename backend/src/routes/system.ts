@@ -364,7 +364,7 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   } catch {
     const systemBin = findSystemOllama()
     if (systemBin) {
-      spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore', env: ollamaServeEnv() }).unref()
+      spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true, env: ollamaServeEnv() }).unref()
       await waitForOllamaReachable(20_000)
     } else {
       // No Ollama binary present (never installed, or removed). It's core, so restore it
@@ -568,7 +568,7 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
       // for up to its 5 s timeout while boot runs, stalling every other request.
       const { stdout } = await execFileAsync(
         venvPython(), ['-c', 'import sys; print(sys.version_info.minor)'],
-        { encoding: 'utf8', timeout: 5_000 },
+        { encoding: 'utf8', timeout: 5_000, windowsHide: true },
       )
       if (parseInt(stdout.trim(), 10) < 10) venvCompatible = false
     } catch { /* assume compatible */ }

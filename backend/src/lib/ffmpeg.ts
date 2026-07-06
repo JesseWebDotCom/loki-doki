@@ -50,7 +50,7 @@ function release(): { url: string; kind: 'zip' | 'tar' } {
 }
 
 async function works(bin: string): Promise<boolean> {
-  try { await execFileAsync(bin, ['-version'], { timeout: 10_000 }); return true } catch { return false }
+  try { await execFileAsync(bin, ['-version'], { timeout: 10_000, windowsHide: true }); return true } catch { return false }
 }
 
 async function downloadManaged(): Promise<boolean> {
