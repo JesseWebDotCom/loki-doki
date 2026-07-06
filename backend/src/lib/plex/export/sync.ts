@@ -209,7 +209,12 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   if (!user) return
 
   const [video] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
-  if (!video || !video.channelId) return
+  if (!video) return
+  // channelId lands via async metadata enrichment moments after save, and the asset-ready
+  // fanout can beat it. Throw (the job retries with backoff) rather than silently returning
+  // ✓ — confirmed live 2026-07-06: 11 fresh downloads "synced" with zero episodes placed,
+  // and nothing ever re-fired them.
+  if (!video.channelId) throw new Error(`video ${videoId} has no channelId yet (metadata enrichment pending) — will retry`)
   // Prefer the "Smart Description" (promotional content already stripped by an LLM pass —
   // see summarize.ts) when the background enrichment has generated one. Sanitize the raw
   // fallbacks regardless, for the window right after a fresh save before that job finishes —
