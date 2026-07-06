@@ -352,8 +352,9 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
       <CompanionOrb size={px} active={!engine.sleeping} />
     )
 
-  // Avatar button opens the companion menu on click or right-click. SleepingZs
-  // render as a sibling outside the overflow-hidden button so they aren't clipped.
+  // Avatar button opens the companion menu on click or right-click. The companion
+  // renders as a free-floating head (no round container, unlike the user avatar), so
+  // the button is not clipped. SleepingZs render as a sibling overlay.
   const avatarButton = (px: number) => (
     <div className="relative shrink-0" style={{ width: px, height: px }}>
       <button
@@ -362,7 +363,6 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
         title={engine.otherTabOwner ? 'Voice is active in another tab. Click this tab to take over.' : 'Companion menu'}
         onClick={() => setMenuOpen(true)}
         onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true) }}
-        className={cn('overflow-hidden rounded-full')}
         style={{ width: px, height: px }}
       >
         {avatarNode(px, true)}
