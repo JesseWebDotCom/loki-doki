@@ -102,7 +102,7 @@ function DicebearSnapshot({ user, size, className }: { user: UserAvatarUser; siz
 
   return (
     <div
-      className={cn('relative overflow-hidden shrink-0 bg-gradient-to-br', gradientFor(user.id), className)}
+      className={cn('relative overflow-hidden shrink-0 bg-gradient-to-br ring-1 ring-inset ring-border/60', gradientFor(user.id), className)}
       style={{ containerType: 'size', ...sizeStyle }}
     >
       <img src={result.dataUrl} alt="" className="w-full h-full object-cover" />
@@ -120,7 +120,7 @@ export function UserAvatar({ user, size = 32, className }: UserAvatarProps) {
     return (
       <div
         className={cn(
-          'relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br',
+          'relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br ring-1 ring-inset ring-border/60',
           gradientFor(user.id),
           className,
         )}
@@ -142,7 +142,7 @@ export function UserAvatar({ user, size = 32, className }: UserAvatarProps) {
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white',
+        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ring-1 ring-inset ring-border/60',
         gradientFor(user.id),
         className,
       )}
