@@ -139,4 +139,26 @@ export function PlaylistCard({ p }: { p: PlaylistCardData }) {
   )
 }
 
+/** Full-width horizontal playlist row (list view), matching PlaylistCard's target/badges. */
+export function PlaylistListRow({ p }: { p: PlaylistCardData }) {
+  return (
+    <Link to={`/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }}
+      className="group flex gap-3 rounded-card p-1.5 transition-colors hover:bg-accent/50 sm:gap-4">
+      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card bg-muted sm:w-56">
+        {p.thumbnailUrl
+          ? <img src={ytImageProxy(p.thumbnailUrl)} alt="" referrerPolicy="no-referrer" className="size-full object-cover transition group-hover:scale-105" />
+          : <div className="flex size-full items-center justify-center"><ListVideo className="size-8 text-muted-foreground/40" /></div>}
+        <div className="absolute bottom-0 right-0 flex items-center gap-1 rounded-tl-control bg-black/80 px-2 py-1 text-[11px] font-semibold text-white">
+          <ListVideo className="size-3" /> {p.videoCount != null ? `${p.videoCount}` : 'Playlist'}
+        </div>
+      </div>
+      <div className="min-w-0 flex-1 py-0.5">
+        <p className="line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]">{p.title}</p>
+        {p.author && <p className="mt-1 truncate text-xs text-muted-foreground">{p.author}</p>}
+        {p.videoCount != null && <p className="mt-0.5 truncate text-xs text-muted-foreground">{p.videoCount} {p.videoCount === 1 ? 'video' : 'videos'}</p>}
+      </div>
+    </Link>
+  )
+}
+
 export { fmtCount }

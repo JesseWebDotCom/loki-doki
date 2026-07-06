@@ -18,8 +18,10 @@ import {
 import { itToItem, savedToItem, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { ChannelAvatar } from '@/components/youtube/media'
-import { VideoCard } from '@/components/youtube/VideoCard'
-import { PlaylistCard } from '@/components/youtube/shelves'
+import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
+import { PlaylistCard, PlaylistListRow } from '@/components/youtube/shelves'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
@@ -104,6 +106,14 @@ export function YoutubeChannelPage() {
   const [saveKind, setSaveKind] = useState<'video' | 'audio'>('video')
   const [saveCount, setSaveCount] = useState(10)
   const [savingNow, setSavingNow] = useState(false)
+  // Card vs list view for the tab grids: persisted per-user so it sticks across visits.
+  const [view, setView] = useViewPreference('youtube.channel_view', 'grid')
+
+  // Render a tab's videos as either the card grid or the full-width list, per `view`.
+  const renderVideos = (items: VideoItem[], aspect: 'video' | 'short' = 'video') =>
+    view === 'list'
+      ? <div className="space-y-1">{items.map(i => <VideoListRow key={i.videoId} item={i} aspect={aspect} />)}</div>
+      : <div className={aspect === 'short' ? SHORTS_GRID : GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} aspect={aspect} />)}</div>
 
   const [params, setParams] = useSearchParams()
   const tab = (TABS.find(([k]) => k === params.get('tab'))?.[0] ?? 'videos') as Tab
@@ -391,22 +401,25 @@ export function YoutubeChannelPage() {
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="mb-6 flex gap-6 overflow-x-auto border-b border-border/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {visibleTabs.map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)}
-            className={cn('relative -mb-px shrink-0 border-b-2 px-1 pb-3 text-sm font-semibold transition-colors',
-              activeTab === key ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
-            {label}
-          </button>
-        ))}
+      {/* Tab bar + card/list view toggle */}
+      <div className="mb-6 flex items-end justify-between gap-4 border-b border-border/60">
+        <div className="flex min-w-0 gap-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {visibleTabs.map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)}
+              className={cn('relative -mb-px shrink-0 border-b-2 px-1 pb-3 text-sm font-semibold transition-colors',
+                activeTab === key ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <ViewToggle value={view} onChange={setView} className="mb-2 shrink-0" />
       </div>
 
       {activeTab === 'videos' && (
         videos.isLoading ? <TabLoading />
           : videoItems.length === 0 ? <EmptyTab label="videos" />
           : <div className="space-y-8">
-              <div className={GRID}>{videoItems.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
+              {renderVideos(videoItems)}
               {videos.cursor && <LoadMore onClick={videos.loadMore} loading={videos.loadingMore} />}
             </div>
       )}
@@ -415,7 +428,7 @@ export function YoutubeChannelPage() {
         shorts.isLoading ? <TabLoading />
           : shortItems.length === 0 ? <EmptyTab label="Shorts" />
           : <div className="space-y-8">
-              <div className={SHORTS_GRID}>{shortItems.map(i => <VideoCard key={i.videoId} item={i} aspect="short" />)}</div>
+              {renderVideos(shortItems, 'short')}
               {shorts.cursor && <LoadMore onClick={shorts.loadMore} loading={shorts.loadingMore} />}
             </div>
       )}
@@ -424,7 +437,7 @@ export function YoutubeChannelPage() {
         live.isLoading ? <TabLoading />
           : liveItems.length === 0 ? <EmptyTab label="live streams" />
           : <div className="space-y-8">
-              <div className={GRID}>{liveItems.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
+              {renderVideos(liveItems)}
               {live.cursor && <LoadMore onClick={live.loadMore} loading={live.loadingMore} />}
             </div>
       )}
@@ -432,7 +445,9 @@ export function YoutubeChannelPage() {
       {activeTab === 'playlists' && (
         playlistsQuery.isLoading ? <TabLoading />
           : (playlistsQuery.data?.playlists.length ?? 0) === 0 ? <EmptyTab label="playlists" />
-          : <div className={GRID}>{playlistsQuery.data!.playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>
+          : view === 'list'
+            ? <div className="space-y-1">{playlistsQuery.data!.playlists.map(p => <PlaylistListRow key={p.playlistId} p={p} />)}</div>
+            : <div className={GRID}>{playlistsQuery.data!.playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>
       )}
     </PageContainer>
   )
