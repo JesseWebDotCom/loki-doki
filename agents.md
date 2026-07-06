@@ -4,9 +4,18 @@
 
 # Agent Guidelines - loki-doki-v3
 
-## Git & Pushing
+## Git, Branching & Multi-Session Workflow
 
-**Never push to the remote (GitHub) without the user's explicit permission, every time.** Do not `git push` (or otherwise publish to the remote) unless the user asks for that specific push in that moment. Permission does not carry over: a "yes" or "do it" on one push never authorizes the next one, and the nature of the task (even if it obviously belongs on GitHub, like a README change) never implies permission. Local commits are allowed only when the user asks for them; pushing always requires a fresh, explicit go-ahead. When work is ready to publish, stop and ask.
+**Land all work directly on `main`. Never open GitHub pull requests.** Commit finished changes straight onto the local `main` branch. Do not create PRs and do not use the remote as a review step. "Everything on main" is the model: `main` is the single source of truth and the branch the live app runs on.
+
+**Never push to the remote (GitHub) without the user's explicit permission, every time.** Local commits to `main` are the normal flow, but publishing to the remote always requires a fresh, explicit go-ahead in that moment. Permission never carries over from one push to the next, and the nature of the task never implies it. When work is ready to publish, stop and ask.
+
+**Keep parallel Claude sessions from stepping on each other with worktrees, not by editing the live tree directly.** The goal is two things at once: changes visible in the running app right away, and no two sessions clobbering each other's files.
+- The live app runs from the canonical checkout, kept on `main`, with the dev servers running (Vite HMR for the frontend, Bun for the backend). Anything that lands on `main` and updates that working tree shows up live through HMR within seconds.
+- Each session that will edit code works in its own git worktree on its own short-lived branch (under `.claude/worktrees/`), so its edits never touch the live tree while work is in progress.
+- When a change is ready and builds clean, land it by merging (or cherry-picking) that branch onto `main`, then let the live checkout pick it up. No PR. Delete the worktree afterward.
+- Land one session's work at a time so two merges never race. Real overlaps surface as git conflicts to resolve instead of silent clobbers.
+- If only one session is active, you can skip worktrees and edit the live `main` checkout directly; HMR then reflects every change instantly. Reach for worktrees specifically when more than one session is running.
 
 ## Context Rule
 
