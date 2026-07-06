@@ -89,7 +89,7 @@ export function BottomTabBar() {
               </p>
             )}
             <div className="flex items-center gap-2">
-              <div className="size-14 shrink-0 overflow-hidden rounded-full">
+              <div className="size-14 shrink-0">
                 {character ? (
                   <CharacterAvatar character={character} streaming={avatarProps.streaming} thinking={thinking} size={56} viewPreset="head" />
                 ) : (
@@ -126,7 +126,8 @@ export function BottomTabBar() {
           className="flex flex-1 flex-col items-center -mt-4"
         >
           <span className={cn(
-            "flex size-12 items-center justify-center overflow-hidden rounded-full border-2 border-background bg-card shadow-lg transition-transform",
+            "flex size-12 items-center justify-center transition-transform",
+            !character && "overflow-hidden rounded-full border-2 border-background bg-card shadow-lg",
             open && "scale-110",
           )}>
             {character ? (

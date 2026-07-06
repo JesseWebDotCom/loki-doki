@@ -126,7 +126,7 @@ function CompanionMenu({ onClose, style }: { onClose: () => void; style: React.C
       {/* WHO, companion identity + quick switch */}
       <SectionLabel>Companion</SectionLabel>
       <div className="flex items-center gap-2 px-0.5">
-        <span className={cn('flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted', character && 'ring-1 ring-brand/60')}>
+        <span className={cn('flex size-8 shrink-0 items-center justify-center', !character && 'overflow-hidden rounded-full bg-muted')}>
           {character ? <CharacterAvatar character={character} size={32} /> : <Bot className="size-4 text-muted-foreground" />}
         </span>
         <span className="flex-1 truncate text-sm font-semibold text-foreground">{character?.name ?? 'No companion'}</span>
@@ -162,7 +162,7 @@ function CompanionMenu({ onClose, style }: { onClose: () => void; style: React.C
               type="button"
               onClick={() => { setCharacter(ch.id); onClose() }}
               title={`Switch to ${ch.name}`}
-              className={cn('size-7 shrink-0 overflow-hidden rounded-full bg-muted opacity-85 transition hover:scale-110 hover:opacity-100 hover:ring-1 hover:ring-brand/60')}
+              className={cn('size-7 shrink-0 opacity-85 transition hover:scale-110 hover:opacity-100')}
             >
               <CharacterAvatar className="pointer-events-none" character={ch} size={28} />
             </button>

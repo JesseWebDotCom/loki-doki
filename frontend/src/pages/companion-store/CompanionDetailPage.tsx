@@ -7,7 +7,6 @@ import { useCompanionStore, isLocked } from '@/lib/companions/useCompanionStore'
 import { getCompanionCategory } from '@/lib/companions/companionCategories'
 import { voiceMeta } from '@/lib/companions/voiceCatalog'
 import { SelectButton, FavoriteButton, PreviewButton, lockReason } from '@/components/companions/store/CompanionActions'
-import { COMPANION_FALLBACK_GRADIENT } from '@/components/companions/store/CompanionFeaturedHero'
 
 const DIAL_LABEL: Record<string, string> = { profanity: 'Profanity', sexual: 'Sexual', violence: 'Violence', substances: 'Substances' }
 const DIAL_KEYS = ['profanity', 'sexual', 'violence', 'substances'] as const
@@ -38,7 +37,6 @@ export function CompanionDetailPage() {
 
   const category = getCompanionCategory(c.category)
   const locked = isLocked(c)
-  const gradient = category?.gradient ?? COMPANION_FALLBACK_GRADIENT
   const voice = voiceMeta(c.ttsVoice)
   const rate = c.speechRate ? `${c.speechRate.toFixed(2)}×` : 'Normal'
   const dials = c.content ? DIAL_KEYS.filter((k) => c.content && c.content[k] && c.content[k] !== 'off') : []
@@ -69,10 +67,7 @@ export function CompanionDetailPage() {
           />
         )}
         <div className="relative flex flex-col items-center gap-5 sm:flex-row sm:items-center">
-          <div
-            className="size-28 shrink-0 overflow-hidden rounded-sheet ring-1 ring-border sm:size-32"
-            style={{ backgroundImage: gradient }}
-          >
+          <div className="size-28 shrink-0 sm:size-32">
             <CharacterAvatar character={c} size={128} viewPreset="head" pokeable={!locked} />
           </div>
           <div className="min-w-0 flex-1 text-center sm:text-left">
