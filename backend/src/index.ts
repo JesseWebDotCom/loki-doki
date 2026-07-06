@@ -296,6 +296,8 @@ if (firstBoot) {
   // background so first use never stalls on a download — see lib/prewarm.ts.
   import('@/lib/prewarm').then((m) => m.scheduleBinaryPrewarm()).catch(() => {})
   startYoutubeFeedPoller()
+  // Videos hub: refresh non-YouTube follows + cross-source auto-save (lib/videos/feed.ts).
+  import('@/lib/videos/feed').then((m) => m.startVideosFeedPoller()).catch(() => {})
   // Notification delivery layer: deferred/digest flush + daily reports (lib/notify),
   // and the Telegram two-way bridge long-poll loop (lib/telegram).
   import('@/lib/notify/scheduler').then((m) => m.startNotifyScheduler()).catch(() => {})

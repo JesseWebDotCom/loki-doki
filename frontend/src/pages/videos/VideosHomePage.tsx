@@ -7,10 +7,9 @@ import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
-import { VideoCollection } from '@/components/youtube/VideoCollection'
+import { VideoCard } from '@/components/youtube/VideoCard'
 import { SearchResults } from '@/components/youtube/SearchResults'
-import { ViewToggle } from '@/components/shared/ViewToggle'
-import { useViewPreference } from '@/hooks/useViewPreference'
+import { HubVideoCard } from '@/components/videos/HubVideoCard'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
 import { getHubHome, getVideoSources, type HubVideoItem, type VideoSource } from '@/lib/videos/api'
@@ -42,7 +41,6 @@ export function VideosHomePage() {
 }
 
 function HubLanding() {
-  const [view, setView] = useViewPreference('videos.home_view', 'grid')
   const { selected, toggle } = useSourceFilter()
 
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
@@ -62,11 +60,7 @@ function HubLanding() {
     [history],
   )
 
-  // Until non-YouTube providers land, every hub item is a YouTube item.
-  const feedItems = useMemo(
-    () => (homeData?.items ?? []).filter((it) => it.source === 'youtube').map(hubToYtItem),
-    [homeData],
-  )
+  const feedItems = useMemo(() => homeData?.items ?? [], [homeData])
 
   return (
     <PageContainer width="wide" className="py-6">
@@ -81,12 +75,11 @@ function HubLanding() {
             />
           ))}
         </ChipRow>
-        <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
 
       <div className="space-y-10">
         {continueWatching.length > 0 ? (
-          <MediaShelf title="Continue watching" items={continueWatching} view={view} />
+          <MediaShelf title="Continue watching" items={continueWatching} view="grid" />
         ) : historyLoading ? <ShelfSkeleton /> : null}
 
         <section>
@@ -94,7 +87,17 @@ function HubLanding() {
           {isLoading ? (
             <SkeletonCards count={12} className="xl:grid-cols-4" />
           ) : feedItems.length > 0 ? (
-            <VideoCollection items={feedItems} view={view} />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
+              {feedItems.map((it) => it.source === 'youtube' ? (
+                <div key={`yt:${it.id}`} className="relative">
+                  {/* design-ok(raw-palette-semantic): YouTube brand identity chip on mixed-feed cards */}
+                  <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded-full bg-red-600/90 px-2 py-0.5 text-[10px] font-semibold text-white">YouTube</span>
+                  <VideoCard item={hubToYtItem(it)} />
+                </div>
+              ) : (
+                <HubVideoCard key={`${it.source}:${it.id}`} item={it} />
+              ))}
+            </div>
           ) : (
             <EmptyFeed />
           )}

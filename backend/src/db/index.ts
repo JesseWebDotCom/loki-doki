@@ -2684,4 +2684,86 @@ export function runMigrations() {
   // "Smart Description" (see schema.ts ytVideos.descriptionClean) — LLM-cleaned description,
   // or the transcript summary when the real description is mostly sponsor/ad content.
   addColumn('yt_videos', 'description_clean', 'TEXT')
+
+  // Videos hub: generic multi-source persistence (see schema.ts videoFollows/videoItems/
+  // videoWatchState/videoSaves; plan at ~/.claude/plans/valiant-skipping-fiddle.md).
+  // YouTube stays in yt_*; these tables carry reddit/tiktok/vimeo with a source column.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS video_follows (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'creator',
+      external_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      handle TEXT,
+      thumbnail_url TEXT,
+      description TEXT,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      last_fetched_at INTEGER,
+      auto_save INTEGER NOT NULL DEFAULT 0,
+      auto_save_kind TEXT NOT NULL DEFAULT 'video',
+      auto_save_keep INTEGER,
+      added_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, external_id)
+    );
+    CREATE TABLE IF NOT EXISTS video_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      follow_id TEXT REFERENCES video_follows(id) ON DELETE SET NULL,
+      title TEXT NOT NULL DEFAULT '',
+      creator_id TEXT,
+      creator_name TEXT,
+      url TEXT,
+      thumbnail_url TEXT,
+      duration_sec INTEGER,
+      published_at INTEGER,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      meta_json TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(source, external_id)
+    );
+    CREATE INDEX IF NOT EXISTS video_items_follow_idx ON video_items(follow_id, published_at);
+    CREATE TABLE IF NOT EXISTS video_watch_state (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      position_sec REAL NOT NULL DEFAULT 0,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, video_id)
+    );
+    CREATE TABLE IF NOT EXISTS video_saves (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'video',
+      status TEXT NOT NULL DEFAULT 'pending',
+      asset_id TEXT,
+      size_bytes INTEGER,
+      max_height INTEGER,
+      thumbnail_url TEXT,
+      creator_name TEXT,
+      duration_sec INTEGER,
+      source_url TEXT,
+      auto INTEGER NOT NULL DEFAULT 0,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, video_id, kind)
+    );
+    CREATE INDEX IF NOT EXISTS video_saves_user_idx ON video_saves(user_id, created_at);
+  `)
+
+  // Cross-source collections/playlists: YouTube rows keep the default; new sources tag
+  // theirs. Named video_source because yt_collections.source already means local-vs-google
+  // account-sync ownership. (The existing unique constraints can't gain video_source
+  // without a table rebuild — IDs across sources can't realistically collide; accept it.)
+  addColumn('yt_collections', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
+  addColumn('yt_playlist_videos', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
 }

@@ -3,6 +3,8 @@
 // hub UI and library layer never see source-specific formats.
 
 export type VideoSource = 'youtube' | 'reddit' | 'tiktok' | 'vimeo'
+/** Sources persisted in the generic video_* tables (YouTube keeps its native yt_* tables). */
+export type GenericVideoSource = Exclude<VideoSource, 'youtube'>
 
 export interface SourceRef {
   source: VideoSource

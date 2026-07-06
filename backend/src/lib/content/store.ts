@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path'
 import { and, eq, exists, like, lt, ne, notExists, notLike, or } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '@/db'
-import { blobs, mediaAssets, narrationSessions, podcastDownloads, ytDownloads, bookLibrary } from '@/db/schema'
+import { blobs, clips, mediaAssets, narrationSessions, podcastDownloads, videoSaves, ytDownloads, bookLibrary } from '@/db/schema'
 import { resolveUserPath } from '@/lib/storage/paths'
 import { getStorageLocationPath, joinUnderRoot } from '@/lib/storage/contentRoots'
 import { logger } from '@/lib/logger'
@@ -193,6 +193,11 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
     lt(mediaAssets.createdAt, cutoff),
     notExists(db.select().from(ytDownloads).where(eq(ytDownloads.assetId, mediaAssets.id))),
     notExists(db.select().from(podcastDownloads).where(eq(podcastDownloads.assetId, mediaAssets.id))),
+    // Clipper saves (personal 1:1 assets) — missing from the original predicate, which
+    // silently reclaimed every clip once it aged past the settle window.
+    notExists(db.select().from(clips).where(eq(clips.assetId, mediaAssets.id))),
+    // Videos hub saves (shared per-source renditions, sourceType reddit/tiktok/vimeo).
+    notExists(db.select().from(videoSaves).where(eq(videoSaves.assetId, mediaAssets.id))),
     or(
       ne(mediaAssets.sourceType, 'narration'),
       notExists(db.select().from(narrationSessions).where(eq(narrationSessions.id, mediaAssets.sourceId))),

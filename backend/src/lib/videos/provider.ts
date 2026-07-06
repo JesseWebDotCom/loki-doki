@@ -37,7 +37,11 @@ export interface SearchOpts {
 }
 
 export interface DownloadSpec {
-  /** URL handed to yt-dlp (canonical watch/permalink URL). */
+  /** How the video-media job fetches the bytes: yt-dlp on a page URL, or a direct
+   *  ffmpeg remux of an HLS manifest (reddit's v.redd.it, where yt-dlp needs auth
+   *  but the media CDN itself doesn't). */
+  method: 'ytdlp' | 'hls'
+  /** ytdlp: canonical watch/permalink URL. hls: the manifest URL. */
   url: string
   /** Extra yt-dlp args (format preferences, e.g. TikTok watermark-free h264). */
   ytdlpArgs?: string[]

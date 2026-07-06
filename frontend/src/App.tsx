@@ -155,6 +155,9 @@ const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/Boo
 
 const VideosLayout = lazy(() => import('@/components/videos/VideosLayout').then((m) => ({ default: m.VideosLayout })))
 const VideosHomePage = lazy(() => import('@/pages/videos/VideosHomePage').then((m) => ({ default: m.VideosHomePage })))
+const RedditBrowsePage = lazy(() => import('@/pages/videos/RedditBrowsePage').then((m) => ({ default: m.RedditBrowsePage })))
+const SourceCreatorPage = lazy(() => import('@/pages/videos/SourceCreatorPage').then((m) => ({ default: m.SourceCreatorPage })))
+const GenericWatchPage = lazy(() => import('@/pages/videos/GenericWatchPage').then((m) => ({ default: m.GenericWatchPage })))
 const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
 const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
@@ -407,6 +410,10 @@ export default function App() {
                   <Route path="clip" element={<ClipperPage />} />
                   <Route path="create" element={<VideoPage />} />
                   <Route path="settings/:section?" element={<YoutubeSettingsPage />} />
+                  {/* Reddit source area. */}
+                  <Route path="reddit" element={<RedditBrowsePage />} />
+                  <Route path="reddit/r/:id" element={<SourceCreatorPage source="reddit" />} />
+                  <Route path=":source/watch/:id" element={<GenericWatchPage />} />
                   {/* YouTube source area: the retired standalone app lives on here. */}
                   <Route path="youtube" element={<YoutubeHomePage />} />
                   <Route path="youtube/subscriptions" element={<YoutubeSubscriptionsPage />} />

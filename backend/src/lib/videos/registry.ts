@@ -5,9 +5,11 @@
 import type { UrlMatch, VideoProvider } from '@/lib/videos/provider'
 import type { VideoSource } from '@/lib/videos/types'
 import { youtubeProvider } from '@/lib/videos/providers/youtube'
+import { redditProvider } from '@/lib/videos/providers/reddit'
 
 const providers = new Map<VideoSource, VideoProvider>([
   ['youtube', youtubeProvider],
+  ['reddit', redditProvider],
 ])
 
 export function listProviders(): VideoProvider[] {

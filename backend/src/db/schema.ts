@@ -1279,6 +1279,9 @@ export const ytCollections = sqliteTable('yt_collections', {
   // 'local' vs 'google' — same contract as ytSubscriptions.source: google rows mirror the
   // linked account's Watch Later / Liked and are owned by account sync.
   source: text('source', { enum: ['local', 'google'] }).notNull().default('local'),
+  // Which VIDEO source the saved item belongs to (Videos hub cross-source collections).
+  // Distinct from `source` above, which is account-sync ownership.
+  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo'] }).notNull().default('youtube'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userColVidUnique: unique().on(t.userId, t.collection, t.videoId) }))
 
@@ -1335,6 +1338,8 @@ export const ytPlaylistVideos = sqliteTable('yt_playlist_videos', {
   channelId: text('channel_id'),
   durationSec: integer('duration_sec'),
   position: integer('position').notNull().default(0),
+  // Which video source this entry came from (Videos hub cross-source playlists).
+  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo'] }).notNull().default('youtube'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 })
 

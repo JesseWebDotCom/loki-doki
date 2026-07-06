@@ -123,6 +123,6 @@ export const youtubeProvider: VideoProvider = {
   },
 
   async downloadSpec(id) {
-    return { url: `https://www.youtube.com/watch?v=${id}` }
+    return { method: 'ytdlp', url: `https://www.youtube.com/watch?v=${id}` }
   },
 }

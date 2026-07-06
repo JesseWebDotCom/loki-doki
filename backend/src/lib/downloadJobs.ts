@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
 // one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
@@ -423,6 +423,10 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
           const { failNarrationRenderByJobRefId } = await import('@/lib/narration/render')
           await failNarrationRenderByJobRefId(job.refId, String(err)).catch(() => {})
         }
+        if (job.type === 'video-media') {
+          const { failVideoSavesByJobRefId } = await import('@/lib/videos/download')
+          await failVideoSavesByJobRefId(job.refId, String(err)).catch(() => {})
+        }
         if (job.type === 'book-download') {
           const { failBookDownloadByJobRefId } = await import('@/lib/books/offline')
           await failBookDownloadByJobRefId(job.refId, String(err)).catch(() => {})
@@ -601,6 +605,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runClipDownloadJob(payload, onProgress, signal)
       return
     }
+    case 'video-media': {
+      const payload = JSON.parse(job.refId) as import('@/lib/videos/download').VideoMediaJobPayload
+      const { runVideoMediaJob } = await import('@/lib/videos/download')
+      await runVideoMediaJob(payload, onProgress, signal)
+      return
+    }
     case 'plex-provision': {
       const payload = JSON.parse(job.refId) as import('@/lib/plex/export/library').PlexProvisionJobPayload
       const { runPlexProvisionJob } = await import('@/lib/plex/export/library')
@@ -638,6 +648,29 @@ export async function enqueueRadioRecording(recordingId: string, label: string):
     id: randomUUID(), type: 'radio-record', refId: recordingId, variantKey: null,
     domain: 'radio', sizeClass: 'small', label: label.slice(0, 120), priority: 45,
     status: 'pending', attempts: 0, maxAttempts: 1, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Coalesced enqueue of a Videos-hub download: one job per (source, videoId, kind) no
+ *  matter how many household users save the same rendition; completion fans out to every
+ *  waiting video_saves row (lib/videos/download.ts). Domain = the source name, so each
+ *  site gets its own per-host serialization lane like 'clipper' does. */
+export async function enqueueVideoMedia(
+  payload: { source: 'reddit' | 'tiktok' | 'vimeo'; videoId: string; kind: 'audio' | 'video'; maxHeight?: number | null },
+  label: string,
+): Promise<void> {
+  const vk = `video-media:${payload.source}:${payload.videoId}:${payload.kind}`
+  const [existing] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+    .where(and(eq(downloadJobs.variantKey, vk), inArray(downloadJobs.status, ['pending', 'running'])))
+    .limit(1)
+  if (existing) return
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'video-media', refId: JSON.stringify(payload), variantKey: vk,
+    domain: payload.source, sizeClass: 'small', label: label.slice(0, 120), priority: 50,
+    status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })
   kickScheduler()

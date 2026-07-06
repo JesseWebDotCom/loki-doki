@@ -1,7 +1,7 @@
 import { NavLink, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Home, Clock, Heart, History, Download, ListVideo, Link2, Play, Sparkles, type LucideIcon,
+  Home, Clock, Heart, History, Download, ListVideo, Link2, MessagesSquare, Play, Sparkles, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
@@ -41,6 +41,7 @@ export function VideosRail() {
       {/* Sources grow as providers land (Reddit, TikTok, Vimeo). */}
       <SectionLabel>Sources</SectionLabel>
       <RailLink to="/videos/youtube" icon={Play} label="YouTube" end />
+      <RailLink to="/videos/reddit" icon={MessagesSquare} label="Reddit" end />
 
       <SectionLabel>Your Library</SectionLabel>
       <RailLink to="/videos/history" icon={History} label="History" />
