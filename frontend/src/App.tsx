@@ -162,7 +162,6 @@ const VimeoBrowsePage = lazy(() => import('@/pages/videos/VimeoBrowsePage').then
 const MyVideosPage = lazy(() => import('@/pages/videos/create/MyVideosPage').then((m) => ({ default: m.MyVideosPage })))
 const StudioEditorPage = lazy(() => import('@/pages/videos/create/StudioEditorPage').then((m) => ({ default: m.StudioEditorPage })))
 const SourceCreatorPage = lazy(() => import('@/pages/videos/SourceCreatorPage').then((m) => ({ default: m.SourceCreatorPage })))
-const GenericWatchPage = lazy(() => import('@/pages/videos/GenericWatchPage').then((m) => ({ default: m.GenericWatchPage })))
 const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
 const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
@@ -174,7 +173,7 @@ const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubsc
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
 const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPage').then((m) => ({ default: m.YoutubePlaylistPage })))
 const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
-const WatchPage = lazy(() => import('@/pages/youtube/WatchPage').then((m) => ({ default: m.WatchPage })))
+const WatchPage = lazy(() => import('@/pages/videos/WatchPage').then((m) => ({ default: m.WatchPage })))
 const VideosSettingsPage = lazy(() => import('@/pages/videos/VideosSettingsPage').then((m) => ({ default: m.VideosSettingsPage })))
 
 function AppLoading() {
@@ -429,14 +428,14 @@ export default function App() {
                   {/* Vimeo source area. */}
                   <Route path="vimeo" element={<VimeoBrowsePage />} />
                   <Route path="vimeo/channel/:id" element={<SourceCreatorPage source="vimeo" />} />
-                  <Route path=":source/watch/:id" element={<GenericWatchPage />} />
+                  {/* One watch page for every source (including YouTube) — see WatchPage.tsx. */}
+                  <Route path=":source/watch/:id" element={<WatchPage />} />
                   {/* YouTube source area: the retired standalone app lives on here. */}
                   <Route path="youtube" element={<YoutubeHomePage />} />
                   <Route path="youtube/subscriptions" element={<YoutubeSubscriptionsPage />} />
                   <Route path="youtube/channel/:id" element={<YoutubeChannelPage />} />
                   <Route path="youtube/playlist/:id" element={<YoutubePlaylistPage />} />
                   <Route path="youtube/my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
-                  <Route path="youtube/watch/:videoId" element={<WatchPage />} />
                   <Route path="youtube/shorts/:videoId" element={<YoutubeShortsPage />} />
                 </Route>
                 {/* Retired /youtube app: permanent redirects into the Videos hub. */}

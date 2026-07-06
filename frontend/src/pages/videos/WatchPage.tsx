@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
-  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square,
+  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -16,13 +16,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { toast } from '@/lib/toast'
-import { useYoutubeUI } from '@/components/videos/VideosLayout'
+import { proxyImg } from '@/lib/img'
+import { useYoutubeUI, useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
 import { UpNextRow, watchHref } from '@/components/youtube/VideoCard'
 import { AutoplayCountdown } from '@/components/youtube/AutoplayCountdown'
 import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { ChannelAvatar } from '@/components/youtube/media'
+import { CreatorAvatar } from '@/components/videos/HubCreatorRail'
 import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
 import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
@@ -40,6 +42,13 @@ import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
 import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
 import { useShareLink } from '@/hooks/use-share-link'
+import {
+  getSourceItem, getSourceComments, getSourceCreator, listSaves, saveVideo, putWatchState, savedFileUrl,
+  listFollows, addFollow, removeFollow, getVideoSources,
+  type HubPlayback, type HubVideoItem, type VideoSource,
+} from '@/lib/videos/api'
+import { HUB_PATHS } from '@/components/videos/HubVideoCard'
+import { SOURCE_META } from '@/lib/videos/sources'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -47,7 +56,7 @@ const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
   channelThumb: v.channelThumb ?? null, localKind: v.localKind, durationSec: v.durationSec ?? null,
 })
 
-type SideTab = 'transcript' | 'summary' | 'comments'
+type SideTab = 'transcript' | 'summary' | 'comments' | 'about'
 
 /** Compact like/dislike counts (1234 → "1.2K"). */
 function fmtCount(n: number): string {
@@ -64,8 +73,91 @@ const SB_LABELS: Record<string, string> = {
   intro: 'intro', outro: 'outro', preview: 'recap', music_offtopic: 'non-music',
 }
 
+/** Single watch page for every source: YouTube's rich feature set (SponsorBlock, DeArrow,
+ *  chapters/transcript, mini-player docking, PiP, live DVR, playlists) is capability-gated
+ *  behind `source === 'youtube'`; every source renders through the same shell (title, creator
+ *  row, segmented action buttons, description card, tabbed side panel) so the page looks and
+ *  behaves the same everywhere — YouTube just lights up more of it. */
 export function WatchPage() {
-  const { videoId = '' } = useParams()
+  const { source: sourceParam, id } = useParams<{ source: string; id: string }>()
+  const source = (sourceParam ?? 'youtube') as VideoSource
+  const videoId = id ?? ''
+  if (source === 'youtube') return <YoutubeWatch videoId={videoId} />
+  return <GenericWatch source={source} videoId={videoId} />
+}
+
+// ── Shared shell pieces ──────────────────────────────────────────────────────
+
+/** A compact icon button that lives inside one of the grouped segment bars in the action row.
+ *  Renders as a <Link> when `to` is set, otherwise a <button>. Shared by every source. */
+function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, onClick, to }: {
+  icon: typeof Heart; label: string; title?: string; active?: boolean
+  tone?: 'accent' | 'success' | 'info'; iconFill?: boolean; onClick?: () => void; to?: string
+}) {
+  const activeText = tone === 'success' ? 'text-success' : tone === 'info' ? 'text-info' : 'text-[var(--yt-accent-fg)]'
+  const cls = cn(
+    'grid size-8 place-items-center rounded-full transition-colors hover:bg-background/60',
+    active ? cn('bg-background/70', activeText) : 'text-foreground/70',
+  )
+  const icon = <Icon className={cn('size-4', iconFill && 'fill-current')} />
+  if (to) return <Link to={to} title={title ?? label} aria-label={label} className={cls}>{icon}</Link>
+  return <button onClick={onClick} title={title ?? label} aria-label={label} className={cls}>{icon}</button>
+}
+
+/** Views + expandable description, the same Card style everywhere. */
+function DescriptionCard({ views, description }: { views: string | null; description: string | null }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!views && !description) return null
+  return (
+    <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
+      {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
+      {description && (
+        <>
+          <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
+          <button onClick={() => setExpanded((e) => !e)} className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
+            {expanded ? 'Show less' : '…more'}
+          </button>
+        </>
+      )}
+    </Card>
+  )
+}
+
+/** Tabbed Card shell for the side column: same tab-header style (border-b, active underline)
+ *  for every source, whatever tabs it actually has. */
+function SidePanelShell<T extends string>({ tabs, active, onChange, children }: {
+  tabs: Array<{ key: T; label: string }>
+  active: T
+  onChange: (t: T) => void
+  children: React.ReactNode
+}) {
+  if (tabs.length === 0) return null
+  return (
+    <Card>
+      <div className="flex gap-1 border-b border-border/50 px-2 pt-2">
+        {tabs.map(({ key, label }) => (
+          <button key={key} onClick={() => onChange(key)}
+            className={cn('-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors',
+              active === key ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="p-3">{children}</div>
+    </Card>
+  )
+}
+
+function Centered({ children }: { children: React.ReactNode }) {
+  return <div className="flex items-center gap-2 px-1 py-6 text-sm text-muted-foreground">{children}</div>
+}
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="px-1 py-6 text-sm text-muted-foreground/70">{children}</p>
+}
+
+// ── YouTube branch (unchanged behavior, restyled through the shared shell) ──────
+
+function YoutubeWatch({ videoId }: { videoId: string }) {
   const [params] = useSearchParams()
   const localKind = (params.get('k') as 'audio' | 'video' | null) ?? undefined
   const navigate = useNavigate()
@@ -270,7 +362,7 @@ export function WatchPage() {
           </div>
         )}
 
-        <InfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
+        <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
           votes={votes ?? null} localKind={localKind}
           privacy={privacy} onTogglePrivacy={togglePrivacy}
           audioOnly={audioOnly} onToggleAudioOnly={toggleAudioOnly}
@@ -279,7 +371,7 @@ export function WatchPage() {
 
       {/* Side column */}
       <aside className="min-w-0 space-y-5">
-        <SidePanel
+        <YoutubeSidePanel
           videoId={videoId} tab={tab} setTab={setTab} currentSec={currentSec}
           onSeek={(sec) => playerRef.current?.seek(sec)} initialSummary={meta?.summary ?? null}
         />
@@ -304,9 +396,9 @@ export function WatchPage() {
   )
 }
 
-// ── Info panel ───────────────────────────────────────────────────────────────
+// ── YouTube info panel ───────────────────────────────────────────────────────
 
-function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKind,
+function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, localKind,
   privacy, onTogglePrivacy, audioOnly, onToggleAudioOnly, isShortVid, onMinimize }: {
   videoId: string
   title: string
@@ -326,7 +418,6 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const ui = useYoutubeUI()
   const qc = useQueryClient()
   const { shareLink } = useShareLink()
-  const [expanded, setExpanded] = useState(false)
   const [showOriginalDescription, setShowOriginalDescription] = useState(false)
   // One-click Save: yt-dlp downloads this to the Offline library at the user's default quality.
   const savedRemote = useSavedState(videoId)
@@ -506,25 +597,12 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
         </div>
       </div>
 
-      {(views || description) && (
-        <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
-          {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
-          {description && (
-            <>
-              <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
-              <div className="mt-1 flex items-center gap-3">
-                <button onClick={() => setExpanded(e => !e)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
-                  {expanded ? 'Show less' : '…more'}
-                </button>
-                {hasOriginalDescription && (
-                  <button onClick={() => setShowOriginalDescription(v => !v)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
-                    {showOriginalDescription ? 'Show cleaned description' : 'View original'}
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </Card>
+      <DescriptionCard views={views}
+        description={description ? (hasOriginalDescription ? description : description) : null} />
+      {hasOriginalDescription && description && (
+        <button onClick={() => setShowOriginalDescription(v => !v)} className="-mt-3 text-xs font-semibold text-muted-foreground hover:text-foreground">
+          {showOriginalDescription ? 'Show cleaned description' : 'View original'}
+        </button>
       )}
 
       <CreatePodcastDialog open={podcastOpen} onClose={() => setPodcastOpen(false)}
@@ -532,22 +610,6 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
         sourceLabel={title} suggestedShowName={author ?? undefined} defaultLabel={title} />
     </div>
   )
-}
-
-/** A compact icon button that lives inside one of the grouped segment bars in the action row.
- *  Renders as a <Link> when `to` is set, otherwise a <button>. */
-function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, onClick, to }: {
-  icon: typeof Heart; label: string; title?: string; active?: boolean
-  tone?: 'accent' | 'success' | 'info'; iconFill?: boolean; onClick?: () => void; to?: string
-}) {
-  const activeText = tone === 'success' ? 'text-success' : tone === 'info' ? 'text-info' : 'text-[var(--yt-accent-fg)]'
-  const cls = cn(
-    'grid size-8 place-items-center rounded-full transition-colors hover:bg-background/60',
-    active ? cn('bg-background/70', activeText) : 'text-foreground/70',
-  )
-  const icon = <Icon className={cn('size-4', iconFill && 'fill-current')} />
-  if (to) return <Link to={to} title={title ?? label} aria-label={label} className={cls}>{icon}</Link>
-  return <button onClick={onClick} title={title ?? label} aria-label={label} className={cls}>{icon}</button>
 }
 
 // Estimated like/dislike counts from Return YouTube Dislike (YouTube hides dislikes).
@@ -562,9 +624,9 @@ function VotesBar({ votes }: { votes: VideoVotes }) {
   )
 }
 
-// ── Side panel: transcript / summary / podcast ───────────────────────────────
+// ── YouTube side panel: transcript / summary / comments ──────────────────────
 
-function SidePanel({ videoId, tab, setTab, onSeek, initialSummary, currentSec }: {
+function YoutubeSidePanel({ videoId, tab, setTab, onSeek, initialSummary, currentSec }: {
   videoId: string
   tab: SideTab
   setTab: (t: SideTab) => void
@@ -572,23 +634,15 @@ function SidePanel({ videoId, tab, setTab, onSeek, initialSummary, currentSec }:
   initialSummary: string | null
   currentSec: number
 }) {
+  const tabs: Array<{ key: SideTab; label: string }> = [
+    ['transcript', 'Transcript'], ['summary', 'AI Summary'], ['comments', 'Comments'],
+  ].map(([k, l]) => ({ key: k as SideTab, label: l }))
   return (
-    <Card>
-      <div className="flex gap-1 border-b border-border/50 px-2 pt-2">
-        {([['transcript', 'Transcript'], ['summary', 'AI Summary'], ['comments', 'Comments']] as [SideTab, string][]).map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)}
-            className={cn('-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors',
-              tab === k ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="p-3">
-        {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={onSeek} currentSec={currentSec} />}
-        {tab === 'summary' && <SummaryTab videoId={videoId} initial={initialSummary} />}
-        {tab === 'comments' && <CommentsTab videoId={videoId} />}
-      </div>
-    </Card>
+    <SidePanelShell tabs={tabs} active={tab} onChange={setTab}>
+      {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={onSeek} currentSec={currentSec} />}
+      {tab === 'summary' && <SummaryTab videoId={videoId} initial={initialSummary} />}
+      {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
+    </SidePanelShell>
   )
 }
 
@@ -668,7 +722,7 @@ function SummaryTab({ videoId, initial }: { videoId: string; initial: string | n
   return <div className="max-h-[480px] space-y-3 overflow-y-auto whitespace-pre-wrap px-1 text-sm leading-relaxed text-foreground/85">{data}</div>
 }
 
-function CommentsTab({ videoId }: { videoId: string }) {
+function YoutubeCommentsTab({ videoId }: { videoId: string }) {
   const { data: comments = [], isPending } = useQuery({ queryKey: ['yt-comments', videoId], queryFn: () => getComments(videoId, 30) })
   if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
   if (!comments.length) return <Empty>No comments. They may be turned off for this video.</Empty>
@@ -697,9 +751,293 @@ function CommentsTab({ videoId }: { videoId: string }) {
   )
 }
 
-function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center gap-2 px-1 py-6 text-sm text-muted-foreground">{children}</div>
+// ── Generic branch (Reddit/TikTok/Vimeo): same shell, hub API underneath ────────
+
+/** Attach the playback source to a <video>: native src for files/progressive, hls.js
+ *  for manifests (Safari also gets hls.js; its native HLS can't send our auth cookies
+ *  cross-origin, but same-origin proxy URLs are fine either way; prefer the consistent path). */
+function usePlaybackAttach(videoRef: React.RefObject<HTMLVideoElement | null>, playback: HubPlayback | null, localUrl: string | null) {
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !playback) return
+
+    if (localUrl) {
+      video.src = localUrl
+      return
+    }
+    if (playback.mode === 'hls') {
+      let hls: import('hls.js').default | null = null
+      let cancelled = false
+      // Safari can play HLS natively from a same-origin URL; everything else uses hls.js.
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = playback.manifestUrl
+      } else {
+        void import('hls.js').then(({ default: Hls }) => {
+          if (cancelled || !Hls.isSupported()) return
+          hls = new Hls({ maxBufferLength: 30 })
+          hls.loadSource(playback.manifestUrl)
+          hls.attachMedia(video)
+        })
+      }
+      return () => { cancelled = true; hls?.destroy() }
+    }
+    if (playback.mode === 'stream') {
+      video.src = playback.streamUrl
+      return
+    }
+  }, [videoRef, playback, localUrl])
 }
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="px-1 py-6 text-sm text-muted-foreground/70">{children}</p>
+
+function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: string }) {
+  const qc = useQueryClient()
+  const videoRef = useRef<HTMLVideoElement>(null)
+  // null = no explicit user selection yet; falls back to a capability-derived default so
+  // a source without comments never briefly renders (or fetches) the Comments tab before
+  // capabilities load.
+  const [explicitTab, setExplicitTab] = useState<SideTab | null>(null)
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['videos-item', source, id],
+    queryFn: () => getSourceItem(source, id),
+    enabled: !!source && !!id,
+  })
+  const item: HubVideoItem | undefined = data?.item
+
+  const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
+  const capabilities = sourcesData?.sources.find((s) => s.source === source)?.capabilities
+  const tab: SideTab = explicitTab ?? (capabilities?.comments === false ? 'about' : 'comments')
+
+  const { data: savesData } = useQuery({ queryKey: ['videos-saves', source], queryFn: () => listSaves(source) })
+  const save = savesData?.saves.find((s) => s.videoId === id && s.kind === 'video')
+  const localUrl = save?.status === 'ready' ? savedFileUrl(source, id, 'video') : null
+  const mode = useYoutubeModeOptional()
+  const onlineOnly = mode === 'offline' && !localUrl
+
+  usePlaybackAttach(videoRef, data?.playback ?? null, localUrl)
+
+  // Resume position + periodic watch-state sync (10s cadence + unmount flush).
+  const lastSent = useRef(0)
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !item) return
+    const snapshot = {
+      title: item.title, thumbnailUrl: item.thumbnailUrl, creatorId: item.creator?.id ?? null,
+      creatorName: item.creator?.name ?? null, durationSec: item.durationSec, isAdult: item.isAdult,
+    }
+    const onTime = () => {
+      const now = Date.now()
+      if (now - lastSent.current < 10_000) return
+      lastSent.current = now
+      const completed = video.duration > 0 && video.currentTime / video.duration > 0.9
+      void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
+    }
+    video.addEventListener('timeupdate', onTime)
+    return () => {
+      video.removeEventListener('timeupdate', onTime)
+      if (video.currentTime > 5) {
+        const completed = video.duration > 0 && video.currentTime / video.duration > 0.9
+        void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
+      }
+    }
+  }, [source, id, item])
+
+  const saveMutation = useMutation({
+    mutationFn: () => saveVideo(source, id, 'video'),
+    onSuccess: () => {
+      toast.success('Saving for offline')
+      void qc.invalidateQueries({ queryKey: ['videos-saves', source] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not save'),
+  })
+
+  const creatorPath = useMemo(() => {
+    if (!item?.creator?.id || !(source in HUB_PATHS)) return null
+    return HUB_PATHS[source].creator(item.creator.id)
+  }, [item, source])
+
+  const { shareLink } = useShareLink()
+
+  const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
+  const follow = followsData?.follows.find((f) => f.source === source && f.externalId.toLowerCase() === (item?.creator?.id ?? '').toLowerCase())
+  const followMutation = useMutation({
+    mutationFn: () => (follow ? removeFollow(follow.id) : addFollow(source, item!.creator!.id)),
+    onSuccess: () => {
+      toast.success(follow ? 'Unfollowed' : 'Following')
+      void qc.invalidateQueries({ queryKey: ['videos-follows'] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not update follow'),
+  })
+
+  if (isLoading) {
+    return <PageContainer width="wide" className="flex justify-center py-24"><Spinner /></PageContainer>
+  }
+  if (error || !item) {
+    return (
+      <PageContainer width="wide" className="py-12">
+        <Card variant="flat" className="p-6 text-sm text-muted-foreground">
+          {error instanceof Error ? error.message : 'This video is not available.'}
+        </Card>
+      </PageContainer>
+    )
+  }
+  if (onlineOnly) {
+    return (
+      <PageContainer width="wide" className="py-12">
+        <Card variant="flat" className="p-6 text-sm text-muted-foreground">
+          This video is not saved offline. Switch to Online to stream it, or save it offline while online.
+        </Card>
+      </PageContainer>
+    )
+  }
+
+  const saveState = save?.status
+  const badge = SOURCE_META[source]
+  const tabs: Array<{ key: SideTab; label: string }> = []
+  if (capabilities?.comments) tabs.push({ key: 'comments', label: 'Comments' })
+  if (item.creator) tabs.push({ key: 'about', label: 'About' })
+
+  return (
+    <PageContainer width="wide" className="grid grid-cols-1 gap-6 py-6 xl:grid-cols-[1fr_400px]">
+      {/* Main column */}
+      <div className="min-w-0 space-y-5">
+        <div className={item.vertical ? 'mx-auto max-w-md' : ''}>
+          <video
+            ref={videoRef}
+            controls
+            autoPlay
+            playsInline
+            poster={item.thumbnailUrl ?? undefined}
+            className={`w-full rounded-card bg-black ${item.vertical ? 'aspect-[9/16]' : 'aspect-video'}`}
+          />
+        </div>
+
+        <div className="space-y-4">
+          {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
+          <h1 className="text-title leading-tight">{item.title}</h1>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {item.creator && creatorPath && (
+              <Link to={creatorPath} className="group flex items-center gap-2.5">
+                <CreatorAvatar title={item.creator.name} src={item.creator.avatarUrl}
+                  className="size-10 text-sm ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+                <p className="text-sm font-semibold transition-colors group-hover:text-[var(--yt-accent-fg)]">{item.creator.name}</p>
+              </Link>
+            )}
+            {item.creator && (follow ? (
+              <Button variant="secondary" size="icon" onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
+                title="Following. Click to unfollow" aria-label="Following"
+                className="bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-60">
+                {followMutation.isPending ? <Spinner /> : <Check className="size-4" />}
+              </Button>
+            ) : (
+              <Button onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
+                className="gap-1.5 bg-[var(--yt-accent)] font-semibold text-white hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+                {followMutation.isPending ? <Spinner className="text-white" /> : <Plus className="size-4" />}Follow
+              </Button>
+            ))}
+
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
+                <SegBtn
+                  icon={saveState === 'ready' ? Check : HardDriveDownload}
+                  label={saveState === 'ready' ? 'Saved offline' : saveState === 'pending' || saveState === 'downloading' ? 'Saving offline…' : 'Save offline'}
+                  active={saveState === 'ready'} iconFill={false}
+                  onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
+                  title="Save offline: this server downloads the video so you can watch it later without streaming." />
+                <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })} />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button title="More actions" aria-label="More actions"
+                      className="grid size-8 place-items-center rounded-full text-foreground/70 transition-colors hover:bg-background/60 data-[state=open]:bg-background/70 data-[state=open]:text-foreground">
+                      <MoreHorizontal className="size-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}>
+                      <ExternalLink className="size-4" /> Open on {badge.label}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </div>
+
+          <DescriptionCard views={item.viewsText ?? null} description={item.description ?? null} />
+        </div>
+      </div>
+
+      {/* Side column */}
+      <aside className="min-w-0 space-y-5">
+        <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}>
+          {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
+          {tab === 'about' && <AboutTab source={source} creatorId={item.creator?.id ?? null} />}
+        </SidePanelShell>
+        {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
+      </aside>
+    </PageContainer>
+  )
+}
+
+function GenericCommentsTab({ source, id }: { source: VideoSource; id: string }) {
+  const { data, isPending } = useQuery({ queryKey: ['videos-comments', source, id], queryFn: () => getSourceComments(source, id) })
+  const comments = data?.comments ?? []
+  if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
+  if (!comments.length) return <Empty>No comments.</Empty>
+  return (
+    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1">
+      {comments.map((cm, i) => (
+        <div key={i} className="text-sm">
+          <p className="font-medium text-foreground">{cm.author}
+            {cm.likes && <span className="ml-2 text-xs font-normal text-muted-foreground">{cm.likes} points</span>}
+          </p>
+          <p className="mt-0.5 whitespace-pre-wrap text-foreground/90">{cm.text}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Fallback tab for sources without comments (TikTok/Vimeo): the creator's own description,
+ *  so the side panel is never structurally empty. */
+function AboutTab({ source, creatorId }: { source: VideoSource; creatorId: string | null }) {
+  const { data, isPending } = useQuery({
+    queryKey: ['videos-creator', source, creatorId],
+    queryFn: () => getSourceCreator(source, creatorId!),
+    enabled: !!creatorId,
+  })
+  if (!creatorId) return <Empty>No creator information available.</Empty>
+  if (isPending) return <Centered><Spinner /> Loading…</Centered>
+  const creator = data?.creator
+  if (!creator?.description && !creator?.subscriberText) return <Empty>Nothing more to show here.</Empty>
+  return (
+    <div className="space-y-2 px-1 text-sm leading-relaxed text-foreground/85">
+      {creator.subscriberText && <p className="font-semibold text-foreground">{creator.subscriberText}</p>}
+      {creator.description && <p className="whitespace-pre-wrap">{creator.description}</p>}
+    </div>
+  )
+}
+
+/** "Up next" counterpart for generic sources: this creator's other videos. */
+function MoreFromCreatorCard({ source, creatorId, excludeId }: { source: VideoSource; creatorId: string; excludeId: string }) {
+  const { data } = useQuery({ queryKey: ['videos-creator', source, creatorId], queryFn: () => getSourceCreator(source, creatorId) })
+  const items = (data?.videos.items ?? []).filter((i) => i.id !== excludeId).slice(0, 15)
+  return (
+    <Card className="p-3">
+      <div className="mb-2 px-1"><h3 className="text-sm font-semibold">More from this creator</h3></div>
+      <div className="space-y-1">
+        {items.map((i) => (
+          <Link key={i.id} to={HUB_PATHS[i.source].watch(i.id)} className="group flex gap-2.5 rounded-card p-1.5 transition-colors hover:bg-accent/50">
+            <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-card bg-muted sm:w-36">
+              {i.thumbnailUrl && <img src={proxyImg(i.thumbnailUrl)} alt="" loading="lazy" className="size-full object-cover transition group-hover:scale-105" />}
+            </div>
+            <div className="min-w-0 flex-1 py-0.5">
+              <p className="line-clamp-2 text-sm font-semibold leading-snug">{i.title}</p>
+              {i.publishedText && <p className="mt-1 truncate text-xs text-muted-foreground">{i.publishedText}</p>}
+            </div>
+          </Link>
+        ))}
+        {items.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing else from this creator yet.</p>}
+      </div>
+    </Card>
+  )
 }

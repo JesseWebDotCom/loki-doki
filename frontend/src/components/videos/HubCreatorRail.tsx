@@ -15,7 +15,7 @@ const AVATAR_COLORS = ['bg-red-500/20 text-red-400', 'bg-blue-500/20 text-blue-4
 /** Generic creator/community avatar (image with a deterministic-letter fallback), mirroring
  *  youtube's ChannelAvatar but routed through the SSRF-safe generic image proxy instead of
  *  YouTube's own: Reddit/TikTok/Vimeo avatars don't live on YouTube's CDN. */
-function CreatorAvatar({ title, src, className }: { title: string; src?: string | null; className?: string }) {
+export function CreatorAvatar({ title, src, className }: { title: string; src?: string | null; className?: string }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
   if (src && failedSrc !== src) {
     return <img key={src} src={proxyImg(src)} alt={title} className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
