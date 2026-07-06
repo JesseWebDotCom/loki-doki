@@ -58,6 +58,17 @@ const TOON_HEAD_FIELDS: RigField[] = [
 // these keys are read by that component, not passed to createAvatar. Values still
 // use the ["value"] array convention so the picker's setRig plumbing works as-is.
 const ROBO_EYES_FIELDS: RigField[] = [
+  { key: 'eyeType', label: 'Eye type', options: [
+    { value: 'screen', label: 'Screen glow' },
+    { value: 'lens', label: 'Camera lens' },
+    { value: 'pixel', label: 'Pixel matrix' },
+    { value: 'scanline', label: 'Scanlines' },
+    { value: 'anime', label: 'Anime' },
+    { value: 'reticle', label: 'Scanner reticle' },
+    { value: 'halo', label: 'Glowing core' },
+    { value: 'dot', label: 'Minimal dots' },
+    { value: 'dash', label: 'Dash' },
+  ] },
   { key: 'eyeColor', label: 'Eye color', isColor: true, options: ['00e5c3', '22d3ee', '60a5fa', '4ade80', 'fbbf24', 'f472b6', 'a78bfa', 'f8fafc', 'f87171'].map(color) },
   { key: 'eyeShape', label: 'Eye shape', options: [
     { value: 'rounded', label: 'Rounded square' },

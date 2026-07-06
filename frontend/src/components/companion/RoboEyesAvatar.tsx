@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import AngryFlames from "./AngryFlames";
 import SleepingZs from "./SleepingZs";
@@ -212,6 +212,10 @@ export default function RoboEyesAvatar({
   const color = `#${first(config?.["eyeColor"]) ?? "00e5c3"}`; // signature robot teal
   const shape = SHAPES[first(config?.["eyeShape"]) ?? "rounded"] ?? SHAPES.rounded!;
   const glow = first(config?.["glow"]) ?? "soft";
+  const eyeType = first(config?.["eyeType"]) ?? "screen";
+  // Unique prefix for this instance's clip/pattern/gradient defs (grids render
+  // many avatars into the same document).
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
 
   const phase = useMemo(() => seedPhase(seed || "default"), [seed]);
   // Same continuous whole-face motion engine as the DiceBear companions: the
@@ -378,11 +382,135 @@ export default function RoboEyesAvatar({
     // Map inner/outer lid drops onto left/right path corners per side.
     const topL = (mirror === 1 ? e.lidOut : e.lidIn) * h;
     const topR = (mirror === 1 ? e.lidIn : e.lidOut) * h;
-    const d =
-      e.heart > 0.5
-        ? heartPath(cx, (w / 54) * (0.9 + 0.1 * frame.pulse))
-        : eyePath(cx, w, h, r, topL, topR, e.lift * h, e.curve * h);
-    return <path key={side} d={d} fill={color} transform={`translate(${(e.dx + frame.gazeX).toFixed(2)} ${(e.dy + frame.gazeY + frame.bob).toFixed(2)})`} />;
+    const move = `translate(${(e.dx + frame.gazeX).toFixed(2)} ${(e.dy + frame.gazeY + frame.bob).toFixed(2)})`;
+
+    // Hearts (love) override every eye type.
+    if (e.heart > 0.5) {
+      return <path key={side} d={heartPath(cx, (w / 54) * (0.9 + 0.1 * frame.pulse))} fill={color} transform={move} />;
+    }
+
+    // Dash: a thin deadpan line; expression comes from the lid ANGLE (angry
+    // tilts the dashes into a \ /, sad into a / \) rather than lid coverage.
+    if (eyeType === "dash") {
+      const hD = Math.max(5, h * 0.14);
+      const tilt = ((e.lidIn - e.lidOut) * 34 + (e.lift * 10)) * mirror;
+      const d = eyePath(cx, w, hD, hD / 2, 0, 0, 0, 0);
+      return <path key={side} d={d} fill={color} transform={`${move} rotate(${tilt.toFixed(2)} ${cx} ${EYE_CY})`} />;
+    }
+
+    // Dot: small solid pupil dots (with a connector line drawn by the caller).
+    if (eyeType === "dot") {
+      const rd = Math.min(w, h * 2) * 0.24;
+      return <ellipse key={side} cx={cx} cy={EYE_CY} rx={rd} ry={Math.max(2.5, rd * blinkF)} fill={color} transform={move} />;
+    }
+
+    const d = eyePath(cx, w, h, r, topL, topR, e.lift * h, e.curve * h);
+    if (eyeType === "screen") {
+      return <path key={side} d={d} fill={color} transform={move} />;
+    }
+
+    // Remaining types render layered content clipped to the expressive
+    // silhouette, so lids/blinks/moods keep working identically.
+    const id = `${uid}${side}`;
+    const R = Math.min(w, h) / 2;
+    // Iris parallax: the inner eye leads the gaze a touch more than the shell.
+    const px = (e.dx + frame.gazeX) * 0.35;
+    const py = (e.dy + frame.gazeY) * 0.35;
+    let defs: ReactNode = null;
+    let content: ReactNode = null;
+
+    if (eyeType === "lens") {
+      defs = (
+        <radialGradient id={`${id}i`}>
+          <stop offset="0%" stopColor="#eaf6ff" />
+          <stop offset="28%" stopColor={color} />
+          <stop offset="100%" stopColor="#060a10" />
+        </radialGradient>
+      );
+      content = (
+        <>
+          <path d={d} fill="#12161c" />
+          <circle cx={cx} cy={EYE_CY} r={R * 0.98} fill="none" stroke="#98a2b3" strokeWidth={R * 0.14} />
+          <circle cx={cx} cy={EYE_CY} r={R * 0.8} fill="none" stroke="#3f4753" strokeWidth={R * 0.1} />
+          <circle cx={cx + px} cy={EYE_CY + py} r={R * 0.62} fill={`url(#${id}i)`} />
+          <circle cx={cx + px * 1.25} cy={EYE_CY + py * 1.25} r={R * 0.2} fill="#04060a" />
+          <circle cx={cx + px - R * 0.22} cy={EYE_CY + py - R * 0.24} r={R * 0.11} fill="#fff" opacity={0.9} />
+        </>
+      );
+    } else if (eyeType === "pixel") {
+      defs = (
+        <pattern id={`${id}p`} patternUnits="userSpaceOnUse" x={cx} y={EYE_CY} width={9} height={9}>
+          <rect x={1.4} y={1.4} width={6.2} height={6.2} rx={1.6} fill={color} />
+        </pattern>
+      );
+      content = <path d={d} fill={`url(#${id}p)`} />;
+    } else if (eyeType === "scanline") {
+      defs = (
+        <pattern id={`${id}s`} patternUnits="userSpaceOnUse" x={cx} y={EYE_CY} width={8} height={6.4}>
+          <rect x={0} y={0.9} width={8} height={3.6} rx={1.8} fill={color} />
+        </pattern>
+      );
+      content = <path d={d} fill={`url(#${id}s)`} />;
+    } else if (eyeType === "reticle") {
+      const sw = Math.max(2, R * 0.09);
+      content = (
+        <g stroke={color} strokeWidth={sw} fill="none">
+          <circle cx={cx} cy={EYE_CY} r={R * 0.9} />
+          <circle cx={cx + px} cy={EYE_CY + py} r={R * 0.52} opacity={0.85} />
+          <circle cx={cx + px} cy={EYE_CY + py} r={R * 0.13} fill={color} stroke="none" />
+          {[0, 90, 180, 270].map((a) => (
+            <line key={a} x1={cx + R * 0.62} y1={EYE_CY} x2={cx + R * 0.95} y2={EYE_CY} transform={`rotate(${a} ${cx} ${EYE_CY})`} opacity={0.9} />
+          ))}
+        </g>
+      );
+    } else if (eyeType === "anime") {
+      const Ri = Math.min(w, h) * 0.36;
+      defs = (
+        <radialGradient id={`${id}a`}>
+          <stop offset="0%" stopColor={color} />
+          <stop offset="72%" stopColor={color} />
+          <stop offset="100%" stopColor="#141225" />
+        </radialGradient>
+      );
+      content = (
+        <>
+          <path d={d} fill="#f6f7fb" />
+          <circle cx={cx + px} cy={EYE_CY + py} r={Ri} fill={`url(#${id}a)`} />
+          <circle cx={cx + px * 1.15} cy={EYE_CY + py * 1.15} r={Ri * 0.45} fill="#0f1016" />
+          <circle cx={cx + px - Ri * 0.34} cy={EYE_CY + py - Ri * 0.36} r={Ri * 0.26} fill="#fff" opacity={0.95} />
+          <circle cx={cx + px + Ri * 0.3} cy={EYE_CY + py + Ri * 0.32} r={Ri * 0.11} fill="#fff" opacity={0.75} />
+        </>
+      );
+    } else {
+      // halo: a deep lens with a hot glowing core fading to a dark bezel.
+      defs = (
+        <radialGradient id={`${id}h`}>
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="22%" stopColor={color} />
+          <stop offset="78%" stopColor={color} stopOpacity={0.28} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.06} />
+        </radialGradient>
+      );
+      content = (
+        <>
+          <path d={d} fill="#07090d" />
+          <circle cx={cx + px * 0.5} cy={EYE_CY + py * 0.5} r={R * 0.92} fill={`url(#${id}h)`} />
+          <circle cx={cx} cy={EYE_CY} r={R * 0.96} fill="none" stroke="#242a33" strokeWidth={R * 0.1} />
+        </>
+      );
+    }
+
+    return (
+      <g key={side} transform={move}>
+        <defs>
+          <clipPath id={`${id}c`}>
+            <path d={d} />
+          </clipPath>
+          {defs}
+        </defs>
+        <g clipPath={`url(#${id}c)`}>{content}</g>
+      </g>
+    );
   };
 
   return (
@@ -420,6 +548,19 @@ export default function RoboEyesAvatar({
           transform={`rotate(${anim.headDeg.toFixed(3)} 100 100)`}
           style={{ ...(glowFilter ? { filter: glowFilter } : null), opacity: frame.pulse.toFixed(3) }}
         >
+          {eyeType === "dot" && frame.l.heart <= 0.5 ? (
+            // The minimal-dots face joins its eyes with a slim connector bar.
+            <line
+              x1={100 - EYE_CX}
+              y1={EYE_CY}
+              x2={100 + EYE_CX}
+              y2={EYE_CY}
+              stroke={color}
+              strokeWidth={Math.min(shape.w, shape.h * 2) * 0.11}
+              strokeLinecap="round"
+              transform={`translate(${frame.gazeX.toFixed(2)} ${(frame.gazeY + frame.bob).toFixed(2)})`}
+            />
+          ) : null}
           {renderEye("l")}
           {renderEye("r")}
         </g>

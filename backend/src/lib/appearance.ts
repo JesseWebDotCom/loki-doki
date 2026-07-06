@@ -44,6 +44,17 @@ const ROBO_EYE_COLOR: Record<string, string> = {
   '00e5c3': 'teal', '22d3ee': 'cyan', '60a5fa': 'blue', '4ade80': 'green', fbbf24: 'amber',
   f472b6: 'pink', a78bfa: 'purple', f8fafc: 'white', f87171: 'red',
 }
+const ROBO_EYE_TYPE: Record<string, string> = {
+  screen: 'softly glowing screen eyes',
+  lens: 'mechanical camera-lens eyes with metal rims',
+  pixel: 'retro pixel-matrix eyes',
+  scanline: 'striped scanline display eyes',
+  anime: 'big expressive anime-style eyes with shining irises',
+  reticle: 'holographic scanner-reticle eyes',
+  halo: 'deep lens eyes with a glowing core',
+  dot: 'simple minimal dot eyes joined by a slim bar',
+  dash: 'minimal deadpan dash eyes',
+}
 const BOTTTS_TOP: Record<string, string> = {
   antenna: 'an antenna', antennaCrooked: 'a crooked antenna', bulb01: 'a bulb antenna', glowingBulb01: 'a glowing bulb',
   glowingBulb02: 'a glowing bulb', horns: 'little horns', lights: 'blinking lights', pyramid: 'a pyramid top', radar: 'a radar dish',
@@ -76,7 +87,8 @@ export function describeAppearance(style: string | null | undefined, avatarConfi
   let look: string
   if (style === 'robo-eyes') {
     const color = nice(ROBO_EYE_COLOR[first(cfg['eyeColor']) ?? ''] ?? 'cyan')
-    look = `a minimalist robot face — just a pair of large glowing ${color} eyes floating on a dark display, no mouth or body, expressing everything through eye shape alone (like a tiny desk robot)`
+    const kind = ROBO_EYE_TYPE[first(cfg['eyeType']) ?? ''] ?? 'softly glowing screen eyes'
+    look = `a minimalist robot face — a pair of large ${color} ${kind}, no mouth or body, expressing everything through eye shape alone (like a tiny desk robot)`
   } else if (style === 'bottts') {
     const color = nice(BASE_COLOR[first(cfg['baseColor']) ?? ''])
     look = join(['a friendly little robot' + (color ? ` with a ${color} body` : ''), lookup(BOTTTS_TOP, cfg['top'])])
