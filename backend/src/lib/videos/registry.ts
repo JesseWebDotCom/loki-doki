@@ -7,11 +7,13 @@ import type { VideoSource } from '@/lib/videos/types'
 import { youtubeProvider } from '@/lib/videos/providers/youtube'
 import { redditProvider } from '@/lib/videos/providers/reddit'
 import { tiktokProvider } from '@/lib/videos/providers/tiktok'
+import { vimeoProvider } from '@/lib/videos/providers/vimeo'
 
 const providers = new Map<VideoSource, VideoProvider>([
   ['youtube', youtubeProvider],
   ['reddit', redditProvider],
   ['tiktok', tiktokProvider],
+  ['vimeo', vimeoProvider],
 ])
 
 export function listProviders(): VideoProvider[] {

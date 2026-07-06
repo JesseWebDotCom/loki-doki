@@ -5,6 +5,7 @@ import {
   bookmarks, bookmarkHighlights, characters, homeDevices,
   ytDownloads, ytCollections, ytVideos, ytSubscriptions,
   feedItems, feeds, podcastEpisodes, podcastShows, clips,
+  videoSaves, videoItems, videoFollows,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
@@ -20,7 +21,7 @@ const searchRouter = new Hono<AppEnv>()
 // libraries stay client-side in SpotlightSearch — this covers everything that lives in the DB.
 
 export interface SearchHit {
-  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip'
+  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video'
   id: string
   title: string
   subtitle: string | null
@@ -289,9 +290,44 @@ const clipperProvider: Provider = async (userId, q) => {
     title: r.title || r.sourceUrl,
     subtitle: r.extractor || r.sourceUrl,
     icon: r.thumbnailUrl,
-    route: `/clipper/c/${r.id}`,
+    route: '/videos/clip',
     group: 'Clipper',
   }))
+}
+
+// Videos hub (non-YouTube sources): the user's saves plus followed creators' cached
+// uploads. Local DB only — Spotlight must stay instant, so no live provider calls here.
+const videosProvider: Provider = async (userId, q) => {
+  const pattern = likePattern(q)
+  const [saves, followUploads] = await Promise.all([
+    db.select().from(videoSaves)
+      .where(and(eq(videoSaves.userId, userId), like(videoSaves.title, pattern)))
+      .orderBy(desc(videoSaves.createdAt)).limit(PER_PROVIDER),
+    db.select({
+      source: videoItems.source, externalId: videoItems.externalId, title: videoItems.title,
+      creatorName: videoItems.creatorName, thumbnailUrl: videoItems.thumbnailUrl,
+    })
+      .from(videoItems)
+      .innerJoin(videoFollows, eq(videoItems.followId, videoFollows.id))
+      .where(and(
+        eq(videoFollows.userId, userId),
+        or(like(videoItems.title, pattern), like(videoItems.creatorName, pattern)),
+      ))
+      .orderBy(desc(videoItems.publishedAt)).limit(PER_PROVIDER),
+  ])
+  const label = (s: string) => s === 'reddit' ? 'Reddit' : s === 'tiktok' ? 'TikTok' : s === 'vimeo' ? 'Vimeo' : s
+  const byKey = new Map<string, SearchHit>()
+  const add = (source: string, videoId: string, title: string, subtitle: string | null, icon: string | null) => {
+    const key = `${source}:${videoId}`
+    if (byKey.has(key)) return
+    byKey.set(key, {
+      type: 'video', id: key, title: title || videoId, subtitle, icon,
+      route: `/videos/${source}/watch/${encodeURIComponent(videoId)}`, group: label(source),
+    })
+  }
+  for (const r of saves) add(r.source, r.videoId, r.title, r.creatorName ? `${r.creatorName} · Saved` : 'Saved', r.thumbnailUrl)
+  for (const r of followUploads) add(r.source, r.externalId, r.title, r.creatorName, r.thumbnailUrl)
+  return [...byKey.values()].slice(0, PER_PROVIDER)
 }
 
 const PROVIDERS: Provider[] = [
@@ -299,6 +335,7 @@ const PROVIDERS: Provider[] = [
   highlightsProvider,
   newsProvider,
   youtubeProvider,
+  videosProvider,
   podcastProvider,
   clipperProvider,
   companionProvider,

@@ -193,6 +193,13 @@ export function putRedditConfig(clientId: string): Promise<{ ok: true }> {
   return sendJson('/api/videos/config/reddit', 'PUT', { clientId })
 }
 
+export function getVimeoConfig(): Promise<{ configured: boolean; token: string }> {
+  return getJson('/api/videos/config/vimeo')
+}
+export function putVimeoConfig(token: string): Promise<{ ok: true }> {
+  return sendJson('/api/videos/config/vimeo', 'PUT', { token })
+}
+
 export async function resolveVideoUrl(url: string): Promise<ResolveResult> {
   const res = await fetch('/api/videos/resolve', {
     method: 'POST',

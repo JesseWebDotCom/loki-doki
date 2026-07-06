@@ -70,6 +70,11 @@ export function SavePage() {
   async function saveReader(type: 'live' | 'offline') {
     await createItem({ type, url: rawUrl, title: title.trim() || undefined, makeGlobal: isAdmin && makeGlobal })
   }
+  async function hubSave() {
+    if (target.type !== 'video') return
+    const res = await fetch(`/api/videos/${target.source}/save`, { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoId: target.videoId, kind: 'video' }) })
+    if (!res.ok) throw new Error('Save failed')
+  }
 
   if (!rawUrl) {
     return <div className="flex min-h-screen items-center justify-center bg-background p-6 text-muted-foreground">No URL to save.</div>
@@ -101,6 +106,11 @@ export function SavePage() {
               <ActionButton icon={Video} label="Save offline (video)" busy={busy === 'v'} done={done === 'v'} onClick={() => run('v', () => ytSave('video'), 'Saving video offline…')} />
               <ActionButton icon={Music} label="Save offline (audio)" busy={busy === 'a'} done={done === 'a'} onClick={() => run('a', () => ytSave('audio'), 'Saving audio offline…')} />
               <ActionButton icon={Clock} label="Watch later" busy={busy === 'wl'} done={done === 'wl'} onClick={() => run('wl', ytWatchLater, 'Added to Watch Later')} />
+              <ActionButton icon={Bookmark} label="Add as bookmark" busy={busy === 'b'} done={done === 'b'} onClick={() => run('b', () => saveReader('live'), 'Bookmarked')} />
+            </>
+          ) : target.type === 'video' ? (
+            <>
+              <ActionButton icon={Video} label="Save offline (video)" busy={busy === 'v'} done={done === 'v'} onClick={() => run('v', hubSave, 'Saving video offline…')} />
               <ActionButton icon={Bookmark} label="Add as bookmark" busy={busy === 'b'} done={done === 'b'} onClick={() => run('b', () => saveReader('live'), 'Bookmarked')} />
             </>
           ) : (

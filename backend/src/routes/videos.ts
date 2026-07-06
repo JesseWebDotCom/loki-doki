@@ -15,6 +15,7 @@ import { allowAdultVideos } from '@/lib/videos/policy'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
+import { getVimeoToken, VIMEO_TOKEN_KEY } from '@/lib/videos/providers/vimeo'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { blobAbsPath, acquireRead, releaseRead } from '@/lib/content/store'
 import { resolveClip } from '@/lib/clipper/resolve'
@@ -455,7 +456,7 @@ videosRoute.get('/reddit/hls/:postId/:path{.+}', async (c) => {
   }
 })
 
-// ── Source config (admin): Reddit app client id ────────────────────────────────
+// ── Source config (admin): Reddit app client id, Vimeo API token ────────────────
 
 videosRoute.get('/config/reddit', requireAdmin, async (c) => {
   const clientId = await getRedditClientId()
@@ -465,6 +466,17 @@ videosRoute.get('/config/reddit', requireAdmin, async (c) => {
 videosRoute.put('/config/reddit', requireAdmin, async (c) => {
   const body: { clientId?: string } = await c.req.json().catch(() => ({}))
   await setAppSetting(REDDIT_CLIENT_ID_KEY, (body.clientId ?? '').trim())
+  return c.json({ ok: true })
+})
+
+videosRoute.get('/config/vimeo', requireAdmin, async (c) => {
+  const token = await getVimeoToken()
+  return c.json({ configured: !!token, token: token ?? '' })
+})
+
+videosRoute.put('/config/vimeo', requireAdmin, async (c) => {
+  const body: { token?: string } = await c.req.json().catch(() => ({}))
+  await setAppSetting(VIMEO_TOKEN_KEY, (body.token ?? '').trim())
   return c.json({ ok: true })
 })
 

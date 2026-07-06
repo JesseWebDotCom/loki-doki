@@ -157,6 +157,7 @@ const VideosLayout = lazy(() => import('@/components/videos/VideosLayout').then(
 const VideosHomePage = lazy(() => import('@/pages/videos/VideosHomePage').then((m) => ({ default: m.VideosHomePage })))
 const RedditBrowsePage = lazy(() => import('@/pages/videos/RedditBrowsePage').then((m) => ({ default: m.RedditBrowsePage })))
 const TikTokBrowsePage = lazy(() => import('@/pages/videos/TikTokBrowsePage').then((m) => ({ default: m.TikTokBrowsePage })))
+const VimeoBrowsePage = lazy(() => import('@/pages/videos/VimeoBrowsePage').then((m) => ({ default: m.VimeoBrowsePage })))
 const SourceCreatorPage = lazy(() => import('@/pages/videos/SourceCreatorPage').then((m) => ({ default: m.SourceCreatorPage })))
 const GenericWatchPage = lazy(() => import('@/pages/videos/GenericWatchPage').then((m) => ({ default: m.GenericWatchPage })))
 const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
@@ -172,7 +173,7 @@ const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage')
 const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPage').then((m) => ({ default: m.YoutubePlaylistPage })))
 const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
 const WatchPage = lazy(() => import('@/pages/youtube/WatchPage').then((m) => ({ default: m.WatchPage })))
-const YoutubeSettingsPage = lazy(() => import('@/pages/youtube/YoutubeSettingsPage').then((m) => ({ default: m.YoutubeSettingsPage })))
+const VideosSettingsPage = lazy(() => import('@/pages/videos/VideosSettingsPage').then((m) => ({ default: m.VideosSettingsPage })))
 
 function AppLoading() {
   return (
@@ -410,13 +411,16 @@ export default function App() {
                   <Route path="offline" element={<YoutubeOfflinePage />} />
                   <Route path="clip" element={<ClipperPage />} />
                   <Route path="create" element={<VideoPage />} />
-                  <Route path="settings/:section?" element={<YoutubeSettingsPage />} />
+                  <Route path="settings/:section?" element={<VideosSettingsPage />} />
                   {/* Reddit source area. */}
                   <Route path="reddit" element={<RedditBrowsePage />} />
                   <Route path="reddit/r/:id" element={<SourceCreatorPage source="reddit" />} />
                   {/* TikTok source area. */}
                   <Route path="tiktok" element={<TikTokBrowsePage />} />
                   <Route path="tiktok/creator/:id" element={<SourceCreatorPage source="tiktok" />} />
+                  {/* Vimeo source area. */}
+                  <Route path="vimeo" element={<VimeoBrowsePage />} />
+                  <Route path="vimeo/channel/:id" element={<SourceCreatorPage source="vimeo" />} />
                   <Route path=":source/watch/:id" element={<GenericWatchPage />} />
                   {/* YouTube source area: the retired standalone app lives on here. */}
                   <Route path="youtube" element={<YoutubeHomePage />} />
