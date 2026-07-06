@@ -70,7 +70,7 @@ export const TOOL_ROUTES: Record<string, string> = {
   weather:          '/weather',
   news:             '/news',
   recipes:          '/recipes',
-  youtube:          '/youtube',
+  youtube:          '/videos',
   tvshows:          '/shows',
   image_gen:        '/imaging',
   'where-to-watch': '/where-to-watch',

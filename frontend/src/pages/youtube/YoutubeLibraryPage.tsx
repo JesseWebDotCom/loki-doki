@@ -26,6 +26,9 @@ import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
 import { PlaylistCover } from '@/components/youtube/PlaylistCover'
 import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
+import { SectionHeader } from '@/components/shared/SectionHeader'
+import { listSaves, deleteSave } from '@/lib/videos/api'
+import { HubVideoCard } from '@/components/videos/HubVideoCard'
 
 const cardAddBtnClass = 'absolute right-2 top-2 hidden size-7 bg-black/70 text-white opacity-100 hover:bg-black/90 group-hover:flex'
 const toVid = (item: VideoItem) => ({ videoId: item.videoId, title: item.title, author: item.author ?? undefined, channelId: item.channelId ?? undefined, durationSec: item.durationSec ?? undefined })
@@ -56,7 +59,50 @@ export function YoutubeLikedPage() {
   return <LibraryPage title="Liked" icon={Heart}><CollectionTab kind="liked" empty="No liked videos yet." /></LibraryPage>
 }
 export function YoutubeOfflinePage() {
-  return <LibraryPage title="Offline" icon={Download}><SavedTab /></LibraryPage>
+  return (
+    <LibraryPage title="Offline" icon={Download}>
+      <SavedTab />
+      <OtherSourceSaves />
+    </LibraryPage>
+  )
+}
+
+/** Offline saves from the hub's non-YouTube sources (Reddit/TikTok/Vimeo), appended
+ *  below the YouTube library so Offline is truly cross-source. */
+function OtherSourceSaves() {
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['videos-saves', 'all'], queryFn: () => listSaves() })
+  const saves = data?.saves ?? []
+  if (saves.length === 0) return null
+  return (
+    <section className="mt-10">
+      <SectionHeader title="From other sources" className="mb-4" />
+      <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
+        {saves.map((s) => (
+          <div key={s.id} className="group relative">
+            <HubVideoCard
+              showSource
+              item={{
+                source: s.source, id: s.videoId, url: '', title: s.title,
+                creator: s.creatorName ? { id: '', name: s.creatorName } : null,
+                thumbnailUrl: s.thumbnailUrl, durationSec: s.durationSec,
+              }}
+            />
+            <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+              <span>{s.status === 'ready' ? 'Saved' : s.status === 'failed' ? 'Failed' : 'Saving…'}</span>
+              <Button
+                variant="ghost" size="sm"
+                className="h-6 px-2 text-xs opacity-0 group-hover:opacity-100"
+                onClick={() => { void deleteSave(s.id).then(() => qc.invalidateQueries({ queryKey: ['videos-saves', 'all'] })) }}
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 // Bucket history rows into YouTube-style date sections (rows arrive newest-first).
@@ -350,7 +396,7 @@ function PlaylistsTab() {
       {!all.length ? <Empty label="Create a playlist to collect your favorite videos." /> : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {all.map(p => (
-            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/youtube/my-playlist/${p.id}`)}>
+            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/videos/youtube/my-playlist/${p.id}`)}>
               <PlaylistCover videoIds={p.coverVideoIds ?? []} title={p.name} count={p.videoCount} className="mb-2" />
               <p className="truncate text-sm font-semibold">{p.name}</p>
               <p className="truncate text-xs text-muted-foreground">

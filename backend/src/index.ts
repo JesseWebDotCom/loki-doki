@@ -100,6 +100,8 @@ import { youtubeRoute } from '@/routes/youtube'
 import { ytPlaylists } from '@/routes/ytPlaylists'
 import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
 import { clipperRoute } from '@/routes/clipper'
+import { videosRoute } from '@/routes/videos'
+import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
 import { music } from '@/routes/music'
@@ -123,6 +125,7 @@ import { seedSystemFeeds } from '@/lib/feeds/seed'
 import { startFeedPoller, refreshSystemFeeds } from '@/lib/feeds/poller'
 import { startPodcastFeedPoller } from '@/lib/podcast/feeds'
 import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
+import { startYoutubeAccountSync } from '@/lib/youtube/accountSync'
 import { backfillYoutubeTitleEntities } from '@/lib/youtube/titleBackfill'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { mediaImageCacheSweep } from '@/lib/titles/imageProxy'
@@ -294,6 +297,8 @@ if (firstBoot) {
   // background so first use never stalls on a download — see lib/prewarm.ts.
   import('@/lib/prewarm').then((m) => m.scheduleBinaryPrewarm()).catch(() => {})
   startYoutubeFeedPoller()
+  // Videos hub: refresh non-YouTube follows + cross-source auto-save (lib/videos/feed.ts).
+  import('@/lib/videos/feed').then((m) => m.startVideosFeedPoller()).catch(() => {})
   // Notification delivery layer: deferred/digest flush + daily reports (lib/notify),
   // and the Telegram two-way bridge long-poll loop (lib/telegram).
   import('@/lib/notify/scheduler').then((m) => m.startNotifyScheduler()).catch(() => {})
@@ -308,6 +313,9 @@ if (firstBoot) {
   // that window between polls (bursts / extended downtime) is invisible to the poller forever.
   // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
   startYoutubeReconcile()
+  // Linked YouTube accounts: mirror subscriptions / Watch Later / Liked from Google
+  // every 30 min (first pass shortly after boot). See youtube/accountSync.ts.
+  startYoutubeAccountSync()
   void backfillAllThumbnails().catch(() => {})
   // One-time: decode HTML entities in titles stored before ingestion-side decoding.
   void backfillYoutubeTitleEntities().catch(() => {})
@@ -552,6 +560,8 @@ app.route('/api/admin/home-assistant', adminHomeAssistant)
 app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
+app.route('/api/videos/studio', studioRoute)
+app.route('/api/videos', videosRoute)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
@@ -589,6 +599,8 @@ app.route('/api/admin/storage-locations', adminStorageLocations)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))
 
 if (process.env.NODE_ENV !== 'development') {
+  app.get('/videos/youtube/watch/:videoId', ogMetaMiddleware)
+  // Legacy path: old shared links still resolve OG tags before the SPA redirect kicks in.
   app.get('/youtube/watch/:videoId', ogMetaMiddleware)
   app.use('*', serveStatic({ root: '../frontend/dist' }))
   app.get('*', serveStatic({ path: '../frontend/dist/index.html' }))

@@ -40,6 +40,9 @@ import { resolveUserPath } from '@/lib/storage/paths'
 import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets } from '@/lib/youtube/assets'
 import { startLiveRecording, getLiveStatus, stopLiveRecording } from '@/lib/youtube/live'
 import { getYoutubeSuggestions } from '@/lib/youtube/suggest'
+import { getAccountRow, getLinkFlow, startAccountLink, cancelLinkFlow, unlinkAccount } from '@/lib/youtube/account'
+import { syncAccount, pushSubscribe, pushUnsubscribe, pushCollectionChange } from '@/lib/youtube/accountSync'
+import { ytAccounts } from '@/db/schema'
 import { acquireRead, releaseRead } from '@/lib/content/store'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
@@ -210,6 +213,8 @@ youtubeRoute.post('/subscriptions', async (c) => {
 
   // Fetch feed immediately in background
   void refreshSubscriptionFeed(id).catch(() => {})
+  // Mirror to the linked YouTube account (no-op when none / push disabled).
+  if (resolved.kind === 'channel') pushSubscribe(user.id, resolved.externalId)
 
   return c.json({ ok: true, subscription: { id, ...resolved } })
 })
@@ -260,6 +265,8 @@ youtubeRoute.delete('/subscriptions/:id', async (c) => {
     const [stillFollowed] = await db.select({ id: ytSubscriptions.id }).from(ytSubscriptions)
       .where(eq(ytSubscriptions.externalId, sub.externalId)).limit(1)
     if (!stillFollowed) await db.delete(ytChannelCache).where(eq(ytChannelCache.channelId, sub.externalId))
+    // Mirror to the linked YouTube account (no-op when none / push disabled).
+    pushUnsubscribe(user.id, sub.externalId)
   }
   return c.json({ ok: true })
 })
@@ -1705,6 +1712,9 @@ youtubeRoute.put('/collections/:key/:videoId', async (c) => {
     addedAt: new Date(),
   }).onConflictDoNothing()
 
+  // Mirror to the linked YouTube account (Watch Later / like) — no-op when none.
+  pushCollectionChange(user.id, key, videoId, 'add')
+
   return c.json({ ok: true })
 })
 
@@ -1715,6 +1725,85 @@ youtubeRoute.delete('/collections/:key/:videoId', async (c) => {
   if (!isCollectionKey(key)) return c.json({ error: 'Invalid collection' }, 400)
   await db.delete(ytCollections)
     .where(and(eq(ytCollections.userId, user.id), eq(ytCollections.collection, key), eq(ytCollections.videoId, videoId)))
+  pushCollectionChange(user.id, key, videoId, 'remove')
+  return c.json({ ok: true })
+})
+
+// ── Linked YouTube account ────────────────────────────────────────────────────
+// Per-user Google-account link via the TV-client OAuth device flow (account.ts). The
+// client starts a link, then polls /account/link while the user enters the code on
+// their phone; account sync (accountSync.ts) does the actual mirroring.
+
+// Everything the settings card needs; tokens never leave the server.
+async function accountStatePayload(userId: string) {
+  const account = await getAccountRow(userId)
+  const flow = getLinkFlow(userId)
+  return {
+    linked: !!account,
+    account: account ? {
+      channelTitle: account.channelTitle,
+      channelHandle: account.channelHandle,
+      channelAvatarUrl: account.channelAvatarUrl,
+      status: account.status,
+      syncSubscriptions: account.syncSubscriptions,
+      syncWatchLater: account.syncWatchLater,
+      syncLiked: account.syncLiked,
+      pushEnabled: account.pushEnabled,
+      lastSyncAt: account.lastSyncAt?.getTime() ?? null,
+      lastSyncError: account.lastSyncError,
+      connectedAt: account.connectedAt.getTime(),
+    } : null,
+    flow,
+  }
+}
+
+youtubeRoute.get('/account', async (c) => {
+  const user = c.get('user')
+  return c.json(await accountStatePayload(user.id))
+})
+
+youtubeRoute.post('/account/link', async (c) => {
+  const user = c.get('user')
+  try {
+    const flow = await startAccountLink(user.id)
+    return c.json({ ok: true, flow })
+  } catch (err) {
+    logger.warn({ err: String(err) }, '[youtube] account link start failed')
+    return c.json({ error: 'Could not reach Google to start sign-in. Check the server\'s internet connection and try again.' }, 502)
+  }
+})
+
+youtubeRoute.delete('/account/link', async (c) => {
+  const user = c.get('user')
+  cancelLinkFlow(user.id)
+  return c.json({ ok: true })
+})
+
+youtubeRoute.patch('/account', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json<Partial<Record<'syncSubscriptions' | 'syncWatchLater' | 'syncLiked' | 'pushEnabled', boolean>>>()
+  const patch: Record<string, boolean> = {}
+  for (const key of ['syncSubscriptions', 'syncWatchLater', 'syncLiked', 'pushEnabled'] as const) {
+    if (typeof body[key] === 'boolean') patch[key] = body[key]
+  }
+  if (!Object.keys(patch).length) return c.json({ error: 'No valid settings in body' }, 400)
+  await db.update(ytAccounts).set(patch).where(eq(ytAccounts.userId, user.id))
+  return c.json(await accountStatePayload(user.id))
+})
+
+youtubeRoute.post('/account/sync', async (c) => {
+  const user = c.get('user')
+  const account = await getAccountRow(user.id)
+  if (!account) return c.json({ error: 'No linked account' }, 400)
+  if (account.status !== 'active') return c.json({ error: 'Account needs to be reconnected' }, 409)
+  // Run in the background — a full pull can take a while; the card polls lastSyncAt.
+  void syncAccount(user.id).catch(err => logger.warn({ err: String(err) }, '[youtube] manual sync failed'))
+  return c.json({ ok: true, started: true })
+})
+
+youtubeRoute.delete('/account', async (c) => {
+  const user = c.get('user')
+  await unlinkAccount(user.id)
   return c.json({ ok: true })
 })
 

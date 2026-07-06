@@ -201,7 +201,7 @@ export function ShowDetailPage() {
     const movM = ref.match(/^movie:(.+)$/)
     if (movM) return { url: `/movies/${encodeURIComponent(movM[1])}`, label: movM[1].replace(/\b\w/g, c => c.toUpperCase()) }
     const chM = ref.match(/^channel:(.+)$/)
-    if (chM) return { url: `/youtube/channel/${chM[1]}`, label: 'YouTube Channel' }
+    if (chM) return { url: `/videos/youtube/channel/${chM[1]}`, label: 'YouTube Channel' }
     return null
   })()
 
@@ -455,7 +455,7 @@ export function ShowDetailPage() {
                 </label>
               )}
               {!ytSource && (
-                <Button variant="outline" size="sm" onClick={() => navigate('/youtube')}
+                <Button variant="outline" size="sm" onClick={() => navigate('/videos/youtube')}
                   className="gap-1 px-2.5 text-xs font-medium">
                   {/* design-ok(raw-palette-semantic): YouTube brand-red icon, third-party source identity, not a status color */}
                   <Video className="size-3 text-red-500" /> Import YouTube
@@ -732,7 +732,7 @@ function SourcePills({ sources }: { sources: EpisodeSource[] }) {
   const hidden = sources.length - PREVIEW
 
   function sourceHref(src: EpisodeSource): string {
-    if (src.sourceType === 'youtube') return `/youtube/watch/${src.sourceId}`
+    if (src.sourceType === 'youtube') return `/videos/youtube/watch/${src.sourceId}`
     if (src.sourceType === 'tvshow') return `/shows/${src.sourceId}`
     return `/movies/${encodeURIComponent(src.sourceId)}`
   }

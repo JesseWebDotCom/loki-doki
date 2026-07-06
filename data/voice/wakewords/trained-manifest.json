@@ -98,11 +98,11 @@
         "accuracy": 0.973778083734902
     },
     {
-        "id": "trained_hey_nova_mqwdl05s",
+        "id": "trained_hey_nova_mr9lmqe4",
         "phrase": "Hey Nova",
-        "file": "trained_hey_nova_mqwdl05s.onnx",
-        "threshold": 0.46,
-        "accuracy": null
+        "file": "trained_hey_nova_mr9lmqe4.onnx",
+        "threshold": 0.37,
+        "accuracy": 0.987672845874102534
     },
     {
         "id": "trained_hey_pip_mqwrr7dn",
@@ -173,5 +173,68 @@
         "file": "trained_hey_willow_mqws8q7t.onnx",
         "threshold": 0.49,
         "accuracy": 0.986653386454183
+    },
+    {
+        "id": "trained_hey_doki_mr9m0ghh",
+        "phrase": "Hey Doki",
+        "file": "trained_hey_doki_mr9m0ghh.onnx",
+        "threshold": 0.35,
+        "accuracy": 0.984430282732627115
+    },
+    {
+        "id": "trained_hey_rivet_mr9mepf1",
+        "phrase": "Hey Rivet",
+        "file": "trained_hey_rivet_mr9mepf1.onnx",
+        "threshold": 0.35,
+        "accuracy": 0.989785995774019712
+    },
+    {
+        "id": "trained_hey_volt_mr9msuxb",
+        "phrase": "Hey Volt",
+        "file": "trained_hey_volt_mr9msuxb.onnx",
+        "threshold": 0.36,
+        "accuracy": 0.987492973580663346
+    },
+    {
+        "id": "trained_hey_iris_mr9n6mpz",
+        "phrase": "Hey Iris",
+        "file": "trained_hey_iris_mr9n6mpz.onnx",
+        "threshold": 0.38,
+        "accuracy": 0.990396880085621655
+    },
+    {
+        "id": "trained_hey_tempo_mr9nkddq",
+        "phrase": "Hey Tempo",
+        "file": "trained_hey_tempo_mr9nkddq.onnx",
+        "threshold": 0.35,
+        "accuracy": 0.988157894736842123
+    },
+    {
+        "id": "trained_hey_rover_mr9ny7ss",
+        "phrase": "Hey Rover",
+        "file": "trained_hey_rover_mr9ny7ss.onnx",
+        "threshold": 0.39,
+        "accuracy": 0.987332293291731667
+    },
+    {
+        "id": "trained_hey_mopey_mr9obrv8",
+        "phrase": "Hey Mopey",
+        "file": "trained_hey_mopey_mr9obrv8.onnx",
+        "threshold": 0.35,
+        "accuracy": 0.982817262246565627
+    },
+    {
+        "id": "trained_hey_otto_mr9opuge",
+        "phrase": "Hey Otto",
+        "file": "trained_hey_otto_mr9opuge.onnx",
+        "threshold": 0.35,
+        "accuracy": 0.988282698687942939
+    },
+    {
+        "id": "trained_hey_marsh_mr9p36k5",
+        "phrase": "Hey Marsh",
+        "file": "trained_hey_marsh_mr9p36k5.onnx",
+        "threshold": 0.4,
+        "accuracy": 0.988416650244148153
     }
 ]

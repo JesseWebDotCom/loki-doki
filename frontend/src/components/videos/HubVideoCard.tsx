@@ -1,0 +1,77 @@
+import { Link } from 'react-router-dom'
+import { Film } from 'lucide-react'
+import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
+import type { HubVideoItem } from '@/lib/videos/api'
+
+/** Deep-link targets per source (creator paths differ per source vocabulary). */
+export const HUB_PATHS = {
+  youtube: { watch: (id: string) => `/videos/youtube/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/youtube/channel/${encodeURIComponent(id)}` },
+  reddit: { watch: (id: string) => `/videos/reddit/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/reddit/r/${encodeURIComponent(id)}` },
+  tiktok: { watch: (id: string) => `/videos/tiktok/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/tiktok/creator/${encodeURIComponent(id)}` },
+  vimeo: { watch: (id: string) => `/videos/vimeo/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/vimeo/channel/${encodeURIComponent(id)}` },
+} as const
+
+const SOURCE_BADGE: Record<HubVideoItem['source'], { label: string; className: string }> = {
+  // design-ok(raw-palette-semantic): per-source brand identity chips (YouTube red, Reddit orange, TikTok neutral, Vimeo blue)
+  youtube: { label: 'YouTube', className: 'bg-red-600/90 text-white' },
+  // design-ok(raw-palette-semantic): per-source brand identity chips
+  reddit: { label: 'Reddit', className: 'bg-orange-600/90 text-white' },
+  tiktok: { label: 'TikTok', className: 'bg-black/80 text-white ring-1 ring-white/30' },
+  // design-ok(raw-palette-semantic): per-source brand identity chips
+  vimeo: { label: 'Vimeo', className: 'bg-sky-600/90 text-white' },
+}
+
+function fmtDur(sec?: number | null): string | null {
+  if (sec == null || sec <= 0) return null
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60)
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
+}
+
+function fmtAge(ms?: number | null): string | null {
+  if (!ms) return null
+  const days = Math.floor((Date.now() - ms) / 86_400_000)
+  if (days < 1) return 'today'
+  if (days < 30) return `${days}d ago`
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`
+  return `${Math.floor(days / 365)}y ago`
+}
+
+/** Card for non-YouTube hub items (YouTube items keep the richer VideoCard). Shows a
+ *  source badge in mixed contexts; omit it inside a single source's own browse area. */
+export function HubVideoCard({ item, showSource = true }: { item: HubVideoItem; showSource?: boolean }) {
+  const dur = fmtDur(item.durationSec)
+  const metaLine = [item.creator?.name, item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)]
+    .filter(Boolean).join(' · ')
+  const badge = SOURCE_BADGE[item.source]
+
+  return (
+    <Link to={HUB_PATHS[item.source].watch(item.id)} className="group flex flex-col gap-2.5">
+      <div className={cn(
+        'relative w-full overflow-hidden rounded-card bg-muted',
+        item.vertical ? 'aspect-[9/16] max-h-72' : 'aspect-video',
+      )}>
+        {item.thumbnailUrl ? (
+          <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy"
+            className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
+        ) : (
+          <div className="flex size-full items-center justify-center">
+            <Film className="size-8 text-muted-foreground/50" />
+          </div>
+        )}
+        {showSource && (
+          <span className={cn('absolute left-1.5 top-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.className)}>
+            {badge.label}
+          </span>
+        )}
+        {dur && (
+          <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
+        )}
+      </div>
+      <div className="min-w-0">
+        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{item.title}</p>
+        {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
+      </div>
+    </Link>
+  )
+}

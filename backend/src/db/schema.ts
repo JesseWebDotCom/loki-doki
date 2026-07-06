@@ -1127,6 +1127,10 @@ export const ytSubscriptions = sqliteTable('yt_subscriptions', {
   autoSave: integer('auto_save', { mode: 'boolean' }).notNull().default(false),
   autoSaveKind: text('auto_save_kind', { enum: ['audio', 'video'] }).notNull().default('video'),
   autoSaveKeep: integer('auto_save_keep'),
+  // 'local' = added in-app; 'google' = mirrored from the user's linked YouTube account.
+  // Google-sourced rows are reconciled against the account every sync pass (removed there
+  // → removed here); local rows are never touched by sync. See youtube/accountSync.ts.
+  source: text('source', { enum: ['local', 'google'] }).notNull().default('local'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userExtUnique: unique().on(t.userId, t.externalId) }))
 
@@ -1274,8 +1278,46 @@ export const ytCollections = sqliteTable('yt_collections', {
   author: text('author'),
   channelId: text('channel_id'),
   durationSec: integer('duration_sec'),
+  // 'local' vs 'google' — same contract as ytSubscriptions.source: google rows mirror the
+  // linked account's Watch Later / Liked and are owned by account sync.
+  source: text('source', { enum: ['local', 'google'] }).notNull().default('local'),
+  // Which VIDEO source the saved item belongs to (Videos hub cross-source collections).
+  // Distinct from `source` above, which is account-sync ownership.
+  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo'] }).notNull().default('youtube'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userColVidUnique: unique().on(t.userId, t.collection, t.videoId) }))
+
+// A user's linked YouTube (Google) account, authorized via the InnerTube TV-client OAuth
+// device flow — the "enter this code on your phone" login a smart TV uses. One row per
+// user. Tokens are the TV client's; authenticated InnerTube calls must therefore use the
+// TVHTML5 client context (see youtube/tvClient.ts). The client_id/client_secret pair the
+// tokens were minted with is stored alongside them because refresh must reuse the exact
+// same identity, and the scraped TV identity can rotate over time.
+export const ytAccounts = sqliteTable('yt_accounts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token').notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  clientId: text('client_id').notNull(),
+  clientSecret: text('client_secret').notNull(),
+  // Display-only identity fetched after link (account name / @handle / avatar).
+  channelTitle: text('channel_title'),
+  channelHandle: text('channel_handle'),
+  channelAvatarUrl: text('channel_avatar_url'),
+  // 'expired' = refresh failed with invalid_grant (revoked / password change) — the user
+  // must re-link; sync skips the account until then.
+  status: text('status', { enum: ['active', 'expired'] }).notNull().default('active'),
+  // What the periodic pull mirrors into local tables. Push (applying in-app subscribe /
+  // watch-later / like actions back to the account) is one switch.
+  syncSubscriptions: integer('sync_subscriptions', { mode: 'boolean' }).notNull().default(true),
+  syncWatchLater: integer('sync_watch_later', { mode: 'boolean' }).notNull().default(true),
+  syncLiked: integer('sync_liked', { mode: 'boolean' }).notNull().default(true),
+  pushEnabled: integer('push_enabled', { mode: 'boolean' }).notNull().default(true),
+  lastSyncAt: integer('last_sync_at', { mode: 'timestamp' }),
+  lastSyncError: text('last_sync_error'),
+  connectedAt: integer('connected_at', { mode: 'timestamp' }).notNull(),
+})
 
 // User-curated video playlists — explicit, named, ordered lists (distinct from the fixed
 // Watch Later / Liked buckets in ytCollections above).
@@ -1298,6 +1340,8 @@ export const ytPlaylistVideos = sqliteTable('yt_playlist_videos', {
   channelId: text('channel_id'),
   durationSec: integer('duration_sec'),
   position: integer('position').notNull().default(0),
+  // Which video source this entry came from (Videos hub cross-source playlists).
+  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo'] }).notNull().default('youtube'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 })
 
@@ -2361,6 +2405,132 @@ export const clips = sqliteTable('clips', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ─── Videos hub: generic multi-source persistence ───────────────────────────────
+// New sources (reddit/tiktok/vimeo) persist here with a `source` discriminator;
+// YouTube deliberately stays in its native yt_* tables (wrap, never rewrite) and is
+// mapped into these shapes by lib/videos/library.ts's aggregation layer.
+
+// Followed creators on non-YouTube sources (subreddits, TikTok creators, Vimeo
+// channels). Mirrors yt_subscriptions' role, including the auto-save automation.
+export const videoFollows = sqliteTable('video_follows', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source', { enum: ['reddit', 'tiktok', 'vimeo'] }).notNull(),
+  kind: text('kind', { enum: ['creator', 'subreddit', 'channel'] }).notNull().default('creator'),
+  externalId: text('external_id').notNull(),   // subreddit name, @handle, vimeo channel id
+  title: text('title').notNull().default(''),
+  handle: text('handle'),
+  thumbnailUrl: text('thumbnail_url'),
+  description: text('description'),
+  isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
+  lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
+  // Cross-source auto-save automation (mirrors yt_subscriptions.auto_save*): new
+  // uploads from this creator are downloaded automatically, pruned to keep-N.
+  autoSave: integer('auto_save', { mode: 'boolean' }).notNull().default(false),
+  autoSaveKind: text('auto_save_kind', { enum: ['audio', 'video'] }).notNull().default('video'),
+  autoSaveKeep: integer('auto_save_keep'),     // null → global default
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userSourceExternalUnique: unique().on(t.userId, t.source, t.externalId) }))
+
+// Feed cache for followed creators' uploads (mirrors yt_videos' role for the poller).
+export const videoItems = sqliteTable('video_items', {
+  id: text('id').primaryKey(),
+  source: text('source', { enum: ['reddit', 'tiktok', 'vimeo'] }).notNull(),
+  externalId: text('external_id').notNull(),   // provider-native video id
+  followId: text('follow_id').references(() => videoFollows.id, { onDelete: 'set null' }),
+  title: text('title').notNull().default(''),
+  creatorId: text('creator_id'),
+  creatorName: text('creator_name'),
+  url: text('url'),
+  thumbnailUrl: text('thumbnail_url'),
+  durationSec: integer('duration_sec'),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
+  isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
+  metaJson: text('meta_json'),                 // provider extras (v.redd.it urls, permalink…)
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ sourceExternalUnique: unique().on(t.source, t.externalId) }))
+
+// Playback position for non-YouTube sources (yt_watch_state stays authoritative for YouTube).
+export const videoWatchState = sqliteTable('video_watch_state', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source', { enum: ['reddit', 'tiktok', 'vimeo'] }).notNull(),
+  videoId: text('video_id').notNull(),
+  positionSec: real('position_sec').notNull().default(0),
+  completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userSourceVideoUnique: unique().on(t.userId, t.source, t.videoId) }))
+
+// Per-user download refs for non-YouTube sources (mirrors yt_downloads). The bytes
+// live in the shared blob store via media_assets keyed (source, videoId, kind, format),
+// so two household users saving the same TikTok share one blob.
+export const videoSaves = sqliteTable('video_saves', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source', { enum: ['reddit', 'tiktok', 'vimeo'] }).notNull(),
+  videoId: text('video_id').notNull(),
+  title: text('title').notNull().default(''),
+  kind: text('kind', { enum: ['audio', 'video'] }).notNull().default('video'),
+  status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('pending'),
+  assetId: text('asset_id'),
+  sizeBytes: integer('size_bytes'),
+  maxHeight: integer('max_height'),
+  thumbnailUrl: text('thumbnail_url'),
+  creatorName: text('creator_name'),
+  durationSec: integer('duration_sec'),
+  sourceUrl: text('source_url'),               // canonical URL the download job feeds to yt-dlp
+  // True when written by follow auto-save (rolling keep-N prune eligible), like yt_downloads.auto.
+  auto: integer('auto', { mode: 'boolean' }).notNull().default(false),
+  isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userSourceVideoKindUnique: unique().on(t.userId, t.source, t.videoId, t.kind) }))
+
+// ─── Videos Create studio ────────────────────────────────────────────────────────
+// Projects are EDL JSON documents (versioned; validated by lib/videostudio/edl.ts).
+// Media-bin items own their bytes via media_assets(sourceType='studio'); assets any
+// project references are pinned against GC through studio_project_assets.
+
+export const studioProjects = sqliteTable('studio_projects', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  edlJson: text('edl_json').notNull(),
+  durationSec: real('duration_sec').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Bin items the studio itself owns: uploads, mic recordings, imported generations, and
+// finished exports. Personal (never cross-user deduped at the asset layer, like clips);
+// the blob layer still dedups identical bytes.
+export const studioMedia = sqliteTable('studio_media', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  origin: text('origin', { enum: ['upload', 'recording', 'generated', 'export'] }).notNull(),
+  title: text('title').notNull().default(''),
+  kind: text('kind', { enum: ['video', 'audio', 'image'] }).notNull().default('video'),
+  assetId: text('asset_id'),                    // → mediaAssets.id once ready
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),
+  durationSec: real('duration_sec'),
+  width: integer('width'),
+  height: integer('height'),
+  // JSON context: {imageId} for generated imports, {projectId, preset, edlSnapshot} for exports.
+  sourceMeta: text('source_meta'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// GC pin rows: re-diffed from the EDL's asset ids on every project save. Protects
+// yt/clip/video-save assets used in a timeline even if their library ref is removed;
+// deleting the project cascades these away and unpins naturally.
+export const studioProjectAssets = sqliteTable('studio_project_assets', {
+  projectId: text('project_id').notNull().references(() => studioProjects.id, { onDelete: 'cascade' }),
+  assetId: text('asset_id').notNull(),
+}, t => ({ pk: unique().on(t.projectId, t.assetId) }))
 
 // ─── Storage locations (generic, content-type agnostic) ────────────────────────
 // A named filesystem root — local or a network/UNC path — the app can store real

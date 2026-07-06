@@ -25,7 +25,7 @@ import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
-import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeMode } from '@/components/videos/VideosLayout'
 import { Switch } from '@/components/ui/switch'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui/dropdown-menu'
 

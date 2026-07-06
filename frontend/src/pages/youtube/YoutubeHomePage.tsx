@@ -17,7 +17,7 @@ import { VideoCollection } from '@/components/youtube/VideoCollection'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { ViewToggle, type CardListView } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
-import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeMode } from '@/components/videos/VideosLayout'
 
 type Filter = 'all' | 'videos' | 'shorts' | 'channels'
 const FILTERS: [Filter, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['channels', 'Channels']]
@@ -194,7 +194,7 @@ function ChannelGrid({ channels }: { channels: ChannelEntry[] }) {
   return (
     <div className="grid grid-cols-3 gap-6 sm:grid-cols-4 xl:grid-cols-6">
       {channels.map(c => (
-        <Link key={c.id} to={`/youtube/channel/${encodeURIComponent(c.id)}`} className="group flex flex-col items-center gap-2 text-center">
+        <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`} className="group flex flex-col items-center gap-2 text-center">
           <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-24 text-3xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
           <p className="line-clamp-2 text-sm font-semibold">{c.title}</p>
         </Link>

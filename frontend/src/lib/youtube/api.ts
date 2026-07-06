@@ -372,6 +372,72 @@ export async function removeCollection(key: 'watch-later' | 'liked', videoId: st
   await fetch(`/api/youtube/collections/${key}/${videoId}`, { ...opts, method: 'DELETE' }).catch(() => {})
 }
 
+// ── Linked YouTube account ─────────────────────────────────────────────────────
+// Sign in with the TV-style device flow (code on screen, approve on your phone); the
+// backend mirrors subscriptions / Watch Later / Liked while linked.
+
+export interface YtAccountInfo {
+  channelTitle: string | null
+  channelHandle: string | null
+  channelAvatarUrl: string | null
+  status: 'active' | 'expired'
+  syncSubscriptions: boolean
+  syncWatchLater: boolean
+  syncLiked: boolean
+  pushEnabled: boolean
+  lastSyncAt: number | null
+  lastSyncError: string | null
+  connectedAt: number
+}
+
+export interface YtLinkFlow {
+  status: 'pending' | 'success' | 'error'
+  userCode: string
+  verificationUrl: string
+  expiresAt: number
+  error?: string
+}
+
+export interface YtAccountState {
+  linked: boolean
+  account: YtAccountInfo | null
+  flow: YtLinkFlow | null
+}
+
+export async function getAccount(): Promise<YtAccountState> {
+  const r = await fetch('/api/youtube/account', { ...opts, cache: 'no-store' })
+  if (!r.ok) throw new Error('account state failed')
+  return r.json() as Promise<YtAccountState>
+}
+
+export async function startAccountLink(): Promise<YtLinkFlow> {
+  const r = await fetch('/api/youtube/account/link', { ...opts, method: 'POST' })
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok || data.error) throw new Error(data.error ?? 'Could not start sign-in')
+  return data.flow as YtLinkFlow
+}
+
+export async function cancelAccountLink(): Promise<void> {
+  await fetch('/api/youtube/account/link', { ...opts, method: 'DELETE' }).catch(() => {})
+}
+
+export async function patchAccount(patch: Partial<Pick<YtAccountInfo, 'syncSubscriptions' | 'syncWatchLater' | 'syncLiked' | 'pushEnabled'>>): Promise<YtAccountState> {
+  const r = await fetch('/api/youtube/account', { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(patch) })
+  if (!r.ok) throw new Error('save failed')
+  return r.json() as Promise<YtAccountState>
+}
+
+export async function syncAccountNow(): Promise<void> {
+  const r = await fetch('/api/youtube/account/sync', { ...opts, method: 'POST' })
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok || data.error) throw new Error(data.error ?? 'Sync failed to start')
+}
+
+export async function unlinkAccount(): Promise<void> {
+  const r = await fetch('/api/youtube/account', { ...opts, method: 'DELETE' })
+  if (!r.ok) throw new Error('disconnect failed')
+}
+
 // ── Browse / search ────────────────────────────────────────────────────────────
 
 export interface PlaylistSearchResult {

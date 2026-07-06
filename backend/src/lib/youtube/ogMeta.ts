@@ -20,7 +20,7 @@ export async function renderWatchPageOg(videoId: string, requestUrl: string): Pr
   const title = escapeAttr(meta.title)
   const image = escapeAttr(`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`)
   const url = escapeAttr(requestUrl)
-  const spaPath = `/youtube/watch/${encodeURIComponent(videoId)}`
+  const spaPath = `/videos/youtube/watch/${encodeURIComponent(videoId)}`
 
   return `<!doctype html>
 <html lang="en">

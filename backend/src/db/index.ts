@@ -1262,6 +1262,33 @@ export function runMigrations() {
   // (not just a letter) even for non-subscribed channels — existing DBs.
   addColumn('yt_videos', 'channel_thumb', 'TEXT')
 
+  // Linked YouTube account (TV-client OAuth device flow) + provenance columns so account
+  // sync can own its mirrored rows without clobbering hand-added ones.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS yt_accounts (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      client_id TEXT NOT NULL,
+      client_secret TEXT NOT NULL,
+      channel_title TEXT,
+      channel_handle TEXT,
+      channel_avatar_url TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      sync_subscriptions INTEGER NOT NULL DEFAULT 1,
+      sync_watch_later INTEGER NOT NULL DEFAULT 1,
+      sync_liked INTEGER NOT NULL DEFAULT 1,
+      push_enabled INTEGER NOT NULL DEFAULT 1,
+      last_sync_at INTEGER,
+      last_sync_error TEXT,
+      connected_at INTEGER NOT NULL
+    );
+  `)
+  addColumn('yt_subscriptions', 'source', "TEXT NOT NULL DEFAULT 'local'")
+  addColumn('yt_collections', 'source', "TEXT NOT NULL DEFAULT 'local'")
+
   // Podcast shows, episodes, suggestions, playback state (migration 0019)
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS podcast_shows (
@@ -2662,4 +2689,121 @@ export function runMigrations() {
   // feed the Plex export's show-level audience rating (like/view ratio).
   addColumn('yt_videos', 'like_count', 'INTEGER')
   addColumn('yt_videos', 'view_count', 'INTEGER')
+
+  // Videos hub: generic multi-source persistence (see schema.ts videoFollows/videoItems/
+  // videoWatchState/videoSaves; plan at ~/.claude/plans/valiant-skipping-fiddle.md).
+  // YouTube stays in yt_*; these tables carry reddit/tiktok/vimeo with a source column.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS video_follows (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'creator',
+      external_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      handle TEXT,
+      thumbnail_url TEXT,
+      description TEXT,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      last_fetched_at INTEGER,
+      auto_save INTEGER NOT NULL DEFAULT 0,
+      auto_save_kind TEXT NOT NULL DEFAULT 'video',
+      auto_save_keep INTEGER,
+      added_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, external_id)
+    );
+    CREATE TABLE IF NOT EXISTS video_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      follow_id TEXT REFERENCES video_follows(id) ON DELETE SET NULL,
+      title TEXT NOT NULL DEFAULT '',
+      creator_id TEXT,
+      creator_name TEXT,
+      url TEXT,
+      thumbnail_url TEXT,
+      duration_sec INTEGER,
+      published_at INTEGER,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      meta_json TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(source, external_id)
+    );
+    CREATE INDEX IF NOT EXISTS video_items_follow_idx ON video_items(follow_id, published_at);
+    CREATE TABLE IF NOT EXISTS video_watch_state (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      position_sec REAL NOT NULL DEFAULT 0,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, video_id)
+    );
+    CREATE TABLE IF NOT EXISTS video_saves (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'video',
+      status TEXT NOT NULL DEFAULT 'pending',
+      asset_id TEXT,
+      size_bytes INTEGER,
+      max_height INTEGER,
+      thumbnail_url TEXT,
+      creator_name TEXT,
+      duration_sec INTEGER,
+      source_url TEXT,
+      auto INTEGER NOT NULL DEFAULT 0,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, video_id, kind)
+    );
+    CREATE INDEX IF NOT EXISTS video_saves_user_idx ON video_saves(user_id, created_at);
+  `)
+
+  // Cross-source collections/playlists: YouTube rows keep the default; new sources tag
+  // theirs. Named video_source because yt_collections.source already means local-vs-google
+  // account-sync ownership. (The existing unique constraints can't gain video_source
+  // without a table rebuild — IDs across sources can't realistically collide; accept it.)
+  addColumn('yt_collections', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
+  addColumn('yt_playlist_videos', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
+
+  // Videos Create studio (see schema.ts studioProjects/studioMedia/studioProjectAssets).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS studio_projects (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      edl_json TEXT NOT NULL,
+      duration_sec REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS studio_media (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      origin TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'video',
+      asset_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      duration_sec REAL,
+      width INTEGER,
+      height INTEGER,
+      source_meta TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS studio_media_user_idx ON studio_media(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS studio_project_assets (
+      project_id TEXT NOT NULL REFERENCES studio_projects(id) ON DELETE CASCADE,
+      asset_id TEXT NOT NULL,
+      UNIQUE(project_id, asset_id)
+    );
+  `)
 }

@@ -1,37 +1,41 @@
 import { useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SkipForward, Sparkles, Wand2, FileText, Rss, Bot, Play } from 'lucide-react'
+import { SkipForward, Sparkles, Wand2, FileText, Rss, Bot, Play, CircleUserRound, Globe } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { getAppByPath } from '@/lib/appCategories'
 import {
   SettingsYoutubeChannels, SettingsYoutubeAutoSkip, SettingsYoutubeVideoQuality,
   SettingsYoutubeTitlesThumbnails, SettingsYoutubeDescriptions,
 } from '@/components/settings/SettingsYoutubeTab'
+import { SettingsYoutubeAccount } from '@/components/settings/SettingsYoutubeAccount'
+import { SettingsVideoSources } from '@/components/settings/SettingsVideoSources'
 import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 
-// Standard per-app Settings home for YouTube: channel management (subscriptions, auto-save,
-// save quality, pause automation) plus the user-scoped viewing prefs (SponsorBlock / DeArrow /
-// Smart Description). The Channels section surfaces the one admin control (default keep-N)
-// inline when the viewer is an admin; broader app config still lives in central Admin → Apps.
+// Settings home for the Videos hub: the YouTube sections carry over from the retired
+// standalone app (channels, account sync, auto-skip, quality, titles, descriptions), plus
+// per-source connections (Reddit client id, Vimeo token, TikTok cookies note) and the
+// companion ability toggle. Section admin controls surface inline for admins.
 const SECTIONS: AppSettingsSection[] = [
   { id: 'channels',     label: 'Channels',            icon: Rss,         content: <SettingsYoutubeChannels /> },
+  { id: 'account',      label: 'Account',             icon: CircleUserRound, content: <SettingsYoutubeAccount /> },
   { id: 'auto-skip',    label: 'Auto-skip',           icon: SkipForward, content: <SettingsYoutubeAutoSkip /> },
   { id: 'quality',      label: 'Video quality',       icon: Sparkles,    content: <SettingsYoutubeVideoQuality /> },
   { id: 'titles',       label: 'Titles & thumbnails', icon: Wand2,       content: <SettingsYoutubeTitlesThumbnails /> },
   { id: 'descriptions', label: 'Descriptions',        icon: FileText,    content: <SettingsYoutubeDescriptions /> },
+  { id: 'sources',      label: 'Sources',             icon: Globe,       content: <SettingsVideoSources /> },
   { id: 'companion',    label: 'Companion',           icon: Bot,         content: <CompanionAbilitiesCard appId="youtube" /> },
 ]
 
-export function YoutubeSettingsPage() {
+export function VideosSettingsPage() {
   const { section = 'channels' } = useParams<{ section?: string }>()
   const navigate = useNavigate()
-  const go = useCallback((id: string) => navigate(`/youtube/settings/${id}`, { replace: true }), [navigate])
+  const go = useCallback((id: string) => navigate(`/videos/settings/${id}`, { replace: true }), [navigate])
 
   return (
     <AppSettingsShell
       appId="youtube"
       icon={Play}
-      gradient={getAppByPath('/youtube')?.gradient}
+      gradient={getAppByPath('/videos')?.gradient}
       sections={SECTIONS}
       activeSection={section}
       onNavigate={go}

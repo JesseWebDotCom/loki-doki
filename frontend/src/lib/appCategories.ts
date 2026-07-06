@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Gauge, Gift, Home, Image as ImageIcon, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
-  Scissors, Search, Settings2, Share2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
+  Search, Settings2, Share2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
 
 export interface AppItem {
@@ -46,10 +46,9 @@ export const APP_GROUPS: AppGroup[] = [
     apps: [
       { id: "shows",          to: "/shows",          label: "Shows",           description: "Discover TV series: streaming, trailers & reviews", gradient: "linear-gradient(135deg,#0c4a6e,#0284c7)", color: "#0284c7", icon: Tv,             toolId: "tvshows" },
       { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard },
-      { id: "youtube",        to: "/youtube",        label: "YouTube",         description: "Search and watch YouTube videos",     gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#dc2626", icon: Play,           toolId: "youtube" },
+      { id: "videos",         to: "/videos",         label: "Videos",          description: "Watch, save & clip videos from YouTube and across the web", gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#dc2626", icon: Play,           toolId: "youtube" },
       { id: "music",          to: "/music",          label: "Music",           description: "Listen, discover & create music",     gradient: "linear-gradient(135deg,#f97316,#fb923c)", color: "#f97316", icon: Music },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
-      { id: "clipper",        to: "/clipper",        label: "Clipper",         description: "Paste any video link to watch or save offline", gradient: "linear-gradient(135deg,#0c4a6e,#0ea5e9)", color: "#0ea5e9", icon: Scissors },
       { id: "where-to-watch", to: "/where-to-watch", label: "Where to Watch",  description: "Find where to stream any title",      gradient: "linear-gradient(135deg,#1e1b4b,#7c3aed)", color: "#7c3aed", icon: Tv,             toolId: "where-to-watch" },
       { id: "showtimes",      to: "/showtimes",      label: "Movie Showtimes", description: "Find movies playing near you",        gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard,    toolId: "showtimes" },
       { id: "bored",          to: "/bored",          label: "I'm Bored",       description: "Find something to do",                gradient: "linear-gradient(135deg,#3b0d8a,#7c3aed)", color: "#8b5cf6", icon: Lightbulb },
@@ -76,7 +75,6 @@ export const APP_GROUPS: AppGroup[] = [
     icon: ImageIcon,
     apps: [
       { id: "imaging", to: "/imaging", label: "Images", description: "Generate & edit with AI",                          gradient: "linear-gradient(135deg,#6d28d9,#db2777)", color: "#db2777", icon: ImageIcon },
-      { id: "video",   to: "/video",   label: "Video",  description: "Text & image to video",                            gradient: "linear-gradient(135deg,#db2777,#f97316)", color: "#ea580c", icon: Clapperboard },
       { id: "canvas",  to: "/canvas",  label: "Canvas", description: "Editable docs & code the companion writes for you", gradient: "linear-gradient(135deg,#3b1a5c,#7c3aed)", color: "#8b5cf6", icon: Sparkles },
     ],
   },

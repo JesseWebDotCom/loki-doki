@@ -1,0 +1,377 @@
+// Authenticated InnerTube — the TV-client surface. Google only accepts the device-flow
+// OAuth tokens (account.ts) on the TVHTML5 client, so every account-scoped call lives
+// here, separate from innertube.ts (which stays anonymous WEB/ANDROID_VR and carries all
+// public browsing/playback — zero account-flagging exposure). Keep it that way: this
+// module is for low-volume account sync and explicit user actions only, never playback.
+//
+// TV responses render differently from WEB (tileRenderer instead of videoRenderer, guide
+// rows, plus the same lockupViewModel migration). We can't fixture these shapes without a
+// live login, so every parser here is a defensive multi-shape walk: try all known
+// renderer spellings, dedupe by id, and treat "nothing matched" as an empty page rather
+// than an error.
+
+import { logger } from '@/lib/logger'
+import { decodeEntities } from '@/lib/htmlText'
+
+const BASE = 'https://www.youtube.com/youtubei/v1'
+const TV_CLIENT = { clientName: 'TVHTML5', clientVersion: '7.20260311.12.00', hl: 'en', gl: 'US' }
+const TV_UA = 'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version'
+
+/** 401/403 from an authed call — the access token is bad. Callers refresh-and-retry once. */
+export class TvAuthError extends Error {
+  constructor(endpoint: string, status: number) {
+    super(`innertube-tv ${endpoint} → ${status}`)
+    this.name = 'TvAuthError'
+  }
+}
+
+async function tvCall(endpoint: string, accessToken: string, body: Record<string, unknown>, timeout = 12000): Promise<any> {
+  // No ?key= param: API keys and OAuth are mutually exclusive on this API.
+  const res = await fetch(`${BASE}/${endpoint}?prettyPrint=false`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': TV_UA,
+      Authorization: `Bearer ${accessToken}`,
+      'X-Youtube-Client-Name': '7',
+      'X-Youtube-Client-Version': TV_CLIENT.clientVersion,
+      Origin: 'https://www.youtube.com',
+    },
+    body: JSON.stringify({ context: { client: TV_CLIENT }, ...body }),
+    signal: AbortSignal.timeout(timeout),
+  })
+  if (res.status === 401 || res.status === 403) throw new TvAuthError(endpoint, res.status)
+  if (!res.ok) throw new Error(`innertube-tv ${endpoint} → ${res.status}`)
+  return res.json()
+}
+
+// ── Generic walkers ────────────────────────────────────────────────────────────
+
+// Depth-first collect of every node carrying `key` (same contract as innertube.ts's
+// collect(), local so the anonymous module keeps zero coupling to this one).
+function collectKey(node: any, key: string, out: any[], limit = 5000): void {
+  if (out.length >= limit || !node || typeof node !== 'object') return
+  if (Array.isArray(node)) {
+    for (const item of node) { collectKey(item, key, out, limit); if (out.length >= limit) return }
+    return
+  }
+  const r = node[key]
+  if (r && typeof r === 'object') out.push(r)
+  for (const k in node) {
+    if (k === key) continue
+    collectKey(node[k], key, out, limit)
+    if (out.length >= limit) return
+  }
+}
+
+const textOf = (node: any): string =>
+  decodeEntities(node?.simpleText ?? (node?.runs ?? []).map((r: any) => r?.text ?? '').join('') ?? node?.content ?? '')
+
+function lastThumb(thumbs: any): string | null {
+  const arr = thumbs?.thumbnails ?? thumbs?.sources ?? thumbs
+  if (!Array.isArray(arr) || !arr.length) return null
+  const url = arr[arr.length - 1]?.url
+  if (typeof url !== 'string') return null
+  return url.startsWith('//') ? `https:${url}` : url
+}
+
+// "12:34" / "1:02:03" → seconds.
+function parseClock(text?: string | null): number | null {
+  if (!text) return null
+  const parts = text.trim().split(':').map(p => parseInt(p, 10))
+  if (!parts.length || parts.some(n => Number.isNaN(n))) return null
+  return parts.reduce((acc, n) => acc * 60 + n, 0)
+}
+
+// Every continuation spelling seen across InnerTube clients — modern token commands and
+// the legacy `continuations` array TV responses still carry in places.
+function findTvContinuation(data: any): string | null {
+  const modern: any[] = []
+  collectKey(data, 'continuationCommand', modern, 1)
+  if (typeof modern[0]?.token === 'string') return modern[0].token
+  const legacy: any[] = []
+  collectKey(data, 'nextContinuationData', legacy, 1)
+  if (typeof legacy[0]?.continuation === 'string') return legacy[0].continuation
+  return null
+}
+
+function firstBrowseId(node: any, prefix: string): string | null {
+  let found: string | null = null
+  const rec = (x: any): void => {
+    if (found || !x || typeof x !== 'object') return
+    if (Array.isArray(x)) { x.forEach(rec); return }
+    const id = x?.browseEndpoint?.browseId
+    if (typeof id === 'string' && id.startsWith(prefix)) { found = id; return }
+    for (const k in x) rec(x[k])
+  }
+  rec(node)
+  return found
+}
+
+// ── Account identity ───────────────────────────────────────────────────────────
+
+export interface TvAccountInfo { title: string | null; handle: string | null; avatarUrl: string | null }
+
+/** Signed-in account's display identity (name / @handle / avatar), for the settings card. */
+export async function fetchAccountInfo(accessToken: string): Promise<TvAccountInfo | null> {
+  const data = await tvCall('account/account_menu', accessToken, {})
+  const items: any[] = []
+  collectKey(data, 'accountItem', items, 4)
+  const item = items[0]
+  if (!item) return null
+  const handleText = textOf(item.channelHandle) || textOf(item.accountByline)
+  return {
+    title: textOf(item.accountName) || null,
+    handle: handleText.startsWith('@') ? handleText : null,
+    avatarUrl: lastThumb(item.accountPhoto),
+  }
+}
+
+// ── Subscribed channels ────────────────────────────────────────────────────────
+
+export interface TvChannel {
+  channelId: string
+  title: string
+  handle: string | null
+  thumbnailUrl: string | null
+}
+
+// Pull channels out of any response subtree: every renderer spelling that can carry a
+// subscribed channel across TV/WEB response generations.
+function collectChannelsDeep(data: any, into: Map<string, TvChannel>): void {
+  for (const key of ['channelRenderer', 'gridChannelRenderer']) {
+    const raw: any[] = []
+    collectKey(data, key, raw)
+    for (const r of raw) {
+      const channelId = r?.channelId
+      if (typeof channelId !== 'string' || !channelId.startsWith('UC')) continue
+      const title = textOf(r?.title)
+      if (!title || into.has(channelId)) continue
+      into.set(channelId, { channelId, title, handle: null, thumbnailUrl: lastThumb(r?.thumbnail) })
+    }
+  }
+
+  // guideEntryRenderer — the WEB sidebar / guide feed shape.
+  const guides: any[] = []
+  collectKey(data, 'guideEntryRenderer', guides)
+  for (const g of guides) {
+    const channelId = g?.navigationEndpoint?.browseEndpoint?.browseId
+    if (typeof channelId !== 'string' || !channelId.startsWith('UC') || into.has(channelId)) continue
+    const title = textOf(g?.formattedTitle) || textOf(g?.title)
+    if (!title) continue
+    into.set(channelId, { channelId, title, handle: null, thumbnailUrl: lastThumb(g?.thumbnail) })
+  }
+
+  // tileRenderer — the TV app's native card (contentType CHANNEL).
+  const tiles: any[] = []
+  collectKey(data, 'tileRenderer', tiles)
+  for (const t of tiles) {
+    if (t?.contentType && t.contentType !== 'TILE_CONTENT_TYPE_CHANNEL') continue
+    const channelId = t?.contentId ?? firstBrowseId(t?.onSelectCommand, 'UC')
+    if (typeof channelId !== 'string' || !channelId.startsWith('UC') || into.has(channelId)) continue
+    const title = textOf(t?.metadata?.tileMetadataRenderer?.title)
+    if (!title) continue
+    into.set(channelId, {
+      channelId, title, handle: null,
+      thumbnailUrl: lastThumb(t?.header?.tileHeaderRenderer?.thumbnail),
+    })
+  }
+
+  // lockupViewModel — the newest cross-client shape.
+  const lockups: any[] = []
+  collectKey(data, 'lockupViewModel', lockups)
+  for (const l of lockups) {
+    if (l?.contentType !== 'LOCKUP_CONTENT_TYPE_CHANNEL') continue
+    const channelId = l?.contentId
+    if (typeof channelId !== 'string' || !channelId.startsWith('UC') || into.has(channelId)) continue
+    const title = l?.metadata?.lockupMetadataViewModel?.title?.content
+    if (typeof title !== 'string' || !title) continue
+    into.set(channelId, { channelId, title, handle: null, thumbnailUrl: lastThumb(l?.contentImage?.thumbnailViewModel?.image) })
+  }
+}
+
+const MAX_PAGES = 20
+
+/**
+ * The account's full subscribed-channel list. Sources, most- to least-structured:
+ * FEchannels (the "All subscriptions" page), then the guide feed, then — as a floor —
+ * channels derived from the FEsubscriptions video feed (only channels with recent
+ * uploads, but never empty for an account that has any activity).
+ */
+export async function fetchSubscribedChannels(accessToken: string): Promise<TvChannel[]> {
+  const channels = new Map<string, TvChannel>()
+
+  // Source 1: the "All subscriptions" browse page, with paging.
+  try {
+    let data = await tvCall('browse', accessToken, { browseId: 'FEchannels' })
+    collectChannelsDeep(data, channels)
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const token = findTvContinuation(data)
+      if (!token) break
+      const before = channels.size
+      data = await tvCall('browse', accessToken, { continuation: token })
+      collectChannelsDeep(data, channels)
+      if (channels.size === before) break   // page added nothing — stop paging
+    }
+  } catch (err) {
+    if (err instanceof TvAuthError) throw err
+    logger.warn({ err: String(err) }, '[yt-tv] FEchannels channel list failed')
+  }
+  if (channels.size > 0) return [...channels.values()]
+
+  // Source 2: the guide (sidebar) — its own endpoint, one shot, no paging.
+  try {
+    const data = await tvCall('guide', accessToken, {})
+    collectChannelsDeep(data, channels)
+  } catch (err) {
+    if (err instanceof TvAuthError) throw err
+    logger.warn({ err: String(err) }, '[yt-tv] guide channel list failed')
+  }
+  if (channels.size > 0) return [...channels.values()]
+
+  // Floor: infer channels from the subscriptions video feed.
+  try {
+    const data = await tvCall('browse', accessToken, { browseId: 'FEsubscriptions' })
+    for (const v of collectVideosDeep(data)) {
+      if (v.channelId && v.author && !channels.has(v.channelId)) {
+        channels.set(v.channelId, { channelId: v.channelId, title: v.author, handle: null, thumbnailUrl: null })
+      }
+    }
+  } catch (err) {
+    if (err instanceof TvAuthError) throw err
+    logger.warn({ err: String(err) }, '[yt-tv] subscriptions feed fallback failed')
+  }
+  return [...channels.values()]
+}
+
+// ── Playlist contents (Watch Later = WL, Liked = LL) ───────────────────────────
+
+export interface TvVideo {
+  videoId: string
+  title: string
+  author: string | null
+  channelId: string | null
+  durationSec: number | null
+}
+
+function collectVideosDeep(data: any): TvVideo[] {
+  const out = new Map<string, TvVideo>()
+
+  for (const key of ['playlistVideoRenderer', 'videoRenderer', 'gridVideoRenderer', 'compactVideoRenderer']) {
+    const raw: any[] = []
+    collectKey(data, key, raw)
+    for (const r of raw) {
+      const videoId = r?.videoId
+      if (typeof videoId !== 'string' || out.has(videoId)) continue
+      const title = textOf(r?.title)
+      if (!title) continue
+      const byline = r?.shortBylineText?.runs?.[0] ?? r?.longBylineText?.runs?.[0] ?? r?.ownerText?.runs?.[0]
+      const lengthSeconds = parseInt(r?.lengthSeconds ?? '', 10)
+      out.set(videoId, {
+        videoId,
+        title,
+        author: byline?.text ? decodeEntities(byline.text) : null,
+        channelId: byline?.navigationEndpoint?.browseEndpoint?.browseId ?? null,
+        durationSec: Number.isFinite(lengthSeconds) ? lengthSeconds : parseClock(textOf(r?.lengthText)),
+      })
+    }
+  }
+
+  // tileRenderer (TV native).
+  const tiles: any[] = []
+  collectKey(data, 'tileRenderer', tiles)
+  for (const t of tiles) {
+    if (t?.contentType && t.contentType !== 'TILE_CONTENT_TYPE_VIDEO') continue
+    const videoId = t?.onSelectCommand?.watchEndpoint?.videoId ?? t?.contentId
+    if (typeof videoId !== 'string' || videoId.length !== 11 || out.has(videoId)) continue
+    const meta = t?.metadata?.tileMetadataRenderer
+    const title = textOf(meta?.title)
+    if (!title) continue
+    // TV tile metadata lines carry author + stats as loose text rows; first line ≈ channel.
+    const firstLine = meta?.lines?.[0]?.lineRenderer?.items?.[0]?.lineItemRenderer?.text
+    out.set(videoId, {
+      videoId,
+      title,
+      author: textOf(firstLine) || null,
+      channelId: firstBrowseId(t, 'UC'),
+      durationSec: null,
+    })
+  }
+
+  // lockupViewModel videos.
+  const lockups: any[] = []
+  collectKey(data, 'lockupViewModel', lockups)
+  for (const l of lockups) {
+    if (l?.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO') continue
+    const videoId = l?.contentId
+    if (typeof videoId !== 'string' || out.has(videoId)) continue
+    const lm = l?.metadata?.lockupMetadataViewModel
+    const title = lm?.title?.content
+    if (typeof title !== 'string' || !title) continue
+    const rows: any[] = lm?.metadata?.contentMetadataViewModel?.metadataRows ?? []
+    out.set(videoId, {
+      videoId,
+      title,
+      author: rows[0]?.metadataParts?.[0]?.text?.content ?? null,
+      channelId: firstBrowseId(l, 'UC'),
+      durationSec: null,
+    })
+  }
+
+  return [...out.values()]
+}
+
+/** Full contents of one of the account's fixed playlists ('WL' watch-later, 'LL' liked). */
+export async function fetchAccountPlaylist(accessToken: string, playlistId: 'WL' | 'LL', max = 1000): Promise<TvVideo[]> {
+  const videos = new Map<string, TvVideo>()
+  let data = await tvCall('browse', accessToken, { browseId: `VL${playlistId}` })
+  for (let page = 0; page <= MAX_PAGES; page++) {
+    for (const v of collectVideosDeep(data)) {
+      if (!videos.has(v.videoId)) videos.set(v.videoId, v)
+      if (videos.size >= max) return [...videos.values()]
+    }
+    const token = findTvContinuation(data)
+    if (!token) break
+    const before = videos.size
+    data = await tvCall('browse', accessToken, { continuation: token })
+    if (collectVideosDeep(data).every(v => videos.has(v.videoId)) && before === videos.size) {
+      // Defensive: identical page (some TV continuations loop) — bail.
+      break
+    }
+  }
+  return [...videos.values()]
+}
+
+// ── Mutations (push) ───────────────────────────────────────────────────────────
+// All idempotent server-side: subscribing twice / removing an absent video is a no-op
+// for Google, so callers can fire-and-forget without read-back checks.
+
+export async function tvSubscribe(accessToken: string, channelId: string): Promise<void> {
+  await tvCall('subscription/subscribe', accessToken, { channelIds: [channelId] })
+}
+
+export async function tvUnsubscribe(accessToken: string, channelId: string): Promise<void> {
+  await tvCall('subscription/unsubscribe', accessToken, { channelIds: [channelId] })
+}
+
+export async function tvPlaylistAdd(accessToken: string, playlistId: 'WL' | 'LL', videoId: string): Promise<void> {
+  await tvCall('browse/edit_playlist', accessToken, {
+    playlistId,
+    actions: [{ action: 'ACTION_ADD_VIDEO', addedVideoId: videoId }],
+  })
+}
+
+export async function tvPlaylistRemove(accessToken: string, playlistId: 'WL' | 'LL', videoId: string): Promise<void> {
+  await tvCall('browse/edit_playlist', accessToken, {
+    playlistId,
+    actions: [{ action: 'ACTION_REMOVE_VIDEO_BY_VIDEO_ID', removedVideoId: videoId }],
+  })
+}
+
+export async function tvLike(accessToken: string, videoId: string): Promise<void> {
+  await tvCall('like/like', accessToken, { target: { videoId } })
+}
+
+export async function tvRemoveLike(accessToken: string, videoId: string): Promise<void> {
+  await tvCall('like/removelike', accessToken, { target: { videoId } })
+}

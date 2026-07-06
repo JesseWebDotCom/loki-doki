@@ -18,7 +18,7 @@ import { VideoCollection, YT_GRID as GRID } from '@/components/youtube/VideoColl
 import { ChannelRail, HScroll, PlaylistCard, PlaylistListRow, type ChannelEntry } from '@/components/youtube/shelves'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
-import { useYoutubeModeOptional } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 const FILTERS: [SearchType, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['playlists', 'Playlists'], ['channels', 'Channels']]
 
 /** YouTube search results, rendered on the Home route when there's a `?q=` query.
@@ -116,7 +116,7 @@ export function SearchResults({ q }: { q: string }) {
         <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
             {channels.map(c => (
-              <Link key={c.id} to={`/youtube/channel/${encodeURIComponent(c.id)}`} state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
+              <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`} state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
                 className="group flex items-center gap-3 rounded-card border border-border bg-card p-3 transition hover:border-[var(--yt-accent)]">
                 <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-14 shrink-0 text-xl ring-1 ring-border/40" />
                 <div className="min-w-0"><p className="truncate text-sm font-semibold">{c.title}</p>{c.subtitle && <p className="truncate text-xs text-muted-foreground">{c.subtitle}</p>}</div>

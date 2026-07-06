@@ -10,14 +10,14 @@ import { watchProgress, type VideoItem } from '@/lib/youtube/types'
 import { saveOffline, cancelDownloads } from '@/lib/youtube/api'
 import { useSavedState, useYtDownloads } from '@/lib/youtube/useData'
 import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
-import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/videos/VideosLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useCardHoverPreview } from '@/hooks/use-card-hover-preview'
 import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
 
 /** Where a card navigates: the full-page watch route, preserving offline kind. */
 export function watchHref(i: Pick<VideoItem, 'videoId' | 'localKind'>) {
-  return i.localKind ? `/youtube/watch/${i.videoId}?k=${i.localKind}` : `/youtube/watch/${i.videoId}`
+  return i.localKind ? `/videos/youtube/watch/${i.videoId}?k=${i.localKind}` : `/videos/youtube/watch/${i.videoId}`
 }
 
 /** Offline mode + no local copy means the card is "ghosted": shown for continuity
@@ -162,7 +162,7 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
   const { saveState, onSave } = useCardSave(item, title)
   // Online shorts open in the vertical Shorts feed; everything else (and offline
   // shorts, which need local playback) goes to the standard watch page.
-  const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
+  const to = aspect === 'short' && !item.localKind ? `/videos/youtube/shorts/${item.videoId}` : watchHref(item)
   const body = (
     <>
       <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
@@ -201,7 +201,7 @@ export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspe
   const title = da?.title || item.title
   const { previewSrc, bind } = useCardHoverPreview(item)
   const { saveState, onSave } = useCardSave(item, title)
-  const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
+  const to = aspect === 'short' && !item.localKind ? `/videos/youtube/shorts/${item.videoId}` : watchHref(item)
   const body = (
     <>
       <div className={cn('shrink-0', aspect === 'short' ? 'w-24 sm:w-28' : 'w-40 sm:w-56')}>
