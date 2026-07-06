@@ -52,6 +52,8 @@ import { getModel, getVisionModel } from '@/lib/models'
 import type { SelectedLora } from '@/lib/loraRouter'
 import * as genQueue from '@/lib/genQueue'
 import type { JobRunContext } from '@/lib/genQueue'
+import { enhanceMedia, type EnhanceMode } from '@/lib/media/enhanceMedia'
+import { probeHeight as probeVideoHeight } from '@/lib/media/upscale'
 import { scanAndRepairCorruptImageModels, getImageRepairJob, forceRequeueImageModel } from '@/lib/downloadJobs'
 import { validateSafetensorsFile } from '@/lib/download'
 import type { AppEnv } from '@/types'
@@ -1804,6 +1806,109 @@ image.post('/edit', requireAuth, async (c) => {
   return streamSSE(c, async (stream) => {
     await stream.writeSSE({ event: 'start', data: JSON.stringify({ imageId, genId: job.id, steps }) })
     await genQueue.subscribeAndTail(stream, job, 0)
+  })
+})
+
+// ── Media enhance (manual, opt-in) — images AND video ───────────────────────────
+// One endpoint both the video app and the Imaging app call. Modes by media type:
+//   video → clarity | ai-upscale (Real-CUGAN, gated ≤1080p, ~7s/4K frame) | interpolate (RIFE 60fps)
+//   image → clarity | ai-upscale (Real-CUGAN "Photo Upscale") — no interpolation (a still has no
+//           motion). Gives an AI-upscale alternative to the Imaging Edit tab's ESRGAN 4×.
+// Runs the lib/media/* processors through the shared genQueue (convert lane) with SSE progress +
+// an owner-scoped, TTL-cleaned download. YouTube auto-enhance stays clarity-only.
+
+const ENHANCE_DIR = join(dataDir, 'temp', 'enhance')
+const enhanceOwners = new Map<string, { userId: string; mime: string; ext: string }>()  // outputId → owner/type
+const ENHANCE_TTL_MS = 30 * 60_000
+
+const VIDEO_MODES = ['clarity', 'ai-upscale', 'interpolate'] as const
+const IMAGE_MODES = ['clarity', 'ai-upscale'] as const
+
+image.post('/enhance-media', requireAuth, async (c) => {
+  const user = c.get('user')
+  let formData: FormData
+  try { formData = await c.req.formData() } catch { return c.json({ error: 'Expected multipart/form-data' }, 400) }
+
+  const file = formData.get('file') as File | null
+  const mode = formData.get('mode') as string | null
+  if (!file) return c.json({ error: 'A file is required' }, 400)
+
+  const isImage = (file.type || '').startsWith('image/')
+  const modes: readonly string[] = isImage ? IMAGE_MODES : VIDEO_MODES
+  if (!mode || !modes.includes(mode)) {
+    return c.json({ error: `mode must be one of: ${modes.join(', ')}` }, 400)
+  }
+  const strength = Math.max(0, Math.min(1, Number(formData.get('strength')) || 0.12))
+  const fps = Math.max(30, Math.min(120, Number(formData.get('fps')) || 60))
+
+  await mkdir(ENHANCE_DIR, { recursive: true })
+  const subtype = (file.type.split('/')[1] || '').toLowerCase()
+  const inExt = isImage ? (subtype === 'jpeg' ? 'jpg' : subtype || 'png') : 'mp4'
+  const outExt = isImage ? 'png' : 'mp4'
+  const outMime = isImage ? 'image/png' : 'video/mp4'
+  const inputPath = join(ENHANCE_DIR, `${crypto.randomUUID()}-in.${inExt}`)
+  await Bun.write(inputPath, await file.arrayBuffer())
+
+  // Safety-screen image uploads before processing (same policy as other image inputs).
+  if (isImage) {
+    try {
+      const verdict = await screenImage((await readFile(inputPath)).toString('base64'))
+      if (verdict.flagged) {
+        logCsamBlock('image enhance upload', user.id, verdict.reason ?? 'upload')
+        await unlink(inputPath).catch(() => {})
+        return c.json({ error: 'content_blocked', message: 'This image was blocked by a safety policy.' }, 403)
+      }
+    } catch { /* screening best-effort */ }
+  }
+
+  // Video AI upscale is ~7s per 4K frame → refuse tall video sources up front.
+  if (!isImage && mode === 'ai-upscale') {
+    const h = await probeVideoHeight(inputPath)
+    if (h > 1080) {
+      await unlink(inputPath).catch(() => {})
+      return c.json({ error: `AI Upscale is limited to ≤1080p video (this looks like ${h}p) — it's far too slow above that. Use Clarity for high-res video.` }, 400)
+    }
+  }
+
+  const job = genQueue.enqueue({
+    type: 'convert',
+    userId: user.id,
+    meta: { kind: 'media-enhance', mode, media: isImage ? 'image' : 'video' },
+    run: async (ctx: JobRunContext) => {
+      const outputPath = join(ENHANCE_DIR, `${ctx.jobId}.${outExt}`)
+      try {
+        const ok = await enhanceMedia(inputPath, outputPath, {
+          mode: mode as EnhanceMode, isImage, strength, targetFps: fps, signal: ctx.signal,
+          onProgress: (fraction, note) => ctx.emit('progress', JSON.stringify({ pct: Math.round(fraction * 100), note: note ?? '' })),
+        })
+        if (!ok) throw new Error('The required AI tool could not be downloaded or started.')
+        enhanceOwners.set(ctx.jobId, { userId: user.id, mime: outMime, ext: outExt })
+        setTimeout(() => { enhanceOwners.delete(ctx.jobId); void unlink(outputPath).catch(() => {}) }, ENHANCE_TTL_MS)
+        ctx.emit('done', JSON.stringify({ id: ctx.jobId, media: isImage ? 'image' : 'video', url: `/api/image/enhance-media/${ctx.jobId}/download` }))
+      } finally {
+        await unlink(inputPath).catch(() => {})
+      }
+    },
+  })
+
+  c.header('X-Accel-Buffering', 'no')
+  return streamSSE(c, async (stream) => {
+    await stream.writeSSE({ event: 'start', data: JSON.stringify({ jobId: job.id }) })
+    await genQueue.subscribeAndTail(stream, job, 0)
+  })
+})
+
+// Serve a finished enhance result (image or video). Owner-scoped (the map only holds UUID job ids,
+// so a bogus :id can't be owned → 404, which also blocks path traversal). TTL-cleaned.
+image.get('/enhance-media/:id/download', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const owner = enhanceOwners.get(id)
+  if (!owner || owner.userId !== user.id) return c.json({ error: 'Not found' }, 404)
+  const path = join(ENHANCE_DIR, `${id}.${owner.ext}`)
+  if (!existsSync(path)) return c.json({ error: 'This result has expired.' }, 404)
+  return new Response(Bun.file(path), {
+    headers: { 'Content-Type': owner.mime, 'Content-Disposition': `inline; filename="enhanced-${id}.${owner.ext}"` },
   })
 })
 
