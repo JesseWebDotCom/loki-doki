@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock, Heart, History, Trash2, Download, ListVideo, Plus, Search, X } from 'lucide-react'
+import { Clock, Heart, History, Trash2, Download, ListVideo, Plus, Search, X, type LucideIcon } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -30,40 +30,33 @@ import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
 const cardAddBtnClass = 'absolute right-2 top-2 hidden size-7 bg-black/70 text-white opacity-100 hover:bg-black/90 group-hover:flex'
 const toVid = (item: VideoItem) => ({ videoId: item.videoId, title: item.title, author: item.author ?? undefined, channelId: item.channelId ?? undefined, durationSec: item.durationSec ?? undefined })
 
-type Tab = 'history' | 'watch-later' | 'liked' | 'playlists' | 'saved'
-const TABS: { key: Tab; label: string; icon: typeof Clock }[] = [
-  { key: 'history', label: 'History', icon: History },
-  { key: 'watch-later', label: 'Watch Later', icon: Clock },
-  { key: 'liked', label: 'Liked', icon: Heart },
-  { key: 'playlists', label: 'Playlists', icon: ListVideo },
-  { key: 'saved', label: 'Offline', icon: Download },
-]
-
 const metaToItem = (m: SavedVideoMeta): VideoItem => ({ videoId: m.videoId, title: m.title, author: m.author, channelId: m.channelId, channelThumb: m.channelThumb, durationSec: m.durationSec })
 
-export function YoutubeLibraryPage() {
-  const [params, setParams] = useSearchParams()
-  const tab = (params.get('tab') as Tab) ?? 'history'
-
+// Each library section is its own page/route with its own header — click "History"
+// and you land on a dedicated History page, not a shared "Library" shell with tabs.
+function LibraryPage({ title, icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
     <PageContainer width="wide" className="pb-6">
-      <PageHeader title="Library" className="pt-6 pb-5" />
-      <div className="mb-6 flex gap-1 border-b border-border/50">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setParams({ tab: t.key })}
-            className={cn('-mb-px flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm font-semibold transition-colors',
-              tab === t.key ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
-            <t.icon className="size-4" /> {t.label}
-          </button>
-        ))}
-      </div>
-      {tab === 'watch-later' ? <CollectionTab kind="watch-later" empty="Nothing in Watch Later yet." />
-        : tab === 'liked' ? <CollectionTab kind="liked" empty="No liked videos yet." />
-        : tab === 'playlists' ? <PlaylistsTab />
-        : tab === 'saved' ? <SavedTab />
-        : <HistoryTab />}
+      <PageHeader title={title} icon={icon} className="pt-6 pb-5" />
+      {children}
     </PageContainer>
   )
+}
+
+export function YoutubeHistoryPage() {
+  return <LibraryPage title="History" icon={History}><HistoryTab /></LibraryPage>
+}
+export function YoutubePlaylistsPage() {
+  return <LibraryPage title="Playlists" icon={ListVideo}><PlaylistsTab /></LibraryPage>
+}
+export function YoutubeWatchLaterPage() {
+  return <LibraryPage title="Watch Later" icon={Clock}><CollectionTab kind="watch-later" empty="Nothing in Watch Later yet." /></LibraryPage>
+}
+export function YoutubeLikedPage() {
+  return <LibraryPage title="Liked" icon={Heart}><CollectionTab kind="liked" empty="No liked videos yet." /></LibraryPage>
+}
+export function YoutubeOfflinePage() {
+  return <LibraryPage title="Offline" icon={Download}><SavedTab /></LibraryPage>
 }
 
 // Bucket history rows into YouTube-style date sections (rows arrive newest-first).

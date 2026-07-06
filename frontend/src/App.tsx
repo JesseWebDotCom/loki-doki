@@ -153,7 +153,11 @@ const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/Boo
 
 const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
-const YoutubeLibraryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLibraryPage })))
+const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
+const YoutubePlaylistsPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubePlaylistsPage })))
+const YoutubeWatchLaterPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeWatchLaterPage })))
+const YoutubeLikedPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLikedPage })))
+const YoutubeOfflinePage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeOfflinePage })))
 const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage').then((m) => ({ default: m.YoutubeChannelPage })))
 const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
@@ -390,7 +394,13 @@ export default function App() {
                   <Route index element={<YoutubeHomePage />} />
                   {/* Discover was merged into Home — keep the old path working. */}
                   <Route path="discover" element={<Navigate to="/youtube" replace />} />
-                  <Route path="library" element={<YoutubeLibraryPage />} />
+                  {/* Library sections are now individual pages, each with its own header. */}
+                  <Route path="library" element={<Navigate to="/youtube/history" replace />} />
+                  <Route path="history" element={<YoutubeHistoryPage />} />
+                  <Route path="playlists" element={<YoutubePlaylistsPage />} />
+                  <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
+                  <Route path="liked" element={<YoutubeLikedPage />} />
+                  <Route path="offline" element={<YoutubeOfflinePage />} />
                   <Route path="subscriptions" element={<YoutubeSubscriptionsPage />} />
                   <Route path="channel/:id" element={<YoutubeChannelPage />} />
                   <Route path="playlist/:id" element={<YoutubePlaylistPage />} />

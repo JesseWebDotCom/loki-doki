@@ -1,4 +1,4 @@
-import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Home, Clock, Heart, History, Download, ListVideo, type LucideIcon,
@@ -21,20 +21,6 @@ function RailLink({ to, icon: Icon, label, end, className }: { to: string; icon:
   )
 }
 
-/** A "Your Library" tab link that reflects ?tab= on the library route. */
-function LibTab({ tab, icon: Icon, label }: { tab: string; icon: LucideIcon; label: string }) {
-  const [params] = useSearchParams()
-  const { pathname } = useLocation()
-  const active = pathname.startsWith('/youtube/library') && (params.get('tab') ?? 'history') === tab
-  return (
-    <Link to={`/youtube/library?tab=${tab}`}
-      className={cn('flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
-        active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground')}>
-      <Icon className="size-[18px]" /> {label}
-    </Link>
-  )
-}
-
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="mb-1 mt-5 px-3 text-overline text-muted-foreground/60">{children}</p>
 }
@@ -51,11 +37,11 @@ export function YoutubeRail() {
       <RailLink to="/youtube" icon={Home} label="Home" end />
 
       <SectionLabel>Your Library</SectionLabel>
-      <LibTab tab="history" icon={History} label="History" />
-      <LibTab tab="playlists" icon={ListVideo} label="Playlists" />
-      <LibTab tab="watch-later" icon={Clock} label="Watch Later" />
-      <LibTab tab="liked" icon={Heart} label="Liked Videos" />
-      <LibTab tab="saved" icon={Download} label="Offline" />
+      <RailLink to="/youtube/history" icon={History} label="History" />
+      <RailLink to="/youtube/playlists" icon={ListVideo} label="Playlists" />
+      <RailLink to="/youtube/watch-later" icon={Clock} label="Watch Later" />
+      <RailLink to="/youtube/liked" icon={Heart} label="Liked Videos" />
+      <RailLink to="/youtube/offline" icon={Download} label="Offline" />
 
       <Link to="/youtube/subscriptions"
         className="mb-1 mt-5 block px-3 text-overline text-muted-foreground/60 transition-colors hover:text-foreground">
