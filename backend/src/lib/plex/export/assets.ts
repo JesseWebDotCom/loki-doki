@@ -8,6 +8,12 @@ import sharp from 'sharp'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
 import { podcastFallback } from '@/lib/pod/podcastCover.generated'
 
+// SVG text font for everything sharp renders (duration badge, season posters). A generic
+// `sans-serif` resolves through fontconfig to a thin default whose bold weights don't map
+// (confirmed by side-by-side render on Windows) — Arial is present everywhere we run,
+// renders real bold, and is the closest system match to YouTube's Roboto badge.
+const BADGE_FONT = `Arial, 'Helvetica Neue', 'Segoe UI', sans-serif`
+
 async function writeImage(url: string | null, destAbsPath: string): Promise<boolean> {
   if (!url) return false
   const img = await getOrFetchImage(url)
@@ -47,7 +53,7 @@ async function generateSeasonPosterBuffer(seed: string, label: string): Promise<
     + `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">`
     + `<stop offset="0" stop-color="${palette.c1}"/><stop offset="1" stop-color="${palette.c2}"/></linearGradient></defs>`
     + `<rect width="100%" height="100%" fill="url(#g)"/>`
-    + `<text x="50%" y="${Math.round(H * 0.82)}" text-anchor="middle" font-family="sans-serif" font-weight="700"`
+    + `<text x="50%" y="${Math.round(H * 0.82)}" text-anchor="middle" font-family="${BADGE_FONT}" font-weight="700"`
     + ` font-size="${Math.round(W * 0.13)}" fill="${palette.fg}">${label.toUpperCase()}</text>`
     + `</svg>`
   return sharp(Buffer.from(svg)).composite(layers).jpeg({ quality: 88 }).toBuffer()
@@ -113,7 +119,7 @@ async function overlayThumbBadges(imgBuffer: Buffer, durationSec: number | null)
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">`
     + `<rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="3" fill="black" fill-opacity="0.8"/>`
     + `<text x="${x + boxW / 2}" y="${y + boxH / 2}" text-anchor="middle" dominant-baseline="central"`
-    + ` font-family="sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${text}</text>`
+    + ` font-family="${BADGE_FONT}" font-weight="700" font-size="${fontSize}" fill="white">${text}</text>`
     + `</svg>`
   return sharp(imgBuffer).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 90 }).toBuffer()
 }
