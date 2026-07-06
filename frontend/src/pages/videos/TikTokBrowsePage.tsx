@@ -61,7 +61,6 @@ export function TikTokBrowsePage() {
         title={SOURCE_META.tiktok.label}
         icon={SOURCE_META.tiktok.icon}
         gradient={SOURCE_META.tiktok.gradient}
-        eyebrow="Videos"
         subtitle={creators.length > 0 ? 'Latest from the creators you follow.' : 'Popular right now. Follow creators to make this feed yours.'}
         className="pt-4 pb-4"
         actions={

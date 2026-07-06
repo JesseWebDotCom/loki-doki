@@ -113,7 +113,6 @@ function HomeLanding() {
         title={SOURCE_META.youtube.label}
         icon={SOURCE_META.youtube.icon}
         gradient={SOURCE_META.youtube.gradient}
-        eyebrow="Videos"
         subtitle={online ? 'Your subscriptions, recommendations & trending.' : 'Your saved YouTube library.'}
         className="pt-4 pb-4"
       />

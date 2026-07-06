@@ -60,7 +60,6 @@ export function MyVideosPage() {
         icon={Video}
         // design-ok(hex-in-tsx): Mine identity tile gradient
         gradient="linear-gradient(135deg,#312e81,#7c3aed)"
-        eyebrow="Videos"
         subtitle="Your exports, uploads & AI clips, plus the projects that make them."
         className="pt-4 pb-4"
         actions={

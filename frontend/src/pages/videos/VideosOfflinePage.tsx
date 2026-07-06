@@ -97,7 +97,7 @@ export function VideosOfflinePage() {
 
   return (
     <PageContainer width="wide" className="pt-1 pb-8">
-      <PageHeader title="Offline" icon={Download} eyebrow="Videos"
+      <PageHeader title="Offline" icon={Download}
         subtitle="Everything saved to this server, by source." className="pt-4 pb-4" />
 
       <ChipRow className="mb-6">

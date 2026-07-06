@@ -182,6 +182,23 @@ export function putWatchState(source: VideoSource, videoId: string, positionSec:
   return sendJson('/api/videos/watch-state', 'PUT', { source, videoId, positionSec, completed })
 }
 
+export interface HubHistoryRow {
+  source: VideoSource
+  videoId: string
+  title: string
+  creatorName: string | null
+  thumbnailUrl: string | null
+  durationSec: number | null
+  positionSec: number
+  completed: boolean
+  updatedAt: number
+}
+
+/** Watch history for non-YouTube sources (YouTube keeps its own richer endpoint). */
+export function getHubHistory(): Promise<{ history: HubHistoryRow[] }> {
+  return getJson('/api/videos/history')
+}
+
 export function getFollowingFeed(source?: VideoSource): Promise<{ items: HubVideoItem[] }> {
   return getJson(`/api/videos/following-feed${source ? `?source=${source}` : ''}`)
 }

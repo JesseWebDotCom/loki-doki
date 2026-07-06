@@ -220,6 +220,39 @@ videosRoute.get('/:source/stream/:id', async (c) => {
   }
 })
 
+// ── Watch history for non-YouTube sources (YouTube keeps /api/youtube/history) ──
+
+videosRoute.get('/history', async (c) => {
+  const user = c.get('user')
+  const allowAdult = await allowAdultVideos(user.id)
+  const rows = await db.select({
+    source: videoWatchState.source,
+    videoId: videoWatchState.videoId,
+    positionSec: videoWatchState.positionSec,
+    completed: videoWatchState.completed,
+    updatedAt: videoWatchState.updatedAt,
+    title: videoItems.title,
+    creatorName: videoItems.creatorName,
+    thumbnailUrl: videoItems.thumbnailUrl,
+    durationSec: videoItems.durationSec,
+    isAdult: videoItems.isAdult,
+  })
+    .from(videoWatchState)
+    .leftJoin(videoItems, and(eq(videoItems.source, videoWatchState.source), eq(videoItems.externalId, videoWatchState.videoId)))
+    .where(eq(videoWatchState.userId, user.id))
+    .orderBy(desc(videoWatchState.updatedAt))
+    .limit(150)
+  const history = rows
+    .filter((r) => allowAdult || !r.isAdult)
+    .map((r) => ({
+      source: r.source, videoId: r.videoId, title: r.title ?? r.videoId,
+      creatorName: r.creatorName, thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+      positionSec: r.positionSec, completed: r.completed,
+      updatedAt: r.updatedAt ? r.updatedAt.getTime() : 0,
+    }))
+  return c.json({ history })
+})
+
 // ── Following feed: recent uploads from followed creators (poller-fed cache) ─────
 
 videosRoute.get('/following-feed', async (c) => {

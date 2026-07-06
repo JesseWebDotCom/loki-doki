@@ -101,7 +101,7 @@ export function RedditBrowsePage() {
       title={SOURCE_META.reddit.label}
       icon={SOURCE_META.reddit.icon}
       gradient={SOURCE_META.reddit.gradient}
-      eyebrow="Videos"
+     
       subtitle={configured ? 'Video posts from the communities you follow.' : 'Connect Reddit to browse video communities.'}
       className="pt-4 pb-4"
       actions={extra}

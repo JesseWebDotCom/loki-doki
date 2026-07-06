@@ -79,7 +79,7 @@ export function VimeoBrowsePage() {
       title={SOURCE_META.vimeo.label}
       icon={SOURCE_META.vimeo.icon}
       gradient={SOURCE_META.vimeo.gradient}
-      eyebrow="Videos"
+     
       subtitle="Staff Picks, handpicked by Vimeo."
       className="pt-4 pb-4"
     />
