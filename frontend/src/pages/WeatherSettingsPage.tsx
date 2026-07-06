@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { CloudSun } from 'lucide-react'
+import { Bot, CloudSun, Thermometer } from 'lucide-react'
 import { toast } from 'sonner'
-import { AppSettingsPage } from '@/components/shared/AppSettingsPage'
+import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
+import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 import { Chip, ChipRow } from '@/components/shared/ChipRow'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAuth } from '@/context/AuthContext'
@@ -38,21 +39,30 @@ export function WeatherSettingsPage() {
       .catch(() => toast.error('Could not save your temperature unit'))
   }
 
+  const sections: AppSettingsSection[] = [
+    {
+      id: 'general',
+      label: 'General',
+      icon: Thermometer,
+      content: (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold">Temperature unit</h2>
+          <ChipRow>
+            <Chip label="Fahrenheit" active={unit === 'fahrenheit'} onClick={() => save('fahrenheit')} />
+            <Chip label="Celsius" active={unit === 'celsius'} onClick={() => save('celsius')} />
+          </ChipRow>
+        </section>
+      ),
+    },
+    { id: 'companion', label: 'Companion', icon: Bot, content: <CompanionAbilitiesCard appId="weather" /> },
+  ]
+
   return (
-    <AppSettingsPage
-      title="Weather Settings"
-      backTo="/weather"
-      backLabel="Back to Weather"
+    <AppSettingsShell
+      appId="weather"
       icon={CloudSun}
       gradient={WEATHER_GRADIENT}
-    >
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Temperature unit</h2>
-        <ChipRow>
-          <Chip label="Fahrenheit" active={unit === 'fahrenheit'} onClick={() => save('fahrenheit')} />
-          <Chip label="Celsius" active={unit === 'celsius'} onClick={() => save('celsius')} />
-        </ChipRow>
-      </section>
-    </AppSettingsPage>
+      sections={sections}
+    />
   )
 }

@@ -201,7 +201,7 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
     const seenRoutes = new Set<string>();
     const out: LauncherEntry[] = [];
     for (const a of storeApps) {
-      if (!a.enabled || a.offline || !a.route) continue;
+      if (!a.enabled || !a.route) continue;
       if (seenRoutes.has(a.route)) continue;
       const catalog = catalogByRoute.get(a.route);
       if (catalog?.feature && appFeatures[catalog.feature] === false) continue;
@@ -261,21 +261,22 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
     return out;
   }, [recentIds, apps, archives]);
 
-  // Not-yet-installed App Store apps (full apps only, not chat extensions).
+  // Not-yet-installed App Store apps (the store is apps-only).
   const noteworthy = useMemo(
-    () => storeApps.filter((a) => a.enabled === false && a.offline === false),
+    () => storeApps.filter((a) => !a.enabled),
     [storeApps],
   );
 
   // One unified alphabetical grid (Launchpad-style), scoped by chip + query.
-  // Libraries mix into "All" and get their own chip.
+  // Installed offline archives are just apps to the user: they mix into "All"
+  // and surface under Reading & Reference, with no category of their own.
   const gridItems = useMemo(() => {
     const appItems = apps
       .filter((a) => activeCat === "all" || a.categoryKey === activeCat)
       .filter((a) => matches(q, a.label, a.description))
       .map((entry) => ({ entry, archive: undefined as (typeof archives)[number] | undefined }));
     const archiveItems =
-      activeCat === "all" || activeCat === "library"
+      activeCat === "all" || activeCat === "reading"
         ? archives
             .filter((a) => matches(q, a.entry.label, a.entry.description, a.category))
             .map((a) => ({ entry: a.entry, archive: a }))
@@ -363,9 +364,6 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
             {categories.map((c) => (
               <Chip key={c.key} label={c.name} active={activeCat === c.key} onClick={() => setActiveCat(c.key)} />
             ))}
-            {archives.length > 0 && (
-              <Chip label="Libraries" active={activeCat === "library"} onClick={() => setActiveCat("library")} />
-            )}
           </ChipRow>
 
           {/* Grid: fixed height (not max-h) so the modal doesn't resize as

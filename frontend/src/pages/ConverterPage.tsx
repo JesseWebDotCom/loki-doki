@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { cn } from '@/lib/cn'
 import {
   getCapabilities, getRecent, startConversion, cancelConversion, downloadArtifact,
@@ -42,6 +43,8 @@ export function ConverterPage() {
     label: 'File Converter',
     description: 'User is converting a file between formats on the Converter page.',
   })
+
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/converter/settings' })
 
   useEffect(() => {
     getCapabilities().then(setCaps).catch(() => setError('Could not load converter capabilities.'))

@@ -25,6 +25,7 @@ import {
 import { listFeeds, addFeed, deleteFeed, refreshFeedApi, importOpml, type Feed } from '@/lib/feeds/api'
 import { FeedListView, type FeedScope } from '@/components/news/FeedListView'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 const SCOPES: { key: FeedScope; label: string; icon: typeof Rss }[] = [
   { key: 'all', label: 'All', icon: Rss },
@@ -33,6 +34,7 @@ const SCOPES: { key: FeedScope; label: string; icon: typeof Rss }[] = [
 ]
 
 export function NewsPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/news/settings' })
   const qc = useQueryClient()
   // `sel` is either a category id, or `scope:<all|unread|saved>` for the power feed reader.
   const [sel, setSel] = useState<string | null>(null)

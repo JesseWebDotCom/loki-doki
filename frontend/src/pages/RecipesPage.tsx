@@ -245,6 +245,7 @@ export function RecipesPage() {
     placeholder: 'Search recipes...',
     loading: searchStatus === 'loading',
     externalHref: 'https://www.themealdb.com',
+    settingsHref: '/apps/recipes/settings',
   })
 
   const handleSelectResult = (meal: Meal) => {

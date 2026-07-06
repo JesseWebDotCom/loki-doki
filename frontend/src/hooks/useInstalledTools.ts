@@ -4,8 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 export interface InstalledTool {
   id: string;
   name: string;
+  description?: string;
   enabled: boolean;
+  /** Companion may use this tool in chat (app-settings ability toggle). */
+  chatEnabled?: boolean;
+  /** Core companion plumbing: never shown on user surfaces. */
+  core?: boolean;
   offline?: boolean;
+  dataSources?: { name: string; domain: string; purpose: string; type: string }[];
 }
 
 interface UseInstalledToolsResult {

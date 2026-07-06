@@ -19,6 +19,7 @@ export const setStatusTool: Tool = {
   name: 'Status',
   description: 'Set or clear your display status on screen Pods (Busy, Available, DND, Focusing, etc.)',
   offline: true,
+  core: true,
   dataSources: [],
   examples: [
     'set me as busy',

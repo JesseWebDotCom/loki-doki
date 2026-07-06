@@ -158,6 +158,7 @@ export function ShowsHomePage() {
     onSubmit,
     placeholder: 'Search shows…',
     externalHref: 'https://www.tvmaze.com',
+    settingsHref: '/apps/shows/settings',
   })
 
   return (

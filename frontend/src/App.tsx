@@ -31,6 +31,7 @@ import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
 import { WeatherPage } from '@/pages/WeatherPage'
 import { WeatherSettingsPage } from '@/pages/WeatherSettingsPage'
+import { AppSettingsGenericPage } from '@/pages/AppSettingsGenericPage'
 import { TimePage } from '@/pages/TimePage'
 import { ChatLayout } from '@/components/chat/ChatLayout'
 import { ConversationView } from '@/components/chat/ConversationView'
@@ -84,7 +85,7 @@ import { PodcastPreviewPage } from '@/pages/podcast/PodcastPreviewPage'
 import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
 import { PodcastOfflinePage } from '@/pages/podcast/PodcastOfflinePage'
 import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
-import { PodcastAdminPage } from '@/pages/podcast/PodcastAdminPage'
+import { PodcastSettingsPage } from '@/pages/podcast/PodcastSettingsPage'
 import { DictionaryPage } from '@/pages/DictionaryPage'
 import { ShowsHomePage } from '@/pages/shows/ShowsHomePage'
 import { ShowDetailPage as ShowsDetailPage } from '@/pages/shows/ShowDetailPage'
@@ -326,6 +327,7 @@ export default function App() {
                   <Route path="chats" element={<ChatsBrowsePage />} />
                   <Route path=":id" element={<ConversationView />} />
                 </Route>
+                <Route path="/apps/:appId/settings/:section?" element={<AppSettingsGenericPage />} />
                 <Route path="/maps" element={<MapsPage />} />
                 <Route path="/weather" element={<WeatherPage />} />
                 <Route path="/weather/settings" element={<WeatherSettingsPage />} />
@@ -416,7 +418,8 @@ export default function App() {
                   <Route path="library" element={<PodcastLibraryPage />} />
                   <Route path="offline" element={<PodcastOfflinePage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
-                  <Route path="admin" element={<PodcastAdminPage />} />
+                  <Route path="settings" element={<PodcastSettingsPage />} />
+                  <Route path="admin" element={<Navigate to="/podcasts/settings" replace />} />
                 </Route>
                 <Route path="/home-inventory" element={<HomeInventoryPage />} />
                 <Route path="/news" element={<NewsPage />} />

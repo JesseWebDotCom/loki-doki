@@ -72,10 +72,11 @@ export function MusicLayout() {
     setQuery,
     onSubmit: () => { const t = query.trim(); if (t) navigate(`/music/browse?q=${encodeURIComponent(t)}`) },
     placeholder: mode === 'online' ? 'Search artists, albums, songs, stations…' : 'Search your offline stations…',
-    // Live artist/song autosuggest as you type (Deezer-backed) — online only; offline has no network
+    // Live artist/song autosuggest as you type (Deezer-backed) - online only; offline has no network
     // and only searches locally-saved stations. Mirrors YouTube's suggest wiring.
     suggest: mode === 'online' ? musicSuggestSource : undefined,
     rightSlot,
+    settingsHref: '/apps/music/settings',
   })
 
   const a = ACCENT[mode]

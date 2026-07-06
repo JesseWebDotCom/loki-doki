@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { toolGlobalConfig, toolUserConfig, toolUserPermissions } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
@@ -84,12 +84,16 @@ async function fetchNWSObservation(lat: number, lng: number): Promise<NWSObserva
 
 // Returns all tools with their schemas and enabled state
 tools.get('/', requireAuth, async (c) => {
-  const enabledRows = await db.select({ toolId: toolGlobalConfig.toolId, value: toolGlobalConfig.value })
+  const flagRows = await db.select({ toolId: toolGlobalConfig.toolId, key: toolGlobalConfig.key, value: toolGlobalConfig.value })
     .from(toolGlobalConfig)
-    .where(eq(toolGlobalConfig.key, '__enabled'))
+    .where(inArray(toolGlobalConfig.key, ['__enabled', '__chat_enabled']))
 
   const enabledMap: Record<string, boolean> = {}
-  for (const row of enabledRows) enabledMap[row.toolId] = JSON.parse(row.value) as boolean
+  const chatMap: Record<string, boolean> = {}
+  for (const row of flagRows) {
+    const target = row.key === '__enabled' ? enabledMap : chatMap
+    target[row.toolId] = JSON.parse(row.value) as boolean
+  }
 
   // Plex only counts as enabled once a server URL + token are configured.
   const plexConfigured = await isPlexConfigured()
@@ -100,9 +104,11 @@ tools.get('/', requireAuth, async (c) => {
       name: t.name,
       description: t.description,
       offline: t.offline,
+      core: t.core ?? false,
       examples: t.examples,
       configSchema: t.configSchema ?? [],
       enabled: t.id === 'plex' ? plexConfigured && enabledMap[t.id] !== false : enabledMap[t.id] !== false,
+      chatEnabled: chatMap[t.id] !== false,
       dataSources: t.dataSources,
     }))
   )
@@ -132,13 +138,39 @@ tools.put('/:id/enabled', requireAdmin, async (c) => {
   return c.json({ ok: true })
 })
 
+// Companion-ability toggle: whether the companion may use this tool in chat.
+// Separate from __enabled so switching an ability off doesn't "uninstall" the
+// app that ships it. Surfaced as the "Companion abilities" toggles in each
+// app's settings page.
+tools.put('/:id/chat-enabled', requireAdmin, async (c) => {
+  const toolId = c.req.param('id')
+  if (!toolRegistry.find(t => t.id === toolId)) return c.json({ error: 'Unknown tool' }, 404)
+  const { enabled } = await c.req.json() as { enabled: boolean }
+
+  const [existing] = await db.select({ id: toolGlobalConfig.id })
+    .from(toolGlobalConfig)
+    .where(and(eq(toolGlobalConfig.toolId, toolId), eq(toolGlobalConfig.key, '__chat_enabled')))
+    .limit(1)
+
+  if (existing) {
+    await db.update(toolGlobalConfig)
+      .set({ value: JSON.stringify(enabled), updatedAt: new Date() })
+      .where(and(eq(toolGlobalConfig.toolId, toolId), eq(toolGlobalConfig.key, '__chat_enabled')))
+  } else {
+    await db.insert(toolGlobalConfig).values({
+      id: crypto.randomUUID(), toolId, key: '__chat_enabled', value: JSON.stringify(enabled), updatedAt: new Date(),
+    })
+  }
+  return c.json({ ok: true })
+})
+
 // ── Global config (admin only) ────────────────────────────────────────────────
 
 tools.get('/config/global', requireAdmin, async (c) => {
   const rows = await db.select().from(toolGlobalConfig)
   const result: Record<string, Record<string, unknown>> = {}
   for (const row of rows) {
-    if (row.key === '__enabled') continue
+    if (row.key === '__enabled' || row.key === '__chat_enabled') continue
     result[row.toolId] ??= {}
     result[row.toolId][row.key] = JSON.parse(row.value)
   }

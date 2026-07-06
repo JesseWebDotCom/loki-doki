@@ -16,7 +16,7 @@ export function StoreCategoriesPage() {
         eyebrow="App Store"
         icon={ShoppingBag}
         gradient={STORE_GRADIENT}
-        subtitle="Browse apps and extensions by category."
+        subtitle="Browse apps by category."
       />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {STORE_CATEGORIES.map(c => (

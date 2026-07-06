@@ -20,7 +20,7 @@ export function StoreInstalledPage() {
         eyebrow="App Store"
         icon={ShoppingBag}
         gradient={STORE_GRADIENT}
-        subtitle={`${installed.length} apps and extensions ready to use.`}
+        subtitle={`${installed.length} apps ready to use.`}
       />
 
       {isLoading ? (

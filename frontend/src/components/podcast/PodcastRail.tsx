@@ -35,13 +35,13 @@ export function PodcastRail({ shows, onCreate }: { shows: Show[]; onCreate: () =
       <RailLink to="/podcasts/library" icon={Library} label="Library" />
       <RailLink to="/podcasts/offline" icon={Download} label="Offline" />
       {user?.role === 'admin' && (
-        <NavLink to="/podcasts/admin"
+        <NavLink to="/podcasts/settings"
           className={({ isActive }) => cn(
             'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium transition-colors',
             isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
           )}>
           <Settings2 className="size-[18px]" />
-          <span className="flex-1">Manage</span>
+          <span className="flex-1">Settings</span>
           <Lock className="size-3 text-warning/70" />
         </NavLink>
       )}

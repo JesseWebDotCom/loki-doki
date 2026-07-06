@@ -39,6 +39,7 @@ export const datetimeTool: Tool = {
   name: 'Date & Time',
   description: 'Resolve natural language dates and perform date calculations. Accepts plain English like "next Tuesday", "in 3 weeks", "day after tomorrow", "Christmas", etc.',
   offline: true,
+  core: true,
   dataSources: [],
   examples: [
     'current date, time, or day of the week right now',

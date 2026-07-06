@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react'
 import { Sparkles, Settings2, X, RefreshCw, Wand2, ChevronDown, ChevronUp, Download, Trash2, Upload, Eraser, ZoomIn, Zap, Pencil, ArrowLeftRight, ScanFace, ImageOff, Maximize2, Palette, SlidersHorizontal, Aperture, ScanLine, Car, Search, ArrowRight, FileText, MapPin, Eye, Type, Layers, Copy, Sparkle } from 'lucide-react'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { useImageEdit } from '@/hooks/useImageEdit'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -573,6 +574,7 @@ function HistoryTile({ item, onClick, onDelete, onEdit, onFullscreen, selected }
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function ImagingPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/imaging/settings' })
   const { imaging } = useGenerationContext()
   const { state: gen, generate, cancel, reset } = imaging
   const [pending, setPending] = useState(false)

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, UploadCloud, Rss, Download, PauseCircle } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { ToggleRow } from '@/components/shared/ToggleRow'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -33,22 +34,6 @@ const DEFAULTS = Object.fromEntries(
 ) as Record<SkipCategory, boolean>
 const PREF_KEY = 'youtube.skip_categories'
 
-/** A single toggle row — matches the admin panel's convention (AdminAppsTab.tsx's "Lock
- *  layout" row): bordered card, no per-row icon (icons are reserved for a tab's own header
- *  strip), semibold title + smaller muted description, switch pinned right. */
-function ToggleRow({ title, description, checked, onCheckedChange }: {
-  title: string; description: string; checked: boolean; onCheckedChange: () => void
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-card border border-border/50 bg-background/50 px-4 py-3">
-      <div>
-        <p className="text-xs font-semibold">{title}</p>
-        <p className="text-[11px] text-muted-foreground">{description}</p>
-      </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
-    </div>
-  )
-}
 
 export function SettingsYoutubeAutoSkip() {
   const qc = useQueryClient()

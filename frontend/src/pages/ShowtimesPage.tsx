@@ -138,6 +138,7 @@ export function ShowtimesPage() {
     placeholder: 'Enter ZIP code...',
     loading: status === 'loading',
     externalHref: 'https://www.fandango.com',
+    settingsHref: '/apps/showtimes/settings',
   })
 
   return (

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { usePublishUIContext } from "@/context/UIContextProvider";
+import { useAppHeader } from "@/context/BreadcrumbSearchContext";
 import { cn } from "@/lib/cn";
 import {
   lookupPeopleByAddress,
@@ -155,6 +156,8 @@ export function ReverseLookupPage(): JSX.Element {
     label: "Reverse Lookup",
     description: "User is looking up people or property by address, name, or phone.",
   });
+
+  useAppHeader({ query: "", setQuery: () => {}, searchable: false, settingsHref: "/apps/reverse-lookup/settings" });
 
   async function runSearch(): Promise<void> {
     setLoading(true);

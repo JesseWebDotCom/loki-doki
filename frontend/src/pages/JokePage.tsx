@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 interface JokeResponse {
   joke: string | null
@@ -15,6 +16,7 @@ interface JokeResponse {
 }
 
 export function JokePage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/jokes/settings' })
   const [joke, setJoke] = useState<string | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [refreshing, setRefreshing] = useState(false)

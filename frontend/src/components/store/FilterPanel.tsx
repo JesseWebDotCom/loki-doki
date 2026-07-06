@@ -5,8 +5,6 @@ import type { StoreApp } from '@/lib/store/useStoreApps'
 export type SortMode = 'relevance' | 'name' | 'installed'
 
 export interface StoreFilters {
-  app: boolean
-  extension: boolean
   installed: boolean
   notInstalled: boolean
   online: boolean
@@ -15,8 +13,6 @@ export interface StoreFilters {
 }
 
 export const DEFAULT_FILTERS: StoreFilters = {
-  app: true,
-  extension: true,
   installed: true,
   notInstalled: true,
   online: true,
@@ -27,8 +23,6 @@ export const DEFAULT_FILTERS: StoreFilters = {
 /** Apply the active filters + sort to a list of apps. */
 export function applyFilters(apps: StoreApp[], f: StoreFilters): StoreApp[] {
   const out = apps.filter(a => {
-    if (!f.app && !a.offline) return false
-    if (!f.extension && a.offline) return false
     if (!f.installed && a.enabled) return false
     if (!f.notInstalled && !a.enabled) return false
     if (!f.online && a.online) return false
@@ -91,11 +85,6 @@ export function FilterPanel({ filters, onChange, className }: {
           Clear all
         </button>
       </div>
-
-      <Group title="Type">
-        <CheckRow label="Apps" checked={filters.app} onChange={v => set({ app: v })} />
-        <CheckRow label="Extensions" checked={filters.extension} onChange={v => set({ extension: v })} />
-      </Group>
 
       <Group title="Status">
         <CheckRow label="Installed" checked={filters.installed} onChange={v => set({ installed: v })} />

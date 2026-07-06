@@ -41,7 +41,7 @@ export function StoreRail({ installedCount }: { installedCount: number }) {
     <nav className="sticky top-0 hidden h-fit w-52 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
       <AppRailHeader
         title="App Store"
-        description="Install apps and extensions for your hub."
+        description="Install apps for your hub."
         icon={ShoppingBag}
         gradient={STORE_GRADIENT}
         className="mb-4"

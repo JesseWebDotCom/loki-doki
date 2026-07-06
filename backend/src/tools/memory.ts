@@ -31,6 +31,7 @@ export const rememberTool: Tool = {
   name: 'Remember',
   description: 'Store a fact the user explicitly asked to be remembered',
   offline: true, // embeddings are local
+  core: true,
   dataSources: [],
   passMessage: 'text',
   examples: [
@@ -103,6 +104,7 @@ export const forgetTool: Tool = {
   name: 'Forget',
   description: 'Erase a stored memory the user asked to forget',
   offline: true,
+  core: true,
   dataSources: [],
   passMessage: 'text',
   examples: [

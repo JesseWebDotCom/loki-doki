@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,7 @@ async function fetchEvents(bust = false): Promise<EventsResponse> {
 }
 
 export function LocalEventsPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/local-events/settings' })
   const [data, setData] = useState<EventsResponse | null>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
 

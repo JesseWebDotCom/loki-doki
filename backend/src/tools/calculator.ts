@@ -166,6 +166,7 @@ export const calculatorTool: Tool = {
   name: 'Calculator',
   description: 'Evaluate math expressions: arithmetic, percentages, powers, and common math functions',
   offline: true,
+  core: true,
   dataSources: [],
   examples: [
     'perform arithmetic, algebra, or math calculations',

@@ -34,7 +34,7 @@ export function StoreBrowsePage() {
         eyebrow="App Store"
         icon={ShoppingBag}
         gradient={STORE_GRADIENT}
-        subtitle={q ? `${filtered.length} result${filtered.length === 1 ? '' : 's'} for "${params.get('q')}"` : `${apps.length} apps and extensions`}
+        subtitle={q ? `${filtered.length} result${filtered.length === 1 ? '' : 's'} for "${params.get('q')}"` : `${apps.length} apps`}
         actions={
           <div className="flex gap-0.5 rounded-full border border-border p-0.5">
             {([['grid', LayoutGrid], ['list', List]] as const).map(([mode, Icon]) => (

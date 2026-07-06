@@ -381,6 +381,27 @@ Bold section title with optional "See all" link. Replaces all hand-rolled sectio
 
 ---
 
+### `ToggleRow` - `src/components/shared/ToggleRow.tsx`
+
+The house settings toggle row (bordered card, semibold title + muted description, `Switch` pinned right). Extracted from the YouTube settings tab; use it instead of hand-rolling label+Switch rows. Optional `chip` renders a small badge next to the title.
+
+```ts
+{ title: string; description: string; checked: boolean; onCheckedChange: () => void;
+  disabled?: boolean; chip?: ReactNode; className?: string }
+```
+
+---
+
+### `CompanionAbilitiesCard` - `src/components/shared/CompanionAbilitiesCard.tsx`
+
+"Companion abilities" section for an app's settings page: one `ToggleRow` per chat tool the app ships (mapping in `src/lib/companionAbilities.ts`). Household-global, admin-only toggles (non-admins see a lock note); writes `PUT /api/tools/:id/chat-enabled` for app-backed tools or `/enabled` for standalone abilities. Renders nothing when the app hosts no abilities.
+
+```ts
+{ appId: string }  // APP_GROUPS app id
+```
+
+---
+
 ### `ChipRow` / `Chip` - `src/components/shared/ChipRow.tsx`
 
 TikTok-style horizontally-scrollable pill filter row. `Chip` active state uses `bg-brand text-brand-foreground`; inactive uses `bg-foreground/8`. `ChipRow` is a `no-scrollbar flex gap-2 overflow-x-auto` wrapper.
@@ -415,26 +436,29 @@ The shadcn `Card` now exports a `cardVariants` CVA export with four variants. Pr
 
 ---
 
-### `AppSettingsPage` - `src/components/shared/AppSettingsPage.tsx`
+### `AppSettingsShell` - `src/components/shared/AppSettingsShell.tsx`
 
-The shell for every app's own settings page, reached via the breadcrumb gear
-(`useAppHeader({ settingsHref: '/{app-route}/settings' })`). Never point `settingsHref` at
-Admin - a per-app settings page is reachable by every user, not just admins, and shows only
-that app's own preferences. User content is always visible; `adminSection` (if the app has
-admin-only config) is shown in full to admins and replaced with a plain locked notice for
-everyone else. Apps with nothing to configure simply don't set a `settingsHref` - no gear
-button renders.
+THE shell for every app's own settings page (extracted from the YouTube settings layout so
+they all look identical): PageHeader up top, collapsible left section sidebar
+(`SettingsSidebar`, same anatomy as Settings/Admin), mobile drawer. Reached via the
+breadcrumb gear (`useAppHeader({ settingsHref })` — bespoke pages use `/{app-route}/settings`,
+everything else the generic `/apps/{appId}/settings` route, which renders the Companion
+abilities section). Never point `settingsHref` at Admin - a per-app settings page is
+reachable by every user. Sections with `adminOnly: true` render their content for admins and
+a locked notice for everyone else. Section state is internal by default; pass
+`activeSection` + `onNavigate` to drive it from a `/:section?` route param (YouTube, the
+generic page). Apps hosting companion abilities include a `companion` section with
+`<CompanionAbilitiesCard appId=... />`.
 
 ```ts
 {
-  title?: string            // default "Settings"
-  backTo: string             // the app's root route
-  backLabel: string
-  icon: LucideIcon           // the app's registry icon
-  gradient: string           // the app's registry gradient
-  children: ReactNode        // user-facing settings content
-  adminSection?: ReactNode   // admin-only config; omit entirely if the app has none
-  adminNotice?: string       // shown to non-admins in place of adminSection
+  appId: string              // collapse-pref key: "{appId}.settingsSidebarCollapsed"
+  title?: string             // default "Settings"
+  icon?: LucideIcon          // the app's registry icon
+  gradient?: string          // the app's registry gradient
+  sections: AppSettingsSection[]  // { id, label, icon, content, adminOnly? }
+  activeSection?: string     // controlled (URL-driven) mode
+  onNavigate?: (id) => void
 }
 ```
 

@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useGenerationContext } from '@/context/GenerationContext'
 import { usePrivacy } from '@/context/PrivacyContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 
@@ -179,6 +180,7 @@ function NumberStepper({ label, value, min, max, step = 1, onChange, disabled }:
 }
 
 export function VideoPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/video/settings' })
   const [mode, setMode] = useState<Mode>('t2v')
   const [status, setStatus] = useState<ImageStatus | null>(null)
 
