@@ -94,7 +94,12 @@ async function setShowDescription(sectionKey: string, showTitle: string, descrip
   if (!description) return
   const conn = await getPlexConnection()
   if (!conn) return
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // A brand-new show isn't in Plex's index until a section scan finds it — and on a fresh
+  // section that's the DEBOUNCED full scan (30s trailing, see refresh.ts), not the instant
+  // targeted refresh. The old 3×1.5s retry window always expired first, so every show in a
+  // recreated library ended up with no description (confirmed live). Fire-and-forget caller,
+  // so a patient window is free: ~3 minutes at 15s spacing.
+  for (let attempt = 0; attempt < 12; attempt++) {
     const ratingKey = await resolveShowRatingKey(conn, sectionKey, showTitle)
     if (ratingKey) {
       const params = new URLSearchParams({ type: '2', id: ratingKey, 'summary.value': description, 'summary.locked': '1', 'X-Plex-Token': conn.token })
@@ -107,8 +112,9 @@ async function setShowDescription(sectionKey: string, showTitle: string, descrip
         logger.warn(`[plex-export] setShowDescription PUT failed for "${showTitle}": ${err}`)
       }
     }
-    if (attempt < 2) await new Promise(r => setTimeout(r, 1500))
+    if (attempt < 11) await new Promise(r => setTimeout(r, 15_000))
   }
+  logger.warn(`[plex-export] gave up setting description for "${showTitle}" — show never appeared in Plex's index`)
 }
 
 async function ensureShow(
