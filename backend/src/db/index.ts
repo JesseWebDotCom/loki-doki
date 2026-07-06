@@ -1262,6 +1262,33 @@ export function runMigrations() {
   // (not just a letter) even for non-subscribed channels — existing DBs.
   addColumn('yt_videos', 'channel_thumb', 'TEXT')
 
+  // Linked YouTube account (TV-client OAuth device flow) + provenance columns so account
+  // sync can own its mirrored rows without clobbering hand-added ones.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS yt_accounts (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      client_id TEXT NOT NULL,
+      client_secret TEXT NOT NULL,
+      channel_title TEXT,
+      channel_handle TEXT,
+      channel_avatar_url TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      sync_subscriptions INTEGER NOT NULL DEFAULT 1,
+      sync_watch_later INTEGER NOT NULL DEFAULT 1,
+      sync_liked INTEGER NOT NULL DEFAULT 1,
+      push_enabled INTEGER NOT NULL DEFAULT 1,
+      last_sync_at INTEGER,
+      last_sync_error TEXT,
+      connected_at INTEGER NOT NULL
+    );
+  `)
+  addColumn('yt_subscriptions', 'source', "TEXT NOT NULL DEFAULT 'local'")
+  addColumn('yt_collections', 'source', "TEXT NOT NULL DEFAULT 'local'")
+
   // Podcast shows, episodes, suggestions, playback state (migration 0019)
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS podcast_shows (

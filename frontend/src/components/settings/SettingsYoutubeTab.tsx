@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, UploadCloud, Rss, Download, PauseCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus, Trash2, UploadCloud, Rss, Download, PauseCircle, Play } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { ToggleRow } from '@/components/shared/ToggleRow'
 import { Spinner } from '@/components/ui/spinner'
@@ -141,6 +142,27 @@ function SaveQualitySetting() {
 // Channel management: add/import subscriptions, per-channel auto-save, the save-quality
 // preference, and the automation master switch. Lives here (in the app's Settings page)
 // rather than the old floating "Manage channels" modal.
+// Inline prerequisite surface: channel management is manual until the user links their
+// real YouTube account, so point at the Account section instead of making them find it.
+function AccountLinkHint() {
+  const { data } = useQuery({ queryKey: ['yt-account'], queryFn: yt.getAccount })
+  if (!data || data.linked) return null
+  return (
+    <div className="flex items-center gap-3 rounded-card border border-border/50 bg-background/50 px-4 py-3">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-destructive/10">
+        <Play className="h-4 w-4 text-destructive" />
+      </span>
+      <p className="text-[11px] text-muted-foreground">
+        Have a YouTube account?{' '}
+        <Link to="/youtube/settings/account" className="font-medium text-foreground underline underline-offset-2">
+          Sign in
+        </Link>{' '}
+        to import your subscriptions and Watch Later automatically, with no manual adding needed.
+      </p>
+    </div>
+  )
+}
+
 export function SettingsYoutubeChannels() {
   const qc = useQueryClient()
   const [subs, setSubs] = useState<Subscription[]>([])
@@ -221,6 +243,8 @@ export function SettingsYoutubeChannels() {
   return (
     <div className="space-y-8">
       {unsubDialog}
+
+      <AccountLinkHint />
 
       <div className="space-y-2">
         <p className="text-overline text-muted-foreground">Add channels</p>

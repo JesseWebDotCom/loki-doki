@@ -123,6 +123,7 @@ import { seedSystemFeeds } from '@/lib/feeds/seed'
 import { startFeedPoller, refreshSystemFeeds } from '@/lib/feeds/poller'
 import { startPodcastFeedPoller } from '@/lib/podcast/feeds'
 import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
+import { startYoutubeAccountSync } from '@/lib/youtube/accountSync'
 import { backfillYoutubeTitleEntities } from '@/lib/youtube/titleBackfill'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { mediaImageCacheSweep } from '@/lib/titles/imageProxy'
@@ -308,6 +309,9 @@ if (firstBoot) {
   // that window between polls (bursts / extended downtime) is invisible to the poller forever.
   // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
   startYoutubeReconcile()
+  // Linked YouTube accounts: mirror subscriptions / Watch Later / Liked from Google
+  // every 30 min (first pass shortly after boot). See youtube/accountSync.ts.
+  startYoutubeAccountSync()
   void backfillAllThumbnails().catch(() => {})
   // One-time: decode HTML entities in titles stored before ingestion-side decoding.
   void backfillYoutubeTitleEntities().catch(() => {})
