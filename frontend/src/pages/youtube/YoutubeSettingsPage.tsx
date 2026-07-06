@@ -1,12 +1,13 @@
 import { useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SkipForward, Sparkles, Wand2, FileText, Rss, Bot, Play } from 'lucide-react'
+import { SkipForward, Sparkles, Wand2, FileText, Rss, Bot, Play, CircleUserRound } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { getAppByPath } from '@/lib/appCategories'
 import {
   SettingsYoutubeChannels, SettingsYoutubeAutoSkip, SettingsYoutubeVideoQuality,
   SettingsYoutubeTitlesThumbnails, SettingsYoutubeDescriptions,
 } from '@/components/settings/SettingsYoutubeTab'
+import { SettingsYoutubeAccount } from '@/components/settings/SettingsYoutubeAccount'
 import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 
 // Standard per-app Settings home for YouTube: channel management (subscriptions, auto-save,
@@ -15,6 +16,7 @@ import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCa
 // inline when the viewer is an admin; broader app config still lives in central Admin → Apps.
 const SECTIONS: AppSettingsSection[] = [
   { id: 'channels',     label: 'Channels',            icon: Rss,         content: <SettingsYoutubeChannels /> },
+  { id: 'account',      label: 'Account',             icon: CircleUserRound, content: <SettingsYoutubeAccount /> },
   { id: 'auto-skip',    label: 'Auto-skip',           icon: SkipForward, content: <SettingsYoutubeAutoSkip /> },
   { id: 'quality',      label: 'Video quality',       icon: Sparkles,    content: <SettingsYoutubeVideoQuality /> },
   { id: 'titles',       label: 'Titles & thumbnails', icon: Wand2,       content: <SettingsYoutubeTitlesThumbnails /> },

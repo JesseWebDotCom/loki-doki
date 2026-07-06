@@ -78,6 +78,13 @@ export async function hydrateCollections(): Promise<void> {
   } catch { _hydrated = false /* allow retry */ }
 }
 
+// Force a fresh server pull (server wins), used after account link/sync lands new
+// Watch Later / Liked rows server-side that this client's mirror has never seen.
+export async function rehydrateCollections(): Promise<void> {
+  _hydrated = false
+  return hydrateCollections()
+}
+
 export { EVENT as COLLECTION_EVENT }
 
 // ── React binding ────────────────────────────────────────────────────────────

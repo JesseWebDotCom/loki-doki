@@ -1127,6 +1127,10 @@ export const ytSubscriptions = sqliteTable('yt_subscriptions', {
   autoSave: integer('auto_save', { mode: 'boolean' }).notNull().default(false),
   autoSaveKind: text('auto_save_kind', { enum: ['audio', 'video'] }).notNull().default('video'),
   autoSaveKeep: integer('auto_save_keep'),
+  // 'local' = added in-app; 'google' = mirrored from the user's linked YouTube account.
+  // Google-sourced rows are reconciled against the account every sync pass (removed there
+  // → removed here); local rows are never touched by sync. See youtube/accountSync.ts.
+  source: text('source', { enum: ['local', 'google'] }).notNull().default('local'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userExtUnique: unique().on(t.userId, t.externalId) }))
 
@@ -1272,8 +1276,43 @@ export const ytCollections = sqliteTable('yt_collections', {
   author: text('author'),
   channelId: text('channel_id'),
   durationSec: integer('duration_sec'),
+  // 'local' vs 'google' — same contract as ytSubscriptions.source: google rows mirror the
+  // linked account's Watch Later / Liked and are owned by account sync.
+  source: text('source', { enum: ['local', 'google'] }).notNull().default('local'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userColVidUnique: unique().on(t.userId, t.collection, t.videoId) }))
+
+// A user's linked YouTube (Google) account, authorized via the InnerTube TV-client OAuth
+// device flow — the "enter this code on your phone" login a smart TV uses. One row per
+// user. Tokens are the TV client's; authenticated InnerTube calls must therefore use the
+// TVHTML5 client context (see youtube/tvClient.ts). The client_id/client_secret pair the
+// tokens were minted with is stored alongside them because refresh must reuse the exact
+// same identity, and the scraped TV identity can rotate over time.
+export const ytAccounts = sqliteTable('yt_accounts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token').notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  clientId: text('client_id').notNull(),
+  clientSecret: text('client_secret').notNull(),
+  // Display-only identity fetched after link (account name / @handle / avatar).
+  channelTitle: text('channel_title'),
+  channelHandle: text('channel_handle'),
+  channelAvatarUrl: text('channel_avatar_url'),
+  // 'expired' = refresh failed with invalid_grant (revoked / password change) — the user
+  // must re-link; sync skips the account until then.
+  status: text('status', { enum: ['active', 'expired'] }).notNull().default('active'),
+  // What the periodic pull mirrors into local tables. Push (applying in-app subscribe /
+  // watch-later / like actions back to the account) is one switch.
+  syncSubscriptions: integer('sync_subscriptions', { mode: 'boolean' }).notNull().default(true),
+  syncWatchLater: integer('sync_watch_later', { mode: 'boolean' }).notNull().default(true),
+  syncLiked: integer('sync_liked', { mode: 'boolean' }).notNull().default(true),
+  pushEnabled: integer('push_enabled', { mode: 'boolean' }).notNull().default(true),
+  lastSyncAt: integer('last_sync_at', { mode: 'timestamp' }),
+  lastSyncError: text('last_sync_error'),
+  connectedAt: integer('connected_at', { mode: 'timestamp' }).notNull(),
+})
 
 // User-curated video playlists — explicit, named, ordered lists (distinct from the fixed
 // Watch Later / Liked buckets in ytCollections above).
