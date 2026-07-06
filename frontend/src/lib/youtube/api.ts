@@ -77,6 +77,8 @@ export interface SavedRow {
   /** Background enhancement state (video only): 'enhancing' while re-encoding, 'enhanced' when
    *  the crisper rendition is ready and serving; null otherwise. */
   enhance: 'enhancing' | 'enhanced' | null
+  /** Enhance re-encode progress 0..1 while `enhance === 'enhancing'`; null otherwise. */
+  enhanceProgress?: number | null
   createdAt: string
   author: string | null
   channelId: string | null

@@ -473,11 +473,31 @@ youtubeRoute.get('/downloads', async (c) => {
     rows.filter(r => r.kind === 'video' && r.assetId).map(r => r.assetId!),
   )
 
+  // Live progress (0..1) for in-flight enhance re-encodes, keyed by BASE assetId (the media-enhance
+  // job's refId is { assetId } of the base video). Lets the "Enhancing…" chip show a real percentage.
+  const enhanceProgressByAsset = new Map<string, number>()
+  {
+    const jobs = await db.select({ refId: downloadJobs.refId, progress: downloadJobs.progress })
+      .from(downloadJobs)
+      .where(and(eq(downloadJobs.type, 'media-enhance'), inArray(downloadJobs.status, ['pending', 'running'])))
+    for (const j of jobs) {
+      try {
+        const { assetId } = JSON.parse(j.refId) as { assetId?: string }
+        if (!assetId || !j.progress) continue
+        const p = JSON.parse(j.progress) as { completed?: number; total?: number }
+        if (p.total && p.total > 0 && typeof p.completed === 'number') {
+          enhanceProgressByAsset.set(assetId, Math.max(0, Math.min(1, p.completed / p.total)))
+        }
+      } catch { /* skip malformed job/progress rows */ }
+    }
+  }
+
   const downloads = rows.map(({ channelThumbSub, channelThumbVid, assetId, ...r }) => ({
     ...r,
     channelThumb: channelThumbSub ?? channelThumbVid ?? null,
     progress: assetId ? progressByAsset.get(assetId) ?? null : null,
     enhance: assetId ? enhanceMap.get(assetId) ?? null : null,
+    enhanceProgress: assetId ? enhanceProgressByAsset.get(assetId) ?? null : null,
     positionSec: watchMap.get(r.videoId)?.positionSec ?? null,
     completed: watchMap.get(r.videoId)?.completed ?? null,
   }))

@@ -112,7 +112,9 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave 
       {!ghosted && i.enhance && (
         <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white">
           {i.enhance === 'enhancing' ? <Spinner size="sm" /> : <Sparkles className="size-3" />}
-          {i.enhance === 'enhancing' ? 'Enhancing…' : 'Enhanced'}
+          {i.enhance === 'enhancing'
+            ? (i.enhanceProgress != null ? `Enhancing ${Math.round(i.enhanceProgress * 100)}%` : 'Enhancing…')
+            : 'Enhanced'}
         </span>
       )}
       {onSave && !ghosted && (

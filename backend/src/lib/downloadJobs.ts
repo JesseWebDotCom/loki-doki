@@ -623,7 +623,7 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
     case 'media-enhance': {
       const payload = JSON.parse(job.refId) as import('@/lib/media/enhanceJob').MediaEnhanceJobPayload
       const { runEnhanceJob } = await import('@/lib/media/enhanceJob')
-      await runEnhanceJob(payload, signal)
+      await runEnhanceJob(payload, signal, onProgress)
       return
     }
   }
