@@ -6,7 +6,8 @@ import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/cn'
 import RiggedDicebearAvatar from '@/components/companion/RiggedDicebearAvatar'
-import { coerceStyle } from '@/components/companion/styles'
+import RoboEyesAvatar from '@/components/companion/RoboEyesAvatar'
+import { coerceStyle, ROBO_EYES_STYLE } from '@/components/companion/styles'
 import { CharacterAvatar } from '@/components/companion/CharacterAvatar'
 import type { HeadTiltState } from '@/components/companion/useHeadTilt'
 import type { Mood } from '@/components/companion/moods'
@@ -88,15 +89,25 @@ function StudioPreview({ style, seed, avatarConfig, speaking, ctl }: { style: st
   return (
     <div className="flex flex-col items-center gap-3">
       <div className="size-44 overflow-hidden rounded-card border border-border bg-card">
-        <RiggedDicebearAvatar
-          style={coerceStyle(style)}
-          seed={seed || 'preview'}
-          baseOptions={avatarConfig}
-          tiltState={effectiveTilt}
-          manualTiltDeg={ctl.manualTilt}
-          speaking={speaking}
-          mood={ctl.mood}
-        />
+        {style === ROBO_EYES_STYLE ? (
+          <RoboEyesAvatar
+            seed={seed || 'preview'}
+            config={avatarConfig}
+            tiltState={effectiveTilt}
+            speaking={speaking}
+            mood={ctl.mood}
+          />
+        ) : (
+          <RiggedDicebearAvatar
+            style={coerceStyle(style)}
+            seed={seed || 'preview'}
+            baseOptions={avatarConfig}
+            tiltState={effectiveTilt}
+            manualTiltDeg={ctl.manualTilt}
+            speaking={speaking}
+            mood={ctl.mood}
+          />
+        )}
       </div>
     </div>
   )

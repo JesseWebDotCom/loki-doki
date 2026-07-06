@@ -1,5 +1,6 @@
 import RiggedDicebearAvatar from './RiggedDicebearAvatar'
-import { coerceStyle } from './styles'
+import RoboEyesAvatar from './RoboEyesAvatar'
+import { coerceStyle, ROBO_EYES_STYLE } from './styles'
 import type { HeadTiltState } from './useHeadTilt'
 import { useAmbientTilt } from './useAmbientTilt'
 import { useCharacterViseme } from '@/lib/voice/voicePlaybackStore'
@@ -73,6 +74,23 @@ export function CharacterAvatar({ character, streaming = false, thinking = false
   const liveTilt = deriveTilt(streaming, thinking, sleeping, listening, mood)
   // Live signals always win; ambient only fills in the otherwise-idle resting pose.
   const tilt = tiltState ?? (ambient && liveTilt === 'dozing' ? ambientTilt : liveTilt)
+  // Procedural non-DiceBear renderer: branch before coerceStyle so the DiceBear
+  // machinery never sees the 'robo-eyes' style id.
+  if (character.style === ROBO_EYES_STYLE) {
+    return (
+      <RoboEyesAvatar
+        seed={character.seed ?? character.name ?? 'companion'}
+        config={character.avatarConfig ?? {}}
+        size={size}
+        className={className}
+        tiltState={tilt}
+        speaking={streaming}
+        audioViseme={audioLipSync ? audioViseme : undefined}
+        mood={mood}
+        suppressOverlays={suppressOverlays}
+      />
+    )
+  }
   return (
     <RiggedDicebearAvatar
       style={coerceStyle(character.style)}
