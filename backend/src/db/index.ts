@@ -2766,4 +2766,39 @@ export function runMigrations() {
   // without a table rebuild — IDs across sources can't realistically collide; accept it.)
   addColumn('yt_collections', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
   addColumn('yt_playlist_videos', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
+
+  // Videos Create studio (see schema.ts studioProjects/studioMedia/studioProjectAssets).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS studio_projects (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      edl_json TEXT NOT NULL,
+      duration_sec REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS studio_media (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      origin TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'video',
+      asset_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      duration_sec REAL,
+      width INTEGER,
+      height INTEGER,
+      source_meta TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS studio_media_user_idx ON studio_media(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS studio_project_assets (
+      project_id TEXT NOT NULL REFERENCES studio_projects(id) ON DELETE CASCADE,
+      asset_id TEXT NOT NULL,
+      UNIQUE(project_id, asset_id)
+    );
+  `)
 }

@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
 // one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
@@ -41,7 +41,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -427,6 +427,10 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
           const { failVideoSavesByJobRefId } = await import('@/lib/videos/download')
           await failVideoSavesByJobRefId(job.refId, String(err)).catch(() => {})
         }
+        if (job.type === 'studio-render') {
+          const { failStudioRenderByJobRefId } = await import('@/lib/videostudio/render/run')
+          await failStudioRenderByJobRefId(job.refId, String(err)).catch(() => {})
+        }
         if (job.type === 'book-download') {
           const { failBookDownloadByJobRefId } = await import('@/lib/books/offline')
           await failBookDownloadByJobRefId(job.refId, String(err)).catch(() => {})
@@ -611,6 +615,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runVideoMediaJob(payload, onProgress, signal)
       return
     }
+    case 'studio-render': {
+      const payload = JSON.parse(job.refId) as import('@/lib/videostudio/render/run').StudioRenderJobPayload
+      const { runStudioRenderJob } = await import('@/lib/videostudio/render/run')
+      await runStudioRenderJob(payload, onProgress, signal)
+      return
+    }
     case 'plex-provision': {
       const payload = JSON.parse(job.refId) as import('@/lib/plex/export/library').PlexProvisionJobPayload
       const { runPlexProvisionJob } = await import('@/lib/plex/export/library')
@@ -671,6 +681,25 @@ export async function enqueueVideoMedia(
     id: randomUUID(), type: 'video-media', refId: JSON.stringify(payload), variantKey: vk,
     domain: payload.source, sizeClass: 'small', label: label.slice(0, 120), priority: 50,
     status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue a Create-studio export render. Compute lane (own 'studio' domain), coalesced
+ *  per export row; maxAttempts 1 — a failed render is a real failure and the EDL snapshot
+ *  makes retry-from-UI a fresh export. */
+export async function enqueueStudioRender(exportId: string, label: string): Promise<void> {
+  const vk = `studio-render:${exportId}`
+  const [existing] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+    .where(and(eq(downloadJobs.variantKey, vk), inArray(downloadJobs.status, ['pending', 'running'])))
+    .limit(1)
+  if (existing) return
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'studio-render', refId: JSON.stringify({ exportId }), variantKey: vk,
+    domain: 'studio', sizeClass: 'small', label: label.slice(0, 120), priority: 55,
+    status: 'pending', attempts: 0, maxAttempts: 1, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })
   kickScheduler()

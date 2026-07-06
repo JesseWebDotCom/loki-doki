@@ -158,6 +158,8 @@ const VideosHomePage = lazy(() => import('@/pages/videos/VideosHomePage').then((
 const RedditBrowsePage = lazy(() => import('@/pages/videos/RedditBrowsePage').then((m) => ({ default: m.RedditBrowsePage })))
 const TikTokBrowsePage = lazy(() => import('@/pages/videos/TikTokBrowsePage').then((m) => ({ default: m.TikTokBrowsePage })))
 const VimeoBrowsePage = lazy(() => import('@/pages/videos/VimeoBrowsePage').then((m) => ({ default: m.VimeoBrowsePage })))
+const StudioProjectsPage = lazy(() => import('@/pages/videos/create/StudioProjectsPage').then((m) => ({ default: m.StudioProjectsPage })))
+const StudioEditorPage = lazy(() => import('@/pages/videos/create/StudioEditorPage').then((m) => ({ default: m.StudioEditorPage })))
 const SourceCreatorPage = lazy(() => import('@/pages/videos/SourceCreatorPage').then((m) => ({ default: m.SourceCreatorPage })))
 const GenericWatchPage = lazy(() => import('@/pages/videos/GenericWatchPage').then((m) => ({ default: m.GenericWatchPage })))
 const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
@@ -410,7 +412,10 @@ export default function App() {
                   <Route path="liked" element={<YoutubeLikedPage />} />
                   <Route path="offline" element={<YoutubeOfflinePage />} />
                   <Route path="clip" element={<ClipperPage />} />
-                  <Route path="create" element={<VideoPage />} />
+                  {/* Create: studio projects + the AI generation page (former /video app). */}
+                  <Route path="create" element={<StudioProjectsPage />} />
+                  <Route path="create/generate" element={<VideoPage />} />
+                  <Route path="create/:projectId" element={<StudioEditorPage />} />
                   <Route path="settings/:section?" element={<VideosSettingsPage />} />
                   {/* Reddit source area. */}
                   <Route path="reddit" element={<RedditBrowsePage />} />

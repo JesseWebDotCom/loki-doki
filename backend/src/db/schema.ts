@@ -2486,6 +2486,50 @@ export const videoSaves = sqliteTable('video_saves', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userSourceVideoKindUnique: unique().on(t.userId, t.source, t.videoId, t.kind) }))
 
+// ─── Videos Create studio ────────────────────────────────────────────────────────
+// Projects are EDL JSON documents (versioned; validated by lib/videostudio/edl.ts).
+// Media-bin items own their bytes via media_assets(sourceType='studio'); assets any
+// project references are pinned against GC through studio_project_assets.
+
+export const studioProjects = sqliteTable('studio_projects', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  edlJson: text('edl_json').notNull(),
+  durationSec: real('duration_sec').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Bin items the studio itself owns: uploads, mic recordings, imported generations, and
+// finished exports. Personal (never cross-user deduped at the asset layer, like clips);
+// the blob layer still dedups identical bytes.
+export const studioMedia = sqliteTable('studio_media', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  origin: text('origin', { enum: ['upload', 'recording', 'generated', 'export'] }).notNull(),
+  title: text('title').notNull().default(''),
+  kind: text('kind', { enum: ['video', 'audio', 'image'] }).notNull().default('video'),
+  assetId: text('asset_id'),                    // → mediaAssets.id once ready
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),
+  durationSec: real('duration_sec'),
+  width: integer('width'),
+  height: integer('height'),
+  // JSON context: {imageId} for generated imports, {projectId, preset, edlSnapshot} for exports.
+  sourceMeta: text('source_meta'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// GC pin rows: re-diffed from the EDL's asset ids on every project save. Protects
+// yt/clip/video-save assets used in a timeline even if their library ref is removed;
+// deleting the project cascades these away and unpins naturally.
+export const studioProjectAssets = sqliteTable('studio_project_assets', {
+  projectId: text('project_id').notNull().references(() => studioProjects.id, { onDelete: 'cascade' }),
+  assetId: text('asset_id').notNull(),
+}, t => ({ pk: unique().on(t.projectId, t.assetId) }))
+
 // ─── Storage locations (generic, content-type agnostic) ────────────────────────
 // A named filesystem root — local or a network/UNC path — the app can store real
 // content under. Distinct from `storage.user_data_root` (paths.ts's single default

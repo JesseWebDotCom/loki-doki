@@ -101,6 +101,7 @@ import { ytPlaylists } from '@/routes/ytPlaylists'
 import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
 import { clipperRoute } from '@/routes/clipper'
 import { videosRoute } from '@/routes/videos'
+import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
 import { music } from '@/routes/music'
@@ -559,6 +560,7 @@ app.route('/api/admin/home-assistant', adminHomeAssistant)
 app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
+app.route('/api/videos/studio', studioRoute)
 app.route('/api/videos', videosRoute)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)
