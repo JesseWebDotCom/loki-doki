@@ -15,7 +15,7 @@ import { MediaShelf, ChannelRail, type ChannelEntry } from '@/components/youtube
 import { VideoCollection } from '@/components/youtube/VideoCollection'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
-import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeMode } from '@/components/videos/VideosLayout'
 
 // Round-robin a recency-sorted list across its channels so one frequent uploader
 // doesn't bury everyone else; "Latest" leads with each channel's newest in turn.
@@ -71,7 +71,7 @@ export function YoutubeSubscriptionsPage() {
         className="pt-6 pb-5"
         actions={
           <Button asChild variant="outline" className="shrink-0 gap-2 text-muted-foreground hover:text-foreground">
-            <Link to="/youtube/settings/channels"><Settings2 className="size-4" /> Manage</Link>
+            <Link to="/videos/settings/channels"><Settings2 className="size-4" /> Manage</Link>
           </Button>
         } />
 
@@ -90,7 +90,7 @@ export function YoutubeSubscriptionsPage() {
         <Card variant="dashed" className="p-10 text-center text-sm text-muted-foreground">
           {subs.length === 0 ? (
             <>You haven't added any channels yet.{' '}
-              <Link to="/youtube/settings/channels" className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</Link>
+              <Link to="/videos/settings/channels" className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</Link>
               {' '}to build your feed.</>
           ) : 'No recent uploads from your subscriptions.'}
         </Card>

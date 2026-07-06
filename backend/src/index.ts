@@ -589,6 +589,8 @@ app.route('/api/admin/storage-locations', adminStorageLocations)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))
 
 if (process.env.NODE_ENV !== 'development') {
+  app.get('/videos/youtube/watch/:videoId', ogMetaMiddleware)
+  // Legacy path: old shared links still resolve OG tags before the SPA redirect kicks in.
   app.get('/youtube/watch/:videoId', ogMetaMiddleware)
   app.use('*', serveStatic({ root: '../frontend/dist' }))
   app.get('*', serveStatic({ path: '../frontend/dist/index.html' }))

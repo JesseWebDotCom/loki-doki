@@ -153,7 +153,8 @@ const BookBibleReviewPage = lazy(() => import('@/pages/books/generate/BookBibleR
 const BookSampleApprovalPage = lazy(() => import('@/pages/books/generate/BookSampleApprovalPage').then((m) => ({ default: m.BookSampleApprovalPage })))
 const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/BookGenerationProgressPage').then((m) => ({ default: m.BookGenerationProgressPage })))
 
-const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
+const VideosLayout = lazy(() => import('@/components/videos/VideosLayout').then((m) => ({ default: m.VideosLayout })))
+const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
 const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
 const YoutubePlaylistsPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubePlaylistsPage })))
@@ -393,25 +394,29 @@ export default function App() {
                   <Route path="studio" element={<CompanionStudioPage />} />
                 </Route>
                 <Route path="/bored" element={<BoredPage />} />
-                <Route path="/youtube" element={<YoutubeLayout />}>
+                <Route path="/videos" element={<VideosLayout />}>
+                  {/* Phase 2 replaces the index with the mixed multi-source home. */}
                   <Route index element={<YoutubeHomePage />} />
-                  {/* Discover was merged into Home — keep the old path working. */}
-                  <Route path="discover" element={<Navigate to="/youtube" replace />} />
-                  {/* Library sections are now individual pages, each with its own header. */}
-                  <Route path="library" element={<Navigate to="/youtube/history" replace />} />
+                  {/* Cross-source library (YouTube-only until more providers land). */}
                   <Route path="history" element={<YoutubeHistoryPage />} />
                   <Route path="playlists" element={<YoutubePlaylistsPage />} />
                   <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
                   <Route path="liked" element={<YoutubeLikedPage />} />
                   <Route path="offline" element={<YoutubeOfflinePage />} />
-                  <Route path="subscriptions" element={<YoutubeSubscriptionsPage />} />
-                  <Route path="channel/:id" element={<YoutubeChannelPage />} />
-                  <Route path="playlist/:id" element={<YoutubePlaylistPage />} />
-                  <Route path="my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
-                  <Route path="watch/:videoId" element={<WatchPage />} />
-                  <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
+                  <Route path="clip" element={<ClipperPage />} />
                   <Route path="settings/:section?" element={<YoutubeSettingsPage />} />
+                  {/* YouTube source area: the retired standalone app lives on here. */}
+                  <Route path="youtube" element={<YoutubeHomePage />} />
+                  <Route path="youtube/subscriptions" element={<YoutubeSubscriptionsPage />} />
+                  <Route path="youtube/channel/:id" element={<YoutubeChannelPage />} />
+                  <Route path="youtube/playlist/:id" element={<YoutubePlaylistPage />} />
+                  <Route path="youtube/my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
+                  <Route path="youtube/watch/:videoId" element={<WatchPage />} />
+                  <Route path="youtube/shorts/:videoId" element={<YoutubeShortsPage />} />
                 </Route>
+                {/* Retired /youtube app: permanent redirects into the Videos hub. */}
+                <Route path="/youtube/*" element={<LegacyYoutubeRedirect />} />
+                <Route path="/youtube" element={<LegacyYoutubeRedirect />} />
                 <Route path="/podcasts" element={<PodcastLayout />}>
                   <Route index element={<ListenNowPage />} />
                   <Route path="browse" element={<PodcastBrowsePage />} />
@@ -441,7 +446,7 @@ export default function App() {
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/drop" element={<DropPage />} />
-                <Route path="/clipper" element={<ClipperPage />} />
+                <Route path="/clipper" element={<Navigate to="/videos/clip" replace />} />
                 <Route path="/canvas" element={<CanvasPage />} />
                 <Route path="/time" element={<TimePage />} />
                 {/* Dictionary + Medical are now sections of the Reference app. */}

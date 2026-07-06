@@ -22,7 +22,7 @@ export interface AbilityMapping {
 
 export const ABILITY_HOSTS: AbilityMapping[] = [
   // App-backed tools - toggle = __chat_enabled
-  { toolId: "youtube",         hostAppId: "youtube",        standalone: false },
+  { toolId: "youtube",         hostAppId: "videos",         standalone: false },
   { toolId: "weather",         hostAppId: "weather",        standalone: false },
   { toolId: "news",            hostAppId: "news",           standalone: false },
   { toolId: "localNews",       hostAppId: "news",           standalone: false },

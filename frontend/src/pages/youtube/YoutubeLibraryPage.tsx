@@ -350,7 +350,7 @@ function PlaylistsTab() {
       {!all.length ? <Empty label="Create a playlist to collect your favorite videos." /> : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {all.map(p => (
-            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/youtube/my-playlist/${p.id}`)}>
+            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/videos/youtube/my-playlist/${p.id}`)}>
               <PlaylistCover videoIds={p.coverVideoIds ?? []} title={p.name} count={p.videoCount} className="mb-2" />
               <p className="truncate text-sm font-semibold">{p.name}</p>
               <p className="truncate text-xs text-muted-foreground">

@@ -72,7 +72,7 @@ export function AppShell() {
     (text: string) => breadcrumbSearch?.setQuery(text),
     [breadcrumbSearch],
   );
-  useClipboardAutofill(searchInputRef, setQueryFromClipboard, pathname.startsWith("/youtube"));
+  useClipboardAutofill(searchInputRef, setQueryFromClipboard, pathname.startsWith("/videos"));
   // Bumped when the user clicks the app crumb; remounts the Outlet to "reload" the app.
   const [reloadNonce, setReloadNonce] = useState(0);
   const { location, status, error: locationError, detect, setManual } = useUserLocation();

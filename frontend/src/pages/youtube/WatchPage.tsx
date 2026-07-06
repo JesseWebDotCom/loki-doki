@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { toast } from '@/lib/toast'
-import { useYoutubeUI } from '@/components/youtube/YoutubeLayout'
+import { useYoutubeUI } from '@/components/videos/VideosLayout'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
 import { UpNextRow, watchHref } from '@/components/youtube/VideoCard'
 import { AutoplayCountdown } from '@/components/youtube/AutoplayCountdown'
@@ -163,7 +163,7 @@ export function WatchPage() {
     toggle: () => playerRef.current?.togglePlay(),
     seek: (s) => playerRef.current?.seek(s),
     prev: () => playerRef.current?.seek(0),
-    next: () => { const nx = miniQueueRef.current[1]?.videoId; if (nx) navigate(`/youtube/watch/${nx}`) },
+    next: () => { const nx = miniQueueRef.current[1]?.videoId; if (nx) navigate(`/videos/youtube/watch/${nx}`) },
     stop: () => playerRef.current?.pause(),
   }), []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -229,7 +229,7 @@ export function WatchPage() {
   // only hand off while playing.
   function minimize() {
     pb.dock(miniQueueRef.current, 0, secRef.current || currentSec)
-    navigate('/youtube')
+    navigate('/videos/youtube')
   }
 
   return (
@@ -422,7 +422,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
 
       <div className="flex flex-wrap items-center gap-3">
         {author && (channelId ? (
-          <Link to={`/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
+          <Link to={`/videos/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
             className="group flex items-center gap-2.5">
             <ChannelAvatar title={author} src={channelThumb} className="size-10 text-sm ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
             <p className="text-sm font-semibold transition-colors group-hover:text-[var(--yt-accent-fg)]">{author}</p>
@@ -459,7 +459,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
                 title="Audio only: play just the audio to save bandwidth." />
             )}
             {isShortVid && (
-              <SegBtn icon={Smartphone} label="Shorts view" to={`/youtube/shorts/${videoId}`} title="Open in Shorts view" />
+              <SegBtn icon={Smartphone} label="Shorts view" to={`/videos/youtube/shorts/${videoId}`} title="Open in Shorts view" />
             )}
           </div>
 
@@ -481,7 +481,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
             )}
             <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)}
               title="Download: pull the video file down to this device (like any web download)." />
-            <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
+            <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/videos/youtube/watch/${videoId}`, { label: 'Link' })} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button title="More actions" aria-label="More actions"

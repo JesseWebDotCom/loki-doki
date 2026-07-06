@@ -27,7 +27,7 @@ function navPath(a: { app?: string; view?: string; channelId?: string; videoId?:
   if (a.path) return a.path
   const app = (a.app ?? '').replace(/^\/+/, '')
   if (!app) return '/'
-  if (app === 'youtube' && a.videoId) return `/youtube/watch/${a.videoId}`
+  if (app === 'youtube' && a.videoId) return `/videos/youtube/watch/${a.videoId}`
   if (a.channelId) return `/${app}/channel/${a.channelId}`
   if (a.view) return `/${app}/${a.view}`
   return `/${app}`

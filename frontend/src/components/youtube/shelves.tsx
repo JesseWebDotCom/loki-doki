@@ -109,7 +109,7 @@ export function ChannelRail({ title = 'Top channels', to, channels }: { title?: 
       <SectionHeader title={title} to={to} className="mb-4" />
       <HScroll>
         {channels.map(c => (
-          <Link key={c.id} to={`/youtube/channel/${encodeURIComponent(c.id)}`}
+          <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`}
             state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
             className="group flex w-28 shrink-0 flex-col items-center gap-2 text-center">
             <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
@@ -134,7 +134,7 @@ export interface PlaylistCardData {
 /** A single playlist card (search results, the channel Playlists tab, playlist rails). */
 export function PlaylistCard({ p }: { p: PlaylistCardData }) {
   return (
-    <Link to={`/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }} className="group">
+    <Link to={`/videos/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }} className="group">
       <div className="relative aspect-video overflow-hidden rounded-card bg-muted">
         {p.thumbnailUrl
           ? <img src={ytImageProxy(p.thumbnailUrl)} alt="" referrerPolicy="no-referrer" className="size-full object-cover transition group-hover:scale-105" />
@@ -152,7 +152,7 @@ export function PlaylistCard({ p }: { p: PlaylistCardData }) {
 /** Full-width horizontal playlist row (list view), matching PlaylistCard's target/badges. */
 export function PlaylistListRow({ p }: { p: PlaylistCardData }) {
   return (
-    <Link to={`/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }}
+    <Link to={`/videos/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }}
       className="group flex gap-3 rounded-card p-1.5 transition-colors hover:bg-accent/50 sm:gap-4">
       <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card bg-muted sm:w-56">
         {p.thumbnailUrl

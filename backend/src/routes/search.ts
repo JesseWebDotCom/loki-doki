@@ -206,7 +206,7 @@ const youtubeProvider: Provider = async (userId, q) => {
     if (byVideo.has(videoId)) return
     byVideo.set(videoId, {
       type: 'youtube', id: videoId, title: title || videoId, subtitle, icon,
-      route: `/youtube/watch/${videoId}`, group: 'YouTube',
+      route: `/videos/youtube/watch/${videoId}`, group: 'YouTube',
     })
   }
   for (const r of downloads) add(r.videoId, r.title, r.kind === 'audio' ? 'Saved audio' : 'Saved video', null)

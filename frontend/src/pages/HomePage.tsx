@@ -796,7 +796,7 @@ function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | '
           <PlaySquare className="size-3" />
           <span>Subscriptions</span>
         </div>
-        <Link to="/youtube" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
+        <Link to="/videos/youtube" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
       </div>
       {loading && vids.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!loading && vids.length === 0 && (
