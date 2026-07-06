@@ -261,7 +261,12 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
     title: video.title, plot: episodePlot, aired: isoDate(video.publishedAt),
     season: seasonYear, episode: episodeNumber,
   }))
-  await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), video.thumbnailUrl, video.durationSec)
+  // A row saved outside a subscription feed may have no stored thumbnail URL, but YouTube
+  // thumbnail URLs are deterministic from the videoId — fall back through the standard
+  // sizes (maxres only exists for some videos; hqdefault always does).
+  for (const cand of [video.thumbnailUrl, `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`, `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`]) {
+    if (cand && await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), cand, video.durationSec)) break
+  }
 
   // Captions: re-time against the SAME keepRanges used for the video (identity when
   // nothing was cut) so they can never drift out of sync with what's actually playing.
