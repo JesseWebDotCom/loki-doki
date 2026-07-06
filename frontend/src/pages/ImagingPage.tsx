@@ -19,6 +19,7 @@ import { usePublishUIContext } from '@/context/UIContextProvider'
 import { usePrivacy } from '@/context/PrivacyContext'
 import { useImageAnalyze } from '@/hooks/useImageAnalyze'
 import type { AnalysisTask, AnalysisHistoryItem, SafetyFlag } from '@/hooks/useImageAnalyze'
+import { useMediaEnhance, type EnhanceMode } from '@/hooks/useMediaEnhance'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -80,11 +81,12 @@ const EDIT_OPERATIONS = [
 
 // ── Sidebar nav ───────────────────────────────────────────────────────────────
 
-type ActiveTab = 'generate' | 'edit' | 'recognize' | 'logo'
+type ActiveTab = 'generate' | 'edit' | 'recognize' | 'logo' | 'enhance'
 
 const NAV_ITEMS: { id: ActiveTab; icon: React.ElementType; label: string }[] = [
   { id: 'generate',  icon: Sparkles, label: 'Generate' },
   { id: 'edit',      icon: Wand2,    label: 'Edit'     },
+  { id: 'enhance',   icon: Zap,      label: 'Enhance'  },
   { id: 'recognize', icon: ScanFace, label: 'Recognize'},
   { id: 'logo',      icon: Layers,   label: 'Logo'     },
 ]
@@ -681,6 +683,21 @@ export function ImagingPage() {
   const [adjContrast,   setAdjContrast]   = useState(0)
   const [adjSaturation, setAdjSaturation] = useState(0)
   const [adjSharpness,  setAdjSharpness]  = useState(0)
+
+  // ── Media enhance (manual: images & video) ─────────────────────────────────
+  const { state: enh, run: runEnhance, reset: resetEnhance } = useMediaEnhance()
+  const [enhFile, setEnhFile] = useState<File | null>(null)
+  const [enhMode, setEnhMode] = useState<EnhanceMode>('clarity')
+  const [enhStrength, setEnhStrength] = useState(0.12)
+  const [enhFps, setEnhFps] = useState(60)
+  const enhFileInputRef = useRef<HTMLInputElement>(null)
+  const enhIsVideo = (enhFile?.type ?? '').startsWith('video/')
+  const handleEnhFile = useCallback((f: File | null) => { setEnhFile(f); setEnhMode('clarity'); resetEnhance() }, [resetEnhance])
+  const handleRunEnhance = useCallback(() => {
+    if (!enhFile || enh.status === 'running') return
+    const opts = enhMode === 'ai-upscale' ? { strength: enhStrength } : enhMode === 'interpolate' ? { fps: enhFps } : undefined
+    void runEnhance(enhFile, enhMode, opts)
+  }, [enhFile, enhMode, enhStrength, enhFps, enh.status, runEnhance])
 
   useEffect(() => {
     return () => {
@@ -1330,13 +1347,15 @@ export function ImagingPage() {
           <div className="relative px-4 py-3.5 border-b border-border/40 glass-chrome shrink-0">
             <ChromeWash />
             <h2 className="relative text-sm font-semibold">
-              {activeTab === 'generate' ? 'Generate' : activeTab === 'edit' ? 'Edit' : activeTab === 'recognize' ? 'Recognize' : 'Logo'}
+              {activeTab === 'generate' ? 'Generate' : activeTab === 'edit' ? 'Edit' : activeTab === 'enhance' ? 'Enhance' : activeTab === 'recognize' ? 'Recognize' : 'Logo'}
             </h2>
             <p className="relative mt-0.5 text-[11px] leading-snug text-muted-foreground">
               {activeTab === 'generate'
                 ? 'Create images from text prompts using local AI models.'
                 : activeTab === 'edit'
                 ? 'Enhance, transform, and retouch any photo, fully offline.'
+                : activeTab === 'enhance'
+                ? 'Upscale, sharpen, or smooth any image or video with AI.'
                 : activeTab === 'recognize'
                 ? 'Analyze images: describe scenes, read text, detect objects.'
                 : 'Generate logos and icons from a text description.'}
@@ -1962,6 +1981,90 @@ export function ImagingPage() {
               </>
             )}
 
+            {/* ── Enhance panel ──────────────────────────────────────────────── */}
+            {activeTab === 'enhance' && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">Image or video</Label>
+                  <input ref={enhFileInputRef} type="file" accept="image/*,video/*" className="hidden"
+                    onChange={e => handleEnhFile(e.target.files?.[0] ?? null)} />
+                  <button onClick={() => enhFileInputRef.current?.click()}
+                    className="w-full rounded-card border-2 border-dashed border-border px-4 py-5 text-xs text-center transition-colors hover:border-brand">
+                    <Upload className="size-4 mx-auto mb-1.5 opacity-60" />
+                    {enhFile ? enhFile.name : 'Upload an image or video'}
+                  </button>
+                </div>
+                {enhFile && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold">Mode</Label>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {(enhIsVideo
+                        ? [
+                            { id: 'clarity' as const,     label: 'Clarity',      desc: 'Sharpen + vibrance · real-time' },
+                            { id: 'ai-upscale' as const,  label: 'AI Upscale',   desc: 'Real-CUGAN · ≤1080p, slow' },
+                            { id: 'interpolate' as const, label: 'Smooth 60fps', desc: 'RIFE motion interpolation' },
+                          ]
+                        : [
+                            { id: 'clarity' as const,     label: 'Clarity',       desc: 'Sharpen + vibrance · instant' },
+                            { id: 'ai-upscale' as const,  label: 'Photo Upscale', desc: 'Real-CUGAN 2× · vs ESRGAN' },
+                          ]
+                      ).map(m => (
+                        <button key={m.id} type="button" onClick={() => setEnhMode(m.id)}
+                          className={cn('rounded-control border px-3 py-2 text-left transition-colors',
+                            enhMode === m.id ? 'border-brand bg-brand/10' : 'border-border hover:bg-muted')}>
+                          <p className="text-xs font-medium">{m.label}</p>
+                          <p className="text-[10px] text-muted-foreground">{m.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {enhFile && enhIsVideo && enhMode === 'ai-upscale' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-muted-foreground">Strength · {Math.round(enhStrength * 100)}%</Label>
+                    <input type="range" min={0} max={0.5} step={0.01} value={enhStrength}
+                      onChange={e => setEnhStrength(Number(e.target.value))} className="w-full" />
+                  </div>
+                )}
+                {enhFile && enhMode === 'interpolate' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-muted-foreground">Target FPS</Label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[48, 60, 120].map(f => (
+                        <button key={f} type="button" onClick={() => setEnhFps(f)}
+                          className={cn('rounded-control border px-2 py-1.5 text-xs font-medium transition-colors',
+                            enhFps === f ? 'border-brand bg-brand/10 text-brand' : 'border-border hover:bg-muted')}>{f}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {enh.status === 'running' && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>{enh.note || 'Working…'}</span><span>{enh.pct}%</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div className="h-full bg-brand transition-[width] duration-300" style={{ width: `${Math.max(3, enh.pct)}%` }} />
+                    </div>
+                  </div>
+                )}
+                {enh.status === 'error' && enh.error && (
+                  <p className="text-xs text-destructive rounded-control border border-destructive/30 bg-destructive/10 px-3 py-2">{enh.error}</p>
+                )}
+                {enh.status === 'done' && enh.resultUrl && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold">Result</Label>
+                    {enh.media === 'video'
+                      ? <video src={enh.resultUrl} controls className="w-full rounded-card border border-border" />
+                      : <img src={enh.resultUrl} alt="Enhanced" className="w-full rounded-card border border-border" />}
+                    <a href={enh.resultUrl} download className="flex items-center justify-center gap-1.5 rounded-control border border-border px-3 py-2 text-xs font-medium hover:bg-muted">
+                      <Download className="size-3.5" /> Download
+                    </a>
+                  </div>
+                )}
+              </>
+            )}
+
           </div>
 
           {/* ── Action button ────────────────────────────────────────────────── */}
@@ -2008,6 +2111,20 @@ export function ImagingPage() {
                   <Button variant="outline" size="sm" onClick={analyzeReset} className="px-3 h-12"><RefreshCw className="size-4" /></Button>
                 )}
               </div>
+            )}
+            {activeTab === 'enhance' && (
+              enh.status === 'running' ? (
+                <Button onClick={resetEnhance} variant="outline" className="w-full gap-2 h-12"><X className="size-4" /> Stop watching</Button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button onClick={handleRunEnhance} disabled={!enhFile} className="flex-1 gap-2 h-12 font-semibold">
+                    <Zap className="size-5" /> Enhance
+                  </Button>
+                  {(enh.status === 'done' || enh.status === 'error') && (
+                    <Button variant="outline" size="sm" onClick={resetEnhance} className="px-3 h-12"><RefreshCw className="size-4" /></Button>
+                  )}
+                </div>
+              )
             )}
             {activeTab === 'logo' && (
               <div className="space-y-2">
