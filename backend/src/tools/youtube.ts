@@ -324,8 +324,8 @@ async function keylessSearch(query: string, limit: number, timeout: number): Pro
 
 export const youtubeTool: Tool = {
   id: 'youtube',
-  name: 'YouTube',
-  description: 'Search YouTube for videos by topic or keyword',
+  name: 'Videos',
+  description: 'Search YouTube for videos by topic or keyword, or resolve a pasted video link (YouTube, Reddit, TikTok, Vimeo)',
   offline: false,
   passMessage: 'query',
   dataSources: [
@@ -376,6 +376,38 @@ export const youtubeTool: Tool = {
   async execute(args: unknown, config?: Record<string, unknown>): Promise<ToolResult> {
     const { query, max_results = 5 } = args as { query: string; max_results?: number }
     if (!query?.trim()) return { success: false, error: 'Query is required' }
+
+    // Pasted video link (YouTube/Reddit/TikTok/Vimeo): resolve through the hub's provider
+    // registry instead of searching, and hand back the in-app watch route.
+    const urlMatch = query.match(/https?:\/\/\S+/)
+    if (urlMatch) {
+      try {
+        const { matchUrlToProvider } = await import('@/lib/videos/registry')
+        const hit = matchUrlToProvider(urlMatch[0])
+        if (hit && hit.match.kind === 'video') {
+          const item = await hit.provider.getItem(hit.match.id)
+          if (item) {
+            return {
+              success: true,
+              data: {
+                resolved: {
+                  source: hit.provider.source,
+                  videoId: item.id,
+                  title: item.title,
+                  creator: item.creator?.name ?? null,
+                  durationSec: item.durationSec ?? null,
+                  url: item.url,
+                  route: hit.provider.source === 'youtube'
+                    ? `/videos/youtube/watch/${item.id}`
+                    : `/videos/${hit.provider.source}/watch/${encodeURIComponent(item.id)}`,
+                },
+                summary: `Resolved ${hit.provider.label} video: "${item.title}"${item.creator?.name ? ` by ${item.creator.name}` : ''}. The user can watch or save it at the route.`,
+              },
+            }
+          }
+        }
+      } catch { /* fall through to plain search */ }
+    }
 
     // Default 5 (the chat assistant wants a short list); the browse UI passes a larger
     // count for a full results grid. Capped at 40 so one InnerTube page covers it.
