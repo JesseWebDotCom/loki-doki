@@ -25,7 +25,21 @@ import { computeKeepRanges, type Range } from '@/lib/plex/cut/videoCut'
 import { cutAndRenderSrt } from '@/lib/plex/cut/subtitleCut'
 import { rm, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, basename } from 'node:path'
+import { spawn } from 'node:child_process'
+import { ffprobeBin } from '@/lib/ffmpeg'
 import { logger } from '@/lib/logger'
+
+/** Container duration in seconds via ffprobe (same probe media/enhance.ts uses); 0 when
+ *  unreadable — which makes writeEpisodeThumb skip rather than publish a badge-less thumb. */
+function probeDurationSec(path: string): Promise<number> {
+  return new Promise((resolve) => {
+    const p = spawn(ffprobeBin(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    let out = ''
+    p.stdout?.on('data', (c: Buffer) => { out += c.toString() })
+    p.on('close', () => { const n = parseFloat(out.trim()); resolve(Number.isFinite(n) && n > 0 ? n : 0) })
+    p.on('error', () => resolve(0))
+  })
+}
 
 const CONTENT_TYPE = 'youtube'
 
@@ -263,9 +277,15 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   }))
   // A row saved outside a subscription feed may have no stored thumbnail URL, but YouTube
   // thumbnail URLs are deterministic from the videoId — fall back through the standard
-  // sizes (maxres only exists for some videos; hqdefault always does).
+  // sizes (maxres only exists for some videos; hqdefault always does). writeEpisodeThumb
+  // refuses to publish a badge-less thumb, so resolve a real duration first: DB value,
+  // else ffprobe the just-placed file (its container always knows).
+  const badgeDurationSec = video.durationSec ?? await probeDurationSec(videoAbsPath)
+  if (badgeDurationSec && !video.durationSec) {
+    await db.update(ytVideos).set({ durationSec: Math.round(badgeDurationSec) }).where(eq(ytVideos.videoId, videoId))
+  }
   for (const cand of [video.thumbnailUrl, `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`, `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`]) {
-    if (cand && await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), cand, video.durationSec)) break
+    if (cand && await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), cand, badgeDurationSec)) break
   }
 
   // Captions: re-time against the SAME keepRanges used for the video (identity when

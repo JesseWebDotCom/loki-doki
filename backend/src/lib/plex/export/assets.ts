@@ -118,12 +118,31 @@ async function overlayThumbBadges(imgBuffer: Buffer, durationSec: number | null)
   return sharp(imgBuffer).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 90 }).toBuffer()
 }
 
+/** Center-crop to 16:9 before badging. YouTube's hqdefault.jpg is 480x360 (4:3) with the
+ *  16:9 content letterboxed between baked-in black bars — a badge positioned relative to
+ *  the full frame lands INSIDE the bottom bar, and Plex's 16:9 episode tiles then crop the
+ *  bar (and the badge) away, leaving a half-visible box. Confirmed live on all three Plex
+ *  clients. Cropping first puts the badge inside the content that actually renders. */
+async function cropTo16x9(buf: Buffer): Promise<Buffer> {
+  const meta = await sharp(buf).metadata()
+  const W = meta.width ?? 0, H = meta.height ?? 0
+  const targetH = Math.round(W * 9 / 16)
+  if (!W || !H || H <= targetH + 2) return buf   // unknown size, already 16:9, or wider
+  const top = Math.round((H - targetH) / 2)
+  return sharp(buf).extract({ left: 0, top, width: W, height: targetH }).jpeg({ quality: 92 }).toBuffer()
+}
+
 export async function writeEpisodeThumb(thumbAbsPath: string, url: string | null, durationSec: number | null): Promise<boolean> {
   if (!url) return false
+  // A thumbnail without its duration badge must never reach the Plex tree — the badge is
+  // the whole point of writing our own thumb (Plex would generate a frame grab otherwise,
+  // which at least LOOKS intentionally different from a half-done YouTube-style thumb).
+  // Callers resolve duration (DB, else ffprobe of the placed file) before calling.
+  if (!durationSec || durationSec <= 0) return false
   const img = await getOrFetchImage(url)
   if (!img) return false
-  let bytes = img.data
-  try { bytes = await overlayThumbBadges(bytes, durationSec) } catch { /* fall through with the plain thumbnail */ }
+  let bytes: Buffer
+  try { bytes = await overlayThumbBadges(await cropTo16x9(img.data), durationSec) } catch { return false }
   await mkdir(dirname(thumbAbsPath), { recursive: true })
   await writeFile(thumbAbsPath, bytes)
   return true
