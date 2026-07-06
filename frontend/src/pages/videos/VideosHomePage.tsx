@@ -10,7 +10,7 @@ import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
-import { getHistory } from '@/lib/youtube/api'
+import { getHistory, getSubscriptions } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
 import { getHubHome, getVideoSources, listFollows, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
@@ -109,16 +109,21 @@ function HubLanding() {
   )
 }
 
-/** Why a source is quiet: connect nudges for key-gated sources, a follow nudge for
- *  TikTok. Dismiss = connect (the chip disappears once /sources reports configured). */
+/** Why a feed looks generic: connect nudges for key-gated sources, personalize nudges
+ *  for sources that show popular content but get better with follows/subscriptions.
+ *  Each chip disappears once its condition is met. */
 function SourceNudges({ sources }: { sources: SourceInfo[] }) {
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
+  const { data: ytSubs = [] } = useQuery({ queryKey: ['yt-subs'], queryFn: getSubscriptions })
   const nudges: Array<{ key: string; to: string; text: string }> = []
+  if (ytSubs.length === 0) {
+    nudges.push({ key: 'youtube', to: '/videos/settings/channels', text: 'Add YouTube channels or sign in to personalize your feed' })
+  }
   for (const s of sources) {
     if (!s.status.configured) {
       nudges.push({ key: s.source, to: `/videos/${s.source}`, text: `Connect ${s.label} to see its videos here` })
     } else if (s.source === 'tiktok' && !(followsData?.follows ?? []).some((f) => f.source === 'tiktok')) {
-      nudges.push({ key: 'tiktok', to: '/videos/tiktok', text: 'Follow TikTok creators to mix them in here' })
+      nudges.push({ key: 'tiktok', to: '/videos/tiktok', text: 'Follow TikTok creators to personalize their feed' })
     }
   }
   if (nudges.length === 0) return null
