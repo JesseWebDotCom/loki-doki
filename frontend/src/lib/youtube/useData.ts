@@ -18,6 +18,16 @@ export function useYtDownloads() {
   })
 }
 
+/** Offline-save state for one video, derived from the shared downloads cache. */
+export function useSavedState(videoId: string): 'saved' | 'saving' | null {
+  const { data } = useYtDownloads()
+  const row = data?.find(r => r.videoId === videoId)
+  if (!row) return null
+  if (row.status === 'ready') return 'saved'
+  if (row.status === 'pending' || row.status === 'downloading') return 'saving'
+  return null
+}
+
 /** Feed videos with lazily-backfilled durations (RSS omits them) merged in. */
 export function useYtFeed(limit = 120): { videos: FeedVideo[]; items: VideoItem[]; loading: boolean } {
   const qc = useQueryClient()

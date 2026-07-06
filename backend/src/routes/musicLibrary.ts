@@ -71,7 +71,7 @@ musicLibrary.post('/offline', async (c) => {
   if (!body.videoId || !body.title) return c.json({ error: 'videoId and title required' }, 400)
   const r = await enqueueVideoSave({
     userId: user.id, videoId: body.videoId, title: body.title, kind: 'audio',
-    maxHeight: null, firstName: user.firstName, audioFormat: 'm4a',
+    maxHeight: null, firstName: user.firstName, audioFormat: 'm4a', origin: 'music',
   })
   return c.json(r)
 })

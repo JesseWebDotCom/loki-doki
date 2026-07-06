@@ -18,7 +18,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync, statSync } from 'node:fs'
-import { chmod, mkdir, rename, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { dataDir } from '@/lib/download'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
@@ -30,6 +30,9 @@ const IS_WIN = process.platform === 'win32'
 const BIN_NAME = IS_WIN ? 'yt-dlp.exe' : 'yt-dlp'
 const BIN_DIR = join(dataDir, 'bin')
 const MANAGED_PATH = join(BIN_DIR, BIN_NAME)
+const COOKIES_DIR = join(dataDir, 'youtube')
+const COOKIES_PATH = join(COOKIES_DIR, 'cookies.txt')
+const COOKIES_UPLOADED_KEY = 'youtube.cookies_uploaded_at'
 
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000        // re-check at most once a day at boot
 const UPDATE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000   // forced refresh cadence while running
@@ -195,6 +198,33 @@ export async function getYtDlpStatus(): Promise<YtDlpStatus> {
   const version = (await getAppSetting(VERSION_KEY)) as string | null
   const checkedAt = (await getAppSetting(CHECKED_KEY)) as number | null
   return { binary: resolvedBin, managed: resolvedBin === MANAGED_PATH, version: version ?? null, checkedAt: checkedAt ?? null }
+}
+
+// Admin-uploaded cookies.txt (Netscape format), used for downloads/exports/transcripts
+// that hit an age-gated or members-only video. Deliberately NOT applied to stream.ts's
+// live-playback resolve fallback — that path runs on every household member's normal
+// viewing, and forcing a single personal YouTube session onto shared traffic risks that
+// account getting flagged for anomalous concurrent-session behavior.
+export function ytDlpAuthArgs(): string[] {
+  return existsSync(COOKIES_PATH) ? ['--cookies', COOKIES_PATH] : []
+}
+
+export async function saveCookiesFile(buf: Buffer): Promise<void> {
+  await mkdir(COOKIES_DIR, { recursive: true })
+  const part = `${COOKIES_PATH}.part`
+  await writeFile(part, buf)
+  await rename(part, COOKIES_PATH)
+  await setAppSetting(COOKIES_UPLOADED_KEY, Date.now())
+}
+
+export async function clearCookiesFile(): Promise<void> {
+  try { await unlink(COOKIES_PATH) } catch { /* already gone */ }
+  await setAppSetting(COOKIES_UPLOADED_KEY, null)
+}
+
+export async function getCookiesStatus(): Promise<{ present: boolean; uploadedAt: number | null }> {
+  const uploadedAt = (await getAppSetting(COOKIES_UPLOADED_KEY)) as number | null
+  return { present: existsSync(COOKIES_PATH), uploadedAt: uploadedAt ?? null }
 }
 
 let _timer: ReturnType<typeof setInterval> | null = null

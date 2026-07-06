@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, XCircle, Server, ExternalLink, UserCheck, UserX } from 'lucide-react'
+import { CheckCircle2, XCircle, Server, ExternalLink, UserCheck, UserX, AlertTriangle, ChevronDown } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -7,6 +7,8 @@ import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { AdminStorageLocationsTab } from '@/components/admin/AdminStorageLocationsTab'
+import { cn } from '@/lib/cn'
 import {
   getPlexConfig,
   savePlexConfig,
@@ -17,8 +19,31 @@ import {
   type PlexServer,
 } from '@/lib/plex/api'
 
+interface PlexLibrarySection {
+  userId: string
+  contentType: string
+  status: 'pending' | 'provisioning' | 'ready' | 'error'
+  error: string | null
+}
+
+interface StorageLocation {
+  id: string
+  name: string
+  path: string
+  plexPath: string | null
+}
+
 export function AdminPlexTab() {
   const [cfg, setCfg] = useState<PlexConfigSummary | null>(null)
+  const [librarySections, setLibrarySections] = useState<PlexLibrarySection[]>([])
+  const [provisioning, setProvisioning] = useState<Set<string>>(new Set())
+  // Whether YouTube's storage location + Plex path mapping are actually set up, the real
+  // prerequisite for "Provision" to succeed at all. Checked up front so the button isn't
+  // clickable into 3 doomed retries with the failure only visible in the server log.
+  const [youtubeStorageReady, setYoutubeStorageReady] = useState<boolean | null>(null)
+  const [youtubeStorageIssue, setYoutubeStorageIssue] = useState<string | null>(null)
+  const [storageManagerOpen, setStorageManagerOpen] = useState(false)
+  const storageManagerAutoOpened = useRef(false)
   const [baseUrl, setBaseUrl] = useState('')
   const [token, setToken] = useState('')
   const [saving, setSaving] = useState(false)
@@ -39,7 +64,56 @@ export function AdminPlexTab() {
     }
     setCfg(d)
     setBaseUrl(d.baseUrl)
+    const secRes = await fetch('/api/plex/admin/library-sections', { credentials: 'include' })
+    if (secRes.ok) {
+      const secData = await secRes.json() as { sections: PlexLibrarySection[] }
+      setLibrarySections(secData.sections ?? [])
+    }
+
+    // Same two checks provisionUserLibrary() makes server-side, done here up front so the
+    // button reflects reality instead of the user having to fail 3 job attempts to find out.
+    // NOTE: no trailing slash on the bare list endpoint. Hono's `.route()` mounts a child
+    // `app.get('/')` at exactly the prefix, not prefix + '/' (a distinct, 404-ing path).
+    const [locRes, ctRes] = await Promise.all([
+      fetch('/api/admin/storage-locations', { credentials: 'include' }),
+      fetch('/api/admin/storage-locations/content-types', { credentials: 'include' }),
+    ])
+    if (locRes.ok && ctRes.ok) {
+      const locData = await locRes.json() as { locations: StorageLocation[] }
+      const ctData = await ctRes.json() as { assignments: Array<{ contentType: string; storageLocationId: string | null }> }
+      const assignment = ctData.assignments.find(a => a.contentType === 'youtube')
+      if (!assignment?.storageLocationId) {
+        setYoutubeStorageReady(false)
+        setYoutubeStorageIssue('YouTube is still on the default local storage, which Plex can never see.')
+      } else {
+        const loc = locData.locations.find(l => l.id === assignment.storageLocationId)
+        if (!loc?.plexPath) {
+          setYoutubeStorageReady(false)
+          setYoutubeStorageIssue(`"${loc?.name ?? 'YouTube’s storage location'}" has no Plex path mapping set.`)
+        } else {
+          setYoutubeStorageReady(true)
+          setYoutubeStorageIssue(null)
+        }
+      }
+    }
   }, [])
+
+  const provisionYoutube = useCallback(async (userId: string) => {
+    setProvisioning(prev => new Set(prev).add(userId))
+    try {
+      await fetch('/api/plex/admin/provision', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, contentType: 'youtube' }),
+      })
+      toast.success('Provisioning started, check back shortly for status')
+      // The job runs in the background; poll once after a few seconds so a quick success shows up.
+      setTimeout(() => { void load() }, 4000)
+    } finally {
+      setProvisioning(prev => { const next = new Set(prev); next.delete(userId); return next })
+    }
+  }, [load])
 
   useEffect(() => {
     void load()
@@ -47,6 +121,15 @@ export function AdminPlexTab() {
       if (pollTimer.current) clearInterval(pollTimer.current)
     }
   }, [load])
+
+  // Open the embedded manager automatically the first time we learn setup isn't done yet.
+  // Only once, so a user who deliberately collapses it later isn't fought on every re-check.
+  useEffect(() => {
+    if (youtubeStorageReady === false && !storageManagerAutoOpened.current) {
+      storageManagerAutoOpened.current = true
+      setStorageManagerOpen(true)
+    }
+  }, [youtubeStorageReady])
 
   const save = useCallback(
     async (patch: { baseUrl?: string; token?: string }) => {
@@ -201,6 +284,46 @@ export function AdminPlexTab() {
           </CardContent>
         </Card>
 
+        {/* YouTube → Plex export prerequisites. The manager lives right here, not in
+            another admin section, since Plex is the only thing that needs it today. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">YouTube library storage</CardTitle>
+            <CardDescription>
+              Add a network location Plex can see and give it a Plex path mapping below, that's
+              the only step. It's automatically used for YouTube's export once mapped.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {youtubeStorageReady == null ? (
+              <Spinner size="sm" className="text-muted-foreground" />
+            ) : youtubeStorageReady ? (
+              <div className="flex items-center gap-2 text-sm text-success">
+                <CheckCircle2 className="size-4 shrink-0" /> Storage location and Plex path mapping are configured.
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 text-sm text-warning">
+                <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                <span>{youtubeStorageIssue}</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setStorageManagerOpen(o => !o)}
+              className="flex w-full items-center justify-between rounded-control border border-border px-3 py-2 text-sm hover:bg-muted/50"
+            >
+              <span>{storageManagerOpen ? 'Hide' : 'Manage'} storage locations</span>
+              <ChevronDown className={cn('size-4 transition-transform', storageManagerOpen && 'rotate-180')} />
+            </button>
+            {storageManagerOpen && (
+              <div className="rounded-card border border-border">
+                <AdminStorageLocationsTab onChange={load} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Linked user accounts */}
         <Card>
           <CardHeader>
@@ -211,20 +334,52 @@ export function AdminPlexTab() {
           </CardHeader>
           <CardContent>
             <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
-              {cfg.users.map(u => (
-                <div key={u.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                  <span>{u.name}</span>
-                  {u.linked ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-success">
-                      <UserCheck className="size-3.5" /> Linked
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <UserX className="size-3.5" /> Not linked
-                    </span>
-                  )}
-                </div>
-              ))}
+              {cfg.users.map(u => {
+                const section = librarySections.find(s => s.userId === u.id && s.contentType === 'youtube')
+                return (
+                  <div key={u.id} className="flex flex-col gap-1.5 px-4 py-2.5 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>{u.name}</span>
+                      <div className="flex items-center gap-3">
+                        {u.linked ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-success">
+                            <UserCheck className="size-3.5" /> Linked
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <UserX className="size-3.5" /> Not linked
+                          </span>
+                        )}
+                        {u.linked && (
+                          <>
+                            {section?.status === 'ready' && <span className="text-xs text-success">YouTube library ready</span>}
+                            {(!section || section.status === 'error') && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={provisioning.has(u.id) || !youtubeStorageReady}
+                                title={!youtubeStorageReady ? 'Fix the storage setup above first' : undefined}
+                                onClick={() => provisionYoutube(u.id)}
+                              >
+                                {provisioning.has(u.id) && <Spinner size="sm" className="text-current mr-1" />}
+                                {section?.status === 'error' ? 'Retry' : 'Provision YouTube library'}
+                              </Button>
+                            )}
+                            {(section?.status === 'pending' || section?.status === 'provisioning') && (
+                              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Spinner size="sm" /> Provisioning…
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {section?.status === 'error' && section.error && (
+                      <p className="text-xs text-destructive">{section.error}</p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </CardContent>
         </Card>

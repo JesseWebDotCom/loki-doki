@@ -8,7 +8,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { logger } from '@/lib/logger'
-import { ytDlpBin, withYtDlpSlot } from '@/lib/youtube/ytdlp'
+import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
 import { innertubePlayerStreams, type ItStreams } from '@/lib/youtube/innertube'
 
 const execFileAsync = promisify(execFile)
@@ -121,30 +121,37 @@ export async function resolveStreamUrl(videoId: string, kind: StreamKind, qualit
   return p
 }
 
+// Fast path: one JSON call to the ANDROID_VR client (pre-signed, cipher-free URLs) beats
+// spawning yt-dlp — for BOTH video (progressive) and audio (best adaptive audio). No
+// subprocess involved, so this is safe to call far more liberally than yt-dlp (which is
+// capped at 3 concurrent slots server-wide) — shared by the main resolver below (which
+// falls back to yt-dlp on failure) and resolveStreamPreviewUrl (which does not).
+async function fastPathResolve(videoId: string, kind: StreamKind, quality: StreamQuality): Promise<string | null> {
+  try {
+    const streams = await innertubePlayerStreams(videoId)
+    let url = streams ? (kind === 'audio' ? pickAudio(streams) : pickProgressive(streams, quality)) : null
+    // Audio fast-path fallback: if no adaptive audio URL came back (ANDROID_VR often only offers
+    // ciphered audio formats, which we skip), use the pre-signed PROGRESSIVE (muxed) stream — an
+    // <audio> element plays its audio track fine. This resolves instantly here instead of spawning
+    // a cold yt-dlp (~10s), which is exactly the first-song / skip stall. Bandwidth cost (it
+    // carries video too) only applies when audio-only wasn't available.
+    if (!url && kind === 'audio' && streams) url = pickProgressive(streams, '360')   // smallest muxed = lightest audio
+    return url && isAllowedUpstream(url) ? url : null
+  } catch (err) {
+    logger.warn(`[youtube/stream] innertube fast-resolve failed for ${videoId}: ${err}`)
+    return null
+  }
+}
+
+function cacheUrl(key: string, url: string, now: number): void {
+  if (cache.size > 500) sweepExpired()
+  cache.set(key, { url, expires: now + TTL_MS })
+}
+
 async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality, forceYtDlp: boolean, key: string, now: number): Promise<string | null> {
-  // Fast path: one JSON call to the ANDROID_VR client (pre-signed, cipher-free URLs) beats
-  // spawning yt-dlp — for BOTH video (progressive) and audio (best adaptive audio). Audio used
-  // to always fall through to a cold yt-dlp spawn, which is why AI-Radio's first bed/song took
-  // seconds to resolve; now it resolves here in well under a second, falling back to yt-dlp
-  // only when InnerTube returns no usable format.
   if (!forceYtDlp) {
-    try {
-      const streams = await innertubePlayerStreams(videoId)
-      let url = streams ? (kind === 'audio' ? pickAudio(streams) : pickProgressive(streams, quality)) : null
-      // Audio fast-path fallback: if no adaptive audio URL came back (ANDROID_VR often only offers
-      // ciphered audio formats, which we skip), use the pre-signed PROGRESSIVE (muxed) stream — an
-      // <audio> element plays its audio track fine. This resolves instantly here instead of spawning
-      // a cold yt-dlp (~10s), which is exactly the first-song / skip stall. Bandwidth cost (it
-      // carries video too) only applies when audio-only wasn't available.
-      if (!url && kind === 'audio' && streams) url = pickProgressive(streams, '360')   // smallest muxed = lightest audio
-      if (url && isAllowedUpstream(url)) {
-        if (cache.size > 500) sweepExpired()
-        cache.set(key, { url, expires: now + TTL_MS })
-        return url
-      }
-    } catch (err) {
-      logger.warn(`[youtube/stream] innertube fast-resolve failed for ${videoId}: ${err}`)
-    }
+    const url = await fastPathResolve(videoId, kind, quality)
+    if (url) { cacheUrl(key, url, now); return url }
   }
 
   // yt-dlp failures are often transient — a cold burst of resolves from one IP can get rate-
@@ -173,8 +180,7 @@ async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: St
         logger.warn(`[youtube/stream] refusing non-YouTube upstream host for ${videoId}`)
         return null
       }
-      if (cache.size > 500) sweepExpired() // keep the cache from growing unbounded
-      cache.set(key, { url, expires: now + TTL_MS })
+      cacheUrl(key, url, now)
       return url
     } catch (err) {
       lastErr = err
@@ -192,4 +198,21 @@ function sweepExpired(): void {
 /** Drop a cached URL (e.g. after an upstream 403 — the signature likely rotated). */
 export function invalidateStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto'): void {
   cache.delete(cacheKey(videoId, kind, quality))
+}
+
+/** Cache-or-fast-path resolve for card hover-preview: a cache hit is free, otherwise this
+ *  makes ONE InnerTube HTTP call (no subprocess) and caches the result on success. It
+ *  deliberately never falls back to yt-dlp — a hover sweeping many cards must never
+ *  contend for the tiny global yt-dlp concurrency pool the real player also depends on.
+ *  Returns null (meaning "skip the preview") when InnerTube doesn't cooperate. */
+export async function resolveStreamPreviewUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto'): Promise<string | null> {
+  if (!isValidVideoId(videoId)) return null
+  const now = Date.now()
+  const key = cacheKey(videoId, kind, quality)
+  const hit = cache.get(key)
+  if (hit && hit.expires > now) return hit.url
+  if (hit) cache.delete(key)
+  const url = await fastPathResolve(videoId, kind, quality)
+  if (url) cacheUrl(key, url, now)
+  return url
 }

@@ -327,7 +327,7 @@ export async function restartComfyUI(): Promise<void> {
   state.current = 'idle'
   state.error   = ''
 
-  const hw     = detectHardware()
+  const hw     = await detectHardware()
   const config = await resolveComfyUILaunchConfig(hw)
   spawnComfyUI(config)
 }
@@ -368,7 +368,7 @@ export async function maybeSpawnComfyUI(): Promise<boolean> {
       if (parseInt(minor, 10) < 10) return false
     } catch { /* assume compatible */ }
 
-    const hw     = detectHardware()
+    const hw     = await detectHardware()
     const config = await resolveComfyUILaunchConfig(hw)
     spawnComfyUI(config)
     return true

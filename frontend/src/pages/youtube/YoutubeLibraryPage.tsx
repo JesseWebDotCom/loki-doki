@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock, Heart, History, Trash2, Download } from 'lucide-react'
+import { Clock, Heart, History, Trash2, Download, ListVideo, Plus, Search, X } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -9,19 +9,31 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { OfflineSelectionToolbar } from '@/components/shared/OfflineSelectionToolbar'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { useYtDownloads } from '@/lib/youtube/useData'
-import { getHistory, deleteDownloads, type SavedRow } from '@/lib/youtube/api'
+import { getHistory, deleteDownloads, clearHistory, removeHistoryItem, type HistoryRow, type SavedRow } from '@/lib/youtube/api'
 import { savedToItem, historyToItem, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge, fmtBytes } from '@/lib/youtube/format'
 import { VideoThumb } from '@/components/youtube/media'
 import { useCollection, removeFromCollection, type SavedVideoMeta } from '@/lib/youtube/collections'
+import { listYtPlaylists, createYtPlaylist } from '@/lib/youtube/playlists'
 import { VideoCard } from '@/components/youtube/VideoCard'
+import { PlaylistCover } from '@/components/youtube/PlaylistCover'
+import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
 
-type Tab = 'history' | 'watch-later' | 'liked' | 'saved'
+const cardAddBtnClass = 'absolute right-2 top-2 hidden size-7 bg-black/70 text-white opacity-100 hover:bg-black/90 group-hover:flex'
+const toVid = (item: VideoItem) => ({ videoId: item.videoId, title: item.title, author: item.author ?? undefined, channelId: item.channelId ?? undefined, durationSec: item.durationSec ?? undefined })
+
+type Tab = 'history' | 'watch-later' | 'liked' | 'playlists' | 'saved'
 const TABS: { key: Tab; label: string; icon: typeof Clock }[] = [
   { key: 'history', label: 'History', icon: History },
   { key: 'watch-later', label: 'Watch Later', icon: Clock },
   { key: 'liked', label: 'Liked', icon: Heart },
+  { key: 'playlists', label: 'Playlists', icon: ListVideo },
   { key: 'saved', label: 'Offline', icon: Download },
 ]
 
@@ -46,17 +58,101 @@ export function YoutubeLibraryPage() {
       </div>
       {tab === 'watch-later' ? <CollectionTab kind="watch-later" empty="Nothing in Watch Later yet." />
         : tab === 'liked' ? <CollectionTab kind="liked" empty="No liked videos yet." />
+        : tab === 'playlists' ? <PlaylistsTab />
         : tab === 'saved' ? <SavedTab />
         : <HistoryTab />}
     </PageContainer>
   )
 }
 
+// Bucket history rows into YouTube-style date sections (rows arrive newest-first).
+function groupHistoryByDate(rows: HistoryRow[]): { label: string; rows: HistoryRow[] }[] {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const DAY = 86_400_000
+  const bucket = (ts: number) => {
+    if (ts >= startOfToday) return 'Today'
+    if (ts >= startOfToday - DAY) return 'Yesterday'
+    if (ts >= startOfToday - 7 * DAY) return 'This week'
+    if (ts >= startOfToday - 30 * DAY) return 'This month'
+    return 'Older'
+  }
+  const order = ['Today', 'Yesterday', 'This week', 'This month', 'Older']
+  const map = new Map<string, HistoryRow[]>()
+  for (const h of rows) { const b = bucket(h.updatedAt); (map.get(b) ?? map.set(b, []).get(b)!).push(h) }
+  return order.filter(l => map.has(l)).map(l => ({ label: l, rows: map.get(l)! }))
+}
+
 function HistoryTab() {
+  const qc = useQueryClient()
   const { data: history = [], isPending } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
+  const [q, setQ] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return history
+    return history.filter(h => (h.title ?? '').toLowerCase().includes(needle) || (h.author ?? '').toLowerCase().includes(needle))
+  }, [history, q])
+  const groups = useMemo(() => groupHistoryByDate(filtered), [filtered])
+
+  const remove = async (videoId: string) => {
+    qc.setQueryData<HistoryRow[]>(['yt-history'], prev => (prev ?? []).filter(h => h.videoId !== videoId))
+    try { await removeHistoryItem(videoId) }
+    catch { toast.error('Could not remove'); qc.invalidateQueries({ queryKey: ['yt-history'] }) }
+  }
+  const clearAll = async () => {
+    try { await clearHistory(); qc.setQueryData(['yt-history'], []); toast.success('Watch history cleared') }
+    catch { toast.error('Could not clear history') }
+  }
+
   if (isPending) return <SkeletonCards count={8} className="xl:grid-cols-4" />
   if (!history.length) return <Empty label="No watch history yet. Videos you play show up here." />
-  return <div className={GRID}>{history.map(h => <VideoCard key={h.videoId} item={historyToItem(h)} />)}</div>
+
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search watch history" className="pl-9" />
+        </div>
+        <Button variant="outline" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setConfirmClear(true)}>
+          <Trash2 className="size-4" /> Clear all history
+        </Button>
+      </div>
+
+      {!groups.length ? (
+        <Empty label={`No history matches “${q}”.`} />
+      ) : (
+        <div className="space-y-8">
+          {groups.map(g => (
+            <section key={g.label}>
+              <h3 className="mb-3 text-sm font-semibold text-muted-foreground">{g.label}</h3>
+              <div className={GRID}>
+                {g.rows.map(h => {
+                  const item = historyToItem(h)
+                  return (
+                    <div key={h.videoId} className="group relative">
+                      <VideoCard item={item} />
+                      <AddToPlaylistButton video={toVid(item)} className={cn(cardAddBtnClass, 'right-11')} />
+                      <button onClick={() => void remove(h.videoId)}
+                        className="absolute right-2 top-2 hidden rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 group-hover:flex" aria-label="Remove from history">
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog open={confirmClear} onOpenChange={setConfirmClear} title="Clear all watch history?"
+        description="This removes every video from your history and resets their resume positions." destructive
+        confirmLabel="Clear all" onConfirm={() => void clearAll()} />
+    </div>
+  )
 }
 
 // Everything saved for offline, findable regardless of the app's Online/Offline mode.
@@ -71,9 +167,30 @@ function SavedTab() {
   const totalBytes = useMemo(() => ready.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), [ready])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const [syncingPlex, setSyncingPlex] = useState(false)
 
   const toggle = (id: string) => setSelected(s => { const next = new Set(s); next.has(id) ? next.delete(id) : next.add(id); return next })
   const allSelected = rows.length > 0 && selected.size === rows.length
+
+  // Manual trigger while the Plex export feature is new (automatic sync on save/prune
+  // is a separate, later piece of the same feature). Requires a Plex library already
+  // provisioned for this user (Admin → Plex) — the backend now fails loudly with a real
+  // error if not, rather than silently enqueueing jobs that no-op (that used to look
+  // identical to success: "completed" jobs that did nothing because the library didn't
+  // exist yet when they ran).
+  const syncToPlex = async () => {
+    setSyncingPlex(true)
+    try {
+      const res = await fetch('/api/youtube/plex/sync-all', { method: 'POST', credentials: 'include' })
+      const data = await res.json() as { ok: boolean; enqueued?: number; error?: string }
+      if (data.ok) toast.success(`Syncing ${data.enqueued} video${data.enqueued === 1 ? '' : 's'} to Plex`)
+      else toast.error(data.error ?? 'Could not start Plex sync')
+    } catch {
+      toast.error('Could not start Plex sync')
+    } finally {
+      setSyncingPlex(false)
+    }
+  }
 
   const clear = async (ids: string[]) => {
     setBusy(true)
@@ -93,9 +210,14 @@ function SavedTab() {
   if (!rows.length && !inFlight.length) return <Empty label="Nothing saved offline yet. Use “Save for offline” on any video." />
   return (
     <>
-      <p className="mb-3 text-xs text-muted-foreground">
-        {inFlight.length > 0 && <>{inFlight.length} downloading{rows.length ? ' · ' : ''}</>}
-        {rows.length > 0 && <>{rows.length} video{rows.length === 1 ? '' : 's'}{totalBytes ? ` · ${fmtBytes(totalBytes)}` : ''} saved offline</>}
+      <p className="mb-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>
+          {inFlight.length > 0 && <>{inFlight.length} downloading{rows.length ? ' · ' : ''}</>}
+          {rows.length > 0 && <>{rows.length} video{rows.length === 1 ? '' : 's'}{totalBytes ? ` · ${fmtBytes(totalBytes)}` : ''} saved offline</>}
+        </span>
+        <Button variant="outline" size="sm" disabled={syncingPlex} onClick={syncToPlex}>
+          Sync to Plex
+        </Button>
       </p>
       {inFlight.length > 0 && (
         <div className={cn(GRID, 'mb-6')}>
@@ -127,6 +249,7 @@ function SavedTab() {
                   {selected.has(id) && <span className="size-2 rounded-full bg-white" />}
                 </button>
                 <VideoCard item={item} />
+                <AddToPlaylistButton video={toVid(item)} className={cardAddBtnClass} />
               </div>
             ))}
           </div>
@@ -166,6 +289,68 @@ function DownloadingCard({ row }: { row: SavedRow }) {
   )
 }
 
+function PlaylistsTab() {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['yt-playlists'], queryFn: listYtPlaylists })
+  const [creating, setCreating] = useState(false)
+  const [name, setName] = useState('')
+  const create = async () => {
+    const n = name.trim()
+    if (!n) return
+    try { await createYtPlaylist({ name: n }); await qc.invalidateQueries({ queryKey: ['yt-playlists'] }); toast.success('Playlist created'); setCreating(false); setName('') }
+    catch { toast.error('Could not create playlist') }
+  }
+  const all = [...(data?.mine ?? []), ...(data?.shared ?? [])]
+  const [syncingCollections, setSyncingCollections] = useState(false)
+  const syncCollectionsToPlex = async () => {
+    setSyncingCollections(true)
+    try {
+      await fetch('/api/youtube/plex/sync-collections', { method: 'POST', credentials: 'include' })
+      toast.success('Syncing playlists to Plex Collections')
+    } catch {
+      toast.error('Could not start Plex collections sync')
+    } finally {
+      setSyncingCollections(false)
+    }
+  }
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <Button size="sm" onClick={() => { setName(''); setCreating(true) }}><Plus className="size-4" /> New playlist</Button>
+        <Button variant="outline" size="sm" disabled={syncingCollections} onClick={syncCollectionsToPlex}>
+          Sync collections to Plex
+        </Button>
+      </div>
+      <Dialog open={creating} onOpenChange={setCreating}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>New playlist</DialogTitle></DialogHeader>
+          <Input value={name} autoFocus placeholder="Playlist name" onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void create() }} />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
+            <Button onClick={create} disabled={!name.trim()}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {!all.length ? <Empty label="Create a playlist to collect your favorite videos." /> : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {all.map(p => (
+            <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/youtube/my-playlist/${p.id}`)}>
+              <PlaylistCover videoIds={p.coverVideoIds ?? []} title={p.name} count={p.videoCount} className="mb-2" />
+              <p className="truncate text-sm font-semibold">{p.name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {p.ownerName ? `by ${p.ownerName}` : p.visibility === 'shared' ? 'Shared' : 'Private'}
+                {' · '}{p.videoCount} video{p.videoCount === 1 ? '' : 's'}
+              </p>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CollectionTab({ kind, empty }: { kind: 'watch-later' | 'liked'; empty: string }) {
   const list = useCollection(kind)
   if (!list.length) return <Empty label={empty} />
@@ -174,6 +359,7 @@ function CollectionTab({ kind, empty }: { kind: 'watch-later' | 'liked'; empty: 
       {list.map(m => (
         <div key={m.videoId} className="group relative">
           <VideoCard item={metaToItem(m)} />
+          <AddToPlaylistButton video={toVid(metaToItem(m))} className={cn(cardAddBtnClass, 'right-11')} />
           <button onClick={() => { removeFromCollection(kind, m.videoId); toast.success('Removed') }}
             className="absolute right-2 top-2 hidden rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 group-hover:flex" aria-label="Remove">
             <Trash2 className="size-3.5" />

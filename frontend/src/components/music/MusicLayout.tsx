@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MusicRail } from '@/components/music/MusicRail'
+import { musicSuggestSource } from '@/lib/music/catalogApi'
 
 export type MusicMode = 'online' | 'offline'
 
@@ -71,6 +72,9 @@ export function MusicLayout() {
     setQuery,
     onSubmit: () => { const t = query.trim(); if (t) navigate(`/music/browse?q=${encodeURIComponent(t)}`) },
     placeholder: mode === 'online' ? 'Search artists, albums, songs, stations…' : 'Search your offline stations…',
+    // Live artist/song autosuggest as you type (Deezer-backed) — online only; offline has no network
+    // and only searches locally-saved stations. Mirrors YouTube's suggest wiring.
+    suggest: mode === 'online' ? musicSuggestSource : undefined,
     rightSlot,
   })
 

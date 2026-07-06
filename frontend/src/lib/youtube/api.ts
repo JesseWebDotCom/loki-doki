@@ -2,6 +2,7 @@
 // consolidating the fetch helpers that used to live inline in YoutubePage.
 
 import type { UseQueryOptions } from '@tanstack/react-query'
+import type { SuggestSource } from '@/lib/smartSearch/types'
 
 const opts: RequestInit = { credentials: 'include' }
 const J = { 'Content-Type': 'application/json' }
@@ -103,6 +104,7 @@ export interface VideoMeta {
   durationSec: number | null
   subscribed?: boolean
   subscriptionId?: string | null
+  isLive?: boolean
 }
 
 export interface SaveQuality { tiers: number[]; cap: number; pref: number | null }
@@ -130,6 +132,41 @@ export const proxyStreamUrl = (videoId: string, kind: 'audio' | 'video' = 'video
  *  Best-effort and fire-and-forget — failures are harmless (the stream just resolves cold). */
 export const prewarmStream = (videoId: string, kind: 'audio' | 'video' = 'video') =>
   void fetch(`/api/youtube/stream/${videoId}/prewarm${kind === 'audio' ? '?kind=audio' : ''}`, { credentials: 'include' }).catch(() => {})
+
+/** Card hover-preview support: cache hit is free server-side, otherwise the server makes
+ *  one InnerTube HTTP call (no subprocess) to see if a preview stream is available. Never
+ *  triggers a costly yt-dlp resolve — `false` just means "skip the preview". */
+export async function checkStreamPreview(videoId: string, kind: 'audio' | 'video' = 'video', signal?: AbortSignal): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/youtube/stream/${videoId}/preview?kind=${kind}`, { ...opts, signal })
+    if (!r.ok) return false
+    return !!((await r.json()) as { available?: boolean }).available
+  } catch { return false }
+}
+
+/** Scrub-preview sprite sheet levels (trickplay), parsed server-side from InnerTube's
+ *  storyboard spec. Each level's `urlTemplate` has a literal "{sheet}" placeholder for
+ *  the multi-sheet index — see `frameForTime` in `lib/youtube/storyboard.ts`. */
+export interface StoryboardLevel {
+  width: number; height: number; cols: number; rows: number
+  totalCount: number; intervalMs: number; sheetCount: number; urlTemplate: string
+}
+export async function getStoryboards(videoId: string): Promise<StoryboardLevel[]> {
+  try {
+    const r = await fetch(`/api/youtube/storyboards/${videoId}`, opts)
+    if (!r.ok) return []
+    return ((await r.json()) as { levels?: StoryboardLevel[] }).levels ?? []
+  } catch { return [] }
+}
+
+/** Poll target for the /stream 202 "preparing" fallback: the server couldn't resolve a live
+ *  stream and kicked off an offline download instead — this reports its yt_downloads status
+ *  so the player knows when to switch to fileUrl(videoId, kind). */
+export async function getDownloadStatus(videoId: string, kind: 'audio' | 'video'): Promise<string> {
+  const r = await fetch(`/api/youtube/download-status/${videoId}/${kind}`, opts)
+  const { status } = await r.json() as { status?: string }
+  return status ?? 'none'
+}
 
 // ── InnerTube discovery: trending / channel / related ────────────────────────────
 
@@ -348,6 +385,13 @@ export interface SearchResponse {
 
 export type SearchType = 'all' | 'videos' | 'shorts' | 'playlists' | 'channels'
 
+/** Query-autosuggest source for SmartSearchInput, backed by YouTube's own suggest endpoint. */
+export const youtubeSuggestSource: SuggestSource = async (query, signal) => {
+  const r = await fetch(`/api/youtube/suggest?q=${encodeURIComponent(query)}`, { ...opts, signal })
+  const d = await r.json() as { suggestions?: string[] }
+  return (d.suggestions ?? []).map((label, i) => ({ id: String(i), label }))
+}
+
 export async function search(q: string, cursor?: string | null, type: SearchType = 'all'): Promise<SearchResponse> {
   const parts = [`q=${encodeURIComponent(q)}`]
   if (cursor) parts.push(`cursor=${encodeURIComponent(cursor)}`)
@@ -474,6 +518,24 @@ export async function getSaveQuality(): Promise<SaveQuality> {
   return r.json() as Promise<SaveQuality>
 }
 
+/** Save a channel's current back-catalogue (latest `count` uploads) to the Offline library now. */
+export async function saveChannelNow(channelId: string, body: { kind: 'audio' | 'video'; count: number }): Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }> {
+  const r = await fetch(`/api/youtube/channel/${encodeURIComponent(channelId)}/save-now`, { ...opts, method: 'POST', headers: J, body: JSON.stringify(body) })
+  return r.json() as Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }>
+}
+
+// ── Live-from-start DVR ──────────────────────────────────────────────────────────
+
+export async function startLiveRecord(videoId: string, title: string): Promise<{ status?: string; error?: string }> {
+  const r = await fetch(`/api/youtube/live/${videoId}/record`, { ...opts, method: 'POST', headers: J, body: JSON.stringify({ title }) })
+  return r.json() as Promise<{ status?: string; error?: string }>
+}
+
+export async function stopLiveRecord(videoId: string): Promise<{ ok: boolean }> {
+  const r = await fetch(`/api/youtube/live/${videoId}/stop`, { ...opts, method: 'POST' })
+  return r.json() as Promise<{ ok: boolean }>
+}
+
 // ── Export to device ───────────────────────────────────────────────────────────
 
 export async function getFormats(videoId: string): Promise<YtFormat[]> {
@@ -531,6 +593,16 @@ export interface HistoryRow {
 export async function getHistory(): Promise<HistoryRow[]> {
   const r = await fetch('/api/youtube/history', { ...opts, cache: 'no-store' })
   return (await r.json() as { history: HistoryRow[] }).history ?? []
+}
+
+/** Remove one video from watch history. */
+export async function removeHistoryItem(videoId: string): Promise<void> {
+  await fetch(`/api/youtube/history/${encodeURIComponent(videoId)}`, { ...opts, method: 'DELETE' })
+}
+
+/** Clear the entire watch history. */
+export async function clearHistory(): Promise<void> {
+  await fetch('/api/youtube/history', { ...opts, method: 'DELETE' })
 }
 
 /** Same-origin proxy for a YouTube image (avatar/thumbnail) — canvas-safe, no Google hit. */

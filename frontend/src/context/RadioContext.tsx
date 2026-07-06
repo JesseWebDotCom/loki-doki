@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { RadioEngine, initialRadioState, type RadioState } from '@/lib/music/radioEngine'
+import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack } from '@/lib/music/radioEngine'
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
@@ -10,6 +10,7 @@ import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaC
 interface RadioCtx extends RadioState {
   start: (s: DjStation, opts?: { silentIntro?: boolean }) => void
   playTrack: (t: { videoId: string; title: string; author?: string | null; thumbnail?: string }, resumeSec?: number) => void
+  playPlaylist: (tracks: QueuedTrack[], startIndex?: number, opts?: { name?: string; playlistId?: string }) => void
   stop: () => void
   skip: () => void
   seek: (sec: number) => void
@@ -124,6 +125,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     ...state,
     start: (s, opts) => { acquireAudio('radio'); e.start(s, opts) },
     playTrack: (t, resumeSec) => { acquireAudio('radio'); e.playTrack(t, resumeSec) },
+    playPlaylist: (t, i, o) => { acquireAudio('radio'); e.playPlaylist(t, i, o) },
     stop: () => e.stop(),
     skip: () => e.skip(),
     seek: (sec) => e.seek(sec),

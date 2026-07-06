@@ -7,8 +7,9 @@
  * per-region map data once the toolchain is present. Each build streams phase
  * progress over SSE (download → streets → routing → geocoder).
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, CheckCircle2, Download, Trash2 } from 'lucide-react'
+import { useSetupProgress } from '@/context/SetupProgressContext'
 import { DownloadProgress, type DownloadStatus } from '@/components/shared/DownloadProgress'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { Button } from '@/components/ui/button'
@@ -62,10 +63,12 @@ function qMatch(text: string, q: string): boolean {
 export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInstalled: boolean; query: string }) {
   const [tree, setTree] = useState<CatalogNode[]>([])
   const [loading, setLoading] = useState(true)
-  const [builds, setBuilds] = useState<Map<string, BuildState>>(new Map())
   const [open, setOpen] = useState(true)
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
-  const esRef = useRef<Map<string, EventSource>>(new Map())
+  // Builds run in the shared background queue so they persist across navigation and surface in the
+  // global download widget. `queued` is optimistic feedback until the poller reflects the new job.
+  const { status: jobsStatus, cancelJob: cancelQueuedJob, refresh: refreshJobs } = useSetupProgress()
+  const [queued, setQueued] = useState<Set<string>>(new Set())
 
   const loadCatalog = useCallback(() => {
     setLoading(true)
@@ -76,58 +79,70 @@ export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInst
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => {
-    loadCatalog()
-    const ref = esRef.current
-    return () => { ref.forEach((es) => es.close()); ref.clear() }
-  }, [loadCatalog])
+  useEffect(() => { loadCatalog() }, [loadCatalog])
 
-  const setBuild = (regionId: string, next: BuildState | null) => {
-    setBuilds((prev) => {
-      const m = new Map(prev)
-      if (next) m.set(regionId, next)
-      else m.delete(regionId)
-      return m
-    })
-  }
+  // Map build jobs from the background queue, keyed by regionId (= job.refId).
+  const mapJobs = useMemo(
+    () => new Map((jobsStatus?.jobs ?? []).filter(j => j.type === 'map').map(j => [j.refId, j] as const)),
+    [jobsStatus],
+  )
 
-  function download(regionId: string) {
-    setBuild(regionId, { status: 'pending', msg: 'Starting…' })
-    const es = new EventSource(`/api/admin/maps/download/${regionId}`, { withCredentials: true })
-    esRef.current.set(regionId, es)
-    es.addEventListener('progress', (e) => {
-      let p: { phase: string; msg?: string; pct?: number }
-      try { p = JSON.parse((e as MessageEvent).data) } catch { return } // skip malformed frame
-      const label = PHASE_LABEL[p.phase] ?? p.phase
-      const detail = p.msg ?? label
-      setBuild(regionId, {
-        status: 'downloading',
-        phase: p.phase,
-        pct: typeof p.pct === 'number' ? p.pct : undefined,
-        msg: p.pct != null ? `${label} ${p.pct}%` : detail,
+  // Per-region build state derived from the queue, plus optimistic entries for just-clicked rows.
+  // Map jobs report phase progress as { completed: pct, total: 100, note: phaseLabel }.
+  const builds = useMemo(() => {
+    const m = new Map<string, BuildState>()
+    for (const [refId, j] of mapJobs) {
+      const p = j.progress
+      const status: DownloadStatus =
+        j.status === 'completed' ? 'completed'
+        : j.status === 'failed' ? 'error'
+        : j.status === 'cancelled' ? 'cancelled'
+        : j.status === 'pending' ? 'pending'
+        : 'downloading'  // running
+      m.set(refId, {
+        status,
+        pct: p && p.total > 0 ? Math.round((p.completed / p.total) * 100) : undefined,
+        msg: p?.note ?? (j.status === 'pending' ? 'Queued…' : undefined),
+        error: j.lastError ?? undefined,
       })
-    })
-    es.addEventListener('done', () => { es.close(); esRef.current.delete(regionId); setBuild(regionId, { status: 'completed' }); loadCatalog() })
-    es.addEventListener('cancelled', () => { es.close(); esRef.current.delete(regionId); setBuild(regionId, null); loadCatalog() })
-    es.addEventListener('error', (e) => {
-      es.close(); esRef.current.delete(regionId)
-      let msg = 'Build failed'
-      try { if ('data' in e) msg = JSON.parse((e as MessageEvent).data).msg ?? msg } catch { /* ignore */ }
-      setBuild(regionId, { status: 'error', error: msg })
-    })
+    }
+    for (const rid of queued) {
+      if (!m.has(rid)) m.set(rid, { status: 'pending', msg: 'Queued…' })
+    }
+    return m
+  }, [mapJobs, queued])
+
+  // Drop optimistic entries once the queue has picked them up.
+  useEffect(() => {
+    if (!queued.size) return
+    const settled = [...queued].filter(rid => mapJobs.has(rid))
+    if (settled.length) setQueued(prev => { const n = new Set(prev); for (const s of settled) n.delete(s); return n })
+  }, [mapJobs, queued])
+
+  // Enqueue into the background queue instead of a foreground SSE build; `force` re-runs a region
+  // whose prior build already completed (Update / re-add after delete).
+  async function download(regionId: string, label: string) {
+    setQueued(prev => new Set(prev).add(regionId))
+    try {
+      await fetch('/api/jobs/enqueue', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maps: { regionId, label }, force: true }),
+      })
+    } catch { /* optimistic entry stays; the poller reconciles */ }
+    refreshJobs()
   }
 
   function cancel(regionId: string) {
-    fetch(`/api/admin/maps/cancel/${regionId}`, { method: 'POST', credentials: 'include' }).catch(() => {})
-    esRef.current.get(regionId)?.close()
-    esRef.current.delete(regionId)
-    setBuild(regionId, null)
+    setQueued(prev => { const n = new Set(prev); n.delete(regionId); return n })
+    const job = mapJobs.get(regionId)
+    if (job) void cancelQueuedJob(job.id)
   }
 
   async function remove(regionId: string) {
     await fetch(`/api/admin/maps/${regionId}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
-    setBuild(regionId, null)
     loadCatalog()
+    refreshJobs()
   }
 
   const rows = flatten(tree)
@@ -205,7 +220,7 @@ export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInst
                             <Trash2 className="size-3" />
                           </Button>
                         )}
-                        <Button type="button" variant="outline" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-brand/50 hover:bg-brand/5" onClick={() => download(node.region_id)}>
+                        <Button type="button" variant="outline" size="sm" className="gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-brand/50 hover:bg-brand/5" onClick={() => download(node.region_id, node.label)}>
                           <Download className="size-3" />
                           {node.installed ? 'Update' : 'Add'}
                         </Button>

@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
@@ -46,10 +47,17 @@ export function YoutubeSubscriptionsPage() {
     () => downloads.filter(r => r.status === 'ready').map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight))),
     [downloads],
   )
+  // Optional channel filter: null = every subscription, otherwise a single channel's uploads.
+  const [chan, setChan] = useState<string | null>(null)
+  const keyOf = (i: VideoItem) => i.channelId ?? channelKey(i.author)
+
   const base = online ? feedItems : offlineItems
-  const regular = useMemo(() => base.filter(i => !isShort(i)), [base])
-  const shorts = useMemo(() => base.filter(isShort), [base])
-  const latest = useMemo(() => interleaveByChannel(regular), [regular])
+  const scoped = useMemo(() => (chan ? base.filter(i => keyOf(i) === chan) : base), [base, chan])
+  const regular = useMemo(() => scoped.filter(i => !isShort(i)), [scoped])
+  const shorts = useMemo(() => scoped.filter(isShort), [scoped])
+  // A single channel's feed reads best purely chronological; the full feed interleaves so
+  // one prolific uploader doesn't bury the rest.
+  const latest = useMemo(() => (chan ? regular : interleaveByChannel(regular)), [regular, chan])
   const channels: ChannelEntry[] = useMemo(
     () => subs.map(s => ({ id: s.externalId, title: s.title, thumbnailUrl: s.thumbnailUrl })),
     [subs],
@@ -67,6 +75,13 @@ export function YoutubeSubscriptionsPage() {
         } />
 
       {channels.length > 0 && <div className="mb-8"><ChannelRail title="Channels" channels={channels} /></div>}
+
+      {channels.length > 1 && (
+        <ChipRow className="mb-6">
+          <Chip label="All" active={!chan} onClick={() => setChan(null)} />
+          {channels.map(c => <Chip key={c.id} label={c.title} active={chan === c.id} onClick={() => setChan(chan === c.id ? null : c.id)} />)}
+        </ChipRow>
+      )}
 
       {online && loading ? (
         <SkeletonCards count={8} className="xl:grid-cols-4" />

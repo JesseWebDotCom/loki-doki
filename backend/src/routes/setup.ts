@@ -64,6 +64,21 @@ setup.post('/welcome-complete', requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+// Finalize first run. In essentialOnly mode the /download stream installs the essentials
+// inline and hands the rest to the durable background setup track, WITHOUT flipping
+// first_run_complete. The wizard blocks on that track and calls this once every selected
+// model + capability has finished downloading (or the admin explicitly opts to open the
+// app before they finish). Idempotent - safe to call more than once. Keeping first_run
+// gated here (not in /download) means a crash mid-download re-shows the wizard on its
+// finishing screen and the queue resumes, instead of stranding the user in a half-install.
+setup.post('/finish', requireAuth, async (c) => {
+  await setAppSetting('first_run_complete', true)
+  await setAppSetting('setup_state', null)
+  await setAppSetting('consent_system_present', true)
+  warmupModel()
+  return c.json({ ok: true })
+})
+
 // Persist wizard progress. Called by the frontend as the user advances so a refresh,
 // crash, or server restart can resume. Cleared once first run completes.
 setup.put('/state', requireAuth, async (c) => {
@@ -124,7 +139,7 @@ setup.get('/ollama-status', async (c) => {
 // ── Step 3: Catalog ───────────────────────────────────────────────────────────
 
 setup.get('/catalog', requireAuth, async (c) => {
-  const hw = detectHardware()
+  const hw = await detectHardware()
   const tier = recommendedTier(hw)
 
   // Check Ollama connectivity + installed models
@@ -223,6 +238,21 @@ setup.post('/download', requireAuth, async (c) => {
   const selected = modelIds
     .map((id) => CATALOG.find((m) => m.id === id))
     .filter(Boolean) as typeof CATALOG
+
+  // Coding package: a selected coding-role model implies the Coding app, which needs the
+  // Claude Code CLI + tmux to run (codingServer refuses to start without them). Provision
+  // the whole package from the install wizard, the way image models pull in the ComfyUI
+  // runtime, so nothing is left for a later step. (coding-sandbox-user is intentionally
+  // excluded: it throws on Windows and needs interactive OS approval elsewhere; codingServer
+  // degrades gracefully to a plain per-user workdir without it, and it can be enabled from
+  // Admin -> Features where the OS prompt is expected.)
+  if (selected.some((m) => m.role === 'coding')) {
+    if (!componentIds.includes('claude-code')) componentIds.push('claude-code')
+    // tmux is unavailable on Windows (installTmux throws), and Coding's terminal needs it,
+    // so on Windows the package is limited to the CLI + model. Enqueuing tmux there would
+    // fail permanently and stall the wizard's completion gate, so gate it by platform.
+    if (process.platform !== 'win32' && !componentIds.includes('tmux')) componentIds.push('tmux')
+  }
 
   // Essentials block boot: chat LLM + embeddings + router (Ollama always installs first).
   const ESSENTIAL_ROLES = new Set(['llm', 'uncensored_llm', 'embeddings', 'router', 'router_llm'])
@@ -401,7 +431,7 @@ setup.post('/download', requireAuth, async (c) => {
       if (!hasImageModels || cancelled) return
       const comfyBase = { id: 'comfyui-base', role: 'runtime', label: 'ComfyUI Runtime' }
       const nodesBase = { id: 'comfyui-nodes', role: 'runtime', label: 'Image Generation Extensions' }
-      const hw     = detectHardware()
+      const hw     = await detectHardware()
       const config = await resolveComfyUILaunchConfig(hw)
 
       if (!isComfyUIInstalled()) {
@@ -585,16 +615,25 @@ setup.post('/download', requireAuth, async (c) => {
       })
     }
 
-    // Mark first run complete: app will now admit the user. Skip this when the chat
-    // LLM failed: the wizard keeps the user on the retry screen, and finalizing here
-    // would let a reload admit them into a broken, chatless app.
+    // Finalize first run: the app will now admit the user. Skip this when the chat LLM
+    // failed (the wizard keeps the user on the retry screen; finalizing here would admit
+    // them into a broken, chatless app).
+    //
+    // essentialOnly mode does NOT flip first_run_complete here: the wizard now BLOCKS on
+    // the background setup track (the selected models + capabilities enqueued above) and
+    // calls POST /finish only once they've all finished downloading, or when the admin
+    // explicitly opts to open the app early. Flipping it here would let a reload admit the
+    // user mid-download - exactly the "opened into a half-installed app" problem we're
+    // fixing. The full-install path (essentialOnly === false) still finalizes inline,
+    // since it installs everything before reaching this point.
     if (!essentialLlmFailed) {
-      await setAppSetting('first_run_complete', true)
-      await setAppSetting('setup_state', null)  // clear saved resume progress
       // Sentinel: this install went through the consent-aware setup wizard.
       // The boot migration guard uses this to skip auto-granting consent for new installs.
       await setAppSetting('consent_system_present', true)
-
+      if (!essentialOnly) {
+        await setAppSetting('first_run_complete', true)
+        await setAppSetting('setup_state', null)  // clear saved resume progress
+      }
       // Warm up the newly active model so the first chat response is immediate
       warmupModel()
     }

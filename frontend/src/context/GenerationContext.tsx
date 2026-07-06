@@ -72,7 +72,9 @@ async function runStream(
 
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
-    try { const d = await res.json() as { error?: string }; msg = d.error ?? msg } catch { /* ignore */ }
+    // Prefer the human-readable `message` the backend sends; fall back to the `error` code
+    // only when there's no message. (A bare code like "content_blocked" is not a message.)
+    try { const d = await res.json() as { error?: string; message?: string }; msg = d.message ?? d.error ?? msg } catch { /* ignore */ }
     setState(s => ({ ...s, status: 'error', error: msg }))
     return null
   }

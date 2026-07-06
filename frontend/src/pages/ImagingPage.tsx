@@ -199,11 +199,28 @@ function Lightbox({ src, prompt, onClose }: { src: string; prompt?: string; onCl
 function ResultImage({ src, prompt, onDelete, onFullscreen }: { src: string; prompt: string; onDelete?: () => void; onFullscreen?: () => void }) {
   const [loaded, setLoaded] = useState(false)
 
-  const handleDownload = () => {
-    const a = document.createElement('a')
-    a.href = src
-    a.download = `image-${src.split('/').pop()?.slice(0, 8) ?? 'download'}.png`
-    a.click()
+  const handleDownload = async () => {
+    const name = `image-${src.split('/').pop()?.slice(0, 8) ?? 'download'}`
+    // The artifact URL carries no extension, so derive it from the served Content-Type:
+    // vector (svg) and raster (png/webp) outputs each download with the right suffix.
+    const EXT: Record<string, string> = { 'image/svg+xml': 'svg', 'image/webp': 'webp', 'image/png': 'png' }
+    try {
+      const res = await fetch(src)
+      const blob = await res.blob()
+      const ext = EXT[blob.type] ?? 'png'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${name}.${ext}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      // Fall back to a direct link if the fetch fails (e.g. offline).
+      const a = document.createElement('a')
+      a.href = src
+      a.download = `${name}.png`
+      a.click()
+    }
   }
 
   return (
@@ -587,6 +604,10 @@ export function ImagingPage() {
   const [steps, setSteps] = useState(20)
   const [guidance, setGuidance] = useState(3.5)
   const [seed, setSeed] = useState(-1)
+  const [outputFormat, setOutputFormat] = useState<'png' | 'svg'>('png')
+  const [svgFlatBias, setSvgFlatBias] = useState(true)
+  const [svgColors, setSvgColors] = useState(6)   // vtracer color_precision (1-8)
+  const [svgDetail, setSvgDetail] = useState(4)   // vtracer filter_speckle (0-10)
   const [selectedLoras, setSelectedLoras] = useState<Set<string>>(() =>
     imaging.state.status === 'generating' && imaging.activeLoraIds ? new Set(imaging.activeLoraIds) : new Set()
   )
@@ -627,7 +648,7 @@ export function ImagingPage() {
   const [recognizeFile, setRecognizeFile] = useState<File | null>(null)
   const [recognizePreview, setRecognizePreview] = useState<string | null>(null)
   const [selectedTasks, setSelectedTasks] = useState<Set<AnalysisTask>>(new Set())
-  const [analyzeHistory, setAnalyzeHistory] = useState<AnalysisHistoryItem[]>([])
+  const [, setAnalyzeHistory] = useState<AnalysisHistoryItem[]>([])
   const recognizeFileInputRef = useRef<HTMLInputElement>(null)
   const [recognizeDropOver, setRecognizeDropOver] = useState(false)
 
@@ -1075,6 +1096,9 @@ export function ImagingPage() {
           credentials: 'include',
           body: JSON.stringify({
             prompt: finalPrompt,
+            // SVG output: tell the enhancer to produce a flat, trace-friendly prompt rather
+            // than a photorealistic one (which traces into a photo-like SVG).
+            vector: outputFormat === 'svg' && svgFlatBias,
             loras: selectedLoraObjects.map(l => ({
               id: l.id,
               name: l.styleLabel ?? l.name,
@@ -1101,6 +1125,9 @@ export function ImagingPage() {
     const genIsAdult = selectedLoraObjects.some(l => l.isAdult)
     const genParams = {
       prompt: finalPrompt,
+      // If Auto-enhance rewrote the prompt, send the user's original wording so the backend can
+      // fall back to it if the enhanced version trips the content-safety filter.
+      originalPrompt: finalPrompt !== prompt.trim() ? prompt.trim() : undefined,
       negativePrompt: negativePrompt.trim() || undefined,
       width: preset.width,
       height: preset.height,
@@ -1109,6 +1136,9 @@ export function ImagingPage() {
       seed: seed >= 0 ? seed : undefined,
       loraIds: loraIdList,
       loraWeights,
+      outputFormat: outputFormat === 'svg' ? ('svg' as const) : undefined,
+      flatBias: outputFormat === 'svg' ? svgFlatBias : undefined,
+      svgOptions: outputFormat === 'svg' ? { colorPrecision: svgColors, filterSpeckle: svgDetail } : undefined,
     }
     autoCheckFiredRef.current = false
     lastGenParamsRef.current = { params: genParams, isAdult: genIsAdult }
@@ -1117,7 +1147,7 @@ export function ImagingPage() {
     } finally {
       setPending(false)
     }
-  }, [prompt, negativePrompt, aspectPreset, steps, guidance, seed, selectedLoras, loras, autoMode, gen.status, generate, reset])
+  }, [prompt, negativePrompt, aspectPreset, steps, guidance, seed, selectedLoras, loras, autoMode, outputFormat, svgFlatBias, svgColors, svgDetail, gen.status, generate, reset])
 
   const handleCancel = useCallback(() => {
     if (gen.imageId) cancel(gen.imageId)
@@ -1402,6 +1432,21 @@ export function ImagingPage() {
                     })}
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">Output</Label>
+                  <div className="flex gap-1.5">
+                    {(['png', 'svg'] as const).map(fmt => (
+                      <button key={fmt} onClick={() => setOutputFormat(fmt)} disabled={gen.status === 'generating'}
+                        className={cn('flex-1 rounded-control px-3 py-2 text-xs font-medium transition-colors border',
+                          outputFormat === fmt ? 'border-brand text-brand bg-brand/10' : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground')}>
+                        {fmt === 'png' ? 'PNG' : 'SVG (vector)'}
+                      </button>
+                    ))}
+                  </div>
+                  {outputFormat === 'svg' && (
+                    <p className="text-[10px] leading-snug text-muted-foreground">Traced to scalable vector paths. Best for logos, icons & flat art. Tune colors & cleanup in Advanced.</p>
+                  )}
+                </div>
                 <LoraPicker loras={privacyEnabled && !adultVisible ? loras.filter(l => !l.isAdult) : loras} selected={selectedLoras} onToggle={toggleLora} />
                 {sentLoraInfo.length > 0 && gen.status !== 'idle' && (
                   <div className="rounded-card border border-border/50 bg-muted/30 px-3 py-2.5 space-y-1.5">
@@ -1432,6 +1477,24 @@ export function ImagingPage() {
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <div className="mt-3 space-y-3">
+                      {outputFormat === 'svg' && (
+                        <div className="space-y-3 rounded-card border border-brand/20 bg-brand/5 px-3 py-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Colors <span className="text-foreground">{svgColors}</span></Label>
+                              <input type="range" min={1} max={8} step={1} value={svgColors} onChange={e => setSvgColors(parseInt(e.target.value, 10) || 6)} disabled={gen.status === 'generating'} className="w-full accent-primary" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Detail cleanup <span className="text-foreground">{svgDetail}</span></Label>
+                              <input type="range" min={0} max={10} step={1} value={svgDetail} onChange={e => setSvgDetail(parseInt(e.target.value, 10) || 0)} disabled={gen.status === 'generating'} className="w-full accent-primary" />
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                            <input type="checkbox" checked={svgFlatBias} onChange={e => setSvgFlatBias(e.target.checked)} disabled={gen.status === 'generating'} className="accent-primary" />
+                            Flat-art bias <span className="text-[10px] opacity-70">(steers toward clean, traceable shapes)</span>
+                          </label>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Steps <span className="text-foreground">{steps}</span></Label>

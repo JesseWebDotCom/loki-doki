@@ -56,6 +56,32 @@ export async function checkPlexPin(id: number, clientId: string): Promise<string
   }
 }
 
+export interface PlexAccountInfo {
+  id: string
+  uuid: string | null
+  username: string | null
+}
+
+/** Resolve the plex.tv account identity behind a token — needed as the `invited_id` when
+ *  sharing a library section to a specific user's account via the shared_servers API.
+ *  NOT verified against a live server: `/api/v2/user`'s exact response shape is documented
+ *  community knowledge (python-plexapi's MyPlexAccount), not something this codebase has
+ *  called before — confirm `id` is the right field once tested against a real account. */
+export async function getPlexAccountInfo(token: string): Promise<PlexAccountInfo | null> {
+  try {
+    const res = await fetch(`${PLEX_TV}/user`, {
+      headers: { ...headers('media-companion-server'), 'X-Plex-Token': token },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { id?: number | string; uuid?: string; username?: string }
+    if (data.id == null) return null
+    return { id: String(data.id), uuid: data.uuid ?? null, username: data.username ?? null }
+  } catch {
+    return null
+  }
+}
+
 export interface PlexServer {
   name: string
   uri: string

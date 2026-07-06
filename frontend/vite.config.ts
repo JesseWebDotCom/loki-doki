@@ -52,7 +52,6 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    historyApiFallback: true,
     hmr: {
       protocol: 'ws',
       host: 'localhost',
@@ -92,11 +91,17 @@ export default defineConfig({
       // (~4s while the backend resolves the URL before any data flows). The default proxy timeout
       // kills that gap → the browser gets a 500 and the media element reports a format error. Same
       // treatment as the SSE endpoints above. Listed before /api so it matches first.
+      // `agent: false` (see /api/browser-session below): card hover-preview now opens many of
+      // these mid-stream and tears them down abruptly on mouse-leave, which is exactly the kind
+      // of unclean chunked-response close that poisons a pooled keep-alive socket — without this,
+      // that can silently hang unrelated widget fetches (including the /api/health probe) even
+      // though the backend's own logs show a clean 200.
       '/api/youtube/stream': {
         target: 'http://localhost:3000',
         changeOrigin: true,
         proxyTimeout: 0,
         timeout: 0,
+        agent: false,
       },
       // browser-session + the boot progress feed are SSE streams every tab opens on load, but
       // they were falling through to the generic '/api' proxy below — sharing its keep-alive

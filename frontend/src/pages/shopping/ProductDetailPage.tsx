@@ -648,7 +648,7 @@ function VideosSection({ title, brand }: { title: string; brand: string | null }
             <button
               key={v.videoId}
               type="button"
-              onClick={() => playExpanded({ videoId: v.videoId, title: v.title, author: v.author, channelThumb: v.channelThumb, durationSec: v.durationSec, thumbnail: v.thumbnailUrl ?? undefined })}
+              onClick={() => playExpanded({ videoId: v.videoId, title: v.title, author: v.author ?? null, channelThumb: v.channelThumb, durationSec: v.durationSec, thumbnail: v.thumbnailUrl ?? undefined })}
               className="group text-left"
             >
               <div className="overflow-hidden rounded-card ring-1 ring-border/40">

@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import {
   ArrowLeftRight, ArrowRight, BookOpen, Bot, Calculator, CalendarClock, ChefHat, CheckCircle2,
   ChevronDown, Clock, Cloud, Code2, Cpu, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
-  Home, Laugh, Lightbulb, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Newspaper, Package,
+  Home, Laugh, Lightbulb, MapPin, Mic, Moon, Newspaper, Package,
   PartyPopper, Play, RefreshCw, Route, ScanFace, Search, Server, Settings2, ShieldCheck, Sparkles,
   Stethoscope, Trash2, Trophy, Tv, Wand2, Wifi, Wrench, X, Image as ImageIcon,
   type LucideIcon,
@@ -16,7 +16,6 @@ import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
-import { formatFeatureBytes } from '@/lib/features'
 import { DownloadProgress } from '@/components/shared/DownloadProgress'
 import type { DownloadStatus } from '@/components/shared/DownloadProgress'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -42,6 +41,7 @@ interface ConfigField {
   type: 'string' | 'number' | 'boolean' | 'secret'
   scope: 'global' | 'user' | 'both'
   placeholder?: string
+  default?: string | number | boolean
 }
 
 interface ToolInfo {
@@ -169,7 +169,7 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
   { id: 'esphome',       label: 'Devices',         description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB).', bytes: 1_000_000_000, requires: [],                     icon: Cpu  },
-  { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model — usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
+  { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model, usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
   { id: 'tmux',          label: 'Coding Terminal Multiplexer', description: 'Powers split panes and reload-persistence in the Coding app\'s terminal.', bytes: 2_000_000, requires: ['claude-code'], icon: Code2 },
   { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
 ]
@@ -390,259 +390,6 @@ function CapInstallRow({ cap, installed, blocked, installState, onInstall, onCan
   )
 }
 
-// ── ZIM archive section ───────────────────────────────────────────────────────
-
-interface ZimVariant { key: string; label: string; approxBytes: number; description: string }
-interface ZimEntry {
-  sourceId: string; label: string; description: string; category: string
-  bookCategory: string | null
-  faviconUrl: string | null; variants: ZimVariant[]; defaultVariant: string
-  variantKey: string; installed: boolean; fileSizeBytes: number | null
-}
-interface ZimDlState {
-  status: 'downloading' | 'done' | 'error' | 'cancelled'
-  completed: number; total: number; speedBps: number; etaSeconds: number
-  statusMsg: string; error: string | null
-}
-
-// Book packs (grouped by their shelf category) list first, then reference packs
-// (grouped by topic). Book entries are keyed by bookCategory, everything else by category.
-const ZIM_CATEGORY_ORDER = [
-  'Fiction & Classics', 'Classics & Texts', 'Textbooks', 'Manuals & Survival',
-  'Reference', 'Education', 'How-To', 'Development',
-  'Medical', 'Science', 'Survival', 'Entertainment', 'Kids', 'Religion',
-]
-
-function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query: string }) {
-  const [catalog, setCatalog]               = useState<ZimEntry[]>([])
-  const [loading, setLoading]               = useState(true)
-  const [downloads, setDownloads]           = useState<Map<string, ZimDlState>>(new Map())
-  const [variants, setVariants]             = useState<Map<string, string>>(new Map())
-  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set(ZIM_CATEGORY_ORDER))
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const esRefs = useRef<Map<string, EventSource>>(new Map())
-
-  const loadCatalog = useCallback(() => {
-    setLoading(true)
-    fetch('/api/admin/archives/catalog', { credentials: 'include' })
-      .then(r => r.json())
-      .then((d: { catalog?: ZimEntry[] }) => setCatalog(d.catalog ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
-
-  useEffect(() => { loadCatalog() }, [loadCatalog])
-
-  // Close any open SSE downloads on unmount so navigating away mid-download
-  // doesn't leak connections or fire setState after the component is gone.
-  useEffect(() => () => { for (const es of esRefs.current.values()) es.close() }, [])
-
-  function getVariant(entry: ZimEntry) { return variants.get(entry.sourceId) ?? entry.variantKey }
-
-  function toDlStatus(s: ZimDlState | undefined): DownloadStatus {
-    if (!s) return 'idle'
-    if (s.status === 'downloading') return s.total > 0 ? 'downloading' : 'pending'
-    if (s.status === 'done') return 'completed'
-    if (s.status === 'error') return 'error'
-    return 'cancelled'
-  }
-
-  function setDl(sourceId: string, patch: Partial<ZimDlState>) {
-    setDownloads(prev => {
-      const next = new Map(prev)
-      const cur = next.get(sourceId) ?? { status: 'downloading' as const, completed: 0, total: 0, speedBps: 0, etaSeconds: 0, statusMsg: '', error: null }
-      next.set(sourceId, { ...cur, ...patch })
-      return next
-    })
-  }
-
-  function handleDownload(sourceId: string, variantKey: string) {
-    fetch(`/api/admin/archives/cancel/${sourceId}`, { method: 'POST', credentials: 'include' }).catch(() => {})
-    esRefs.current.get(sourceId)?.close()
-    setDl(sourceId, { status: 'downloading', completed: 0, total: 0, speedBps: 0, etaSeconds: 0, statusMsg: 'Starting…', error: null })
-    const es = new EventSource(`/api/admin/archives/download/${sourceId}?variantKey=${encodeURIComponent(variantKey)}`, { withCredentials: true })
-    esRefs.current.set(sourceId, es)
-    let closed = false
-    const cleanup = () => { if (!closed) { closed = true; es.close(); esRefs.current.delete(sourceId) } }
-    es.addEventListener('status', (e) => { try { const { msg } = JSON.parse((e as MessageEvent).data) as { msg: string }; setDl(sourceId, { statusMsg: msg }) } catch { /* malformed frame */ } })
-    es.addEventListener('progress', (e) => { try { const p = JSON.parse((e as MessageEvent).data) as { completed: number; total: number; speedBps: number; etaSeconds: number }; setDl(sourceId, { ...p, status: 'downloading' }) } catch { /* malformed frame */ } })
-    es.addEventListener('done', () => { cleanup(); setDl(sourceId, { status: 'done' }); loadCatalog() })
-    es.addEventListener('cancelled', () => { cleanup(); setDl(sourceId, { status: 'cancelled' }) })
-    es.addEventListener('error', (e) => {
-      cleanup()
-      const msg = 'data' in e ? (() => { try { return (JSON.parse((e as MessageEvent).data) as { msg: string }).msg } catch { return 'Download failed' } })() : 'Connection lost'
-      setDl(sourceId, { status: 'error', error: msg })
-    })
-  }
-
-  function handleCancel(sourceId: string) {
-    esRefs.current.get(sourceId)?.close()
-    fetch(`/api/admin/archives/cancel/${sourceId}`, { method: 'POST', credentials: 'include' })
-    setDl(sourceId, { status: 'cancelled' })
-  }
-
-  async function handleDelete(sourceId: string) {
-    await fetch(`/api/admin/archives/${sourceId}`, { method: 'DELETE', credentials: 'include' })
-    loadCatalog()
-  }
-
-  function handleDownloadAll(entries: ZimEntry[]) {
-    for (const entry of entries) {
-      const dl = downloads.get(entry.sourceId)
-      if (!entry.installed && dl?.status !== 'downloading') handleDownload(entry.sourceId, getVariant(entry))
-    }
-  }
-
-  function toggleCategory(cat: string) {
-    setOpenCategories(prev => { const next = new Set(prev); if (next.has(cat)) next.delete(cat); else next.add(cat); return next })
-  }
-
-  const displayCatalog = query
-    ? catalog.filter(e => qMatch(e.label, query) || qMatch(e.description, query) || qMatch(e.category, query) || qMatch(e.bookCategory ?? '', query))
-    : catalog
-
-  const categorized = useMemo(() => {
-    const groups = new Map<string, ZimEntry[]>()
-    for (const entry of displayCatalog) {
-      const cat = entry.bookCategory || entry.category || 'Other'
-      if (!groups.has(cat)) groups.set(cat, [])
-      groups.get(cat)!.push(entry)
-    }
-    return groups
-  }, [displayCatalog])
-
-  const notInstalled = displayCatalog.filter(e => !e.installed && downloads.get(e.sourceId)?.status !== 'downloading')
-  if (query && displayCatalog.length === 0) return null
-
-  return (
-    <div className={cn('space-y-3', !kiwixInstalled && 'opacity-40 pointer-events-none')}>
-      <div className="flex items-center justify-between">
-        <span className="text-overline text-muted-foreground/50">Books & References</span>
-        {notInstalled.length > 0 && kiwixInstalled && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => handleDownloadAll(notInstalled)}
-            className="gap-1 px-2 text-muted-foreground">
-            <Download className="size-3" /> Add all
-          </Button>
-        )}
-      </div>
-
-      {kiwixInstalled && (
-        loading ? (
-          <div className="flex items-center gap-2 py-2">
-            <Spinner size="sm" className="size-3 text-muted-foreground/40" />
-            <span className="text-xs text-muted-foreground/40">Loading…</span>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {ZIM_CATEGORY_ORDER.filter(cat => categorized.has(cat)).map(cat => {
-              const entries = categorized.get(cat)!
-              const catInstalled = entries.filter(e => e.installed || toDlStatus(downloads.get(e.sourceId)) === 'completed').length
-              const catNotInstalled = entries.filter(e => !e.installed && downloads.get(e.sourceId)?.status !== 'downloading')
-              const catOpen = query ? true : openCategories.has(cat)
-
-              return (
-                <div key={cat}>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <button type="button" onClick={() => !query && toggleCategory(cat)}
-                      className="flex items-center gap-2 flex-1 min-w-0">
-                      <ChevronDown className={cn('size-3 text-muted-foreground/40 transition-transform', !catOpen && '-rotate-90')} />
-                      <span className="text-overline text-muted-foreground/50">{cat}</span>
-                      <span className="text-[10px] text-muted-foreground/35 tabular-nums">{catInstalled}/{entries.length}</span>
-                    </button>
-                    {catNotInstalled.length > 0 && (
-                      <Button type="button" variant="ghost" size="sm" onClick={() => handleDownloadAll(catNotInstalled)}
-                        className="gap-1 px-2 text-muted-foreground/50 shrink-0">
-                        <Download className="size-2.5" /> Add all
-                      </Button>
-                    )}
-                  </div>
-
-                  {catOpen && (
-                    <div className="space-y-1.5">
-                      {entries.map(entry => {
-                        const dl = downloads.get(entry.sourceId)
-                        const variantKey = getVariant(entry)
-                        const variant = entry.variants.find(v => v.key === variantKey) ?? entry.variants[0]
-                        const isActive = dl?.status === 'downloading'
-                        const dlStatus = toDlStatus(dl)
-
-                        return (
-                          <Card key={entry.sourceId} variant="surface" className="border-border/60 bg-card/60">
-                            <div className="flex items-center gap-3 px-3 py-2.5">
-                              <div className={cn('flex size-4 shrink-0 items-center justify-center rounded-full',
-                                entry.installed || dlStatus === 'completed' ? 'bg-success/10' : 'bg-muted')}>
-                                {entry.installed || dlStatus === 'completed'
-                                  ? <CheckCircle2 className="size-2.5 text-success" />
-                                  : <StatusDot status="off" />}
-                              </div>
-                              {entry.faviconUrl && <img src={proxyImg(entry.faviconUrl)} className="size-4 shrink-0 rounded" alt="" />}
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold leading-tight">{entry.label}</p>
-                                <p className="text-[11px] text-muted-foreground leading-snug line-clamp-1">{entry.description}</p>
-                              </div>
-                              {entry.variants.length > 1 && !isActive && (
-                                <select value={variantKey}
-                                  onChange={e => setVariants(prev => new Map(prev).set(entry.sourceId, e.target.value))}
-                                  className="h-6 rounded-control border border-input bg-background px-1.5 text-[11px] focus:outline-none shrink-0">
-                                  {entry.variants.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
-                                </select>
-                              )}
-                              {variant && variant.approxBytes > 0 && (
-                                <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">~{formatFeatureBytes(variant.approxBytes)}</span>
-                              )}
-                              <div className="shrink-0 flex items-center gap-1">
-                                {isActive ? (
-                                  <Button type="button" variant="ghost" size="sm" onClick={() => handleCancel(entry.sourceId)}
-                                    className="px-2 text-muted-foreground">Cancel</Button>
-                                ) : (
-                                  <>
-                                    {entry.installed && (
-                                      <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove content pack"
-                                        onClick={() => setConfirmDeleteId(entry.sourceId)}
-                                        className="text-muted-foreground hover:text-destructive hover:bg-destructive/5">
-                                        <Trash2 className="size-3" />
-                                      </Button>
-                                    )}
-                                    <Button type="button" variant="outline" size="sm" onClick={() => handleDownload(entry.sourceId, variantKey)}
-                                      className="gap-1 px-2 text-muted-foreground">
-                                      <Download className="size-2.5" />
-                                      {entry.installed ? 'Update' : 'Add'}
-                                    </Button>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            {dl && dl.status !== 'cancelled' && (
-                              <div className="border-t border-border/50 px-3 pb-2.5 pt-2">
-                                <DownloadProgress label={entry.label} description={isActive ? dl.statusMsg || undefined : undefined}
-                                  status={dlStatus} downloadedBytes={dl.completed} totalBytes={dl.total}
-                                  speedBps={dl.speedBps} etaSeconds={dl.etaSeconds} error={dl.error ?? undefined} />
-                              </div>
-                            )}
-                          </Card>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )
-      )}
-
-      <ConfirmDialog
-        open={confirmDeleteId !== null}
-        onOpenChange={open => !open && setConfirmDeleteId(null)}
-        title="Remove content pack?"
-        description="This will delete the downloaded file. You can re-download it at any time."
-        confirmLabel="Remove"
-        destructive
-        onConfirm={() => { if (confirmDeleteId) { void handleDelete(confirmDeleteId); setConfirmDeleteId(null) } }}
-      />
-    </div>
-  )
-}
 
 // ── LoRAs browse modal ────────────────────────────────────────────────────────
 
@@ -1723,14 +1470,21 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
               onInstall={() => void repairComponent('claude-code', 'claude-code')}
               onCancel={() => cancelInstall('claude-code')}
             />
-            <CapInstallRow
-              cap={ADMIN_CAPS.find(c => c.id === 'tmux')!}
-              installed={compMap.get('tmux') === true}
-              blocked={compMap.get('claude-code') !== true}
-              installState={installStates.get('tmux')}
-              onInstall={() => void repairComponent('tmux', 'tmux')}
-              onCancel={() => cancelInstall('tmux')}
-            />
+            {catalog.hardware.platform === 'win32' ? (
+              <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
+                <ShieldCheck className="size-4 shrink-0" />
+                Split-pane multiplexing (tmux) isn't available on Windows. The coding terminal runs as a single persistent pane.
+              </div>
+            ) : (
+              <CapInstallRow
+                cap={ADMIN_CAPS.find(c => c.id === 'tmux')!}
+                installed={compMap.get('tmux') === true}
+                blocked={compMap.get('claude-code') !== true}
+                installState={installStates.get('tmux')}
+                onInstall={() => void repairComponent('tmux', 'tmux')}
+                onCancel={() => cancelInstall('tmux')}
+              />
+            )}
             {catalog.hardware.platform === 'win32' ? (
               <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
                 <ShieldCheck className="size-4 shrink-0" />

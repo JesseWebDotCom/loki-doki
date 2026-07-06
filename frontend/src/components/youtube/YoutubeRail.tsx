@@ -1,7 +1,7 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Home, Clock, Heart, History, Download, Settings2, SlidersHorizontal, type LucideIcon,
+  Home, Clock, Heart, History, Download, ListVideo, Settings2, SlidersHorizontal, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
@@ -9,12 +9,13 @@ import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { getSubscriptions } from '@/lib/youtube/api'
 
-function RailLink({ to, icon: Icon, label, end }: { to: string; icon: LucideIcon; label: string; end?: boolean }) {
+function RailLink({ to, icon: Icon, label, end, className }: { to: string; icon: LucideIcon; label: string; end?: boolean; className?: string }) {
   return (
     <NavLink to={to} end={end}
       className={({ isActive }) => cn(
         'flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
         isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+        className,
       )}>
       <Icon className="size-[18px]" /> {label}
     </NavLink>
@@ -49,10 +50,10 @@ export function YoutubeRail({ onManage }: { onManage: () => void }) {
         className="mb-4"
       />
       <RailLink to="/youtube" icon={Home} label="Home" end />
-      <RailLink to="/youtube/settings" icon={SlidersHorizontal} label="Settings" />
 
-      <SectionLabel>Library</SectionLabel>
+      <SectionLabel>Your Library</SectionLabel>
       <LibTab tab="history" icon={History} label="History" />
+      <LibTab tab="playlists" icon={ListVideo} label="Playlists" />
       <LibTab tab="watch-later" icon={Clock} label="Watch Later" />
       <LibTab tab="liked" icon={Heart} label="Liked Videos" />
       <LibTab tab="saved" icon={Download} label="Offline" />
@@ -89,6 +90,8 @@ export function YoutubeRail({ onManage }: { onManage: () => void }) {
           + Add channels &amp; playlists
         </Button>
       )}
+
+      <RailLink to="/youtube/settings" icon={SlidersHorizontal} label="Settings" className="mt-5" />
     </nav>
   )
 }

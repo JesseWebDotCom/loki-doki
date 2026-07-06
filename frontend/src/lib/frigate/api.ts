@@ -19,6 +19,7 @@ export interface FrigateEvent extends FrigateAnnouncement {
   plateName: string | null
   severity: string | null
   description: string | null
+  clipUrl: string | null
   createdAt: string   // ISO string from Drizzle Date serialisation
 }
 

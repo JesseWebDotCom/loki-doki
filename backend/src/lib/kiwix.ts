@@ -1,6 +1,6 @@
-import { join, basename } from 'node:path'
+import { join, basename, dirname } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, rm, copyFile } from 'node:fs/promises'
+import { mkdir, rm, copyFile, readdir, stat } from 'node:fs/promises'
 import { exec, execSync, execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { ChildProcess } from 'node:child_process'
@@ -9,6 +9,7 @@ const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
 import { dataDir, downloadUrl } from '@/lib/download'
 import { IS_WIN, extractZip, findFileInTree } from '@/lib/platform'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 
 export const KIWIX_PORT   = 8090
@@ -22,15 +23,54 @@ const ZIM_SERVER_SCRIPT = join(BACKEND_DIR, 'zim-server.ts')
 // macOS/Linux compile @openzim/libzim and run the custom zim-server.ts. Windows can't
 // compile that without MSVC build tools, so there we auto-download the official static
 // kiwix-tools (kiwix-serve + kiwix-manage) and serve via a generated library.xml.
-const KIWIX_TOOLS_VERSION = '3.7.0'
+// Last-resort pin only; the real version is resolved live from kiwix's release listing
+// (kiwixToolsUrl below). kiwix purges old builds from its mirrors, so a hardcoded version
+// eventually 404s EVERY fresh install — which is exactly what stranded the offline-library
+// downloads. Keep this pointed at a currently-available build in case the listing is
+// unreachable, but the resolver is what normally picks the version.
+const KIWIX_TOOLS_FALLBACK_VERSION = '3.8.1'
+const KIWIX_TOOLS_RELEASE_DIR      = 'https://download.kiwix.org/release/kiwix-tools/'
+// Auto-update manager state (mirrors the yt-dlp / SearXNG updaters). Windows only — mac/Linux
+// use the bundled @openzim/libzim native module, which npm/node-gyp keeps current, not a
+// versioned download.
+const KIWIX_VERSION_KEY        = 'kiwix.tools_version'
+const KIWIX_CHECKED_KEY        = 'kiwix.tools_checked_at'
+const KIWIX_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000
 const BIN_DIR             = join(dataDir, 'bin')
 const KIWIX_SERVE_BIN     = join(BIN_DIR, IS_WIN ? 'kiwix-serve.exe' : 'kiwix-serve')
 const KIWIX_MANAGE_BIN    = join(BIN_DIR, IS_WIN ? 'kiwix-manage.exe' : 'kiwix-manage')
 const KIWIX_LIBRARY_XML   = join(kiwixZimDir, 'library.xml')
 
-function kiwixToolsUrl(): string {
-  // kiwix publishes win-x86_64 only; it runs on ARM Windows under emulation.
-  return `https://download.kiwix.org/release/kiwix-tools/kiwix-tools_win-x86_64-${KIWIX_TOOLS_VERSION}.zip`
+// Numeric-component compare for versions like "3.8.1" and "3.7.0-2" (rebuild suffix).
+function compareKiwixVersions(a: string, b: string): number {
+  const pa = a.split(/[.-]/).map(Number)
+  const pb = b.split(/[.-]/).map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d !== 0) return d
+  }
+  return 0
+}
+
+// kiwix publishes win-x86_64 only (runs on ARM Windows under emulation).
+function kiwixToolsUrlFor(version: string): string {
+  return `${KIWIX_TOOLS_RELEASE_DIR}kiwix-tools_win-x86_64-${version}.zip`
+}
+
+// Resolve the LATEST available build from the release listing instead of a hardcoded version, so
+// a purged build never 404s the install. Falls back to a known-good pin when the listing can't
+// be fetched (offline first-install still works against a currently-available build).
+async function resolveLatestKiwixVersion(): Promise<string> {
+  try {
+    const res = await fetch(KIWIX_TOOLS_RELEASE_DIR, { signal: AbortSignal.timeout(15_000) })
+    if (res.ok) {
+      const html = await res.text()
+      const versions = [...html.matchAll(/kiwix-tools_win-x86_64-([\d.]+(?:-\d+)?)\.zip/g)].map((m) => m[1]!)
+      const latest = versions.sort(compareKiwixVersions).at(-1)
+      if (latest) return latest
+    }
+  } catch { /* offline / listing unavailable */ }
+  return KIWIX_TOOLS_FALLBACK_VERSION
 }
 
 // Windows book-name lookup, populated from library.xml at (re)spawn. Path → book name.
@@ -149,14 +189,17 @@ export async function installKiwixTools(
   onStatus('libzim installed successfully')
 }
 
-// Download + extract the static kiwix-tools bundle (Windows only).
-async function installKiwixServeWindows(onStatus: (msg: string) => void, signal?: AbortSignal): Promise<void> {
-  const url = kiwixToolsUrl()
+// Download + extract the static kiwix-tools bundle (Windows only). Resolves the latest available
+// version when one isn't passed (auto-update passes the target it already resolved). Records the
+// installed version so the update manager can tell when a newer build ships.
+async function installKiwixServeWindows(onStatus: (msg: string) => void, signal?: AbortSignal, version?: string): Promise<void> {
+  const v = version ?? await resolveLatestKiwixVersion()
+  const url = kiwixToolsUrlFor(v)
   const archive = join(BIN_DIR, 'kiwix-tools.zip')
   const extractDir = join(BIN_DIR, '_kiwix_extract')
   try {
     await mkdir(BIN_DIR, { recursive: true })
-    onStatus('Downloading kiwix-serve…')
+    onStatus(`Downloading kiwix-serve ${v}…`)
     // Shared downloader: resume (.part) + retries + stall detection + size verification.
     await downloadUrl(url, archive, () => {}, signal, { minBytes: 1_000_000 })
 
@@ -165,18 +208,55 @@ async function installKiwixServeWindows(onStatus: (msg: string) => void, signal?
     await mkdir(extractDir, { recursive: true })
     extractZip(archive, extractDir, 120_000)
 
-    // kiwix-tools static builds are self-contained executables — copy the two we use.
-    const serveSrc  = await findFileInTree(extractDir, 'kiwix-serve.exe')
-    const manageSrc = await findFileInTree(extractDir, 'kiwix-manage.exe')
-    if (!serveSrc)  throw new Error('kiwix-serve.exe not found in archive')
-    await copyFile(serveSrc, KIWIX_SERVE_BIN)
-    if (manageSrc) await copyFile(manageSrc, KIWIX_MANAGE_BIN)
+    // The 3.8.x Windows builds are NOT self-contained: kiwix-serve/kiwix-manage dynamically link
+    // bundled ICU DLLs (icu*.dll) shipped alongside them in the archive. Copy EVERY file from the
+    // exe's directory (both exes + all DLLs), not just the two .exes, or the tools fail at launch
+    // with "error while loading shared libraries" and every ZIM then reports "failed to open".
+    const serveSrc = await findFileInTree(extractDir, 'kiwix-serve.exe')
+    if (!serveSrc) throw new Error('kiwix-serve.exe not found in archive')
+    const srcDir = dirname(serveSrc)
+    for (const name of await readdir(srcDir)) {
+      const src = join(srcDir, name)
+      try { if ((await stat(src)).isFile()) await copyFile(src, join(BIN_DIR, name)) } catch { /* skip unreadable entries */ }
+    }
 
     if (!isKiwixInstalled()) throw new Error('kiwix-serve missing after extraction')
+    await setAppSetting(KIWIX_VERSION_KEY, v)
+    await setAppSetting(KIWIX_CHECKED_KEY, Date.now())
     onStatus('kiwix-serve installed')
   } finally {
     await rm(archive, { force: true }).catch(() => {})
     await rm(extractDir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+/** Auto-update manager (Windows): on boot and then daily, roll out a newer kiwix-tools build if
+ *  one has shipped. On mac/Linux the ZIM engine is the bundled @openzim/libzim (no versioned
+ *  binary), so this is a no-op there. First install is handled by installKiwixTools with the
+ *  same resolver, so this only updates an already-installed copy. Never throws — mirrors the
+ *  yt-dlp / SearXNG updaters. */
+export async function maybeUpdateKiwixTools(force = false): Promise<void> {
+  if (!IS_WIN || !isKiwixInstalled()) return
+  try {
+    const last = (await getAppSetting(KIWIX_CHECKED_KEY)) as number | null
+    if (!force && last && Date.now() - last < KIWIX_UPDATE_INTERVAL_MS) return
+    const latest = await resolveLatestKiwixVersion()
+    const installed = (await getAppSetting(KIWIX_VERSION_KEY)) as string | null
+    await setAppSetting(KIWIX_CHECKED_KEY, Date.now())
+    if (installed && compareKiwixVersions(latest, installed) <= 0) return  // already current
+    logger.info(`[kiwix] updating kiwix-tools ${installed ?? '(unknown)'} → ${latest}`)
+    // kiwix-serve.exe can't be overwritten while running (Windows locks the file). Stop it, swap
+    // the binaries, then respawn with the current archive set so serving continues on the new build.
+    const wasRunning = getKiwixState() === 'ready'
+    await stopKiwix()
+    await installKiwixServeWindows(() => {}, undefined, latest)
+    logger.info(`[kiwix] kiwix-tools updated to ${latest}`)
+    if (wasRunning) {
+      const { syncKiwixWithArchives } = await import('@/lib/archives')
+      await syncKiwixWithArchives().catch(() => {})
+    }
+  } catch (err) {
+    logger.warn(`[kiwix] auto-update check failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 

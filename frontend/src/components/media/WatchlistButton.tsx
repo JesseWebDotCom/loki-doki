@@ -7,7 +7,6 @@ import {
   addToWatchlist,
   checkWatchlist,
   removeFromWatchlist,
-  setWatchlistStatus,
   type MediaType,
   type WatchStatus,
 } from '@/lib/library/api'

@@ -67,6 +67,8 @@ export interface EnqueueSaveOpts {
   audioFormat?: 'm4a' | 'mp3'
   /** True when written by auto-save — marks the row for keep-N pruning eligibility. */
   auto?: boolean
+  /** Which app the save came from. Music saves are hidden from the YouTube Saved tab. Default 'youtube'. */
+  origin?: 'youtube' | 'music'
 }
 
 /** Upsert the per-user ytDownloads REFERENCE and ensure a shared media asset (+ its coalesced
@@ -77,7 +79,7 @@ export interface EnqueueSaveOpts {
  *  no download (the household's "store-the-max" copy serves everyone). The whole decision runs
  *  under a per-asset lock so concurrent saves can't double-download or race the height math. */
 export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status: 'queued' | 'already-saved' | 'in-progress'; id: string }> {
-  const { userId, videoId, title, kind, maxHeight, firstName: _firstName, audioFormat, auto = false } = opts
+  const { userId, videoId, title, kind, maxHeight, firstName: _firstName, audioFormat, auto = false, origin = 'youtube' } = opts
   const format = assetFormat(kind, audioFormat)
 
   return withLock(assetLockKey(videoId, kind, format), async () => {
@@ -91,21 +93,40 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
     const refId = existing?.id ?? crypto.randomUUID()
     if (!existing) {
       await db.insert(ytDownloads).values({
-        id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, auto,
+        id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, auto, origin,
         status: 'pending', createdAt: now, updatedAt: now,
       })
     } else {
       // An explicit save promotes a transient prefetch ref into a permanent one (prefetch→false),
-      // so it survives the prefetch prune. Don't downgrade a manual save's `auto` flag.
+      // so it survives the prefetch prune. Don't downgrade a manual save's `auto` flag. Origin only
+      // ever upgrades toward 'youtube' (a YouTube save of a music-saved track surfaces it in YouTube;
+      // a music save never hides a track the user had saved from YouTube).
       await db.update(ytDownloads)
-        .set({ status: 'pending', error: null, maxHeight, assetId: asset.id, prefetch: false, ...(auto ? { auto: true } : {}), updatedAt: now })
+        .set({ status: 'pending', error: null, maxHeight, assetId: asset.id, prefetch: false, ...(auto ? { auto: true } : {}), ...(origin === 'youtube' ? { origin: 'youtube' as const } : {}), updatedAt: now })
         .where(eq(ytDownloads.id, refId))
     }
+
+    // Best-effort, fire-and-forget: upgrade this video's stored thumbnail to the real
+    // maxresdefault when YouTube actually generated one (most browse/search paths default to
+    // low-res mqdefault, which is fine for a small grid tile but not for the Offline library
+    // or Plex export). Runs once per save, not on every render — a network HEAD check inline
+    // in the save's critical path/lock would add real latency for no benefit there.
+    void (async () => {
+      const { resolveBestThumbnailUrl } = await import('@/lib/youtube/thumbnail')
+      const url = await resolveBestThumbnailUrl(videoId)
+      await db.update(ytVideos).set({ thumbnailUrl: url }).where(eq(ytVideos.videoId, videoId))
+    })().catch(err => logger.warn(`[youtube] thumbnail upgrade failed for ${videoId}: ${err}`))
 
     // Dedup hit: the household already holds this at sufficient quality — satisfy instantly.
     if (assetSatisfies(asset, kind, maxHeight)) {
       await db.update(ytDownloads).set({ status: 'ready', sizeBytes: asset.sizeBytes, error: null, updatedAt: now })
         .where(eq(ytDownloads.id, refId))
+      // This path bypasses completeAsset()'s fan-out entirely (nothing to download), so it
+      // needs its own Plex-export hook — otherwise a dedup-satisfied save never reaches Plex.
+      if (kind === 'video') {
+        const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+        void enqueuePlexSync(userId, videoId, 'add').catch(() => {})
+      }
       return { status: 'already-saved', id: refId }
     }
 
@@ -136,7 +157,7 @@ export async function enqueuePrefetch(opts: { userId: string; videoId: string; t
       .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind))).limit(1)
     const refId = existing?.id ?? crypto.randomUUID()
     if (!existing) {
-      await db.insert(ytDownloads).values({ id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, prefetch: true, status: 'pending', createdAt: now, updatedAt: now })
+      await db.insert(ytDownloads).values({ id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, prefetch: true, origin: 'music', status: 'pending', createdAt: now, updatedAt: now })
     } else {
       // Touch updatedAt (LRU) but keep its existing prefetch flag — a real save is never demoted.
       await db.update(ytDownloads).set({ assetId: asset.id, updatedAt: now }).where(eq(ytDownloads.id, refId))
@@ -237,6 +258,7 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
 
   const rows = await db.select({
     id: ytDownloads.id,
+    videoId: ytDownloads.videoId,
     assetId: ytDownloads.assetId,
     transcriptRelPath: ytDownloads.transcriptRelPath,
     publishedAt: ytVideos.publishedAt,
@@ -267,6 +289,13 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
   }
   await db.delete(ytDownloads).where(inArray(ytDownloads.id, stale.map(r => r.id)))
   await releaseAssetsIfOrphaned(stale.map(r => r.assetId))
+
+  // Auto-prune has zero Plex-facing effect otherwise — a rolled-off video would keep
+  // showing in the user's Plex library forever even after this function deletes its save.
+  if (kind === 'video') {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    for (const r of stale) void enqueuePlexSync(userId, r.videoId, 'remove').catch(() => {})
+  }
   logger.info(`[youtube] auto-save pruned ${stale.length} old video(s) for subscription ${subscriptionId} (keep ${keep})`)
 }
 

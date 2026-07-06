@@ -1,11 +1,15 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Play, Pause, Volume2, VolumeX, Maximize, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock } from '@/lib/youtube/format'
-import { fileUrl, proxyStreamUrl, saveWatchState, type SkipSegment, type WatchMeta, type StreamQuality } from '@/lib/youtube/api'
+import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, getStoryboards, ytImageProxy, type SkipSegment, type WatchMeta, type StreamQuality, type StoryboardLevel } from '@/lib/youtube/api'
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
+import { pickStoryboardLevel, frameForTime } from '@/lib/youtube/storyboard'
 import { VideoThumb } from '@/components/youtube/media'
+import { useZoomToFillFullscreen } from '@/hooks/use-zoom-to-fill-fullscreen'
+import { useAudioBoost } from '@/hooks/use-audio-boost'
 
 export interface VideoPlayerHandle {
   seek: (sec: number) => void
@@ -59,6 +63,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // onPipRequestHandled, the first time the resulting <video> starts playing.
   autoRequestPip?: boolean
   onPipRequestHandled?: () => void
+  // Audio boost (amplify past 100%) needs a real <video>/<audio> element to tap — Web
+  // Audio can't touch the cross-origin iframe embed. Same handoff as PiP: when boost is
+  // requested while still on the embed, the parent flips privacyProxy on so a native
+  // element mounts, and passes autoOpenBoost back so the slider pops open on the new mount.
+  onNeedsProxyForBoost?: () => void
+  autoOpenBoost?: boolean
+  onBoostOpenHandled?: () => void
   // Audio-only: stream just the audio (through our server) and show the video's
   // thumbnail as a static poster; saves bandwidth, keeps the visual context.
   audioOnly?: boolean
@@ -78,7 +89,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Frame shape: 'video' self-sizes to 16:9; 'short' fills its parent (the parent
   // sizes the 9:16 box); used by the vertical Shorts feed.
   aspect?: 'video' | 'short'
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null)
@@ -98,6 +109,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const [rate, setRate] = useState(1)
   // Settings popover: which sub-menu is open (null = closed).
   const [menu, setMenu] = useState<null | 'main' | 'speed' | 'quality'>(null)
+  const [boostOpen, setBoostOpen] = useState(false)
   // Privacy-proxy quality (re-requests the stream); embed quality is a best-effort hint.
   const [proxyQuality, setProxyQuality] = useState<StreamQuality>('auto')
   const [embedLevels, setEmbedLevels] = useState<string[]>([])
@@ -105,22 +117,72 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // If the privacy proxy can't produce a stream, fall back to the embed so playback
   // still works rather than showing a dead player.
   const [proxyFailed, setProxyFailed] = useState(false)
+  // Last-resort tier: the stream resolve failed completely (both InnerTube and yt-dlp),
+  // so the server kicked off an offline download instead of erroring out — see the /stream
+  // 202 "preparing" response. While this is set we show a spinner rather than falling
+  // through to the iframe embed; once the download lands we switch straight to the file.
+  const [preparingKind, setPreparingKind] = useState<'audio' | 'video' | null>(null)
+  const [fallbackReadyKind, setFallbackReadyKind] = useState<'audio' | 'video' | null>(null)
+  useEffect(() => { setPreparingKind(null); setFallbackReadyKind(null) }, [videoId])
 
   const localSrc = localKind ? fileUrl(videoId, localKind) : null
   // Audio-only streams just the audio through our server, with the thumbnail as poster.
   const onlineAudio = audioOnly && !localKind && !proxyFailed
   const usingProxy = privacyProxy && !localKind && !proxyFailed && !onlineAudio
-  // Native <video>/<audio> source: an offline file, the privacy proxy, or audio-only.
+  // Native <video>/<audio> source: an offline file, the privacy proxy, audio-only, or (once
+  // the last-resort download lands) the freshly-saved offline file.
   const nativeVideoSrc =
     localKind === 'video' ? localSrc
+    : fallbackReadyKind === 'video' ? fileUrl(videoId, 'video')
     : usingProxy ? proxyStreamUrl(videoId, 'video', proxyQuality)
     : null
   const nativeAudioSrc =
     localKind === 'audio' ? localSrc
+    : fallbackReadyKind === 'audio' ? fileUrl(videoId, 'audio')
     : onlineAudio ? proxyStreamUrl(videoId, 'audio')
     : null
-  // Use the YouTube embed only when we have no native source to drive.
-  const useIframe = !nativeVideoSrc && !nativeAudioSrc
+  // Use the YouTube embed only when we have no native source to drive, and we're not busy
+  // waiting on the last-resort download (that has its own "Preparing…" UI, not the embed).
+  const useIframe = !nativeVideoSrc && !nativeAudioSrc && !preparingKind
+
+  // This mount exists to satisfy a boost request made while still on the embed (the parent
+  // flipped privacyProxy on, remounting us onto a native element): pop the slider open so
+  // the user lands right on the control they reached for. Consumed once.
+  useEffect(() => {
+    if (autoOpenBoost && !useIframe) { setBoostOpen(true); onBoostOpenHandled?.() }
+  }, [autoOpenBoost, useIframe]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll the last-resort download until it's ready, then switch the native source over to it.
+  useEffect(() => {
+    if (!preparingKind) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+    const kind = preparingKind
+    const poll = async () => {
+      try {
+        const status = await getDownloadStatus(videoId, kind)
+        if (cancelled) return
+        if (status === 'ready') { setPreparingKind(null); setFallbackReadyKind(kind); return }
+        if (status === 'failed') { setPreparingKind(null); setProxyFailed(true); return }
+      } catch { /* transient — keep polling */ }
+      if (!cancelled) timer = setTimeout(poll, 4000)
+    }
+    timer = setTimeout(poll, 4000)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [preparingKind, videoId])
+
+  // Called from the native <video>/<audio> onError: check whether the stream genuinely died
+  // (fall back to the embed, as before) or the server answered 202 "preparing" (start polling
+  // for the last-resort download instead). Only fires on an actual playback error, so the
+  // common "stream just works" case never pays for this extra request.
+  async function handleStreamError(kind: 'audio' | 'video', src: string) {
+    try {
+      const res = await fetch(src, { credentials: 'include' })
+      if (res.status === 202) { setPreparingKind(kind); return }
+      try { await res.body?.cancel() } catch { /* already closed */ }
+    } catch { /* noop */ }
+    setProxyFailed(true)
+  }
 
   // Reading position works against whichever backing player is active.
   const read = () => {
@@ -261,16 +323,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     else if (y) { try { next ? y.mute?.() : y.unMute?.() } catch { /* noop */ } }
     setMuted(next)
   }
-  // Toggle: exit if already fullscreen (so the button works both ways), else request.
-  const fullscreen = () => {
-    const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void }
-    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
-      try { (document.exitFullscreen ?? doc.webkitExitFullscreen)?.call(document) } catch { /* noop */ }
-      return
-    }
-    const el = wrapRef.current as (HTMLElement & { webkitRequestFullscreen?: () => void }) | null
-    try { (el?.requestFullscreen ?? el?.webkitRequestFullscreen)?.call(el) } catch { /* noop */ }
-  }
+  const { isFullscreen, fillMode, toggleFullscreen, toggleFillMode } = useZoomToFillFullscreen(mediaRef, wrapRef)
+  const { boost, setBoost } = useAudioBoost(mediaRef)
 
   // PiP state sync: reflect browser-driven exits (e.g. the PiP window's own close
   // button) back into our icon. Native <video> only — no PiP-eligible element while
@@ -311,13 +365,48 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     setEmbedQuality(level); setMenu(null)
   }
 
-  const scrub = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+  // Scrub bar: press/drag anywhere on it to seek, hover to preview a storyboard frame at
+  // that timestamp. Storyboards are fetched lazily (only once the bar is actually
+  // hovered) and cached for the session — a scrub, quality-switch remount, etc. never
+  // re-fetches once the first hover has warmed the query.
+  const scrubRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+  const [hoverRatio, setHoverRatio] = useState<number | null>(null)
+  const [wantStoryboard, setWantStoryboard] = useState(false)
+
+  const { data: storyboardLevels } = useQuery({
+    queryKey: ['yt-storyboards', videoId],
+    queryFn: () => getStoryboards(videoId),
+    enabled: wantStoryboard && !localKind,
+    staleTime: Infinity,
+  })
+  const storyboardLevel = useMemo(() => storyboardLevels?.length ? pickStoryboardLevel(storyboardLevels) : null, [storyboardLevels])
+
+  const ratioFromClientX = (clientX: number) => {
+    const rect = scrubRef.current?.getBoundingClientRect()
+    if (!rect) return 0
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  }
+  const seekToRatio = (ratio: number) => {
     const sec = ratio * (duration || 0)
     seekTo(sec)
     setPosition(sec)
   }
+  const onScrubDown = (e: React.MouseEvent<HTMLDivElement>) => { seekToRatio(ratioFromClientX(e.clientX)); setDragging(true) }
+  const onScrubMove = (e: React.MouseEvent<HTMLDivElement>) => { setHoverRatio(ratioFromClientX(e.clientX)); setWantStoryboard(true) }
+  const onScrubLeave = () => { if (!dragging) setHoverRatio(null) }
+
+  // Dragging can carry the pointer outside the (thin, h-1) bar itself — track window-level
+  // moves/up while a drag is active so the seek keeps following the cursor.
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: MouseEvent) => { const r = ratioFromClientX(e.clientX); seekToRatio(r); setHoverRatio(r) }
+    const onUp = () => setDragging(false)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging, duration])
 
   const pct = duration ? Math.min(100, (position / duration) * 100) : 0
 
@@ -349,7 +438,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     : useIframe ? (YT_QUALITY_LABEL[embedQuality] ?? 'Auto') : null
 
   return (
-    <div ref={wrapRef} onMouseLeave={() => setMenu(null)}
+    <div ref={wrapRef} onMouseLeave={() => { setMenu(null); setBoostOpen(false) }}
       className={cn('group relative overflow-hidden rounded-card bg-black',
         aspect === 'short' ? 'size-full' : 'aspect-video w-full')}>
       <div ref={frameRef} className="size-full">
@@ -359,10 +448,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)}
             onPlaying={() => {
               setBuffering(false); setPlaying(true)
-              if (autoRequestPip) { onPipRequestHandled?.(); void mediaRef.current?.requestPictureInPicture?.().catch(() => {}) }
+              if (autoRequestPip) { onPipRequestHandled?.(); const el = mediaRef.current; if (el instanceof HTMLVideoElement) void el.requestPictureInPicture?.().catch(() => {}) }
             }}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
-            onError={() => { if (privacyProxy && !localKind) setProxyFailed(true) }}
+            onError={() => { if (privacyProxy && !localKind) void handleStreamError('video', nativeVideoSrc) }}
             onEnded={() => { persist(true); onEnded?.() }} />
         ) : nativeAudioSrc ? (
           <div className="relative flex size-full items-center justify-center bg-black">
@@ -386,7 +475,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
               onLoadStart={() => setBuffering(true)} onWaiting={() => setBuffering(true)}
               onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)} onPlaying={() => setBuffering(false)}
               onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
-              onError={() => { if (onlineAudio) setProxyFailed(true) }}
+              onError={() => { if (onlineAudio) void handleStreamError('audio', nativeAudioSrc) }}
               onEnded={() => { persist(true); onEnded?.() }} />
           </div>
         ) : null}
@@ -401,11 +490,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
       )}
 
       {/* Buffering / loading spinner covers the dead time while the privacy proxy
-          resolves a stream (several seconds) or the embed/native player is loading. */}
-      {buffering && (
+          resolves a stream (several seconds) or the embed/native player is loading. Also
+          covers the last-resort "preparing" wait (both fast paths failed; an offline
+          download was kicked off server-side and we're polling for it to land). */}
+      {(buffering || preparingKind) && (
         <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/20">
           <Spinner className="size-10 text-white/90" />
-          {usingProxy && <span className="text-xs font-medium text-white/80">Starting private stream…</span>}
+          {preparingKind
+            ? <span className="text-xs font-medium text-white/80">Preparing video…</span>
+            : usingProxy && <span className="text-xs font-medium text-white/80">Starting private stream…</span>}
         </div>
       )}
 
@@ -413,7 +506,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           full-surface toggle layer below handles taps everywhere; on hover the bar
           becomes interactive so its scrubber + buttons work. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 translate-y-2 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 opacity-0 transition group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto">
-        <div onClick={scrub} className="relative mb-3 h-1 cursor-pointer rounded-full bg-white/25">
+        <div ref={scrubRef} onMouseDown={onScrubDown} onMouseMove={onScrubMove} onMouseLeave={onScrubLeave}
+          className="relative mb-3 h-1 cursor-pointer rounded-full bg-white/25">
           {/* SponsorBlock segment markers */}
           {segMarks.map((s, i) => (
             // design-ok(raw-palette-semantic): SponsorBlock warning marks on the scrubber over the video surface
@@ -427,6 +521,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           <div className="relative h-full rounded-full bg-[var(--yt-accent)]" style={{ width: `${pct}%` }}>
             <span className="absolute -right-1.5 top-1/2 size-3 -translate-y-1/2 rounded-full bg-[var(--yt-accent)]" />
           </div>
+          {/* Trickplay: sprite-sheet frame preview at the hovered timestamp */}
+          {hoverRatio != null && storyboardLevel && duration > 0 && (
+            <StoryboardPreview level={storyboardLevel} sec={hoverRatio * duration} ratio={hoverRatio} />
+          )}
         </div>
         <div className="flex items-center gap-4 text-white">
           <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
@@ -485,13 +583,43 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             )}
           </div>
 
+          {/* Audio boost: amplify quiet clips past 100%. Needs a real <video>/<audio>
+              element to tap — Web Audio can't reach the iframe embed. On the embed the
+              button is still shown but hands off to the privacy stream first (like PiP),
+              so it's always discoverable rather than silently absent. */}
+          {(!useIframe || onNeedsProxyForBoost) && (
+            <div className="relative">
+              <button onClick={() => (useIframe ? onNeedsProxyForBoost?.() : setBoostOpen(o => !o))}
+                aria-label="Boost volume" title={useIframe ? 'Boost volume (switches to the privacy stream)' : 'Boost volume'}
+                className={cn('flex items-center gap-1.5 transition', boost > 1 && 'text-[var(--yt-accent-fg)]')}>
+                {boost > 1 && <span className="text-xs font-bold tabular-nums">{boost.toFixed(1)}×</span>}
+                <Zap className="size-5" />
+              </button>
+              {boostOpen && !useIframe && (
+                // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): theme-invariant dark popover floating over the video surface
+                <div className="absolute bottom-full right-0 mb-3 w-40 rounded-card border border-white/10 bg-zinc-900/95 p-3 text-white shadow-xl backdrop-blur">
+                  <div className="mb-1.5 flex items-center justify-between text-xs">
+                    <span className="font-semibold">Boost</span>
+                    <span className="tabular-nums text-white/60">{boost.toFixed(1)}×</span>
+                  </div>
+                  <input type="range" min={1} max={4} step={0.1} value={boost}
+                    onChange={e => setBoost(Number(e.target.value))} className="w-full accent-[var(--yt-accent)]" />
+                </div>
+              )}
+            </div>
+          )}
           {showPip && (
             <button onClick={togglePip} aria-label={pipActive ? 'Exit picture-in-picture' : 'Picture-in-picture'} title="Picture-in-picture"
               className={cn(pipActive && 'text-[var(--yt-accent-fg)]')}>
               <PictureInPicture className="size-5" />
             </button>
           )}
-          <button onClick={fullscreen} aria-label="Fullscreen"><Maximize className="size-5" /></button>
+          {isFullscreen && (
+            <button onClick={toggleFillMode} aria-label={fillMode === 'cover' ? 'Fit to screen' : 'Zoom to fill'} title={fillMode === 'cover' ? 'Fit to screen' : 'Zoom to fill'}>
+              <Expand className={cn('size-5', fillMode === 'cover' && 'text-[var(--yt-accent-fg)]')} />
+            </button>
+          )}
+          <button onClick={toggleFullscreen} aria-label="Fullscreen"><Maximize className="size-5" /></button>
         </div>
       </div>
 
@@ -531,6 +659,30 @@ function Submenu({ title, onBack, children }: { title: string; onBack: () => voi
       </button>
       <div className="max-h-56 overflow-y-auto py-1">{children}</div>
     </>
+  )
+}
+
+// Trickplay preview: crops one frame out of a storyboard sprite sheet via CSS
+// background-position, upscaled ~2× for legibility, floating above the scrub bar and
+// clamped so it never overflows the player's edges.
+function StoryboardPreview({ level, sec, ratio }: { level: StoryboardLevel; sec: number; ratio: number }) {
+  const { sheetUrl, col, row } = frameForTime(level, sec)
+  const scale = 2
+  const w = level.width * scale
+  const h = level.height * scale
+  return (
+    // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): trickplay preview floats over the video surface
+    <div className="pointer-events-none absolute bottom-full mb-2 overflow-hidden rounded-control border border-white/10 shadow-xl"
+      style={{
+        width: w, height: h,
+        left: `clamp(${w / 2}px, ${ratio * 100}%, calc(100% - ${w / 2}px))`,
+        transform: 'translateX(-50%)',
+        backgroundImage: `url(${ytImageProxy(sheetUrl)})`,
+        backgroundPosition: `-${col * w}px -${row * h}px`,
+        backgroundSize: `${level.cols * w}px ${level.rows * h}px`,
+      }}>
+      <span className="absolute bottom-1 right-1.5 rounded bg-black/80 px-1 py-0.5 text-[10px] font-semibold tabular-nums text-white">{fmtClock(sec)}</span>
+    </div>
   )
 }
 

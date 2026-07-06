@@ -30,8 +30,11 @@ import { adminRouterBenchmark } from '@/routes/adminRouterBenchmark'
 import { projects } from '@/routes/projects'
 import { image } from '@/routes/image'
 import { converter } from '@/routes/converter'
+import { drop } from '@/routes/drop'
+import { startDropSweep } from '@/lib/drop/service'
 import { adminImageLoras } from '@/routes/adminImageLoras'
 import { adminQueue } from '@/routes/adminQueue'
+import { adminGpu } from '@/routes/adminGpu'
 import { adminInstall } from '@/routes/adminInstall'
 import { adminUninstall } from '@/routes/adminUninstall'
 import { archives } from '@/routes/archives'
@@ -91,6 +94,9 @@ import { plexRoute } from '@/routes/plex'
 import { adminHomeAssistant } from '@/routes/adminHomeAssistant'
 import { homeAssistantRoute } from '@/routes/homeAssistant'
 import { youtubeRoute } from '@/routes/youtube'
+import { ytPlaylists } from '@/routes/ytPlaylists'
+import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
+import { clipperRoute } from '@/routes/clipper'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
 import { music } from '@/routes/music'
@@ -107,6 +113,7 @@ import { shopping } from '@/routes/shopping'
 import { createCodingRoute } from '@/routes/coding'
 import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
+import adminStorageLocations from '@/routes/adminStorageLocations'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -117,7 +124,7 @@ import { backfillYoutubeTitleEntities } from '@/lib/youtube/titleBackfill'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { mediaImageCacheSweep } from '@/lib/titles/imageProxy'
 import { imageCacheSweep } from '@/lib/imageProxy'
-import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
+import { startYtdlpAutoUpdate } from '@/lib/ytdlp'
 import { startOllamaAutoUpdate } from '@/lib/download'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
@@ -137,9 +144,10 @@ import { seedContentProfiles } from '@/lib/contentPolicy'
 import { frigate } from '@/routes/frigate'
 import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
-import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
+import { maybeSpawnComfyUI, stopComfyUI, isComfyUIInstalled } from '@/lib/comfyui'
+import { ensureVtracer } from '@/lib/vtracer'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
-import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix } from '@/lib/kiwix'
+import { maybeSpawnKiwix, scheduleKiwixBootHeal, stopKiwix, maybeUpdateKiwixTools } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
 import { stopCodingPtySidecar } from '@/lib/codingPtySidecar'
 import { reconcileBuiltinPronunciationPacks } from '@/lib/voice/pronunciation'
@@ -184,6 +192,7 @@ if (firstBoot) {
   startMemorySweep()
   startBriefingRefresh()
   startCompanionCheckins()
+  startDropSweep()
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})
@@ -236,6 +245,10 @@ if (firstBoot) {
   maybeSpawnSearXNG()
   void maybeUpdateSearXNG()
   setInterval(() => void maybeUpdateSearXNG(), 24 * 60 * 60 * 1000)
+  // kiwix-tools (Windows) auto-update: roll out newer builds on boot + daily, so a purged
+  // pinned version never strands the offline library (mac/Linux use bundled libzim, no-op there).
+  void maybeUpdateKiwixTools()
+  setInterval(() => void maybeUpdateKiwixTools(true), 24 * 60 * 60 * 1000)
   // Pod gateway: a Wyoming-protocol TCP listener that ESP32 satellites (and the
   // scripts/pod-test-satellite.ts harness) connect to. Reuses STT/TTS/LLM brains.
   // See plans/hardware-devices/pod-wyoming-architecture.md. Disable: POD_GATEWAY_ENABLED=0.
@@ -324,6 +337,10 @@ if (firstBoot) {
   // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
   // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
   startYtdlpAutoUpdate()
+  // Provision the vector tracer for the image generator's SVG output mode. Only where image
+  // gen exists (ComfyUI installed), and only a NEW dependency the component-ledger reconcile
+  // would otherwise skip on pre-existing installs. Best-effort, non-blocking.
+  if (isComfyUIInstalled()) ensureVtracer().catch(() => {})
   // Keep Ollama fresh too: an outdated Ollama can't pull models with a newer manifest
   // format (discovered pulling ornith:9b against 0.30.8). Same daily-check/weekly-force
   // cadence; only upgrades installs it can do safely and unattended (Homebrew or its own
@@ -460,8 +477,10 @@ app.route('/api/admin/router-benchmark', adminRouterBenchmark)
 app.route('/api/projects', projects)
 app.route('/api/image', image)
 app.route('/api/converter', converter)
+app.route('/api/drop', drop)
 app.route('/api/admin/image-loras', adminImageLoras)
 app.route('/api/admin/queue', adminQueue)
+app.route('/api/admin/gpu', adminGpu)
 app.route('/api/admin/install', adminInstall)
 app.route('/api/admin/uninstall', adminUninstall)
 app.route('/api/archives', archives)
@@ -479,6 +498,7 @@ app.route('/api/pod', deviceStudio)
 app.route('/api/browser-session', browserSessionRoute)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
+app.route('/api/clipper', clipperRoute)
 app.route('/api/narration', narration)
 app.route('/api/books', books)
 app.route('/api/books', booksGenerate)
@@ -529,6 +549,7 @@ app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
 app.route('/api/youtube', youtubeRoute)
+app.route('/api/youtube/playlists', ytPlaylists)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
 app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)
@@ -558,11 +579,13 @@ app.route('/api/local-events', localEventsRoute)
 app.route('/api/time', time)
 app.route('/api/lookup', lookup)
 app.route('/api/admin/storage', adminStorage)
+app.route('/api/admin/storage-locations', adminStorageLocations)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))
 
 if (process.env.NODE_ENV !== 'development') {
+  app.get('/youtube/watch/:videoId', ogMetaMiddleware)
   app.use('*', serveStatic({ root: '../frontend/dist' }))
   app.get('*', serveStatic({ path: '../frontend/dist/index.html' }))
 }

@@ -35,7 +35,7 @@ const MAX_PAGES_PER_TAB = 30
 // 'videos', so the 'live' tab is redundant and skipped.)
 const CHANNEL_TABS: ChannelVideoTab[] = ['videos', 'shorts']
 
-function toUpsert(v: ItVideo): UpsertVideo {
+function toUpsert(v: ItVideo, tab?: ChannelVideoTab): UpsertVideo {
   return {
     videoId: v.videoId,
     title: v.title,
@@ -47,6 +47,8 @@ function toUpsert(v: ItVideo): UpsertVideo {
     publishedAt: null,
     durationSec: v.durationSec,
     description: null,
+    // Playlist scans (tab undefined) don't map to a single channel tab — leave null.
+    tab: tab ?? null,
   }
 }
 
@@ -63,7 +65,7 @@ async function reconcileChannelTab(sub: typeof ytSubscriptions.$inferSelect, tab
     if (!res.videos.length) break
     scanned += res.videos.length
 
-    const fresh = await upsertSubscriptionVideos(sub, res.videos.map(toUpsert))
+    const fresh = await upsertSubscriptionVideos(sub, res.videos.map(v => toUpsert(v, tab)))
     inserted += fresh.length
 
     // Nothing new on this page → caught up; deeper pages are older and already known.
@@ -83,7 +85,7 @@ export async function reconcileSubscription(sub: typeof ytSubscriptions.$inferSe
       // innertubePlaylist returns the first browse page (up to ~100 items, no deep
       // continuation) — still far past RSS's 15, so it closes the realistic gap.
       const pl = await innertubePlaylist(sub.externalId, MAX_VIDEOS_PER_TAB, 8000)
-      const fresh = await upsertSubscriptionVideos(sub, pl.videos.map(toUpsert))
+      const fresh = await upsertSubscriptionVideos(sub, pl.videos.map(v => toUpsert(v)))
       inserted += fresh.length
     } else {
       for (const tab of CHANNEL_TABS) {

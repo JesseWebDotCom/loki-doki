@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, Brain, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Gamepad2, Gauge, Gift, Home, Image as ImageIcon, Library, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
-  Search, Settings2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
+  Scissors, Search, Settings2, Share2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
 
 export interface AppItem {
@@ -143,6 +143,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "shows",          to: "/shows",          label: "Shows",           description: "Discover TV series: streaming, trailers & reviews", gradient: "linear-gradient(135deg,#0c4a6e,#0284c7)", color: "#0284c7", icon: Tv,             toolId: "tvshows" },
       { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard },
       { id: "youtube",        to: "/youtube",        label: "YouTube",         description: "Search and watch YouTube videos",     gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#dc2626", icon: Play,           toolId: "youtube" },
+      { id: "clipper",        to: "/clipper",        label: "Clipper",         description: "Paste any video link to watch or save offline", gradient: "linear-gradient(135deg,#0c4a6e,#0ea5e9)", color: "#0ea5e9", icon: Scissors },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
       { id: "books",          to: "/books",          label: "Books",           description: "Read and listen to books", gradient: "linear-gradient(135deg,#422006,#a16207)", color: "#ca8a04", icon: BookAudio,      feature: "books" },
       { id: "recipes",        to: "/recipes",        label: "Recipes",         description: "Discover meals to cook tonight",      gradient: "linear-gradient(135deg,#7c2d12,#ea580c)", color: "#ea580c", icon: UtensilsCrossed, toolId: "recipes" },
@@ -174,6 +175,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "cameras",        to: "/cameras",        label: "Cameras",        description: "Recent camera activity & clips", gradient: "linear-gradient(135deg,#1c1917,#3f3f46)", color: "#a1a1aa", icon: Camera },
       { id: "unit-converter", to: "/unit-converter", label: "Unit Converter", description: "Convert length, weight, and more", gradient: "linear-gradient(135deg,#134e4a,#0d9488)", color: "#0d9488", icon: ArrowLeftRight },
       { id: "converter",      to: "/converter",      label: "File Converter", description: "Convert images, audio & video", gradient: "linear-gradient(135deg,#166534,#2563eb)", color: "#2563eb", icon: FileType },
+      { id: "drop",           to: "/drop",           label: "Drop",           description: "Send files & links between your devices", gradient: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "#3b82f6", icon: Share2 },
       { id: "time",           to: "/time",           label: "Time",           description: "World clock, alarms & timers", gradient: "linear-gradient(135deg,#0f172a,#4338ca)", color: "#6366f1", icon: Clock, toolId: "time" },
       { id: "reverse-lookup", to: "/reverse-lookup", label: "Reverse Lookup", description: "Property & people by address, name, or phone", gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Search },
       { id: "speed-test",     to: "/speed-test",     label: "Speed Test",     description: "Measure your connection speed to the server", gradient: "linear-gradient(135deg,#0c2a52,#0891b2)", color: "#0891b2", icon: Gauge },

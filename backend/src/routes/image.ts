@@ -18,6 +18,7 @@ import { requireAuth } from '@/middleware/auth'
 import { dataDir, isEsrganInstalled, isCodeFormerInstalled, isGFPGANInstalled, isFaceRestoreNodeInstalled, isBiRefNetNodeInstalled } from '@/lib/download'
 import { userPath } from '@/lib/storage/paths'
 import { comfyUrl, restartComfyUI, isComfyUIInstalled, getComfyUIState, markComfyUIReady, maybeSpawnComfyUI } from '@/lib/comfyui'
+import { traceToSvg } from '@/lib/vtracer'
 import { logger } from '@/lib/logger'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import type { ComfyUILaunchConfig } from '@/lib/hwfit'
@@ -41,7 +42,7 @@ import {
 } from '@/lib/comfyWorkflows'
 import type { ComfyUIPrompt } from '@/lib/comfyWorkflows'
 import { buildPrompt, selectResolution } from '@/lib/promptPipeline'
-import { detectStyle, applyStyleToPrompt } from '@/lib/imageStyles'
+import { detectStyle, applyStyleToPrompt, applyVectorizeBias } from '@/lib/imageStyles'
 import type { ImageStyle } from '@/lib/imageStyles'
 import { selectLoras } from '@/lib/loraRouter'
 import { getAdultKeywords, detectIsAdult } from '@/lib/adultDetection'
@@ -323,6 +324,9 @@ interface ComfyGenPayload {
   adjustSharpness?: number
   // bg_blur
   blurRadius?: number
+  // SVG (vector) output: trace the rendered PNG into scalable vector paths after generation.
+  vectorize?: boolean
+  svgOptions?: { colorPrecision: number; filterSpeckle: number }
   // Per-user output directory (absolute path). Falls back to data/images/ for
   // back-compat when not provided (e.g. legacy external callers).
   outputDir?: string
@@ -696,9 +700,24 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
 
       await writeFile(imagePath, outBuf)
 
+      // SVG (vector) output: trace the rendered PNG into vector paths, storing the .svg as the
+      // artifact and keeping the .png sibling as a raster fallback. Fail-soft — if the tracer
+      // is missing or errors, we serve the PNG rather than failing the whole generation.
+      let finalPath = imagePath
+      if (payload.vectorize && artifactExt === 'png') {
+        try {
+          const svg = await traceToSvg(outBuf, payload.svgOptions ?? { colorPrecision: 6, filterSpeckle: 4 })
+          const svgPath = imagePath.replace(/\.png$/, '.svg')
+          await writeFile(svgPath, svg)
+          finalPath = svgPath
+        } catch (err) {
+          logger.warn(`[image] SVG trace failed for ${imageId}, keeping raster: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
       await db.update(generatedImages).set({
         state: 'ready',
-        path: imagePath,
+        path: finalPath,
         stepCurrent: payload.steps,
         updatedAt: new Date(),
       }).where(eq(generatedImages.id, imageId))
@@ -758,8 +777,17 @@ async function buildAndEnqueueJob(params: {
   adjustSaturation?: number
   adjustSharpness?: number
   blurRadius?: number
+  // SVG (vector) output
+  outputFormat?: 'png' | 'svg'
+  flatBias?: boolean    // steer generation toward flat vector art (default on for SVG)
+  svgOptions?: { colorPrecision?: number; filterSpeckle?: number }
 }): Promise<{ imageId: string; job: genQueue.Job; width: number; height: number; steps: number; hiresUpscale: boolean } | null> {
   const pipeline: Pipeline = params.pipeline ?? 'txt2img'
+
+  // SVG output traces the rendered still into vector paths. Only still pipelines qualify —
+  // video/i2v emit WebP animations, not traceable frames.
+  const vectorize = params.outputFormat === 'svg' && pipeline !== 'video' && pipeline !== 'i2v'
+  const flatBias  = vectorize && (params.flatBias ?? true)
 
   // bg_remove / i2v don't require a text prompt (i2v is conditioned on the image)
   const prompt = params.prompt.trim()
@@ -811,7 +839,7 @@ async function buildAndEnqueueJob(params: {
   // Checkpoint drives sampler preset — distilled variants (Lightning, LCM, Hyper, Turbo)
   // need fewer steps and lower CFG than a standard SDXL fine-tune.
   const checkpoint    = await getCheckpointName()
-  const hw            = detectHardware()
+  const hw            = await detectHardware()
   const config        = await resolveComfyUILaunchConfig(hw)
   const preset        = detectSamplerPreset(checkpoint)
   const isDistilled   = preset !== 'standard'
@@ -824,8 +852,20 @@ async function buildAndEnqueueJob(params: {
 
   // Hi-res fix ONLY when the ESRGAN model is present. The latent bislerp fallback
   // produces crosshatch/blur artifacts at 2× because SDXL was never trained at 2048×.
+  //
+  // DISABLED on Apple Silicon: the hi-res refine pass re-encodes the 2× image, and torch's
+  // MPS scaled_dot_product_attention miscalculates the VAE mid-block self-attention buffer
+  // ("Invalid buffer size: 18.00 GiB" → Metal assertion → the whole ComfyUI process aborts,
+  // surfacing as "websocket closed unexpectedly: 1006"). It crashes 100% of the time on MPS,
+  // so every interactive full-quality gen fails. Plain 1024² generation is unaffected and
+  // reliable, so we skip the refine on MPS rather than crash. (--cpu-vae avoids it but runs
+  // VAE on CPU for EVERY gen — 8+ min per image, too slow to ship.)
+  //
+  // Also skipped for SVG output: the flat, low-detail look traces into clean vector paths;
+  // a 2× photorealistic refine would only add detail that bloats the traced SVG.
   const esrganAvailable = isEsrganInstalled()
   const hiresUpscale    = !noCheckpoint && !isEnhance && !isDistilled && !fast && esrganAvailable
+                          && !hw.isAppleSilicon && !vectorize
   const esrganModel     = pipeline === 'upscale' ? '4x_NMKD-Siax_200k.pth'
                         : hiresUpscale            ? '4x_NMKD-Siax_200k.pth'
                         : undefined
@@ -858,8 +898,11 @@ async function buildAndEnqueueJob(params: {
       width    = Math.min(2048, Math.max(256, params.width  ?? 1024))
       height   = Math.min(2048, Math.max(256, params.height ?? 1024))
     } else {
-      // Style detection
-      const style = params.style ?? (params.rawMessage ? detectStyle(params.rawMessage) : 'photorealistic')
+      // Style detection. For SVG/flat output, force a flat 'illustration' style instead of the
+      // photorealistic default — the photo style injects "RAW photo, 8k, sharp focus" which
+      // fights the flat-art bias and produces a photoreal image that traces into a huge,
+      // photo-like SVG. 'illustration' negates photorealism and lets the vectorize bias win.
+      const style = flatBias ? 'illustration' : (params.style ?? (params.rawMessage ? detectStyle(params.rawMessage) : 'photorealistic'))
       const { prompt: styledPrompt, negativePrompt: styledNegative } = applyStyleToPrompt(prompt, style, params.negativePrompt)
 
       // Prompt policy
@@ -895,6 +938,14 @@ async function buildAndEnqueueJob(params: {
       )
       positive = built.positive
       negative = built.negative
+
+      // Flat-art bias for SVG output — keeps the traced vector clean. Composes on top of the
+      // built prompt/negative (and any chosen style/LoRA).
+      if (flatBias) {
+        const biased = applyVectorizeBias(positive, negative)
+        positive = biased.prompt
+        negative = biased.negativePrompt
+      }
 
       const inferredRes = selectResolution(prompt)
       width  = Math.min(2048, Math.max(256, params.width  ?? inferredRes.width))
@@ -974,6 +1025,13 @@ async function buildAndEnqueueJob(params: {
     adjustSaturation: params.adjustSaturation,
     adjustSharpness:  params.adjustSharpness,
     blurRadius: params.blurRadius,
+    vectorize,
+    svgOptions: vectorize
+      ? {
+          colorPrecision: Math.min(8, Math.max(1, Math.round(params.svgOptions?.colorPrecision ?? 6))),
+          filterSpeckle:  Math.min(10, Math.max(0, Math.round(params.svgOptions?.filterSpeckle ?? 4))),
+        }
+      : undefined,
     outputDir,
   }
 
@@ -1070,10 +1128,19 @@ Rules for "weights":
 Return ONLY valid JSON. No explanation, no markdown, no code fences.
 Example: {"prompt": "one boy and one girl on a swingset, both in frame", "weights": {"abc123": 0.55}}`.trim()
 
+// Prepended to AUTO_ENHANCE_SYSTEM when the user picked SVG (vector) output. The image will
+// be traced into vector paths, so a photorealistic render traces into a huge, photo-like SVG.
+// Steer the rewrite toward FLAT, trace-friendly art instead.
+const AUTO_ENHANCE_VECTOR = `IMPORTANT — this image will be converted into an SVG vector graphic by tracing. Rewrite the subject as FLAT VECTOR ART, NOT a photo:
+- Describe it as a "flat vector illustration" / "bold graphic" with clean shapes and a limited flat color palette.
+- NEVER add words like "photorealistic", "realistic", "photo", "accurate likeness", "8k", "detailed skin", "sharp focus", or lighting/lens terms — those defeat the vector look.
+- Prefer high contrast, simple bold forms, minimal fine detail. Keep the user's subject, just render it flat.`.trim()
+
 image.post('/auto-enhance', requireAuth, async (c) => {
-  const { prompt, loras } = await c.req.json<{
+  const { prompt, loras, vector } = await c.req.json<{
     prompt: string
     loras: Array<{ id: string; name: string; description?: string | null; isStylisticLora?: boolean }>
+    vector?: boolean   // SVG output: steer the rewrite toward flat, trace-friendly vector art
   }>()
   if (!prompt?.trim()) return c.json({ prompt: prompt ?? '', weights: {} })
   try {
@@ -1082,8 +1149,9 @@ image.post('/auto-enhance', requireAuth, async (c) => {
       ? loras.map(l => `- id: "${l.id}", name: "${l.name}"${l.description ? `, desc: "${l.description}"` : ''}${l.isStylisticLora ? ', type: stylistic' : ''}`).join('\n')
       : '(none)'
     const userContent = `Prompt: ${prompt.trim()}\n\nSelected LoRAs:\n${loraList}`
+    const system = vector ? `${AUTO_ENHANCE_VECTOR}\n\n${AUTO_ENHANCE_SYSTEM}` : AUTO_ENHANCE_SYSTEM
     const result = await ollamaChat(model, [
-      { role: 'system', content: AUTO_ENHANCE_SYSTEM },
+      { role: 'system', content: system },
       { role: 'user', content: userContent },
     ], [], { num_predict: 400, temperature: 0.1 })
     const raw = result.message?.content?.trim() ?? ''
@@ -1274,6 +1342,7 @@ image.post('/generate', requireAuth, async (c) => {
 
   const body = await c.req.json() as {
     prompt?: string
+    originalPrompt?: string   // pre-Auto-enhance wording, for the screen-fallback below
     negativePrompt?: string
     width?: number
     height?: number
@@ -1294,16 +1363,36 @@ image.post('/generate', requireAuth, async (c) => {
     augmentation?: number
     faceRegion?: 'mouth' | 'eyes' | 'full_face'
     faceDenoise?: number
+    outputFormat?: 'png' | 'svg'
+    flatBias?: boolean
+    svgOptions?: { colorPrecision?: number; filterSpeckle?: number }
   }
 
   const pipeline = selectPipeline(body)
 
   // CSAM floor — runs before any GPU work and is NOT bypassable by uncensored consent.
   // Refusing a blocked prompt here costs nothing (no generation is started).
-  const promptVerdict = screenPrompt(`${body.prompt ?? ''} ${body.negativePrompt ?? ''}`)
+  //
+  // Auto-enhance rephrases the user's prompt client-side, and its (abliterated-LLM) wording
+  // can occasionally trip this filter even when the user's own words are clean. Rather than
+  // blocking the user for words the model invented, fall back to their ORIGINAL prompt when
+  // it exists and is itself screen-clean. Safety is preserved: we only ever generate a prompt
+  // that passes screenPrompt — we just prefer the user's actual intent over the rewrite.
+  let promptForGen = (body.prompt ?? '').trim()
+  const promptVerdict = screenPrompt(`${promptForGen} ${body.negativePrompt ?? ''}`)
   if (promptVerdict.blocked) {
-    logCsamBlock('image/video prompt', user.id, promptVerdict.reason ?? 'prompt')
-    return c.json({ error: 'content_blocked', message: 'This request was blocked by a safety policy and cannot be generated.' }, 403)
+    const original = body.originalPrompt?.trim()
+    const canFallBack =
+      !!original &&
+      original !== promptForGen &&
+      !screenPrompt(`${original} ${body.negativePrompt ?? ''}`).blocked
+    if (canFallBack) {
+      logger.info('[image] auto-enhance output tripped the safety filter; regenerating with the user\'s original prompt')
+      promptForGen = original!
+    } else {
+      logCsamBlock('image/video prompt', user.id, promptVerdict.reason ?? 'prompt')
+      return c.json({ error: 'content_blocked', message: 'Your prompt was blocked by the content-safety filter. If this looks like a mistake, try rewording it.' }, 403)
+    }
   }
 
   // Availability gates — return structured 422s before health-checking
@@ -1342,7 +1431,7 @@ image.post('/generate', requireAuth, async (c) => {
   // (refId) or face inpaint where the sexual signal lives in the input image and the
   // minor signal lives in the prompt, so neither single-surface check catches it.
   // There is no legitimate reason to condition/edit a person photo with a minor cue.
-  if ((body.refId || body.imageBase64) && pipeline !== 'bg_remove' && hasMinorIndicator(body.prompt ?? '')) {
+  if ((body.refId || body.imageBase64) && pipeline !== 'bg_remove' && hasMinorIndicator(promptForGen)) {
     logCsamBlock('image transform + minor cue', user.id, 'input image + age term in prompt')
     return c.json({ error: 'content_blocked', message: 'This request was blocked by a safety policy and cannot be generated.' }, 403)
   }
@@ -1358,7 +1447,7 @@ image.post('/generate', requireAuth, async (c) => {
   const result = await buildAndEnqueueJob({
     userId: user.id,
     isAdmin: user.role === 'admin',
-    prompt: body.prompt ?? '',
+    prompt: promptForGen,
     negativePrompt: body.negativePrompt,
     width: body.width,
     height: body.height,
@@ -1377,6 +1466,9 @@ image.post('/generate', requireAuth, async (c) => {
     augmentation: body.augmentation,
     faceRegion: body.faceRegion,
     faceDenoise: body.faceDenoise,
+    outputFormat: body.outputFormat,
+    flatBias: body.flatBias,
+    svgOptions: body.svgOptions,
   })
 
   if (!result) return c.json({ error: 'Image generation service is not running' }, 503)
@@ -1490,7 +1582,7 @@ image.get('/artifacts/:id', requireAuth, async (c) => {
 
   if (row.state === 'ready' && row.path && existsSync(row.path)) {
     const ext         = row.path.split('.').pop()
-    const contentType = ext === 'webp' ? 'image/webp' : 'image/png'
+    const contentType = ext === 'svg' ? 'image/svg+xml' : ext === 'webp' ? 'image/webp' : 'image/png'
     return new Response(Bun.file(row.path), {
       headers: {
         'Content-Type': contentType,

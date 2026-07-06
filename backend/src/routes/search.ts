@@ -4,7 +4,7 @@ import { db } from '@/db'
 import {
   bookmarks, bookmarkHighlights, characters, homeDevices,
   ytDownloads, ytCollections, ytVideos, ytSubscriptions,
-  feedItems, feeds, podcastEpisodes, podcastShows,
+  feedItems, feeds, podcastEpisodes, podcastShows, clips,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
@@ -20,7 +20,7 @@ const searchRouter = new Hono<AppEnv>()
 // libraries stay client-side in SpotlightSearch — this covers everything that lives in the DB.
 
 export interface SearchHit {
-  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast'
+  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip'
   id: string
   title: string
   subtitle: string | null
@@ -276,12 +276,31 @@ const highlightsProvider: Provider = async (userId, q) => {
   }))
 }
 
+// Saved Clipper clips (any yt-dlp-supported URL saved offline), matched by title.
+const clipperProvider: Provider = async (userId, q) => {
+  const pattern = likePattern(q)
+  const rows = await db.select().from(clips)
+    .where(and(eq(clips.userId, userId), like(clips.title, pattern)))
+    .orderBy(desc(clips.createdAt))
+    .limit(PER_PROVIDER)
+  return rows.map((r) => ({
+    type: 'clip' as const,
+    id: r.id,
+    title: r.title || r.sourceUrl,
+    subtitle: r.extractor || r.sourceUrl,
+    icon: r.thumbnailUrl,
+    route: `/clipper/c/${r.id}`,
+    group: 'Clipper',
+  }))
+}
+
 const PROVIDERS: Provider[] = [
   bookmarksProvider,
   highlightsProvider,
   newsProvider,
   youtubeProvider,
   podcastProvider,
+  clipperProvider,
   companionProvider,
   deviceProvider,
 ]

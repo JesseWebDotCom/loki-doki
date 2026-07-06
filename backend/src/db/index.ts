@@ -408,6 +408,31 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_conversions_user_id ON conversions(user_id);
   `)
 
+  // Device-to-device drops (ephemeral; files at data/drops/<id>, swept by TTL)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS file_drops (
+      id TEXT NOT NULL PRIMARY KEY,
+      sender_user_id TEXT NOT NULL,
+      sender_device_id TEXT NOT NULL,
+      sender_label TEXT NOT NULL,
+      target_user_id TEXT NOT NULL,
+      target_device_id TEXT,
+      kind TEXT NOT NULL,
+      file_name TEXT,
+      mime TEXT,
+      size_bytes INTEGER,
+      rel_path TEXT,
+      body TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      claimed_at INTEGER,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_file_drops_target ON file_drops(target_user_id, status);
+  `)
+
   // Image generation + LoRA system
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS generated_images (
@@ -1132,6 +1157,45 @@ export function runMigrations() {
       added_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS yt_collections_user_col_vid_idx ON yt_collections(user_id, collection, video_id);
+
+    CREATE TABLE IF NOT EXISTS yt_playlists (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_yt_playlists_user ON yt_playlists(user_id);
+
+    CREATE TABLE IF NOT EXISTS yt_playlist_videos (
+      id TEXT NOT NULL PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT,
+      channel_id TEXT,
+      duration_sec INTEGER,
+      position INTEGER NOT NULL DEFAULT 0,
+      added_at INTEGER NOT NULL,
+      FOREIGN KEY (playlist_id) REFERENCES yt_playlists(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_yt_pl_videos_playlist ON yt_playlist_videos(playlist_id);
+
+    CREATE TABLE IF NOT EXISTS yt_playlist_download_batches (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      playlist_id TEXT REFERENCES yt_playlists(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      max_height INTEGER,
+      video_ids TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_yt_pl_dl_batches_user ON yt_playlist_download_batches(user_id);
   `)
   // Channel-page cache (meta + first page of videos) — instant loads + stale-on-failure
   // so a transient InnerTube error never leaves a channel showing zero videos.
@@ -1176,6 +1240,9 @@ export function runMigrations() {
   addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
   // Marks transient music prefetch-cache refs (download-ahead for gapless play; rolling keep-N).
   addColumn('yt_downloads', 'prefetch', 'INTEGER NOT NULL DEFAULT 0')
+  // Which app saved the ref ('youtube'|'music'); the YouTube Saved tab filters out music saves.
+  // Without this column the /downloads query (ne(origin,'music')) renders bad SQL and 500s.
+  addColumn('yt_downloads', 'origin', "TEXT NOT NULL DEFAULT 'youtube'")
   // Channel avatar URL resolved + warmed at save time so Offline cards show real logos
   // (not just a letter) even for non-subscribed channels — existing DBs.
   addColumn('yt_videos', 'channel_thumb', 'TEXT')
@@ -2437,6 +2504,27 @@ export function runMigrations() {
   addColumn('shopping_listings', 'rating_value', 'REAL')
   addColumn('shopping_listings', 'rating_count', 'INTEGER')
 
+  // Clipper: generic "paste any video URL" saver (see schema.ts clips).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS clips (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_url TEXT NOT NULL,
+      extractor TEXT,
+      title TEXT NOT NULL DEFAULT '',
+      thumbnail_url TEXT,
+      duration_seconds INTEGER,
+      kind TEXT NOT NULL DEFAULT 'video',
+      status TEXT NOT NULL DEFAULT 'pending',
+      asset_id TEXT,
+      size_bytes INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS clips_user_idx ON clips(user_id, created_at);
+  `)
+
   // Coding app: superseded by one persistent per-user tmux+Claude Code workspace
   // directory (lib/codingServer.ts) instead of app-tracked project/session rows:
   // Claude Code manages its own sessions/config natively (~/.claude inside each
@@ -2445,5 +2533,104 @@ export function runMigrations() {
   sqlite.exec(`
     DROP TABLE IF EXISTS coding_sessions;
     DROP TABLE IF EXISTS coding_projects;
+  `)
+
+  // Storage Locations + Plex export (see schema.ts storageLocations/contentTypeStorage/
+  // plexPathMappings/plexLibrarySections; plan at ~/.claude/plans/compiled-toasting-lovelace.md).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS storage_locations (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS content_type_storage (
+      content_type TEXT NOT NULL PRIMARY KEY,
+      storage_location_id TEXT REFERENCES storage_locations(id) ON DELETE SET NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS plex_path_mappings (
+      id TEXT NOT NULL PRIMARY KEY,
+      storage_location_id TEXT NOT NULL UNIQUE REFERENCES storage_locations(id) ON DELETE CASCADE,
+      plex_path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS plex_library_sections (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content_type TEXT NOT NULL,
+      plex_section_key TEXT,
+      plex_machine_identifier TEXT,
+      shared_server_id TEXT,
+      root_abs_path TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, content_type)
+    );
+    CREATE TABLE IF NOT EXISTS plex_collections (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content_type TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      plex_collection_title TEXT,
+      plex_rating_key TEXT,
+      last_synced_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, content_type, source_type, source_id)
+    );
+  `)
+
+  // Blob store becomes storage-location-aware (see lib/storage/contentRoots.ts) — null
+  // (all pre-existing rows) means "default data root," unchanged behavior.
+  addColumn('blobs', 'storage_location_id', 'TEXT')
+
+  // Persist which InnerTube channel tab a video came from (see schema.ts ytVideos.tab) —
+  // unlocks the Plex export's separate Shorts show without re-deriving it from duration alone.
+  addColumn('yt_videos', 'tab', 'TEXT')
+
+  // YouTube → Plex export tree tracking (see schema.ts ytPlexShows/ytPlexEpisodes).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS yt_plex_shows (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL,
+      variant TEXT NOT NULL DEFAULT 'main',
+      title TEXT NOT NULL,
+      folder_rel_path TEXT NOT NULL,
+      nfo_hash TEXT,
+      nfo_written_at INTEGER,
+      posters_written_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, channel_id, variant)
+    );
+    CREATE TABLE IF NOT EXISTS yt_plex_episodes (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      video_id TEXT NOT NULL,
+      show_id TEXT NOT NULL REFERENCES yt_plex_shows(id) ON DELETE CASCADE,
+      season_year INTEGER NOT NULL,
+      episode_number INTEGER NOT NULL,
+      source_asset_id TEXT,
+      cut_format_key TEXT,
+      cut_categories_hash TEXT,
+      cut_segments_json TEXT,
+      rel_path TEXT,
+      nfo_written_at INTEGER,
+      thumb_written_at INTEGER,
+      srt_written_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      plex_refreshed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, video_id)
+    );
   `)
 }

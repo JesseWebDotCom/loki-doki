@@ -1,3 +1,4 @@
+/// <reference types="geojson" />
 /**
  * MapLibre helpers for rendering route alternatives.
  *

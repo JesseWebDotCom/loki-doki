@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { dataDir } from '@/lib/download'
+import { ensureNode } from '@/lib/node'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
@@ -46,5 +47,14 @@ export async function installClaudeCode(onStatus: (msg: string) => void, signal?
   })
   if (!isClaudeCodeInstalled()) throw new Error('@anthropic-ai/claude-code installed but binary not found: install may have failed')
   logger.info(`[claude-code] installed → ${CLAUDE_BIN}`)
+
+  // Provision the Node runtime the coding PTY sidecar runs under (node-pty's data callbacks
+  // are unreliable under Bun — see coding-pty-sidecar.ts), so installing the coding package
+  // downloads every dependency up front rather than stalling the first /coding open on a Node
+  // fetch. Best-effort: the sidecar still resolves/downloads Node lazily if this is skipped.
+  onStatus('Preparing coding runtime (Node)…')
+  try { await ensureNode() } catch (err) {
+    logger.warn(`[claude-code] Node runtime prefetch failed (will resolve on first use): ${err instanceof Error ? err.message : String(err)}`)
+  }
   onStatus('Claude Code ready')
 }

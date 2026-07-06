@@ -44,6 +44,7 @@ import {
   type DownloadProgress,
 } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI } from '@/lib/comfyui'
+import { isVtracerInstalled, ensureVtracer } from '@/lib/vtracer'
 import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG } from '@/lib/searxng'
 import { isESPHomeInstalled, installESPHome } from '@/lib/esphome'
 import { warmUpToolchain } from '@/lib/pod/firmware'
@@ -84,7 +85,7 @@ const statusAdapter = (onProgress: InstallProgressFn) => (msg: string): void => 
 }
 
 async function comfyConfig() {
-  return resolveComfyUILaunchConfig(detectHardware())
+  return resolveComfyUILaunchConfig(await detectHardware())
 }
 
 export function isTesseractInstalled(): boolean {
@@ -142,6 +143,28 @@ async function installTmux(onProgress: InstallProgressFn): Promise<void> {
   status(`Installing tmux via ${mgr}…`)
   await execAsync(cmd, { timeout: 120_000 })
   status('tmux installed')
+}
+
+/** Install the Coding CLI (+ Node runtime, via installClaudeCode) AND ensure the coding model,
+ *  so installing "Coding" from the setup wizard OR Admin → Features yields a runnable app rather
+ *  than a CLI pointed at a model that was never downloaded. The model is enqueued to the durable
+ *  background queue (idempotent — a present model / existing job is left alone) and surfaced by the
+ *  setup widget like every other download. Dynamic import of the queue avoids a static import cycle
+ *  (downloadJobs imports this module). */
+async function installCodingPackage(onProgress: InstallProgressFn, signal?: AbortSignal): Promise<void> {
+  await installClaudeCode(statusAdapter(onProgress), signal)
+  try {
+    const configured = (await getAppSetting('coding_model')) as string | null
+    const codingId =
+      (configured && CATALOG.find((m) => m.id === configured && m.role === 'coding')?.id) ||
+      CATALOG.find((m) => m.role === 'coding' && m.backend === 'ollama' && m.ollamaTag)?.id
+    if (codingId) {
+      const { enqueueBackground } = await import('@/lib/downloadJobs')
+      await enqueueBackground({ modelIds: [codingId] })
+    }
+  } catch (err) {
+    logger.warn(`[coding] could not enqueue the coding model with Claude Code: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 // ── Component definitions ─────────────────────────────────────────────────────
@@ -230,6 +253,14 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     },
   },
   {
+    // Raster→SVG tracer for the image generator's "SVG (vector)" output mode. Small
+    // standalone binary; the generator falls back to the raster artifact if it's absent,
+    // so repair is never blocking.
+    id: 'vtracer', group: 'image', label: 'Vector Tracer (vtracer)',
+    isInstalled: isVtracerInstalled,
+    repair: (onP, sig) => ensureVtracer((msg) => statusAdapter(onP)(msg), sig),
+  },
+  {
     id: 'comfyui-nodes', group: 'image', label: 'ComfyUI Extensions',
     isInstalled: () =>
       isComfyUIInstalled() &&
@@ -278,7 +309,7 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     // just needs the binary present; nothing to pre-warm here.
     id: 'claude-code', group: 'coding', label: 'Coding (Claude Code)',
     isInstalled: isClaudeCodeInstalled,
-    repair: (onP, sig) => installClaudeCode(statusAdapter(onP), sig),
+    repair: (onP, sig) => installCodingPackage(onP, sig),
   },
   {
     // Session multiplexing (splits + reload-persistence) for the Coding app's

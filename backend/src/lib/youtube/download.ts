@@ -1,7 +1,8 @@
 // yt-dlp download runner — spawns yt-dlp for audio or video downloads and
 // transcript fetches, streams progress, and writes files to the user's data folder.
 
-import { spawn } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -10,16 +11,19 @@ import { ytDownloads, ytVideos, mediaAssets, users } from '@/db/schema'
 import { eq, and, isNull, or } from 'drizzle-orm'
 import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
+import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
 import { ensureSummary, ensureSavedVideoMeta } from '@/lib/youtube/summarize'
-import { ytDlpBin } from '@/lib/youtube/ytdlp'
+import { ytDlpBin, ytDlpAuthArgs } from '@/lib/ytdlp'
 import { ensureFfmpeg, ffmpegLocation, ffprobeBin } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
+
+const execFileAsync = promisify(execFile)
 
 const YT_WATCH_BASE = 'https://www.youtube.com/watch?v='
 
 /** Probe a video file's pixel height with ffprobe (for the quality badge). */
-async function probeHeight(absPath: string): Promise<number | null> {
+export async function probeHeight(absPath: string): Promise<number | null> {
   return new Promise((resolve) => {
     const proc = spawn(ffprobeBin(), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=height', '-of', 'csv=p=0', absPath], { stdio: ['ignore', 'pipe', 'ignore'] })
     let out = ''
@@ -127,6 +131,7 @@ export async function runYtMediaJob(
       : ['-f', videoFormat, '-S', 'res,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
          '--socket-timeout', '30', '--output', outputTemplate, '--no-playlist', url]
     if (ffLoc) args.push('--ffmpeg-location', ffLoc)
+    args.push(...ytDlpAuthArgs())
 
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -161,7 +166,8 @@ export async function runYtMediaJob(
     const mime = kind === 'audio' ? (audioFormat === 'mp3' ? 'audio/mpeg' : 'audio/mp4') : 'video/mp4'
 
     // Hash + move into the blob store OUTSIDE the lock (slow), then swap + fan out INSIDE it.
-    const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime })
+    const storageLocationId = await getContentTypeStorageLocationId('youtube')
+    const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime, storageLocationId })
     const { needsHigher } = await withLock(assetLockKey(videoId, kind, asset.format),
       () => completeAsset(assetId, hash, actualHeight, sizeBytes))
 
@@ -236,6 +242,7 @@ export async function runYtExportJob(
   await ensureFfmpeg()
   const ffLoc = ffmpegLocation()
   if (ffLoc) args.push('--ffmpeg-location', ffLoc)
+  args.push(...ytDlpAuthArgs())
 
   await new Promise<void>((resolve, reject) => {
     const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -264,10 +271,31 @@ export async function runYtExportJob(
   })
 }
 
+/** Probe a video's declared/available subtitle language so non-English videos don't get
+ *  forced through an English-only fetch that would silently come back empty. Prefers a
+ *  real human-authored caption language over auto-captions, and falls back to English
+ *  when nothing better is known (matches the historical hardcoded behavior). */
+async function detectSubtitleLang(videoId: string): Promise<string> {
+  const url = `${YT_WATCH_BASE}${videoId}`
+  try {
+    const { stdout } = await execFileAsync(ytDlpBin(),
+      ['-J', '--skip-download', '--no-warnings', '--no-playlist', ...ytDlpAuthArgs(), url],
+      { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 })
+    const info = JSON.parse(stdout) as { language?: string; subtitles?: Record<string, unknown>; automatic_captions?: Record<string, unknown> }
+    if (info.language) return info.language
+    const real = Object.keys(info.subtitles ?? {})
+    if (real.length) return real[0]!
+    const auto = Object.keys(info.automatic_captions ?? {})
+    if (auto.length) return auto[0]!
+  } catch { /* best-effort — fall back to English below */ }
+  return 'en'
+}
+
 /**
- * Ensure an English transcript VTT exists for a video, fetching ONLY the
- * captions (`--skip-download`, no media) if it isn't already on disk. Returns
- * the absolute path to the .vtt, or null if the video has no captions.
+ * Ensure a transcript VTT exists for a video, fetching ONLY the captions
+ * (`--skip-download`, no media) if it isn't already on disk. Auto-detects the
+ * video's subtitle language when `lang` isn't passed. Returns the absolute
+ * path to the .vtt, or null if the video has no captions.
  *
  * Used both by the download flow and by summarize-on-demand, so summarizing
  * never requires downloading the actual video.
@@ -276,9 +304,11 @@ export async function ensureTranscript(
   videoId: string,
   userId: string,
   userFirstName: string,
+  lang?: string,
 ): Promise<string | null> {
+  const subLang = lang ?? await detectSubtitleLang(videoId)
   const outDir = await userPath(userId, userFirstName, 'youtube/transcripts' as any)
-  const absPath = join(outDir, `${videoId}.en.vtt`)
+  const absPath = join(outDir, `${videoId}.${subLang}.vtt`)
   if (existsSync(absPath)) return absPath
 
   await mkdir(outDir, { recursive: true })
@@ -287,12 +317,13 @@ export async function ensureTranscript(
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(ytDlpBin(), [
         '--write-auto-subs', '--write-subs',
-        '--sub-lang', 'en',
+        '--sub-lang', subLang,
         '--sub-format', 'vtt',
         '--skip-download',
         '--output', join(outDir, `${videoId}.%(ext)s`),
         '--no-playlist',
         '--quiet',
+        ...ytDlpAuthArgs(),
         url,
       ], { stdio: 'ignore' })
       proc.on('close', code => code === 0 ? resolve() : reject(new Error(`code ${code}`)))

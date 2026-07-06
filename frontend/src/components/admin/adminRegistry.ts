@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera, Cpu, MonitorPlay, Plug2, BellRing } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Cpu, Plug2, BellRing } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -213,6 +213,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'storage', label: 'Storage', kind: 'anchor', anchorId: 'storage',
         keywords: ['storage', 'disk', 'cleanup', 'space', 'usage'],
         description: 'Disk usage and cleanup' },
+      { id: 'storage-locations', label: 'Storage Locations', kind: 'anchor', anchorId: 'storage-locations',
+        keywords: ['storage', 'locations', 'network', 'unc', 'nas', 'plex', 'path', 'mapping'],
+        description: 'Per-content-type storage roots, incl. network paths, and Plex path mappings' },
     ],
   },
   {

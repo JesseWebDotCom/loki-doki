@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BookmarkPlus, Download, Heart, Clock, Search, Smartphone, Mic, Check,
-  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft,
+  HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
+  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square,
 } from 'lucide-react'
-import { ShieldCheck, Headphones, ExternalLink } from 'lucide-react'
+import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -15,14 +18,17 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { toast } from '@/lib/toast'
 import { useYoutubeUI } from '@/components/youtube/YoutubeLayout'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
-import { UpNextRow } from '@/components/youtube/VideoCard'
+import { UpNextRow, watchHref } from '@/components/youtube/VideoCard'
+import { AutoplayCountdown } from '@/components/youtube/AutoplayCountdown'
 import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { ChannelAvatar } from '@/components/youtube/media'
-import { useYtFeed } from '@/lib/youtube/useData'
+import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
+import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
+  startLiveRecord, stopLiveRecord, saveOffline,
   ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
@@ -32,6 +38,7 @@ import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
 import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
+import { useShareLink } from '@/hooks/use-share-link'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -50,6 +57,7 @@ function fmtCount(n: number): string {
 
 const PRIVACY_KEY = 'yt.privacy'
 const AUDIO_KEY = 'yt.audioOnly'
+const AUTOPLAY_COUNTDOWN_SEC = 8
 const SB_LABELS: Record<string, string> = {
   sponsor: 'sponsor', selfpromo: 'self-promo', interaction: 'reminder',
   intro: 'intro', outro: 'outro', preview: 'recap', music_offtopic: 'non-music',
@@ -60,11 +68,13 @@ export function WatchPage() {
   const [params] = useSearchParams()
   const localKind = (params.get('k') as 'audio' | 'video' | null) ?? undefined
   const navigate = useNavigate()
-  const ui = useYoutubeUI()
   const pb = useYoutubePlayback()
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [tab, setTab] = useState<SideTab>('transcript')
   const [autoplay, setAutoplay] = useState(true)
+  // "Playing next in Ns" overlay shown instead of navigating immediately on end, so the
+  // viewer gets a beat to cancel. Cleared on scrub-back/replay (see onTime/onPlaying below).
+  const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
 
   // ── Docked mini-player hand-off ────────────────────────────────────────────────
   // If this same video is currently playing in the docked mini-player (we got here by
@@ -91,6 +101,12 @@ export function WatchPage() {
   // threaded through as a prop rather than a ref, which a remount would wipe out.
   const [pipPending, setPipPending] = useState(false)
   const enablePrivacyForPip = () => { setPrivacy(true); setPipPending(true) }
+  // Same story for audio boost: amplifying past 100% needs a real <video>/<audio> to tap,
+  // which the iframe embed isn't — so a boost tap on the embed flips the privacy stream on
+  // (session-only, not persisted) and threads a pending flag through the remount so the
+  // boost slider opens on the freshly-mounted native player.
+  const [boostPending, setBoostPending] = useState(false)
+  const enablePrivacyForBoost = () => { setPrivacy(true); setBoostPending(true) }
   // Audio-only: stream just the audio (thumbnail stays as poster). Remembered per session.
   const [audioOnly, setAudioOnly] = useState(() => localStorage.getItem(AUDIO_KEY) === '1')
   const toggleAudioOnly = () => setAudioOnly(p => { const n = !p; try { localStorage.setItem(AUDIO_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
@@ -191,8 +207,21 @@ export function WatchPage() {
   }), [meta?.title, meta?.channelId, meta?.durationSec, author, feedItem?.title, navState.title])
 
   function onEnded() {
-    if (autoplay && upNext[0]) navigate(`/youtube/watch/${upNext[0].videoId}${upNext[0].localKind ? `?k=${upNext[0].localKind}` : ''}`)
+    if (autoplay && upNext[0]) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
   }
+
+  // Ticks the "playing next" countdown down once a second and navigates when it hits 0.
+  useEffect(() => {
+    if (!countdown) return
+    if (countdown.secondsLeft <= 0) {
+      const nx = upNext[0]
+      setCountdown(null)
+      if (nx) navigate(watchHref(nx))
+      return
+    }
+    const t = setTimeout(() => setCountdown(c => (c ? { ...c, secondsLeft: c.secondsLeft - 1 } : null)), 1000)
+    return () => clearTimeout(t)
+  }, [countdown, upNext, navigate])
 
   // Pop the video into the docked mini-player and leave the watch page. Forces the dock
   // (even if paused) so the button always does something; navigating away would otherwise
@@ -209,19 +238,35 @@ export function WatchPage() {
         {isPending ? (
           <Skeleton className="aspect-video w-full rounded-card" />
         ) : (
-          <VideoPlayer
-            ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
-            resumeSec={resumeSec} onEnded={onEnded}
-            privacyProxy={online && privacy} audioOnly={online && audioOnly}
-            onNeedsProxyForPip={enablePrivacyForPip}
-            autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
-            skipSegments={online ? segments : undefined}
-            onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
-            chapters={chapters}
-            onTime={(s) => { secRef.current = s; setCurrentSec(Math.floor(s)) }}
-            onPlaying={(p) => { playingRef.current = p }}
-            videoMeta={videoMeta}
-          />
+          <div className="relative">
+            <VideoPlayer
+              ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
+              resumeSec={resumeSec} onEnded={onEnded}
+              privacyProxy={online && privacy} audioOnly={online && audioOnly}
+              onNeedsProxyForPip={enablePrivacyForPip}
+              autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
+              onNeedsProxyForBoost={enablePrivacyForBoost}
+              autoOpenBoost={boostPending} onBoostOpenHandled={() => setBoostPending(false)}
+              skipSegments={online ? segments : undefined}
+              onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
+              chapters={chapters}
+              onTime={(s) => {
+                secRef.current = s; setCurrentSec(Math.floor(s))
+                // Scrubbing back into the video (or it simply not being at the very end
+                // anymore) cancels a pending "up next" countdown.
+                if (countdown && meta?.durationSec && s < meta.durationSec - 1.5) setCountdown(null)
+              }}
+              onPlaying={(p) => { playingRef.current = p; if (p && countdown) setCountdown(null) }}
+              videoMeta={videoMeta}
+            />
+            {countdown && upNext[0] && (
+              <AutoplayCountdown
+                nextItem={upNext[0]} secondsLeft={countdown.secondsLeft} total={countdown.total}
+                onCancel={() => setCountdown(null)}
+                onPlayNow={() => { const nx = upNext[0]; setCountdown(null); navigate(watchHref(nx)) }}
+              />
+            )}
+          </div>
         )}
 
         <InfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
@@ -279,7 +324,22 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const online = !localKind
   const ui = useYoutubeUI()
   const qc = useQueryClient()
+  const { shareLink } = useShareLink()
   const [expanded, setExpanded] = useState(false)
+  // One-click Save: yt-dlp downloads this to the Offline library at the user's default quality.
+  const savedRemote = useSavedState(videoId)
+  const [savingLocal, setSavingLocal] = useState(false)
+  const saveState: 'saved' | 'saving' | null = localKind ? 'saved' : savingLocal ? 'saving' : savedRemote
+  async function saveVideoOffline() {
+    if (saveState === 'saved' || saveState === 'saving') return
+    setSavingLocal(true)
+    try {
+      const d = await saveOffline({ videoId, title, kind: 'video' })
+      if (d.error) { toast.error(d.error); return }
+      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
+      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+    } catch { toast.error('Could not save') } finally { setSavingLocal(false) }
+  }
   const [podcastOpen, setPodcastOpen] = useState(false)
   const [subbed, setSubbed] = useState(meta?.subscribed ?? false)
   const [subId, setSubId] = useState(meta?.subscriptionId ?? null)
@@ -295,6 +355,27 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const snapshot = { videoId, title, author, channelId, channelThumb, durationSec: meta?.durationSec ?? null }
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
+
+  // Live DVR: record an in-progress stream from its start. `recording` is local UI state only —
+  // the capture itself runs server-side as a durable job, so reloading this page just loses the
+  // "Stop" affordance (clicking Record again harmlessly coalesces onto the same in-progress job).
+  const [recording, setRecording] = useState(false)
+  const [recordBusy, setRecordBusy] = useState(false)
+  async function toggleRecording() {
+    setRecordBusy(true)
+    try {
+      if (recording) {
+        await stopLiveRecord(videoId)
+        setRecording(false)
+        toast.success('Recording finalizing — check Offline library shortly')
+      } else {
+        const d = await startLiveRecord(videoId, title)
+        if (d.error) { toast.error(d.error); return }
+        setRecording(true)
+        toast.success('Recording from the start of the stream')
+      }
+    } catch { toast.error('Could not update the recording') } finally { setRecordBusy(false) }
+  }
 
   const { ask: askUnsub, dialog: unsubDialog } = useUnsubscribeConfirm()
   async function toggleSub() {
@@ -354,35 +435,64 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
           </Button>
         ))}
         {votes && <VotesBar votes={votes} />}
-        <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="outline" size="icon" onClick={onMinimize} title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." aria-label="Minimize to mini-player"
-            className="border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground">
-            <SquareArrowOutDownLeft className="size-4" />
-          </Button>
-          {online && (
-            <Button variant="outline" size="icon" onClick={onTogglePrivacy} title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." aria-label="Private stream"
-              className={cn(privacy ? 'border-success/30 bg-success/10 text-success hover:bg-success/15 hover:text-success' : 'border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground')}>
-              <ShieldCheck className={cn('size-4', privacy && 'fill-current')} />
-            </Button>
-          )}
-          {online && (
-            <Button variant="outline" size="icon" onClick={onToggleAudioOnly} title="Audio only: play just the audio to save bandwidth." aria-label="Audio only"
-              className={cn(audioOnly ? 'border-info/30 bg-info/10 text-info hover:bg-info/15 hover:text-info' : 'border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground')}>
-              <Headphones className="size-4" />
-            </Button>
-          )}
-          {isShortVid && (
-            <Link to={`/youtube/shorts/${videoId}`} title="Open in Shorts view" aria-label="Shorts view"
-              className="grid size-9 place-items-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-              <Smartphone className="size-4" />
-            </Link>
-          )}
-          <Pill icon={Mic} label="Podcast" onClick={() => setPodcastOpen(true)} />
-          <Pill icon={Heart} label="Like" active={liked} onClick={() => toggleCollection('liked', snapshot)} />
-          <Pill icon={Clock} label="Watch Later" active={watchLater} onClick={() => toggleCollection('watch-later', snapshot)} />
-          {!localKind && <Pill icon={BookmarkPlus} label="Save" onClick={() => ui.openSave(videoId, title)} />}
-          <Pill icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
-          <Pill icon={ExternalLink} label="YouTube" onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')} />
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {/* Player options — grouped so the row reads as one control, not a scatter of circles */}
+          <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-1">
+            <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
+              title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
+            {online && (
+              <SegBtn icon={ShieldCheck} label="Private stream" active={privacy} tone="success" iconFill={privacy} onClick={onTogglePrivacy}
+                title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." />
+            )}
+            {online && (
+              <SegBtn icon={Headphones} label="Audio only" active={audioOnly} tone="info" onClick={onToggleAudioOnly}
+                title="Audio only: play just the audio to save bandwidth." />
+            )}
+            {isShortVid && (
+              <SegBtn icon={Smartphone} label="Shorts view" to={`/youtube/shorts/${videoId}`} title="Open in Shorts view" />
+            )}
+          </div>
+
+          {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
+          <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
+            <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked} onClick={() => toggleCollection('liked', snapshot)} />
+            <AddToPlaylistPill compact video={{ videoId, title, author: author ?? undefined, channelId: channelId ?? undefined, durationSec: meta?.durationSec ?? undefined }} />
+            {online && meta?.isLive && (
+              <SegBtn icon={recording ? Square : Circle} label={recording ? 'Stop recording' : 'Record from start'}
+                active={recording} tone="accent" iconFill={recording} onClick={recordBusy ? undefined : toggleRecording}
+                title={recording ? 'Stop recording — keeps what was captured' : 'Record this livestream from its start'} />
+            )}
+            {!localKind && (
+              <SegBtn icon={saveState === 'saved' ? Check : HardDriveDownload}
+                label={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline…' : 'Save offline'}
+                active={saveState === 'saved'} iconFill={false}
+                onClick={saveState === 'saving' ? undefined : saveVideoOffline}
+                title="Save offline: this server downloads the video so you can watch it later without streaming." />
+            )}
+            <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)}
+              title="Download: pull the video file down to this device (like any web download)." />
+            <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button title="More actions" aria-label="More actions"
+                  className="grid size-8 place-items-center rounded-full text-foreground/70 transition-colors hover:bg-background/60 data-[state=open]:bg-background/70 data-[state=open]:text-foreground">
+                  <MoreHorizontal className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={() => toggleCollection('watch-later', snapshot)}>
+                  <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
+                  {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
+                  <Mic className="size-4" /> Create podcast
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')}>
+                  <ExternalLink className="size-4" /> Open on YouTube
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
@@ -402,15 +512,20 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   )
 }
 
-function Pill({ icon: Icon, label, active, onClick }: { icon: typeof Heart; label: string; active?: boolean; onClick: () => void }) {
-  return (
-    <Button variant="secondary" size="icon" onClick={onClick} title={label} aria-label={label}
-      className={cn(active
-        ? 'bg-[var(--yt-accent-soft)] text-[var(--yt-accent-fg)] hover:bg-[var(--yt-accent-soft)]'
-        : 'bg-muted text-foreground/80 hover:bg-muted/70')}>
-      <Icon className={cn('size-4', active && 'fill-current')} />
-    </Button>
+/** A compact icon button that lives inside one of the grouped segment bars in the action row.
+ *  Renders as a <Link> when `to` is set, otherwise a <button>. */
+function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, onClick, to }: {
+  icon: typeof Heart; label: string; title?: string; active?: boolean
+  tone?: 'accent' | 'success' | 'info'; iconFill?: boolean; onClick?: () => void; to?: string
+}) {
+  const activeText = tone === 'success' ? 'text-success' : tone === 'info' ? 'text-info' : 'text-[var(--yt-accent-fg)]'
+  const cls = cn(
+    'grid size-8 place-items-center rounded-full transition-colors hover:bg-background/60',
+    active ? cn('bg-background/70', activeText) : 'text-foreground/70',
   )
+  const icon = <Icon className={cn('size-4', iconFill && 'fill-current')} />
+  if (to) return <Link to={to} title={title ?? label} aria-label={label} className={cls}>{icon}</Link>
+  return <button onClick={onClick} title={title ?? label} aria-label={label} className={cls}>{icon}</button>
 }
 
 // Estimated like/dislike counts from Return YouTube Dislike (YouTube hides dislikes).

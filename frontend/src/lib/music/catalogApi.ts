@@ -2,6 +2,8 @@
 // library (favorites + history). Thin typed wrappers over the /api/music/* routes. (Track
 // storage for Generate/Remix lives in ./api.)
 
+import type { SuggestSource } from '@/lib/smartSearch/types'
+
 // ── Shared shapes (mirror the backend serializers) ────────────────────────────────
 export interface CatalogArtist {
   mbid: string; name: string; disambiguation: string | null; type: string | null; country: string | null
@@ -67,6 +69,14 @@ export function catalogSearch(q: string, type: 'all' | 'artists' | 'albums' | 's
   return mfetch<{ artists: CatalogArtist[]; albums: CatalogAlbum[]; songs: CatalogSong[]; stations: Station[] }>(
     `/catalog/search?q=${encodeURIComponent(q)}&type=${type}`)
 }
+// Query-autosuggest source for the SmartSearch header dropdown (artists + songs, Deezer-backed).
+// Same shape/contract as youtubeSuggestSource so MusicLayout can drop it into useAppHeader.
+export const musicSuggestSource: SuggestSource = async (query, signal) => {
+  const r = await fetch(`/api/music/catalog/suggest?q=${encodeURIComponent(query)}`, { credentials: 'include', signal })
+  const d = await r.json() as { suggestions?: Array<{ label: string; sublabel?: string }> }
+  return (d.suggestions ?? []).map((s, i) => ({ id: String(i), label: s.label, sublabel: s.sublabel }))
+}
+
 export function getArtist(mbid: string) {
   return mfetch<{ artist: CatalogArtistDetail; albums: CatalogAlbum[] }>(`/catalog/artist/${mbid}`)
 }

@@ -32,8 +32,16 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'plex-provision' | 'plex-sync' | 'plex-cut'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut'
+// CPU-bound jobs that run in their own compute lane, independent of the network-download
+// concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
+// one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
+// bandwidth reason.
+// Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
+// column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
+// entries but candidates.find() below needs to check the wider raw-row type too.
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -108,6 +116,10 @@ export interface EnqueueInput {
   componentIds?: string[]
   zimSelections?: { sourceId: string; variantKey?: string; label: string; approxBytes?: number }[]
   maps?: { regionId: string; label: string } | null
+  // Re-run explicitly-requested items even if a prior job already completed — for the admin
+  // "Update"/re-download action and re-adding a pack that was deleted. Auto-injected
+  // prerequisites (kiwix-tools, maps-toolchain, comfyui) are never force-rerun.
+  force?: boolean
 }
 
 /** Create job rows for the non-essential set. Idempotent per (type, refId): an existing
@@ -136,6 +148,15 @@ export async function enqueueBackground(input: EnqueueInput): Promise<number> {
   for (const z of input.zimSelections ?? []) specs.push(archiveSpec(z))
   if (input.maps) specs.push(mapSpec(input.maps.regionId, input.maps.label))
 
+  // Items the caller asked for explicitly (before prereq auto-injection); only these are
+  // eligible for a force-rerun, so a re-download never re-installs a shared runtime.
+  const explicitRefIds = new Set<string>([
+    ...(input.modelIds ?? []),
+    ...(input.componentIds ?? []),
+    ...(input.zimSelections ?? []).map((z) => z.sourceId),
+    ...(input.maps ? [input.maps.regionId] : []),
+  ])
+
   const now = new Date()
   let created = 0
   for (const s of specs) {
@@ -143,9 +164,12 @@ export async function enqueueBackground(input: EnqueueInput): Promise<number> {
       .where(and(eq(downloadJobs.type, s.type), eq(downloadJobs.refId, s.refId)))
       .then((r) => r[0])
     if (existing) {
-      if (existing.status === 'failed' || existing.status === 'cancelled') {
+      const forceRerun = input.force === true && explicitRefIds.has(s.refId) && existing.status === 'completed'
+      if (existing.status === 'failed' || existing.status === 'cancelled' || forceRerun) {
         await db.update(downloadJobs)
-          .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: now })
+          // A forced re-download starts clean (drop the stale 100% snapshot); a failed/cancelled
+          // resume keeps its progress so the widget shows where the .part file picks up.
+          .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: now, ...(forceRerun ? { progress: null } : {}) })
           .where(eq(downloadJobs.id, existing.id))
         created++
       }
@@ -257,12 +281,13 @@ async function tick(): Promise<void> {
     // Re-entrancy guard via tickScheduled; loop until no more can start.
     for (;;) {
       const runningList = [...running.values()]
-      // Map builds occupy a separate compute lane (CPU-bound Java, not bandwidth) —
-      // they don't consume a network slot, so an hours-long region build no longer
-      // blocks archive/model downloads.
-      const networkCount = runningList.filter((r) => r.type !== 'map').length
-      const mapRunning = runningList.some((r) => r.type === 'map')
-      if (networkCount >= MAX_CONCURRENT && mapRunning) return  // both lanes full
+      // Compute-lane jobs (map builds, plex-cut ffmpeg re-encodes — CPU-bound, not bandwidth)
+      // don't consume a network slot, so an hours-long region build or video cut no longer
+      // blocks archive/model/download progress. Each compute lane's own domain still
+      // serializes to one job at a time within that domain (see the `j.type` branch below).
+      const networkCount = runningList.filter((r) => !COMPUTE_LANE_TYPES.has(r.type)).length
+      const computeLaneRunning = runningList.some((r) => COMPUTE_LANE_TYPES.has(r.type))
+      if (networkCount >= MAX_CONCURRENT && computeLaneRunning) return  // both lanes full
       const now = new Date()
       const candidates = await db.select().from(downloadJobs)
         .where(and(
@@ -270,14 +295,16 @@ async function tick(): Promise<void> {
           or(isNull(downloadJobs.nextEligibleAt), lte(downloadJobs.nextEligibleAt, now)),
         ))
         .orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
-      const largeDomains = new Set(runningList.filter((r) => r.sizeClass === 'large' && r.type !== 'map').map((r) => r.domain))
+      const largeDomains = new Set(runningList.filter((r) => r.sizeClass === 'large' && !COMPUTE_LANE_TYPES.has(r.type)).map((r) => r.domain))
       const domainsRunning = new Set(runningList.map((r) => r.domain))
       const next = candidates.find((j) => {
         if (running.has(j.id)) return false
         if (!prereqMet(j)) return false
-        if (j.type === 'map') {
-          // Compute lane: one build at a time (the maps domain rule), independent of
-          // download slots. Its PBF download shares the lane — Geofabrik is its own host.
+        if (COMPUTE_LANE_TYPES.has(j.type)) {
+          // Compute lane: one job at a time PER DOMAIN, independent of network download
+          // slots. Map's PBF download shares its lane (Geofabrik is its own host); plex-cut
+          // gets its own 'plex-cut' domain so a video re-encode and a map build can run
+          // concurrently without contending for the same domain serialization.
           return !domainsRunning.has(j.domain)
         }
         if (networkCount >= MAX_CONCURRENT) return false
@@ -377,8 +404,10 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
         logger.error(`[jobs] ✗ ${job.type}:${job.refId} — gave up after ${attempts} attempts: ${err}`)
         await notifyJobExhausted(job, String(err))
         // Propagate terminal failure to the shared media asset + every waiting ref, so a second
-        // user who attached to this job doesn't sit on 'pending' forever.
-        if (job.type === 'yt-media') {
+        // user who attached to this job doesn't sit on 'pending' forever. Safe for yt-live-record
+        // too: this branch only runs when the runner actually threw (nothing worth keeping was
+        // captured) — a graceful stop/partial-keep resolves normally and never reaches here.
+        if (job.type === 'yt-media' || job.type === 'yt-live-record') {
           const { failAssetByJobRefId } = await import('@/lib/youtube/assets')
           await failAssetByJobRefId(job.refId, String(err)).catch(() => {})
         }
@@ -509,6 +538,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runYtExportJob(payload, onProgress, signal)
       return
     }
+    case 'yt-live-record': {
+      const payload = JSON.parse(job.refId) as import('@/lib/youtube/live').YtLiveRecordPayload
+      const { runYtLiveRecordJob } = await import('@/lib/youtube/live')
+      await runYtLiveRecordJob(payload, onProgress, signal)
+      return
+    }
     case 'podcast-generate': {
       const { runPodcastGenerateJob } = await import('@/lib/podcast/generate')
       const payload = JSON.parse(job.refId)
@@ -560,6 +595,31 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runBookGenerateJob(payload, onProgress, signal)
       return
     }
+    case 'clip_download': {
+      const payload = JSON.parse(job.refId) as import('@/lib/clipper/download').ClipDownloadJobPayload
+      const { runClipDownloadJob } = await import('@/lib/clipper/download')
+      await runClipDownloadJob(payload, onProgress, signal)
+      return
+    }
+    case 'plex-provision': {
+      const payload = JSON.parse(job.refId) as import('@/lib/plex/export/library').PlexProvisionJobPayload
+      const { runPlexProvisionJob } = await import('@/lib/plex/export/library')
+      await runPlexProvisionJob(payload)
+      return
+    }
+    case 'plex-sync': {
+      const payload = JSON.parse(job.refId) as { userId: string; videoId: string; op: 'add' | 'remove' }
+      const { syncVideoToPlex, removeVideoFromPlex } = await import('@/lib/plex/export/sync')
+      if (payload.op === 'remove') await removeVideoFromPlex(payload.userId, payload.videoId)
+      else await syncVideoToPlex(payload.userId, payload.videoId)
+      return
+    }
+    case 'plex-cut': {
+      const payload = JSON.parse(job.refId) as import('@/lib/plex/cut/run').PlexCutJobPayload
+      const { runPlexCutJob } = await import('@/lib/plex/cut/run')
+      await runPlexCutJob(payload, signal)
+      return
+    }
   }
 }
 
@@ -572,6 +632,80 @@ export async function enqueueRadioRecording(recordingId: string, label: string):
     id: randomUUID(), type: 'radio-record', refId: recordingId, variantKey: null,
     domain: 'radio', sizeClass: 'small', label: label.slice(0, 120), priority: 45,
     status: 'pending', attempts: 0, maxAttempts: 1, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue provisioning of one user's private Plex library for a content type. Cheap
+ *  (filesystem check + a few small HTTP calls, no CPU-heavy work) — normal network lane,
+ *  domain 'plex' serializes concurrent provisioning attempts so two don't race Plex's API.
+ *  No terminal-failure hook needed: provisionUserLibrary() itself records status='error' on
+ *  the plexLibrarySections row after every attempt, not just final exhaustion. */
+export async function enqueuePlexProvision(userId: string, contentType: string): Promise<void> {
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'plex-provision', refId: JSON.stringify({ userId, contentType }), variantKey: `plex-provision:${userId}:${contentType}`,
+    domain: 'plex', sizeClass: 'small', label: `Provision Plex library (${contentType})`, priority: 40,
+    status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Coalesced enqueue of a SponsorBlock cut for (videoId, cutSetHash) — multiple users with
+ *  identical enabled categories share ONE cut job/rendition. CPU-bound: domain 'plex-cut'
+ *  is its own compute lane (see COMPUTE_LANE_TYPES above), separate from the cheap
+ *  network-lane 'plex' domain plex-provision/plex-sync share. */
+export async function enqueuePlexCut(videoId: string, cutSetHash: string, enabledCategories: Record<string, boolean>): Promise<void> {
+  const vk = `plex-cut:${videoId}:${cutSetHash}`
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'plex-cut'), eq(downloadJobs.variantKey, vk)))
+    .limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return // coalesce
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'plex-cut', refId: JSON.stringify({ videoId, cutSetHash, enabledCategories }), variantKey: vk,
+    domain: 'plex-cut', sizeClass: 'small', label: 'Trim video for Plex', priority: 60,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue placing (or removing) one video in one user's Plex tree. Cheap filesystem +
+ *  one small HTTP refresh call — normal network lane, domain 'plex' (shared with
+ *  plex-provision) serializes so a provisioning call and a sync never race each other. */
+export async function enqueuePlexSync(userId: string, videoId: string, op: 'add' | 'remove'): Promise<void> {
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'plex-sync', refId: JSON.stringify({ userId, videoId, op }), variantKey: `plex-sync:${userId}:${videoId}`,
+    domain: 'plex', sizeClass: 'small', label: `Sync to Plex (${op})`, priority: 55,
+    status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue a Clipper save (any yt-dlp-supported URL → offline blob). One job per clip row
+ *  (the clip id is the refId's clipId, not the job id — a clip can be re-tried by re-enqueuing
+ *  the same clipId); domain='clipper' is its own concurrency lane, separate from 'youtube' and
+ *  the other content domains. No emitNotification here — Clipper surfaces progress via the
+ *  clips row + downloadJobs the same way YouTube saves and podcast downloads do, not via the
+ *  admin/self-heal notification channel (see notifyJobExhausted's SELF_HEAL_TYPES gate). */
+export async function enqueueClipDownload(clipId: string, url: string, kind: 'audio' | 'video', label: string): Promise<void> {
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'clip_download', refId: JSON.stringify({ clipId, url, kind }), variantKey: null,
+    domain: 'clipper', sizeClass: 'small', label: label.slice(0, 120), priority: 45,
+    status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })
   kickScheduler()

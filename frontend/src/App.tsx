@@ -10,6 +10,7 @@ import { GenerationProvider } from '@/context/GenerationContext'
 import { PrivacyProvider } from '@/context/PrivacyContext'
 import { ServerHealthProvider } from '@/context/ServerHealthContext'
 import { SetupProgressProvider } from '@/context/SetupProgressContext'
+import { GpuHealthProvider } from '@/context/GpuHealthContext'
 import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
 import { YoutubePlaybackProvider } from '@/context/YoutubePlaybackContext'
 import { RadioProvider } from '@/context/RadioContext'
@@ -73,6 +74,8 @@ import { CodingPage } from '@/pages/coding/CodingPage'
 import { CamerasPage } from '@/pages/CamerasPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
+import { DropPage } from '@/pages/DropPage'
+import { ClipperPage } from '@/pages/ClipperPage'
 import { CanvasPage } from '@/pages/CanvasPage'
 import { PodcastLayout } from '@/components/podcast/PodcastLayout'
 import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
@@ -155,6 +158,7 @@ const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage
 const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
 const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPage').then((m) => ({ default: m.YoutubePlaylistPage })))
+const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
 const WatchPage = lazy(() => import('@/pages/youtube/WatchPage').then((m) => ({ default: m.WatchPage })))
 const YoutubeSettingsPage = lazy(() => import('@/pages/youtube/YoutubeSettingsPage').then((m) => ({ default: m.YoutubeSettingsPage })))
 
@@ -284,6 +288,7 @@ export default function App() {
     <ServerHealthProvider>
     <SetupProgressProvider>
     <AuthProvider>
+      <GpuHealthProvider>
       <ThemeProvider>
         <UIContextProvider>
           <BreadcrumbSearchProvider>
@@ -389,6 +394,7 @@ export default function App() {
                   <Route path="subscriptions" element={<YoutubeSubscriptionsPage />} />
                   <Route path="channel/:id" element={<YoutubeChannelPage />} />
                   <Route path="playlist/:id" element={<YoutubePlaylistPage />} />
+                  <Route path="my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
                   <Route path="watch/:videoId" element={<WatchPage />} />
                   <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
                   <Route path="settings" element={<YoutubeSettingsPage />} />
@@ -420,6 +426,8 @@ export default function App() {
                 <Route path="/cameras" element={<CamerasPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
+                <Route path="/drop" element={<DropPage />} />
+                <Route path="/clipper" element={<ClipperPage />} />
                 <Route path="/canvas" element={<CanvasPage />} />
                 <Route path="/time" element={<TimePage />} />
                 {/* Dictionary + Medical are now sections of the Reference app. */}
@@ -492,6 +500,7 @@ export default function App() {
         </UIContextProvider>
         <AppToaster />
       </ThemeProvider>
+      </GpuHealthProvider>
       <ServerHealthBanner />
     </AuthProvider>
     </SetupProgressProvider>

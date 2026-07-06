@@ -17,7 +17,6 @@ import { Spinner } from '@/components/ui/spinner'
 const WEATHER_GRADIENT = getAppByPath('/weather')?.gradient ?? 'linear-gradient(135deg,#0c2a52,#1d6fa8)'
 const celsiusToFahrenheit = (c: number) => c * 9 / 5 + 32
 import {
-  type HeroGradient,
   type WeatherData,
   type WeatherAlert,
   wmoInfo,
@@ -28,7 +27,6 @@ import {
   heroBackground,
   currentMoonPhase,
   moonPhaseInfo,
-  type MoonPhaseResult,
   alertSeverity,
   fetchWeatherAlerts,
   getAdvisoryEffect,

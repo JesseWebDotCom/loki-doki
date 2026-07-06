@@ -9,6 +9,7 @@ import {
   getArtist, getArtistAlbums, getAlbum, itunesAlbumCover,
 } from '@/lib/music/catalog'
 import { resolveTrack } from '@/lib/music/resolve'
+import { getMusicSuggestions } from '@/lib/music/suggest'
 import { searchStations } from '@/routes/musicStations'
 import type { AppEnv } from '@/types'
 
@@ -29,6 +30,14 @@ musicCatalog.get('/search', async (c) => {
     type === 'all' || type === 'stations' ? searchStations(q, user.id, type === 'stations' ? 24 : 8) : Promise.resolve([]),
   ])
   return c.json({ artists, albums, songs, stations })
+})
+
+// GET /api/music/catalog/suggest?q=… — query autosuggest for the search box (Deezer-backed, fast,
+// per-keystroke, no caching). Mirrors /api/youtube/suggest.
+musicCatalog.get('/suggest', async (c) => {
+  const q = c.req.query('q')?.trim()
+  if (!q) return c.json({ suggestions: [] })
+  return c.json({ suggestions: await getMusicSuggestions(q) })
 })
 
 // GET /api/music/catalog/artist/:mbid — bio/links + discography

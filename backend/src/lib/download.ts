@@ -1524,7 +1524,13 @@ export async function installFaceRestoreNode(
   await mkdir(nodesDir, { recursive: true })
 
   const nodeDir = join(dataDir, FACERESTORE_NODE_DIR)
-  if (!existsSync(nodeDir)) {
+  // Re-clone unless the checkout is complete (`.git` present); a crash mid-clone can leave
+  // a partial dir the old existence check would wrongly treat as installed.
+  if (!existsSync(join(nodeDir, '.git'))) {
+    if (existsSync(nodeDir)) {
+      onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Removing incomplete FaceRestore node…' })
+      await rm(nodeDir, { recursive: true, force: true })
+    }
     onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Installing FaceRestore node…' })
     await runCmd('git', ['clone', '--depth', '1', FACERESTORE_NODE_URL], nodesDir, onProgress, signal)
   }
@@ -1645,6 +1651,12 @@ export async function setupComfyUIBase(
 
   // 2. Clone ComfyUI repo if missing
   if (!existsSync(join(comfyDir, 'main.py'))) {
+    // A crash mid-clone leaves a partial comfyDir with no main.py. `git clone` refuses a
+    // non-empty target (exit 128), so wipe any incomplete checkout before cloning clean.
+    if (existsSync(comfyDir)) {
+      onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Removing incomplete ComfyUI checkout…' })
+      await rm(comfyDir, { recursive: true, force: true })
+    }
     onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Cloning ComfyUI…' })
     await runCmd('git', ['clone', '--depth', '1', COMFYUI_REPO, comfyDir], dataDir, onProgress, signal)
   }
@@ -1683,7 +1695,15 @@ export async function installComfyUINodes(
     const dirName = node.url.split('/').pop()?.replace(/\.git$/, '') ?? ''
     const nodeDir = join(nodesDir, dirName)
 
-    if (!existsSync(nodeDir)) {
+    // A completed clone always has a `.git` dir. A crash mid-clone can leave a partial
+    // node dir without one; the old `!existsSync(nodeDir)` guard would then skip the clone
+    // and ship a broken node. Re-clone whenever the checkout isn't complete.
+    const nodeComplete = existsSync(join(nodeDir, '.git'))
+    if (!nodeComplete) {
+      if (existsSync(nodeDir)) {
+        onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Removing incomplete ${node.label}…` })
+        await rm(nodeDir, { recursive: true, force: true })
+      }
       onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Installing ${node.label}…` })
       await runCmd('git', ['clone', '--depth', '1', node.url], nodesDir, onProgress, signal)
     }

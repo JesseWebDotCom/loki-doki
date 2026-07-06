@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { cardVariants } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { StatTile } from "@/components/shared/StatTile";
 import type { VideoItem } from "@/lib/youtube/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DeviceCard, type CardAction } from "@/components/homeassistant/DeviceCard";
@@ -27,7 +26,6 @@ import {
   useDraggable,
   useDroppable,
   type CollisionDetection,
-  type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -38,7 +36,6 @@ import { useWeatherSnapshot } from "@/hooks/useWeatherSnapshot";
 import { useHomeLayout, resolveTickerConfig, type HomeRow, type HomeWidget, type TickerConfig, type TickerSource } from "@/hooks/useHomeLayout";
 import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTextClass, SNOW_TEXT, type HeroGradient } from "@/lib/weather";
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
-import { APP_GROUPS } from "@/lib/appCategories";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
 import { useYtFeed } from "@/lib/youtube/useData";
@@ -53,8 +50,7 @@ import { coverUrl } from "@/lib/podcast/api";
 import { usePodcastPlayback } from "@/context/PodcastPlaybackContext";
 import { useYoutubePlayback } from "@/context/YoutubePlaybackContext";
 import type { BookmarkItem } from "@/lib/bookmarks/api";
-import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
-import { useAppFeatures } from "@/hooks/useAppFeatures";
+import { useInstalledTools } from "@/hooks/useInstalledTools";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { WidgetErrorBoundary } from "@/components/shared/WidgetErrorBoundary";
 import {
@@ -469,91 +465,6 @@ function parseOtdYear(title: string): { year: string; text: string } {
   return m ? { year: m[1]!, text: m[2]! } : { year: "", text: title };
 }
 
-function TodaysHeadlines() {
-  const [local, setLocal] = useState<NewsItem | null>(null);
-  const [world, setWorld] = useState<NewsItem | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    const top = (type: string) =>
-      fetch(`/api/news?type=${type}&limit=1`, { credentials: "include" })
-        .then(r => r.ok ? r.json() : null)
-        .then((d: { items?: NewsItem[] } | null) => d?.items?.[0] ?? null)
-        .catch(() => null);
-    Promise.all([top("local"), top("world")]).then(([l, w]) => {
-      if (cancelled) return;
-      setLocal(l); setWorld(w); setLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, []);
-
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between">
-        <Label>Today's Headlines</Label>
-        {loading
-          ? <Spinner size="sm" className="text-muted-foreground/30" />
-          : <Link to="/news" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
-        }
-      </div>
-      {!loading && !local && !world ? (
-        <p className="text-[11px] text-muted-foreground/50">No headlines available.</p>
-      ) : (
-        <div className="space-y-0.5">
-          {local && <NewsRow item={local} tag="Local" tagColor="rgb(45,212,191)" />}
-          {world && <NewsRow item={world} tag="Global" tagColor="rgb(96,165,250)" />}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OtdCard() {
-  const [items, setItems] = useState<OtdItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/on-this-day", { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: { events?: OtdItem[] } | null) => { setItems(d?.events?.slice(0, 3) ?? []); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div className="rounded-card overflow-hidden border border-warning/15 bg-warning/5 flex flex-col">
-      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-warning/10">
-        <div className="flex items-center gap-1.5">
-          <CalendarDays className="size-3.5 text-warning" />
-          <span className="text-overline text-warning">On This Day</span>
-        </div>
-        {loading
-          ? <Spinner size="sm" className="text-muted-foreground/30" />
-          : <Link to="/on-this-day" className="text-[10px] text-warning/55 hover:text-warning transition-colors">See all →</Link>
-        }
-      </div>
-      <div className="flex-1 px-3.5 py-2.5 space-y-2.5">
-        {!loading && items.length === 0 && (
-          <p className="text-[11px] text-muted-foreground/50">Nothing for today.</p>
-        )}
-        {items.map((item, i) => {
-          const { year, text } = parseOtdYear(item.title);
-          return (
-            <div key={i} className="flex items-start gap-2">
-              {year && (
-                <span className="text-[12px] font-semibold text-warning tabular-nums leading-tight shrink-0 pt-px">
-                  {year}
-                </span>
-              )}
-              <p className="text-[11px] leading-snug text-foreground/70 line-clamp-2">{text}</p>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ── Canvas widgets ────────────────────────────────────────────────────────────
 
@@ -2274,30 +2185,6 @@ function Canvas({
   );
 }
 
-// ── Category tile ─────────────────────────────────────────────────────────────
-
-function CategoryTile({
-  to, gradient, icon: Icon, label, count,
-}: {
-  to: string; gradient: string; icon: LucideIcon; label: string; count: number;
-}) {
-  const meta = `${count} ${count === 1 ? "item" : "items"}`;
-  return (
-    <Link
-      to={to}
-      className="group relative h-24 overflow-hidden rounded-card shimmer-sweep transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.97]"
-      style={{ background: gradient }}
-    >
-      <Icon
-        className="absolute -bottom-3 -right-2 size-[72px] text-white/[0.28] pointer-events-none transition-transform duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] group-hover:scale-110 group-hover:rotate-[-28deg] rotate-[-20deg]"
-      />
-      <div className="absolute top-0 left-0 p-3.5 z-10">
-        <span className="text-[15px] font-extrabold text-white leading-snug tracking-tight">{label}</span>
-        <p className="text-[11px] text-white/60 leading-snug mt-0.5">{meta}</p>
-      </div>
-    </Link>
-  );
-}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -2311,7 +2198,7 @@ export function HomePage() {
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   const { layout, locked, save } = useHomeLayout();
-  const { enabledToolIds, tools } = useInstalledTools();
+  const { tools } = useInstalledTools();
 
   // Weather background for the header
   const { snapshot: wxSnap, status: wxStatus } = useWeatherSnapshot();
@@ -2328,34 +2215,11 @@ export function HomePage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const appFeatures = useAppFeatures();
-
   const toolsMap = useMemo(() => {
     const m = new Map<string, { enabled: boolean }>();
     for (const t of tools ?? []) m.set(t.id, t);
     return m;
   }, [tools]);
-
-  // Home "Browse" tiles are the app groups. Offline books live in the Books app and
-  // references in the Reference app, so raw archive categories are no longer surfaced
-  // here as their own tiles.
-  const categories = useMemo(() => {
-    return APP_GROUPS.flatMap(group => {
-      const visibleApps = group.apps.filter(
-        a =>
-          (!a.feature || appFeatures[a.feature] !== false) &&
-          isAppVisible(a.toolId, enabledToolIds),
-      );
-      if (visibleApps.length === 0) return [];
-      return [{
-        key: group.key,
-        name: group.name,
-        gradient: group.gradient,
-        icon: group.icon,
-        count: visibleApps.length,
-      }];
-    });
-  }, [appFeatures, enabledToolIds]);
 
   usePublishUIContext({
     label: "Home",
