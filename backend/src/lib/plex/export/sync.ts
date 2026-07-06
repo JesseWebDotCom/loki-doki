@@ -71,6 +71,18 @@ function seasonDisplayName(variant: 'main' | 'shorts', seasonYear: number): stri
 
 const PLEX_TIMEOUT_MS = 15_000
 
+/** BCP-47-ish caption code ("en", "en-US", "pt-BR") → the ISO 639-2 code MP4 language atoms
+ *  want. Unmapped languages return 'und' — which Plex shows as "Unknown", same as untagged,
+ *  so an exotic language never regresses below the status quo. */
+const ISO639_2: Record<string, string> = {
+  en: 'eng', es: 'spa', fr: 'fra', de: 'deu', it: 'ita', pt: 'por', nl: 'nld', sv: 'swe',
+  no: 'nor', da: 'dan', fi: 'fin', pl: 'pol', ru: 'rus', uk: 'ukr', cs: 'ces', tr: 'tur',
+  ar: 'ara', he: 'heb', hi: 'hin', ja: 'jpn', ko: 'kor', zh: 'zho', vi: 'vie', th: 'tha', id: 'ind',
+}
+function toIso639_2(captionLang: string): string {
+  return ISO639_2[captionLang.toLowerCase().split('-')[0] ?? ''] ?? 'und'
+}
+
 async function resolveShowRatingKey(conn: PlexConnection, sectionKey: string, showTitle: string): Promise<string | null> {
   try {
     const res = await fetch(`${conn.baseUrl}/library/sections/${encodeURIComponent(sectionKey)}/all?type=2&X-Plex-Token=${encodeURIComponent(conn.token)}`, {
@@ -273,8 +285,18 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   const seasonDirAbs = joinUnderRoot(root, seasonRel)
   const videoAbsPath = joinUnderRoot(seasonDirAbs, names.video)
 
+  // Transcript first: its language is the only audio-language signal we have (YouTube's
+  // API doesn't expose one reliably), and the placement remux wants it for the audio
+  // stream's language atom — untagged audio lists as "Unknown" in Plex's stream picker.
+  let vttPath: string | null = null
+  let captionLang = 'en'
+  try {
+    vttPath = await ensureTranscript(videoId, userId, user.firstName)
+    if (vttPath) captionLang = basename(vttPath).match(/\.([a-zA-Z-]+)\.vtt$/)?.[1] ?? 'en'
+  } catch { /* transcript is optional; language falls back below */ }
+
   const sourceAbsPath = await blobAbsPath(rendition.blobHash)
-  await placeVideoWithMetadata(sourceAbsPath, videoAbsPath, { title: video.title, plot: episodePlot })
+  await placeVideoWithMetadata(sourceAbsPath, videoAbsPath, { title: video.title, plot: episodePlot, audioLang: toIso639_2(captionLang) })
 
   await mkdir(dirname(videoAbsPath), { recursive: true })
   await writeFile(joinUnderRoot(seasonDirAbs, names.nfo), buildEpisodeNfo({
@@ -296,15 +318,14 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
 
   // Captions: re-time against the SAME keepRanges used for the video (identity when
   // nothing was cut) so they can never drift out of sync with what's actually playing.
+  // (vttPath/captionLang resolved above, before placement, for the audio-language atom.)
   let srtWritten = false
   try {
-    const vttPath = await ensureTranscript(videoId, userId, user.firstName)
     if (vttPath) {
-      const lang = basename(vttPath).match(/\.([a-zA-Z-]+)\.vtt$/)?.[1] ?? 'en'
       const vtt = await readFile(vttPath, 'utf8')
       const srt = cutAndRenderSrt(vtt, rendition.keepRanges)
       if (srt.trim()) {
-        await writeFile(joinUnderRoot(seasonDirAbs, names.srt(lang)), srt)
+        await writeFile(joinUnderRoot(seasonDirAbs, names.srt(captionLang)), srt)
         srtWritten = true
       }
     }
