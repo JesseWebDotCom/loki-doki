@@ -59,7 +59,7 @@ export async function freeBytesAt(path: string): Promise<number | null> {
     try {
       const { execFileSync } = await import('node:child_process')
       // argv form — never interpolate the path into a shell string.
-      const out = execFileSync('df', ['-Pk', path], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+      const out = execFileSync('df', ['-Pk', path], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).toString().trim()
       const lastLine = out.split('\n').pop() ?? ''
       const avail = parseInt(lastLine.split(/\s+/)[3] ?? '0', 10)
       return isNaN(avail) ? null : avail * 1024

@@ -7,12 +7,16 @@
 // trim+concat filter_complex graph: build a "keep" segment per gap between cut ranges,
 // concat them back together.
 //
-// NOT yet tuned against real footage — libx264 veryfast/crf 20 is a reasonable default,
-// not a measured one. Revisit once this has run against actual saved videos.
+// Encodes with the same hardware-aware encoder selection as the enhancement pipeline
+// (hevc_nvenc on NVIDIA, VideoToolbox on macOS, libx265 CPU fallback) — a cut re-encodes
+// the entire video, so leaving it on CPU x264 wasted the GPU on the longest ffmpeg job
+// in the app. Retries once on the CPU encoder if the hardware encode fails to initialize
+// (busy GPU), mirroring enhance.ts.
 
 import { spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
-import { ensureFfmpeg, ffprobeBin } from '@/lib/ffmpeg'
+import { ensureFfmpeg, ensureNvencFfmpeg, ffprobeBin } from '@/lib/ffmpeg'
+import { resolveVideoEncoder, CPU_ENCODER, type VideoEncoder } from '@/lib/media/encoder'
 import { logger } from '@/lib/logger'
 
 export interface Range { start: number; end: number }
@@ -43,7 +47,7 @@ export function computeKeepRanges(cutRanges: Range[], durationSec: number): Rang
 
 export async function probeDurationSec(absPath: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const proc = spawn(ffprobeBin(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', absPath], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const proc = spawn(ffprobeBin(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', absPath], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     let out = ''
     proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
     proc.on('close', () => { const n = parseFloat(out.trim()); resolve(Number.isFinite(n) && n > 0 ? n : null) })
@@ -63,7 +67,10 @@ function tailStderr(buf: string, lines = 8): string {
  */
 export async function cutVideo(inputPath: string, outputPath: string, keepRanges: Range[], signal?: AbortSignal): Promise<void> {
   if (!keepRanges.length) throw new Error('cutVideo: no ranges to keep — would produce an empty file')
-  const bin = await ensureFfmpeg()
+  const encoder = await resolveVideoEncoder()
+  // NVENC needs the managed BtbN build (a PATH ffmpeg may be compiled without it) —
+  // ensureNvencFfmpeg is already resolved+cached by resolveVideoEncoder on NVIDIA boxes.
+  const bin = encoder.codec === 'hevc_nvenc' ? await ensureNvencFfmpeg() : await ensureFfmpeg()
 
   const filterParts: string[] = []
   keepRanges.forEach((r, i) => {
@@ -73,17 +80,16 @@ export async function cutVideo(inputPath: string, outputPath: string, keepRanges
   const concatInputs = keepRanges.map((_, i) => `[v${i}][a${i}]`).join('')
   filterParts.push(`${concatInputs}concat=n=${keepRanges.length}:v=1:a=1[outv][outa]`)
 
-  const args = [
-    '-y', '-i', inputPath,
-    '-filter_complex', filterParts.join(';'),
-    '-map', '[outv]', '-map', '[outa]',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
-    '-c:a', 'aac', '-b:a', '160k',
-    outputPath,
-  ]
-
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+  const runCut = (enc: VideoEncoder) => new Promise<void>((resolve, reject) => {
+    const args = [
+      '-y', '-i', inputPath,
+      '-filter_complex', filterParts.join(';'),
+      '-map', '[outv]', '-map', '[outa]',
+      '-c:v', enc.codec, ...enc.args,
+      '-c:a', 'aac', '-b:a', '160k',
+      outputPath,
+    ]
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
     let err = ''
     child.stderr.on('data', (d) => { err += d.toString(); if (err.length > 64_000) err = err.slice(-32_000) })
     const onAbort = () => child.kill('SIGKILL')
@@ -96,6 +102,14 @@ export async function cutVideo(inputPath: string, outputPath: string, keepRanges
       else reject(new Error(`ffmpeg cut exited ${code}: ${tailStderr(err)}`))
     })
   })
+
+  try {
+    await runCut(encoder)
+  } catch (err) {
+    if (signal?.aborted || !encoder.hw) throw err
+    logger.warn(`[plex-cut] ${encoder.codec} failed (${err instanceof Error ? err.message : err}) — retrying on ${CPU_ENCODER.codec}`)
+    await runCut(CPU_ENCODER)
+  }
 
   const s = await stat(outputPath).catch(() => null)
   if (!s || s.size === 0) throw new Error('ffmpeg cut produced no output')
