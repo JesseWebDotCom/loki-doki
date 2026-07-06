@@ -11,7 +11,6 @@ import {
   Home,
   LayoutGrid,
   LogOut,
-  MoreHorizontal,
   Settings,
   ShieldCheck,
   Wifi,
@@ -83,16 +82,10 @@ const ALL_APPS: AppEntry[] = APP_GROUPS.flatMap(g =>
   g.apps.map(a => ({ id: a.id, label: a.label, href: a.to, icon: a.icon, gradient: a.gradient, color: a.color, feature: a.feature, toolId: a.toolId }))
 );
 
-/** Sidebar Favorites soft cap: overflow moves into the app launcher. */
-const FAVORITES_CAP = 6;
-
-function SectionHeading({ label, count }: { label: string; count?: number }) {
+function SectionHeading({ label }: { label: string }) {
   return (
     <div className="flex items-center px-3 pt-3 pb-1 select-none">
       <p className="text-overline text-muted-foreground/70 flex-1">{label}</p>
-      {count !== undefined && (
-        <span className="text-caption tabular-nums text-muted-foreground/40">{count}</span>
-      )}
     </div>
   );
 }
@@ -467,8 +460,8 @@ export function LeftSidebar() {
   const appById = new Map(APPS.map((a) => [a.id, a]));
 
   // Favorites = pinned built-in apps OR pinned offline-library archives
-  // (`read:<sourceId>`), in saved order. Soft-capped in the sidebar; the
-  // overflow lives in the app launcher.
+  // (`read:<sourceId>`), in saved order. The full list renders in the sidebar;
+  // ScrollFade handles overflow when it outgrows the column.
   const pinnedEntries: PinnedEntry[] = pinnedIds
     .map((id): PinnedEntry | null => {
       if (id.startsWith("read:")) {
@@ -480,9 +473,6 @@ export function LeftSidebar() {
     })
     .filter((e): e is PinnedEntry => !!e);
 
-  const visiblePinned = pinnedEntries.slice(0, FAVORITES_CAP);
-  const overflowCount = pinnedEntries.length - visiblePinned.length;
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
@@ -490,15 +480,15 @@ export function LeftSidebar() {
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const visibleIds = visiblePinned.map((e) => e.id);
-    const oldIdx = visibleIds.indexOf(String(active.id));
-    const newIdx = visibleIds.indexOf(String(over.id));
+    const resolvedIds = pinnedEntries.map((e) => e.id);
+    const oldIdx = resolvedIds.indexOf(String(active.id));
+    const newIdx = resolvedIds.indexOf(String(over.id));
     if (oldIdx === -1 || newIdx === -1) return;
-    // Reorder within the visible window; keep everything past the cap (and any
-    // pins that didn't resolve, e.g. an uninstalled archive) in saved order.
-    const moved = arrayMove(visibleIds, oldIdx, newIdx);
-    const visibleSet = new Set(visibleIds);
-    const rest = pinnedIds.filter((id) => !visibleSet.has(id));
+    // Reorder the resolved entries; keep any pins that didn't resolve (e.g. an
+    // uninstalled archive) in saved order at the end.
+    const moved = arrayMove(resolvedIds, oldIdx, newIdx);
+    const resolvedSet = new Set(resolvedIds);
+    const rest = pinnedIds.filter((id) => !resolvedSet.has(id));
     reorder([...moved, ...rest]);
   }
 
@@ -758,10 +748,10 @@ export function LeftSidebar() {
                 />
               </div>
 
-              {visiblePinned.length > 0 && (
+              {pinnedEntries.length > 0 && (
                 <>
                   <div className="shrink-0">
-                    <SectionHeading label="Favorites" count={pinnedEntries.length} />
+                    <SectionHeading label="Favorites" />
                   </div>
 
                   {/* Favorites, scrollable, takes remaining space.
@@ -769,10 +759,10 @@ export function LeftSidebar() {
                   <ScrollFade>
                     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                       <SortableContext
-                        items={visiblePinned.map((e) => e.id)}
+                        items={pinnedEntries.map((e) => e.id)}
                         strategy={verticalListSortingStrategy}
                       >
-                        {visiblePinned.map((e) =>
+                        {pinnedEntries.map((e) =>
                           e.kind === "app" ? (
                             <SortableNavItem
                               key={e.id}
@@ -798,20 +788,6 @@ export function LeftSidebar() {
                         )}
                       </SortableContext>
                     </DndContext>
-                    {overflowCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setLauncherOpen(true)}
-                        className={cn(
-                          "flex w-full items-center gap-3 rounded-control px-3 py-2 text-sm transition-colors",
-                          "text-muted-foreground/70 hover:bg-foreground/5 hover:text-foreground",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        )}
-                      >
-                        <MoreHorizontal className="size-4 shrink-0" aria-hidden="true" />
-                        <span className="flex-1 truncate text-left">{overflowCount} more…</span>
-                      </button>
-                    )}
                   </ScrollFade>
                 </>
               )}
@@ -831,7 +807,7 @@ export function LeftSidebar() {
                 />
               </div>
               <ScrollFade>
-                {visiblePinned.map((e) => (
+                {pinnedEntries.map((e) => (
                   <div key={e.id} className="flex justify-center py-0.5">
                     {e.kind === "app" ? (
                       <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} color={e.app.color} label={e.app.label} badge={getAppBadge(e.app.href)} onIntent={() => prefetch(e.app.href)} />
@@ -840,15 +816,6 @@ export function LeftSidebar() {
                     )}
                   </div>
                 ))}
-                {overflowCount > 0 && (
-                  <div className="flex justify-center py-0.5">
-                    <NavIconButton
-                      icon={MoreHorizontal}
-                      label={`${overflowCount} more in Apps`}
-                      onClick={() => setLauncherOpen(true)}
-                    />
-                  </div>
-                )}
               </ScrollFade>
             </>
           )}
