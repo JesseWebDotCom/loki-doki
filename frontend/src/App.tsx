@@ -156,9 +156,10 @@ const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/Boo
 const VideosLayout = lazy(() => import('@/components/videos/VideosLayout').then((m) => ({ default: m.VideosLayout })))
 const VideosHomePage = lazy(() => import('@/pages/videos/VideosHomePage').then((m) => ({ default: m.VideosHomePage })))
 const RedditBrowsePage = lazy(() => import('@/pages/videos/RedditBrowsePage').then((m) => ({ default: m.RedditBrowsePage })))
+const VideosOfflinePage = lazy(() => import('@/pages/videos/VideosOfflinePage').then((m) => ({ default: m.VideosOfflinePage })))
 const TikTokBrowsePage = lazy(() => import('@/pages/videos/TikTokBrowsePage').then((m) => ({ default: m.TikTokBrowsePage })))
 const VimeoBrowsePage = lazy(() => import('@/pages/videos/VimeoBrowsePage').then((m) => ({ default: m.VimeoBrowsePage })))
-const StudioProjectsPage = lazy(() => import('@/pages/videos/create/StudioProjectsPage').then((m) => ({ default: m.StudioProjectsPage })))
+const MyVideosPage = lazy(() => import('@/pages/videos/create/MyVideosPage').then((m) => ({ default: m.MyVideosPage })))
 const StudioEditorPage = lazy(() => import('@/pages/videos/create/StudioEditorPage').then((m) => ({ default: m.StudioEditorPage })))
 const SourceCreatorPage = lazy(() => import('@/pages/videos/SourceCreatorPage').then((m) => ({ default: m.SourceCreatorPage })))
 const GenericWatchPage = lazy(() => import('@/pages/videos/GenericWatchPage').then((m) => ({ default: m.GenericWatchPage })))
@@ -168,7 +169,6 @@ const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage
 const YoutubePlaylistsPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubePlaylistsPage })))
 const YoutubeWatchLaterPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeWatchLaterPage })))
 const YoutubeLikedPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLikedPage })))
-const YoutubeOfflinePage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeOfflinePage })))
 const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage').then((m) => ({ default: m.YoutubeChannelPage })))
 const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
@@ -410,11 +410,14 @@ export default function App() {
                   <Route path="playlists" element={<YoutubePlaylistsPage />} />
                   <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
                   <Route path="liked" element={<YoutubeLikedPage />} />
-                  <Route path="offline" element={<YoutubeOfflinePage />} />
+                  <Route path="offline" element={<VideosOfflinePage />} />
                   <Route path="clip" element={<ClipperPage />} />
-                  {/* Create: studio projects + the AI generation page (former /video app). */}
-                  <Route path="create" element={<StudioProjectsPage />} />
-                  <Route path="create/generate" element={<VideoPage />} />
+                  {/* Mine: your videos + the studio and AI generation (former /video app). */}
+                  <Route path="mine" element={<MyVideosPage />} />
+                  <Route path="mine/generate" element={<VideoPage />} />
+                  <Route path="mine/:projectId" element={<StudioEditorPage />} />
+                  <Route path="create" element={<Navigate to="/videos/mine" replace />} />
+                  <Route path="create/generate" element={<Navigate to="/videos/mine/generate" replace />} />
                   <Route path="create/:projectId" element={<StudioEditorPage />} />
                   <Route path="settings/:section?" element={<VideosSettingsPage />} />
                   {/* Reddit source area. */}

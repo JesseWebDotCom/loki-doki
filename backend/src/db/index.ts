@@ -2767,6 +2767,16 @@ export function runMigrations() {
   addColumn('yt_collections', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
   addColumn('yt_playlist_videos', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
 
+  // Watch-history hygiene: Music-station plays share the YouTube player but belong to
+  // the Music app (see schema.ts ytWatchState.origin). Retro-tag rows whose video only
+  // exists as a music-origin/prefetch download so they leave the Videos history.
+  addColumn('yt_watch_state', 'origin', "TEXT NOT NULL DEFAULT 'youtube'")
+  sqlite.exec(`
+    UPDATE yt_watch_state SET origin = 'music' WHERE origin = 'youtube' AND video_id IN (
+      SELECT video_id FROM yt_downloads WHERE origin = 'music' OR prefetch = 1
+    ) AND video_id NOT IN (SELECT video_id FROM yt_collections)
+  `)
+
   // Videos Create studio (see schema.ts studioProjects/studioMedia/studioProjectAssets).
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS studio_projects (

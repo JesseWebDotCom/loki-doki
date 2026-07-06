@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
 import { addFollow, browseSource, getFollowingFeed, listFollows } from '@/lib/videos/api'
+import { SOURCE_META } from '@/lib/videos/sources'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
 
 // TikTok has no browsable trending here (scrape-only, flaky), so this page is the
@@ -55,28 +56,37 @@ export function TikTokBrowsePage() {
   })
 
   return (
-    <PageContainer width="wide" className="py-6">
-      <PageHeader subtitle="Latest videos from the creators you follow." />
+    <PageContainer width="wide" className="pt-1 pb-8">
+      <PageHeader
+        title={SOURCE_META.tiktok.label}
+        icon={SOURCE_META.tiktok.icon}
+        gradient={SOURCE_META.tiktok.gradient}
+        eyebrow="Videos"
+        subtitle={creators.length > 0 ? 'Latest from the creators you follow.' : 'Popular right now. Follow creators to make this feed yours.'}
+        className="pt-4 pb-4"
+        actions={
+          <form
+            className="flex shrink-0 gap-2"
+            onSubmit={(e) => { e.preventDefault(); const h = handleInput.trim().replace(/^@/, ''); if (h) followMutation.mutate(h) }}
+          >
+            <Input value={handleInput} onChange={(e) => setHandleInput(e.target.value)}
+              placeholder="Follow @creator…" className="h-9 w-44" autoComplete="off" />
+            <Button type="submit" size="sm" variant="outline" className="gap-1" disabled={!handleInput.trim() || followMutation.isPending}>
+              <Plus className="size-4" /> Follow
+            </Button>
+          </form>
+        }
+      />
 
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <ChipRow className="mb-0 min-w-0 flex-1">
-          {creators.length > 0 && <Chip label="All" active={activeCreator === null} onClick={() => setActiveCreator(null)} />}
+      {creators.length > 0 && (
+        <ChipRow className="mb-5 min-w-0">
+          <Chip label="All" active={activeCreator === null} onClick={() => setActiveCreator(null)} />
           {creators.map((f) => (
             <Chip key={f.id} label={f.title} active={activeCreator === f.externalId}
               onClick={() => setActiveCreator(activeCreator === f.externalId ? null : f.externalId)} />
           ))}
         </ChipRow>
-        <form
-          className="flex shrink-0 gap-2"
-          onSubmit={(e) => { e.preventDefault(); const h = handleInput.trim().replace(/^@/, ''); if (h) followMutation.mutate(h) }}
-        >
-          <Input value={handleInput} onChange={(e) => setHandleInput(e.target.value)}
-            placeholder="Follow @creator…" className="h-9 w-44" autoComplete="off" />
-          <Button type="submit" size="sm" variant="outline" className="gap-1" disabled={!handleInput.trim() || followMutation.isPending}>
-            <Plus className="size-4" /> Follow
-          </Button>
-        </form>
-      </div>
+      )}
 
       {creators.length === 0 ? (
         popularQuery.isLoading ? (
@@ -85,17 +95,9 @@ export function TikTokBrowsePage() {
             <p className="text-xs">Fetching popular creators, this takes a few seconds the first time…</p>
           </div>
         ) : (popularQuery.data?.items.length ?? 0) > 0 ? (
-          <>
-            <p className="mb-4 text-xs text-muted-foreground">
-              Popular right now. Follow creators above to make this feed yours, or paste any TikTok link into{' '}
-              <Link to="/videos/clip" className="inline-flex items-center gap-0.5 font-medium text-foreground underline underline-offset-2">
-                <Link2 className="size-3" /> Clip a Link
-              </Link>.
-            </p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-              {popularQuery.data!.items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
-            </div>
-          </>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+            {popularQuery.data!.items.map((it) => <HubVideoCard key={`${it.source}:${it.id}`} item={it} showSource={false} />)}
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
             <UserRound className="mb-3 size-10 opacity-30" />

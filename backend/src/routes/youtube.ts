@@ -40,7 +40,7 @@ import { resolveUserPath } from '@/lib/storage/paths'
 import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets } from '@/lib/youtube/assets'
 import { startLiveRecording, getLiveStatus, stopLiveRecording } from '@/lib/youtube/live'
 import { getYoutubeSuggestions } from '@/lib/youtube/suggest'
-import { getAccountRow, getLinkFlow, startAccountLink, cancelLinkFlow, unlinkAccount } from '@/lib/youtube/account'
+import { getAccountRow, getLinkFlow, getValidAccessToken, startAccountLink, cancelLinkFlow, unlinkAccount } from '@/lib/youtube/account'
 import { syncAccount, pushSubscribe, pushUnsubscribe, pushCollectionChange } from '@/lib/youtube/accountSync'
 import { ytAccounts } from '@/db/schema'
 import { acquireRead, releaseRead } from '@/lib/content/store'
@@ -1830,7 +1830,8 @@ youtubeRoute.get('/history', async (c) => {
     .from(ytWatchState)
     .leftJoin(ytVideos, eq(ytVideos.videoId, ytWatchState.videoId))
     .leftJoin(ytSubscriptions, and(eq(ytSubscriptions.externalId, ytVideos.channelId), eq(ytSubscriptions.userId, user.id)))
-    .where(eq(ytWatchState.userId, user.id))
+    // Music-station plays share the player but belong to the Music app's history.
+    .where(and(eq(ytWatchState.userId, user.id), eq(ytWatchState.origin, 'youtube')))
     .orderBy(desc(ytWatchState.updatedAt))
     .limit(limit)
 
@@ -1847,11 +1848,43 @@ youtubeRoute.get('/history', async (c) => {
     completed: r.completed,
     updatedAt: r.updatedAt ? r.updatedAt.getTime() : 0,
   }))
+
+  // Heal rows whose metadata never landed (title falls back to the raw video id):
+  // fetch player metadata for the first few, persist to yt_videos so it sticks.
+  const broken = history.filter(h => h.title === h.videoId).slice(0, 8)
+  await Promise.all(broken.map(async (h) => {
+    const meta = await tryInnertubeRetry(`history-heal:${h.videoId}`, () => innertubePlayerMeta(h.videoId), 1)
+    if (!meta?.title) return
+    h.title = meta.title
+    h.author = meta.author ?? h.author
+    h.channelId = meta.channelId ?? h.channelId
+    h.durationSec = meta.durationSec ?? h.durationSec
+    await db.insert(ytVideos).values({
+      id: crypto.randomUUID(), videoId: h.videoId, title: meta.title, author: meta.author ?? '',
+      channelId: meta.channelId ?? null, thumbnailUrl: `https://i.ytimg.com/vi/${h.videoId}/mqdefault.jpg`,
+      publishedAt: null, durationSec: meta.durationSec ?? null, createdAt: new Date(),
+    }).onConflictDoNothing().catch(() => {})
+  }))
+
   // Fill any still-missing avatars live (online) so History matches the channel/discovery
   // pages immediately, then persist + warm + pin them in the background for offline use.
   await enrichChannelThumbs(history)
   if (history.some(h => !h.channelThumb && h.channelId)) void backfillHistoryChannelThumbs(user.id).catch(() => {})
-  return c.json({ history })
+
+  // Linked YouTube account: merge the real account history (deduped against local rows)
+  // as its own section, so signed-in users see everything they watched anywhere.
+  let accountHistory: Array<{ videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null }> = []
+  try {
+    const token = await getValidAccessToken(user.id)
+    if (token) {
+      const { fetchWatchHistory } = await import('@/lib/youtube/tvClient')
+      const items = await cachedLookup(`yt-account-history`, user.id, 5 * 60_000, () => fetchWatchHistory(token, 60))
+      const seen = new Set(history.map(h => h.videoId))
+      accountHistory = items.filter(v => !seen.has(v.videoId))
+    }
+  } catch { /* account history is best-effort */ }
+
+  return c.json({ history, accountHistory })
 })
 
 // Remove a single video from watch history (also drops its resume position + completion).
@@ -1876,8 +1909,10 @@ youtubeRoute.post('/watch-state', async (c) => {
   const body = await c.req.json<{
     videoId: string; positionSec: number; completed?: boolean
     title?: string; author?: string | null; channelId?: string | null; durationSec?: number | null
+    origin?: 'youtube' | 'music'
   }>()
   const { videoId, positionSec, completed = false } = body
+  const origin: 'youtube' | 'music' = body.origin === 'music' ? 'music' : 'youtube'
   if (!videoId) return c.json({ error: 'videoId required' }, 400)
 
   // Record a minimal video row the first time we see it so it shows up in History even
@@ -1904,10 +1939,11 @@ youtubeRoute.post('/watch-state', async (c) => {
     videoId,
     positionSec,
     completed,
+    origin,
     updatedAt: now,
   }).onConflictDoUpdate({
     target: [ytWatchState.userId, ytWatchState.videoId],
-    set: { positionSec, completed, updatedAt: now },
+    set: { positionSec, completed, origin, updatedAt: now },
   })
 
   return c.json({ ok: true })

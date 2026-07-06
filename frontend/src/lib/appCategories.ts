@@ -1,7 +1,7 @@
 import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
-  Code2, FileType, Gauge, Gift, Home, Image as ImageIcon, Lightbulb,
-  Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
+  Code2, FileType, Film, Gauge, Gift, Home, Image as ImageIcon, Lightbulb,
+  Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package,
   Search, Settings2, Share2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
 
@@ -46,7 +46,7 @@ export const APP_GROUPS: AppGroup[] = [
     apps: [
       { id: "shows",          to: "/shows",          label: "Shows",           description: "Discover TV series: streaming, trailers & reviews", gradient: "linear-gradient(135deg,#0c4a6e,#0284c7)", color: "#0284c7", icon: Tv,             toolId: "tvshows" },
       { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard },
-      { id: "videos",         to: "/videos",         label: "Videos",          description: "Watch, save & clip videos from YouTube and across the web", gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#dc2626", icon: Play,           toolId: "youtube" },
+      { id: "videos",         to: "/videos",         label: "Videos",          description: "Watch, save & create videos", gradient: "linear-gradient(135deg,#701a75,#d946ef)", color: "#d946ef", icon: Film,           toolId: "youtube" },
       { id: "music",          to: "/music",          label: "Music",           description: "Listen, discover & create music",     gradient: "linear-gradient(135deg,#f97316,#fb923c)", color: "#f97316", icon: Music },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
       { id: "where-to-watch", to: "/where-to-watch", label: "Where to Watch",  description: "Find where to stream any title",      gradient: "linear-gradient(135deg,#1e1b4b,#7c3aed)", color: "#7c3aed", icon: Tv,             toolId: "where-to-watch" },

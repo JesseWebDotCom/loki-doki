@@ -36,10 +36,10 @@ export function VideosRail() {
       />
       <RailLink to="/videos" icon={Home} label="Home" end />
       <RailLink to="/videos/clip" icon={Link2} label="Clip a Link" />
-      <RailLink to="/videos/create" icon={Sparkles} label="Create" />
 
       {/* Sources grow as providers land (Reddit, TikTok, Vimeo). */}
       <SectionLabel>Sources</SectionLabel>
+      <RailLink to="/videos/mine" icon={Sparkles} label="Mine" />
       <RailLink to="/videos/youtube" icon={Play} label="YouTube" end />
       <RailLink to="/videos/reddit" icon={MessagesSquare} label="Reddit" end />
       <RailLink to="/videos/tiktok" icon={Music2} label="TikTok" end />

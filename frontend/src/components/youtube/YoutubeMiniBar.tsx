@@ -91,7 +91,7 @@ export function YoutubeMiniBar() {
             else if (e.data === 2) setPlaying(false)
             else if (e.data === 3) setLoading(true)
             if (e.data === YT.PlayerState?.ENDED) {
-              void saveWatchState(track.videoId, 0, true)
+              void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined)
               if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close()
             }
           },
@@ -128,7 +128,7 @@ export function YoutubeMiniBar() {
     // the proxy mid-watch resumes at wherever the iframe had actually gotten to.
     const startAt = online ? pipSwitchPos.current : pb.startSec
     const onMeta = () => { try { el.currentTime = startAt } catch { /* not seekable */ } }
-    const onEnd = () => { void saveWatchState(track.videoId, 0, true); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
+    const onEnd = () => { void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
     el.addEventListener('loadedmetadata', onMeta, { once: true })
     el.addEventListener('ended', onEnd)
     void el.play().then(() => {
@@ -165,7 +165,7 @@ export function YoutubeMiniBar() {
       pb.reportPosition(s.t); if (s.d) setDur(s.d)
       if (s.playing) setLoading(false)
       const now = Date.now()
-      if (s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false) }
+      if (s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.expandTo ? { origin: 'music' } : undefined) }
     }, 500)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,7 +258,7 @@ export function YoutubeMiniBar() {
   }
 
   const onClose = () => {
-    if (!isStream) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false) }
+    if (!isStream) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.expandTo ? { origin: 'music' } : undefined) }
     if (isStream) { audioStreamRef.current?.pause() }
     pb.close()
   }

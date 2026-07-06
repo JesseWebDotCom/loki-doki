@@ -654,7 +654,7 @@ export async function getTranscriptText(videoId: string): Promise<string | null>
   return d.text ?? null
 }
 
-export interface WatchMeta { title?: string; author?: string | null; channelId?: string | null; durationSec?: number | null }
+export interface WatchMeta { title?: string; author?: string | null; channelId?: string | null; durationSec?: number | null; origin?: 'youtube' | 'music' }
 
 export async function saveWatchState(videoId: string, positionSec: number, completed: boolean, meta?: WatchMeta): Promise<void> {
   await fetch('/api/youtube/watch-state', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoId, positionSec, completed, ...meta }) }).catch(() => {})
@@ -676,6 +676,15 @@ export interface HistoryRow {
 export async function getHistory(): Promise<HistoryRow[]> {
   const r = await fetch('/api/youtube/history', { ...opts, cache: 'no-store' })
   return (await r.json() as { history: HistoryRow[] }).history ?? []
+}
+
+export interface AccountHistoryRow { videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null }
+
+/** Local history + the linked YouTube account's history (deduped server-side). */
+export async function getHistoryFull(): Promise<{ history: HistoryRow[]; accountHistory: AccountHistoryRow[] }> {
+  const r = await fetch('/api/youtube/history', { ...opts, cache: 'no-store' })
+  const data = await r.json() as { history: HistoryRow[]; accountHistory?: AccountHistoryRow[] }
+  return { history: data.history ?? [], accountHistory: data.accountHistory ?? [] }
 }
 
 /** Remove one video from watch history. */

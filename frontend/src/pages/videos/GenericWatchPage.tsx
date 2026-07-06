@@ -13,6 +13,7 @@ import {
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
+import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 
 /** Attach the playback source to a <video>: native src for files/progressive, hls.js
  *  for manifests (Safari also gets hls.js; its native HLS can't send our auth cookies
@@ -66,6 +67,8 @@ export function GenericWatchPage() {
   const { data: savesData } = useQuery({ queryKey: ['videos-saves', source], queryFn: () => listSaves(source) })
   const save = savesData?.saves.find((s) => s.videoId === id && s.kind === 'video')
   const localUrl = save?.status === 'ready' ? savedFileUrl(source, id, 'video') : null
+  const mode = useYoutubeModeOptional()
+  const onlineOnly = mode === 'offline' && !localUrl
 
   usePlaybackAttach(videoRef, data?.playback ?? null, localUrl)
 
@@ -125,6 +128,15 @@ export function GenericWatchPage() {
   }
 
   const saveState = save?.status
+  if (onlineOnly) {
+    return (
+      <PageContainer width="wide" className="py-12">
+        <Card variant="flat" className="p-6 text-sm text-muted-foreground">
+          This video is not saved offline. Switch to Online to stream it, or save it offline while online.
+        </Card>
+      </PageContainer>
+    )
+  }
   return (
     <PageContainer width="wide" className="py-6">
       <div className={item.vertical ? 'mx-auto max-w-md' : ''}>

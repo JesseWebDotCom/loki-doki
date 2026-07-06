@@ -15,6 +15,7 @@ import {
   addFollow, browseSource, getVideoSources, listFollows, putRedditConfig,
 } from '@/lib/videos/api'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { SOURCE_META } from '@/lib/videos/sources'
 
 /** Inline connect card: Reddit locked down anonymous access, so browsing needs a free
  *  registered app client id. Admins configure it right here (config belongs where the
@@ -41,7 +42,7 @@ function ConnectRedditCard({ onConfigured }: { onConfigured: () => void }) {
           </p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li>Open <a href="https://www.reddit.com/prefs/apps" target="_blank" rel="noreferrer noopener" className="font-medium text-foreground underline underline-offset-2">reddit.com/prefs/apps</a> (any reddit account works)</li>
-            <li>Create an app: pick type <span className="font-medium text-foreground">installed app</span>, any name, redirect URI <span className="font-mono text-xs">http://localhost</span></li>
+            <li>Create an app: pick type <span className="font-medium text-foreground">installed app</span>, any name. The redirect URI is required but never used, so <span className="font-mono text-xs">http://localhost</span> is fine no matter how you reach this server</li>
             <li>Copy the client id shown under the app name and paste it below</li>
           </ol>
           {isAdmin ? (
@@ -95,11 +96,23 @@ export function RedditBrowsePage() {
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not follow that subreddit'),
   })
 
+  const header = (extra?: React.ReactNode) => (
+    <PageHeader
+      title={SOURCE_META.reddit.label}
+      icon={SOURCE_META.reddit.icon}
+      gradient={SOURCE_META.reddit.gradient}
+      eyebrow="Videos"
+      subtitle={configured ? 'Video posts from the communities you follow.' : 'Connect Reddit to browse video communities.'}
+      className="pt-4 pb-4"
+      actions={extra}
+    />
+  )
+
   if (!configured) {
     return (
-      <PageContainer width="wide" className="py-6">
-        <PageHeader subtitle="Video posts from the communities you follow." />
-        <div className="py-10">
+      <PageContainer width="wide" className="pt-1 pb-8">
+        {header()}
+        <div className="py-8">
           <ConnectRedditCard onConfigured={() => { void refetchSources(); void qc.invalidateQueries({ queryKey: ['videos-sources'] }) }} />
         </div>
       </PageContainer>
@@ -107,17 +120,8 @@ export function RedditBrowsePage() {
   }
 
   return (
-    <PageContainer width="wide" className="py-6">
-      <PageHeader subtitle="Video posts from the communities you follow." />
-
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <ChipRow className="mb-0 min-w-0 flex-1">
-          <Chip label="Popular" active={activeFeed === null} onClick={() => setActiveFeed(null)} />
-          {subs.map((f) => (
-            <Chip key={f.id} label={f.title.replace(/^r\//, 'r/')}
-              active={activeFeed === f.externalId} onClick={() => setActiveFeed(f.externalId)} />
-          ))}
-        </ChipRow>
+    <PageContainer width="wide" className="pt-1 pb-8">
+      {header(
         <form
           className="flex shrink-0 gap-2"
           onSubmit={(e) => { e.preventDefault(); const s = subInput.trim().replace(/^r\//, ''); if (s) followMutation.mutate(s) }}
@@ -127,8 +131,16 @@ export function RedditBrowsePage() {
           <Button type="submit" size="sm" variant="outline" className="gap-1" disabled={!subInput.trim() || followMutation.isPending}>
             <Plus className="size-4" /> Follow
           </Button>
-        </form>
-      </div>
+        </form>,
+      )}
+
+      <ChipRow className="mb-5 min-w-0">
+        <Chip label="Popular" active={activeFeed === null} onClick={() => setActiveFeed(null)} />
+        {subs.map((f) => (
+          <Chip key={f.id} label={f.title.replace(/^r\//, 'r/')}
+            active={activeFeed === f.externalId} onClick={() => setActiveFeed(f.externalId)} />
+        ))}
+      </ChipRow>
 
       {feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />

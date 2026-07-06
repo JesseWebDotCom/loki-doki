@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock, Heart, History, Trash2, Download, ListVideo, Plus, Search, X, type LucideIcon } from 'lucide-react'
+import { Clock, Heart, History, Trash2, ListVideo, Plus, Search, X, type LucideIcon } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -15,7 +15,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { useYtDownloads } from '@/lib/youtube/useData'
-import { getHistory, deleteDownloads, cancelDownloads, clearHistory, removeHistoryItem, type HistoryRow, type SavedRow } from '@/lib/youtube/api'
+import { getHistoryFull, deleteDownloads, cancelDownloads, clearHistory, removeHistoryItem, type HistoryRow, type SavedRow } from '@/lib/youtube/api'
 import { savedToItem, historyToItem, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge, fmtBytes } from '@/lib/youtube/format'
 import { VideoThumb } from '@/components/youtube/media'
@@ -26,16 +26,13 @@ import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
 import { PlaylistCover } from '@/components/youtube/PlaylistCover'
 import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
-import { SectionHeader } from '@/components/shared/SectionHeader'
-import { listSaves, deleteSave } from '@/lib/videos/api'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
 
 const cardAddBtnClass = 'absolute right-2 top-2 hidden size-7 bg-black/70 text-white opacity-100 hover:bg-black/90 group-hover:flex'
 const toVid = (item: VideoItem) => ({ videoId: item.videoId, title: item.title, author: item.author ?? undefined, channelId: item.channelId ?? undefined, durationSec: item.durationSec ?? undefined })
 
 const metaToItem = (m: SavedVideoMeta): VideoItem => ({ videoId: m.videoId, title: m.title, author: m.author, channelId: m.channelId, channelThumb: m.channelThumb, durationSec: m.durationSec })
 
-// Each library section is its own page/route with its own header — click "History"
+// Each library section is its own page/route with its own header: click "History"
 // and you land on a dedicated History page, not a shared "Library" shell with tabs.
 function LibraryPage({ title, icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
@@ -58,52 +55,7 @@ export function YoutubeWatchLaterPage() {
 export function YoutubeLikedPage() {
   return <LibraryPage title="Liked" icon={Heart}><CollectionTab kind="liked" empty="No liked videos yet." /></LibraryPage>
 }
-export function YoutubeOfflinePage() {
-  return (
-    <LibraryPage title="Offline" icon={Download}>
-      <SavedTab />
-      <OtherSourceSaves />
-    </LibraryPage>
-  )
-}
-
-/** Offline saves from the hub's non-YouTube sources (Reddit/TikTok/Vimeo), appended
- *  below the YouTube library so Offline is truly cross-source. */
-function OtherSourceSaves() {
-  const qc = useQueryClient()
-  const { data } = useQuery({ queryKey: ['videos-saves', 'all'], queryFn: () => listSaves() })
-  const saves = data?.saves ?? []
-  if (saves.length === 0) return null
-  return (
-    <section className="mt-10">
-      <SectionHeader title="From other sources" className="mb-4" />
-      <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
-        {saves.map((s) => (
-          <div key={s.id} className="group relative">
-            <HubVideoCard
-              showSource
-              item={{
-                source: s.source, id: s.videoId, url: '', title: s.title,
-                creator: s.creatorName ? { id: '', name: s.creatorName } : null,
-                thumbnailUrl: s.thumbnailUrl, durationSec: s.durationSec,
-              }}
-            />
-            <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-              <span>{s.status === 'ready' ? 'Saved' : s.status === 'failed' ? 'Failed' : 'Saving…'}</span>
-              <Button
-                variant="ghost" size="sm"
-                className="h-6 px-2 text-xs opacity-0 group-hover:opacity-100"
-                onClick={() => { void deleteSave(s.id).then(() => qc.invalidateQueries({ queryKey: ['videos-saves', 'all'] })) }}
-              >
-                Remove
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
+export { LibraryPage }
 
 // Bucket history rows into YouTube-style date sections (rows arrive newest-first).
 function groupHistoryByDate(rows: HistoryRow[]): { label: string; rows: HistoryRow[] }[] {
@@ -125,7 +77,9 @@ function groupHistoryByDate(rows: HistoryRow[]): { label: string; rows: HistoryR
 
 function HistoryTab() {
   const qc = useQueryClient()
-  const { data: history = [], isPending } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
+  const { data: full, isPending } = useQuery({ queryKey: ['yt-history-full'], queryFn: getHistoryFull })
+  const history = full?.history ?? []
+  const accountHistory = full?.accountHistory ?? []
   const [q, setQ] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
   const [view, setView] = useViewPreference('youtube.library_history_view', 'grid')
@@ -138,17 +92,23 @@ function HistoryTab() {
   const groups = useMemo(() => groupHistoryByDate(filtered), [filtered])
 
   const remove = async (videoId: string) => {
-    qc.setQueryData<HistoryRow[]>(['yt-history'], prev => (prev ?? []).filter(h => h.videoId !== videoId))
+    qc.setQueryData<{ history: HistoryRow[]; accountHistory: unknown[] }>(['yt-history-full'],
+      prev => prev ? { ...prev, history: prev.history.filter(h => h.videoId !== videoId) } : prev)
     try { await removeHistoryItem(videoId) }
-    catch { toast.error('Could not remove'); qc.invalidateQueries({ queryKey: ['yt-history'] }) }
+    catch { toast.error('Could not remove'); qc.invalidateQueries({ queryKey: ['yt-history-full'] }) }
   }
   const clearAll = async () => {
-    try { await clearHistory(); qc.setQueryData(['yt-history'], []); toast.success('Watch history cleared') }
+    try {
+      await clearHistory()
+      qc.setQueryData<{ history: HistoryRow[]; accountHistory: unknown[] }>(['yt-history-full'],
+        prev => prev ? { ...prev, history: [] } : prev)
+      toast.success('Watch history cleared')
+    }
     catch { toast.error('Could not clear history') }
   }
 
   if (isPending) return <SkeletonCards count={8} className="xl:grid-cols-4" />
-  if (!history.length) return <Empty label="No watch history yet. Videos you play show up here." />
+  if (!history.length && !accountHistory.length) return <Empty label="No watch history yet. Videos you play show up here." />
 
   return (
     <div>
@@ -185,6 +145,19 @@ function HistoryTab() {
         </div>
       )}
 
+      {accountHistory.length > 0 && (
+        <section className="mt-10">
+          <h3 className="mb-3 text-sm font-semibold text-muted-foreground">Watched on your YouTube account</h3>
+          <VideoCollection
+            items={accountHistory.map(v => ({
+              videoId: v.videoId, title: v.title, author: v.author,
+              channelId: v.channelId, durationSec: v.durationSec,
+            }))}
+            view={view}
+          />
+        </section>
+      )}
+
       <ConfirmDialog open={confirmClear} onOpenChange={setConfirmClear} title="Clear all watch history?"
         description="This removes every video from your history and resets their resume positions." destructive
         confirmLabel="Clear all" onConfirm={() => void clearAll()} />
@@ -193,7 +166,7 @@ function HistoryTab() {
 }
 
 // Everything saved for offline, findable regardless of the app's Online/Offline mode.
-function SavedTab() {
+export function SavedTab() {
   const qc = useQueryClient()
   const { data: downloads = [], isPending } = useYtDownloads()
   // In-flight saves (queued or downloading) show at the top with a live progress bar, so a
@@ -214,7 +187,7 @@ function SavedTab() {
 
   // Manual trigger while the Plex export feature is new (automatic sync on save/prune
   // is a separate, later piece of the same feature). Requires a Plex library already
-  // provisioned for this user (Admin → Plex) — the backend now fails loudly with a real
+  // provisioned for this user (Admin → Plex); the backend now fails loudly with a real
   // error if not, rather than silently enqueueing jobs that no-op (that used to look
   // identical to success: "completed" jobs that did nothing because the library didn't
   // exist yet when they ran).

@@ -21,7 +21,7 @@ function EditorChrome({ projectId, name }: { projectId: string; name: string }) 
       {/* Header row. */}
       <div className="flex items-center gap-2">
         <Button asChild size="sm" variant="ghost" className="gap-1.5">
-          <Link to="/videos/create"><ArrowLeft className="size-4" /> Projects</Link>
+          <Link to="/videos/mine"><ArrowLeft className="size-4" /> Mine</Link>
         </Button>
         <p className="truncate text-sm font-semibold">{name}</p>
         <span className="text-xs text-muted-foreground">{state.dirty ? 'Saving…' : 'Saved'}</span>

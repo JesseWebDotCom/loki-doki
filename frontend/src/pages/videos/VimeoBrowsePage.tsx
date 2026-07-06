@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
 import { browseSource, getVideoSources, putVimeoConfig } from '@/lib/videos/api'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { SOURCE_META } from '@/lib/videos/sources'
 
 function ConnectVimeoCard({ onConfigured }: { onConfigured: () => void }) {
   const { user } = useAuth()
@@ -73,11 +74,22 @@ export function VimeoBrowsePage() {
   })
   const items = useMemo(() => (feedQuery.data?.pages ?? []).flatMap((p) => p.items), [feedQuery.data])
 
+  const header = (
+    <PageHeader
+      title={SOURCE_META.vimeo.label}
+      icon={SOURCE_META.vimeo.icon}
+      gradient={SOURCE_META.vimeo.gradient}
+      eyebrow="Videos"
+      subtitle="Staff Picks, handpicked by Vimeo."
+      className="pt-4 pb-4"
+    />
+  )
+
   if (!configured) {
     return (
-      <PageContainer width="wide" className="py-6">
-        <PageHeader subtitle="Staff Picks and search from Vimeo." />
-        <div className="py-10">
+      <PageContainer width="wide" className="pt-1 pb-8">
+        {header}
+        <div className="py-8">
           <ConnectVimeoCard onConfigured={() => { void refetchSources(); void qc.invalidateQueries({ queryKey: ['videos-sources'] }) }} />
         </div>
       </PageContainer>
@@ -85,8 +97,8 @@ export function VimeoBrowsePage() {
   }
 
   return (
-    <PageContainer width="wide" className="py-6">
-      <PageHeader subtitle="Staff Picks, refreshed daily." />
+    <PageContainer width="wide" className="pt-1 pb-8">
+      {header}
       {feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : feedQuery.isError ? (

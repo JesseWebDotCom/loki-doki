@@ -1262,6 +1262,9 @@ export const ytWatchState = sqliteTable('yt_watch_state', {
   videoId: text('video_id').notNull(),
   positionSec: real('position_sec').notNull().default(0),
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  // Which app the play belongs to: Music-station plays share the player but must not
+  // pollute the Videos watch history.
+  origin: text('origin', { enum: ['youtube', 'music'] }).notNull().default('youtube'),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userVidUnique: unique().on(t.userId, t.videoId) }))
 

@@ -16,12 +16,11 @@ export function SourceChip({ source, active, onClick }: {
       className={cn(
         'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors',
         active
-          ? 'bg-brand text-brand-foreground'
+          ? meta.pillActiveClass
           : 'bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground',
       )}
     >
       <meta.icon className="size-3.5" aria-hidden />
-      <span className={cn('size-1.5 rounded-full', meta.dotClass, !active && 'opacity-70')} aria-hidden />
       {meta.label}
     </button>
   )
