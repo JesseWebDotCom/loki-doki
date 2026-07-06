@@ -7,8 +7,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { fmtCount } from '@/lib/youtube/format'
 import { ytImageProxy } from '@/lib/youtube/api'
 import type { VideoItem } from '@/lib/youtube/types'
-import { VideoCard } from '@/components/youtube/VideoCard'
+import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
 import { ChannelAvatar } from '@/components/youtube/media'
+import type { CardListView } from '@/components/shared/ViewToggle'
 
 // design-ok(backdrop-blur-outside-chrome): floating scroll chevrons hover over card artwork
 const CHEVRON_CLS = 'absolute top-1/2 hidden -translate-y-1/2 rounded-full border border-border/60 bg-background/90 p-1.5 shadow-lg backdrop-blur transition group-hover/scroll:flex hover:bg-background'
@@ -32,24 +33,33 @@ export function HScroll({ children, className }: { children: ReactNode; classNam
   )
 }
 
-/** A titled horizontal shelf of video cards. */
-export function MediaShelf({ title, to, items, aspect = 'video' }: {
+/** A titled shelf of videos. Defaults to a horizontal card rail; when `view === 'list'` the
+ *  same items render as a vertical list of rows (so a page-level card/list toggle flips every
+ *  shelf, not just full-width grids). */
+export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid' }: {
   title: string
   to?: string
   items: VideoItem[]
   aspect?: 'video' | 'short'
+  view?: CardListView
 }) {
   if (!items.length) return null
   return (
     <section>
       <SectionHeader title={title} to={to} className="mb-4" />
-      <HScroll>
-        {items.map(i => (
-          <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', aspect === 'short' ? 'w-44' : 'w-72')}>
-            <VideoCard item={i} aspect={aspect} />
-          </div>
-        ))}
-      </HScroll>
+      {view === 'list' ? (
+        <div className="space-y-1">
+          {items.map(i => <VideoListRow key={i.videoId + (i.localKind ?? '')} item={i} aspect={aspect} />)}
+        </div>
+      ) : (
+        <HScroll>
+          {items.map(i => (
+            <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', aspect === 'short' ? 'w-44' : 'w-72')}>
+              <VideoCard item={i} aspect={aspect} />
+            </div>
+          ))}
+        </HScroll>
+      )}
     </section>
   )
 }
@@ -135,6 +145,28 @@ export function PlaylistCard({ p }: { p: PlaylistCardData }) {
       </div>
       <p className="mt-1.5 line-clamp-2 text-sm font-semibold leading-snug">{p.title}</p>
       {p.author && <p className="truncate text-xs text-muted-foreground">{p.author}</p>}
+    </Link>
+  )
+}
+
+/** Full-width horizontal playlist row (list view), matching PlaylistCard's target/badges. */
+export function PlaylistListRow({ p }: { p: PlaylistCardData }) {
+  return (
+    <Link to={`/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }}
+      className="group flex gap-3 rounded-card p-1.5 transition-colors hover:bg-accent/50 sm:gap-4">
+      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card bg-muted sm:w-56">
+        {p.thumbnailUrl
+          ? <img src={ytImageProxy(p.thumbnailUrl)} alt="" referrerPolicy="no-referrer" className="size-full object-cover transition group-hover:scale-105" />
+          : <div className="flex size-full items-center justify-center"><ListVideo className="size-8 text-muted-foreground/40" /></div>}
+        <div className="absolute bottom-0 right-0 flex items-center gap-1 rounded-tl-control bg-black/80 px-2 py-1 text-[11px] font-semibold text-white">
+          <ListVideo className="size-3" /> {p.videoCount != null ? `${p.videoCount}` : 'Playlist'}
+        </div>
+      </div>
+      <div className="min-w-0 flex-1 py-0.5">
+        <p className="line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]">{p.title}</p>
+        {p.author && <p className="mt-1 truncate text-xs text-muted-foreground">{p.author}</p>}
+        {p.videoCount != null && <p className="mt-0.5 truncate text-xs text-muted-foreground">{p.videoCount} {p.videoCount === 1 ? 'video' : 'videos'}</p>}
+      </div>
     </Link>
   )
 }

@@ -13,10 +13,10 @@ import { itToItem } from '@/lib/youtube/types'
 import { thumbUrl } from '@/lib/youtube/format'
 import { useYtSubs } from '@/lib/youtube/useData'
 import { ChannelAvatar } from '@/components/youtube/media'
-import { VideoCard } from '@/components/youtube/VideoCard'
+import { VideoCollection } from '@/components/youtube/VideoCollection'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
-
-const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 
 export function YoutubePlaylistPage() {
   const { id = '' } = useParams()
@@ -25,6 +25,7 @@ export function YoutubePlaylistPage() {
   const navState = (useLocation().state ?? {}) as { title?: string }
   const { data: subs = [] } = useYtSubs()
   const [busy, setBusy] = useState(false)
+  const [view, setView] = useViewPreference('youtube.playlist_view', 'grid')
 
   const { data, isLoading } = useQuery({ queryKey: ['yt-playlist', playlistId], queryFn: () => getPlaylist(playlistId), enabled: !!playlistId })
   const title = data?.title || navState.title || 'Playlist'
@@ -96,7 +97,12 @@ export function YoutubePlaylistPage() {
       ) : videos.length === 0 ? (
         <p className="py-24 text-center text-sm text-muted-foreground">This playlist has no videos, or it couldn’t be loaded.</p>
       ) : (
-        <div className={GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
+        <>
+          <div className="mb-4 flex justify-end">
+            <ViewToggle value={view} onChange={setView} className="shrink-0" />
+          </div>
+          <VideoCollection items={items} view={view} />
+        </>
       )}
     </PageContainer>
   )

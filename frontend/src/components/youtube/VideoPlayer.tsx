@@ -448,7 +448,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)}
             onPlaying={() => {
               setBuffering(false); setPlaying(true)
-              if (autoRequestPip) { onPipRequestHandled?.(); void mediaRef.current?.requestPictureInPicture?.().catch(() => {}) }
+              if (autoRequestPip) { onPipRequestHandled?.(); const el = mediaRef.current; if (el instanceof HTMLVideoElement) void el.requestPictureInPicture?.().catch(() => {}) }
             }}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
             onError={() => { if (privacyProxy && !localKind) void handleStreamError('video', nativeVideoSrc) }}

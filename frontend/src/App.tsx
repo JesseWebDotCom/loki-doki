@@ -32,6 +32,7 @@ import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
 import { WeatherPage } from '@/pages/WeatherPage'
 import { WeatherSettingsPage } from '@/pages/WeatherSettingsPage'
+import { AppSettingsGenericPage } from '@/pages/AppSettingsGenericPage'
 import { TimePage } from '@/pages/TimePage'
 import { ChatLayout } from '@/components/chat/ChatLayout'
 import { ConversationView } from '@/components/chat/ConversationView'
@@ -85,7 +86,7 @@ import { PodcastPreviewPage } from '@/pages/podcast/PodcastPreviewPage'
 import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
 import { PodcastOfflinePage } from '@/pages/podcast/PodcastOfflinePage'
 import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
-import { PodcastAdminPage } from '@/pages/podcast/PodcastAdminPage'
+import { PodcastSettingsPage } from '@/pages/podcast/PodcastSettingsPage'
 import { DictionaryPage } from '@/pages/DictionaryPage'
 import { ShowsHomePage } from '@/pages/shows/ShowsHomePage'
 import { ShowDetailPage as ShowsDetailPage } from '@/pages/shows/ShowDetailPage'
@@ -154,7 +155,11 @@ const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/Boo
 
 const YoutubeLayout = lazy(() => import('@/components/youtube/YoutubeLayout').then((m) => ({ default: m.YoutubeLayout })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
-const YoutubeLibraryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLibraryPage })))
+const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
+const YoutubePlaylistsPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubePlaylistsPage })))
+const YoutubeWatchLaterPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeWatchLaterPage })))
+const YoutubeLikedPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLikedPage })))
+const YoutubeOfflinePage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeOfflinePage })))
 const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage').then((m) => ({ default: m.YoutubeChannelPage })))
 const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
@@ -323,6 +328,7 @@ export default function App() {
                   <Route path="chats" element={<ChatsBrowsePage />} />
                   <Route path=":id" element={<ConversationView />} />
                 </Route>
+                <Route path="/apps/:appId/settings/:section?" element={<AppSettingsGenericPage />} />
                 <Route path="/maps" element={<MapsPage />} />
                 <Route path="/weather" element={<WeatherPage />} />
                 <Route path="/weather/settings" element={<WeatherSettingsPage />} />
@@ -391,14 +397,20 @@ export default function App() {
                   <Route index element={<YoutubeHomePage />} />
                   {/* Discover was merged into Home — keep the old path working. */}
                   <Route path="discover" element={<Navigate to="/youtube" replace />} />
-                  <Route path="library" element={<YoutubeLibraryPage />} />
+                  {/* Library sections are now individual pages, each with its own header. */}
+                  <Route path="library" element={<Navigate to="/youtube/history" replace />} />
+                  <Route path="history" element={<YoutubeHistoryPage />} />
+                  <Route path="playlists" element={<YoutubePlaylistsPage />} />
+                  <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
+                  <Route path="liked" element={<YoutubeLikedPage />} />
+                  <Route path="offline" element={<YoutubeOfflinePage />} />
                   <Route path="subscriptions" element={<YoutubeSubscriptionsPage />} />
                   <Route path="channel/:id" element={<YoutubeChannelPage />} />
                   <Route path="playlist/:id" element={<YoutubePlaylistPage />} />
                   <Route path="my-playlist/:id" element={<YoutubeMyPlaylistPage />} />
                   <Route path="watch/:videoId" element={<WatchPage />} />
                   <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
-                  <Route path="settings" element={<YoutubeSettingsPage />} />
+                  <Route path="settings/:section?" element={<YoutubeSettingsPage />} />
                 </Route>
                 <Route path="/podcasts" element={<PodcastLayout />}>
                   <Route index element={<ListenNowPage />} />
@@ -407,7 +419,8 @@ export default function App() {
                   <Route path="library" element={<PodcastLibraryPage />} />
                   <Route path="offline" element={<PodcastOfflinePage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
-                  <Route path="admin" element={<PodcastAdminPage />} />
+                  <Route path="settings" element={<PodcastSettingsPage />} />
+                  <Route path="admin" element={<Navigate to="/podcasts/settings" replace />} />
                 </Route>
                 <Route path="/home-inventory" element={<HomeInventoryPage />} />
                 <Route path="/news" element={<NewsPage />} />

@@ -35,6 +35,7 @@ import { startDropSweep } from '@/lib/drop/service'
 import { adminImageLoras } from '@/routes/adminImageLoras'
 import { adminQueue } from '@/routes/adminQueue'
 import { adminGpu } from '@/routes/adminGpu'
+import { adminMedia } from '@/routes/adminMedia'
 import { adminInstall } from '@/routes/adminInstall'
 import { adminUninstall } from '@/routes/adminUninstall'
 import { archives } from '@/routes/archives'
@@ -113,6 +114,7 @@ import { shopping } from '@/routes/shopping'
 import { createCodingRoute } from '@/routes/coding'
 import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
+import adminStorageLocations from '@/routes/adminStorageLocations'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -480,6 +482,7 @@ app.route('/api/drop', drop)
 app.route('/api/admin/image-loras', adminImageLoras)
 app.route('/api/admin/queue', adminQueue)
 app.route('/api/admin/gpu', adminGpu)
+app.route('/api/admin/media', adminMedia)
 app.route('/api/admin/install', adminInstall)
 app.route('/api/admin/uninstall', adminUninstall)
 app.route('/api/archives', archives)
@@ -578,6 +581,7 @@ app.route('/api/local-events', localEventsRoute)
 app.route('/api/time', time)
 app.route('/api/lookup', lookup)
 app.route('/api/admin/storage', adminStorage)
+app.route('/api/admin/storage-locations', adminStorageLocations)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))

@@ -32,7 +32,7 @@ export function FeaturedCard({ app }: { app: StoreApp }) {
       <p className="relative line-clamp-2 text-sm text-white/90">{app.description}</p>
 
       <div className="relative mt-auto flex items-center justify-between">
-        <span className="text-xs font-medium text-white/70">{app.offline ? 'Extension' : 'App'}</span>
+        <span className="text-xs font-medium text-white/70">{app.online ? 'Connects online' : 'Runs locally'}</span>
         <PrimaryAction app={app} />
       </div>
     </div>

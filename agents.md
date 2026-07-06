@@ -4,9 +4,18 @@
 
 # Agent Guidelines - loki-doki-v3
 
-## Git & Pushing
+## Git, Branching & Multi-Session Workflow
 
-**Never push to the remote (GitHub) without the user's explicit permission, every time.** Do not `git push` (or otherwise publish to the remote) unless the user asks for that specific push in that moment. Permission does not carry over: a "yes" or "do it" on one push never authorizes the next one, and the nature of the task (even if it obviously belongs on GitHub, like a README change) never implies permission. Local commits are allowed only when the user asks for them; pushing always requires a fresh, explicit go-ahead. When work is ready to publish, stop and ask.
+**Land all work directly on `main`. Never open GitHub pull requests.** Commit finished changes straight onto the local `main` branch. Do not create PRs and do not use the remote as a review step. "Everything on main" is the model: `main` is the single source of truth and the branch the live app runs on.
+
+**Never push to the remote (GitHub) without the user's explicit permission, every time.** Local commits to `main` are the normal flow, but publishing to the remote always requires a fresh, explicit go-ahead in that moment. Permission never carries over from one push to the next, and the nature of the task never implies it. When work is ready to publish, stop and ask.
+
+**Keep parallel Claude sessions from stepping on each other with worktrees, not by editing the live tree directly.** The goal is two things at once: changes visible in the running app right away, and no two sessions clobbering each other's files.
+- The live app runs from the canonical checkout, kept on `main`, with the dev servers running (Vite HMR for the frontend, Bun for the backend). Anything that lands on `main` and updates that working tree shows up live through HMR within seconds.
+- Each session that will edit code works in its own git worktree on its own short-lived branch (under `.claude/worktrees/`), so its edits never touch the live tree while work is in progress.
+- When a change is ready and builds clean, land it by merging (or cherry-picking) that branch onto `main`, then let the live checkout pick it up. No PR. Delete the worktree afterward.
+- Land one session's work at a time so two merges never race. Real overlaps surface as git conflicts to resolve instead of silent clobbers.
+- If only one session is active, you can skip worktrees and edit the live `main` checkout directly; HMR then reflects every change instantly. Reach for worktrees specifically when more than one session is running.
 
 ## Context Rule
 
@@ -372,6 +381,27 @@ Bold section title with optional "See all" link. Replaces all hand-rolled sectio
 
 ---
 
+### `ToggleRow` - `src/components/shared/ToggleRow.tsx`
+
+The house settings toggle row (bordered card, semibold title + muted description, `Switch` pinned right). Extracted from the YouTube settings tab; use it instead of hand-rolling label+Switch rows. Optional `chip` renders a small badge next to the title.
+
+```ts
+{ title: string; description: string; checked: boolean; onCheckedChange: () => void;
+  disabled?: boolean; chip?: ReactNode; className?: string }
+```
+
+---
+
+### `CompanionAbilitiesCard` - `src/components/shared/CompanionAbilitiesCard.tsx`
+
+"Companion abilities" section for an app's settings page: one `ToggleRow` per chat tool the app ships (mapping in `src/lib/companionAbilities.ts`). Household-global, admin-only toggles (non-admins see a lock note); writes `PUT /api/tools/:id/chat-enabled` for app-backed tools or `/enabled` for standalone abilities. Renders nothing when the app hosts no abilities.
+
+```ts
+{ appId: string }  // APP_GROUPS app id
+```
+
+---
+
 ### `ChipRow` / `Chip` - `src/components/shared/ChipRow.tsx`
 
 TikTok-style horizontally-scrollable pill filter row. `Chip` active state uses `bg-brand text-brand-foreground`; inactive uses `bg-foreground/8`. `ChipRow` is a `no-scrollbar flex gap-2 overflow-x-auto` wrapper.
@@ -406,26 +436,29 @@ The shadcn `Card` now exports a `cardVariants` CVA export with four variants. Pr
 
 ---
 
-### `AppSettingsPage` - `src/components/shared/AppSettingsPage.tsx`
+### `AppSettingsShell` - `src/components/shared/AppSettingsShell.tsx`
 
-The shell for every app's own settings page, reached via the breadcrumb gear
-(`useAppHeader({ settingsHref: '/{app-route}/settings' })`). Never point `settingsHref` at
-Admin - a per-app settings page is reachable by every user, not just admins, and shows only
-that app's own preferences. User content is always visible; `adminSection` (if the app has
-admin-only config) is shown in full to admins and replaced with a plain locked notice for
-everyone else. Apps with nothing to configure simply don't set a `settingsHref` - no gear
-button renders.
+THE shell for every app's own settings page (extracted from the YouTube settings layout so
+they all look identical): PageHeader up top, collapsible left section sidebar
+(`SettingsSidebar`, same anatomy as Settings/Admin), mobile drawer. Reached via the
+breadcrumb gear (`useAppHeader({ settingsHref })` — bespoke pages use `/{app-route}/settings`,
+everything else the generic `/apps/{appId}/settings` route, which renders the Companion
+abilities section). Never point `settingsHref` at Admin - a per-app settings page is
+reachable by every user. Sections with `adminOnly: true` render their content for admins and
+a locked notice for everyone else. Section state is internal by default; pass
+`activeSection` + `onNavigate` to drive it from a `/:section?` route param (YouTube, the
+generic page). Apps hosting companion abilities include a `companion` section with
+`<CompanionAbilitiesCard appId=... />`.
 
 ```ts
 {
-  title?: string            // default "Settings"
-  backTo: string             // the app's root route
-  backLabel: string
-  icon: LucideIcon           // the app's registry icon
-  gradient: string           // the app's registry gradient
-  children: ReactNode        // user-facing settings content
-  adminSection?: ReactNode   // admin-only config; omit entirely if the app has none
-  adminNotice?: string       // shown to non-admins in place of adminSection
+  appId: string              // collapse-pref key: "{appId}.settingsSidebarCollapsed"
+  title?: string             // default "Settings"
+  icon?: LucideIcon          // the app's registry icon
+  gradient?: string          // the app's registry gradient
+  sections: AppSettingsSection[]  // { id, label, icon, content, adminOnly? }
+  activeSection?: string     // controlled (URL-driven) mode
+  onNavigate?: (id) => void
 }
 ```
 
@@ -525,6 +558,17 @@ Decorative deep-space scene: twinkling starfield, occasional shooting stars, and
 Notes:
 - Keyframes live in `index.css` (`star-twinkle` reused; `space-shoot`, `ufo-drift` added). Per-star randomized values are inline styles (genuinely dynamic).
 - Place it as an `absolute inset-0 z-0` layer with the real content in a `relative z-10` sibling. Over a dark space backdrop, wrap content in `data-theme="dark"` so themed tokens (foreground/card) stay readable regardless of the app's active theme.
+
+### `ViewToggle` - `src/components/shared/ViewToggle.tsx`
+
+Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a page offers both a grid and a list layout instead of hand-rolling the two-button group. Pair it with `useViewPreference(key, fallback)` (`src/hooks/useViewPreference.ts`) to persist the choice per-user in `user_preferences` (dotted key, e.g. `youtube.channel_view`) so it survives reloads and syncs across devices.
+
+```ts
+// ViewToggle
+{ value: 'grid' | 'list'; onChange: (v: 'grid' | 'list') => void; className?: string }
+// useViewPreference -> [view, setView]
+useViewPreference(key: string, fallback?: 'grid' | 'list')
+```
 
 ### Toasts (app-wide) - `sonner`
 

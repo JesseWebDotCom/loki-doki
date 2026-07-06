@@ -255,7 +255,7 @@ export function recommendedModels(hw: HardwareInfo): Record<string, string> {
   const ram = hw.totalRamGb
   return {
     model:          ram >= 36 ? 'llama3.3:27b' : 'llama3.1:8b',
-    vision_model:   'gemma3:4b',
+    vision_model:   'gemma3:4b-it-qat',
     embed_model:    'nomic-embed-text',
     image_model:    'juggernaut-xl-ragnarok',
   }

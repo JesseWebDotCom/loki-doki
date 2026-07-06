@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { createAvatar } from '@dicebear/core'
+import { createAvatar, type Style } from '@dicebear/core'
 import { avataaars, bottts, toonHead } from '@dicebear/collection'
 import { coerceStyle } from '@/components/companion/styles'
 import type { HeadTiltState } from '@/components/companion/useHeadTilt'
@@ -91,7 +91,10 @@ function DicebearSnapshot({ user, size, className }: { user: UserAvatarUser; siz
     }
 
     const filtered = filterOptionsForStyle(style, opts)
-    const svg = createAvatar(STYLE_MAP[style], { seed: user.dicebearSeed ?? 'default', ...filtered }).toString()
+    // dicebear's per-style Options types genuinely differ, so the STYLE_MAP union
+    // can't unify with createAvatar's single generic. Cast at the library boundary.
+    const chosenStyle = STYLE_MAP[style] as Style<Record<string, unknown>>
+    const svg = createAvatar(chosenStyle, { seed: user.dicebearSeed ?? 'default', ...filtered }).toString()
     return { dataUrl: `data:image/svg+xml,${encodeURIComponent(svg)}`, pose }
   }, [user.dicebearStyle, user.dicebearSeed, user.dicebearConfig])
 
@@ -99,7 +102,7 @@ function DicebearSnapshot({ user, size, className }: { user: UserAvatarUser; siz
 
   return (
     <div
-      className={cn('relative overflow-hidden shrink-0', className)}
+      className={cn('relative overflow-hidden shrink-0 bg-gradient-to-br ring-1 ring-inset ring-border/60', gradientFor(user.id), className)}
       style={{ containerType: 'size', ...sizeStyle }}
     >
       <img src={result.dataUrl} alt="" className="w-full h-full object-cover" />
@@ -115,12 +118,20 @@ export function UserAvatar({ user, size = 32, className }: UserAvatarProps) {
 
   if (user.avatarUrl) {
     return (
-      <img
-        src={proxyImg(user.avatarUrl)}
-        alt={initials}
-        className={cn('rounded-full object-cover shrink-0', className)}
+      <div
+        className={cn(
+          'relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br ring-1 ring-inset ring-border/60',
+          gradientFor(user.id),
+          className,
+        )}
         style={!className?.includes('h-') ? { width: size, height: size } : undefined}
-      />
+      >
+        <img
+          src={proxyImg(user.avatarUrl)}
+          alt={initials}
+          className="h-full w-full object-cover"
+        />
+      </div>
     )
   }
 
@@ -131,7 +142,7 @@ export function UserAvatar({ user, size = 32, className }: UserAvatarProps) {
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white',
+        'flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ring-1 ring-inset ring-border/60',
         gradientFor(user.id),
         className,
       )}

@@ -75,7 +75,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         ramBytes:  3_300_000_000,
         requires: ['chat'],
         installs: [{ id: 'vision', type: 'model' }],
-        advanced: 'gemma3:4b · loads on demand · Ollama LRU',
+        advanced: 'gemma3:4b-it-qat · loads on demand · Ollama LRU',
       },
       {
         id: 'canvas',

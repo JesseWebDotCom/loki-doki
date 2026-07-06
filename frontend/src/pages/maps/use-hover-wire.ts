@@ -33,8 +33,8 @@ function coordsFromFeature(
   if (feature.geometry.type === "Polygon") {
     const ring = feature.geometry.coordinates[0];
     if (!ring?.length) return null;
-    const lon = ring.reduce((s, c) => s + c[0], 0) / ring.length;
-    const lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+    const lon = ring.reduce((s: number, c: number[]) => s + c[0], 0) / ring.length;
+    const lat = ring.reduce((s: number, c: number[]) => s + c[1], 0) / ring.length;
     return Number.isFinite(lat) && Number.isFinite(lon) ? [lat, lon] : null;
   }
   return null;

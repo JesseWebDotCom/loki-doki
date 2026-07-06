@@ -103,6 +103,9 @@ export interface Tool {
   toolDefinition: OllamaTool
   // Whether this tool works without internet
   offline: boolean
+  // Core companion plumbing (memory, status, alerts...): never listed on user
+  // surfaces (store, app-settings ability toggles); admin master list only.
+  core?: boolean
   // If defined, skip Tier 2 arg extraction for confident Tier 1 matches and pass the
   // raw user message as this arg instead. Use for tools where the message IS the query.
   // null = no args needed (e.g. jokes). string = arg name to pass message as.

@@ -7,6 +7,7 @@ import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { cn } from '@/lib/cn'
 
 // ── Unit definitions ──────────────────────────────────────────────────────────
@@ -120,6 +121,8 @@ export function UnitConverterPage() {
     label: 'Unit Converter',
     description: 'User is converting units on the Unit Converter page.',
   })
+
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/unit-converter/settings' })
 
   const units = UNITS[category]
 

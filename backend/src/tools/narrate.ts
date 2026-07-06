@@ -9,6 +9,7 @@ export const narrateTool: Tool = {
   name: 'Cast Voices',
   description: 'Read a passage aloud, detecting dialogue and giving each character a distinct TTS voice (Script Mode)',
   offline: true,
+  core: true,
   dataSources: [],
 
   examples: [

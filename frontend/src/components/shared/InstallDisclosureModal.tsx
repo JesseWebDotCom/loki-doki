@@ -18,12 +18,20 @@ export interface AppTool {
   name: string
   description: string
   offline: boolean
+  /** Core companion plumbing: hidden from store + ability toggles. */
+  core: boolean
   enabled: boolean
+  /** Companion may use this tool in chat (the app-settings ability toggle). */
+  chatEnabled: boolean
   dataSources: DataSource[]
 }
 
+/** The subset of tool fields the install/request modals actually render. Both
+ *  {@link AppTool} and the store's `StoreApp` satisfy this, so either can be passed. */
+export type InstallableTool = Pick<AppTool, 'id' | 'name' | 'description' | 'dataSources'>
+
 interface Props {
-  tool: AppTool | null
+  tool: InstallableTool | null
   open: boolean
   onClose: () => void
 }

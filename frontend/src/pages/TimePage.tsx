@@ -9,6 +9,7 @@ import { WorldClockTab } from '@/components/time/WorldClockTab'
 import { AlarmsTab } from '@/components/time/AlarmsTab'
 import { TimersTab } from '@/components/time/TimersTab'
 import { StopwatchTab } from '@/components/time/StopwatchTab'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 type TabKey = 'clock' | 'alarms' | 'timers' | 'stopwatch'
 
@@ -20,6 +21,7 @@ const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
 ]
 
 export function TimePage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/time/settings' })
   const [tab, setTab] = useState<TabKey>('clock')
   const { locations, alarms, timers, running, stopwatch } = useTimeApp()
 

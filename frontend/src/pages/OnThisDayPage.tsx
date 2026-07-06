@@ -7,6 +7,7 @@ import { SectionHeader } from '@/components/shared/SectionHeader'
 import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { Card } from '@/components/ui/card'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 const MONTHS = [
   'January','February','March','April','May','June',
@@ -46,6 +47,7 @@ function EntryList({ items, emptyLabel }: { items: OtdItem[]; emptyLabel: string
 }
 
 export function OnThisDayPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/on-this-day/settings' })
   const [data, setData] = useState<OtdData | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 

@@ -4,7 +4,7 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { StatusDot } from '@/components/shared/StatusDot'
 
-interface LogEntry {
+interface LogEntryFields {
   id: number
   level: number
   time: number
@@ -14,6 +14,12 @@ interface LogEntry {
   status?: number
   ms?: number
   err?: { message?: string; stack?: string }
+}
+
+// The index signature lives on LogEntry (so arbitrary extra log keys are allowed),
+// but is kept off LogEntryFields so that `Omit<LogEntryFields, 'id'>` retains the
+// named fields — an index signature would otherwise swallow the omitted key.
+interface LogEntry extends LogEntryFields {
   [key: string]: unknown
 }
 
@@ -92,17 +98,18 @@ export function LogViewer({ streamUrl = '/api/logs/stream', mode = 'json' }: Log
 
   const appendLine = useCallback((raw: string) => {
     try {
-      let entry: Omit<LogEntry, 'id'>
+      let entry: Omit<LogEntryFields, 'id'>
 
       if (mode === 'text') {
         const { time, raw: text } = JSON.parse(raw) as { time: number; raw: string }
         entry = { time, level: detectTextLevel(text), msg: text }
       } else {
-        entry = JSON.parse(raw) as Omit<LogEntry, 'id'>
+        entry = JSON.parse(raw) as Omit<LogEntryFields, 'id'>
       }
 
+      const entryWithId: LogEntry = { ...entry, id: idRef.current++ }
       setEntries((prev) => {
-        const next = [...prev, { ...entry, id: idRef.current++ }]
+        const next = [...prev, entryWithId]
         return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next
       })
     } catch {

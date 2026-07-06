@@ -17,6 +17,7 @@ export const displayAlertTool: Tool = {
   name: 'Display Alert',
   description: 'Flash an alert message on screen Pods (Tab5 / display devices). Shows a full-screen overlay with emoji and text for up to 60 seconds.',
   offline: true,
+  core: true,
   dataSources: [],
   examples: [
     'flash my display: meeting in 5 minutes',

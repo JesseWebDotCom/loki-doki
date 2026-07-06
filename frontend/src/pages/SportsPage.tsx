@@ -9,6 +9,7 @@ import { StatusDot } from '@/components/shared/StatusDot'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 type LeagueFilter = 'all' | 'mlb' | 'nfl' | 'nba' | 'nhl' | 'mls' | 'world-cup'
 
@@ -106,6 +107,7 @@ function SkeletonRow() {
 }
 
 export function SportsPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/sports/settings' })
   const [league, setLeague] = useState<LeagueFilter>('all')
 
   usePublishUIContext({ label: 'Sports', description: `User is viewing ${league === 'all' ? 'all sports scores' : `${league.toUpperCase()} scores`}.` })

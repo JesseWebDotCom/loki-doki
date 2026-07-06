@@ -27,8 +27,8 @@ export function StoreAppRow({ app, className }: { app: StoreApp; className?: str
         <p className="truncate text-caption text-muted-foreground">{app.description}</p>
       </div>
 
-      <span className="hidden w-24 shrink-0 text-right text-caption text-muted-foreground/70 sm:block">
-        {app.offline ? 'Extension' : 'App'}
+      <span className="hidden w-24 shrink-0 truncate text-right text-caption text-muted-foreground/70 sm:block">
+        {app.category}
       </span>
 
       <div className="flex shrink-0 items-center gap-1">

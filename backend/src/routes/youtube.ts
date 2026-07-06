@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { eq, ne, and, or, desc, inArray, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, musicOfflineStationTracks } from '@/db/schema'
+import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, musicOfflineStationTracks, plexLibrarySections } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { youtubeTool } from '@/tools/youtube'
 import { resolveToolConfig } from '@/lib/toolConfig'
@@ -14,7 +14,7 @@ import { cleanAutoTitle } from '@/lib/cleanTitle'
 import { resolveYouTubeInput, parseTakeoutCsv } from '@/lib/youtube/resolve'
 import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
-import { ensureSummary, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
+import { ensureSummary, ensureSmartDescription, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
@@ -33,11 +33,11 @@ import {
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 import {
-  enqueueVideoSave, createYoutubeEpisode,
+  enqueueVideoSave, cancelVideoSaves, createYoutubeEpisode,
   isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
 } from '@/lib/youtube/automation'
 import { resolveUserPath } from '@/lib/storage/paths'
-import { resolveRefBlob, releaseAssetsIfOrphaned } from '@/lib/youtube/assets'
+import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets } from '@/lib/youtube/assets'
 import { startLiveRecording, getLiveStatus, stopLiveRecording } from '@/lib/youtube/live'
 import { getYoutubeSuggestions } from '@/lib/youtube/suggest'
 import { acquireRead, releaseRead } from '@/lib/content/store'
@@ -408,6 +408,7 @@ youtubeRoute.get('/downloads', async (c) => {
   const stationVideoIds = [...new Set(stationTrackRows.map(r => r.videoId))]
   const rows = await db.select({
     id: ytDownloads.id,
+    assetId: ytDownloads.assetId,
     videoId: ytDownloads.videoId,
     title: ytDownloads.title,
     kind: ytDownloads.kind,
@@ -419,6 +420,7 @@ youtubeRoute.get('/downloads', async (c) => {
     channelId: ytVideos.channelId,
     publishedAt: ytVideos.publishedAt,
     durationSec: ytVideos.durationSec,
+    views: ytVideos.views,
     // Channel avatar so Offline cards/rails show real logos exactly like the Online feed.
     // Prefer the subscription's stored thumbnail; fall back to the avatar resolved + warmed
     // at save time (yt_videos.channel_thumb), which covers non-subscribed channels too.
@@ -444,9 +446,58 @@ youtubeRoute.get('/downloads', async (c) => {
     ? await db.select().from(ytWatchState).where(and(eq(ytWatchState.userId, user.id), inArray(ytWatchState.videoId, videoIds)))
     : []
   const watchMap = new Map(watchRows.map(w => [w.videoId, w]))
-  const downloads = rows.map(({ channelThumbSub, channelThumbVid, ...r }) => ({
+
+  // Real download progress (0..1) for in-flight saves, so the Offline view can show a
+  // live bar instead of hiding the item until it flips to 'ready'. Progress lives on the
+  // coalesced yt-media job keyed by refId={assetId}; fetch the active ones and map by asset.
+  const activeAssetIds = new Set(rows.filter(r => (r.status === 'pending' || r.status === 'downloading') && r.assetId).map(r => r.assetId!))
+  const progressByAsset = new Map<string, number>()
+  if (activeAssetIds.size) {
+    const jobs = await db.select({ refId: downloadJobs.refId, progress: downloadJobs.progress })
+      .from(downloadJobs)
+      .where(and(eq(downloadJobs.type, 'yt-media'), inArray(downloadJobs.status, ['pending', 'running'])))
+    for (const j of jobs) {
+      try {
+        const { assetId } = JSON.parse(j.refId) as { assetId?: string }
+        if (!assetId || !activeAssetIds.has(assetId) || !j.progress) continue
+        const p = JSON.parse(j.progress) as { completed?: number; total?: number }
+        if (p.total && p.total > 0 && typeof p.completed === 'number') {
+          progressByAsset.set(assetId, Math.max(0, Math.min(1, p.completed / p.total)))
+        }
+      } catch { /* skip malformed job/progress rows */ }
+    }
+  }
+
+  // Enhanced-rendition status for the "Enhancing…/Enhanced" chip (video rows only).
+  const enhanceMap = await enhancedStatusForAssets(
+    rows.filter(r => r.kind === 'video' && r.assetId).map(r => r.assetId!),
+  )
+
+  // Live progress (0..1) for in-flight enhance re-encodes, keyed by BASE assetId (the media-enhance
+  // job's refId is { assetId } of the base video). Lets the "Enhancing…" chip show a real percentage.
+  const enhanceProgressByAsset = new Map<string, number>()
+  {
+    const jobs = await db.select({ refId: downloadJobs.refId, progress: downloadJobs.progress })
+      .from(downloadJobs)
+      .where(and(eq(downloadJobs.type, 'media-enhance'), inArray(downloadJobs.status, ['pending', 'running'])))
+    for (const j of jobs) {
+      try {
+        const { assetId } = JSON.parse(j.refId) as { assetId?: string }
+        if (!assetId || !j.progress) continue
+        const p = JSON.parse(j.progress) as { completed?: number; total?: number }
+        if (p.total && p.total > 0 && typeof p.completed === 'number') {
+          enhanceProgressByAsset.set(assetId, Math.max(0, Math.min(1, p.completed / p.total)))
+        }
+      } catch { /* skip malformed job/progress rows */ }
+    }
+  }
+
+  const downloads = rows.map(({ channelThumbSub, channelThumbVid, assetId, ...r }) => ({
     ...r,
     channelThumb: channelThumbSub ?? channelThumbVid ?? null,
+    progress: assetId ? progressByAsset.get(assetId) ?? null : null,
+    enhance: assetId ? enhanceMap.get(assetId) ?? null : null,
+    enhanceProgress: assetId ? enhanceProgressByAsset.get(assetId) ?? null : null,
     positionSec: watchMap.get(r.videoId)?.positionSec ?? null,
     completed: watchMap.get(r.videoId)?.completed ?? null,
   }))
@@ -478,7 +529,58 @@ youtubeRoute.post('/downloads/delete', async (c) => {
     .where(and(eq(ytDownloads.userId, user.id), inArray(ytDownloads.id, ids)))
   // Drop any asset that now has zero references → its blob becomes unreferenced and GC reclaims it.
   await releaseAssetsIfOrphaned(rows.map(r => r.assetId))
+  // Manual unsave — if this user has a Plex library, remove the matching episode/file too.
+  // Best-effort: never let a Plex-export hiccup block the delete the user actually asked for.
+  for (const r of rows) {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    void enqueuePlexSync(user.id, r.videoId, 'remove').catch(() => {})
+  }
   return c.json({ ok: true, deleted: rows.length })
+})
+
+// Manual trigger to (re)sync every ready video save to this user's Plex library — for
+// testing the export before the automatic hooks (new save / auto-prune) are wired in.
+youtubeRoute.post('/plex/sync-all', async (c) => {
+  const user = c.get('user')
+  // Fail loudly here rather than silently — syncVideoToPlex() itself no-ops (not an error)
+  // when the user has no ready Plex library yet, which is CORRECT for the automatic
+  // save/prune hooks (most users never opt into Plex at all) but was actively misleading
+  // for this manual button: every enqueued job came back "completed" having done nothing,
+  // indistinguishable from a real success, with the library simply never getting populated.
+  const [section] = await db.select().from(plexLibrarySections)
+    .where(and(eq(plexLibrarySections.userId, user.id), eq(plexLibrarySections.contentType, 'youtube')))
+  if (!section || section.status !== 'ready') {
+    return c.json({ ok: false, error: 'Your Plex library isn’t provisioned yet — ask an admin to set it up in Admin → Plex first.' }, 400)
+  }
+  // prefetch=true rows are the app's own speculative cache-warming, never a real user save
+  // (confirmed live: a "Killers" song and 2 others leaked into Plex this way — the user
+  // never saved them, they don't appear in the app's own Offline tab either, since that
+  // list is genuine-saves-only for the same reason).
+  const rows = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'video'), eq(ytDownloads.status, 'ready'), eq(ytDownloads.prefetch, false)))
+  const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+  for (const r of rows) await enqueuePlexSync(user.id, r.videoId, 'add')
+  return c.json({ ok: true, enqueued: rows.length })
+})
+
+// Manual trigger to sync this user's playlists/Watch Later/Liked into real Plex Playlists.
+// Runs inline (not queued) — it's read-heavy against Plex plus a handful of PUTs, not a
+// download, and its own timeouts already bound how long a single call can take.
+youtubeRoute.post('/plex/sync-collections', async (c) => {
+  const user = c.get('user')
+  const { syncPlaylistsForUser } = await import('@/lib/plex/export/playlists')
+  await syncPlaylistsForUser(user.id).catch(() => {})
+  return c.json({ ok: true })
+})
+
+// Cancel in-flight saves (still queued/downloading). Unlike delete, this aborts the running
+// yt-dlp job when nothing else references the shared asset. Batch by ids (the ytDownloads ref ids).
+youtubeRoute.post('/downloads/cancel', async (c) => {
+  const user = c.get('user')
+  const { ids } = await c.req.json<{ ids: string[] }>().catch(() => ({ ids: [] as string[] }))
+  if (!ids?.length) return c.json({ ok: true, cancelled: 0 })
+  const cancelled = await cancelVideoSaves(user.id, ids)
+  return c.json({ ok: true, cancelled })
 })
 
 // Save a video into the Offline library. Capped at the user's effective Save height
@@ -506,6 +608,34 @@ async function handleSave(c: Context<AppEnv>) {
 
 youtubeRoute.post('/save', handleSave)
 youtubeRoute.post('/download', handleSave)   // legacy alias
+
+// Save a channel's current back-catalogue: fetch its latest `count` uploads and enqueue each
+// as a permanent offline save right now. This is the "grab what's already there" companion to
+// per-subscription auto-save (which only covers NEW uploads going forward). Because these are
+// explicit saves (auto:false), the rolling keep-N prune never touches them.
+youtubeRoute.post('/channel/:channelId/save-now', async (c) => {
+  const user = c.get('user')
+  const channelId = c.req.param('channelId')
+  const { kind: reqKind = 'video', count = 10 } = await c.req.json<{ kind?: 'audio' | 'video'; count?: number }>().catch(() => ({}) as { kind?: 'audio' | 'video'; count?: number })
+  const kind: 'audio' | 'video' = reqKind === 'audio' ? 'audio' : 'video'
+  const n = Math.max(1, Math.min(50, Math.floor(count) || 10))
+
+  const page = await innertubeChannel(channelId, null, n).catch(() => null)
+  const videos = (page?.videos ?? []).filter(v => isValidVideoId(v.videoId)).slice(0, n)
+  if (!videos.length) return c.json({ error: 'No videos found for this channel' }, 404)
+
+  const firstName = await getUserFirstName(user.id)
+  const cap = await getEffectiveCap(user.id)
+  const maxHeight = kind === 'audio' ? null : Math.min((await getUserPreference(user.id)) ?? cap, cap)
+
+  let queued = 0
+  for (const v of videos) {
+    const r = await enqueueVideoSave({ userId: user.id, videoId: v.videoId, title: v.title ?? '', kind, maxHeight, firstName })
+      .catch(() => null)
+    if (r) queued++
+  }
+  return c.json({ ok: true, queued, total: videos.length })
+})
 
 // ── Live-from-start DVR ──────────────────────────────────────────────────────────
 
@@ -735,7 +865,8 @@ youtubeRoute.get('/file/:videoId/:kind', async (c) => {
 
   // Prefer the shared content blob (the user holds a ready ref → owns access); fall back to a
   // legacy per-user relPath for rows the background dedup migration hasn't linked yet.
-  const blob = await resolveRefBlob(dl)
+  // resolvePlaybackBlob transparently prefers the user's enhanced rendition when opted in.
+  const blob = await resolvePlaybackBlob({ ...dl, userId: user.id })
   let absPath: string
   let contentType: string
   let trackHash: string | null = null
@@ -851,6 +982,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     const firstName = await getUserFirstName(user.id)
     await ensureTranscript(videoId, user.id, firstName)
     await ensureSummary(videoId, user.id, firstName)
+    await ensureSmartDescription(videoId, user.id, firstName)
   })().catch(() => { /* enrichment is best-effort */ })
 
   const [v] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
@@ -886,20 +1018,29 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     // theoretically still be live, but this fast path is dominated by long-finished feed/saved
     // videos, so defaulting false here (rather than always paying for an InnerTube call) is the
     // right tradeoff. The Record button re-verifies via getLiveStatus() before it ever records.
-    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, summary: v.summary, durationSec: v.durationSec, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
+    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
   }
 
   // Fast metadata path: InnerTube's player endpoint (structured JSON, no subprocess).
   // Only fall through to yt-dlp if it comes back empty.
   const it = await tryInnertube('playerMeta', () => innertubePlayerMeta(videoId), null)
   if (it?.title) {
-    if (v && it.description) await db.update(ytVideos).set({ description: it.description }).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    // Persist description + view count back onto the row so the cached path (above) and the
+    // Offline/Feed cards can show them without re-resolving.
+    if (v && (it.description || it.views)) {
+      const patch: Partial<typeof ytVideos.$inferInsert> = {}
+      if (it.description) patch.description = it.description
+      if (it.views) patch.views = it.views
+      await db.update(ytVideos).set(patch).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    }
     const channelId = it.channelId ?? v?.channelId ?? null
     const sub = await subFor(channelId)
     return c.json({
       videoId, title: it.title, author: it.author ?? v?.author ?? null, channelId,
       channelThumb: await avatarFor(sub, channelId), description: it.description ?? v?.description ?? null,
+      descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null, durationSec: it.durationSec ?? v?.durationSec ?? null,
+      views: it.views ?? v?.views ?? null,
       positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: it.isLive,
     })
   }
@@ -913,9 +1054,15 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       proc.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
       proc.on('error', reject)
     })
-    const m = JSON.parse(json) as { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; is_live?: boolean }
-    // Persist the description back onto the row when we have one.
-    if (v && m.description) await db.update(ytVideos).set({ description: m.description }).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    const m = JSON.parse(json) as { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; is_live?: boolean; view_count?: number }
+    const mViews = m.view_count != null ? String(m.view_count) : null
+    // Persist description + view count back onto the row when we have them.
+    if (v && (m.description || mViews)) {
+      const patch: Partial<typeof ytVideos.$inferInsert> = {}
+      if (m.description) patch.description = m.description
+      if (mViews) patch.views = mViews
+      await db.update(ytVideos).set(patch).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+    }
     const channelId = m.channel_id ?? v?.channelId ?? null
     const sub = await subFor(channelId)
     return c.json({
@@ -925,8 +1072,10 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       channelId,
       channelThumb: await avatarFor(sub, channelId),
       description: m.description ?? v?.description ?? null,
+      descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null,
       durationSec: m.duration ?? v?.durationSec ?? null,
+      views: mViews ?? v?.views ?? null,
       positionSec,
       subscribed: !!sub,
       subscriptionId: sub?.id ?? null,
@@ -934,7 +1083,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     })
   } catch {
     const sub = await subFor(v?.channelId)
-    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
+    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, views: v?.views ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
   }
 })
 
@@ -1585,6 +1734,7 @@ youtubeRoute.get('/history', async (c) => {
     author: ytVideos.author,
     channelId: ytVideos.channelId,
     durationSec: ytVideos.durationSec,
+    views: ytVideos.views,
     channelThumbSub: ytSubscriptions.thumbnailUrl,
     channelThumbVid: ytVideos.channelThumb,
   })
@@ -1603,6 +1753,7 @@ youtubeRoute.get('/history', async (c) => {
     // Prefer the subscription thumb, then the avatar persisted + warmed for offline.
     channelThumb: r.channelThumbSub ?? r.channelThumbVid ?? null,
     durationSec: r.durationSec ?? null,
+    views: r.views ?? null,
     positionSec: r.positionSec,
     completed: r.completed,
     updatedAt: r.updatedAt ? r.updatedAt.getTime() : 0,

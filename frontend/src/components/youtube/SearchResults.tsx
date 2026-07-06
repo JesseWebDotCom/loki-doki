@@ -14,17 +14,18 @@ import { searchToItem, savedToItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { useYtDownloads } from '@/lib/youtube/useData'
 import { ChannelAvatar } from '@/components/youtube/media'
-import { VideoCard } from '@/components/youtube/VideoCard'
-import { ChannelRail, HScroll, PlaylistCard, type ChannelEntry } from '@/components/youtube/shelves'
+import { VideoCollection, YT_GRID as GRID } from '@/components/youtube/VideoCollection'
+import { ChannelRail, HScroll, PlaylistCard, PlaylistListRow, type ChannelEntry } from '@/components/youtube/shelves'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { useYoutubeModeOptional } from '@/components/youtube/YoutubeLayout'
-
-const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 const FILTERS: [SearchType, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['playlists', 'Playlists'], ['channels', 'Channels']]
 
 /** YouTube search results, rendered on the Home route when there's a `?q=` query.
  *  (Formerly the Discover page; Discover was merged into Home.) */
 export function SearchResults({ q }: { q: string }) {
   const [type, setType] = useState<SearchType>('all')
+  const [view, setView] = useViewPreference('youtube.search_view', 'grid')
   const online = useYoutubeModeOptional() === 'online'
   const { data: downloads = [] } = useYtDownloads()
 
@@ -86,7 +87,10 @@ export function SearchResults({ q }: { q: string }) {
             <Search className="mb-3 size-10 opacity-30" /><p className="text-sm">Nothing saved offline matches “{q}”</p>
           </div>
         ) : (
-          <div className={GRID}>{offlineItems.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
+          <>
+            <div className="flex justify-end"><ViewToggle value={view} onChange={setView} className="shrink-0" /></div>
+            <VideoCollection items={offlineItems} view={view} />
+          </>
         )}
       </PageContainer>
     )
@@ -95,9 +99,12 @@ export function SearchResults({ q }: { q: string }) {
   return (
     <PageContainer width="wide" className="space-y-6 py-6">
       <h2 className="text-title">Results for “{q}”</h2>
-      <ChipRow>
-        {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={type === k} onClick={() => setType(k)} />)}
-      </ChipRow>
+      <div className="flex items-center gap-3">
+        <ChipRow className="min-w-0 flex-1">
+          {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={type === k} onClick={() => setType(k)} />)}
+        </ChipRow>
+        {type !== 'channels' && <ViewToggle value={view} onChange={setView} className="shrink-0" />}
+      </div>
 
       {isLoading ? (
         <SkeletonCards count={8} className="xl:grid-cols-4" />
@@ -120,7 +127,9 @@ export function SearchResults({ q }: { q: string }) {
         </>
       ) : type === 'playlists' ? (
         <>
-          <div className={GRID}>{playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>
+          {view === 'list'
+            ? <div className="space-y-1">{playlists.map(p => <PlaylistListRow key={p.playlistId} p={p} />)}</div>
+            : <div className={GRID}>{playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>}
           <LoadMore cursor={cursor} loading={loadingMore} onClick={loadMore} />
         </>
       ) : (
@@ -130,7 +139,7 @@ export function SearchResults({ q }: { q: string }) {
           {items.length > 0 && (
             <section className="space-y-3">
               {type === 'all' && (channels.length > 0 || playlists.length > 0) && <SectionHeader title="Videos" />}
-              <div className={GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
+              <VideoCollection items={items} view={view} />
               <LoadMore cursor={cursor} loading={loadingMore} onClick={loadMore} />
             </section>
           )}

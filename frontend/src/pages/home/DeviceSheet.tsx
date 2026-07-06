@@ -385,9 +385,7 @@ function LinksTab({ device }: { device: HomeDevice }) {
 
       {autoLinks.length === 0 && links.length === 0 && !loading && device.lookupStatus !== 'pending' && (
         <div className="rounded-control border border-dashed p-4 text-center text-sm text-muted-foreground">
-          {device.lookupStatus === 'pending'
-            ? 'Searching for links…'
-            : 'No links found automatically. Add some below.'}
+          No links found automatically. Add some below.
         </div>
       )}
 

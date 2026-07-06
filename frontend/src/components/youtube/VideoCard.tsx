@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, CloudOff, Download } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
-import { fmtAge, fmtDur } from '@/lib/youtube/format'
+import { Spinner } from '@/components/ui/spinner'
+import { fmtAge, fmtDur, fmtViews } from '@/lib/youtube/format'
 import { watchProgress, type VideoItem } from '@/lib/youtube/types'
+import { saveOffline, cancelDownloads } from '@/lib/youtube/api'
+import { useSavedState, useYtDownloads } from '@/lib/youtube/useData'
 import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
@@ -26,7 +30,44 @@ function useGhost(item: Pick<VideoItem, 'videoId' | 'title' | 'localKind'>) {
   return { ghosted, onClick }
 }
 
-function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null }) {
+/** One-click "Save offline": queues a server-side yt-dlp download of this video at the user's
+ *  default Save quality — no dialog. Returns `onSave: undefined` when the item is already a local
+ *  file (nothing to save). Reflects live progress via the shared downloads cache. */
+function useCardSave(item: Pick<VideoItem, 'videoId' | 'localKind'>, title: string) {
+  const qc = useQueryClient()
+  const { data: downloads } = useYtDownloads()
+  const saved = useSavedState(item.videoId)
+  const [saving, setSaving] = useState(false)
+  const saveState: 'saved' | 'saving' | null = saving ? 'saving' : saved
+  // Already-offline items (local files) have nothing to save.
+  if (item.localKind) return { saveState: 'saved' as const, onSave: undefined }
+  const onSave = async (e: MouseEvent) => {
+    // The card body is a <Link>; keep the click from navigating.
+    e.preventDefault(); e.stopPropagation()
+    if (saveState === 'saved') return
+    // Clicking while a save is in flight cancels it (SIGTERM the download, drop the ref).
+    if (saveState === 'saving') {
+      const row = downloads?.find(r => r.videoId === item.videoId && (r.status === 'pending' || r.status === 'downloading'))
+      if (!row) return
+      try {
+        await cancelDownloads([row.id])
+        toast.success('Save canceled')
+        qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+      } catch { toast.error('Could not cancel') }
+      return
+    }
+    setSaving(true)
+    try {
+      const d = await saveOffline({ videoId: item.videoId, title, kind: 'video' })
+      if (d.error) { toast.error(d.error); return }
+      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
+      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+    } catch { toast.error('Could not save') } finally { setSaving(false) }
+  }
+  return { saveState, onSave }
+}
+
+function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null; saveState?: 'saved' | 'saving' | null; onSave?: (e: MouseEvent) => void }) {
   const dur = fmtDur(i.durationSec)
   const progress = watchProgress(i)
   // Fades in once the preview clip is actually decoding a frame, rather than the instant
@@ -68,6 +109,35 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc }: { i: VideoItem; 
           <CheckCircle2 className="size-3" /> Watched
         </span>
       )}
+      {!ghosted && i.enhance && (
+        <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+          {i.enhance === 'enhancing' ? <Spinner size="sm" /> : <Sparkles className="size-3" />}
+          {i.enhance === 'enhancing'
+            ? (i.enhanceProgress != null ? `Enhancing ${Math.round(i.enhanceProgress * 100)}%` : 'Enhancing…')
+            : 'Enhanced'}
+        </span>
+      )}
+      {onSave && !ghosted && (
+        // One-click Save: yt-dlp downloads this to the Offline library for later viewing. Sits over
+        // the thumbnail (top-right, clear of the top-left status badges); hover-revealed, but stays
+        // visible once saving/saved so the state reads at a glance.
+        <button type="button" onClick={onSave}
+          title={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline — click to cancel' : 'Save offline'}
+          aria-label={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Cancel save' : 'Save offline'}
+          className={cn('absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full text-white transition-all',
+            saveState === 'saved' ? 'bg-[var(--yt-accent)] opacity-100 hover:bg-[var(--yt-accent-hover)]'
+              : saveState === 'saving' ? 'bg-black/75 opacity-100 hover:bg-black/90'
+              : 'bg-black/75 opacity-0 hover:bg-black/90 group-hover:opacity-100')}>
+          {saveState === 'saving' ? (
+            // Spinner by default; swaps to an ✕ on hover so it reads as "click to cancel".
+            <>
+              <Spinner className="size-3.5 text-white group-hover:hidden" />
+              <X className="hidden size-3.5 group-hover:block" />
+            </>
+          ) : saveState === 'saved' ? <Check className="size-3.5" />
+            : <HardDriveDownload className="size-3.5" />}
+        </button>
+      )}
       {dur && (
         <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
       )}
@@ -83,28 +153,26 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc }: { i: VideoItem; 
 /** Vertical video card: thumbnail, title, channel · age. Click opens the watch (or Shorts) page. */
 export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   // DeArrow swaps clickbait titles/thumbnails for community-voted ones (no-op when off).
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
   const { previewSrc, bind } = useCardHoverPreview(item)
+  const { saveState, onSave } = useCardSave(item, title)
   // Online shorts open in the vertical Shorts feed; everything else (and offline
   // shorts, which need local playback) goes to the standard watch page.
   const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
   const body = (
     <>
-      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} />
+      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
       <div className="flex gap-2.5">
         {item.author && (
           <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('mt-0.5 size-8 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />
         )}
         <div className="min-w-0 flex-1">
           <p className={cn('line-clamp-2 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-          {(item.author || age) && (
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {item.author}{item.author && age ? ' · ' : ''}{age}
-            </p>
-          )}
+          {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
         </div>
       </div>
     </>
@@ -123,9 +191,53 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
   )
 }
 
+/** Full-width horizontal list row: wide thumbnail + title, channel · age. Used by the
+ *  channel page's list view; mirrors VideoCard's ghost/save/navigation behavior. */
+export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
+  const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
+  const { ghosted, onClick } = useGhost(item)
+  const da = useDeArrow(item.videoId)
+  const title = da?.title || item.title
+  const { previewSrc, bind } = useCardHoverPreview(item)
+  const { saveState, onSave } = useCardSave(item, title)
+  const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
+  const body = (
+    <>
+      <div className={cn('shrink-0', aspect === 'short' ? 'w-24 sm:w-28' : 'w-40 sm:w-56')}>
+        <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
+      </div>
+      <div className="min-w-0 flex-1 py-0.5">
+        <p className={cn('line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
+        {metaLine && (
+          <div className="mt-1.5 flex items-center gap-2">
+            {item.author && <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-border/40', ghosted && 'grayscale')} />}
+            <p className="truncate text-xs text-muted-foreground">{metaLine}</p>
+          </div>
+        )}
+      </div>
+    </>
+  )
+  if (ghosted) {
+    return (
+      // design-ok(hand-styled-button): the whole media row is the tap target (card-shaped ghost row)
+      <button type="button" onClick={onClick} className="group flex w-full gap-3 rounded-card p-1.5 text-left transition-colors hover:bg-accent/50 sm:gap-4">
+        {body}
+      </button>
+    )
+  }
+  return (
+    <Link to={to} state={{ title, author: item.author, channelThumb: item.channelThumb }}
+      className="group flex gap-3 rounded-card p-1.5 transition-colors hover:bg-accent/50 sm:gap-4" {...bind}>
+      {body}
+    </Link>
+  )
+}
+
 /** Compact horizontal row, used in the watch page "Up next" column. */
 export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const stats = [fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
@@ -138,7 +250,7 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
       <div className="min-w-0 flex-1 py-0.5">
         <p className={cn('line-clamp-2 text-[13px] font-semibold leading-snug', ghosted && 'text-muted-foreground')}>{title}</p>
         {item.author && <p className="mt-1 truncate text-xs text-muted-foreground">{item.author}</p>}
-        {age && <p className="truncate text-xs text-muted-foreground">{age}</p>}
+        {stats && <p className="truncate text-xs text-muted-foreground">{stats}</p>}
       </div>
     </>
   )

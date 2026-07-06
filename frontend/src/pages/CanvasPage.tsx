@@ -3,6 +3,7 @@ import { Code2, FileText, Globe, Sparkles, Plus } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,6 +57,7 @@ function ArtifactCard({ a }: { a: ArtifactSummary }) {
 }
 
 export function CanvasPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/canvas/settings' })
   const { recent } = useArtifactState()
 
   useEffect(() => { void refreshArtifacts(); clearUnseen() }, [])

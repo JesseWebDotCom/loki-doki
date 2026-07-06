@@ -50,6 +50,7 @@ export const contentRatingTool: Tool = {
   description:
     'Look up parental guidance for a movie, TV show, book, game, or app — age rating plus violence/language/sex/drugs breakdowns',
   offline: false,
+  core: true,
   passMessage: 'query',
   dataSources: [
     { name: 'DuckDuckGo', domain: 'duckduckgo.com', purpose: 'Finds the review page on Common Sense Media', type: 'api' },

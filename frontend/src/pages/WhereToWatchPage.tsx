@@ -166,6 +166,7 @@ export function WhereToWatchPage() {
     placeholder: 'Search movies & shows...',
     loading: status === 'loading',
     externalHref: 'https://www.justwatch.com',
+    settingsHref: '/apps/where-to-watch/settings',
   })
 
   const retry = useCallback(() => {

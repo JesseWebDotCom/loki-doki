@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, Home, Star, X } from 'lucide-react'
-import { AppSettingsPage } from '@/components/shared/AppSettingsPage'
+import { Bot, ExternalLink, Home, ShieldCheck, Star, X } from 'lucide-react'
+import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
+import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAuth } from '@/context/AuthContext'
 import { AdminHomeAssistantSection } from '@/components/admin/AdminHomeAssistantSection'
@@ -92,39 +93,59 @@ function FavoritesSection() {
   )
 }
 
-export function HomeAssistantSettingsPage() {
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
+// Admin content: server-connection deep link + per-user device permissions.
+// Only mounted for admins (the shell shows everyone else a locked notice).
+function AdminHaSettingsSection() {
   const [users, setUsers] = useState<AdminUser[]>([])
-  usePublishUIContext({ label: 'Home Assistant Settings', description: 'User is on the Home Assistant settings page.' })
 
   useEffect(() => {
-    if (!isAdmin) return
     fetch('/api/users', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : []))
       .then((us: AdminUser[]) => { if (Array.isArray(us)) setUsers(us.filter((u) => u.role !== 'admin')) })
       .catch(() => {})
-  }, [isAdmin])
+  }, [])
 
   return (
-    <AppSettingsPage
-      title="Home Assistant Settings"
-      backTo="/home-assistant"
-      backLabel="Back to Home Assistant"
+    <div className="space-y-6">
+      <Link to="/admin/integrations/home-assistant" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
+        Server connection (URL &amp; access token) <ExternalLink className="size-3.5" />
+      </Link>
+      <AdminHomeAssistantSection users={users} />
+    </div>
+  )
+}
+
+// Standard per-app Settings home for Home Assistant: the user-facing favorites
+// manager + companion abilities, plus an admin-only section for the server
+// connection and per-user device permissions.
+const SECTIONS: AppSettingsSection[] = [
+  {
+    id: 'favorites',
+    label: 'Favorites',
+    icon: Star,
+    content: (
+      <div className="space-y-6">
+        <p className="text-sm text-muted-foreground">
+          Manage your favorite devices. The server connection, device permissions, and security access (locks and entry
+          doors) are managed by an admin.
+        </p>
+        <FavoritesSection />
+      </div>
+    ),
+  },
+  { id: 'companion', label: 'Companion', icon: Bot,         content: <CompanionAbilitiesCard appId="home-assistant" /> },
+  { id: 'admin',     label: 'Admin',     icon: ShieldCheck, content: <AdminHaSettingsSection />, adminOnly: true },
+]
+
+export function HomeAssistantSettingsPage() {
+  usePublishUIContext({ label: 'Home Assistant Settings', description: 'User is on the Home Assistant settings page.' })
+
+  return (
+    <AppSettingsShell
+      appId="home-assistant"
       icon={Home}
       gradient={HA_GRADIENT}
-      adminNotice="The server connection, device permissions, and security access (locks and entry doors) are locked down. Ask an admin to change what you can control."
-      adminSection={
-        <>
-          <Link to="/admin/integrations/home-assistant" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
-            Server connection (URL &amp; access token) <ExternalLink className="size-3.5" />
-          </Link>
-          <AdminHomeAssistantSection users={users} />
-        </>
-      }
-    >
-      <p className="text-sm text-muted-foreground">Manage your favorite devices. Server connection and device permissions are managed by an admin.</p>
-      <FavoritesSection />
-    </AppSettingsPage>
+      sections={SECTIONS}
+    />
   )
 }

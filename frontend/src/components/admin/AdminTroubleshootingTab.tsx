@@ -93,7 +93,7 @@ interface ChatBenchResult {
   error?: string
 }
 
-type BenchState = { status: 'idle' | 'running' } | ({ status: 'done' | 'error' } & ChatBenchResult)
+type BenchState = { status: 'idle' | 'running' } | ({ status: 'done' | 'error' } & Omit<ChatBenchResult, 'status'>)
 
 const BENCH_IDS = [
   'bare-llm',

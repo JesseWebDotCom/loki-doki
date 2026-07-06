@@ -105,6 +105,7 @@ export const repairTool: Tool = {
   description:
     'Step-by-step repair and fix-it guides (electronics, appliances, vehicles, household). Uses the offline iFixit library, or iFixit.com when online.',
   offline: true,
+  core: true,
   dataSources: [
     { name: 'iFixit', domain: 'ifixit.com', purpose: 'Repair guides (online fallback when the offline library is absent)', type: 'api' },
   ],

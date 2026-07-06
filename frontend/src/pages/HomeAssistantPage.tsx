@@ -356,7 +356,6 @@ function optimisticState(action: string): string | null {
 
 export function HomeAssistantPage() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [errorId, setErrorId] = useState<string | null>(null)
   const [filterQuery, setFilterQuery] = useState('')

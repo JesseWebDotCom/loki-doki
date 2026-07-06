@@ -106,10 +106,27 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
         .where(eq(ytDownloads.id, refId))
     }
 
+    // Best-effort, fire-and-forget: upgrade this video's stored thumbnail to the real
+    // maxresdefault when YouTube actually generated one (most browse/search paths default to
+    // low-res mqdefault, which is fine for a small grid tile but not for the Offline library
+    // or Plex export). Runs once per save, not on every render — a network HEAD check inline
+    // in the save's critical path/lock would add real latency for no benefit there.
+    void (async () => {
+      const { resolveBestThumbnailUrl } = await import('@/lib/youtube/thumbnail')
+      const url = await resolveBestThumbnailUrl(videoId)
+      await db.update(ytVideos).set({ thumbnailUrl: url }).where(eq(ytVideos.videoId, videoId))
+    })().catch(err => logger.warn(`[youtube] thumbnail upgrade failed for ${videoId}: ${err}`))
+
     // Dedup hit: the household already holds this at sufficient quality — satisfy instantly.
     if (assetSatisfies(asset, kind, maxHeight)) {
       await db.update(ytDownloads).set({ status: 'ready', sizeBytes: asset.sizeBytes, error: null, updatedAt: now })
         .where(eq(ytDownloads.id, refId))
+      // This path bypasses completeAsset()'s fan-out entirely (nothing to download), so it
+      // needs its own Plex-export hook — otherwise a dedup-satisfied save never reaches Plex.
+      if (kind === 'video') {
+        const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+        void enqueuePlexSync(userId, videoId, 'add').catch(() => {})
+      }
       return { status: 'already-saved', id: refId }
     }
 
@@ -119,6 +136,45 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
     await enqueueAssetJob(asset, `Save "${title || videoId}" (${kind})`)
     return { status: wasActive ? 'in-progress' : 'queued', id: refId }
   })
+}
+
+/** Cancel one or more of THIS user's in-flight offline saves (pending/downloading refs).
+ *
+ *  Deletes the user's ytDownloads reference rows. The underlying yt-dlp download is a SHARED
+ *  media job — another household member may be saving the same video — so it's only aborted
+ *  when removing this user's ref leaves the asset with zero references. Refs that are already
+ *  `ready` (a completed save) or `failed` are left alone: cancelling those is a delete, not a
+ *  cancel. Returns how many in-flight saves were actually cancelled. */
+export async function cancelVideoSaves(userId: string, ids: string[]): Promise<number> {
+  if (!ids?.length) return 0
+  const rows = await db.select({ id: ytDownloads.id, assetId: ytDownloads.assetId, status: ytDownloads.status })
+    .from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, userId), inArray(ytDownloads.id, ids)))
+  const inFlight = rows.filter(r => r.status === 'pending' || r.status === 'downloading')
+  if (!inFlight.length) return 0
+
+  await db.delete(ytDownloads)
+    .where(and(eq(ytDownloads.userId, userId), inArray(ytDownloads.id, inFlight.map(r => r.id))))
+
+  const { cancelJob } = await import('@/lib/downloadJobs')
+  const assetIds = [...new Set(inFlight.map(r => r.assetId).filter((x): x is string => !!x))]
+  for (const assetId of assetIds) {
+    // Someone else still wants this asset — the shared download must keep running for them.
+    const [stillReferenced] = await db.select({ id: ytDownloads.id }).from(ytDownloads)
+      .where(eq(ytDownloads.assetId, assetId)).limit(1)
+    if (stillReferenced) continue
+    // No refs left → abort the coalesced yt-media job (SIGTERM→SIGKILL via its AbortController)
+    // and release the now-orphaned asset so its staged blob is GC-reclaimable.
+    const [job] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+      .where(and(
+        eq(downloadJobs.type, 'yt-media'),
+        eq(downloadJobs.refId, JSON.stringify({ assetId })),
+        inArray(downloadJobs.status, ['pending', 'running']),
+      )).limit(1)
+    if (job) await cancelJob(job.id).catch(() => {})
+    await releaseAssetsIfOrphaned([assetId])
+  }
+  return inFlight.length
 }
 
 // ── Prefetch cache ──────────────────────────────────────────────────────────────
@@ -241,6 +297,7 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
 
   const rows = await db.select({
     id: ytDownloads.id,
+    videoId: ytDownloads.videoId,
     assetId: ytDownloads.assetId,
     transcriptRelPath: ytDownloads.transcriptRelPath,
     publishedAt: ytVideos.publishedAt,
@@ -271,6 +328,13 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
   }
   await db.delete(ytDownloads).where(inArray(ytDownloads.id, stale.map(r => r.id)))
   await releaseAssetsIfOrphaned(stale.map(r => r.assetId))
+
+  // Auto-prune has zero Plex-facing effect otherwise — a rolled-off video would keep
+  // showing in the user's Plex library forever even after this function deletes its save.
+  if (kind === 'video') {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    for (const r of stale) void enqueuePlexSync(userId, r.videoId, 'remove').catch(() => {})
+  }
   logger.info(`[youtube] auto-save pruned ${stale.length} old video(s) for subscription ${subscriptionId} (keep ${keep})`)
 }
 

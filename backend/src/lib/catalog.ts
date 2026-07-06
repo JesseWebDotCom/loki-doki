@@ -95,16 +95,16 @@ export const CATALOG: CatalogModel[] = [
 
   // ── Vision ─────────────────────────────────────────────────────────────────
   {
-    id: 'gemma3:4b',
+    id: 'gemma3:4b-it-qat',
     role: 'vision',
     label: 'Gemma 3 4B',
-    description: 'Google Gemma 3 4B multimodal via Ollama. Understands images natively for vision queries.',
+    description: 'Google Gemma 3 4B multimodal via Ollama. Understands images natively for vision queries. Quantization-aware trained (QAT) int4 — near-bf16 quality at the same footprint as standard Q4.',
     backend: 'ollama',
-    ollamaTag: 'gemma3:4b',
-    approxBytes: 3_300_000_000,
+    ollamaTag: 'gemma3:4b-it-qat',
+    approxBytes: 3_200_000_000,
     tiers: ['apple-24', 'apple-36', 'pc-32'],
     tags: ['accurate', 'fast'],
-    format: 'Q4_K_M',
+    format: 'Q4_0 (QAT)',
     backendLabel: 'Ollama',
   },
 

@@ -12,6 +12,7 @@ import { useInstalledArchives, type InstalledArchive } from '@/hooks/useInstalle
 import { categoryVisual, compareCategories } from '@/lib/archiveCategories'
 import { getAppByPath } from '@/lib/appCategories'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { useAuth } from '@/context/AuthContext'
 
 const REFERENCE_GRADIENT = getAppByPath('/reference')?.gradient
@@ -65,6 +66,8 @@ export function ReferencePage() {
     label: 'Reference',
     description: 'User is browsing Reference - Wikipedia, dictionary, medical and other offline references.',
   })
+
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/reference/settings' })
 
   // Reference = everything that isn't a book collection.
   const referenceArchives = useMemo(() => archives.filter((a) => a.bookCategory == null), [archives])

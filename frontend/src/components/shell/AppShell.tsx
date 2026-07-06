@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { SmartSearchInput } from "@/components/shared/SmartSearchInput";
 import { useAppHeaderConfig } from "@/context/BreadcrumbSearchContext";
-import { useAuth } from "@/context/AuthContext";
 import { classifyRoute } from "@/lib/routeChrome";
 import { AppIconTile } from "@/components/shared/AppIconTile";
 import { getAppByPath, getGroupByAppPath, getAppGroup } from "@/lib/appCategories";
@@ -60,7 +59,6 @@ export function AppShell() {
   // which is where the shell paints the registry color/gradient tint.
   const { isHome, isChat, isPanel, isReader, isFullBleed, shellBackdrop } = classifyRoute(pathname);
   const { conversations, conversationId, currentProject } = useChatContext();
-  const { user } = useAuth();
   // When the Canvas pane is open, inset the whole content column on desktop so chat
   // (and any app) reflows BESIDE the pane rather than being covered by it. Mobile
   // keeps the pane as a full-screen overlay (no room to split), so no inset there.

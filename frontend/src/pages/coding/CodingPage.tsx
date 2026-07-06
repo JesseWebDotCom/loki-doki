@@ -16,11 +16,13 @@ import { Maximize, Minimize, SplitSquareHorizontal, SplitSquareVertical, X, Shie
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/cn";
+import { useAppHeader } from "@/context/BreadcrumbSearchContext";
 
 type ConnStatus = "connecting" | "open" | "closed";
 type PaneAction = "split-h" | "split-v" | "close";
 
 export function CodingPage() {
+  useAppHeader({ query: "", setQuery: () => {}, searchable: false, settingsHref: "/apps/coding/settings" });
   const wrapRef = useRef<HTMLDivElement>(null);
   const termContainerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);

@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { useSetupProgress } from '@/context/SetupProgressContext'
 import {
   ArrowLeftRight, ArrowRight, BookOpen, Bot, Calculator, CalendarClock, ChefHat, CheckCircle2,
   ChevronDown, Clock, Cloud, Code2, Cpu, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
-  Home, Laugh, Lightbulb, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Newspaper, Package,
+  Home, Laugh, Lightbulb, MapPin, Mic, Moon, Newspaper, Package,
   PartyPopper, Play, RefreshCw, Route, ScanFace, Search, Server, Settings2, ShieldCheck, Sparkles,
   Stethoscope, Trash2, Trophy, Tv, Wand2, Wifi, Wrench, X, Image as ImageIcon,
   type LucideIcon,
@@ -17,7 +16,6 @@ import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
-import { formatFeatureBytes } from '@/lib/features'
 import { DownloadProgress } from '@/components/shared/DownloadProgress'
 import type { DownloadStatus } from '@/components/shared/DownloadProgress'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -43,6 +41,7 @@ interface ConfigField {
   type: 'string' | 'number' | 'boolean' | 'secret'
   scope: 'global' | 'user' | 'both'
   placeholder?: string
+  default?: string | number | boolean
 }
 
 interface ToolInfo {
@@ -391,296 +390,6 @@ function CapInstallRow({ cap, installed, blocked, installState, onInstall, onCan
   )
 }
 
-// ── ZIM archive section ───────────────────────────────────────────────────────
-
-interface ZimVariant { key: string; label: string; approxBytes: number; description: string }
-interface ZimEntry {
-  sourceId: string; label: string; description: string; category: string
-  bookCategory: string | null
-  faviconUrl: string | null; variants: ZimVariant[]; defaultVariant: string
-  variantKey: string; installed: boolean; fileSizeBytes: number | null
-}
-interface ZimDlState {
-  status: 'downloading' | 'done' | 'error' | 'cancelled'
-  completed: number; total: number; speedBps: number; etaSeconds: number
-  statusMsg: string; error: string | null
-}
-
-// Book packs (grouped by their shelf category) list first, then reference packs
-// (grouped by topic). Book entries are keyed by bookCategory, everything else by category.
-const ZIM_CATEGORY_ORDER = [
-  'Fiction & Classics', 'Classics & Texts', 'Textbooks', 'Manuals & Survival',
-  'Reference', 'Education', 'How-To', 'Development',
-  'Medical', 'Science', 'Survival', 'Entertainment', 'Kids', 'Religion',
-]
-
-function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query: string }) {
-  const [catalog, setCatalog]               = useState<ZimEntry[]>([])
-  const [loading, setLoading]               = useState(true)
-  const [variants, setVariants]             = useState<Map<string, string>>(new Map())
-  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set(ZIM_CATEGORY_ORDER))
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  // Downloads run in the shared background queue (so they persist across navigation and show in
-  // the global widget). `queued` is a short-lived optimistic set for rows just clicked, until the
-  // poller reflects the new job. Per-row progress is derived from the queue below.
-  const { status: jobsStatus, cancelJob: cancelQueuedJob, refresh: refreshJobs } = useSetupProgress()
-  const [queued, setQueued]                 = useState<Set<string>>(new Set())
-
-  const loadCatalog = useCallback(() => {
-    setLoading(true)
-    fetch('/api/admin/archives/catalog', { credentials: 'include' })
-      .then(r => r.json())
-      .then((d: { catalog?: ZimEntry[] }) => setCatalog(d.catalog ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
-
-  useEffect(() => { loadCatalog() }, [loadCatalog])
-
-  function getVariant(entry: ZimEntry) { return variants.get(entry.sourceId) ?? entry.variantKey }
-
-  function toDlStatus(s: ZimDlState | undefined): DownloadStatus {
-    if (!s) return 'idle'
-    if (s.status === 'downloading') return s.total > 0 ? 'downloading' : 'pending'
-    if (s.status === 'done') return 'completed'
-    if (s.status === 'error') return 'error'
-    return 'cancelled'
-  }
-
-  // Archive jobs from the shared background queue, keyed by sourceId (= job.refId).
-  const archiveJobs = useMemo(
-    () => new Map((jobsStatus?.jobs ?? []).filter(j => j.type === 'archive').map(j => [j.refId, j] as const)),
-    [jobsStatus],
-  )
-
-  // Per-row download state derived from the queue, plus an optimistic "Queued…" entry for rows
-  // clicked since the last poll. This is the single source of truth the rows render from.
-  const downloads = useMemo(() => {
-    const m = new Map<string, ZimDlState>()
-    for (const [refId, j] of archiveJobs) {
-      const p = j.progress
-      const status: ZimDlState['status'] =
-        j.status === 'completed' ? 'done'
-        : j.status === 'failed' ? 'error'
-        : j.status === 'cancelled' ? 'cancelled'
-        : 'downloading'  // pending or running
-      m.set(refId, {
-        status,
-        completed: p?.completed ?? 0, total: p?.total ?? 0,
-        speedBps: p?.speedBps ?? 0, etaSeconds: p?.etaSeconds ?? 0,
-        statusMsg: p?.note ?? (j.status === 'pending' ? 'Queued…' : ''),
-        error: j.lastError,
-      })
-    }
-    for (const sid of queued) {
-      if (!m.has(sid)) m.set(sid, { status: 'downloading', completed: 0, total: 0, speedBps: 0, etaSeconds: 0, statusMsg: 'Queued…', error: null })
-    }
-    return m
-  }, [archiveJobs, queued])
-
-  // Drop optimistic entries once the queue has picked them up.
-  useEffect(() => {
-    if (!queued.size) return
-    const settled = [...queued].filter(sid => archiveJobs.has(sid))
-    if (settled.length) setQueued(prev => { const n = new Set(prev); for (const s of settled) n.delete(s); return n })
-  }, [archiveJobs, queued])
-
-  function selectionFor(entry: ZimEntry, variantKey: string) {
-    const variant = entry.variants.find(v => v.key === variantKey) ?? entry.variants[0]
-    return { sourceId: entry.sourceId, variantKey, label: entry.label, approxBytes: variant?.approxBytes ?? 0 }
-  }
-
-  // Enqueue into the background queue instead of streaming a foreground download, so it persists
-  // across navigation and surfaces in the global download widget. `force` re-runs an item whose
-  // prior job already completed (Update / re-add after delete).
-  async function enqueueArchives(selections: ReturnType<typeof selectionFor>[]) {
-    if (!selections.length) return
-    setQueued(prev => { const n = new Set(prev); for (const s of selections) n.add(s.sourceId); return n })
-    try {
-      await fetch('/api/jobs/enqueue', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zimSelections: selections, force: true }),
-      })
-    } catch { /* optimistic entry stays; the poller reconciles */ }
-    refreshJobs()
-  }
-
-  function handleDownload(sourceId: string, variantKey: string) {
-    const entry = catalog.find(e => e.sourceId === sourceId)
-    if (entry) void enqueueArchives([selectionFor(entry, variantKey)])
-  }
-
-  function handleCancel(sourceId: string) {
-    setQueued(prev => { const n = new Set(prev); n.delete(sourceId); return n })
-    const job = archiveJobs.get(sourceId)
-    if (job) void cancelQueuedJob(job.id)
-  }
-
-  async function handleDelete(sourceId: string) {
-    await fetch(`/api/admin/archives/${sourceId}`, { method: 'DELETE', credentials: 'include' })
-    loadCatalog()
-    refreshJobs()
-  }
-
-  function handleDownloadAll(entries: ZimEntry[]) {
-    void enqueueArchives(
-      entries
-        .filter(e => !e.installed && downloads.get(e.sourceId)?.status !== 'downloading')
-        .map(e => selectionFor(e, getVariant(e))),
-    )
-  }
-
-  function toggleCategory(cat: string) {
-    setOpenCategories(prev => { const next = new Set(prev); if (next.has(cat)) next.delete(cat); else next.add(cat); return next })
-  }
-
-  const displayCatalog = query
-    ? catalog.filter(e => qMatch(e.label, query) || qMatch(e.description, query) || qMatch(e.category, query) || qMatch(e.bookCategory ?? '', query))
-    : catalog
-
-  const categorized = useMemo(() => {
-    const groups = new Map<string, ZimEntry[]>()
-    for (const entry of displayCatalog) {
-      const cat = entry.bookCategory || entry.category || 'Other'
-      if (!groups.has(cat)) groups.set(cat, [])
-      groups.get(cat)!.push(entry)
-    }
-    return groups
-  }, [displayCatalog])
-
-  const notInstalled = displayCatalog.filter(e => !e.installed && downloads.get(e.sourceId)?.status !== 'downloading')
-  if (query && displayCatalog.length === 0) return null
-
-  return (
-    <div className={cn('space-y-3', !kiwixInstalled && 'opacity-40 pointer-events-none')}>
-      <div className="flex items-center justify-between">
-        <span className="text-overline text-muted-foreground/50">Books & References</span>
-        {notInstalled.length > 0 && kiwixInstalled && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => handleDownloadAll(notInstalled)}
-            className="gap-1 px-2 text-muted-foreground">
-            <Download className="size-3" /> Add all
-          </Button>
-        )}
-      </div>
-
-      {kiwixInstalled && (
-        loading ? (
-          <div className="flex items-center gap-2 py-2">
-            <Spinner size="sm" className="size-3 text-muted-foreground/40" />
-            <span className="text-xs text-muted-foreground/40">Loading…</span>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {ZIM_CATEGORY_ORDER.filter(cat => categorized.has(cat)).map(cat => {
-              const entries = categorized.get(cat)!
-              const catInstalled = entries.filter(e => e.installed || toDlStatus(downloads.get(e.sourceId)) === 'completed').length
-              const catNotInstalled = entries.filter(e => !e.installed && downloads.get(e.sourceId)?.status !== 'downloading')
-              const catOpen = query ? true : openCategories.has(cat)
-
-              return (
-                <div key={cat}>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <button type="button" onClick={() => !query && toggleCategory(cat)}
-                      className="flex items-center gap-2 flex-1 min-w-0">
-                      <ChevronDown className={cn('size-3 text-muted-foreground/40 transition-transform', !catOpen && '-rotate-90')} />
-                      <span className="text-overline text-muted-foreground/50">{cat}</span>
-                      <span className="text-[10px] text-muted-foreground/35 tabular-nums">{catInstalled}/{entries.length}</span>
-                    </button>
-                    {catNotInstalled.length > 0 && (
-                      <Button type="button" variant="ghost" size="sm" onClick={() => handleDownloadAll(catNotInstalled)}
-                        className="gap-1 px-2 text-muted-foreground/50 shrink-0">
-                        <Download className="size-2.5" /> Add all
-                      </Button>
-                    )}
-                  </div>
-
-                  {catOpen && (
-                    <div className="space-y-1.5">
-                      {entries.map(entry => {
-                        const dl = downloads.get(entry.sourceId)
-                        const variantKey = getVariant(entry)
-                        const variant = entry.variants.find(v => v.key === variantKey) ?? entry.variants[0]
-                        const isActive = dl?.status === 'downloading'
-                        const dlStatus = toDlStatus(dl)
-
-                        return (
-                          <Card key={entry.sourceId} variant="surface" className="border-border/60 bg-card/60">
-                            <div className="flex items-center gap-3 px-3 py-2.5">
-                              <div className={cn('flex size-4 shrink-0 items-center justify-center rounded-full',
-                                entry.installed || dlStatus === 'completed' ? 'bg-success/10' : 'bg-muted')}>
-                                {entry.installed || dlStatus === 'completed'
-                                  ? <CheckCircle2 className="size-2.5 text-success" />
-                                  : <StatusDot status="off" />}
-                              </div>
-                              {entry.faviconUrl && <img src={proxyImg(entry.faviconUrl)} className="size-4 shrink-0 rounded" alt="" />}
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold leading-tight">{entry.label}</p>
-                                <p className="text-[11px] text-muted-foreground leading-snug line-clamp-1">{entry.description}</p>
-                              </div>
-                              {entry.variants.length > 1 && !isActive && (
-                                <select value={variantKey}
-                                  onChange={e => setVariants(prev => new Map(prev).set(entry.sourceId, e.target.value))}
-                                  className="h-6 rounded-control border border-input bg-background px-1.5 text-[11px] focus:outline-none shrink-0">
-                                  {entry.variants.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
-                                </select>
-                              )}
-                              {variant && variant.approxBytes > 0 && (
-                                <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">~{formatFeatureBytes(variant.approxBytes)}</span>
-                              )}
-                              <div className="shrink-0 flex items-center gap-1">
-                                {isActive ? (
-                                  <Button type="button" variant="ghost" size="sm" onClick={() => handleCancel(entry.sourceId)}
-                                    className="px-2 text-muted-foreground">Cancel</Button>
-                                ) : (
-                                  <>
-                                    {entry.installed && (
-                                      <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove content pack"
-                                        onClick={() => setConfirmDeleteId(entry.sourceId)}
-                                        className="text-muted-foreground hover:text-destructive hover:bg-destructive/5">
-                                        <Trash2 className="size-3" />
-                                      </Button>
-                                    )}
-                                    <Button type="button" variant="outline" size="sm" onClick={() => handleDownload(entry.sourceId, variantKey)}
-                                      className="gap-1 px-2 text-muted-foreground">
-                                      <Download className="size-2.5" />
-                                      {entry.installed ? 'Update' : 'Add'}
-                                    </Button>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            {dl && dl.status !== 'cancelled' && (
-                              <div className="border-t border-border/50 px-3 pb-2.5 pt-2">
-                                <DownloadProgress label={entry.label} description={isActive ? dl.statusMsg || undefined : undefined}
-                                  status={dlStatus} downloadedBytes={dl.completed} totalBytes={dl.total}
-                                  speedBps={dl.speedBps} etaSeconds={dl.etaSeconds} error={dl.error ?? undefined} />
-                              </div>
-                            )}
-                          </Card>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )
-      )}
-
-      <ConfirmDialog
-        open={confirmDeleteId !== null}
-        onOpenChange={open => !open && setConfirmDeleteId(null)}
-        title="Remove content pack?"
-        description="This will delete the downloaded file. You can re-download it at any time."
-        confirmLabel="Remove"
-        destructive
-        onConfirm={() => { if (confirmDeleteId) { void handleDelete(confirmDeleteId); setConfirmDeleteId(null) } }}
-      />
-    </div>
-  )
-}
 
 // ── LoRAs browse modal ────────────────────────────────────────────────────────
 
@@ -1019,6 +728,7 @@ interface LoraRow {
   id: string; name: string; description: string | null; categoryName: string | null
   triggerTokens: string[]; enabled: boolean; thumbnailUrl: string | null
   styleLabel: string | null; sizeBytes: number | null; fileExists: boolean
+  isAdult: boolean
 }
 
 function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean; query: string }) {
@@ -1028,6 +738,7 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
   const [deleting, setDeleting]         = useState<Set<string>>(new Set())
   const [toggling, setToggling]         = useState<Set<string>>(new Set())
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [showAdult, setShowAdult]       = useState(false)
 
   const loadLoras = useCallback(() => {
     setLoading(true)
@@ -1070,10 +781,18 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
           LoRA Styles {loras.length > 0 && `· ${loras.filter(l => l.enabled).length}/${loras.length} enabled`}
         </span>
         {imageGenInstalled && (
-          <Button type="button" variant="outline" size="sm" onClick={() => setBrowsing(true)}
-            className="gap-1.5 text-muted-foreground">
-            <Search className="size-3" /> Browse CivitAI
-          </Button>
+          <div className="flex items-center gap-2">
+            {loras.some(l => l.isAdult) && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowAdult(v => !v)}
+                className={cn('gap-1.5', showAdult ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : 'text-muted-foreground')}>
+                {showAdult ? '🔞 Adult on' : 'Adult off'}
+              </Button>
+            )}
+            <Button type="button" variant="outline" size="sm" onClick={() => setBrowsing(true)}
+              className="gap-1.5 text-muted-foreground">
+              <Search className="size-3" /> Browse CivitAI
+            </Button>
+          </div>
         )}
       </div>
 
@@ -1098,7 +817,7 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
               <div className={cn('relative aspect-[3/4] overflow-hidden rounded-card border',
                 lora.enabled ? 'border-border/60' : 'border-border/30 opacity-50')}>
                 {lora.thumbnailUrl ? (
-                  <img src={proxyImg(lora.thumbnailUrl)} alt="" className="absolute inset-0 size-full object-cover" />
+                  <img src={proxyImg(lora.thumbnailUrl)} alt="" className={cn('absolute inset-0 size-full object-cover', lora.isAdult && !showAdult && 'blur-xl')} />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-muted">
                     <Sparkles className="size-5 text-muted-foreground/20" />

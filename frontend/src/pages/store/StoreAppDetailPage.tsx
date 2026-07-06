@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Wifi, Cpu, ShieldCheck, Globe, HardDrive } from 'lucide-react'
+import { ArrowLeft, Wifi, Cpu, ShieldCheck, Globe, HardDrive, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { useStoreApps, type StoreApp } from '@/lib/store/useStoreApps'
+import { getAppByPath } from '@/lib/appCategories'
+import { abilitiesForApp } from '@/lib/companionAbilities'
+import { useInstalledTools } from '@/hooks/useInstalledTools'
 import { AppIcon } from '@/components/store/AppIcon'
 import { PrimaryAction, SecondaryActions } from '@/components/store/StoreActions'
 import { StoreAppCard } from '@/components/store/StoreAppCard'
@@ -64,7 +67,6 @@ export function StoreAppDetailPage() {
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <Tag>{app.offline ? 'Extension' : 'App'}</Tag>
               <Tag>{app.online ? 'Connects online' : 'Runs locally'}</Tag>
               <Tag>{app.category}</Tag>
             </div>
@@ -124,12 +126,41 @@ function Tag({ children }: { children: React.ReactNode }) {
 }
 
 function OverviewTab({ app }: { app: StoreApp }) {
+  const { tools } = useInstalledTools()
+  const hostAppId = app.route ? getAppByPath(app.route)?.id : undefined
+  const abilities = hostAppId ? abilitiesForApp(hostAppId, tools) : []
+
   return (
     <div className="space-y-6">
       <section>
         <h3 className="mb-2 text-base font-semibold">About this app</h3>
         <p className="text-sm text-muted-foreground leading-relaxed">{app.description}</p>
       </section>
+      {abilities.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-base font-semibold">Companion abilities</h3>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Installing this app also lets your companion do the following in chat. Each ability can be
+            switched off in the app's settings.
+          </p>
+          <ul className="space-y-1.5">
+            {abilities.map((a) => (
+              <li key={a.toolId} className="flex items-start gap-2.5 rounded-control bg-secondary/50 px-3 py-2">
+                <Sparkles className="mt-0.5 size-3.5 shrink-0 text-brand" aria-hidden="true" />
+                <span className="min-w-0 text-sm">
+                  <span className="font-medium">{a.name}</span>
+                  {a.description && <span className="text-muted-foreground"> · {a.description}</span>}
+                </span>
+                {a.dataSources.length > 0 && (
+                  <span className="ml-auto shrink-0 rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-medium text-info">
+                    online
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {app.examples.length > 0 && (
         <section>
           <h3 className="mb-2 text-base font-semibold">Try saying</h3>
@@ -173,7 +204,6 @@ function SourcesTab({ app }: { app: StoreApp }) {
 function DetailsPanel({ app }: { app: StoreApp }) {
   const rows: [string, React.ReactNode][] = [
     ['Category', app.category],
-    ['Type', app.offline ? 'Extension' : 'App'],
     ['Connectivity', (
       <span className="inline-flex items-center gap-1.5">
         {app.online ? <Wifi className="size-3.5 text-info" /> : <Cpu className="size-3.5 text-muted-foreground" />}

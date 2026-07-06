@@ -3,10 +3,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import type { AppTool } from '@/components/shared/InstallDisclosureModal'
+import type { InstallableTool } from '@/components/shared/InstallDisclosureModal'
 
 /** Sends an install request to the admin for apps a regular user can't enable. */
-export function RequestModal({ tool, open, onClose }: { tool: AppTool | null; open: boolean; onClose: () => void }) {
+export function RequestModal({ tool, open, onClose }: { tool: InstallableTool | null; open: boolean; onClose: () => void }) {
   const [message, setMessage] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
 

@@ -27,7 +27,7 @@ export function SmartSearchInput({
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState(0)
   const { suggestions } = useSuggestions(value, suggest, { minLength, debounceMs })
-  const localRef = useRef<HTMLInputElement>(null)
+  const localRef = useRef<HTMLInputElement | null>(null)
 
   function pick(label: string) {
     onChange(label)

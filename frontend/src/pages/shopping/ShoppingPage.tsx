@@ -1,4 +1,4 @@
-// Price Tracker: one omnibox drives everything — paste a product URL to track it
+// Price Tracker: one omnibox drives everything - paste a product URL to track it
 // (Amazon/first-class retailers or ANY store via the generic extractor), or type text to
 // search across retailers. Tracked products are household-wide; prices display in the
 // caller's effective terms (their standing discounts applied).
@@ -518,6 +518,7 @@ export function ShoppingPage() {
     setQuery: (v: string) => { setQuery(v); if (!v.trim()) { setSearchResults(null); setResolveError(null) } },
     placeholder: 'Search products, or paste a product URL to track it…',
     onSubmit: () => void runOmnibox(query),
+    settingsHref: '/apps/shopping/settings',
   })
 
   async function trackResult(r: SearchResult) {

@@ -16,6 +16,7 @@ export const sleepTool: Tool = {
   name: 'Sleep',
   description: 'Put Pod displays to sleep (dim/blank + optional ambient sound) or wake them up.',
   offline: true,
+  core: true,
   dataSources: [],
   examples: [
     'go to sleep',

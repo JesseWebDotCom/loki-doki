@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 interface HolidayItem {
   date: string
@@ -121,6 +122,7 @@ function HolidayRow({ item, diff, isClosest }: HolidayRowProps) {
 }
 
 export function HolidaysPage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/holidays/settings' })
   const currentYear = new Date().getFullYear()
   const [country, setCountry] = useState<CountryCode>('US')
   const [year, setYear] = useState<number>(currentYear)

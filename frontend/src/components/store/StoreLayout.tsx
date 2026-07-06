@@ -55,7 +55,7 @@ export function StoreLayout() {
   useAppHeader({
     query,
     setQuery,
-    placeholder: 'Search for apps and extensions…',
+    placeholder: 'Search apps…',
     leftSlot,
   })
 

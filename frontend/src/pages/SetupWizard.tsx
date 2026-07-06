@@ -122,14 +122,14 @@ const inputCls = [
 const ROLE_ICONS: Record<ModelRole, React.ComponentType<{ className?: string }>> = {
   runtime: Server, llm: Bot, uncensored_llm: Bot, vision: Eye, embeddings: Database,
   router: Route, router_llm: Route, image_gen: Wand2, face_id: ScanFace, face_embed: Database,
-  video_motion: Film, bg_remove: Eraser, voice: Mic, coding: Code2,
+  video_motion: Film, video_gen: Film, bg_remove: Eraser, voice: Mic, coding: Code2, component: Cpu,
 }
 
 const ROLE_LABELS: Record<ModelRole, string> = {
   llm: 'Language Model', uncensored_llm: 'Uncensored Model', vision: 'Vision Model',
   embeddings: 'Embedding Model', router: 'Tool Router', router_llm: 'Router LLM',
   image_gen: 'Image Base', face_id: 'Face Identity', face_embed: 'Face Embedder',
-  video_motion: 'Video Generation', bg_remove: 'Background Removal', voice: 'Voice Model', coding: 'Coding Model', runtime: 'Runtime',
+  video_motion: 'Video Generation', video_gen: 'Video Generator', bg_remove: 'Background Removal', voice: 'Voice Model', coding: 'Coding Model', runtime: 'Runtime', component: 'Component',
 }
 
 const ROLE_ORDER: ModelRole[] = [
@@ -734,7 +734,7 @@ function AreaStep({ onNext }: { onNext: () => void }) {
   const [error, setError] = useState('')
   const detecting = status === 'detecting'
 
-  useEffect(() => { if (!location && status === 'idle') detect() }, [])
+  useEffect(() => { if (!location && status === 'ready') detect() }, [])
 
   async function continueNext() {
     setSaving(true); setError('')
@@ -856,7 +856,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
   const [ollamaRunning, setOllamaRunning] = useState(false)
   // On Windows we can't auto-install Ollama, so track whether a system binary exists and
   // gate the install until it's running or installed (the wizard prompts the user otherwise).
-  const [ollamaInstalled, setOllamaInstalled] = useState(true)
+  const [, setOllamaInstalled] = useState(true)
   // Default to a compact summary; the full per-model/feature editor is behind "Customize".
   const [customizing, setCustomizing] = useState(false)
 

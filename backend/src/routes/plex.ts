@@ -213,4 +213,21 @@ plexRoute.post('/config', requireAdmin, async (c) => {
   return c.json({ saved: true, ...status })
 })
 
+// ── admin: per-user library provisioning (Plex export feature) ────────────────────
+
+plexRoute.get('/admin/library-sections', requireAdmin, async (c) => {
+  const { db } = await import('@/db')
+  const { plexLibrarySections } = await import('@/db/schema')
+  const rows = await db.select().from(plexLibrarySections)
+  return c.json({ sections: rows })
+})
+
+plexRoute.post('/admin/provision', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { userId?: string; contentType?: string }
+  if (!body.userId || !body.contentType) return c.json({ ok: false, error: 'userId and contentType are required' }, 400)
+  const { enqueuePlexProvision } = await import('@/lib/downloadJobs')
+  await enqueuePlexProvision(body.userId, body.contentType)
+  return c.json({ ok: true })
+})
+
 export { plexRoute }

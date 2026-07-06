@@ -11,8 +11,9 @@ import { ytDownloads, ytVideos, mediaAssets, users } from '@/db/schema'
 import { eq, and, isNull, or } from 'drizzle-orm'
 import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
+import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
-import { ensureSummary, ensureSavedVideoMeta } from '@/lib/youtube/summarize'
+import { ensureSummary, ensureSavedVideoMeta, ensureSmartDescription } from '@/lib/youtube/summarize'
 import { ytDlpBin, ytDlpAuthArgs } from '@/lib/ytdlp'
 import { ensureFfmpeg, ffmpegLocation, ffprobeBin } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
@@ -121,13 +122,18 @@ export async function runYtMediaJob(
 
     // Maximize resolution within the cap regardless of codec — do NOT hard-filter [ext=mp4]
     // on the video stream, or a VP9/AV1-only tier gets skipped for a lower mp4 tier (the
-    // classic "asked for 1080p, got 960p" downgrade). -S then prefers h264/mp4 when available
-    // at the chosen resolution; --merge-output-format mp4 remuxes either way.
+    // classic "asked for 1080p, got 960p" downgrade). --merge-output-format mp4 remuxes either way.
+    //
+    // Codec preference: `res` first (never trade resolution for codec), then bare `vcodec` which
+    // uses yt-dlp's default ranking av01 > vp9 > h264 — i.e. prefer AV1, then VP9, then H.264.
+    // AV1/VP9 are ~35–50% smaller than H.264 at equal quality and hardware-decode on modern
+    // clients; a download is not a re-encode, so this costs nothing but bytes saved. (YouTube
+    // caps H.264 at 1080p, so 4K/1440p already come as VP9/AV1 regardless.)
     const videoFormat = `bestvideo[height<=${target}]+bestaudio/best[height<=${target}]/best`
     const args: string[] = kind === 'audio'
       ? ['-x', '--audio-format', audioFormat, '--audio-quality', '0', '--socket-timeout', '30',
          '--output', outputTemplate, '--no-playlist', url]
-      : ['-f', videoFormat, '-S', 'res,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
+      : ['-f', videoFormat, '-S', 'res,vcodec,acodec:m4a', '--merge-output-format', 'mp4',
          '--socket-timeout', '30', '--output', outputTemplate, '--no-playlist', url]
     if (ffLoc) args.push('--ffmpeg-location', ffLoc)
     args.push(...ytDlpAuthArgs())
@@ -165,7 +171,8 @@ export async function runYtMediaJob(
     const mime = kind === 'audio' ? (audioFormat === 'mp3' ? 'audio/mpeg' : 'audio/mp4') : 'video/mp4'
 
     // Hash + move into the blob store OUTSIDE the lock (slow), then swap + fan out INSIDE it.
-    const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime })
+    const storageLocationId = await getContentTypeStorageLocationId('youtube')
+    const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime, storageLocationId })
     const { needsHigher } = await withLock(assetLockKey(videoId, kind, asset.format),
       () => completeAsset(assetId, hash, actualHeight, sizeBytes))
 
@@ -189,6 +196,7 @@ async function enrichSavedAsset(assetId: string, videoId: string): Promise<void>
   await fetchTranscript(videoId, ref.userId, firstName, ref.id)
     .then(() => ensureSavedVideoMeta(videoId, ref.title))
     .then(() => ensureSummary(videoId, ref.userId, firstName))
+    .then(() => ensureSmartDescription(videoId, ref.userId, firstName))
     .catch(() => { /* best-effort */ })
 }
 

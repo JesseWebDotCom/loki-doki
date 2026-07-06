@@ -213,6 +213,7 @@ export function HomeInventoryPage() {
     query: search,
     setQuery: handleSearch,
     placeholder: 'Search devices, brands, locations...',
+    settingsHref: '/apps/home-inventory/settings',
   })
 
   function handleCategory(val: string) {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Clapperboard, ExternalLink, Mic, Music, Play, Search } from 'lucide-react'
+import { ArrowLeft, Clapperboard, ExternalLink, Mic, Music, Play } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 import { PageShell } from '@/components/shared/PageShell'

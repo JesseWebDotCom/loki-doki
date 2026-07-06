@@ -184,7 +184,7 @@ async function plexCloudAction(conn: PlexConnection, path: string): Promise<bool
 }
 
 let _machineId: string | null | undefined
-async function machineId(conn: PlexConnection): Promise<string | null> {
+export async function machineId(conn: PlexConnection): Promise<string | null> {
   if (_machineId !== undefined) return _machineId
   const data = await plexGet<PlexContainer>(conn, '/identity')
   _machineId = data?.MediaContainer?.machineIdentifier ?? null

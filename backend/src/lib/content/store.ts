@@ -18,10 +18,12 @@ import { createHash } from 'node:crypto'
 import { createReadStream, statSync } from 'node:fs'
 import { mkdir, rename, cp, rm, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { and, eq, lt, ne, notExists, or } from 'drizzle-orm'
+import { and, eq, exists, like, lt, ne, notExists, notLike, or } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '@/db'
 import { blobs, mediaAssets, narrationSessions, podcastDownloads, ytDownloads, bookLibrary } from '@/db/schema'
-import { resolveUserPath, toRelativePath } from '@/lib/storage/paths'
+import { resolveUserPath } from '@/lib/storage/paths'
+import { getStorageLocationPath, joinUnderRoot } from '@/lib/storage/contentRoots'
 import { logger } from '@/lib/logger'
 
 // ── Keyed async mutex ───────────────────────────────────────────────────────────
@@ -62,9 +64,12 @@ function blobRelPath(hash: string): string {
   return join('content', 'blobs', hash.slice(0, 2), hash.slice(2, 4), hash)
 }
 
-/** Absolute path to a blob's bytes under the current data root. */
-export function blobAbsPath(hash: string): Promise<string> {
-  return resolveUserPath(blobRelPath(hash))
+/** Absolute path to a blob's bytes — under its assigned storage location if it has one
+ *  (see blobs.storageLocationId), else the default data root, exactly as before. */
+export async function blobAbsPath(hash: string): Promise<string> {
+  const [row] = await db.select({ storageLocationId: blobs.storageLocationId }).from(blobs).where(eq(blobs.hash, hash)).limit(1)
+  const root = await getStorageLocationPath(row?.storageLocationId)
+  return joinUnderRoot(root, blobRelPath(hash))
 }
 
 /** A scratch path under the data root for a worker to download into before putBlobFromFile.
@@ -94,9 +99,14 @@ export interface PutResult { hash: string; sizeBytes: number; deduped: boolean }
 /** Bring a finished file into the blob store as `staging`, deduping on content hash. By default
  *  the source is CONSUMED (moved, or deleted on a dedup hit). Pass `keepSource` to copy instead
  *  — used by the background migration so a crash mid-run leaves the original intact for dual-read.
+ *  Pass `storageLocationId` when this blob belongs to a content type reassigned off the default
+ *  data root (see contentRoots.ts) — omitted by every caller that hasn't opted into that, unaffected.
  *  Caller must flip the blob to `live` via markBlobLive() inside the same critical section that
  *  creates the referrer. */
-export async function putBlobFromFile(absPath: string, opts: { mime?: string | null; keepSource?: boolean } = {}): Promise<PutResult> {
+export async function putBlobFromFile(
+  absPath: string,
+  opts: { mime?: string | null; keepSource?: boolean; storageLocationId?: string | null } = {},
+): Promise<PutResult> {
   const hash = await hashFile(absPath)
   const [existing] = await db.select({ sizeBytes: blobs.sizeBytes }).from(blobs).where(eq(blobs.hash, hash)).limit(1)
   if (existing) {
@@ -105,7 +115,8 @@ export async function putBlobFromFile(absPath: string, opts: { mime?: string | n
     return { hash, sizeBytes: existing.sizeBytes, deduped: true }
   }
 
-  const dest = await blobAbsPath(hash)
+  const root = await getStorageLocationPath(opts.storageLocationId)
+  const dest = joinUnderRoot(root, blobRelPath(hash))
   await mkdir(dirname(dest), { recursive: true })
   if (opts.keepSource) {
     await cp(absPath, dest, { preserveTimestamps: true })
@@ -125,7 +136,11 @@ export async function putBlobFromFile(absPath: string, opts: { mime?: string | n
   const sizeBytes = statSync(dest).size
   const now = new Date()
   await db.insert(blobs).values({
-    hash, relPath: await toRelativePath(dest), sizeBytes, mime: opts.mime ?? null,
+    // relPath is always just the hash-derived fragment, relative to WHATEVER root this
+    // blob lives under (the default data root when storageLocationId is null) — never
+    // used for resolution itself (blobAbsPath recomputes it), kept for inspection only.
+    hash, relPath: blobRelPath(hash), sizeBytes, mime: opts.mime ?? null,
+    storageLocationId: opts.storageLocationId ?? null,
     status: 'staging', lastAccessedAt: now, createdAt: now,
   }).onConflictDoNothing()
   return { hash, sizeBytes, deduped: false }
@@ -166,6 +181,14 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
   // Books (sourceType='book') are a shared household catalog like podcasts/YouTube, but
   // bookLibrary has no assetId FK — it points at bookId, which equals mediaAssets.sourceId
   // for book assets — so its ref check joins on sourceId instead of assetId like the others.
+  //
+  // Enhanced renditions (format like '%enhanced%', produced by the media-enhance job) are
+  // DERIVED siblings that no ref row points at directly — they'd otherwise be orphaned the
+  // moment they're written. Instead they inherit their parent's pin: an enhanced rendition is
+  // kept while a sibling base 'mp4' asset (same source+kind) still has a yt_downloads ref. This
+  // ties enhanced lifetime to the original's, so it survives normal deletes AND user-cascade
+  // deletes, and is reclaimed only once the last user unpins the video.
+  const baseSibling = alias(mediaAssets, 'base_sibling')
   const orphanAssets = await db.delete(mediaAssets).where(and(
     lt(mediaAssets.createdAt, cutoff),
     notExists(db.select().from(ytDownloads).where(eq(ytDownloads.assetId, mediaAssets.id))),
@@ -178,12 +201,24 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
       ne(mediaAssets.sourceType, 'book'),
       notExists(db.select().from(bookLibrary).where(eq(bookLibrary.bookId, mediaAssets.sourceId))),
     ),
+    or(
+      notLike(mediaAssets.format, '%enhanced%'),
+      notExists(db.select().from(baseSibling).where(and(
+        eq(baseSibling.sourceType, mediaAssets.sourceType),
+        eq(baseSibling.sourceId, mediaAssets.sourceId),
+        eq(baseSibling.kind, mediaAssets.kind),
+        eq(baseSibling.format, 'mp4'),
+        exists(db.select().from(ytDownloads).where(eq(ytDownloads.assetId, baseSibling.id))),
+      ))),
+    ),
   )).returning({ id: mediaAssets.id })
 
   // Step 2: delete blob FILES now unreferenced (any orphan assets above just released theirs).
   // Unreferenced = no media_assets row points at the hash. (Future cache-class blobs with
   // their own pin rows extend this predicate.)
-  const candidates = await db.select({ hash: blobs.hash, relPath: blobs.relPath, sizeBytes: blobs.sizeBytes })
+  const candidates = await db.select({
+    hash: blobs.hash, relPath: blobs.relPath, sizeBytes: blobs.sizeBytes, storageLocationId: blobs.storageLocationId,
+  })
     .from(blobs)
     .where(and(
       eq(blobs.status, 'live'),
@@ -194,7 +229,12 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
   let removed = 0, bytes = 0
   for (const b of candidates) {
     if (inFlightReads(b.hash) > 0) continue   // being streamed — skip, reclaim next sweep
-    const abs = await resolveUserPath(b.relPath)
+    // Resolve against whichever root this specific blob lives under — NOT always the
+    // default root, or a non-default-root blob's file would never actually get deleted
+    // (unlink would hit ENOENT under the wrong root and the row would be dropped anyway,
+    // silently leaking the real file forever).
+    const root = await getStorageLocationPath(b.storageLocationId)
+    const abs = joinUnderRoot(root, b.relPath)
     try {
       await unlink(abs)
     } catch (err) {

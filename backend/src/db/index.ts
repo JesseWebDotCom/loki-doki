@@ -572,6 +572,21 @@ export function runMigrations() {
     console.warn('[migrations] ha security grant migration failed:', err instanceof Error ? err.message : err)
   }
 
+  // One-time: vision model swapped to Google's QAT checkpoint (gemma3:4b → gemma3:4b-it-qat).
+  // Same footprint, near-bf16 quality. Only rewrite the setting when it still holds the exact
+  // old tag, so an admin who deliberately picked a different vision model is left untouched.
+  // Values in app_settings are JSON-encoded, hence the quoted match/replacement.
+  try {
+    const done = sqlite.query(`SELECT 1 FROM app_settings WHERE key='migr.vision_gemma3_qat'`).get()
+    if (!done) {
+      sqlite.exec(`UPDATE app_settings SET value='"gemma3:4b-it-qat"', updated_at=${Date.now()} WHERE key='vision_model' AND value='"gemma3:4b"';`)
+      sqlite.exec(`INSERT OR IGNORE INTO app_settings (id, key, value, updated_at) VALUES (lower(hex(randomblob(16))), 'migr.vision_gemma3_qat', '"done"', ${Date.now()});`)
+      console.warn('[migrations] migrated vision model gemma3:4b → gemma3:4b-it-qat (QAT)')
+    }
+  } catch (err) {
+    console.warn('[migrations] vision QAT migration failed:', err instanceof Error ? err.message : err)
+  }
+
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
   addColumn('music_stations', 'category', 'TEXT')
   addColumn('music_stations', 'loading_messages', 'TEXT')
@@ -1240,6 +1255,9 @@ export function runMigrations() {
   addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
   // Marks transient music prefetch-cache refs (download-ahead for gapless play; rolling keep-N).
   addColumn('yt_downloads', 'prefetch', 'INTEGER NOT NULL DEFAULT 0')
+  // Which app saved the ref ('youtube'|'music'); the YouTube Saved tab filters out music saves.
+  // Without this column the /downloads query (ne(origin,'music')) renders bad SQL and 500s.
+  addColumn('yt_downloads', 'origin', "TEXT NOT NULL DEFAULT 'youtube'")
   // Channel avatar URL resolved + warmed at save time so Offline cards show real logos
   // (not just a letter) even for non-subscribed channels — existing DBs.
   addColumn('yt_videos', 'channel_thumb', 'TEXT')
@@ -2531,4 +2549,112 @@ export function runMigrations() {
     DROP TABLE IF EXISTS coding_sessions;
     DROP TABLE IF EXISTS coding_projects;
   `)
+
+  // Storage Locations + Plex export (see schema.ts storageLocations/contentTypeStorage/
+  // plexPathMappings/plexLibrarySections; plan at ~/.claude/plans/compiled-toasting-lovelace.md).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS storage_locations (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS content_type_storage (
+      content_type TEXT NOT NULL PRIMARY KEY,
+      storage_location_id TEXT REFERENCES storage_locations(id) ON DELETE SET NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS plex_path_mappings (
+      id TEXT NOT NULL PRIMARY KEY,
+      storage_location_id TEXT NOT NULL UNIQUE REFERENCES storage_locations(id) ON DELETE CASCADE,
+      plex_path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS plex_library_sections (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content_type TEXT NOT NULL,
+      plex_section_key TEXT,
+      plex_machine_identifier TEXT,
+      shared_server_id TEXT,
+      root_abs_path TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, content_type)
+    );
+    CREATE TABLE IF NOT EXISTS plex_collections (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content_type TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      plex_collection_title TEXT,
+      plex_rating_key TEXT,
+      last_synced_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, content_type, source_type, source_id)
+    );
+  `)
+
+  // Blob store becomes storage-location-aware (see lib/storage/contentRoots.ts) — null
+  // (all pre-existing rows) means "default data root," unchanged behavior.
+  addColumn('blobs', 'storage_location_id', 'TEXT')
+
+  // Persist which InnerTube channel tab a video came from (see schema.ts ytVideos.tab) —
+  // unlocks the Plex export's separate Shorts show without re-deriving it from duration alone.
+  addColumn('yt_videos', 'tab', 'TEXT')
+
+  // View count (raw text; displayed via fmtViews) so Offline/Feed/History cards and the watch
+  // page show views like the live discovery cards do. Populated by the channel reconcile scan
+  // and lazily by the watch route on first resolve.
+  addColumn('yt_videos', 'views', 'TEXT')
+
+  // YouTube → Plex export tree tracking (see schema.ts ytPlexShows/ytPlexEpisodes).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS yt_plex_shows (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL,
+      variant TEXT NOT NULL DEFAULT 'main',
+      title TEXT NOT NULL,
+      folder_rel_path TEXT NOT NULL,
+      nfo_hash TEXT,
+      nfo_written_at INTEGER,
+      posters_written_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, channel_id, variant)
+    );
+    CREATE TABLE IF NOT EXISTS yt_plex_episodes (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      video_id TEXT NOT NULL,
+      show_id TEXT NOT NULL REFERENCES yt_plex_shows(id) ON DELETE CASCADE,
+      season_year INTEGER NOT NULL,
+      episode_number INTEGER NOT NULL,
+      source_asset_id TEXT,
+      cut_format_key TEXT,
+      cut_categories_hash TEXT,
+      cut_segments_json TEXT,
+      rel_path TEXT,
+      nfo_written_at INTEGER,
+      thumb_written_at INTEGER,
+      srt_written_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      plex_refreshed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, video_id)
+    );
+  `)
+
+  // "Smart Description" (see schema.ts ytVideos.descriptionClean) — LLM-cleaned description,
+  // or the transcript summary when the real description is mostly sponsor/ad content.
+  addColumn('yt_videos', 'description_clean', 'TEXT')
 }

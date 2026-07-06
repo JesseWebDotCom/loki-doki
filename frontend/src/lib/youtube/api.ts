@@ -59,6 +59,7 @@ export interface FeedVideo {
   channelThumb: string | null    // the channel's avatar (from the subscription)
   publishedAt: number | null
   durationSec: number | null
+  views: string | null
   summary: string | null
   watchState: { positionSec: number; completed: boolean } | null
 }
@@ -71,12 +72,20 @@ export interface SavedRow {
   status: 'pending' | 'downloading' | 'ready' | 'failed'
   sizeBytes: number | null
   maxHeight: number | null
+  /** Download progress 0..1 for in-flight saves (pending/downloading); null otherwise. */
+  progress: number | null
+  /** Background enhancement state (video only): 'enhancing' while re-encoding, 'enhanced' when
+   *  the crisper rendition is ready and serving; null otherwise. */
+  enhance: 'enhancing' | 'enhanced' | null
+  /** Enhance re-encode progress 0..1 while `enhance === 'enhancing'`; null otherwise. */
+  enhanceProgress?: number | null
   createdAt: string
   author: string | null
   channelId: string | null
   channelThumb: string | null
   publishedAt: number | null
   durationSec: number | null
+  views: string | null
   positionSec: number | null
   completed: boolean | null
 }
@@ -97,9 +106,11 @@ export interface VideoMeta {
   channelId: string | null
   channelThumb?: string | null
   description: string | null
+  descriptionClean?: string | null
   summary?: string | null
   positionSec: number
   durationSec: number | null
+  views?: string | null
   subscribed?: boolean
   subscriptionId?: string | null
   isLive?: boolean
@@ -506,6 +517,13 @@ export async function deleteDownloads(ids: string[]): Promise<void> {
   if (!r.ok) throw new Error('delete')
 }
 
+/** Cancel in-flight saves (queued/downloading). Aborts the underlying download when nothing
+ *  else references the shared asset; ready/failed rows are left untouched (use delete for those). */
+export async function cancelDownloads(ids: string[]): Promise<void> {
+  const r = await fetch('/api/youtube/downloads/cancel', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ ids }) })
+  if (!r.ok) throw new Error('cancel')
+}
+
 export async function saveOffline(body: { videoId: string; title: string; kind: 'audio' | 'video'; maxHeight?: number; audioFormat?: 'm4a' | 'mp3' }): Promise<{ status?: string; error?: string }> {
   const r = await fetch('/api/youtube/save', { ...opts, method: 'POST', headers: J, body: JSON.stringify(body) })
   return r.json() as Promise<{ status?: string; error?: string }>
@@ -514,6 +532,12 @@ export async function saveOffline(body: { videoId: string; title: string; kind: 
 export async function getSaveQuality(): Promise<SaveQuality> {
   const r = await fetch('/api/youtube/save-quality', opts)
   return r.json() as Promise<SaveQuality>
+}
+
+/** Save a channel's current back-catalogue (latest `count` uploads) to the Offline library now. */
+export async function saveChannelNow(channelId: string, body: { kind: 'audio' | 'video'; count: number }): Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }> {
+  const r = await fetch(`/api/youtube/channel/${encodeURIComponent(channelId)}/save-now`, { ...opts, method: 'POST', headers: J, body: JSON.stringify(body) })
+  return r.json() as Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }>
 }
 
 // ── Live-from-start DVR ──────────────────────────────────────────────────────────
@@ -577,6 +601,7 @@ export interface HistoryRow {
   channelId: string | null
   channelThumb: string | null
   durationSec: number | null
+  views: string | null
   positionSec: number
   completed: boolean
   updatedAt: number

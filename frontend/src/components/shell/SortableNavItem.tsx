@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { GripVertical, PinOff } from "lucide-react";
+import { GripVertical, StarOff } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/cn";
@@ -70,18 +70,18 @@ export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin
         )}
       </Link>
 
-      {/* Unpin button */}
+      {/* Remove-from-favorites button */}
       <button
         type="button"
         onClick={() => onUnpin(id)}
-        aria-label={`Unpin ${label}`}
+        aria-label={`Remove ${label} from favorites`}
         className={cn(
           "shrink-0 p-1 rounded-full opacity-0 group-hover/item:opacity-100",
           "text-muted-foreground hover:text-foreground transition-opacity",
           "focus-visible:opacity-100 focus-visible:outline-none",
         )}
       >
-        <PinOff className="size-3.5" aria-hidden="true" />
+        <StarOff className="size-3.5" aria-hidden="true" />
       </button>
     </div>
   );

@@ -5,6 +5,7 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { SpaceBackdrop } from '@/components/shared/SpaceBackdrop'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 // ── Moon phase math (ported from backend/src/tools/moonphase.ts) ───────────────
 
@@ -112,6 +113,7 @@ function NextPhaseCard({ phase }: { phase: NextPhase }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function MoonPhasePage() {
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/apps/moon-phase/settings' })
   const todayIso = toIsoDate(new Date())
   const [selectedDate, setSelectedDate] = useState(todayIso)
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -11,10 +12,10 @@ import { useYtFeed, useYtSubs, useYtDownloads } from '@/lib/youtube/useData'
 import { isShort, savedToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { MediaShelf, ChannelRail, type ChannelEntry } from '@/components/youtube/shelves'
-import { VideoCard } from '@/components/youtube/VideoCard'
-import { useYoutubeMode, useYoutubeUI } from '@/components/youtube/YoutubeLayout'
-
-const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
+import { VideoCollection } from '@/components/youtube/VideoCollection'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
+import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
 
 // Round-robin a recency-sorted list across its channels so one frequent uploader
 // doesn't bury everyone else; "Latest" leads with each channel's newest in turn.
@@ -37,7 +38,7 @@ function interleaveByChannel(items: VideoItem[]): VideoItem[] {
 /** The subscription feed: latest uploads from every channel you follow, YouTube-style. */
 export function YoutubeSubscriptionsPage() {
   const online = useYoutubeMode() === 'online'
-  const { openManage } = useYoutubeUI()
+  const [view, setView] = useViewPreference('youtube.subscriptions_view', 'grid')
   const { items: feedItems, loading } = useYtFeed()
   const { data: subs = [] } = useYtSubs()
   const { data: downloads = [] } = useYtDownloads()
@@ -69,8 +70,8 @@ export function YoutubeSubscriptionsPage() {
         subtitle={`${subs.length} ${subs.length === 1 ? 'channel' : 'channels'} you follow`}
         className="pt-6 pb-5"
         actions={
-          <Button variant="outline" onClick={openManage} className="shrink-0 gap-2 text-muted-foreground hover:text-foreground">
-            <Settings2 className="size-4" /> Manage
+          <Button asChild variant="outline" className="shrink-0 gap-2 text-muted-foreground hover:text-foreground">
+            <Link to="/youtube/settings/channels"><Settings2 className="size-4" /> Manage</Link>
           </Button>
         } />
 
@@ -89,18 +90,19 @@ export function YoutubeSubscriptionsPage() {
         <Card variant="dashed" className="p-10 text-center text-sm text-muted-foreground">
           {subs.length === 0 ? (
             <>You haven't added any channels yet.{' '}
-              <button onClick={openManage} className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</button>
+              <Link to="/youtube/settings/channels" className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</Link>
               {' '}to build your feed.</>
           ) : 'No recent uploads from your subscriptions.'}
         </Card>
       ) : (
         <div className="space-y-10">
-          {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts} aspect="short" />}
+          {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts} aspect="short" view={view} />}
           <section>
-            <SectionHeader title="Latest" className="mb-4" />
-            <div className={GRID}>
-              {latest.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <SectionHeader title="Latest" className="mb-0" />
+              <ViewToggle value={view} onChange={setView} className="shrink-0" />
             </div>
+            <VideoCollection items={latest} view={view} />
           </section>
         </div>
       )}

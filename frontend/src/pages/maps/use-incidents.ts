@@ -1,3 +1,4 @@
+/// <reference types="geojson" />
 // Phase maps-discovery chunk-15: 511 road incidents polling hook.
 // Only active when the user has enabled "Live road incidents" in map settings.
 // Polls GET /api/maps/incidents?state=<code> every 5 minutes.

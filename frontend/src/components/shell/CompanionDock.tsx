@@ -126,7 +126,7 @@ function CompanionMenu({ onClose, style }: { onClose: () => void; style: React.C
       {/* WHO, companion identity + quick switch */}
       <SectionLabel>Companion</SectionLabel>
       <div className="flex items-center gap-2 px-0.5">
-        <span className={cn('flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted', character && 'ring-1 ring-brand/60')}>
+        <span className={cn('flex size-8 shrink-0 items-center justify-center', !character && 'overflow-hidden rounded-full bg-muted')}>
           {character ? <CharacterAvatar character={character} size={32} /> : <Bot className="size-4 text-muted-foreground" />}
         </span>
         <span className="flex-1 truncate text-sm font-semibold text-foreground">{character?.name ?? 'No companion'}</span>
@@ -162,7 +162,7 @@ function CompanionMenu({ onClose, style }: { onClose: () => void; style: React.C
               type="button"
               onClick={() => { setCharacter(ch.id); onClose() }}
               title={`Switch to ${ch.name}`}
-              className={cn('size-7 shrink-0 overflow-hidden rounded-full bg-muted opacity-85 transition hover:scale-110 hover:opacity-100 hover:ring-1 hover:ring-brand/60')}
+              className={cn('size-7 shrink-0 opacity-85 transition hover:scale-110 hover:opacity-100')}
             >
               <CharacterAvatar className="pointer-events-none" character={ch} size={28} />
             </button>
@@ -352,8 +352,9 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
       <CompanionOrb size={px} active={!engine.sleeping} />
     )
 
-  // Avatar button opens the companion menu on click or right-click. SleepingZs
-  // render as a sibling outside the overflow-hidden button so they aren't clipped.
+  // Avatar button opens the companion menu on click or right-click. The companion
+  // renders as a free-floating head (no round container, unlike the user avatar), so
+  // the button is not clipped. SleepingZs render as a sibling overlay.
   const avatarButton = (px: number) => (
     <div className="relative shrink-0" style={{ width: px, height: px }}>
       <button
@@ -362,7 +363,6 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
         title={engine.otherTabOwner ? 'Voice is active in another tab. Click this tab to take over.' : 'Companion menu'}
         onClick={() => setMenuOpen(true)}
         onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true) }}
-        className={cn('overflow-hidden rounded-full')}
         style={{ width: px, height: px }}
       >
         {avatarNode(px, true)}

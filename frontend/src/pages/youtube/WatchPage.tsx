@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BookmarkPlus, Download, Heart, Clock, Search, Smartphone, Mic, Check,
+  HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
   ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square,
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
@@ -24,14 +24,15 @@ import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
-import { useYtFeed } from '@/lib/youtube/useData'
+import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
-  startLiveRecord, stopLiveRecord,
+  startLiveRecord, stopLiveRecord, saveOffline,
   ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
+import { fmtViews } from '@/lib/youtube/format'
 import { parseChapters } from '@/lib/youtube/chapters'
 import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
@@ -68,7 +69,6 @@ export function WatchPage() {
   const [params] = useSearchParams()
   const localKind = (params.get('k') as 'audio' | 'video' | null) ?? undefined
   const navigate = useNavigate()
-  const ui = useYoutubeUI()
   const pb = useYoutubePlayback()
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [tab, setTab] = useState<SideTab>('transcript')
@@ -327,12 +327,35 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const qc = useQueryClient()
   const { shareLink } = useShareLink()
   const [expanded, setExpanded] = useState(false)
+  const [showOriginalDescription, setShowOriginalDescription] = useState(false)
+  // One-click Save: yt-dlp downloads this to the Offline library at the user's default quality.
+  const savedRemote = useSavedState(videoId)
+  const [savingLocal, setSavingLocal] = useState(false)
+  const saveState: 'saved' | 'saving' | null = localKind ? 'saved' : savingLocal ? 'saving' : savedRemote
+  async function saveVideoOffline() {
+    if (saveState === 'saved' || saveState === 'saving') return
+    setSavingLocal(true)
+    try {
+      const d = await saveOffline({ videoId, title, kind: 'video' })
+      if (d.error) { toast.error(d.error); return }
+      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
+      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+    } catch { toast.error('Could not save') } finally { setSavingLocal(false) }
+  }
   const [podcastOpen, setPodcastOpen] = useState(false)
   const [subbed, setSubbed] = useState(meta?.subscribed ?? false)
   const [subId, setSubId] = useState(meta?.subscriptionId ?? null)
   const [subBusy, setSubBusy] = useState(false)
   const channelId = meta?.channelId ?? null
-  const description = meta?.description ?? null
+  // Smart Description (promotional content stripped) once the background enrichment has
+  // generated one; the raw description is still what's used for chapter parsing above
+  // (descChapters), since chapters are creator-authored timestamps, not promotional content.
+  // "View original" only makes sense (and only shows) when Smart Description actually
+  // changed something — a video whose description had nothing promotional to strip has an
+  // identical descriptionClean, so there'd be nothing to toggle to.
+  const hasOriginalDescription = !!meta?.descriptionClean && !!meta?.description && meta.descriptionClean !== meta.description
+  const description = (showOriginalDescription ? meta?.description : meta?.descriptionClean) ?? meta?.description ?? null
+  const views = fmtViews(meta?.views)
 
   // Sync subscribe state once meta resolves (InfoPanel renders before meta loads).
   useEffect(() => {
@@ -449,7 +472,15 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
                 active={recording} tone="accent" iconFill={recording} onClick={recordBusy ? undefined : toggleRecording}
                 title={recording ? 'Stop recording — keeps what was captured' : 'Record this livestream from its start'} />
             )}
-            <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
+            {!localKind && (
+              <SegBtn icon={saveState === 'saved' ? Check : HardDriveDownload}
+                label={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline…' : 'Save offline'}
+                active={saveState === 'saved'} iconFill={false}
+                onClick={saveState === 'saving' ? undefined : saveVideoOffline}
+                title="Save offline: this server downloads the video so you can watch it later without streaming." />
+            )}
+            <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)}
+              title="Download: pull the video file down to this device (like any web download)." />
             <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -463,11 +494,6 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
                   <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
                   {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
                 </DropdownMenuItem>
-                {!localKind && (
-                  <DropdownMenuItem onClick={() => ui.openSave(videoId, title)}>
-                    <BookmarkPlus className="size-4" /> Save to bookmarks
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
                   <Mic className="size-4" /> Create podcast
                 </DropdownMenuItem>
@@ -480,12 +506,24 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
         </div>
       </div>
 
-      {description && (
+      {(views || description) && (
         <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
-          <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
-          <button onClick={() => setExpanded(e => !e)} className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
-            {expanded ? 'Show less' : '…more'}
-          </button>
+          {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
+          {description && (
+            <>
+              <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
+              <div className="mt-1 flex items-center gap-3">
+                <button onClick={() => setExpanded(e => !e)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                  {expanded ? 'Show less' : '…more'}
+                </button>
+                {hasOriginalDescription && (
+                  <button onClick={() => setShowOriginalDescription(v => !v)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                    {showOriginalDescription ? 'Show cleaned description' : 'View original'}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </Card>
       )}
 
