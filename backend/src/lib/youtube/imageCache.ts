@@ -11,7 +11,11 @@
 //   • Subscribed channel artwork (avatars + banners of channels you're subscribed to) is
 //     kept and conditionally re-validated every 24h via If-None-Match / If-Modified-Since:
 //     304 → bump the check time, 200 → overwrite with the new image. This is the artwork
-//     that actually changes; video thumbnails are immutable per id so they aren't renewed.
+//     that actually changes; video thumbnails are immutable per id so they don't NEED
+//     renewing (a 304 every 24h is just a bit of harmless overhead for them).
+//   • A genuinely saved video's own thumbnail reuses this same "subscribed" protection —
+//     it should live exactly as long as the video/Plex export do, not silently disappear
+//     and require a live re-fetch a day later (see reconcileSubscribed()).
 
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile, unlink, readdir } from 'node:fs/promises'
@@ -19,7 +23,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { eq, and, lt, inArray, isNotNull } from 'drizzle-orm'
 import { db } from '@/db'
-import { ytImageCache, ytSubscriptions, ytChannelCache, ytVideos } from '@/db/schema'
+import { ytImageCache, ytSubscriptions, ytChannelCache, ytVideos, ytDownloads } from '@/db/schema'
 import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
 
@@ -125,6 +129,19 @@ async function reconcileSubscribed(): Promise<void> {
   // Keep these so the library tabs still show real logos beyond the 24h non-subscribed window.
   for (const v of await db.select({ thumb: ytVideos.channelThumb }).from(ytVideos).where(isNotNull(ytVideos.channelThumb))) {
     if (v.thumb) protectedUrls.add(v.thumb)
+  }
+
+  // A genuinely saved video (a real ytDownloads ref, not the app's own speculative
+  // prefetch cache-warming) should keep its thumbnail for as long as the video itself
+  // exists — the video and Plex export both persist permanently, so a thumbnail silently
+  // evicting and needing a live re-fetch 24h later doesn't make sense for it. Excludes
+  // prefetch=true rows for the same reason the Plex sync queries do (see sync.ts/routes).
+  const savedVideoIds = [...new Set((await db.select({ id: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.status, 'ready'), eq(ytDownloads.prefetch, false)))).map(r => r.id))]
+  if (savedVideoIds.length) {
+    for (const v of await db.select({ thumb: ytVideos.thumbnailUrl }).from(ytVideos).where(inArray(ytVideos.videoId, savedVideoIds))) {
+      if (v.thumb) protectedUrls.add(v.thumb)
+    }
   }
 
   const protectedHashes = [...protectedUrls].map(hashUrl)

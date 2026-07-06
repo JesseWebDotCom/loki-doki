@@ -11,7 +11,7 @@ import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { toast } from '@/lib/toast'
 import { useYtSubs, useYtDownloads } from '@/lib/youtube/useData'
 import {
-  addSubscription, deleteSubscription, updateSubscription,
+  addSubscription, deleteSubscription, updateSubscription, saveChannelNow,
   getChannelPage, getChannelPlaylists, getChannelAbout, ytImageProxy,
   type ItVideo, type Subscription, type ChannelVideoTab,
 } from '@/lib/youtube/api'
@@ -99,6 +99,11 @@ export function YoutubeChannelPage() {
   const [busy, setBusy] = useState(false)
   const [descOpen, setDescOpen] = useState(false)
   const [bannerOk, setBannerOk] = useState(true)
+  // "Save latest N now" — immediately downloads this channel's current back-catalogue to the
+  // Offline library (distinct from auto-save, which only covers future uploads).
+  const [saveKind, setSaveKind] = useState<'video' | 'audio'>('video')
+  const [saveCount, setSaveCount] = useState(10)
+  const [savingNow, setSavingNow] = useState(false)
 
   const [params, setParams] = useSearchParams()
   const tab = (TABS.find(([k]) => k === params.get('tab'))?.[0] ?? 'videos') as Tab
@@ -210,6 +215,17 @@ export function YoutubeChannelPage() {
     }
   }
 
+  // Immediately save this channel's latest N uploads to the Offline library.
+  async function saveChannelNowClick() {
+    setSavingNow(true)
+    try {
+      const d = await saveChannelNow(channelId, { kind: saveKind, count: saveCount })
+      if (d.error) { toast.error(d.error); return }
+      toast.success(`Saving ${d.queued ?? 0} ${saveKind === 'audio' ? 'audio track' : 'video'}${(d.queued ?? 0) === 1 ? '' : 's'} offline`)
+      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+    } catch { toast.error('Could not save this channel') } finally { setSavingNow(false) }
+  }
+
   // Offline: no live fetch, just the channel header (from local sub/nav state) over a grid of
   // whatever's been saved from this channel. Nothing here touches the network.
   if (!online) {
@@ -280,53 +296,91 @@ export function YoutubeChannelPage() {
           <PodcastSourceButtons
             videos={videoItems.map(v => ({ videoId: v.videoId, title: v.title, author: v.author ?? title }))}
             sourceId={`channel:${channelId}`} suggestedShowName={title} sourceDescription={description ?? undefined} coverImageUrl={thumb ?? undefined} />
-          {subscribed && sub && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon"
-                  aria-label={sub.autoSave ? 'Auto-save on' : 'Auto-save off'}
-                  title={sub.autoSave ? `Auto-saving new ${sub.autoSaveKind}` : 'Auto-save new uploads'}
-                  className={cn('size-10',
-                    sub.autoSave ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
-                  <HardDriveDownload className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72 space-y-3 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Auto-save new videos</p>
-                    <p className="text-xs text-muted-foreground">Download future uploads from this channel offline.</p>
-                  </div>
-                  <Switch checked={sub.autoSave} onCheckedChange={v => void patchSub({ autoSave: v })} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon"
+                aria-label="Save this channel offline"
+                title={sub?.autoSave ? `Auto-saving new ${sub.autoSaveKind}` : 'Save this channel offline'}
+                className={cn('size-10',
+                  sub?.autoSave ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                <HardDriveDownload className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 space-y-3 p-3">
+              {/* Save now: immediately grab this channel's current back-catalogue. */}
+              <div className="space-y-2.5">
+                <div>
+                  <p className="text-sm font-medium">Save videos now</p>
+                  <p className="text-xs text-muted-foreground">Download this channel's latest uploads to Offline.</p>
                 </div>
-                {sub.autoSave && (
-                  <>
-                    <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-3">
-                      <span className="text-sm text-muted-foreground">Save as</span>
-                      <div className="flex overflow-hidden rounded-full border border-border">
-                        {(['video', 'audio'] as const).map(k => (
-                          <button key={k} onClick={() => void patchSub({ autoSaveKind: k })}
-                            className={cn('px-3 py-1 text-xs font-medium capitalize transition-colors',
-                              sub.autoSaveKind === k ? 'bg-[var(--yt-accent)] text-white' : 'bg-background text-muted-foreground hover:text-foreground')}>
-                            {k}
-                          </button>
-                        ))}
-                      </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">Save as</span>
+                  <div className="flex overflow-hidden rounded-full border border-border">
+                    {(['video', 'audio'] as const).map(k => (
+                      <button key={k} onClick={() => setSaveKind(k)}
+                        className={cn('px-3 py-1 text-xs font-medium capitalize transition-colors',
+                          saveKind === k ? 'bg-[var(--yt-accent)] text-white' : 'bg-background text-muted-foreground hover:text-foreground')}>
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">How many</span>
+                  <div className="flex items-center gap-1.5">
+                    <input type="number" min={1} max={50} value={saveCount}
+                      onChange={e => setSaveCount(Math.max(1, Math.min(50, Math.floor(Number(e.target.value)) || 1)))}
+                      className="w-16 rounded-control border border-border bg-background px-2 py-1 text-sm" />
+                    <span className="text-xs text-muted-foreground">latest</span>
+                  </div>
+                </div>
+                <Button onClick={saveChannelNowClick} disabled={savingNow} className="w-full gap-1.5 font-semibold">
+                  {savingNow ? <Spinner className="text-primary-foreground" /> : <HardDriveDownload className="size-4" />}
+                  Save {saveCount} now
+                </Button>
+              </div>
+
+              {/* Auto-save future uploads (subscription-scoped). */}
+              {sub ? (
+                <div className="space-y-3 border-t border-border/50 pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Auto-save new videos</p>
+                      <p className="text-xs text-muted-foreground">Also grab future uploads automatically.</p>
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-muted-foreground">Keep latest</span>
-                      <div className="flex items-center gap-1.5">
-                        <input type="number" min={0} value={sub.autoSaveKeep ?? ''} placeholder="default"
-                          onChange={e => void patchSub({ autoSaveKeep: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })}
-                          className="w-16 rounded-control border border-border bg-background px-2 py-1 text-sm" />
-                        <span className="text-xs text-muted-foreground">videos</span>
+                    <Switch checked={sub.autoSave} onCheckedChange={v => void patchSub({ autoSave: v })} />
+                  </div>
+                  {sub.autoSave && (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-muted-foreground">Save as</span>
+                        <div className="flex overflow-hidden rounded-full border border-border">
+                          {(['video', 'audio'] as const).map(k => (
+                            <button key={k} onClick={() => void patchSub({ autoSaveKind: k })}
+                              className={cn('px-3 py-1 text-xs font-medium capitalize transition-colors',
+                                sub.autoSaveKind === k ? 'bg-[var(--yt-accent)] text-white' : 'bg-background text-muted-foreground hover:text-foreground')}>
+                              {k}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-muted-foreground">Keep latest</span>
+                        <div className="flex items-center gap-1.5">
+                          <input type="number" min={0} value={sub.autoSaveKeep ?? ''} placeholder="default"
+                            onChange={e => void patchSub({ autoSaveKeep: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })}
+                            className="w-16 rounded-control border border-border bg-background px-2 py-1 text-sm" />
+                          <span className="text-xs text-muted-foreground">videos</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">Subscribe to auto-save new uploads from this channel.</p>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="icon" onClick={toggleSub} disabled={busy}
             aria-label={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
             title={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}

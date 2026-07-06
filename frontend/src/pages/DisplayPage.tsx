@@ -39,9 +39,6 @@ export function DisplayPage() {
   const isActivity = view === 'activity'
   const isSleeping = view === 'sleeping'
   // Orientation is handled by LVGL on the firmware via lv_display_set_rotation().
-  // The server no longer sends a pre-rotated JPEG — this param is unused but kept
-  // for future admin-preview use.
-  const orient = parseInt(params.get('orient') ?? '0') || 0
   const [descriptor, setDescriptor] = useState<Descriptor | null>(null)
   const [controllerPage, setControllerPage] = useState<ControllerPage | null>(null)
   const [presence, setPresence] = useState<UserPresence | null>(null)

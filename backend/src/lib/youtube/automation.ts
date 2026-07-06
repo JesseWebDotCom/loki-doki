@@ -106,6 +106,17 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
         .where(eq(ytDownloads.id, refId))
     }
 
+    // Best-effort, fire-and-forget: upgrade this video's stored thumbnail to the real
+    // maxresdefault when YouTube actually generated one (most browse/search paths default to
+    // low-res mqdefault, which is fine for a small grid tile but not for the Offline library
+    // or Plex export). Runs once per save, not on every render — a network HEAD check inline
+    // in the save's critical path/lock would add real latency for no benefit there.
+    void (async () => {
+      const { resolveBestThumbnailUrl } = await import('@/lib/youtube/thumbnail')
+      const url = await resolveBestThumbnailUrl(videoId)
+      await db.update(ytVideos).set({ thumbnailUrl: url }).where(eq(ytVideos.videoId, videoId))
+    })().catch(err => logger.warn(`[youtube] thumbnail upgrade failed for ${videoId}: ${err}`))
+
     // Dedup hit: the household already holds this at sufficient quality — satisfy instantly.
     if (assetSatisfies(asset, kind, maxHeight)) {
       await db.update(ytDownloads).set({ status: 'ready', sizeBytes: asset.sizeBytes, error: null, updatedAt: now })

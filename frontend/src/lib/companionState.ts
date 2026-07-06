@@ -21,8 +21,8 @@ let captions: boolean = read(CAPTIONS_KEY, 'on') === 'on'
 let captionStyle: CaptionStyle = read<CaptionStyle>(CAPTION_STYLE_KEY, 'highlight')
 // Voice (TTS read-aloud) and hands-free (wakeword/mic) both default OFF. Voice
 // features must be explicitly enabled (mic permission, audio autoplay).
-let voiceOn: boolean = read(VOICE_KEY, 'off') === 'on'
-let handsFreeOn: boolean = read(HANDSFREE_KEY, 'off') === 'on'
+let voiceOn: boolean = read<string>(VOICE_KEY, 'off') === 'on'
+let handsFreeOn: boolean = read<string>(HANDSFREE_KEY, 'off') === 'on'
 const subs = new Set<() => void>()
 const notify = () => subs.forEach((fn) => fn())
 

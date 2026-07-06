@@ -648,7 +648,7 @@ export function ImagingPage() {
   const [recognizeFile, setRecognizeFile] = useState<File | null>(null)
   const [recognizePreview, setRecognizePreview] = useState<string | null>(null)
   const [selectedTasks, setSelectedTasks] = useState<Set<AnalysisTask>>(new Set())
-  const [analyzeHistory, setAnalyzeHistory] = useState<AnalysisHistoryItem[]>([])
+  const [, setAnalyzeHistory] = useState<AnalysisHistoryItem[]>([])
   const recognizeFileInputRef = useRef<HTMLInputElement>(null)
   const [recognizeDropOver, setRecognizeDropOver] = useState(false)
 

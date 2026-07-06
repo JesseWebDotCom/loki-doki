@@ -17,10 +17,27 @@ function toSec(ts: string): number {
   return parts.length === 3 ? parts[0]! * 3600 + parts[1]! * 60 + parts[2]! : parts[0]! * 60 + parts[1]!
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+}
+
+/** YouTube's auto-caption VTT text is HTML-entity-encoded (confirmed live: `&gt;&gt;` for a
+ *  literal `>>` speaker-change marker, `&nbsp;` inside the `[&nbsp;__&nbsp;]` bleep-censor
+ *  placeholder) — decode before this text ever reaches a human-readable .srt. */
+function decodeHtmlEntities(s: string): string {
+  return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, ent) => {
+    if (ent[0] === '#') {
+      const code = ent[1] === 'x' || ent[1] === 'X' ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10)
+      return Number.isFinite(code) ? String.fromCodePoint(code) : m
+    }
+    return NAMED_ENTITIES[ent] ?? m
+  })
+}
+
 /** Parse WebVTT cues, stripping YouTube's inline word-level timing tags (`<00:00:01.234>`,
- *  `<c>...</c>`) down to plain cue text. Does NOT dedupe rolling-caption repeats — see
- *  dedupeRollingCues() for that, kept separate so this stays a pure "what does the file
- *  literally say" parser. */
+ *  `<c>...</c>`) and decoding HTML entities down to plain cue text. Does NOT reconstruct
+ *  YouTube's overlapping "rolling caption" windows into real sentences — see
+ *  reconstructWords()/sentenceizeWords() for that. */
 export function parseVtt(vtt: string): Cue[] {
   const lines = vtt.split(/\r?\n/)
   const cues: Cue[] = []
@@ -33,7 +50,7 @@ export function parseVtt(vtt: string): Cue[] {
       i++
       const textLines: string[] = []
       while (i < lines.length && lines[i]!.trim() !== '') { textLines.push(lines[i]!); i++ }
-      const text = textLines.join(' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      const text = decodeHtmlEntities(textLines.join(' ').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim()
       if (text) cues.push({ start, end, text })
     }
     i++
@@ -41,16 +58,56 @@ export function parseVtt(vtt: string): Cue[] {
   return cues
 }
 
-/** Collapse consecutive rolling-caption duplicates (identical text, back to back) into one
- *  cue spanning the full run — same de-dup idea as transcript.ts's cleanVttText(), but keeps
- *  real per-cue timing instead of discarding it (needed for a real SRT, not prose). */
-export function dedupeRollingCues(cues: Cue[]): Cue[] {
-  const out: Cue[] = []
-  for (const c of cues) {
-    const last = out[out.length - 1]
-    if (last && last.text === c.text) { last.end = c.end; continue }
-    out.push({ ...c })
+interface TimedWord { text: string; time: number }
+
+/** YouTube's auto-captions are "rolling": each cue re-shows the tail of the previous cue's
+ *  text plus a few new words, rather than one cue per sentence (confirmed live — cue 2's
+ *  text starts with cue 1's exact tail, then extends). Reconstruct the true, non-overlapping
+ *  word stream by finding the longest run of already-emitted words that matches the START of
+ *  each new cue, and only appending the genuinely new trailing words — with their timestamp
+ *  interpolated across that cue's [start, end] span by word position. */
+function reconstructWords(cues: Cue[]): TimedWord[] {
+  const out: TimedWord[] = []
+  for (const cue of cues) {
+    const words = cue.text.split(/\s+/).filter(Boolean)
+    if (!words.length) continue
+    const maxCheck = Math.min(words.length, out.length, 20)
+    let overlap = 0
+    for (let k = maxCheck; k > 0; k--) {
+      const tail = out.slice(out.length - k).map(w => w.text).join(' ')
+      const head = words.slice(0, k).join(' ')
+      if (tail === head) { overlap = k; break }
+    }
+    const newWords = words.slice(overlap)
+    const span = Math.max(cue.end - cue.start, 0.01)
+    newWords.forEach((text, idx) => {
+      out.push({ text, time: cue.start + span * ((overlap + idx) / words.length) })
+    })
   }
+  return out
+}
+
+const SENTENCE_END_RE = /[.!?]["')\]]?$/
+const MAX_SENTENCE_WORDS = 40 // safety break for long stretches with no terminal punctuation
+
+/** Group a reconstructed, non-overlapping word stream into sentence-sized cues — plain
+ *  fragment-per-cue captions (YouTube's raw rolling style) are hard to read; real sentences
+ *  aren't. */
+function sentenceizeWords(words: TimedWord[]): Cue[] {
+  const out: Cue[] = []
+  let buf: TimedWord[] = []
+  const flush = (endTime: number) => {
+    if (!buf.length) return
+    out.push({ start: buf[0]!.time, end: Math.max(endTime, buf[0]!.time + 0.5), text: buf.map(w => w.text).join(' ') })
+    buf = []
+  }
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!
+    buf.push(w)
+    const next = words[i + 1]
+    if (SENTENCE_END_RE.test(w.text) || buf.length >= MAX_SENTENCE_WORDS) flush(next?.time ?? w.time)
+  }
+  flush(words[words.length - 1]?.time ?? 0)
   return out
 }
 
@@ -83,7 +140,7 @@ function fmtSrtTime(sec: number): string {
  * computed — never re-derive it independently, or captions and video WILL drift apart.
  */
 export function cutAndRenderSrt(vtt: string, keepRanges: Range[]): string {
-  const cues = dedupeRollingCues(parseVtt(vtt))
+  const cues = sentenceizeWords(reconstructWords(parseVtt(vtt)))
   const entries: string[] = []
   let index = 1
   for (const cue of cues) {

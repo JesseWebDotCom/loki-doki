@@ -395,7 +395,7 @@ export function MapsPage(): JSX.Element {
     // wrong zoom, click again to finish" bug). Defer to moveend while moving.
     if (map.isMoving()) {
       map.once("moveend", apply);
-      return () => map.off("moveend", apply);
+      return () => { map.off("moveend", apply); };
     }
     apply();
   }, [globeView]);

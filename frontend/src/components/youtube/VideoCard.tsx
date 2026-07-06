@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, CloudOff, Download } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
+import { Spinner } from '@/components/ui/spinner'
 import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { watchProgress, type VideoItem } from '@/lib/youtube/types'
+import { saveOffline } from '@/lib/youtube/api'
+import { useSavedState } from '@/lib/youtube/useData'
 import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
@@ -26,7 +30,32 @@ function useGhost(item: Pick<VideoItem, 'videoId' | 'title' | 'localKind'>) {
   return { ghosted, onClick }
 }
 
-function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null }) {
+/** One-click "Save offline": queues a server-side yt-dlp download of this video at the user's
+ *  default Save quality — no dialog. Returns `onSave: undefined` when the item is already a local
+ *  file (nothing to save). Reflects live progress via the shared downloads cache. */
+function useCardSave(item: Pick<VideoItem, 'videoId' | 'localKind'>, title: string) {
+  const qc = useQueryClient()
+  const saved = useSavedState(item.videoId)
+  const [saving, setSaving] = useState(false)
+  const saveState: 'saved' | 'saving' | null = saving ? 'saving' : saved
+  // Already-offline items (local files) have nothing to save.
+  if (item.localKind) return { saveState: 'saved' as const, onSave: undefined }
+  const onSave = async (e: MouseEvent) => {
+    // The card body is a <Link>; keep the click from navigating.
+    e.preventDefault(); e.stopPropagation()
+    if (saveState === 'saved' || saveState === 'saving') return
+    setSaving(true)
+    try {
+      const d = await saveOffline({ videoId: item.videoId, title, kind: 'video' })
+      if (d.error) { toast.error(d.error); return }
+      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
+      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+    } catch { toast.error('Could not save') } finally { setSaving(false) }
+  }
+  return { saveState, onSave }
+}
+
+function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null; saveState?: 'saved' | 'saving' | null; onSave?: (e: MouseEvent) => void }) {
   const dur = fmtDur(i.durationSec)
   const progress = watchProgress(i)
   // Fades in once the preview clip is actually decoding a frame, rather than the instant
@@ -68,6 +97,22 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc }: { i: VideoItem; 
           <CheckCircle2 className="size-3" /> Watched
         </span>
       )}
+      {onSave && !ghosted && (
+        // One-click Save: yt-dlp downloads this to the Offline library for later viewing. Sits over
+        // the thumbnail (top-right, clear of the top-left status badges); hover-revealed, but stays
+        // visible once saving/saved so the state reads at a glance.
+        <button type="button" onClick={onSave}
+          title={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline…' : 'Save offline'}
+          aria-label={saveState === 'saved' ? 'Saved offline' : 'Save offline'}
+          className={cn('absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full text-white transition-all',
+            saveState === 'saved' ? 'bg-[var(--yt-accent)] opacity-100 hover:bg-[var(--yt-accent-hover)]'
+              : saveState === 'saving' ? 'bg-black/75 opacity-100'
+              : 'bg-black/75 opacity-0 hover:bg-black/90 group-hover:opacity-100')}>
+          {saveState === 'saving' ? <Spinner className="size-3.5 text-white" />
+            : saveState === 'saved' ? <Check className="size-3.5" />
+            : <HardDriveDownload className="size-3.5" />}
+        </button>
+      )}
       {dur && (
         <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
       )}
@@ -88,12 +133,13 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
   const { previewSrc, bind } = useCardHoverPreview(item)
+  const { saveState, onSave } = useCardSave(item, title)
   // Online shorts open in the vertical Shorts feed; everything else (and offline
   // shorts, which need local playback) goes to the standard watch page.
   const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
   const body = (
     <>
-      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} />
+      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
       <div className="flex gap-2.5">
         {item.author && (
           <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('mt-0.5 size-8 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />

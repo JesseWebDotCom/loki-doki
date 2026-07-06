@@ -1200,6 +1200,10 @@ export const ytDownloads = sqliteTable('yt_downloads', {
   // Ephemeral: hidden from libraries and evicted by a rolling keep-N prune. Promoted to a real
   // ref (prefetch=false) if the user later explicitly saves the same track.
   prefetch: integer('prefetch', { mode: 'boolean' }).notNull().default(false),
+  // Which app saved this ref. Music saves (station snapshots + à-la-carte songs) reuse the same
+  // pipeline but belong to the Music app's offline library — the YouTube Saved tab filters them
+  // out (origin <> 'music'). Defaults to 'youtube' for all existing/legacy rows.
+  origin: text('origin', { enum: ['youtube', 'music'] }).notNull().default('youtube'),
   error: text('error'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),

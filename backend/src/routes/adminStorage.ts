@@ -9,7 +9,7 @@ import { requireAdmin } from '@/middleware/auth'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { getDataRoot, userSlug } from '@/lib/storage/paths'
 import { dataDir } from '@/lib/download'
-import { checkDirectoryAccess, freeBytesAt, formatBytes as sharedFormatBytes } from '@/lib/storage/accessCheck'
+import { checkDirectoryAccess, freeBytesAt, formatBytes as sharedFormatBytes, crossPlatformPathHint } from '@/lib/storage/accessCheck'
 
 const app = new Hono()
 app.use('*', requireAdmin)
@@ -80,7 +80,15 @@ app.get('/', async (c) => {
 app.post('/validate', async (c) => {
   const { path: candidatePath } = await c.req.json<{ path: string }>()
   if (!candidatePath || !isAbsolute(candidatePath)) {
-    return c.json({ ok: false, error: 'Path must be an absolute filesystem path.' }, 400)
+    // Full shape, not a bare {ok,error} — the frontend renders checks.read/write/etc.
+    // unconditionally and a differently-shaped reply here would crash instead of showing this.
+    // Gate is node:path's own host-native isAbsolute(), not a cross-platform shape check —
+    // see accessCheck.ts's crossPlatformPathHint() doc comment for why that's load-bearing.
+    return c.json({
+      ok: false, checks: { read: false, write: false, rename: false, delete: false },
+      error: crossPlatformPathHint(candidatePath ?? '') ?? 'Path must be an absolute filesystem path for the OS this backend runs on.',
+      currentBytes: 0, currentFormatted: '0 B', freeBytes: null, freeFormatted: null, fitsInDestination: true, spaceWarning: null,
+    }, 400)
   }
 
   const access = await checkDirectoryAccess(candidatePath)
@@ -111,7 +119,7 @@ app.post('/validate', async (c) => {
 app.post('/migrate', async (c) => {
   const { path: newRoot } = await c.req.json<{ path: string }>()
   if (!newRoot || !isAbsolute(newRoot)) {
-    return c.json({ ok: false, error: 'Path must be absolute.' }, 400)
+    return c.json({ ok: false, error: crossPlatformPathHint(newRoot ?? '') ?? 'Path must be an absolute filesystem path for the OS this backend runs on.' }, 400)
   }
 
   const currentRoot = await getDataRoot()

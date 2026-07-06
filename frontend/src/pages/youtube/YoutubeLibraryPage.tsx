@@ -169,13 +169,17 @@ function SavedTab() {
 
   // Manual trigger while the Plex export feature is new (automatic sync on save/prune
   // is a separate, later piece of the same feature). Requires a Plex library already
-  // provisioned for this user (Admin → Plex); harmlessly no-ops otherwise.
+  // provisioned for this user (Admin → Plex) — the backend now fails loudly with a real
+  // error if not, rather than silently enqueueing jobs that no-op (that used to look
+  // identical to success: "completed" jobs that did nothing because the library didn't
+  // exist yet when they ran).
   const syncToPlex = async () => {
     setSyncingPlex(true)
     try {
       const res = await fetch('/api/youtube/plex/sync-all', { method: 'POST', credentials: 'include' })
-      const data = await res.json() as { ok: boolean; enqueued: number }
-      toast.success(data.ok ? `Syncing ${data.enqueued} video${data.enqueued === 1 ? '' : 's'} to Plex` : 'Could not start Plex sync')
+      const data = await res.json() as { ok: boolean; enqueued?: number; error?: string }
+      if (data.ok) toast.success(`Syncing ${data.enqueued} video${data.enqueued === 1 ? '' : 's'} to Plex`)
+      else toast.error(data.error ?? 'Could not start Plex sync')
     } catch {
       toast.error('Could not start Plex sync')
     } finally {

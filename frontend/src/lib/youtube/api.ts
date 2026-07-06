@@ -516,6 +516,12 @@ export async function getSaveQuality(): Promise<SaveQuality> {
   return r.json() as Promise<SaveQuality>
 }
 
+/** Save a channel's current back-catalogue (latest `count` uploads) to the Offline library now. */
+export async function saveChannelNow(channelId: string, body: { kind: 'audio' | 'video'; count: number }): Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }> {
+  const r = await fetch(`/api/youtube/channel/${encodeURIComponent(channelId)}/save-now`, { ...opts, method: 'POST', headers: J, body: JSON.stringify(body) })
+  return r.json() as Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }>
+}
+
 // ── Live-from-start DVR ──────────────────────────────────────────────────────────
 
 export async function startLiveRecord(videoId: string, title: string): Promise<{ status?: string; error?: string }> {

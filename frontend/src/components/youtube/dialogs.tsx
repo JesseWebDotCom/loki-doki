@@ -5,8 +5,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import {
-  Plus, Trash2, UploadCloud, Music, Video as VideoIcon, Settings2, BookmarkPlus, BookmarkCheck, Rss,
-  Download, PauseCircle,
+  Plus, Trash2, UploadCloud, Music, Video as VideoIcon, Settings2, BookmarkCheck, Rss,
+  Download, HardDriveDownload, PauseCircle,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
@@ -193,7 +193,7 @@ export function SaveDialog({ target, onClose, onSaved }: { target: SaveTarget | 
         </div>
         {cap && <p className="text-[10px] text-muted-foreground/60">Max {resLabel(cap)} set by your admin.</p>}
         <Button onClick={save} disabled={saving || !choice} className="w-full font-semibold">
-          {saving ? <Spinner className="text-primary-foreground" /> : <BookmarkPlus className="size-4" />} Save offline
+          {saving ? <Spinner className="text-primary-foreground" /> : <HardDriveDownload className="size-4" />} Save offline
         </Button>
       </DialogContent>
     </Dialog>

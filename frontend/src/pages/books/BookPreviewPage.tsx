@@ -192,7 +192,9 @@ export function BookPreviewPage() {
                   <BookResultTile
                     id={key}
                     to={`/books/preview/${isLibrivox ? 'librivox' : 'ebook'}/${encodeURIComponent(key)}`}
-                    state={{ kind: isLibrivox ? 'librivox' : 'ebook', result: item } satisfies PreviewState}
+                    state={(isLibrivox
+                      ? { kind: 'librivox', result: item as LibrivoxSearchResult }
+                      : { kind: 'ebook', result: item as BookSearchResult }) satisfies BookPreviewState}
                     title={item.title}
                     author={item.author}
                     coverSrc={item.coverUrl ? proxyImg(item.coverUrl) : null}

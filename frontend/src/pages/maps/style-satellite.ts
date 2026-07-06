@@ -18,6 +18,10 @@ const SAT: Palette = {
   wood: "transparent",
   grass: "transparent",
   farmland: "transparent",
+  wetland: "transparent",
+  sand: "transparent",
+  rock: "transparent",
+  ice: "transparent",
   residential: "transparent",
   commercial: "transparent",
   industrial: "transparent",
@@ -29,6 +33,7 @@ const SAT: Palette = {
   roadCasing: "rgba(0,0,0,0.55)",
   majorRoadLabel: "#fcd34d",
   building: "rgba(255,255,255,0.07)",
+  buildingTall: "rgba(255,255,255,0.12)",
   buildingOutline: "rgba(255,255,255,0.15)",
   countryBoundary: "rgba(220,180,255,0.9)",
   stateBoundary: "rgba(180,140,230,0.7)",
@@ -40,6 +45,8 @@ const SAT: Palette = {
   waterLabelHalo: "rgba(0,0,0,0.75)",
   poiLabel: "#ffffff",
   houseNumber: "rgba(255,255,255,0.45)",
+  landcoverOpacity: 0.5,
+  isDark: true,
 };
 
 const ESRI_SAT =

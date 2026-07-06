@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BookmarkPlus, Download, Heart, Clock, Search, Smartphone, Mic, Check,
+  HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
   ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square,
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
@@ -24,11 +24,11 @@ import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
-import { useYtFeed } from '@/lib/youtube/useData'
+import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
-  startLiveRecord, stopLiveRecord,
+  startLiveRecord, stopLiveRecord, saveOffline,
   ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
@@ -68,7 +68,6 @@ export function WatchPage() {
   const [params] = useSearchParams()
   const localKind = (params.get('k') as 'audio' | 'video' | null) ?? undefined
   const navigate = useNavigate()
-  const ui = useYoutubeUI()
   const pb = useYoutubePlayback()
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [tab, setTab] = useState<SideTab>('transcript')
@@ -327,6 +326,20 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const qc = useQueryClient()
   const { shareLink } = useShareLink()
   const [expanded, setExpanded] = useState(false)
+  // One-click Save: yt-dlp downloads this to the Offline library at the user's default quality.
+  const savedRemote = useSavedState(videoId)
+  const [savingLocal, setSavingLocal] = useState(false)
+  const saveState: 'saved' | 'saving' | null = localKind ? 'saved' : savingLocal ? 'saving' : savedRemote
+  async function saveVideoOffline() {
+    if (saveState === 'saved' || saveState === 'saving') return
+    setSavingLocal(true)
+    try {
+      const d = await saveOffline({ videoId, title, kind: 'video' })
+      if (d.error) { toast.error(d.error); return }
+      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
+      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+    } catch { toast.error('Could not save') } finally { setSavingLocal(false) }
+  }
   const [podcastOpen, setPodcastOpen] = useState(false)
   const [subbed, setSubbed] = useState(meta?.subscribed ?? false)
   const [subId, setSubId] = useState(meta?.subscriptionId ?? null)
@@ -449,7 +462,15 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
                 active={recording} tone="accent" iconFill={recording} onClick={recordBusy ? undefined : toggleRecording}
                 title={recording ? 'Stop recording — keeps what was captured' : 'Record this livestream from its start'} />
             )}
-            <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
+            {!localKind && (
+              <SegBtn icon={saveState === 'saved' ? Check : HardDriveDownload}
+                label={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline…' : 'Save offline'}
+                active={saveState === 'saved'} iconFill={false}
+                onClick={saveState === 'saving' ? undefined : saveVideoOffline}
+                title="Save offline: this server downloads the video so you can watch it later without streaming." />
+            )}
+            <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)}
+              title="Download: pull the video file down to this device (like any web download)." />
             <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/youtube/watch/${videoId}`, { label: 'Link' })} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -463,11 +484,6 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
                   <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
                   {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
                 </DropdownMenuItem>
-                {!localKind && (
-                  <DropdownMenuItem onClick={() => ui.openSave(videoId, title)}>
-                    <BookmarkPlus className="size-4" /> Save to bookmarks
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
                   <Mic className="size-4" /> Create podcast
                 </DropdownMenuItem>

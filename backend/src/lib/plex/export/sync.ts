@@ -11,11 +11,12 @@ import { innertubeChannel } from '@/lib/youtube/innertube'
 import { getUserSkipCategories, getSkipSegments } from '@/lib/youtube/sponsorblock'
 import { ensureTranscript } from '@/lib/youtube/download'
 import { toPlexPath, joinUnderRoot, getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
+import { getPlexConnection, type PlexConnection } from '@/lib/plex/index'
 import { userContentRoot } from '@/lib/plex/export/library'
 import { showFolderName, seasonFolderRelPath, episodeFileNames } from '@/lib/plex/export/paths'
 import { buildTvShowNfo, buildEpisodeNfo, showNfoHash } from '@/lib/plex/export/nfo'
-import { writeShowAssets, writeEpisodeThumb } from '@/lib/plex/export/assets'
-import { placeFile } from '@/lib/plex/export/placement'
+import { writeShowAssets, writeSeasonAssets, writeEpisodeThumb } from '@/lib/plex/export/assets'
+import { placeVideoWithMetadata } from '@/lib/plex/export/placement'
 import { refreshPlexPath } from '@/lib/plex/export/refresh'
 import { cutSetHash, hasAnyEnabled } from '@/lib/plex/cut/cutSet'
 import { plexCutFormat } from '@/lib/plex/cut/run'
@@ -40,8 +41,63 @@ function resolveVariant(tab: string | null, durationSec: number | null): 'main' 
   return durationSec != null && durationSec <= 90 ? 'shorts' : 'main'
 }
 
+/** Season "names" are just the tab the videos came from (Videos/Shorts/Live) rather than
+ *  the raw calendar year — the year is still what groups episodes into folders/NFO
+ *  <season> numbers (unrelated to and unaffected by this), this only changes the DISPLAY
+ *  text Plex shows for that season when "Use season titles" is enabled. Shorts already get
+ *  their own separate show (a different variant), so in practice a show only ever has one
+ *  of these per season instance; kept as a lookup (not a fixed variant-wide constant) so a
+ *  season 0 "no publish date known" episode still gets a sensible label instead of "0".
+ */
+function seasonDisplayName(variant: 'main' | 'shorts', seasonYear: number): string {
+  if (seasonYear === 0) return 'Specials'
+  return variant === 'shorts' ? 'Shorts' : 'Videos'
+}
+
+const PLEX_TIMEOUT_MS = 15_000
+
+async function resolveShowRatingKey(conn: PlexConnection, sectionKey: string, showTitle: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${conn.baseUrl}/library/sections/${encodeURIComponent(sectionKey)}/all?type=2&X-Plex-Token=${encodeURIComponent(conn.token)}`, {
+      headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(PLEX_TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null) as { MediaContainer?: { Metadata?: Array<{ ratingKey?: string; title?: string }> } } | null
+    return data?.MediaContainer?.Metadata?.find(m => m.title === showTitle)?.ratingKey ?? null
+  } catch { return null }
+}
+
+/** Sets the show's description directly on the Plex item via the same metadata-edit API
+ *  Plex's own "Edit Metadata" UI uses (verified live 2026-07) — bypasses the whole NFO/agent
+ *  question entirely: the active "Plex TV Series" agent never reads our tvshow.nfo's <plot>
+ *  (confirmed live — refresh metadata, still blank), but a direct field edit doesn't care
+ *  what agent is active. `.locked=1` stops Plex from ever overwriting it via a future
+ *  (re-)match. Best-effort — the show might not be scanned into Plex's index yet (its
+ *  season/episode file was just placed and refresh is async), so a short retry covers the
+ *  common case without blocking the whole sync on it. */
+async function setShowDescription(sectionKey: string, showTitle: string, description: string): Promise<void> {
+  if (!description) return
+  const conn = await getPlexConnection()
+  if (!conn) return
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ratingKey = await resolveShowRatingKey(conn, sectionKey, showTitle)
+    if (ratingKey) {
+      const params = new URLSearchParams({ type: '2', id: ratingKey, 'summary.value': description, 'summary.locked': '1', 'X-Plex-Token': conn.token })
+      try {
+        const res = await fetch(`${conn.baseUrl}/library/metadata/${encodeURIComponent(ratingKey)}?${params.toString()}`, {
+          method: 'PUT', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(PLEX_TIMEOUT_MS),
+        })
+        if (res.ok) return
+      } catch (err) {
+        logger.warn(`[plex-export] setShowDescription PUT failed for "${showTitle}": ${err}`)
+      }
+    }
+    if (attempt < 2) await new Promise(r => setTimeout(r, 1500))
+  }
+}
+
 async function ensureShow(
-  userId: string, firstName: string, channelId: string, channelTitleFallback: string, variant: 'main' | 'shorts',
+  userId: string, firstName: string, channelId: string, channelTitleFallback: string, variant: 'main' | 'shorts', seasonYear: number, sectionKey: string,
 ): Promise<{ id: string; title: string; folderRelPath: string; showDirAbs: string }> {
   const [existing] = await db.select().from(ytPlexShows)
     .where(and(eq(ytPlexShows.userId, userId), eq(ytPlexShows.channelId, channelId), eq(ytPlexShows.variant, variant)))
@@ -58,30 +114,36 @@ async function ensureShow(
   const folderRelPath = showFolderName(title, variant)
   const root = await userContentRoot(CONTENT_TYPE, userId, firstName)
   const showDirAbs = joinUnderRoot(root, folderRelPath)
-  const nowHash = showNfoHash({ title, description: meta?.description ?? null, avatarUrl: meta?.thumbnailUrl ?? null, bannerUrl: meta?.bannerUrl ?? null })
   const now = new Date()
 
-  if (existing) {
-    if (existing.nfoHash !== nowHash) {
-      await mkdir(showDirAbs, { recursive: true })
-      await writeFile(`${showDirAbs}/tvshow.nfo`, buildTvShowNfo({ title, plot: meta?.description ?? '' }))
-      await writeShowAssets(showDirAbs, { avatarUrl: meta?.thumbnailUrl ?? null, bannerUrl: meta?.bannerUrl ?? null })
-      await db.update(ytPlexShows).set({
-        title, nfoHash: nowHash, nfoWrittenAt: now, postersWrittenAt: now, updatedAt: now,
-      }).where(eq(ytPlexShows.id, existing.id))
-    }
+  const showId = existing?.id ?? crypto.randomUUID()
+  const knownSeasonYears = existing
+    ? [...new Set([...(await db.select({ y: ytPlexEpisodes.seasonYear }).from(ytPlexEpisodes).where(eq(ytPlexEpisodes.showId, existing.id))).map(r => r.y), seasonYear])]
+    : [seasonYear]
+  const namedSeasons = knownSeasonYears.map(y => ({ number: y, name: seasonDisplayName(variant, y) }))
+  const nowHash = showNfoHash({ title, description: meta?.description ?? null, avatarUrl: meta?.thumbnailUrl ?? null, bannerUrl: meta?.bannerUrl ?? null, seasonYears: knownSeasonYears })
+
+  if (existing && existing.nfoHash === nowHash) {
     return { id: existing.id, title: existing.title, folderRelPath: existing.folderRelPath, showDirAbs }
   }
 
   await mkdir(showDirAbs, { recursive: true })
-  await writeFile(`${showDirAbs}/tvshow.nfo`, buildTvShowNfo({ title, plot: meta?.description ?? '' }))
+  await writeFile(`${showDirAbs}/tvshow.nfo`, buildTvShowNfo({ title, plot: meta?.description ?? '', namedSeasons }))
   await writeShowAssets(showDirAbs, { avatarUrl: meta?.thumbnailUrl ?? null, bannerUrl: meta?.bannerUrl ?? null })
-  const id = crypto.randomUUID()
-  await db.insert(ytPlexShows).values({
-    id, userId, channelId, variant, title, folderRelPath,
-    nfoHash: nowHash, nfoWrittenAt: now, postersWrittenAt: now, createdAt: now, updatedAt: now,
-  })
-  return { id, title, folderRelPath, showDirAbs }
+  await writeSeasonAssets(showDirAbs, seasonYear, seasonDisplayName(variant, seasonYear), channelId, { bannerUrl: meta?.bannerUrl ?? null })
+  // Fire-and-forget: the show may not be scanned into Plex's index yet on a first-ever
+  // placement (setShowDescription retries a few times to cover the common case), and this
+  // shouldn't hold up the rest of the sync either way.
+  if (meta?.description) void setShowDescription(sectionKey, title, meta.description)
+  if (existing) {
+    await db.update(ytPlexShows).set({ title, nfoHash: nowHash, nfoWrittenAt: now, postersWrittenAt: now, updatedAt: now }).where(eq(ytPlexShows.id, existing.id))
+  } else {
+    await db.insert(ytPlexShows).values({
+      id: showId, userId, channelId, variant, title, folderRelPath,
+      nfoHash: nowHash, nfoWrittenAt: now, postersWrittenAt: now, createdAt: now, updatedAt: now,
+    })
+  }
+  return { id: showId, title, folderRelPath, showDirAbs }
 }
 
 /** MMDD-derived, bumped on same-day collision within (showId, seasonYear) — see schema.ts
@@ -151,7 +213,7 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   const variant = resolveVariant(video.tab, video.durationSec)
   const seasonYear = video.publishedAt ? new Date(video.publishedAt).getFullYear() : 0
 
-  const show = await ensureShow(userId, user.firstName, video.channelId, video.author, variant)
+  const show = await ensureShow(userId, user.firstName, video.channelId, video.author, variant, seasonYear, section.plexSectionKey)
   const episodeNumber = await resolveEpisodeNumber(show.id, seasonYear, video.publishedAt, videoId)
 
   const rendition = await resolveRendition(userId, videoId, asset, video.durationSec)
@@ -173,14 +235,14 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   const videoAbsPath = joinUnderRoot(seasonDirAbs, names.video)
 
   const sourceAbsPath = await blobAbsPath(rendition.blobHash)
-  await placeFile(sourceAbsPath, videoAbsPath)
+  await placeVideoWithMetadata(sourceAbsPath, videoAbsPath, { title: video.title, plot: video.description ?? video.summary ?? '' })
 
   await mkdir(dirname(videoAbsPath), { recursive: true })
   await writeFile(joinUnderRoot(seasonDirAbs, names.nfo), buildEpisodeNfo({
     title: video.title, plot: video.description ?? video.summary ?? '', aired: isoDate(video.publishedAt),
     season: seasonYear, episode: episodeNumber,
   }))
-  await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), video.thumbnailUrl)
+  await writeEpisodeThumb(joinUnderRoot(seasonDirAbs, names.thumb), video.thumbnailUrl, video.durationSec)
 
   // Captions: re-time against the SAME keepRanges used for the video (identity when
   // nothing was cut) so they can never drift out of sync with what's actually playing.
@@ -249,9 +311,33 @@ export async function removeVideoFromPlex(userId: string, videoId: string): Prom
         }
       }
     } catch { /* season folder already gone */ }
+    // A show whose last episode was just removed (unsave, auto-prune, or a rule like the
+    // Topic-channel exclusion above stripping every episode it had) would otherwise linger
+    // in Plex as an empty ghost entry — confirmed live: exactly this happened for 3 shows
+    // after excluding music "Topic" channels. Clean up the whole show, not just the episode,
+    // when nothing's left under it.
+    const showDirAbs = dirname(seasonDir)
+    let showEmptied = false
+    try {
+      const remaining = await readdir(seasonDir)
+      if (remaining.length === 0) {
+        await rm(seasonDir, { recursive: true, force: true })
+      }
+    } catch { /* already gone */ }
+    try {
+      const showEntries = await readdir(showDirAbs)
+      const hasSeasonContent = showEntries.some(name => name.startsWith('Season '))
+      if (!hasSeasonContent) {
+        await rm(showDirAbs, { recursive: true, force: true })
+        showEmptied = true
+      }
+    } catch { /* already gone */ }
+    if (showEmptied) await db.delete(ytPlexShows).where(eq(ytPlexShows.id, ep.showId))
+
     if (section?.plexSectionKey) {
       const contentTypeStorageLocationId = await getContentTypeStorageLocationId(CONTENT_TYPE)
-      const plexPath = await toPlexPath(contentTypeStorageLocationId, dirname(videoAbsPath))
+      const refreshPath = showEmptied ? root : dirname(videoAbsPath)
+      const plexPath = await toPlexPath(contentTypeStorageLocationId, refreshPath)
       if (plexPath) await refreshPlexPath(section.plexSectionKey, plexPath)
     }
   }

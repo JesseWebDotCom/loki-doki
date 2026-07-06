@@ -126,7 +126,7 @@ export function StingerPicker({ onChange, autoSelect = true }: {
 
       {tab === 'library' && (
         tracks.length || libLoading || libError ? (
-          <TrackVariantGrid<MusicTrack & { key: string; previewUrl: string }>
+          <TrackVariantGrid<MusicTrack & { key: string; label: string; previewUrl: string }>
             variants={tracks.map((t) => ({ ...t, key: t.id, label: t.title, previewUrl: trackAudioUrl(t.id) }))}
             loading={libLoading} selectedKey={selected} pickingKey={picking}
             onSelect={(t) => void chooseTrack(t)} columns={1}

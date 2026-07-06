@@ -110,7 +110,6 @@ export function EqVisualizer({
     }
 
     let raf = 0
-    let parked = false
 
     function frame() {
       const { active, getAnalyser } = stateRef.current
@@ -132,13 +131,12 @@ export function EqVisualizer({
       draw()
 
       // Park only when inactive (paused/stopped) and the bars have settled.
-      if (!active && !moving) { parked = true; return }
+      if (!active && !moving) { return }
       raf = requestAnimationFrame(frame)
     }
 
     function kick() {
       if (reduced) return
-      parked = false
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(frame)
     }

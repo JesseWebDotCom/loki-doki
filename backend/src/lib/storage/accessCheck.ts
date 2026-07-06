@@ -1,5 +1,39 @@
 import { writeFile, readFile, rename, unlink, mkdir, statfs } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, isAbsolute } from 'node:path'
+
+const WINDOWS_ABSOLUTE_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
+
+/**
+ * REJECTED (2026-07): this used to accept a Windows-style path even when the host process
+ * is POSIX, reasoning that the real fs check below would fail cleanly if it didn't actually
+ * work on this host. That assumption was wrong, and it was confirmed live in production, not
+ * hypothetically: POSIX `fs` calls don't error on a backslash-UNC string, they silently
+ * treat the WHOLE thing as one bizarre RELATIVE filename (no leading '/') and happily create
+ * it wherever the process's cwd happens to be. "Test access" reported success — because it
+ * genuinely could write/read/delete a file — while never touching the real network share at
+ * all, leaving junk folders inside the app's own working directory instead. So the real gate
+ * must be `node:path`'s own host-native `isAbsolute()` — see `crossPlatformPathHint()` below
+ * for turning a same-shape-wrong-host rejection into a specific, actionable message instead
+ * of a generic "must be absolute" one.
+ */
+function pathFlavor(p: string): 'windows' | 'posix' | null {
+  if (WINDOWS_ABSOLUTE_RE.test(p)) return 'windows'
+  if (p.startsWith('/')) return 'posix'
+  return null
+}
+
+/** When `p` fails the real `isAbsolute()` gate, this explains WHY if it's recognizably an
+ *  absolute path for the OTHER kind of OS — e.g. a Windows UNC path typed against a
+ *  macOS/Linux backend. Returns null when there's nothing more specific to say (caller falls
+ *  back to a generic "must be an absolute path" message). */
+export function crossPlatformPathHint(p: string): string | null {
+  const flavor = pathFlavor(p)
+  if (!flavor || isAbsolute(p)) return null
+  if (flavor === 'windows') {
+    return 'This looks like a Windows path, but this backend runs on macOS/Linux, which can\'t use backslash paths directly. Mount the network share at the OS level first (e.g. Finder → Connect to Server on macOS, or an /etc/fstab entry on Linux), then enter the resulting LOCAL path here — e.g. /Volumes/ShareName/... — not the raw \\\\server\\share address.'
+  }
+  return 'This looks like a POSIX path, but this backend runs on Windows. Use a drive letter (C:\\...) or a UNC path (\\\\server\\share) instead.'
+}
 
 export interface AccessCheckResult {
   ok: boolean

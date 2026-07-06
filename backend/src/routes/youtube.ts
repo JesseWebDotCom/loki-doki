@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { eq, ne, and, or, desc, inArray, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, musicOfflineStationTracks } from '@/db/schema'
+import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, musicOfflineStationTracks, plexLibrarySections } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { youtubeTool } from '@/tools/youtube'
 import { resolveToolConfig } from '@/lib/toolConfig'
@@ -491,20 +491,34 @@ youtubeRoute.post('/downloads/delete', async (c) => {
 // testing the export before the automatic hooks (new save / auto-prune) are wired in.
 youtubeRoute.post('/plex/sync-all', async (c) => {
   const user = c.get('user')
+  // Fail loudly here rather than silently — syncVideoToPlex() itself no-ops (not an error)
+  // when the user has no ready Plex library yet, which is CORRECT for the automatic
+  // save/prune hooks (most users never opt into Plex at all) but was actively misleading
+  // for this manual button: every enqueued job came back "completed" having done nothing,
+  // indistinguishable from a real success, with the library simply never getting populated.
+  const [section] = await db.select().from(plexLibrarySections)
+    .where(and(eq(plexLibrarySections.userId, user.id), eq(plexLibrarySections.contentType, 'youtube')))
+  if (!section || section.status !== 'ready') {
+    return c.json({ ok: false, error: 'Your Plex library isn’t provisioned yet — ask an admin to set it up in Admin → Plex first.' }, 400)
+  }
+  // prefetch=true rows are the app's own speculative cache-warming, never a real user save
+  // (confirmed live: a "Killers" song and 2 others leaked into Plex this way — the user
+  // never saved them, they don't appear in the app's own Offline tab either, since that
+  // list is genuine-saves-only for the same reason).
   const rows = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
-    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'video'), eq(ytDownloads.status, 'ready')))
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'video'), eq(ytDownloads.status, 'ready'), eq(ytDownloads.prefetch, false)))
   const { enqueuePlexSync } = await import('@/lib/downloadJobs')
   for (const r of rows) await enqueuePlexSync(user.id, r.videoId, 'add')
   return c.json({ ok: true, enqueued: rows.length })
 })
 
-// Manual trigger to sync this user's playlists/Watch Later/Liked into Plex Collections.
+// Manual trigger to sync this user's playlists/Watch Later/Liked into real Plex Playlists.
 // Runs inline (not queued) — it's read-heavy against Plex plus a handful of PUTs, not a
 // download, and its own timeouts already bound how long a single call can take.
 youtubeRoute.post('/plex/sync-collections', async (c) => {
   const user = c.get('user')
-  const { syncCollectionsForUser } = await import('@/lib/plex/export/collections')
-  await syncCollectionsForUser(user.id).catch(() => {})
+  const { syncPlaylistsForUser } = await import('@/lib/plex/export/playlists')
+  await syncPlaylistsForUser(user.id).catch(() => {})
   return c.json({ ok: true })
 })
 
@@ -533,6 +547,34 @@ async function handleSave(c: Context<AppEnv>) {
 
 youtubeRoute.post('/save', handleSave)
 youtubeRoute.post('/download', handleSave)   // legacy alias
+
+// Save a channel's current back-catalogue: fetch its latest `count` uploads and enqueue each
+// as a permanent offline save right now. This is the "grab what's already there" companion to
+// per-subscription auto-save (which only covers NEW uploads going forward). Because these are
+// explicit saves (auto:false), the rolling keep-N prune never touches them.
+youtubeRoute.post('/channel/:channelId/save-now', async (c) => {
+  const user = c.get('user')
+  const channelId = c.req.param('channelId')
+  const { kind: reqKind = 'video', count = 10 } = await c.req.json<{ kind?: 'audio' | 'video'; count?: number }>().catch(() => ({}) as { kind?: 'audio' | 'video'; count?: number })
+  const kind: 'audio' | 'video' = reqKind === 'audio' ? 'audio' : 'video'
+  const n = Math.max(1, Math.min(50, Math.floor(count) || 10))
+
+  const page = await innertubeChannel(channelId, null, n).catch(() => null)
+  const videos = (page?.videos ?? []).filter(v => isValidVideoId(v.videoId)).slice(0, n)
+  if (!videos.length) return c.json({ error: 'No videos found for this channel' }, 404)
+
+  const firstName = await getUserFirstName(user.id)
+  const cap = await getEffectiveCap(user.id)
+  const maxHeight = kind === 'audio' ? null : Math.min((await getUserPreference(user.id)) ?? cap, cap)
+
+  let queued = 0
+  for (const v of videos) {
+    const r = await enqueueVideoSave({ userId: user.id, videoId: v.videoId, title: v.title ?? '', kind, maxHeight, firstName })
+      .catch(() => null)
+    if (r) queued++
+  }
+  return c.json({ ok: true, queued, total: videos.length })
+})
 
 // ── Live-from-start DVR ──────────────────────────────────────────────────────────
 
