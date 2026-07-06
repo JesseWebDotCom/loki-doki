@@ -1,5 +1,5 @@
 // YouTube provider: a thin adapter over the existing lib/youtube stack (InnerTube,
-// discovery, comments). Wrap, never rewrite — the standalone YouTube plumbing
+// discovery, comments). Wrap, never rewrite: the standalone YouTube plumbing
 // (yt_* tables, RSS poller, /api/youtube routes) stays authoritative; this adapter
 // only exposes YouTube to hub-level surfaces (mixed home, universal clipper, search).
 

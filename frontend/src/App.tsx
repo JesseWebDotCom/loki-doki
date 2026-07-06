@@ -154,6 +154,7 @@ const BookSampleApprovalPage = lazy(() => import('@/pages/books/generate/BookSam
 const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/BookGenerationProgressPage').then((m) => ({ default: m.BookGenerationProgressPage })))
 
 const VideosLayout = lazy(() => import('@/components/videos/VideosLayout').then((m) => ({ default: m.VideosLayout })))
+const VideosHomePage = lazy(() => import('@/pages/videos/VideosHomePage').then((m) => ({ default: m.VideosHomePage })))
 const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
 const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
@@ -395,8 +396,7 @@ export default function App() {
                 </Route>
                 <Route path="/bored" element={<BoredPage />} />
                 <Route path="/videos" element={<VideosLayout />}>
-                  {/* Phase 2 replaces the index with the mixed multi-source home. */}
-                  <Route index element={<YoutubeHomePage />} />
+                  <Route index element={<VideosHomePage />} />
                   {/* Cross-source library (YouTube-only until more providers land). */}
                   <Route path="history" element={<YoutubeHistoryPage />} />
                   <Route path="playlists" element={<YoutubePlaylistsPage />} />
