@@ -32,6 +32,7 @@ import {
   ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
+import { fmtViews } from '@/lib/youtube/format'
 import { parseChapters } from '@/lib/youtube/chapters'
 import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
@@ -346,6 +347,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
   const [subBusy, setSubBusy] = useState(false)
   const channelId = meta?.channelId ?? null
   const description = meta?.description ?? null
+  const views = fmtViews(meta?.views)
 
   // Sync subscribe state once meta resolves (InfoPanel renders before meta loads).
   useEffect(() => {
@@ -496,12 +498,17 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
         </div>
       </div>
 
-      {description && (
+      {(views || description) && (
         <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
-          <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
-          <button onClick={() => setExpanded(e => !e)} className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
-            {expanded ? 'Show less' : '…more'}
-          </button>
+          {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
+          {description && (
+            <>
+              <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
+              <button onClick={() => setExpanded(e => !e)} className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
+                {expanded ? 'Show less' : '…more'}
+              </button>
+            </>
+          )}
         </Card>
       )}
 

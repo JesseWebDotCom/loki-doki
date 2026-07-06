@@ -46,6 +46,7 @@ function toUpsert(v: ItVideo, tab?: ChannelVideoTab): UpsertVideo {
     // timestamp — leave publishedAt null rather than guess. Duration, when present, is kept.
     publishedAt: null,
     durationSec: v.durationSec,
+    views: v.views,
     description: null,
     // Playlist scans (tab undefined) don't map to a single channel tab — leave null.
     tab: tab ?? null,

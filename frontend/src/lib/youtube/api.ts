@@ -59,6 +59,7 @@ export interface FeedVideo {
   channelThumb: string | null    // the channel's avatar (from the subscription)
   publishedAt: number | null
   durationSec: number | null
+  views: string | null
   summary: string | null
   watchState: { positionSec: number; completed: boolean } | null
 }
@@ -79,6 +80,7 @@ export interface SavedRow {
   channelThumb: string | null
   publishedAt: number | null
   durationSec: number | null
+  views: string | null
   positionSec: number | null
   completed: boolean | null
 }
@@ -102,6 +104,7 @@ export interface VideoMeta {
   summary?: string | null
   positionSec: number
   durationSec: number | null
+  views?: string | null
   subscribed?: boolean
   subscriptionId?: string | null
   isLive?: boolean
@@ -585,6 +588,7 @@ export interface HistoryRow {
   channelId: string | null
   channelThumb: string | null
   durationSec: number | null
+  views: string | null
   positionSec: number
   completed: boolean
   updatedAt: number

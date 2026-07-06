@@ -5,7 +5,7 @@ import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload } from 'luci
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Spinner } from '@/components/ui/spinner'
-import { fmtAge, fmtDur } from '@/lib/youtube/format'
+import { fmtAge, fmtDur, fmtViews } from '@/lib/youtube/format'
 import { watchProgress, type VideoItem } from '@/lib/youtube/types'
 import { saveOffline } from '@/lib/youtube/api'
 import { useSavedState } from '@/lib/youtube/useData'
@@ -128,6 +128,7 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave 
 /** Vertical video card: thumbnail, title, channel · age. Click opens the watch (or Shorts) page. */
 export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   // DeArrow swaps clickbait titles/thumbnails for community-voted ones (no-op when off).
   const da = useDeArrow(item.videoId)
@@ -146,11 +147,7 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
         )}
         <div className="min-w-0 flex-1">
           <p className={cn('line-clamp-2 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-          {(item.author || age) && (
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {item.author}{item.author && age ? ' · ' : ''}{age}
-            </p>
-          )}
+          {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
         </div>
       </div>
     </>
@@ -173,6 +170,7 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
  *  channel page's list view; mirrors VideoCard's ghost/save/navigation behavior. */
 export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
@@ -186,12 +184,10 @@ export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspe
       </div>
       <div className="min-w-0 flex-1 py-0.5">
         <p className={cn('line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-        {(item.author || age) && (
+        {metaLine && (
           <div className="mt-1.5 flex items-center gap-2">
             {item.author && <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-border/40', ghosted && 'grayscale')} />}
-            <p className="truncate text-xs text-muted-foreground">
-              {item.author}{item.author && age ? ' · ' : ''}{age}
-            </p>
+            <p className="truncate text-xs text-muted-foreground">{metaLine}</p>
           </div>
         )}
       </div>
@@ -216,6 +212,7 @@ export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspe
 /** Compact horizontal row, used in the watch page "Up next" column. */
 export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
+  const stats = [fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
@@ -228,7 +225,7 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
       <div className="min-w-0 flex-1 py-0.5">
         <p className={cn('line-clamp-2 text-[13px] font-semibold leading-snug', ghosted && 'text-muted-foreground')}>{title}</p>
         {item.author && <p className="mt-1 truncate text-xs text-muted-foreground">{item.author}</p>}
-        {age && <p className="truncate text-xs text-muted-foreground">{age}</p>}
+        {stats && <p className="truncate text-xs text-muted-foreground">{stats}</p>}
       </div>
     </>
   )

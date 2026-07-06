@@ -54,6 +54,23 @@ export function fmtCount(n: number | null | undefined): string {
   return String(n)
 }
 
+/** Normalize a raw view count into a compact "1.2M views" label. The backend hands us
+ *  YouTube's own text ("1,234,567 views", "1.2M views"), a plain integer string ("1234567",
+ *  from the watch-page player), or a number, all collapse to the same compact form. Live
+ *  "watching" counts pass through untouched; returns '' when there's nothing to show. */
+export function fmtViews(raw: string | number | null | undefined): string {
+  if (raw == null) return ''
+  if (typeof raw === 'number') return raw > 0 ? `${fmtCount(raw)} views` : ''
+  const s = raw.trim()
+  if (!s) return ''
+  if (/watching/i.test(s)) return s                         // live stream: "1.2K watching"
+  if (/^no\s+views/i.test(s)) return 'No views'
+  const compact = s.match(/([\d.,]+)\s*([KMB])\b/i)         // already compact: "1.2M views"
+  if (compact) return `${compact[1]}${compact[2].toUpperCase()} views`
+  const n = Number(s.replace(/[^\d]/g, ''))                 // grouped or plain digits
+  return Number.isFinite(n) && n > 0 ? `${fmtCount(n)} views` : ''
+}
+
 /** YouTube thumbnail URL for a videoId at a given quality. */
 export function thumbUrl(videoId: string, q: 'mq' | 'hq' | 'sd' | 'maxres' = 'mq'): string {
   const name = q === 'mq' ? 'mqdefault' : q === 'hq' ? 'hqdefault' : q === 'sd' ? 'sddefault' : 'maxresdefault'
