@@ -70,6 +70,8 @@ export interface SavedRow {
   status: 'pending' | 'downloading' | 'ready' | 'failed'
   sizeBytes: number | null
   maxHeight: number | null
+  /** Download progress 0..1 for in-flight saves (pending/downloading); null otherwise. */
+  progress: number | null
   createdAt: string
   author: string | null
   channelId: string | null

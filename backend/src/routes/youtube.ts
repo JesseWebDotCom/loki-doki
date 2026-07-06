@@ -384,6 +384,7 @@ youtubeRoute.get('/downloads', async (c) => {
   const user = c.get('user')
   const rows = await db.select({
     id: ytDownloads.id,
+    assetId: ytDownloads.assetId,
     videoId: ytDownloads.videoId,
     title: ytDownloads.title,
     kind: ytDownloads.kind,
@@ -414,9 +415,32 @@ youtubeRoute.get('/downloads', async (c) => {
     ? await db.select().from(ytWatchState).where(and(eq(ytWatchState.userId, user.id), inArray(ytWatchState.videoId, videoIds)))
     : []
   const watchMap = new Map(watchRows.map(w => [w.videoId, w]))
-  const downloads = rows.map(({ channelThumbSub, channelThumbVid, ...r }) => ({
+
+  // Real download progress (0..1) for in-flight saves, so the Offline view can show a
+  // live bar instead of hiding the item until it flips to 'ready'. Progress lives on the
+  // coalesced yt-media job keyed by refId={assetId}; fetch the active ones and map by asset.
+  const activeAssetIds = new Set(rows.filter(r => (r.status === 'pending' || r.status === 'downloading') && r.assetId).map(r => r.assetId!))
+  const progressByAsset = new Map<string, number>()
+  if (activeAssetIds.size) {
+    const jobs = await db.select({ refId: downloadJobs.refId, progress: downloadJobs.progress })
+      .from(downloadJobs)
+      .where(and(eq(downloadJobs.type, 'yt-media'), inArray(downloadJobs.status, ['pending', 'running'])))
+    for (const j of jobs) {
+      try {
+        const { assetId } = JSON.parse(j.refId) as { assetId?: string }
+        if (!assetId || !activeAssetIds.has(assetId) || !j.progress) continue
+        const p = JSON.parse(j.progress) as { completed?: number; total?: number }
+        if (p.total && p.total > 0 && typeof p.completed === 'number') {
+          progressByAsset.set(assetId, Math.max(0, Math.min(1, p.completed / p.total)))
+        }
+      } catch { /* skip malformed job/progress rows */ }
+    }
+  }
+
+  const downloads = rows.map(({ channelThumbSub, channelThumbVid, assetId, ...r }) => ({
     ...r,
     channelThumb: channelThumbSub ?? channelThumbVid ?? null,
+    progress: assetId ? progressByAsset.get(assetId) ?? null : null,
     positionSec: watchMap.get(r.videoId)?.positionSec ?? null,
     completed: watchMap.get(r.videoId)?.completed ?? null,
   }))
