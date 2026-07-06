@@ -7,8 +7,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { fmtCount } from '@/lib/youtube/format'
 import { ytImageProxy } from '@/lib/youtube/api'
 import type { VideoItem } from '@/lib/youtube/types'
-import { VideoCard } from '@/components/youtube/VideoCard'
+import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
 import { ChannelAvatar } from '@/components/youtube/media'
+import type { CardListView } from '@/components/shared/ViewToggle'
 
 // design-ok(backdrop-blur-outside-chrome): floating scroll chevrons hover over card artwork
 const CHEVRON_CLS = 'absolute top-1/2 hidden -translate-y-1/2 rounded-full border border-border/60 bg-background/90 p-1.5 shadow-lg backdrop-blur transition group-hover/scroll:flex hover:bg-background'
@@ -32,24 +33,33 @@ export function HScroll({ children, className }: { children: ReactNode; classNam
   )
 }
 
-/** A titled horizontal shelf of video cards. */
-export function MediaShelf({ title, to, items, aspect = 'video' }: {
+/** A titled shelf of videos. Defaults to a horizontal card rail; when `view === 'list'` the
+ *  same items render as a vertical list of rows (so a page-level card/list toggle flips every
+ *  shelf, not just full-width grids). */
+export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid' }: {
   title: string
   to?: string
   items: VideoItem[]
   aspect?: 'video' | 'short'
+  view?: CardListView
 }) {
   if (!items.length) return null
   return (
     <section>
       <SectionHeader title={title} to={to} className="mb-4" />
-      <HScroll>
-        {items.map(i => (
-          <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', aspect === 'short' ? 'w-44' : 'w-72')}>
-            <VideoCard item={i} aspect={aspect} />
-          </div>
-        ))}
-      </HScroll>
+      {view === 'list' ? (
+        <div className="space-y-1">
+          {items.map(i => <VideoListRow key={i.videoId + (i.localKind ?? '')} item={i} aspect={aspect} />)}
+        </div>
+      ) : (
+        <HScroll>
+          {items.map(i => (
+            <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', aspect === 'short' ? 'w-44' : 'w-72')}>
+              <VideoCard item={i} aspect={aspect} />
+            </div>
+          ))}
+        </HScroll>
+      )}
     </section>
   )
 }

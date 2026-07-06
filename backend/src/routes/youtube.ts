@@ -33,7 +33,7 @@ import {
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 import {
-  enqueueVideoSave, createYoutubeEpisode,
+  enqueueVideoSave, cancelVideoSaves, createYoutubeEpisode,
   isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
 } from '@/lib/youtube/automation'
 import { resolveUserPath } from '@/lib/storage/paths'
@@ -551,6 +551,16 @@ youtubeRoute.post('/plex/sync-collections', async (c) => {
   const { syncPlaylistsForUser } = await import('@/lib/plex/export/playlists')
   await syncPlaylistsForUser(user.id).catch(() => {})
   return c.json({ ok: true })
+})
+
+// Cancel in-flight saves (still queued/downloading). Unlike delete, this aborts the running
+// yt-dlp job when nothing else references the shared asset. Batch by ids (the ytDownloads ref ids).
+youtubeRoute.post('/downloads/cancel', async (c) => {
+  const user = c.get('user')
+  const { ids } = await c.req.json<{ ids: string[] }>().catch(() => ({ ids: [] as string[] }))
+  if (!ids?.length) return c.json({ ok: true, cancelled: 0 })
+  const cancelled = await cancelVideoSaves(user.id, ids)
+  return c.json({ ok: true, cancelled })
 })
 
 // Save a video into the Offline library. Capped at the user's effective Save height

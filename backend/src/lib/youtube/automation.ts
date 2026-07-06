@@ -138,6 +138,45 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
   })
 }
 
+/** Cancel one or more of THIS user's in-flight offline saves (pending/downloading refs).
+ *
+ *  Deletes the user's ytDownloads reference rows. The underlying yt-dlp download is a SHARED
+ *  media job — another household member may be saving the same video — so it's only aborted
+ *  when removing this user's ref leaves the asset with zero references. Refs that are already
+ *  `ready` (a completed save) or `failed` are left alone: cancelling those is a delete, not a
+ *  cancel. Returns how many in-flight saves were actually cancelled. */
+export async function cancelVideoSaves(userId: string, ids: string[]): Promise<number> {
+  if (!ids?.length) return 0
+  const rows = await db.select({ id: ytDownloads.id, assetId: ytDownloads.assetId, status: ytDownloads.status })
+    .from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, userId), inArray(ytDownloads.id, ids)))
+  const inFlight = rows.filter(r => r.status === 'pending' || r.status === 'downloading')
+  if (!inFlight.length) return 0
+
+  await db.delete(ytDownloads)
+    .where(and(eq(ytDownloads.userId, userId), inArray(ytDownloads.id, inFlight.map(r => r.id))))
+
+  const { cancelJob } = await import('@/lib/downloadJobs')
+  const assetIds = [...new Set(inFlight.map(r => r.assetId).filter((x): x is string => !!x))]
+  for (const assetId of assetIds) {
+    // Someone else still wants this asset — the shared download must keep running for them.
+    const [stillReferenced] = await db.select({ id: ytDownloads.id }).from(ytDownloads)
+      .where(eq(ytDownloads.assetId, assetId)).limit(1)
+    if (stillReferenced) continue
+    // No refs left → abort the coalesced yt-media job (SIGTERM→SIGKILL via its AbortController)
+    // and release the now-orphaned asset so its staged blob is GC-reclaimable.
+    const [job] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+      .where(and(
+        eq(downloadJobs.type, 'yt-media'),
+        eq(downloadJobs.refId, JSON.stringify({ assetId })),
+        inArray(downloadJobs.status, ['pending', 'running']),
+      )).limit(1)
+    if (job) await cancelJob(job.id).catch(() => {})
+    await releaseAssetsIfOrphaned([assetId])
+  }
+  return inFlight.length
+}
+
 // ── Prefetch cache ──────────────────────────────────────────────────────────────
 // A transient, self-evicting download-ahead cache that powers gapless playback (next video,
 // audio↔video handoff). A prefetch ref reuses the whole save pipeline but is flagged ephemeral,

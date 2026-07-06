@@ -13,13 +13,13 @@ import { isShort, savedToItem, historyToItem, itToItem, searchToItem, channelKey
 import { qualityBadge } from '@/lib/youtube/format'
 import { MediaShelf, ChannelRail, ShelfSkeleton, type ChannelEntry } from '@/components/youtube/shelves'
 
-import { VideoCard } from '@/components/youtube/VideoCard'
+import { VideoCollection } from '@/components/youtube/VideoCollection'
 import { SearchResults } from '@/components/youtube/SearchResults'
+import { ViewToggle, type CardListView } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
 
 type Filter = 'all' | 'videos' | 'shorts' | 'channels'
-const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
-const SHORTS_GRID = 'grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 xl:grid-cols-6'
 const FILTERS: [Filter, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['channels', 'Channels']]
 // Topic chips (real-YouTube style): selecting one swaps the feed for a live search on that
 // topic. They need a live query, so they only appear in online mode.
@@ -68,6 +68,8 @@ function HomeLanding() {
   const [filter, setFilter] = useState<Filter>('all')
   // A selected topic overrides the type filter and shows a live topic feed instead.
   const [topic, setTopic] = useState<string | null>(null)
+  // Card vs list view for Home's video grids, persisted per-user (independent of other sections).
+  const [view, setView] = useViewPreference('youtube.home_view', 'grid')
 
   const { videos, items: feedItems, loading } = useYtFeed()
   const { data: subs = [] } = useYtSubs()
@@ -105,36 +107,39 @@ function HomeLanding() {
 
   return (
     <PageContainer width="wide" className="py-6">
-      <ChipRow className="mb-6">
-        {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} onClick={() => { setTopic(null); setFilter(k) }} />)}
-        {online && (
-          <>
-            <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />
-            {TOPICS.map(t => <Chip key={t} label={t} active={topic === t} onClick={() => setTopic(topic === t ? null : t)} />)}
-          </>
-        )}
-      </ChipRow>
+      <div className="mb-6 flex items-center gap-3">
+        <ChipRow className="mb-0 min-w-0 flex-1">
+          {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} onClick={() => { setTopic(null); setFilter(k) }} />)}
+          {online && (
+            <>
+              <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />
+              {TOPICS.map(t => <Chip key={t} label={t} active={topic === t} onClick={() => setTopic(topic === t ? null : t)} />)}
+            </>
+          )}
+        </ChipRow>
+        {filter !== 'channels' && <ViewToggle value={view} onChange={setView} className="shrink-0" />}
+      </div>
 
       {topic ? (
-        <TopicFeed topic={topic} />
+        <TopicFeed topic={topic} view={view} />
       ) : filter === 'channels' ? (
         <ChannelGrid channels={channels} />
       ) : filter === 'videos' ? (
-        <VideoGrid items={regular} />
+        <VideoGrid items={regular} view={view} />
       ) : filter === 'shorts' ? (
-        <ShortsGrid items={shorts} />
+        <ShortsGrid items={shorts} view={view} />
       ) : (
         <div className="space-y-10">
-          {online && (popularItems.length > 0 ? <MediaShelf title="🔥 Popular" items={popularItems} /> : popularLoading ? <ShelfSkeleton /> : null)}
-          {online && (trendingItems.length > 0 ? <MediaShelf title="📈 Trending" items={trendingItems} /> : trendingLoading ? <ShelfSkeleton /> : null)}
-          {continueWatching.length > 0 ? <MediaShelf title="Continue watching" items={continueWatching} /> : (online && historyLoading) ? <ShelfSkeleton /> : null}
+          {online && (popularItems.length > 0 ? <MediaShelf title="🔥 Popular" items={popularItems} view={view} /> : popularLoading ? <ShelfSkeleton /> : null)}
+          {online && (trendingItems.length > 0 ? <MediaShelf title="📈 Trending" items={trendingItems} view={view} /> : trendingLoading ? <ShelfSkeleton /> : null)}
+          {continueWatching.length > 0 ? <MediaShelf title="Continue watching" items={continueWatching} view={view} /> : (online && historyLoading) ? <ShelfSkeleton /> : null}
           {channels.length > 0 && <ChannelRail channels={channels} />}
-          {recommendedItems.length > 0 ? <MediaShelf title="Recommended for you" items={recommendedItems} /> : (online && recommendedLoading) ? <ShelfSkeleton /> : null}
-          {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts.slice(0, 12)} aspect="short" />}
+          {recommendedItems.length > 0 ? <MediaShelf title="Recommended for you" items={recommendedItems} view={view} /> : (online && recommendedLoading) ? <ShelfSkeleton /> : null}
+          {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts.slice(0, 12)} aspect="short" view={view} />}
           {regular.length > 0 ? (
             <section>
               <SectionHeader title="Latest from your subscriptions" className="mb-4" />
-              <div className={GRID}>{latest.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
+              <VideoCollection items={latest} view={view} />
             </section>
           ) : (recommendedItems.length === 0 && popularItems.length === 0 && trendingItems.length === 0) ? <EmptyState online={online} /> : null}
         </div>
@@ -162,13 +167,13 @@ function EmptyState({ online }: { online: boolean }) {
   )
 }
 
-function VideoGrid({ items }: { items: VideoItem[] }) {
+function VideoGrid({ items, view }: { items: VideoItem[]; view: CardListView }) {
   if (!items.length) return <p className="py-20 text-center text-sm text-muted-foreground">Nothing here yet.</p>
-  return <div className={GRID}>{items.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
+  return <VideoCollection items={items} view={view} />
 }
 
 // Live topic feed: a video search on the picked topic, rendered as the standard card grid.
-function TopicFeed({ topic }: { topic: string }) {
+function TopicFeed({ topic, view }: { topic: string; view: CardListView }) {
   const { data, isLoading } = useQuery({
     queryKey: ['yt-topic', topic],
     queryFn: () => ytSearch(topic, null, 'videos'),
@@ -176,12 +181,12 @@ function TopicFeed({ topic }: { topic: string }) {
   const items = useMemo(() => (data?.results ?? []).map(searchToItem), [data])
   if (isLoading) return <SkeletonCards count={12} className="xl:grid-cols-4" />
   if (!items.length) return <p className="py-20 text-center text-sm text-muted-foreground">Nothing found for “{topic}”.</p>
-  return <div className={GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
+  return <VideoCollection items={items} view={view} />
 }
 
-function ShortsGrid({ items }: { items: VideoItem[] }) {
+function ShortsGrid({ items, view }: { items: VideoItem[]; view: CardListView }) {
   if (!items.length) return <p className="py-20 text-center text-sm text-muted-foreground">No Shorts yet.</p>
-  return <div className={SHORTS_GRID}>{items.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} aspect="short" />)}</div>
+  return <VideoCollection items={items} view={view} aspect="short" />
 }
 
 function ChannelGrid({ channels }: { channels: ChannelEntry[] }) {

@@ -515,6 +515,13 @@ export async function deleteDownloads(ids: string[]): Promise<void> {
   if (!r.ok) throw new Error('delete')
 }
 
+/** Cancel in-flight saves (queued/downloading). Aborts the underlying download when nothing
+ *  else references the shared asset; ready/failed rows are left untouched (use delete for those). */
+export async function cancelDownloads(ids: string[]): Promise<void> {
+  const r = await fetch('/api/youtube/downloads/cancel', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ ids }) })
+  if (!r.ok) throw new Error('cancel')
+}
+
 export async function saveOffline(body: { videoId: string; title: string; kind: 'audio' | 'video'; maxHeight?: number; audioFormat?: 'm4a' | 'mp3' }): Promise<{ status?: string; error?: string }> {
   const r = await fetch('/api/youtube/save', { ...opts, method: 'POST', headers: J, body: JSON.stringify(body) })
   return r.json() as Promise<{ status?: string; error?: string }>

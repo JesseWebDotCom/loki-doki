@@ -18,7 +18,8 @@ import {
 import { itToItem, savedToItem, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { ChannelAvatar } from '@/components/youtube/media'
-import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
+import { VideoCard } from '@/components/youtube/VideoCard'
+import { VideoCollection, YT_GRID as GRID } from '@/components/youtube/VideoCollection'
 import { PlaylistCard, PlaylistListRow } from '@/components/youtube/shelves'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
@@ -27,9 +28,6 @@ import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
 import { Switch } from '@/components/ui/switch'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui/dropdown-menu'
-
-const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
-const SHORTS_GRID = 'grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6'
 
 type Tab = ChannelVideoTab | 'playlists'
 const TABS: [Tab, string][] = [['videos', 'Videos'], ['shorts', 'Shorts'], ['live', 'Live'], ['playlists', 'Playlists']]
@@ -111,9 +109,7 @@ export function YoutubeChannelPage() {
 
   // Render a tab's videos as either the card grid or the full-width list, per `view`.
   const renderVideos = (items: VideoItem[], aspect: 'video' | 'short' = 'video') =>
-    view === 'list'
-      ? <div className="space-y-1">{items.map(i => <VideoListRow key={i.videoId} item={i} aspect={aspect} />)}</div>
-      : <div className={aspect === 'short' ? SHORTS_GRID : GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} aspect={aspect} />)}</div>
+    <VideoCollection items={items} view={view} aspect={aspect} />
 
   const [params, setParams] = useSearchParams()
   const tab = (TABS.find(([k]) => k === params.get('tab'))?.[0] ?? 'videos') as Tab

@@ -1,14 +1,14 @@
 import { useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload, Sparkles } from 'lucide-react'
+import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtAge, fmtDur, fmtViews } from '@/lib/youtube/format'
 import { watchProgress, type VideoItem } from '@/lib/youtube/types'
-import { saveOffline } from '@/lib/youtube/api'
-import { useSavedState } from '@/lib/youtube/useData'
+import { saveOffline, cancelDownloads } from '@/lib/youtube/api'
+import { useSavedState, useYtDownloads } from '@/lib/youtube/useData'
 import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
@@ -35,6 +35,7 @@ function useGhost(item: Pick<VideoItem, 'videoId' | 'title' | 'localKind'>) {
  *  file (nothing to save). Reflects live progress via the shared downloads cache. */
 function useCardSave(item: Pick<VideoItem, 'videoId' | 'localKind'>, title: string) {
   const qc = useQueryClient()
+  const { data: downloads } = useYtDownloads()
   const saved = useSavedState(item.videoId)
   const [saving, setSaving] = useState(false)
   const saveState: 'saved' | 'saving' | null = saving ? 'saving' : saved
@@ -43,7 +44,18 @@ function useCardSave(item: Pick<VideoItem, 'videoId' | 'localKind'>, title: stri
   const onSave = async (e: MouseEvent) => {
     // The card body is a <Link>; keep the click from navigating.
     e.preventDefault(); e.stopPropagation()
-    if (saveState === 'saved' || saveState === 'saving') return
+    if (saveState === 'saved') return
+    // Clicking while a save is in flight cancels it (SIGTERM the download, drop the ref).
+    if (saveState === 'saving') {
+      const row = downloads?.find(r => r.videoId === item.videoId && (r.status === 'pending' || r.status === 'downloading'))
+      if (!row) return
+      try {
+        await cancelDownloads([row.id])
+        toast.success('Save canceled')
+        qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+      } catch { toast.error('Could not cancel') }
+      return
+    }
     setSaving(true)
     try {
       const d = await saveOffline({ videoId: item.videoId, title, kind: 'video' })
@@ -108,14 +120,19 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave 
         // the thumbnail (top-right, clear of the top-left status badges); hover-revealed, but stays
         // visible once saving/saved so the state reads at a glance.
         <button type="button" onClick={onSave}
-          title={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline…' : 'Save offline'}
-          aria-label={saveState === 'saved' ? 'Saved offline' : 'Save offline'}
+          title={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline — click to cancel' : 'Save offline'}
+          aria-label={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Cancel save' : 'Save offline'}
           className={cn('absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full text-white transition-all',
             saveState === 'saved' ? 'bg-[var(--yt-accent)] opacity-100 hover:bg-[var(--yt-accent-hover)]'
-              : saveState === 'saving' ? 'bg-black/75 opacity-100'
+              : saveState === 'saving' ? 'bg-black/75 opacity-100 hover:bg-black/90'
               : 'bg-black/75 opacity-0 hover:bg-black/90 group-hover:opacity-100')}>
-          {saveState === 'saving' ? <Spinner className="size-3.5 text-white" />
-            : saveState === 'saved' ? <Check className="size-3.5" />
+          {saveState === 'saving' ? (
+            // Spinner by default; swaps to an ✕ on hover so it reads as "click to cancel".
+            <>
+              <Spinner className="size-3.5 text-white group-hover:hidden" />
+              <X className="hidden size-3.5 group-hover:block" />
+            </>
+          ) : saveState === 'saved' ? <Check className="size-3.5" />
             : <HardDriveDownload className="size-3.5" />}
         </button>
       )}

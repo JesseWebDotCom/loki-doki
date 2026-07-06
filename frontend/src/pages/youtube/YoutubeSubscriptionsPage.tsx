@@ -11,10 +11,10 @@ import { useYtFeed, useYtSubs, useYtDownloads } from '@/lib/youtube/useData'
 import { isShort, savedToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { MediaShelf, ChannelRail, type ChannelEntry } from '@/components/youtube/shelves'
-import { VideoCard } from '@/components/youtube/VideoCard'
+import { VideoCollection } from '@/components/youtube/VideoCollection'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { useYoutubeMode, useYoutubeUI } from '@/components/youtube/YoutubeLayout'
-
-const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 
 // Round-robin a recency-sorted list across its channels so one frequent uploader
 // doesn't bury everyone else; "Latest" leads with each channel's newest in turn.
@@ -38,6 +38,7 @@ function interleaveByChannel(items: VideoItem[]): VideoItem[] {
 export function YoutubeSubscriptionsPage() {
   const online = useYoutubeMode() === 'online'
   const { openManage } = useYoutubeUI()
+  const [view, setView] = useViewPreference('youtube.subscriptions_view', 'grid')
   const { items: feedItems, loading } = useYtFeed()
   const { data: subs = [] } = useYtSubs()
   const { data: downloads = [] } = useYtDownloads()
@@ -95,12 +96,13 @@ export function YoutubeSubscriptionsPage() {
         </Card>
       ) : (
         <div className="space-y-10">
-          {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts} aspect="short" />}
+          {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts} aspect="short" view={view} />}
           <section>
-            <SectionHeader title="Latest" className="mb-4" />
-            <div className={GRID}>
-              {latest.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <SectionHeader title="Latest" className="mb-0" />
+              <ViewToggle value={view} onChange={setView} className="shrink-0" />
             </div>
+            <VideoCollection items={latest} view={view} />
           </section>
         </div>
       )}
