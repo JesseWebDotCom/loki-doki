@@ -134,6 +134,8 @@ export type HubPlayback =
   | { mode: 'native-app' }
   | { mode: 'stream'; streamUrl: string }
   | { mode: 'hls'; manifestUrl: string }
+  // Official first-party embed player (TikTok/Vimeo): rendered as an <iframe>, no yt-dlp.
+  | { mode: 'embed'; embedUrl: string }
   | { mode: 'file'; assetId: string }
 
 export function getSourceItem(source: VideoSource, id: string): Promise<{ item: HubVideoItem; playback: HubPlayback }> {

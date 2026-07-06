@@ -16,8 +16,13 @@ const PROFILE_TTL = 10 * 60_000    // cold profile extraction takes 5-15s
 
 const VIDEO_ID = /^\d{15,21}$/
 const HANDLE = /^@?[A-Za-z0-9_.]{2,24}$/
-// Prefer h264 (plays everywhere); shared by playback (yt-dlp -f) and downloadSpec.
+// Prefer h264 (plays everywhere); used by downloadSpec (yt-dlp -f) only — playback is an embed.
 const H264_FORMAT_SELECTOR = 'bv*[vcodec^=h264]+ba/b[vcodec^=h264]/bv*+ba/b'
+// TikTok's official embed player. Playback is this iframe, not a server-proxied stream:
+// TikTok's CDN 403s any bare server fetch of the video bytes (TLS/HTTP2 fingerprinting),
+// so the old path had to pipe a live yt-dlp subprocess — slow to first byte and paying
+// yt-dlp's cold start. The embed loads in ~0.1s and lets the browser satisfy the CDN.
+const PLAYER_BASE = 'https://www.tiktok.com/player/v1'
 
 interface TikTokEntry {
   id?: string
@@ -64,12 +69,47 @@ function toItem(e: TikTokEntry): VideoItem | null {
   }
 }
 
+interface TikTokOembed {
+  title?: string
+  author_name?: string
+  author_url?: string
+  thumbnail_url?: string
+  thumbnail_width?: number
+  thumbnail_height?: number
+}
+
+function handleFromAuthorUrl(url?: string): string | null {
+  const m = url ? /@([A-Za-z0-9_.]+)/.exec(url) : null
+  return m ? m[1]! : null
+}
+
+// Watch-page metadata via TikTok's oEmbed endpoint: one ~300ms fetch (title, author,
+// thumbnail), no yt-dlp. The full yt-dlp -J extraction (which also carries duration/views)
+// is reserved for downloads — the watch page renders fine without those, and dropping the
+// per-click subprocess is what makes opening a TikTok instant instead of ~10s+.
 async function fetchItem(id: string): Promise<(VideoItem & { description?: string | null }) | null> {
   if (!VIDEO_ID.test(id)) return null
   return cachedLookup('tiktok:item', id, ITEM_TTL, async () => {
-    const data = await ytDlpJson<TikTokEntry>(canonicalUrl(id), ['--no-playlist'])
-    const item = toItem(data)
-    return item ? { ...item, description: data.description ?? null } : null
+    const res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(canonicalUrl(id))}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return null
+    const o = await res.json() as TikTokOembed
+    const handle = handleFromAuthorUrl(o.author_url)
+    return {
+      source: 'tiktok' as const,
+      id,
+      url: canonicalUrl(id, handle),
+      title: o.title || 'TikTok video',
+      creator: handle ? { id: handle, name: `@${handle}` } : o.author_name ? { id: '', name: o.author_name } : null,
+      thumbnailUrl: o.thumbnail_url ?? null,
+      durationSec: null,
+      publishedAt: null,
+      // Portrait unless the thumbnail says otherwise (TikTok is vertical by default).
+      vertical: !o.thumbnail_width || !o.thumbnail_height ? true : o.thumbnail_height >= o.thumbnail_width,
+      description: null,
+    }
   })
 }
 
@@ -165,14 +205,12 @@ export const tiktokProvider: VideoProvider = {
   },
 
   async getPlayback(id) {
-    const item = await fetchItem(id)
-    if (!item) throw new Error('video not found')
-    // TikTok's CDN 403s a bare server-side fetch even with yt-dlp's own exact headers
-    // (verified: same headers, same URL, still 403 — almost certainly TLS/HTTP2
-    // fingerprinting on their edge, not a header the client can fake). yt-dlp's own
-    // process succeeds where a raw fetch doesn't, so the stream route pipes its stdout
-    // live instead of proxying a resolved CDN URL.
-    return { mode: 'ytdlp-pipe', pageUrl: item.url, formatSelector: H264_FORMAT_SELECTOR }
+    if (!VIDEO_ID.test(id)) throw new Error('video not found')
+    // Play via TikTok's official embed player (an <iframe>). The browser satisfies TikTok's
+    // CDN auth/fingerprinting that 403s any server-side byte fetch — the reason the old path
+    // piped a live yt-dlp subprocess (slow first byte + yt-dlp cold start). No yt-dlp here;
+    // it now runs only for downloads (downloadSpec).
+    return { mode: 'embed', embedUrl: `${PLAYER_BASE}/${id}?autoplay=1&controls=1&music_info=0&description=0&rel=0` }
   },
 
   async fetchCreatorFeed(externalId) {
@@ -185,11 +223,13 @@ export const tiktokProvider: VideoProvider = {
   },
 
   async downloadSpec(id, kind) {
-    const item = await fetchItem(id)
-    if (!item) throw new Error('video not found')
+    // Downloads still go through yt-dlp (the only reliable way past TikTok's CDN). oEmbed
+    // gives the owner handle for a proper canonical URL; the placeholder URL also works
+    // (TikTok redirects) so a failed metadata fetch never blocks a download.
+    const item = await fetchItem(id).catch(() => null)
     return {
       method: 'ytdlp',
-      url: item.url,
+      url: item?.url ?? canonicalUrl(id),
       ytdlpArgs: kind === 'video' ? ['-f', H264_FORMAT_SELECTOR] : [],
     }
   },

@@ -5,7 +5,6 @@
 
 import { cachedLookup } from '@/lib/lookupCache'
 import { getAppSetting } from '@/lib/settings'
-import { ytDlpJson } from '@/lib/videos/ytdlpJson'
 import type { VideoProvider } from '@/lib/videos/provider'
 import type { Creator, Pager, VideoItem } from '@/lib/videos/types'
 
@@ -13,7 +12,6 @@ export const VIMEO_TOKEN_KEY = 'videos.vimeo_token'
 
 const LIST_TTL = 5 * 60_000
 const ITEM_TTL = 10 * 60_000
-const STREAM_TTL = 25 * 60_000
 
 const VIDEO_ID = /^\d{6,12}$/
 const CHANNEL_ID = /^[a-z0-9]+$/i
@@ -156,25 +154,6 @@ async function oembedItem(id: string): Promise<(VideoItem & { description?: stri
   })
 }
 
-/** Progressive stream via yt-dlp (works with or without a token). Exported for the proxy.
- *  Vimeo's extractor leaves `acodec` unset (null, not the string 'none') on its own
- *  combined progressive files — format_id `http-<height>p` with no -sd/-hd/-uhd suffix
- *  (verified live: these single-file mp4s do carry audio despite the missing field) —
- *  so selection goes by format_id shape, not codec fields. The suffixed variants and the
- *  `-sd`/`-uhd` "download" links point at a different (frequently unreachable) redirector. */
-export async function vimeoStreamSource(id: string): Promise<{ url: string; headers: Record<string, string> } | null> {
-  if (!VIDEO_ID.test(id)) return null
-  return cachedLookup('vimeo:stream', id, STREAM_TTL, async () => {
-    const data = await ytDlpJson<{ formats?: Array<{ format_id?: string; url?: string; height?: number }> }>(
-      `https://vimeo.com/${id}`, ['--no-playlist'])
-    const progressive = (data.formats ?? []).filter((f) => f.url && /^http-\d+p$/.test(f.format_id ?? ''))
-    const pick = progressive.sort((a, b) => (b.height ?? 0) - (a.height ?? 0))
-      .find((f) => (f.height ?? 0) <= 1080) ?? progressive[0]
-    if (!pick?.url) return null
-    return { url: pick.url, headers: { Referer: 'https://vimeo.com/' } }
-  })
-}
-
 export const vimeoProvider: VideoProvider = {
   source: 'vimeo',
   label: 'Vimeo',
@@ -261,9 +240,11 @@ export const vimeoProvider: VideoProvider = {
   },
 
   async getPlayback(id) {
-    const src = await vimeoStreamSource(id)
-    if (!src) throw new Error('no playable stream for this video')
-    return { mode: 'proxy-progressive', upstreamUrl: src.url, headers: src.headers }
+    if (!VIDEO_ID.test(id)) throw new Error('no playable stream for this video')
+    // Play via Vimeo's official embed player (an <iframe>): instant, no yt-dlp. Replaces the
+    // old yt-dlp -J resolve + progressive byte-proxy, which worked but paid yt-dlp's ~10s
+    // cold start on every click. yt-dlp now runs only for downloads (downloadSpec).
+    return { mode: 'embed', embedUrl: `https://player.vimeo.com/video/${id}?autoplay=1` }
   },
 
   async fetchCreatorFeed(externalId) {

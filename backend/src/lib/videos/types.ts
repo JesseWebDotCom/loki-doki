@@ -59,13 +59,19 @@ export interface Pager<T> {
 export type PlaybackInfo =
   /** YouTube: the frontend routes to the native WatchPage + /api/youtube/stream. */
   | { mode: 'native-app' }
+  /** Official first-party embed player, rendered as an <iframe>. Instant (~0.1s, a plain
+   *  page load), the browser handles the CDN's auth/fingerprinting, and NO yt-dlp is
+   *  involved — yt-dlp is reserved for downloads. Used where the source ships a clean
+   *  embed (Vimeo) or where its CDN can't be server-proxied at all (TikTok). */
+  | { mode: 'embed'; embedUrl: string }
   /** Progressive proxy: /api/videos/:source/stream/:id forwards Range requests upstream.
-   *  Only viable when the CDN accepts a plain server-side fetch (Vimeo does; TikTok's
-   *  CDN 403s a bare fetch even with yt-dlp's exact headers, likely TLS/HTTP2
-   *  fingerprinting — those sources use 'ytdlp-pipe' instead). */
+   *  Only viable when the CDN accepts a plain server-side fetch (Reddit fallbacks). Vimeo
+   *  and TikTok now play through 'embed' instead — Vimeo for simplicity, TikTok because its
+   *  CDN 403s a bare fetch even with yt-dlp's exact headers (likely TLS/HTTP2 fingerprinting). */
   | { mode: 'proxy-progressive'; upstreamUrl: string; headers?: Record<string, string> }
-  /** Live-piped through a yt-dlp subprocess: no Range/seek support, but works against
-   *  CDNs that reject direct fetches. `formatSelector` is yt-dlp's -f argument. */
+  /** Live-piped through a yt-dlp subprocess: no Range/seek support, but works against CDNs
+   *  that reject direct fetches. `formatSelector` is yt-dlp's -f argument. Currently unused
+   *  by any provider (kept as a capability) — playback avoids yt-dlp; it's for downloads. */
   | { mode: 'ytdlp-pipe'; pageUrl: string; formatSelector?: string }
   /** HLS through the manifest/segment proxy (v.redd.it). */
   | { mode: 'hls'; manifestUrl: string }

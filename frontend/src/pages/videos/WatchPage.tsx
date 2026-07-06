@@ -813,6 +813,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const mode = useYoutubeModeOptional()
   const onlineOnly = mode === 'offline' && !localUrl
 
+  // TikTok/Vimeo play through their official embed <iframe> (instant, no yt-dlp). A saved
+  // offline copy always wins — that plays from the local blob via <video>.
+  const embedUrl = !localUrl && data?.playback?.mode === 'embed' ? data.playback.embedUrl : null
+
   usePlaybackAttach(videoRef, data?.playback ?? null, localUrl)
 
   // Resume position + periodic watch-state sync (10s cadence + unmount flush).
@@ -901,14 +905,24 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
       {/* Main column */}
       <div className="min-w-0 space-y-5">
         <div className={item.vertical ? 'mx-auto max-w-md' : ''}>
-          <video
-            ref={videoRef}
-            controls
-            autoPlay
-            playsInline
-            poster={item.thumbnailUrl ?? undefined}
-            className={`w-full rounded-card bg-black ${item.vertical ? 'aspect-[9/16]' : 'aspect-video'}`}
-          />
+          {embedUrl ? (
+            <iframe
+              src={embedUrl}
+              title={item.title}
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              allowFullScreen
+              className={`w-full rounded-card border-0 bg-black ${item.vertical ? 'aspect-[9/16]' : 'aspect-video'}`}
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              controls
+              autoPlay
+              playsInline
+              poster={item.thumbnailUrl ?? undefined}
+              className={`w-full rounded-card bg-black ${item.vertical ? 'aspect-[9/16]' : 'aspect-video'}`}
+            />
+          )}
         </div>
 
         <div className="space-y-4">
