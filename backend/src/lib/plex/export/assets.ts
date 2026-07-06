@@ -8,6 +8,12 @@ import sharp from 'sharp'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
 import { podcastFallback } from '@/lib/pod/podcastCover.generated'
 
+// SVG text font for everything sharp renders (duration badge, season posters). A generic
+// `sans-serif` resolves through fontconfig to a thin default whose bold weights don't map
+// (confirmed by side-by-side render on Windows) — Arial is present everywhere we run,
+// renders real bold, and is the closest system match to YouTube's Roboto badge.
+const BADGE_FONT = `Arial, 'Helvetica Neue', 'Segoe UI', sans-serif`
+
 async function writeImage(url: string | null, destAbsPath: string): Promise<boolean> {
   if (!url) return false
   const img = await getOrFetchImage(url)
@@ -47,7 +53,7 @@ async function generateSeasonPosterBuffer(seed: string, label: string): Promise<
     + `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">`
     + `<stop offset="0" stop-color="${palette.c1}"/><stop offset="1" stop-color="${palette.c2}"/></linearGradient></defs>`
     + `<rect width="100%" height="100%" fill="url(#g)"/>`
-    + `<text x="50%" y="${Math.round(H * 0.82)}" text-anchor="middle" font-family="sans-serif" font-weight="700"`
+    + `<text x="50%" y="${Math.round(H * 0.82)}" text-anchor="middle" font-family="${BADGE_FONT}" font-weight="700"`
     + ` font-size="${Math.round(W * 0.13)}" fill="${palette.fg}">${label.toUpperCase()}</text>`
     + `</svg>`
   return sharp(Buffer.from(svg)).composite(layers).jpeg({ quality: 88 }).toBuffer()
@@ -113,17 +119,36 @@ async function overlayThumbBadges(imgBuffer: Buffer, durationSec: number | null)
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">`
     + `<rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="3" fill="black" fill-opacity="0.8"/>`
     + `<text x="${x + boxW / 2}" y="${y + boxH / 2}" text-anchor="middle" dominant-baseline="central"`
-    + ` font-family="sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${text}</text>`
+    + ` font-family="${BADGE_FONT}" font-weight="700" font-size="${fontSize}" fill="white">${text}</text>`
     + `</svg>`
   return sharp(imgBuffer).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 90 }).toBuffer()
 }
 
+/** Center-crop to 16:9 before badging. YouTube's hqdefault.jpg is 480x360 (4:3) with the
+ *  16:9 content letterboxed between baked-in black bars — a badge positioned relative to
+ *  the full frame lands INSIDE the bottom bar, and Plex's 16:9 episode tiles then crop the
+ *  bar (and the badge) away, leaving a half-visible box. Confirmed live on all three Plex
+ *  clients. Cropping first puts the badge inside the content that actually renders. */
+async function cropTo16x9(buf: Buffer): Promise<Buffer> {
+  const meta = await sharp(buf).metadata()
+  const W = meta.width ?? 0, H = meta.height ?? 0
+  const targetH = Math.round(W * 9 / 16)
+  if (!W || !H || H <= targetH + 2) return buf   // unknown size, already 16:9, or wider
+  const top = Math.round((H - targetH) / 2)
+  return sharp(buf).extract({ left: 0, top, width: W, height: targetH }).jpeg({ quality: 92 }).toBuffer()
+}
+
 export async function writeEpisodeThumb(thumbAbsPath: string, url: string | null, durationSec: number | null): Promise<boolean> {
   if (!url) return false
+  // A thumbnail without its duration badge must never reach the Plex tree — the badge is
+  // the whole point of writing our own thumb (Plex would generate a frame grab otherwise,
+  // which at least LOOKS intentionally different from a half-done YouTube-style thumb).
+  // Callers resolve duration (DB, else ffprobe of the placed file) before calling.
+  if (!durationSec || durationSec <= 0) return false
   const img = await getOrFetchImage(url)
   if (!img) return false
-  let bytes = img.data
-  try { bytes = await overlayThumbBadges(bytes, durationSec) } catch { /* fall through with the plain thumbnail */ }
+  let bytes: Buffer
+  try { bytes = await overlayThumbBadges(await cropTo16x9(img.data), durationSec) } catch { return false }
   await mkdir(dirname(thumbAbsPath), { recursive: true })
   await writeFile(thumbAbsPath, bytes)
   return true

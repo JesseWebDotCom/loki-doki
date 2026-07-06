@@ -111,6 +111,13 @@ async function createShowLibrarySection(conn: PlexConnection, name: string, plex
       // of how a YouTube channel page (or anyone's expectation of "recent videos") works.
       // 1 = Newest first.
       await setLibraryPref(conn, sectionKey, 'episodeSort', '1')
+      // respectTags is the API id of the "Prefer local metadata" toggle (its label/summary
+      // in /prefs say exactly that — "prefer embedded tags and local files"). Without it the
+      // "Plex TV Series" agent ignores the title/plot MP4 atoms placement embeds (see
+      // placement.ts's placeVideoWithMetadata comment) and every episode shows as a bare
+      // "Episode N" with no description — confirmed live on a freshly provisioned section,
+      // where it defaults off. (preferLocalMetadata is NOT a valid pref id here — 400.)
+      await setLibraryPref(conn, sectionKey, 'respectTags', '1')
     }
     return sectionKey
   } catch (err) {
