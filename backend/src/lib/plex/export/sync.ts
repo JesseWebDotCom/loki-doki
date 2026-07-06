@@ -129,6 +129,93 @@ async function setShowDescription(sectionKey: string, showTitle: string, descrip
   logger.warn(`[plex-export] gave up setting description for "${showTitle}" — show never appeared in Plex's index`)
 }
 
+// ── Show ratings ──────────────────────────────────────────────────────────────
+// Both display natively in Plex clients: contentRating as the age badge next to the
+// title, audienceRating as the score. Set via the same metadata-edit API as the show
+// description, locked so a future agent match can't overwrite them.
+
+const CONTENT_RATINGS = ['TV-MA', 'TV-14', 'TV-PG', 'TV-G', 'TV-Y7', 'TV-Y'] as const
+
+/** TV Parental Guidelines rating for a channel, inferred by the local fast model from the
+ *  channel's name/about text and its exported video titles. Best-effort: null (skip) when
+ *  the model is unavailable or answers something unparseable. */
+async function inferShowContentRating(title: string, description: string | null, sampleTitles: string[]): Promise<string | null> {
+  try {
+    const { ollamaChat } = await import('@/llm/ollama')
+    const { getFastModel } = await import('@/lib/models')
+    const model = await getFastModel()
+    const prompt =
+      `Assign a US TV Parental Guidelines rating to this YouTube channel based on its typical content.\n`
+      + `Channel: ${title}\n`
+      + (description ? `About: ${description.slice(0, 500)}\n` : '')
+      + (sampleTitles.length ? `Recent videos: ${sampleTitles.slice(0, 8).join(' | ')}\n` : '')
+      + `Consider profanity, violence, sexual content, and mature themes typical for the channel.\n`
+      + `Answer with EXACTLY one of: TV-Y, TV-Y7, TV-G, TV-PG, TV-14, TV-MA. No other text.`
+    const res = await ollamaChat(model, [{ role: 'user', content: prompt }], undefined, { temperature: 0, num_predict: 10 })
+    const out = (res.message?.content ?? '').toUpperCase()
+    // Ordered strictest-first so "TV-14" can't be matched inside a stray "TV-1" etc.
+    return CONTENT_RATINGS.find(r => out.includes(r)) ?? null
+  } catch { return null }
+}
+
+/** 0–10 audience score from the mean like/view ratio of the show's exported videos.
+ *  YouTube stopped exposing dislikes, so the classic likes/(likes+dislikes) isn't possible;
+ *  likes-per-view is the honest signal left. ~8% saturates the scale (an exceptionally
+ *  loved video), ~4% (a typical healthy ratio) lands at 5.0. */
+async function computeAudienceRating(showId: string): Promise<number | null> {
+  const rows = await db.select({ likes: ytVideos.likeCount, views: ytVideos.viewCount })
+    .from(ytPlexEpisodes)
+    .innerJoin(ytVideos, eq(ytVideos.videoId, ytPlexEpisodes.videoId))
+    .where(eq(ytPlexEpisodes.showId, showId))
+  const ratios = rows.filter(r => r.likes != null && r.views != null && r.views > 0).map(r => r.likes! / r.views!)
+  if (!ratios.length) return null
+  const avg = ratios.reduce((a, b) => a + b, 0) / ratios.length
+  return Math.round(Math.min(1, avg / 0.08) * 100) / 10
+}
+
+// Re-running the LLM + rating PUTs on every episode of a burst placement is waste — once
+// per show per backend session is plenty (episode-count drift barely moves the average).
+const ratingsAppliedAt = new Map<string, number>()
+const RATINGS_REAPPLY_MS = 6 * 60 * 60 * 1000
+
+async function applyShowRatings(sectionKey: string, showTitle: string, showId: string, channelId: string): Promise<void> {
+  const last = ratingsAppliedAt.get(showId)
+  if (last && Date.now() - last < RATINGS_REAPPLY_MS) return
+  ratingsAppliedAt.set(showId, Date.now())
+  const conn = await getPlexConnection()
+  if (!conn) return
+  const description = await innertubeChannel(channelId, null, 1, 8000, 'videos')
+    .then(p => p.meta?.description ?? null).catch(() => null)
+  const sampleTitles = (await db.select({ t: ytVideos.title })
+    .from(ytPlexEpisodes).innerJoin(ytVideos, eq(ytVideos.videoId, ytPlexEpisodes.videoId))
+    .where(eq(ytPlexEpisodes.showId, showId)).limit(8)).map(r => r.t)
+  const [contentRating, audience] = await Promise.all([
+    inferShowContentRating(showTitle, description, sampleTitles),
+    computeAudienceRating(showId),
+  ])
+  if (!contentRating && audience == null) { ratingsAppliedAt.delete(showId); return }
+  // Same patient window as setShowDescription — the show only enters Plex's index when
+  // the debounced full-section scan finds it.
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const ratingKey = await resolveShowRatingKey(conn, sectionKey, showTitle)
+    if (ratingKey) {
+      const params = new URLSearchParams({ type: '2', id: ratingKey, 'X-Plex-Token': conn.token })
+      if (contentRating) { params.set('contentRating.value', contentRating); params.set('contentRating.locked', '1') }
+      if (audience != null) { params.set('audienceRating.value', String(audience)); params.set('audienceRating.locked', '1') }
+      try {
+        const res = await fetch(`${conn.baseUrl}/library/metadata/${encodeURIComponent(ratingKey)}?${params.toString()}`, {
+          method: 'PUT', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(PLEX_TIMEOUT_MS),
+        })
+        if (res.ok) return
+      } catch (err) {
+        logger.warn(`[plex-export] applyShowRatings PUT failed for "${showTitle}": ${err}`)
+      }
+    }
+    if (attempt < 11) await new Promise(r => setTimeout(r, 15_000))
+  }
+  ratingsAppliedAt.delete(showId)  // never landed — let a later sync try again
+}
+
 async function ensureShow(
   userId: string, firstName: string, channelId: string, channelTitleFallback: string, variant: 'main' | 'shorts', seasonYear: number, sectionKey: string,
 ): Promise<{ id: string; title: string; folderRelPath: string; showDirAbs: string }> {
@@ -343,6 +430,10 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   }
   if (existingEp) await db.update(ytPlexEpisodes).set(readyFields).where(eq(ytPlexEpisodes.id, existingEp.id))
   else await db.insert(ytPlexEpisodes).values({ id: crypto.randomUUID(), userId, videoId, ...readyFields, createdAt: now })
+
+  // Fire-and-forget like setShowDescription; runs after the episode upsert so the show's
+  // sample titles / like-ratio pool includes this video. Internally debounced per show.
+  void applyShowRatings(section.plexSectionKey, show.title ?? video.author, show.id, video.channelId)
 
   const contentTypeStorageLocationId = await getContentTypeStorageLocationId(CONTENT_TYPE)
   const plexSeasonPath = await toPlexPath(contentTypeStorageLocationId, seasonDirAbs)

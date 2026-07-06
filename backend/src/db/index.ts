@@ -2657,4 +2657,9 @@ export function runMigrations() {
   // "Smart Description" (see schema.ts ytVideos.descriptionClean) — LLM-cleaned description,
   // or the transcript summary when the real description is mostly sponsor/ad content.
   addColumn('yt_videos', 'description_clean', 'TEXT')
+
+  // Numeric engagement counts from yt-dlp metadata (views is legacy TEXT display data) —
+  // feed the Plex export's show-level audience rating (like/view ratio).
+  addColumn('yt_videos', 'like_count', 'INTEGER')
+  addColumn('yt_videos', 'view_count', 'INTEGER')
 }
