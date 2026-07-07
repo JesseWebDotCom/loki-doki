@@ -25,7 +25,9 @@ export function SmartSearchInput({
   value, onChange, onSubmit, suggest, placeholder, minLength, debounceMs, inputRef, className,
 }: SmartSearchInputProps) {
   const [open, setOpen] = useState(false)
-  const [selected, setSelected] = useState(0)
+  // -1 = nothing highlighted: Enter searches the typed text. Only Arrow keys move into the
+  // list, and only then does Enter pick a suggestion.
+  const [selected, setSelected] = useState(-1)
   const { suggestions } = useSuggestions(value, suggest, { minLength, debounceMs })
   const localRef = useRef<HTMLInputElement | null>(null)
 
@@ -41,8 +43,13 @@ export function SmartSearchInput({
       return
     }
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(i => Math.min(i + 1, suggestions.length - 1)) }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(i => Math.max(i - 1, 0)) }
-    else if (e.key === 'Enter') { e.preventDefault(); pick(suggestions[selected]?.label ?? value); setOpen(false) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(i => Math.max(i - 1, -1)) }
+    else if (e.key === 'Enter') {
+      e.preventDefault()
+      // Enter searches exactly what was typed unless the user arrowed onto a suggestion.
+      if (selected >= 0) pick(suggestions[selected]!.label)
+      else { onSubmit(value); setOpen(false) }
+    }
     else if (e.key === 'Escape') { setOpen(false) }
   }
 
@@ -54,7 +61,7 @@ export function SmartSearchInput({
         <Input
           ref={node => { localRef.current = node; if (typeof inputRef === 'function') inputRef(node); else if (inputRef) (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = node }}
           value={value}
-          onChange={e => { onChange(e.target.value); setSelected(0); setOpen(true) }}
+          onChange={e => { onChange(e.target.value); setSelected(-1); setOpen(true) }}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           onKeyDown={onKeyDown}
