@@ -121,7 +121,11 @@ const TIER2_TOP_N = 5
 const TIER1_MARGIN = 0.05
 
 // Trivial greetings/acks that are unambiguously non-tool. Saves a Tier 2 LLM call.
-const GREETING_RE = /^(hi|hello|hey|thanks|thank you|ok|okay|sure|lol|haha|cool|nice|great|awesome|got it|sounds good|perfect|bye|goodbye|see ya|yes|no|yep|nope|yup)[\s!.?]*$/i
+// "good morning/evening/…" included: without it, "good evening!" embeds closer to
+// the sleep tool (0.747) than the conversational exemplars and paid a ~600ms
+// Tier-2 call just to learn it's a greeting. "good night" deliberately stays OUT —
+// it's a real sleep-tool trigger.
+const GREETING_RE = /^(hi|hello|hey|good (morning|afternoon|evening|day)|thanks|thank you|ok|okay|sure|lol|haha|cool|nice|great|awesome|got it|sounds good|perfect|bye|goodbye|see ya|yes|no|yep|nope|yup)[\s!.?]*$/i
 const TIER2_HISTORY_LIMIT = 10
 
 // Per-tool routing rules, keyed by TOOL ID. The Tier-2 system prompt is assembled
@@ -468,10 +472,18 @@ export async function routePrompt(
   // Chitchat absorber: when the conversational exemplars outscore every tool, the
   // message is social — answer directly instead of paying a Tier-2 call to learn
   // "no tool". Never absorbs search-shaped prompts ("tell me about X" can sit
-  // close to "tell me something about yourself").
+  // close to "tell me something about yourself"). A bare ">" comparison let the
+  // absorber steal tool questions by a hair ("what's the weather like today?" —
+  // absorber 0.633 vs weather 0.596), so a near-tie with a plausible tool falls
+  // through to the normal cascade instead (Tier 2 can still answer no-tool).
   if (!searchIntent && conversationalScore >= 0.45 && conversationalScore > bestScore) {
-    logger.info(`[ROUTER] path=conversational-absorber score=${conversationalScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
-    return { tool: null, args: {}, path: 'conversational-absorber' }
+    const nearTieWithTool =
+      bestScore >= CONVERSATIONAL_THRESHOLD && conversationalScore - bestScore < TIER1_MARGIN
+    if (!nearTieWithTool) {
+      logger.info(`[ROUTER] path=conversational-absorber score=${conversationalScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
+      return { tool: null, args: {}, path: 'conversational-absorber' }
+    }
+    logger.info(`[ROUTER] path=absorber-near-tie score=${conversationalScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
   }
 
   // The user's denied tool would have won confidently — surface that instead of

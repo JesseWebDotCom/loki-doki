@@ -95,7 +95,11 @@ export async function ollamaWarmModel(model: string): Promise<void> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(OLLAMA_FIRST_BYTE_MS),
-      body: JSON.stringify({ model, keep_alive: -1 }),
+      // num_ctx must match what real calls use — a bare load request sizes the
+      // runner at Ollama's 4096 default, and the first real call (which gets
+      // DEFAULT_NUM_CTX injected) then pays a full ~3s runner reload, defeating
+      // the warm entirely.
+      body: JSON.stringify({ model, keep_alive: -1, options: { num_ctx: DEFAULT_NUM_CTX } }),
     })
   } catch { /* best-effort */ }
 }

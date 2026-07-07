@@ -113,7 +113,10 @@ async function detectViaLlm(text: string): Promise<RawTurn[] | null> {
           { role: 'user', content: prompt },
         ],
         undefined,
-        { temperature: 0.2, num_ctx: 4096, num_predict: Math.max(800, Math.ceil(window.length / 2)) },
+        // num_ctx matches the chat default — this runs on the MAIN chat model, and a
+        // 4096 call forces a full runner reload + total KV loss, so the user's next
+        // chat turn pays a second multi-second reload back to 8192.
+        { temperature: 0.2, num_ctx: 8192, num_predict: Math.max(800, Math.ceil(window.length / 2)) },
         undefined,
         DETECT_TIMEOUT_MS,
       )

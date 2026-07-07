@@ -720,7 +720,10 @@ export async function runCompanionTurn(
   }
 
   const _ctxChars = ollamaMessages.reduce((n, m) => n + m.content.length, 0)
-  _lap(`stream-start msgs=${ollamaMessages.length} ~${Math.ceil(_ctxChars / 4)}tok`)
+  // Per-part char sizes (system prompt build order) — makes prompt bloat visible in
+  // the timing log: prefill cost is linear in prompt tokens (~4 chars/token estimate,
+  // though prompt_eval in llm-done is the ground truth and often runs ~2x this).
+  _lap(`stream-start msgs=${ollamaMessages.length} ~${Math.ceil(_ctxChars / 4)}tok sysParts=[${systemParts.map((s) => s.length).join(',')}]ch`)
   let fullResponse = ''
   let firstToken = true
   let completed = false
