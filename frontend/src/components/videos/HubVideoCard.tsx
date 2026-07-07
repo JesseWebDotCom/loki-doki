@@ -45,15 +45,16 @@ function fmtAge(ms?: number | null): string | null {
 
 /** Card for non-YouTube hub items (YouTube items keep the richer VideoCard). Shows a
  *  source badge in mixed contexts; omit it inside a single source's own browse area. */
-export function HubVideoCard({ item, showSource = true, shape, interactive = true, dim = false }: {
+export function HubVideoCard({ item, showSource = true, shape, interactive = true, savingLabel }: {
   item: HubVideoItem
   showSource?: boolean
   shape?: 'wide' | 'tall'
   /** Show the hover preview + one-click Save. Off where the card is display-only (e.g. the
    *  Offline page, which manages its own saving/remove state). */
   interactive?: boolean
-  /** Grayscale the card, e.g. while it's still downloading — matches the YouTube treatment. */
-  dim?: boolean
+  /** When set, the card renders as a still-downloading item: grayscale with a centered
+   *  spinner + this label over the thumbnail, matching the YouTube "Downloading…" card. */
+  savingLabel?: string
 }) {
   const dur = fmtDur(item.durationSec)
   const metaLine = [item.creator?.name, item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)]
@@ -89,7 +90,7 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
   return (
     <Link
       to={HUB_PATHS[item.source].watch(item.id)}
-      className={cn('group flex flex-col gap-2.5', ghosted && 'opacity-45 saturate-50', dim && 'grayscale')}
+      className={cn('group flex flex-col gap-2.5', ghosted && 'opacity-45 saturate-50', savingLabel && 'grayscale')}
       onMouseEnter={startPreview}
       onMouseLeave={stopPreview}
       onClick={(e) => {
@@ -143,6 +144,12 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
         )}
         {dur && (
           <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
+        )}
+        {savingLabel && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/40 text-white">
+            <Spinner size="sm" className="text-white" />
+            <span className="text-xs font-medium">{savingLabel}</span>
+          </div>
         )}
         {!ghosted && interactive && (
           // One-click Save to the Offline library (hover-revealed; stays visible once saved).

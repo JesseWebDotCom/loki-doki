@@ -31,18 +31,17 @@ function SourceSaves({ source }: { source: Exclude<VideoSource, 'youtube'> }) {
           <HubVideoCard
             showSource={false}
             interactive={false}
-            dim={s.status !== 'ready'}
+            savingLabel={s.status === 'ready' ? undefined : s.status === 'failed' ? 'Failed' : 'Saving…'}
             item={{
               source: s.source, id: s.videoId, url: '', title: s.title,
               creator: s.creatorName ? { id: '', name: s.creatorName } : null,
               thumbnailUrl: s.thumbnailUrl, durationSec: s.durationSec,
             }}
           />
-          <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-            <span>{s.status === 'ready' ? 'Saved' : s.status === 'failed' ? 'Failed' : 'Saving…'}</span>
+          <div className="mt-1 flex items-center justify-end text-xs">
             <Button
               variant="ghost" size="sm"
-              className="h-6 px-2 text-xs opacity-0 group-hover:opacity-100"
+              className="h-6 px-2 text-xs text-muted-foreground opacity-0 group-hover:opacity-100"
               onClick={() => {
                 void deleteSave(s.id)
                   .then(() => qc.invalidateQueries({ queryKey: ['videos-saves', 'all'] }))
