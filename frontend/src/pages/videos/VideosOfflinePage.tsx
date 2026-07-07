@@ -30,6 +30,8 @@ function SourceSaves({ source }: { source: Exclude<VideoSource, 'youtube'> }) {
         <div key={s.id} className="group relative">
           <HubVideoCard
             showSource={false}
+            interactive={false}
+            dim={s.status !== 'ready'}
             item={{
               source: s.source, id: s.videoId, url: '', title: s.title,
               creator: s.creatorName ? { id: '', name: s.creatorName } : null,

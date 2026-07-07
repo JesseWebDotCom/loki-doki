@@ -45,7 +45,16 @@ function fmtAge(ms?: number | null): string | null {
 
 /** Card for non-YouTube hub items (YouTube items keep the richer VideoCard). Shows a
  *  source badge in mixed contexts; omit it inside a single source's own browse area. */
-export function HubVideoCard({ item, showSource = true, shape }: { item: HubVideoItem; showSource?: boolean; shape?: 'wide' | 'tall' }) {
+export function HubVideoCard({ item, showSource = true, shape, interactive = true, dim = false }: {
+  item: HubVideoItem
+  showSource?: boolean
+  shape?: 'wide' | 'tall'
+  /** Show the hover preview + one-click Save. Off where the card is display-only (e.g. the
+   *  Offline page, which manages its own saving/remove state). */
+  interactive?: boolean
+  /** Grayscale the card, e.g. while it's still downloading — matches the YouTube treatment. */
+  dim?: boolean
+}) {
   const dur = fmtDur(item.durationSec)
   const metaLine = [item.creator?.name, item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)]
     .filter(Boolean).join(' · ')
@@ -68,7 +77,7 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
   // Hover-to-preview via each source's official embed. Vimeo's "background" player is muted
   // by design; TikTok's player autoplays (the browser forces muted autoplay without a user
   // gesture, so it won't blast audio). Reddit would need its HLS stream, so it's skipped.
-  const previewUrl = ghosted ? null
+  const previewUrl = ghosted || !interactive ? null
     : item.source === 'vimeo' ? `https://player.vimeo.com/video/${encodeURIComponent(item.id)}?background=1&autoplay=1`
     : item.source === 'tiktok' ? `https://www.tiktok.com/player/v1/${encodeURIComponent(item.id)}?autoplay=1&loop=1&controls=0&music_info=0&description=0&rel=0`
     : null
@@ -80,7 +89,7 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
   return (
     <Link
       to={HUB_PATHS[item.source].watch(item.id)}
-      className={cn('group flex flex-col gap-2.5', ghosted && 'opacity-45 saturate-50')}
+      className={cn('group flex flex-col gap-2.5', ghosted && 'opacity-45 saturate-50', dim && 'grayscale')}
       onMouseEnter={startPreview}
       onMouseLeave={stopPreview}
       onClick={(e) => {
@@ -135,7 +144,7 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
         {dur && (
           <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
         )}
-        {!ghosted && (
+        {!ghosted && interactive && (
           // One-click Save to the Offline library (hover-revealed; stays visible once saved).
           <button type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!saved && !saveMutation.isPending) saveMutation.mutate() }}
