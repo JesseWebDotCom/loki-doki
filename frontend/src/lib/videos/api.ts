@@ -98,6 +98,9 @@ export interface VideoFollow {
   autoSave: boolean
   autoSaveKind: 'audio' | 'video'
   autoSaveKeep: number | null
+  /** Last time the poller pulled new uploads; used to sort the unified subscriptions list. */
+  lastFetchedAt?: string | null
+  addedAt?: string | null
 }
 
 export interface VideoSave {

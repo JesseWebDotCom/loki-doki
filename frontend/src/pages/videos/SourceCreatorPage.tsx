@@ -8,6 +8,7 @@ import { useViewPreference } from '@/hooks/useViewPreference'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
+import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
 import { addFollow, getSourceCreator, listFollows, removeFollow, type VideoSource } from '@/lib/videos/api'
@@ -93,13 +94,11 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
             <ViewToggle value={view} onChange={setView} className="shrink-0" />
           </div>
           <HubVideoCollection items={items} view={view} showSource={false} />
-          {creatorQuery.hasNextPage && (
-            <div className="mt-8 flex justify-center">
-              <Button variant="outline" onClick={() => void creatorQuery.fetchNextPage()} disabled={creatorQuery.isFetchingNextPage}>
-                {creatorQuery.isFetchingNextPage ? <Spinner size="sm" /> : 'Load more'}
-              </Button>
-            </div>
-          )}
+          <InfiniteLoadMore
+            hasNextPage={!!creatorQuery.hasNextPage}
+            isFetchingNextPage={creatorQuery.isFetchingNextPage}
+            fetchNextPage={() => void creatorQuery.fetchNextPage()}
+          />
         </>
       )}
     </PageContainer>

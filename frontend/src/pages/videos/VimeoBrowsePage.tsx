@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
+import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
 import { browseSource, getHubHistory, getVideoSources, putVimeoConfig, type HubVideoItem } from '@/lib/videos/api'
@@ -149,13 +150,11 @@ export function VimeoBrowsePage() {
           )}
           <section>
             <HubVideoCollection items={items} view={view} showSource={false} />
-            {feedQuery.hasNextPage && (
-              <div className="mt-8 flex justify-center">
-                <Button variant="outline" onClick={() => void feedQuery.fetchNextPage()} disabled={feedQuery.isFetchingNextPage}>
-                  {feedQuery.isFetchingNextPage ? <Spinner size="sm" /> : 'Load more'}
-                </Button>
-              </div>
-            )}
+            <InfiniteLoadMore
+              hasNextPage={!!feedQuery.hasNextPage}
+              isFetchingNextPage={feedQuery.isFetchingNextPage}
+              fetchNextPage={() => void feedQuery.fetchNextPage()}
+            />
           </section>
         </div>
       )}

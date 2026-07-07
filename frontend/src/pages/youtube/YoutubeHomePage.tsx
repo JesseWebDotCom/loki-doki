@@ -142,7 +142,7 @@ function HomeLanding() {
           {online && (popularItems.length > 0 ? <MediaShelf title="🔥 Popular" items={popularItems} view={view} /> : popularLoading ? <ShelfSkeleton /> : null)}
           {online && (trendingItems.length > 0 ? <MediaShelf title="📈 Trending" items={trendingItems} view={view} /> : trendingLoading ? <ShelfSkeleton /> : null)}
           {continueWatching.length > 0 ? <MediaShelf title="Continue watching" items={continueWatching} view={view} /> : (online && historyLoading) ? <ShelfSkeleton /> : null}
-          {channels.length > 0 && <ChannelRail channels={channels} />}
+          {channels.length > 0 && <ChannelRail title="Your subscriptions" channels={channels} />}
           {recommendedItems.length > 0 ? <MediaShelf title="Recommended for you" items={recommendedItems} view={view} /> : (online && recommendedLoading) ? <ShelfSkeleton /> : null}
           {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts.slice(0, 12)} aspect="short" view={view} />}
           {regular.length > 0 ? (
