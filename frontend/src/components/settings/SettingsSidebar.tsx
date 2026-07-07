@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
@@ -33,22 +34,26 @@ export function SettingsSidebar({ sections, activeSection, onNavigate, className
         >
           <PanelLeftOpen className="size-4" />
         </Button>
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
-          {sections.map((s) => {
+        <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto">
+          {sections.map((s, i) => {
             const Icon = s.icon
             const active = s.id === activeSection
+            // A thin divider stands in for the group heading in the icon-only rail.
+            const newGroup = !!s.group && i > 0 && s.group !== sections[i - 1]?.group
             return (
-              <button
-                key={s.id}
-                onClick={() => onNavigate(s.id)}
-                title={s.label}
-                className={cn(
-                  'flex size-10 items-center justify-center rounded-control transition-colors',
-                  active ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4" />
-              </button>
+              <Fragment key={s.id}>
+                {newGroup && <div className="my-1 h-px w-6 bg-border/60" />}
+                <button
+                  onClick={() => onNavigate(s.id)}
+                  title={s.group ? `${s.group} · ${s.label}` : s.label}
+                  className={cn(
+                    'flex size-10 items-center justify-center rounded-control transition-colors',
+                    active ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
+                  )}
+                >
+                  <Icon className="size-4" />
+                </button>
+              </Fragment>
             )
           })}
         </nav>
@@ -76,21 +81,26 @@ export function SettingsSidebar({ sections, activeSection, onNavigate, className
       </div>
 
       <nav className="flex-1 overflow-y-auto p-2 text-sm">
-        {sections.map((s) => {
+        {sections.map((s, i) => {
           const Icon = s.icon
           const active = s.id === activeSection
+          const showGroup = !!s.group && s.group !== sections[i - 1]?.group
           return (
-            <button
-              key={s.id}
-              onClick={() => onNavigate(s.id)}
-              className={cn(
-                'mb-0.5 flex w-full items-center gap-2 rounded-control px-2.5 py-1.5 text-left transition-colors',
-                active ? 'bg-brand/10 font-medium text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
+            <Fragment key={s.id}>
+              {showGroup && (
+                <p className={cn('px-2.5 pb-1 text-overline text-muted-foreground/50', i === 0 ? 'pt-1' : 'pt-4')}>{s.group}</p>
               )}
-            >
-              <Icon className="size-4 shrink-0" />
-              <span className="flex-1">{s.label}</span>
-            </button>
+              <button
+                onClick={() => onNavigate(s.id)}
+                className={cn(
+                  'mb-0.5 flex w-full items-center gap-2 rounded-control px-2.5 py-1.5 text-left transition-colors',
+                  active ? 'bg-brand/10 font-medium text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
+                )}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="flex-1">{s.label}</span>
+              </button>
+            </Fragment>
           )
         })}
       </nav>

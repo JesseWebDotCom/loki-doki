@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Cookie, Eye, KeyRound } from 'lucide-react'
+import { Cookie, Eye, Globe, KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useAuth } from '@/context/AuthContext'
+import { SettingsYoutubeAccount } from '@/components/settings/SettingsYoutubeAccount'
 import { toast } from '@/lib/toast'
 import {
   getRedditConfig, getVideoSources, getVimeoConfig, putEnabledSources, putRedditConfig, putVimeoConfig,
@@ -134,10 +135,13 @@ export function SettingsVideoSources() {
 
   return (
     <div className="space-y-4">
-      <DisplayedSourcesCard
-        isAdmin={isAdmin}
-        sources={(sourcesData?.sources ?? []).map((s) => ({ source: s.source, label: s.label, enabled: s.enabled }))}
-      />
+      <p className="text-sm text-muted-foreground">
+        Connect your video sources in one place. Each platform links up differently: some sign in,
+        some take a free key, and some need nothing at all.
+      </p>
+
+      {/* YouTube: full account sign-in (Google device flow); its own richer card. */}
+      <SettingsYoutubeAccount />
 
       <SourceCard
         title={`Reddit ${status('reddit')?.configured ? '· Connected' : ''}`}
@@ -167,6 +171,17 @@ export function SettingsVideoSources() {
         title="TikTok"
         icon={Cookie}
         blurb="Works out of the box for creator feeds and pasted links. If extraction gets flaky, uploading a cookies.txt in Admin makes it more reliable; the same cookies are shared by every source that uses yt-dlp."
+      />
+
+      <SourceCard
+        title="Other sites"
+        icon={Globe}
+        blurb="Nothing to set up. Paste a link from any of yt-dlp's ~1800 supported sites (Instagram, X, Twitch clips, and more) into the Videos search bar and it plays right in the hub."
+      />
+
+      <DisplayedSourcesCard
+        isAdmin={isAdmin}
+        sources={(sourcesData?.sources ?? []).map((s) => ({ source: s.source, label: s.label, enabled: s.enabled }))}
       />
     </div>
   )

@@ -6,6 +6,9 @@ export interface PanelSection {
   id: string
   label: string
   icon: LucideIcon
+  /** Optional sidebar grouping. Consecutive sections sharing a group render under one
+   *  heading (e.g. "YouTube") so it's clear which settings apply to what. */
+  group?: string
 }
 
 interface PanelLayoutProps {
