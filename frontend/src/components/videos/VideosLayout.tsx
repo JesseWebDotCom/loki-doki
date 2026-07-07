@@ -84,8 +84,8 @@ function ModeToggle({ mode, onChange }: { mode: YoutubeMode; onChange: (m: Youtu
   )
 }
 
-/** Paths that host YouTube search results (the search box submits here). */
-const SEARCH_HOME_PATHS = new Set(['/videos', '/videos/', '/videos/youtube', '/videos/youtube/'])
+/** Paths where the search box's text mirrors the ?q= in the URL. */
+const SEARCH_HOME_PATHS = new Set(['/videos', '/videos/', '/videos/youtube', '/videos/youtube/', '/videos/search', '/videos/search/'])
 
 export function VideosLayout() {
   const qc = useQueryClient()
@@ -121,18 +121,20 @@ export function VideosLayout() {
   useAppHeader({
     query,
     setQuery,
-    onSubmit: () => {
-      const t = query.trim()
+    onSubmit: (submitted?: string) => {
+      // Use the submitted text (a picked suggestion or the Enter value) so we never search
+      // stale query state; fall back to the live box value.
+      const t = (submitted ?? query).trim()
       if (!t) return
-      // A pasted URL opens the video directly; a plain query searches YouTube.
+      // A pasted URL opens the video directly; a plain query searches across all sources.
       if (looksLikeUrl(t)) {
         const url = /^https?:\/\//i.test(t) ? t : `https://${t}`
         void routeVideoUrl(url)
           .then((r) => navigate(hubPath(r.source, r.kind, r.id)))
-          .catch(() => navigate(`/videos/youtube?q=${encodeURIComponent(t)}`))
+          .catch(() => navigate(`/videos/search?q=${encodeURIComponent(t)}`))
         return
       }
-      navigate(`/videos/youtube?q=${encodeURIComponent(t)}`)
+      navigate(`/videos/search?q=${encodeURIComponent(t)}`)
     },
     placeholder: mode === 'online' ? 'Search videos, channels, episodes…' : 'Search your offline library…',
     settingsHref: '/videos/settings',

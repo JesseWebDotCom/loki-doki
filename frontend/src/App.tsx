@@ -155,6 +155,7 @@ const BookGenerationProgressPage = lazy(() => import('@/pages/books/generate/Boo
 
 const VideosLayout = lazy(() => import('@/components/videos/VideosLayout').then((m) => ({ default: m.VideosLayout })))
 const VideosHomePage = lazy(() => import('@/pages/videos/VideosHomePage').then((m) => ({ default: m.VideosHomePage })))
+const VideosSearchPage = lazy(() => import('@/pages/videos/VideosSearchPage').then((m) => ({ default: m.VideosSearchPage })))
 const RedditBrowsePage = lazy(() => import('@/pages/videos/RedditBrowsePage').then((m) => ({ default: m.RedditBrowsePage })))
 const VideosOfflinePage = lazy(() => import('@/pages/videos/VideosOfflinePage').then((m) => ({ default: m.VideosOfflinePage })))
 const TikTokBrowsePage = lazy(() => import('@/pages/videos/TikTokBrowsePage').then((m) => ({ default: m.TikTokBrowsePage })))
@@ -404,6 +405,7 @@ export default function App() {
                 <Route path="/bored" element={<BoredPage />} />
                 <Route path="/videos" element={<VideosLayout />}>
                   <Route index element={<VideosHomePage />} />
+                  <Route path="search" element={<VideosSearchPage />} />
                   {/* Cross-source library (YouTube-only until more providers land). */}
                   <Route path="history" element={<YoutubeHistoryPage />} />
                   <Route path="playlists" element={<YoutubePlaylistsPage />} />

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import {
@@ -31,7 +31,6 @@ import { useUserLocation } from "@/hooks/useUserLocation";
 import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
 import { useBrowserSession } from "@/hooks/useBrowserSession";
 import { useDropReceiver } from "@/hooks/useDropReceiver";
-import { useClipboardAutofill } from "@/hooks/use-clipboard-autofill";
 
 // Pages not in APP_GROUPS (no category group in the breadcrumb).
 // design-ok(hex-in-tsx): route identity registry data, mirrors getAppByPath() fallback precedent
@@ -65,14 +64,7 @@ export function AppShell() {
   const { paneOpen: canvasOpen } = useArtifactState();
   const navigate = useNavigate();
   const breadcrumbSearch = useAppHeaderConfig();
-  // Clipboard auto-fill: only on YouTube, where pasting a video URL/query is the common case.
-  // The header search input is shared across every app, so gate it here rather than in the hook.
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const setQueryFromClipboard = useCallback(
-    (text: string) => breadcrumbSearch?.setQuery(text),
-    [breadcrumbSearch],
-  );
-  useClipboardAutofill(searchInputRef, setQueryFromClipboard, pathname.startsWith("/videos"));
   // Bumped when the user clicks the app crumb; remounts the Outlet to "reload" the app.
   const [reloadNonce, setReloadNonce] = useState(0);
   const { location, status, error: locationError, detect, setManual } = useUserLocation();
@@ -283,7 +275,7 @@ export function AppShell() {
                           inputRef={searchInputRef}
                           value={breadcrumbSearch.query}
                           onChange={breadcrumbSearch.setQuery}
-                          onSubmit={() => breadcrumbSearch.onSubmit?.()}
+                          onSubmit={(picked) => breadcrumbSearch.onSubmit?.(picked)}
                           suggest={breadcrumbSearch.suggest}
                           placeholder={breadcrumbSearch.placeholder ?? 'Search...'}
                           className="h-8 pl-8 text-sm"

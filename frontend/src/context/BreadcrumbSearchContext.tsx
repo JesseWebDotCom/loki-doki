@@ -5,8 +5,9 @@ import type { SuggestSource } from '@/lib/smartSearch/types'
 export interface AppHeaderConfig {
   query: string
   setQuery: (q: string) => void
-  /** Omit for live filtering (no submit button rendered). */
-  onSubmit?: () => void
+  /** Omit for live filtering (no submit button rendered). Receives the submitted text when
+   *  it comes from a picked suggestion or Enter (so it doesn't read stale query state). */
+  onSubmit?: (query?: string) => void
   /** Set false to hide the search input entirely (for header rows that only use slots). */
   searchable?: boolean
   /** Opt into the autosuggest dropdown (SmartSearchInput) instead of a plain input. */
@@ -71,7 +72,7 @@ export function useAppHeader(config: AppHeaderConfig) {
   configRef.current = config
 
   const setQuery = useCallback((q: string) => configRef.current.setQuery(q), [])
-  const onSubmit = useCallback(() => configRef.current.onSubmit?.(), [])
+  const onSubmit = useCallback((q?: string) => configRef.current.onSubmit?.(q), [])
 
   const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs, suggest } = config
   const hasSubmit = !!config.onSubmit
