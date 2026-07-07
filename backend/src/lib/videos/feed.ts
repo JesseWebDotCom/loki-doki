@@ -19,6 +19,18 @@ async function pollFollow(follow: typeof videoFollows.$inferSelect): Promise<voi
   const provider = getProvider(follow.source)
   if (!provider?.fetchCreatorFeed) return
 
+  // Backfill the creator avatar/title for follows saved without one (older follows, a failed
+  // getCreator at follow time, or a provider that only gained avatars later — e.g. TikTok).
+  // getCreator is cached, so this is cheap once warm.
+  if (!follow.thumbnailUrl && provider.getCreator) {
+    const creator = await provider.getCreator(follow.externalId).then((r) => r.creator).catch(() => null)
+    if (creator?.avatarUrl) {
+      await db.update(videoFollows)
+        .set({ thumbnailUrl: creator.avatarUrl, title: creator.name, handle: creator.handle ?? follow.handle })
+        .where(eq(videoFollows.id, follow.id))
+    }
+  }
+
   // What we already have, so quota-aware providers can skip fetching unchanged feeds.
   const known = await db.select({ externalId: videoItems.externalId }).from(videoItems)
     .where(eq(videoItems.followId, follow.id))
