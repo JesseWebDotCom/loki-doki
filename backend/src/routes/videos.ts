@@ -437,22 +437,33 @@ videosRoute.post('/follows', async (c) => {
   const user = c.get('user')
   const body = await c.req.json<{ source?: string; externalId?: string }>().catch(() => ({}) as Record<string, never>)
   const source = body.source ?? ''
-  const externalId = body.externalId?.trim()
+  let externalId = body.externalId?.trim()
   if (!isGenericSource(source) || !externalId) return c.json({ error: 'source and externalId required' }, 400)
   const provider = getProvider(source)
   if (!provider?.getCreator) return c.json({ error: 'source does not support follows' }, 400)
 
-  const { creator } = await provider.getCreator(externalId)
-  if (creator.isAdult && !(await allowAdultVideos(user.id))) {
+  // Accept a pasted profile URL, not just a bare handle/id.
+  const matched = /^https?:\/\//i.test(externalId) ? matchUrlToProvider(externalId) : null
+  if (matched && matched.provider.source === source && matched.match.kind === 'creator') externalId = matched.match.id
+  const cleanId = externalId.replace(/^@/, '')
+
+  // Resolve creator details best-effort: a slow/flaky extraction (TikTok especially) must NOT
+  // block the follow. Fall back to the handle so the follow always lands; the poller fills in
+  // the real title/avatar on its next tick.
+  const creator = await provider.getCreator(cleanId).then((r) => r.creator).catch(() => null)
+  if (creator?.isAdult && !(await allowAdultVideos(user.id))) {
     return c.json({ error: 'This community is not available on your content profile.' }, 403)
   }
+  const kind = creator?.kind === 'subreddit' ? 'subreddit' : creator?.kind === 'channel' ? 'channel' : 'creator'
   const now = new Date()
   const id = randomUUID()
   await db.insert(videoFollows).values({
-    id, userId: user.id, source, kind: creator.kind === 'subreddit' ? 'subreddit' : creator.kind === 'channel' ? 'channel' : 'creator',
-    externalId: creator.id, title: creator.name, handle: creator.handle ?? null,
-    thumbnailUrl: creator.avatarUrl ?? null, description: creator.description ?? null,
-    isAdult: !!creator.isAdult, lastFetchedAt: null, addedAt: now,
+    id, userId: user.id, source, kind,
+    externalId: creator?.id ?? cleanId,
+    title: creator?.name ?? (source === 'tiktok' ? `@${cleanId}` : cleanId),
+    handle: creator?.handle ?? (source === 'tiktok' ? `@${cleanId}` : null),
+    thumbnailUrl: creator?.avatarUrl ?? null, description: creator?.description ?? null,
+    isAdult: !!creator?.isAdult, lastFetchedAt: null, addedAt: now,
   }).onConflictDoNothing()
   return c.json({ ok: true, id })
 })
