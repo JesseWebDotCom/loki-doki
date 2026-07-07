@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Link2 } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
-import { Button } from '@/components/ui/button'
+import { OfflineSelectionToolbar } from '@/components/shared/OfflineSelectionToolbar'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
 import { SavedTab } from '@/pages/youtube/YoutubeLibraryPage'
@@ -16,44 +17,72 @@ import { listClips, clipFileUrl, type Clip } from '@/lib/clipper/api'
 type OfflineFilter = 'all' | 'youtube' | 'reddit' | 'tiktok' | 'vimeo' | 'clips'
 const SOURCE_FILTERS: VideoSource[] = ['youtube', 'reddit', 'tiktok', 'vimeo']
 
-/** Offline saves for one non-YouTube source, with per-item remove. */
+/** Offline saves for one non-YouTube source, with the same bulk-select model as YouTube:
+ *  hover a saved item to reveal its checkbox, plus a Select-all / Clear toolbar. */
 function SourceSaves({ source }: { source: Exclude<VideoSource, 'youtube'> }) {
   const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['videos-saves', 'all'], queryFn: () => listSaves() })
   const saves = (data?.saves ?? []).filter((s) => s.source === source)
+  const ready = saves.filter((s) => s.status === 'ready')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const allSelected = ready.length > 0 && selected.size === ready.length
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const clear = async (ids: string[]) => {
+    setBusy(true)
+    try {
+      await Promise.all(ids.map((id) => deleteSave(id)))
+      setSelected(new Set())
+      await qc.invalidateQueries({ queryKey: ['videos-saves', 'all'] })
+      toast.success(ids.length === 1 ? 'Removed from offline' : `Removed ${ids.length} from offline`)
+    } catch { toast.error('Could not remove') } finally { setBusy(false) }
+  }
+
   if (saves.length === 0) {
     return <p className="py-16 text-center text-sm text-muted-foreground">Nothing saved from this source yet.</p>
   }
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
-      {saves.map((s) => (
-        <div key={s.id} className="group relative">
-          <HubVideoCard
-            showSource={false}
-            interactive={false}
-            savingLabel={s.status === 'ready' ? undefined : s.status === 'failed' ? 'Failed' : 'Saving…'}
-            item={{
-              source: s.source, id: s.videoId, url: '', title: s.title,
-              creator: s.creatorName ? { id: '', name: s.creatorName } : null,
-              thumbnailUrl: s.thumbnailUrl, durationSec: s.durationSec,
-            }}
-          />
-          <div className="mt-1 flex items-center justify-end text-xs">
-            <Button
-              variant="ghost" size="sm"
-              className="h-6 px-2 text-xs text-muted-foreground opacity-0 group-hover:opacity-100"
-              onClick={() => {
-                void deleteSave(s.id)
-                  .then(() => qc.invalidateQueries({ queryKey: ['videos-saves', 'all'] }))
-                  .catch(() => toast.error('Could not remove'))
+    <>
+      {ready.length > 0 && (
+        <OfflineSelectionToolbar
+          totalCount={ready.length}
+          selectedCount={selected.size}
+          allSelected={allSelected}
+          busy={busy}
+          itemLabel="video"
+          onToggleSelectAll={() => setSelected(allSelected ? new Set() : new Set(ready.map((s) => s.id)))}
+          onClearSelected={() => clear([...selected])}
+          onClearAll={() => clear(ready.map((s) => s.id))}
+        />
+      )}
+      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
+        {saves.map((s) => (
+          <div key={s.id} className="group relative">
+            {s.status === 'ready' && (
+              <button
+                type="button"
+                onClick={() => toggle(s.id)}
+                aria-label={selected.has(s.id) ? 'Deselect' : 'Select'}
+                className={cn('absolute left-2 top-2 z-10 flex size-6 items-center justify-center rounded-full border-2 transition-colors',
+                  selected.has(s.id) ? 'border-[var(--yt-accent)] bg-[var(--yt-accent)]' : 'border-white/70 bg-black/40 opacity-0 group-hover:opacity-100')}
+              >
+                {selected.has(s.id) && <span className="size-2 rounded-full bg-white" />}
+              </button>
+            )}
+            <HubVideoCard
+              showSource={false}
+              interactive={false}
+              savingLabel={s.status === 'ready' ? undefined : s.status === 'failed' ? 'Failed' : 'Saving…'}
+              item={{
+                source: s.source, id: s.videoId, url: '', title: s.title,
+                creator: s.creatorName ? { id: '', name: s.creatorName } : null,
+                thumbnailUrl: s.thumbnailUrl, durationSec: s.durationSec,
               }}
-            >
-              Remove
-            </Button>
+            />
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   )
 }
 
