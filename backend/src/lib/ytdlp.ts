@@ -30,6 +30,11 @@ const IS_WIN = process.platform === 'win32'
 const BIN_NAME = IS_WIN ? 'yt-dlp.exe' : 'yt-dlp'
 const BIN_DIR = join(dataDir, 'bin')
 const MANAGED_PATH = join(BIN_DIR, BIN_NAME)
+// yt-dlp's pure-Python zipapp: on macOS/Linux with a modern Python we run this behind a tiny
+// wrapper at MANAGED_PATH (see provisionZipapp). It starts in ~0.3s vs ~8s for the
+// self-contained PyInstaller onefile, which cold-unpacks 30+MB on EVERY invocation.
+const MANAGED_PYZ = join(BIN_DIR, 'yt-dlp.pyz')
+const ZIPAPP_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
 const COOKIES_DIR = join(dataDir, 'youtube')
 const COOKIES_PATH = join(COOKIES_DIR, 'cookies.txt')
 const COOKIES_UPLOADED_KEY = 'youtube.cookies_uploaded_at'
@@ -173,48 +178,112 @@ async function downloadManaged(): Promise<boolean> {
   }
 }
 
-/** Resolve the binary to use and, when due, update it. Never throws. */
+// yt-dlp's recent releases need Python >= 3.10. Probe common absolute interpreter paths
+// (never a bare `python3` — a subprocess PATH may differ from ours) and return the first
+// modern one, for the zipapp wrapper. Empty on Windows, where we keep the .exe onefile.
+async function resolveModernPython(): Promise<string | null> {
+  if (IS_WIN) return null
+  const candidates = [
+    '/opt/homebrew/bin/python3', '/opt/homebrew/bin/python3.13', '/opt/homebrew/bin/python3.12',
+    '/opt/homebrew/bin/python3.11', '/usr/local/bin/python3', '/usr/bin/python3',
+  ]
+  for (const py of candidates) {
+    if (!existsSync(py)) continue
+    try {
+      const { stdout } = await execFileAsync(py, ['-c', 'import sys;print("%d.%d"%sys.version_info[:2])'], { timeout: 10_000 })
+      const [maj, min] = stdout.trim().split('.').map(Number)
+      if ((maj ?? 0) > 3 || ((maj ?? 0) === 3 && (min ?? 0) >= 10)) return py
+    } catch { /* not runnable / too old — try the next */ }
+  }
+  return null
+}
+
+function shQuote(s: string): string { return `'${s.replace(/'/g, `'\\''`)}'` }
+
+/** True once MANAGED_PATH is our tiny zipapp wrapper (not the 30+MB onefile). */
+function isWrapperInstalled(): boolean {
+  try { return existsSync(MANAGED_PYZ) && statSync(MANAGED_PATH).size < 1_000_000 } catch { return false }
+}
+
+/** Download the zipapp and write a shell wrapper at MANAGED_PATH that execs it via `python`,
+ *  so every spawn(ytDlpBin(), args) call site is unchanged. Replaces any onefile in place. */
+async function provisionZipapp(python: string): Promise<boolean> {
+  try {
+    await mkdir(BIN_DIR, { recursive: true })
+    const res = await fetch(ZIPAPP_URL, { redirect: 'follow', signal: AbortSignal.timeout(120_000) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const buf = new Uint8Array(await res.arrayBuffer())
+    if (buf.byteLength < 1_000_000) throw new Error(`suspiciously small download (${buf.byteLength} bytes)`)
+
+    const pyzPart = `${MANAGED_PYZ}.part`
+    await writeFile(pyzPart, buf)
+    await rename(pyzPart, MANAGED_PYZ)
+
+    const wrapper = `#!/bin/sh\nexec ${shQuote(python)} ${shQuote(MANAGED_PYZ)} "$@"\n`
+    const wPart = `${MANAGED_PATH}.part`
+    await writeFile(wPart, wrapper)
+    await chmod(wPart, 0o755)
+    await rename(wPart, MANAGED_PATH)   // atomically replaces a prior onefile/wrapper
+
+    resolvedBin = MANAGED_PATH
+    logger.info(`[yt-dlp] installed fast zipapp via ${python} → ${MANAGED_PATH}`)
+    return true
+  } catch (err) {
+    logger.warn(`[yt-dlp] zipapp provision failed: ${err}`)
+    return false
+  }
+}
+
+// The onefile decision tree — the fallback used when no modern Python is available for the
+// (much faster) zipapp. `due` is precomputed by ensureYtDlp; this only sets resolvedBin.
+async function ensureOnefileMode(due: boolean): Promise<void> {
+  if (existsSync(MANAGED_PATH)) {
+    // A managed copy exists — prefer it, but only COMMIT once it's verified to run.
+    if (await versionOf(MANAGED_PATH, 2)) {
+      resolvedBin = MANAGED_PATH
+      if (due) await selfUpdate(MANAGED_PATH)
+    } else if (looksCorrupt(MANAGED_PATH)) {
+      // Genuinely broken (partial/tiny write — including a stale zipapp wrapper whose Python
+      // vanished) → re-provision the onefile; fall back to PATH.
+      logger.warn('[yt-dlp] managed binary corrupt (too small) — re-downloading')
+      if (!(await downloadManaged()) && (await versionOf('yt-dlp'))) resolvedBin = 'yt-dlp'
+    } else if (await versionOf('yt-dlp')) {
+      resolvedBin = 'yt-dlp'
+      logger.warn('[yt-dlp] managed binary version probe timed out — falling back to PATH yt-dlp')
+    } else {
+      resolvedBin = MANAGED_PATH
+      logger.warn('[yt-dlp] managed binary present; version probe timed out and no PATH fallback — keeping it')
+    }
+  } else if (await versionOf('yt-dlp')) {
+    resolvedBin = 'yt-dlp'
+    if (due) {
+      const updated = await selfUpdate('yt-dlp')
+      if (!updated) await downloadManaged()
+    }
+  } else {
+    await downloadManaged()
+  }
+}
+
+/** Resolve the binary to use and, when due, update it. Never throws. Prefers the fast
+ *  pure-Python zipapp (behind a wrapper) when a modern Python exists; else the onefile. */
 export async function ensureYtDlp(force = false): Promise<void> {
   try {
     const last = (await getAppSetting(CHECKED_KEY)) as number | null
     const due = force || !last || Date.now() - last > CHECK_INTERVAL_MS
 
-    if (existsSync(MANAGED_PATH)) {
-      // 1. A managed copy exists — prefer it, but only COMMIT to it once it's verified to run.
-      // (Until then `resolvedBin` stays at its working default so a broken/hanging managed binary
-      // can't wedge stream resolution during the probe.)
-      if (await versionOf(MANAGED_PATH, 2)) {
+    const python = await resolveModernPython()
+    if (python) {
+      // Already on the zipapp wrapper and it runs → keep it; refresh the pyz when due.
+      if (isWrapperInstalled() && (await versionOf(MANAGED_PATH, 2))) {
         resolvedBin = MANAGED_PATH
-        // Runs fine — only reach out to self-update when a check is actually due.
-        if (due) await selfUpdate(MANAGED_PATH)
-      } else if (looksCorrupt(MANAGED_PATH)) {
-        // Genuinely broken (partial/tiny write) → re-provision; fall back to PATH.
-        logger.warn('[yt-dlp] managed binary corrupt (too small) — re-downloading')
-        if (!(await downloadManaged()) && (await versionOf('yt-dlp'))) resolvedBin = 'yt-dlp'
-      } else if (await versionOf('yt-dlp')) {
-        // Present and plausibly intact, but --version didn't answer. Do NOT trust it for live
-        // resolves (a broken-but-large managed binary that hangs on every spawn would otherwise
-        // wedge ALL stream resolution). Prefer a working PATH yt-dlp for now, and keep the managed
-        // copy on disk for the next self-update cycle rather than re-downloading.
-        resolvedBin = 'yt-dlp'
-        logger.warn('[yt-dlp] managed binary version probe timed out — falling back to PATH yt-dlp')
-      } else {
-        // No working PATH yt-dlp either — fall back to the managed copy and hope it's just a slow
-        // cold start; the next due cycle self-updates it.
-        resolvedBin = MANAGED_PATH
-        logger.warn('[yt-dlp] managed binary present; version probe timed out and no PATH fallback — keeping it')
-      }
-    } else if (await versionOf('yt-dlp')) {
-      // 2. A system install is on PATH.
-      resolvedBin = 'yt-dlp'
-      if (due) {
-        const updated = await selfUpdate('yt-dlp')
-        // 2b. If it can't self-update, adopt a managed copy so updates work from now on.
-        if (!updated) await downloadManaged()
+        if (due) await provisionZipapp(python)
+      } else if (!(await provisionZipapp(python))) {
+        // Building the zipapp failed (e.g. offline) — fall back to the onefile path.
+        await ensureOnefileMode(due)
       }
     } else {
-      // 3. yt-dlp isn't available at all — provision it.
-      await downloadManaged()
+      await ensureOnefileMode(due)
     }
 
     const v = await versionOf(resolvedBin, 2)
