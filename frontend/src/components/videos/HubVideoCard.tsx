@@ -42,7 +42,7 @@ function fmtAge(ms?: number | null): string | null {
 
 /** Card for non-YouTube hub items (YouTube items keep the richer VideoCard). Shows a
  *  source badge in mixed contexts; omit it inside a single source's own browse area. */
-export function HubVideoCard({ item, showSource = true, big = false }: { item: HubVideoItem; showSource?: boolean; big?: boolean }) {
+export function HubVideoCard({ item, showSource = true, shape }: { item: HubVideoItem; showSource?: boolean; shape?: 'wide' | 'tall' }) {
   const dur = fmtDur(item.durationSec)
   const metaLine = [item.creator?.name, item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)]
     .filter(Boolean).join(' · ')
@@ -62,9 +62,11 @@ export function HubVideoCard({ item, showSource = true, big = false }: { item: H
     >
       <div className={cn(
         'relative w-full overflow-hidden rounded-card bg-muted',
-        // Vertical (TikTok) is 9:16; in Large view it fills the taller cell (no cap) for a
-        // TikTok-style feed, but stays capped in the regular grid so rows don't blow out.
-        item.vertical ? (big ? 'aspect-[9/16]' : 'aspect-[9/16] max-h-72') : 'aspect-video',
+        // The uniform view toggle forces one shape on EVERY source (object-cover crops to fit);
+        // with no toggle context we fall back to the item's native orientation.
+        shape === 'tall' ? 'aspect-[9/16]'
+          : shape === 'wide' ? 'aspect-video'
+          : item.vertical ? 'aspect-[9/16] max-h-72' : 'aspect-video',
       )}>
         {item.thumbnailUrl ? (
           <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy"
@@ -89,8 +91,8 @@ export function HubVideoCard({ item, showSource = true, big = false }: { item: H
         )}
       </div>
       <div className="min-w-0">
-        <p className={cn('font-semibold leading-snug text-foreground', big ? 'line-clamp-3 text-[15px]' : 'line-clamp-2 text-sm')}>{item.title}</p>
-        {metaLine && <p className={cn('mt-1 truncate text-muted-foreground', big ? 'text-[13px]' : 'text-xs')}>{metaLine}</p>}
+        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{item.title}</p>
+        {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
       </div>
     </Link>
   )

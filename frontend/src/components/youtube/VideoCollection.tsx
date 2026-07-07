@@ -8,8 +8,6 @@ import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
 // same grid whether or not they use the toggle.
 export const YT_GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 export const YT_SHORTS_GRID = 'grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6'
-// Large view: fewer columns → bigger cards, with more room for info.
-export const YT_BIG_GRID = 'grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 xl:grid-cols-3'
 
 const keyOf = (i: VideoItem) => i.videoId + (i.localKind ?? '')
 
@@ -25,12 +23,15 @@ export function VideoCollection({ items, view, aspect = 'video', className, wrap
   wrap?: (item: VideoItem, node: ReactNode) => ReactNode
 }) {
   const isList = view === 'list'
-  const isBig = view === 'big'
-  const gridClass = isList ? 'space-y-1' : isBig ? YT_BIG_GRID : aspect === 'short' ? YT_SHORTS_GRID : YT_GRID
+  // A dedicated shorts section stays vertical regardless of the toggle; otherwise the toggle
+  // forces one uniform shape on every card (tall = 9:16, wide = 16:9).
+  const shorts = aspect === 'short'
+  const gridClass = isList ? 'space-y-1' : (shorts || view === 'big') ? YT_SHORTS_GRID : YT_GRID
+  const shape: 'wide' | 'tall' | undefined = shorts ? undefined : view === 'big' ? 'tall' : 'wide'
   return (
     <div className={cn(gridClass, className)}>
       {items.map(i => {
-        const node = isList ? <VideoListRow item={i} aspect={aspect} /> : <VideoCard item={i} aspect={aspect} big={isBig} />
+        const node = isList ? <VideoListRow item={i} aspect={aspect} /> : <VideoCard item={i} aspect={aspect} shape={shape} />
         return <Fragment key={keyOf(i)}>{wrap ? wrap(i, node) : node}</Fragment>
       })}
     </div>

@@ -10,7 +10,7 @@ import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
 import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
 import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
-import { YT_GRID, YT_BIG_GRID } from '@/components/youtube/VideoCollection'
+import { YT_GRID, YT_SHORTS_GRID } from '@/components/youtube/VideoCollection'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
 import { HubVideoListRow } from '@/components/videos/HubVideoListRow'
@@ -109,7 +109,7 @@ function HubLanding() {
             <SkeletonCards count={12} className="xl:grid-cols-4" />
           ) : feedItems.length > 0 ? (
             <>
-              <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_BIG_GRID : YT_GRID}>
+              <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
                 {feedItems.map((it) => (
                   <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} />
                 ))}
@@ -137,17 +137,18 @@ function FeedCard({ item, view }: { item: HubVideoItem; view: 'big' | 'grid' | '
   if (view === 'list') {
     return isYt ? <VideoListRow item={hubToYtItem(item)} /> : <HubVideoListRow item={item} />
   }
+  const shape = view === 'big' ? 'tall' : 'wide'
   if (isYt) {
     return (
       <div className="relative">
         <span className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${SOURCE_META.youtube.badgeClass}`}>
           <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
         </span>
-        <VideoCard item={hubToYtItem(item)} big={view === 'big'} />
+        <VideoCard item={hubToYtItem(item)} shape={shape} />
       </div>
     )
   }
-  return <HubVideoCard item={item} big={view === 'big'} />
+  return <HubVideoCard item={item} shape={shape} />
 }
 
 function EmptyFeed() {

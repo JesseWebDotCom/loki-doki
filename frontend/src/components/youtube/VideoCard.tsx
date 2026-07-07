@@ -151,7 +151,7 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave 
 }
 
 /** Vertical video card: thumbnail, title, channel · age. Click opens the watch (or Shorts) page. */
-export function VideoCard({ item, aspect = 'video', big = false }: { item: VideoItem; aspect?: 'video' | 'short'; big?: boolean }) {
+export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; aspect?: 'video' | 'short'; shape?: 'wide' | 'tall' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
   const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
@@ -163,16 +163,19 @@ export function VideoCard({ item, aspect = 'video', big = false }: { item: Video
   // Online shorts open in the vertical Shorts feed; everything else (and offline
   // shorts, which need local playback) goes to the standard watch page.
   const to = aspect === 'short' && !item.localKind ? `/videos/youtube/shorts/${item.videoId}` : watchHref(item)
+  // `shape` (from the uniform view toggle) forces the visual aspect for ALL items; `aspect`
+  // still drives shorts routing above, so a normal video shown tall doesn't route to Shorts.
+  const thumbAspect = shape === 'tall' ? 'short' : shape === 'wide' ? 'video' : aspect
   const body = (
     <>
-      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
+      <Thumb i={item} aspect={thumbAspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
       <div className="flex gap-2.5">
         {item.author && (
           <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('mt-0.5 size-8 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />
         )}
         <div className="min-w-0 flex-1">
-          <p className={cn('font-semibold leading-snug', big ? 'line-clamp-3 text-[15px]' : 'line-clamp-2 text-sm', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-          {metaLine && <p className={cn('mt-1 truncate text-muted-foreground', big ? 'text-[13px]' : 'text-xs')}>{metaLine}</p>}
+          <p className={cn('line-clamp-2 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
+          {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
         </div>
       </div>
     </>
