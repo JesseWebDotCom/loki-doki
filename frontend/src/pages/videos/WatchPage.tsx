@@ -799,6 +799,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // Picture-in-Picture. When the user asks for PiP we swap the embed for a real <video> fed by
   // the on-demand /api/vstream endpoint (yt-dlp), then request PiP — same handoff YouTube does.
   const [pipStream, setPipStream] = useState(false)
+  const [podcastOpen, setPodcastOpen] = useState(false)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['videos-item', source, id],
@@ -987,17 +988,24 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             ))}
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
-                {pipSupported && (
+              {/* Player options — grouped so the row reads as one control (mirrors YouTube) */}
+              {pipSupported && (
+                <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-1">
                   <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
                     title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
-                )}
+                </div>
+              )}
+              {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
+              <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
                 <SegBtn
                   icon={saveState === 'ready' ? Check : HardDriveDownload}
                   label={saveState === 'ready' ? 'Saved offline' : saveState === 'pending' || saveState === 'downloading' ? 'Saving offline…' : 'Save offline'}
                   active={saveState === 'ready'} iconFill={false}
                   onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
                   title="Save offline: this server downloads the video so you can watch it later without streaming." />
+                <SegBtn icon={Download} label="Download"
+                  onClick={() => { const a = document.createElement('a'); a.href = vstreamUrl; a.download = `${item.title || 'video'}.mp4`; document.body.appendChild(a); a.click(); a.remove() }}
+                  title="Download: pull the video file down to this device (like any web download)." />
                 <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })} />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -1007,6 +1015,9 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
+                      <Mic className="size-4" /> Create podcast
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}>
                       <ExternalLink className="size-4" /> Open on {badge.label}
                     </DropdownMenuItem>
@@ -1018,6 +1029,13 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
           <DescriptionCard views={item.viewsText ?? null} description={item.description ?? null} />
         </div>
+
+        <CreatePodcastDialog open={podcastOpen} onClose={() => setPodcastOpen(false)}
+          videos={[{ videoId: id, title: item.title, author: item.creator?.name, source, url: item.url }]}
+          sourceLabel={item.creator?.name ?? badge.label}
+          sourceRef={`${source}:${id}`}
+          suggestedShowName={item.creator?.name ?? item.title}
+          defaultLabel={item.title} />
       </div>
 
       {/* Side column */}
