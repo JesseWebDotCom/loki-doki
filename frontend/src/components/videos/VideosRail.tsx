@@ -6,7 +6,9 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
-import { ChannelAvatar } from '@/components/youtube/media'
+import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
+import { ytImageProxy } from '@/lib/youtube/api'
+import { proxyImg } from '@/lib/img'
 import { getSubscriptions } from '@/lib/youtube/api'
 import { getVideoSources, listFollows, type VideoSource } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -137,7 +139,7 @@ export function VideosRail() {
             <Link key={s.key} to={s.to}
               className="flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
               <span className="relative shrink-0">
-                <ChannelAvatar title={s.title} src={s.thumbnailUrl} className="size-6 text-[10px] ring-1 ring-border/40" />
+                <CreatorAvatar title={s.title} src={s.thumbnailUrl} proxy={s.source === 'youtube' ? ytImageProxy : proxyImg} className="size-6 text-[10px] ring-1 ring-border/40" />
                 {/* Source dot so a Vimeo/TikTok/Reddit follow is distinguishable from a YouTube one. */}
                 <span className={cn('absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-background', SOURCE_META[s.source].dotClass)} />
               </span>
