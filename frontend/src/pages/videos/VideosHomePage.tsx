@@ -15,7 +15,7 @@ import { SearchResults } from '@/components/youtube/SearchResults'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
 import { HubVideoListRow } from '@/components/videos/HubVideoListRow'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
-import { SourceDiscovery } from '@/components/videos/SourceDiscovery'
+import { MixedDiscovery } from '@/components/videos/SourceDiscovery'
 import { SourceChip } from '@/components/videos/SourceChip'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
@@ -104,10 +104,8 @@ function HubLanding() {
           <MediaShelf title="Continue watching" items={continueWatching} view={view} />
         ) : historyLoading ? <ShelfSkeleton /> : null}
 
-        {/* Popular + Trending per source (whichever each platform actually serves). */}
-        {sources
-          .filter((s) => active.includes(s.source) && s.discovery.length > 0)
-          .map((s) => <SourceDiscovery key={s.source} source={s.source} discovery={s.discovery} view={view} />)}
+        {/* One mixed Popular + one mixed Trending, interleaved across every active source. */}
+        <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />
 
         <section>
           <SectionHeader title="Across your sources" className="mb-4" />
