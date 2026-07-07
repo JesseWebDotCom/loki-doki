@@ -168,9 +168,12 @@ export const vimeoProvider: VideoProvider = {
     downloadKinds: ['audio', 'video'],
     authConfig: 'apiKey',
   },
-  // Only "popular" (Staff Picks); Vimeo exposes no trending ranking. browse() already
-  // falls back to staffpicks for any feed id it doesn't recognize, incl. 'popular'.
+  // Keyless: "popular" only (Staff Picks RSS, no view counts). With an API token Vimeo's
+  // real rankings unlock — filter=trending and sort=plays — so it gains a distinct trending.
   discovery: ['popular'],
+  async resolveDiscovery() {
+    return (await getVimeoToken()) ? ['popular', 'trending'] : ['popular']
+  },
   browseFeeds: Object.entries(VIMEO_CHANNELS).map(([id, ch]) => ({ id, label: ch.label })),
 
   async status() {
@@ -193,15 +196,20 @@ export const vimeoProvider: VideoProvider = {
   },
 
   async browse({ feed, cursor }) {
-    // Curated channels are the discovery surface (Staff Picks default). API pages
-    // when a token exists; otherwise the channel's native RSS, keyless.
-    const channel = (feed && VIMEO_CHANNELS[feed]) ? VIMEO_CHANNELS[feed]! : VIMEO_CHANNELS['staffpicks']!
     if (await getVimeoToken()) {
-      const data = await vimeoApi<{ data?: VimeoApiVideo[]; paging?: { next?: string | null } }>(
-        `/channels/${channel.slug}/videos?${pageParams(cursor)}&sort=added`, LIST_TTL)
+      // Reserved discovery feeds use Vimeo's real rankings (which also carry view counts);
+      // a category chip uses its channel; the default is most-played.
+      const path = feed === 'trending'
+        ? `/videos?filter=trending&${pageParams(cursor)}`
+        : feed && VIMEO_CHANNELS[feed]
+          ? `/channels/${VIMEO_CHANNELS[feed]!.slug}/videos?${pageParams(cursor)}&sort=added`
+          : `/videos?sort=plays&direction=desc&${pageParams(cursor)}`
+      const data = await vimeoApi<{ data?: VimeoApiVideo[]; paging?: { next?: string | null } }>(path, LIST_TTL)
       return listToPager(data, cursor)
     }
-    if (cursor) return { items: [], cursor: null }   // keyless: single page
+    // Keyless: Staff Picks (or a category channel) via native RSS. Single page, no views.
+    const channel = (feed && VIMEO_CHANNELS[feed]) ? VIMEO_CHANNELS[feed]! : VIMEO_CHANNELS['staffpicks']!
+    if (cursor) return { items: [], cursor: null }
     return { items: await vimeoRssItems(`/channels/${channel.slug}/videos/rss`, LIST_TTL), cursor: null }
   },
 

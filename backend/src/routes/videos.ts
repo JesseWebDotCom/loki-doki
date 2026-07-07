@@ -58,7 +58,7 @@ videosRoute.get('/sources', async (c) => {
     label: p.label,
     capabilities: p.capabilities,
     browseFeeds: p.browseFeeds ?? [],
-    discovery: p.discovery ?? [],
+    discovery: p.resolveDiscovery ? await p.resolveDiscovery() : (p.discovery ?? []),
     status: p.status ? await p.status() : { configured: true },
     enabled: enabled.includes(p.source),
   })))

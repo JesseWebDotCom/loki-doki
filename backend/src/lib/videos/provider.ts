@@ -66,8 +66,12 @@ export interface VideoProvider {
   /** Discovery shelves this source can serve, as reserved browse feed ids: browse({feed:
    *  'popular'|'trending'}) returns that ranking. Drives the Popular/Trending shelves on the
    *  home + source pages. Omit or empty when a platform exposes no such ranking (TikTok has
-   *  no public trending; Vimeo has curated "popular" only). */
+   *  no public trending). */
   discovery?: Array<'popular' | 'trending'>
+  /** When present, overrides `discovery` at request time — for sources whose available
+   *  rankings depend on config (e.g. Vimeo gains real `trending` + view counts only once an
+   *  API token is set; keyless it's `popular` only). */
+  resolveDiscovery?(): Promise<Array<'popular' | 'trending'>>
 
   /** Fast URL sniffing for the universal clipper / deep links. No network. */
   matchUrl(url: URL): UrlMatch | null
