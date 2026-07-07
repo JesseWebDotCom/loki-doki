@@ -137,12 +137,15 @@ const CREATOR_GROUPS: Record<string, { label: string; creators: string[] }> = {
 // macOS), so 8 of these inline is exactly what made browse hang; keeping them off the
 // request path entirely is the point.
 async function extractCreatorRecent(handle: string, count: number): Promise<VideoItem[]> {
-  return cachedLookup('tiktok:browse', `${handle}:${count}`, PROFILE_TTL, async () => {
+  const items = await cachedLookup('tiktok:browse', `${handle}:${count}`, PROFILE_TTL, async () => {
     const data = await ytDlpJson<{ entries?: TikTokEntry[] }>(
       `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', `1:${count}`], { background: true })
     return (data.entries ?? []).map(toItem).filter((x): x is VideoItem => x !== null)
       .map((it) => ({ ...it, creator: it.creator ?? { id: handle, name: `@${handle}` } }))
   })
+  // Avatar has its own cache (the browse cache stays avatar-free so each refreshes on its own).
+  const avatar = await extractCreatorAvatar(handle).catch(() => null)
+  return withAvatar(items, handle, avatar)
 }
 
 // One in-flight background warm per creator, so a burst of concurrent home loads that all
@@ -160,11 +163,44 @@ function warmCreator(handle: string, count: number): void {
 // stale; a creator we've never warmed returns empty and schedules its first warm. This is
 // why the hub home and the TikTok source page are instant instead of blocking on ~10s
 // extractions — and why TikTok still shows content once it's been warmed even once.
+// TikTok exposes no creator avatar via yt-dlp or oEmbed, but the profile page embeds it in
+// __UNIVERSAL_DATA__ (avatarLarger). One cheap HTML fetch per creator, cached hard (24h) —
+// avatars rarely change. Runs off the request path like the browse extraction.
+const AVATAR_TTL = 24 * 60 * 60_000
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+async function extractCreatorAvatar(handle: string): Promise<string | null> {
+  return cachedLookup('tiktok:avatar', handle, AVATAR_TTL, async () => {
+    try {
+      const res = await fetch(`https://www.tiktok.com/@${handle}`, { headers: { 'User-Agent': BROWSER_UA }, signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) return null
+      const html = await res.text()
+      const m = /"avatarLarger":"(.*?)"/.exec(html) ?? /"avatarThumb":"(.*?)"/.exec(html)
+      const url = m?.[1]?.replace(/\\u002[fF]/g, '/').replace(/\\\//g, '/')
+      return url && url.startsWith('http') ? url : null
+    } catch { return null }
+  })
+}
+const avatarWarming = new Set<string>()
+function warmAvatar(handle: string): void {
+  if (avatarWarming.has(handle)) return
+  avatarWarming.add(handle)
+  void extractCreatorAvatar(handle).catch(() => {}).finally(() => avatarWarming.delete(handle))
+}
+/** Stamp the creator's avatar onto each item (the browse extraction can't get it). */
+function withAvatar(items: VideoItem[], handle: string, avatarUrl: string | null): VideoItem[] {
+  return items.map((it) => ({ ...it, creator: { id: handle, name: `@${handle}`, ...it.creator, avatarUrl: avatarUrl ?? it.creator?.avatarUrl ?? null } }))
+}
+
 async function creatorRecentCached(handle: string, count: number): Promise<VideoItem[]> {
-  const cached = await cachedLookupStale<VideoItem[]>('tiktok:browse', `${handle}:${count}`)
+  const [cached, avatar] = await Promise.all([
+    cachedLookupStale<VideoItem[]>('tiktok:browse', `${handle}:${count}`),
+    cachedLookupStale<string | null>('tiktok:avatar', handle),
+  ])
+  if (!avatar.fresh) warmAvatar(handle)   // refresh the avatar in the background
+  const avatarUrl = avatar.value ?? null
   if (cached.value !== undefined) {
     if (!cached.fresh) warmCreator(handle, count)
-    return cached.value
+    return withAvatar(cached.value, handle, avatarUrl)
   }
   warmCreator(handle, count)
   return []
@@ -229,8 +265,11 @@ export const tiktokProvider: VideoProvider = {
     const data = await cachedLookup('tiktok:profile', `${handle}:${start}`, PROFILE_TTL, () =>
       ytDlpJson<{ entries?: TikTokEntry[]; uploader?: string; channel?: string; title?: string; thumbnails?: Array<{ url?: string }> }>(
         `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', `${start}:${end}`], { background: opts?.warm }))
-    const entries = (data.entries ?? []).map(toItem).filter((x): x is VideoItem => x !== null)
-      .map((it) => ({ ...it, creator: it.creator ?? { id: handle, name: `@${handle}` } }))
+    const avatar = await extractCreatorAvatar(handle).catch(() => null)
+    const entries = withAvatar(
+      (data.entries ?? []).map(toItem).filter((x): x is VideoItem => x !== null)
+        .map((it) => ({ ...it, creator: it.creator ?? { id: handle, name: `@${handle}` } })),
+      handle, avatar)
     return {
       creator: {
         source: 'tiktok',
@@ -238,7 +277,7 @@ export const tiktokProvider: VideoProvider = {
         id: handle,
         name: `@${handle}`,
         handle: `@${handle}`,
-        avatarUrl: data.thumbnails?.at(-1)?.url ?? null,
+        avatarUrl: avatar ?? data.thumbnails?.at(-1)?.url ?? null,
         description: null,
       },
       videos: { items: entries, cursor: entries.length === 30 ? String(end + 1) : null },

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { CloudOff, Film } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { ChannelAvatar } from '@/components/youtube/media'
 import { toast } from '@/lib/toast'
 import { listSaves, type HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -127,9 +128,15 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
           <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
         )}
       </div>
-      <div className="min-w-0">
-        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{item.title}</p>
-        {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
+      <div className="flex gap-2.5">
+        {item.creator?.avatarUrl && (
+          <ChannelAvatar title={item.creator.name} src={item.creator.avatarUrl}
+            className={cn('mt-0.5 size-8 shrink-0 text-[10px] ring-1 ring-border/40', ghosted && 'grayscale')} />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{item.title}</p>
+          {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
+        </div>
       </div>
     </Link>
   )
