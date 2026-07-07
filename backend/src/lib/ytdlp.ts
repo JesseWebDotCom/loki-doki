@@ -58,20 +58,59 @@ let resolvedBin = existsSync(MANAGED_PATH) ? MANAGED_PATH : 'yt-dlp'
 export function ytDlpBin(): string { return resolvedBin }
 
 // Bound concurrent yt-dlp subprocesses spawned by synchronous request paths (stream
-// resolution, format probing) so a burst of requests can't fork-bomb the host — each
-// process holds a multi-MB buffer and a network connection. The durable download queue
-// handles exports separately and isn't gated here.
-const MAX_CONCURRENT = 3
-let activeSlots = 0
-const slotWaiters: Array<() => void> = []
-export async function withYtDlpSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (activeSlots >= MAX_CONCURRENT) await new Promise<void>((r) => slotWaiters.push(r))
-  activeSlots++
+// resolution, format probing) and by the videos-hub background cache warmer (feed.ts,
+// TikTok creator profiles) so a burst can't fork-bomb the host — each process holds a
+// multi-MB buffer and a network connection. The durable download queue handles exports
+// separately and isn't gated here. Raised from 3: the warmer alone fans out to a dozen-
+// plus creators, and at 3 slots that serialized into enough waves (each paying a cold
+// PyInstaller start) to leave the videos hub home page taking 30-60s to show content.
+//
+// Two classes share the pool. INTERACTIVE work (a member clicking play → stream resolve,
+// the clipper resolving a pasted link, a direct creator-profile visit) can use every slot.
+// BACKGROUND work (the videos poller warming dozens of TikTok browse/creator caches) is
+// capped to MAX_CONCURRENT - RESERVED so a warm burst can never hold all six slots and
+// stall an interactive resolve — the exact failure that made a Vimeo click wait until
+// TikTok's cache warm finished. When a slot frees, interactive waiters are always served
+// before background ones.
+const MAX_CONCURRENT = 6
+const RESERVED_INTERACTIVE = 2
+const MAX_BACKGROUND = MAX_CONCURRENT - RESERVED_INTERACTIVE
+
+let active = 0
+let activeBackground = 0
+interface SlotWaiter { grant: () => void; background: boolean }
+const waiters: SlotWaiter[] = []
+
+function slotFree(background: boolean): boolean {
+  if (active >= MAX_CONCURRENT) return false
+  if (background && activeBackground >= MAX_BACKGROUND) return false
+  return true
+}
+
+// Dispatch as many queued waiters as capacity allows, interactive first so a background
+// warm never jumps ahead of a user-facing resolve.
+function pumpSlots(): void {
+  for (const wantBackground of [false, true]) {
+    let i: number
+    while ((i = waiters.findIndex((w) => w.background === wantBackground && slotFree(w.background))) !== -1) {
+      const [w] = waiters.splice(i, 1)
+      active++
+      if (w!.background) activeBackground++
+      w!.grant()
+    }
+  }
+}
+
+export async function withYtDlpSlot<T>(fn: () => Promise<T>, opts?: { background?: boolean }): Promise<T> {
+  const background = opts?.background ?? false
+  // Always queue (even when a slot is free) so ordering + priority run through one path.
+  await new Promise<void>((resolve) => { waiters.push({ grant: resolve, background }); pumpSlots() })
   try {
     return await fn()
   } finally {
-    activeSlots--
-    slotWaiters.shift()?.()
+    active--
+    if (background) activeBackground--
+    pumpSlots()
   }
 }
 

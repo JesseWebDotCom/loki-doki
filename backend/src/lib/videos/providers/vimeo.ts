@@ -231,12 +231,27 @@ export const vimeoProvider: VideoProvider = {
   async getItem(id) {
     if (!VIDEO_ID.test(id)) return null
     if (await getVimeoToken()) {
-      const v = await vimeoApi<VimeoApiVideo>(`/videos/${id}`, ITEM_TTL)
-      const item = apiToItem(v)
-      return item ? { ...item, description: v.description ?? null } : null
+      const v = await vimeoApi<VimeoApiVideo>(`/videos/${id}`, ITEM_TTL).catch(() => null)
+      const item = v && apiToItem(v)
+      if (item) return { ...item, description: v!.description ?? null }
+      // Token path failed (private/deleted, or a transient API error) — fall through to the
+      // keyless metadata + minimal fallback below rather than 404ing a maybe-playable video.
     }
-    // Keyless: oEmbed metadata (title/author/thumbnail/duration), no API needed.
-    return oembedItem(id)
+    // Keyless: oEmbed metadata (title/author/thumbnail/duration). oEmbed is IP-rate-limited
+    // and can hard-block a whole network, which would 404 EVERY Vimeo video even though the
+    // iframe player still works. So a metadata miss degrades to a minimal item (id is enough
+    // for getPlayback's embed) instead of null — the watch page renders and plays, and Vimeo
+    // itself shows an "unavailable" notice for the rare genuinely-dead video.
+    return (await oembedItem(id).catch(() => null)) ?? {
+      source: 'vimeo' as const,
+      id,
+      url: `https://vimeo.com/${id}`,
+      title: 'Vimeo video',
+      creator: null,
+      thumbnailUrl: null,
+      durationSec: null,
+      description: null,
+    }
   },
 
   async getPlayback(id) {

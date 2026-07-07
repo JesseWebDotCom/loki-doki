@@ -6,13 +6,19 @@
 // server-side fetch even given yt-dlp's own exact headers, but yt-dlp's process itself
 // gets through. Cookies (the shared yt-dlp cookies.txt admins can upload) improve reliability.
 
-import { cachedLookup } from '@/lib/lookupCache'
+import { cachedLookup, cachedLookupStale } from '@/lib/lookupCache'
 import { ytDlpJson } from '@/lib/videos/ytdlpJson'
 import type { VideoProvider } from '@/lib/videos/provider'
 import type { VideoItem } from '@/lib/videos/types'
 
 const ITEM_TTL = 10 * 60_000       // full -J extraction is slow; cache aggressively
-const PROFILE_TTL = 10 * 60_000    // cold profile extraction takes 5-15s
+// Cold profile extraction takes 5-15s, so this is kept warm by feed.ts's background
+// poller (every 15 min) rather than ever running inline on a request path. TTL must
+// outlive that cadence with margin, or a slow/skipped poll tick leaves a request-path
+// caller (a direct creator-profile visit) staring at an expired row and paying the full
+// yt-dlp cold start synchronously — which is exactly what made the hub home 30-60s slow
+// before the poller warmed every browse group + known creator profile (see feed.ts).
+const PROFILE_TTL = 20 * 60_000
 
 const VIDEO_ID = /^\d{15,21}$/
 const HANDLE = /^@?[A-Za-z0-9_.]{2,24}$/
@@ -125,13 +131,43 @@ const CREATOR_GROUPS: Record<string, { label: string; creators: string[] }> = {
   sports: { label: 'Sports', creators: ['dude.perfect', 'espn', 'f1'] },
 }
 
-async function creatorRecent(handle: string, count: number): Promise<VideoItem[]> {
+// LIVE extraction (background yt-dlp priority) — writes the tiktok:browse cache. Runs ONLY
+// off the request path: the feed.ts poller and the on-miss/stale background warmer below.
+// The managed yt-dlp is a PyInstaller onefile that cold-unpacks on every call (~10s each on
+// macOS), so 8 of these inline is exactly what made browse hang; keeping them off the
+// request path entirely is the point.
+async function extractCreatorRecent(handle: string, count: number): Promise<VideoItem[]> {
   return cachedLookup('tiktok:browse', `${handle}:${count}`, PROFILE_TTL, async () => {
     const data = await ytDlpJson<{ entries?: TikTokEntry[] }>(
-      `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', `1:${count}`])
+      `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', `1:${count}`], { background: true })
     return (data.entries ?? []).map(toItem).filter((x): x is VideoItem => x !== null)
       .map((it) => ({ ...it, creator: it.creator ?? { id: handle, name: `@${handle}` } }))
   })
+}
+
+// One in-flight background warm per creator, so a burst of concurrent home loads that all
+// miss the same creator only spawns one yt-dlp.
+const warming = new Set<string>()
+function warmCreator(handle: string, count: number): void {
+  const k = `${handle}:${count}`
+  if (warming.has(k)) return
+  warming.add(k)
+  void extractCreatorRecent(handle, count).catch(() => {}).finally(() => warming.delete(k))
+}
+
+// REQUEST path: stale-while-revalidate, never spawns yt-dlp inline. Serves the last-known
+// uploads instantly (even if the 20-min TTL lapsed) and kicks a background refresh when
+// stale; a creator we've never warmed returns empty and schedules its first warm. This is
+// why the hub home and the TikTok source page are instant instead of blocking on ~10s
+// extractions — and why TikTok still shows content once it's been warmed even once.
+async function creatorRecentCached(handle: string, count: number): Promise<VideoItem[]> {
+  const cached = await cachedLookupStale<VideoItem[]>('tiktok:browse', `${handle}:${count}`)
+  if (cached.value !== undefined) {
+    if (!cached.fresh) warmCreator(handle, count)
+    return cached.value
+  }
+  warmCreator(handle, count)
+  return []
 }
 
 export const tiktokProvider: VideoProvider = {
@@ -148,10 +184,13 @@ export const tiktokProvider: VideoProvider = {
   },
   browseFeeds: Object.entries(CREATOR_GROUPS).map(([id, g]) => ({ id, label: g.label })),
 
-  async browse({ feed, cursor }) {
+  async browse({ feed, cursor, warm }) {
     if (cursor) return { items: [], cursor: null }   // single page; profiles rotate via cache TTL
     const group = (feed && CREATOR_GROUPS[feed]) ? CREATOR_GROUPS[feed]! : CREATOR_GROUPS['popular']!
-    const feeds = await Promise.all(group.creators.map((h) => creatorRecent(h, 5).catch(() => [] as VideoItem[])))
+    // Poller passes warm → live extraction to (re)populate the cache. Request paths (home,
+    // category chips) read cache-only + stale, so they never block on yt-dlp.
+    const feeds = await Promise.all(group.creators.map((h) =>
+      (warm ? extractCreatorRecent(h, 5) : creatorRecentCached(h, 5)).catch(() => [] as VideoItem[])))
     const items: VideoItem[] = []
     for (let i = 0; feeds.some((f) => i < f.length); i++) {
       for (const feed of feeds) if (feed[i]) items.push(feed[i]!)
@@ -175,15 +214,18 @@ export const tiktokProvider: VideoProvider = {
     return null
   },
 
-  async getCreator(id, cursor) {
+  async getCreator(id, cursor, opts) {
     const handle = id.replace(/^@/, '')
     if (!HANDLE.test(handle)) throw new Error('invalid TikTok handle')
-    // Cursor = index window into the profile's flat playlist (30 per page).
+    // Cursor = index window into the profile's flat playlist (30 per page). Served from the
+    // profile cache instantly on repeat visits; a first visit extracts once (bounded by
+    // ytDlpJson's timeout). The poller passes warm → background priority so pre-warming
+    // never contends with a foreground resolve; a direct visit runs interactive.
     const start = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1
     const end = start + 29
     const data = await cachedLookup('tiktok:profile', `${handle}:${start}`, PROFILE_TTL, () =>
       ytDlpJson<{ entries?: TikTokEntry[]; uploader?: string; channel?: string; title?: string; thumbnails?: Array<{ url?: string }> }>(
-        `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', `${start}:${end}`]))
+        `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', `${start}:${end}`], { background: opts?.warm }))
     const entries = (data.entries ?? []).map(toItem).filter((x): x is VideoItem => x !== null)
       .map((it) => ({ ...it, creator: it.creator ?? { id: handle, name: `@${handle}` } }))
     return {
@@ -217,7 +259,7 @@ export const tiktokProvider: VideoProvider = {
     const handle = externalId.replace(/^@/, '')
     if (!HANDLE.test(handle)) return []
     const data = await ytDlpJson<{ entries?: TikTokEntry[] }>(
-      `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', '1:10'])
+      `https://www.tiktok.com/@${handle}`, ['--flat-playlist', '-I', '1:10'], { background: true })
     return (data.entries ?? []).map(toItem).filter((x): x is VideoItem => x !== null)
       .map((it) => ({ ...it, creator: it.creator ?? { id: handle, name: `@${handle}` } }))
   },

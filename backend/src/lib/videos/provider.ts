@@ -29,6 +29,10 @@ export interface BrowseOpts {
   feed?: string
   cursor?: string | null
   allowAdult: boolean
+  /** Background cache-warm pass (feed.ts poller): do live extraction to (re)populate caches
+   *  at background yt-dlp priority. Omitted on request paths — an unreliable/slow provider
+   *  (TikTok) then serves cache-only + stale-while-revalidate and never blocks on yt-dlp. */
+  warm?: boolean
 }
 
 export interface SearchOpts {
@@ -68,7 +72,7 @@ export interface VideoProvider {
 
   browse?(opts: BrowseOpts): Promise<Pager<VideoItem>>
   search?(q: string, opts: SearchOpts): Promise<Pager<VideoItem>>
-  getCreator?(id: string, cursor?: string | null): Promise<{ creator: Creator; videos: Pager<VideoItem> }>
+  getCreator?(id: string, cursor?: string | null, opts?: { warm?: boolean }): Promise<{ creator: Creator; videos: Pager<VideoItem> }>
   getItem(id: string): Promise<(VideoItem & { description?: string | null }) | null>
   getPlayback(id: string, kind?: 'audio' | 'video'): Promise<PlaybackInfo>
   getComments?(id: string): Promise<Array<{ author: string; text: string; likes?: string | null; publishedText?: string | null }>>

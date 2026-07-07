@@ -83,18 +83,47 @@ async function pollOnce(): Promise<void> {
   }
 }
 
-/** Keep the zero-setup browse feeds warm so the hub home never waits on a cold yt-dlp
- *  profile extraction. Runs on the poller cadence; each provider's own cachedLookup
- *  TTLs make repeat warms nearly free. */
+const MAX_WARM_CREATORS = 30   // bound background yt-dlp load per source per tick
+
+/** Keep every zero-setup browse feed — and the creator profiles they (or a follow) link
+ *  to — warm, so the hub home, browse category chips, and creator-profile clicks never
+ *  wait on a cold yt-dlp extraction. Runs on the poller cadence; each provider's own
+ *  cachedLookup TTLs (set longer than POLL_INTERVAL_MS) make repeat warms nearly free.
+ *  Every feed and every creator warms in parallel — the shared yt-dlp concurrency slot
+ *  (lib/ytdlp.ts) bounds actual subprocess fan-out, so this doesn't need its own limiter. */
 async function warmBrowseCaches(): Promise<void> {
   for (const source of ['tiktok', 'vimeo'] as const) {
     const provider = getProvider(source)
     if (!provider?.browse) continue
-    try {
-      await provider.browse({ userId: '__warm__', allowAdult: false })
-    } catch (err) {
-      logger.warn(`[videos-feed] browse warm failed for ${source}: ${err}`)
-    }
+    const creatorIds = new Set<string>()
+
+    // Every category chip a user can click, not just the default feed.
+    const feeds: Array<string | undefined> = provider.browseFeeds?.length
+      ? provider.browseFeeds.map((f) => f.id) : [undefined]
+    const pages = await Promise.all(feeds.map(async (feed) => {
+      try {
+        return await provider.browse!({ feed, userId: '__warm__', allowAdult: false, warm: true })
+      } catch (err) {
+        logger.warn(`[videos-feed] browse warm failed for ${source}${feed ? `:${feed}` : ''}: ${err}`)
+        return null
+      }
+    }))
+    for (const page of pages) for (const it of page?.items ?? []) if (it.creator?.id) creatorIds.add(it.creator.id)
+
+    // Creator-profile pages are a separate cache from browse's own — warm those too
+    // (browsed creators + anyone any user follows) so opening one is never a cold hit.
+    if (!provider.getCreator) continue
+    const follows = await db.select({ externalId: videoFollows.externalId }).from(videoFollows)
+      .where(eq(videoFollows.source, source))
+    for (const f of follows) creatorIds.add(f.externalId)
+
+    const ids = [...creatorIds]
+    if (ids.length > MAX_WARM_CREATORS) logger.warn(`[videos-feed] ${source}: warming ${MAX_WARM_CREATORS}/${ids.length} creator profiles this tick`)
+    await Promise.all(ids.slice(0, MAX_WARM_CREATORS).map(async (id) => {
+      try { await provider.getCreator!(id, null, { warm: true }) } catch (err) {
+        logger.warn(`[videos-feed] creator warm failed for ${source}:${id}: ${err}`)
+      }
+    }))
   }
 }
 
@@ -105,5 +134,8 @@ export function startVideosFeedPoller(): void {
   if (timer) return
   timer = setInterval(() => { void pollOnce(); void warmBrowseCaches() }, POLL_INTERVAL_MS)
   timer.unref?.()
-  setTimeout(() => { void pollOnce(); void warmBrowseCaches() }, 45_000).unref?.()   // first pass shortly after boot
+  // First warm pass soon after boot so the cache-only browse surfaces have content quickly
+  // (they serve empty until the first warm lands). Kept a few seconds back so it doesn't
+  // pile onto the boot burst.
+  setTimeout(() => { void pollOnce(); void warmBrowseCaches() }, 5_000).unref?.()
 }

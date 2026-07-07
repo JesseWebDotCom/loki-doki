@@ -69,3 +69,29 @@ export async function cachedLookup<T>(
 
   return value
 }
+
+/**
+ * Stale-while-revalidate probe: return the cached value if a row exists — even if expired —
+ * plus whether it's still fresh. Never runs a fetcher and never writes. Request paths that
+ * must not block on a slow/unreliable lookup (e.g. TikTok, whose yt-dlp extraction can take
+ * ~10s per creator) use this to serve the last-known-good result instantly and trigger a
+ * background refresh when `fresh` is false. `value` is undefined only when no row exists at
+ * all (or it's corrupt). Same keying as cachedLookup, so they share rows.
+ */
+export async function cachedLookupStale<T>(
+  namespace: string,
+  key: string,
+): Promise<{ value: T | undefined; fresh: boolean }> {
+  const [row] = await db
+    .select({ data: lookupCache.data, expiresAt: lookupCache.expiresAt })
+    .from(lookupCache)
+    .where(eq(lookupCache.key, rowKey(namespace, key)))
+    .limit(1)
+
+  if (!row) return { value: undefined, fresh: false }
+  try {
+    return { value: JSON.parse(row.data) as T, fresh: row.expiresAt > Date.now() }
+  } catch {
+    return { value: undefined, fresh: false }
+  }
+}

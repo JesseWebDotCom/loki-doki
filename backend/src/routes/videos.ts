@@ -19,8 +19,13 @@ import { getVimeoToken, VIMEO_TOKEN_KEY } from '@/lib/videos/providers/vimeo'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { blobAbsPath, acquireRead, releaseRead } from '@/lib/content/store'
 import { resolveClip } from '@/lib/clipper/resolve'
-import type { VideoItem, VideoSource } from '@/lib/videos/types'
+import type { Pager, VideoItem, VideoSource } from '@/lib/videos/types'
 import type { AppEnv } from '@/types'
+
+// Cap how long the mixed-home feed waits on any one provider's browse. Sources are fetched
+// in parallel and interleaved, so a slow one just drops out of this load rather than
+// holding up the whole page.
+const HOME_BROWSE_TIMEOUT_MS = 6_000
 
 const GENERIC_SOURCES = ['reddit', 'tiktok', 'vimeo'] as const
 type GenericSource = (typeof GENERIC_SOURCES)[number]
@@ -64,13 +69,20 @@ videosRoute.get('/home', async (c) => {
   const active = listProviders().filter((p) =>
     p.browse && p.capabilities.browse && enabled.includes(p.source) && (wanted.length === 0 || wanted.includes(p.source)))
 
+  // A slow OR broken source never blanks (or stalls) the hub home: each provider browse is
+  // both try/caught and time-boxed. TikTok already serves cache-only here (no yt-dlp on this
+  // path); the timeout also bounds a slow Reddit/Vimeo network fetch.
   const feeds = await Promise.all(active.map(async (p) => {
-    try {
-      const page = await p.browse!({ userId: user.id, allowAdult })
-      return page.items.filter((it) => allowAdult || !it.isAdult)
-    } catch {
-      return [] as VideoItem[]  // one broken source never blanks the hub home
-    }
+    // .catch() BEFORE the race so a browse that rejects *after* the timeout already won
+    // resolves to empty instead of surfacing as an unhandled rejection. One broken/slow
+    // source never blanks — or stalls — the hub home.
+    const browse = p.browse!({ userId: user.id, allowAdult })
+      .catch(() => ({ items: [], cursor: null }) as Pager<VideoItem>)
+    const page = await Promise.race([
+      browse,
+      new Promise<Pager<VideoItem>>((resolve) => setTimeout(() => resolve({ items: [], cursor: null }), HOME_BROWSE_TIMEOUT_MS)),
+    ])
+    return page.items.filter((it) => allowAdult || !it.isAdult)
   }))
 
   // Followed-creator uploads join the mix too — this is how TikTok (browse-less) and
