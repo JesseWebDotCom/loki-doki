@@ -386,6 +386,115 @@ chat.post('/stream', requireAuth, async (c) => {
   })
 })
 
+// ── KV prime endpoint ────────────────────────────────────────────────────────
+// Fired by the frontend when a chat surface opens or the active conversation
+// changes: runs the one-brain pipeline in primeOnly mode so Ollama prefills the
+// system-prompt + history prefix while the user is still typing. The real turn
+// then only pays prefill for the newly typed message (measured: ~2s → ~0.3s to
+// first token on a fresh conversation). Best-effort and detached — the response
+// returns immediately; a failed prime only costs the optimization.
+const primeInFlight = new Set<string>()
+chat.post('/prime', requireAuth, async (c) => {
+  const user = c.get('user')
+  // One prime per user at a time — browsing the conversation list mustn't queue a
+  // pile of full prefill passes on the single runner slot ahead of a real turn.
+  if (primeInFlight.has(user.id)) return c.json({ ok: false, skipped: 'in-flight' })
+
+  const body = await c.req.json().catch(() => ({}))
+  const { conversationId, characterId, uiContext, clientLat, clientLng, clientTz } = body as {
+    conversationId?: string
+    characterId?: string
+    uiContext?: string | null
+    clientLat?: number | null
+    clientLng?: number | null
+    clientTz?: string | null
+  }
+
+  const [ctx, existingRelation] = await Promise.all([
+    resolveTurnContext(user.id, characterId ?? null),
+    characterId
+      ? db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
+          .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, characterId)))
+          .limit(1).then(r => r[0] ?? null)
+      : Promise.resolve(null),
+  ])
+
+  // Existing conversation: assemble the SAME trimmed history the stream route
+  // would, so the primed prompt token-matches the upcoming real turn.
+  let convId: string | null = null
+  let convSummary: string | null = null
+  let historyIncomplete = false
+  let dbMessages: { role: string; content: string }[] = []
+  if (conversationId) {
+    const [existing] = await db
+      .select({ summary: conversations.summary })
+      .from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)))
+      .limit(1)
+    if (existing) {
+      convId = conversationId
+      convSummary = existing.summary
+      // A generation is already running here — its reply will change history, and
+      // the prime would fight it for the runner slot. Skip.
+      if (genQueue.findActiveByMeta('conversationId', convId)) return c.json({ ok: false, skipped: 'generating' })
+      const dbRows = await db
+        .select({ role: messages.role, content: messages.content, toolNote: messages.toolNote })
+        .from(messages)
+        .where(eq(messages.conversationId, convId))
+        .orderBy(desc(messages.createdAt))
+        .limit(40)
+      dbRows.reverse()
+      dbMessages = dbRows.map((m) => ({
+        role: m.role,
+        content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
+      }))
+      const droppedFromWindow = trimHistory(dbMessages, 800)
+      historyIncomplete = droppedFromWindow > 0 || dbRows.length >= 40
+    }
+  }
+
+  const history: OllamaChatMessage[] = dbMessages.map((m) => ({
+    role: m.role as 'user' | 'assistant' | 'system',
+    content: m.content,
+  }))
+  const cookieHeader = c.req.header('cookie') ?? ''
+
+  primeInFlight.add(user.id)
+  void runCompanionTurn(
+    {
+      userId: user.id,
+      userRole: user.role,
+      userDisplayName: user.nickname?.trim() || user.firstName?.trim() || null,
+      model: ctx.model,
+      options: ctx.options,
+      message: '',
+      characterId: characterId ?? null,
+      characterSystemPrompt: ctx.characterSystemPrompt,
+      uiContext: uiContext ?? null,
+      clientLat: clientLat ?? null,
+      clientLng: clientLng ?? null,
+      clientTz: clientTz ?? null,
+      // Synthetic id for a not-yet-created conversation: only used as the
+      // memory-cache key (prime doesn't write it) and the docs query (none exist).
+      convId: convId ?? `prime:${user.id}`,
+      history,
+      prefs: ctx.prefs,
+      firstMetAt: characterId ? (existingRelation?.createdAt ?? null) : undefined,
+      conversationSummary: historyIncomplete ? convSummary : null,
+      cookieHeader,
+      locale: ctx.locale,
+      interactionStyle: ctx.interactionStyle,
+      activeDials: ctx.activeDials,
+      maskProfanityActive: ctx.maskProfanityActive,
+      includeDocs: !!convId,
+      primeOnly: true,
+    },
+    { onToken: () => {}, signal: { aborted: false } },
+  ).catch(() => { /* best-effort */ }).finally(() => primeInFlight.delete(user.id))
+
+  return c.json({ ok: true })
+})
+
 // ── Regenerate endpoint ─────────────────────────────────────────────────────
 // Re-runs the turn that produced `assistantMessageId`: streams a fresh reply for the
 // SAME user turn rather than resubmitting it as a new one (which would duplicate the

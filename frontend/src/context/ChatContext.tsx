@@ -154,6 +154,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Speculative KV prime ────────────────────────────────────────────────────
+  // On app open / conversation switch, ask the server to prefill the LLM prompt
+  // prefix (system prompt + history) so the next real turn only pays prefill for
+  // the newly typed message (~2s → ~0.3s to first token on a fresh conversation).
+  // Debounced so browsing the conversation list doesn't fire a prime per click;
+  // deduped per conversation+companion so a finished generation doesn't re-fire.
+  const lastPrimeRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (isGenerating) return
+    const charId = getActiveCompanionId() ?? undefined
+    const key = `${conversationId ?? 'new'}:${charId ?? 'none'}`
+    if (lastPrimeRef.current === key) return
+    const t = setTimeout(() => {
+      lastPrimeRef.current = key
+      fetch('/api/chat/prime', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: conversationId ?? undefined,
+          characterId: charId,
+          uiContext: getContextBlock(),
+          clientTz: getClientTz(),
+        }),
+      }).catch(() => { /* best-effort */ })
+    }, 800)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, isGenerating])
+
   // ── Projects API ────────────────────────────────────────────────────────────
 
   const refreshProjects = useCallback(async () => {

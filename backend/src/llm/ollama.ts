@@ -163,6 +163,13 @@ export function ollamaChatStream(
   model: string,
   messages: OllamaChatMessage[],
   options?: Record<string, unknown>,
+  /** When provided, `cancelRef.cancel` is assigned a function that aborts the
+   *  request IMMEDIATELY — including mid-prefill, which consumer `break` can't do
+   *  (an async generator's return() queues behind the pending next(), which only
+   *  resolves at the first chunk, i.e. after prefill). llama-server banks already
+   *  processed prompt batches in its slot cache on abort, so a cancelled KV-prime
+   *  still leaves a reusable prefix. http-only (the https fallback ignores it). */
+  cancelRef?: { cancel?: () => void },
 ): AsyncGenerator<OllamaChatChunk> {
   // Centralized text safety floor (skipped for vision / already-floored companion calls).
   messages = applyTextFloor(messages)
@@ -259,6 +266,13 @@ export function ollamaChatStream(
   // macOS delayed-ACK (200ms timer) that causes the remote to batch tokens while
   // waiting for acknowledgment. Bun.connect has no equivalent option.
   const sock = createConnection({ host, port, noDelay: true })
+
+  if (cancelRef) {
+    cancelRef.cancel = () => {
+      push(new Error('cancelled'))
+      sock.destroy()
+    }
+  }
 
   // Two-phase guard so a hung Ollama can't make the generator await forever, while
   // a slow cold-start (no first token yet) isn't mistaken for a stall: a generous
