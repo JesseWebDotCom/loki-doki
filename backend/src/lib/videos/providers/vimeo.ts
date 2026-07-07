@@ -118,14 +118,16 @@ async function vimeoRssItems(feedPath: string, ttl: number): Promise<VideoItem[]
       const thumb = /<media:thumbnail[^>]*url="([^"]+)"/.exec(block)?.[1] ?? null
       const duration = /<media:content[^>]*duration="(\d+)"/.exec(block)?.[1]
       const pub = /<pubDate>([^<]+)<\/pubDate>/.exec(block)?.[1]
-      // Creator hides in the description's leading "by …" line when present.
-      const by = /<description>(?:\s*by\s+)([^.<]{2,60})/i.exec(block)?.[1]?.trim()
+      // Every RSS item carries the uploader in <media:credit role="author">; fall back to a
+      // leading "by …" line in the description only if that's somehow absent.
+      const credit = /<media:credit[^>]*>([^<]+)<\/media:credit>/.exec(block)?.[1]?.trim()
+        || /<description>(?:\s*by\s+)([^.<]{2,60})/i.exec(block)?.[1]?.trim()
       items.push({
         source: 'vimeo',
         id,
         url: `https://vimeo.com/${id}`,
         title: title.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'"),
-        creator: by ? { id: '', name: by } : null,
+        creator: credit ? { id: '', name: credit.replace(/&amp;/g, '&') } : null,
         thumbnailUrl: thumb,
         durationSec: duration ? parseInt(duration, 10) : null,
         publishedAt: pub ? Date.parse(pub) : null,
