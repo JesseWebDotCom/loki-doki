@@ -161,6 +161,7 @@ export const redditProvider: VideoProvider = {
     downloadKinds: ['video'],
     authConfig: 'apiKey',
   },
+  discovery: ['popular', 'trending'],
   browseFeeds: Object.entries(FEED_MULTIS).map(([id, f]) => ({ id, label: f.label })),
 
   async status() {
@@ -188,13 +189,18 @@ export const redditProvider: VideoProvider = {
   },
 
   async browse({ feed, cursor, allowAdult }) {
-    // Category chip ids map to curated multis; anything else (a followed subreddit
-    // chip passes its name) is used directly.
-    const multi = feed && FEED_MULTIS[feed] ? FEED_MULTIS[feed]!.multi
-      : feed && /^[A-Za-z0-9_+]+$/.test(feed) ? feed : DEFAULT_MULTI
     const after = cursor ? `&after=${encodeURIComponent(cursor)}` : ''
+    // Reserved discovery feeds rank the curated video multi: 'trending' = hot right now,
+    // 'popular' = top of the week. Category chip ids map to curated multis; anything else
+    // (a followed subreddit chip passes its name) is used directly, sorted by hot.
+    const discovery = feed === 'popular' || feed === 'trending'
+    const sort = feed === 'popular' ? 'top' : 'hot'
+    const t = feed === 'popular' ? '&t=week' : ''
+    const multi = discovery ? DEFAULT_MULTI
+      : feed && FEED_MULTIS[feed] ? FEED_MULTIS[feed]!.multi
+      : feed && /^[A-Za-z0-9_+]+$/.test(feed) ? feed : DEFAULT_MULTI
     const data = await redditJson<Parameters<typeof listingToPager>[0]>(
-      `/r/${multi}/hot.json?raw_json=1&limit=50${after}`, LIST_TTL)
+      `/r/${multi}/${sort}.json?raw_json=1&limit=50${t}${after}`, LIST_TTL)
     const page = listingToPager(data)
     if (!allowAdult) page.items = page.items.filter((i) => !i.isAdult)
     return page

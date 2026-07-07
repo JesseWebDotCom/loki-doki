@@ -21,6 +21,7 @@ import {
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
 import { HubCreatorRail } from '@/components/videos/HubCreatorRail'
+import { SourceDiscovery } from '@/components/videos/SourceDiscovery'
 import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 import { SOURCE_META } from '@/lib/videos/sources'
 
@@ -193,6 +194,7 @@ export function RedditBrowsePage() {
             <HubCreatorRail title="Your communities" source="reddit"
               creators={subs.map((s) => ({ id: s.externalId, title: s.title, thumbnailUrl: s.thumbnailUrl ?? null }))} />
           )}
+          {!activeFeed && <SourceDiscovery source="reddit" discovery={reddit?.discovery ?? []} view={view} />}
           <section>
             <HubVideoCollection items={items} view={view} showSource={false} />
             <InfiniteLoadMore

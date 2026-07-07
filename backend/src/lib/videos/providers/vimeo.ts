@@ -166,6 +166,9 @@ export const vimeoProvider: VideoProvider = {
     downloadKinds: ['audio', 'video'],
     authConfig: 'apiKey',
   },
+  // Only "popular" (Staff Picks); Vimeo exposes no trending ranking. browse() already
+  // falls back to staffpicks for any feed id it doesn't recognize, incl. 'popular'.
+  discovery: ['popular'],
   browseFeeds: Object.entries(VIMEO_CHANNELS).map(([id, ch]) => ({ id, label: ch.label })),
 
   async status() {

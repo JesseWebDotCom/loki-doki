@@ -9,16 +9,20 @@ import { HubVideoListRow } from '@/components/videos/HubVideoListRow'
 /** A titled shelf of hub items: the source-agnostic counterpart to youtube's MediaShelf.
  *  Horizontal card rail by default; renders as a vertical list when `view === 'list'` so a
  *  page-level card/list toggle flips every shelf, matching YouTube's home page behavior. */
-export function HubMediaShelf({ title, items, view = 'grid', showSource }: {
+export function HubMediaShelf({ title, to, items, view = 'grid', showSource }: {
   title: string
+  to?: string
   items: HubVideoItem[]
   view?: CardListView
   showSource?: boolean
 }) {
   if (!items.length) return null
+  // Match the page toggle so a shelf's cards are the same shape as the grid below it.
+  const tall = view === 'big'
+  const shape: 'wide' | 'tall' = tall ? 'tall' : 'wide'
   return (
     <section>
-      <SectionHeader title={title} className="mb-4" />
+      <SectionHeader title={title} to={to} className="mb-4" />
       {view === 'list' ? (
         <div className="space-y-1">
           {items.map((i) => <HubVideoListRow key={`${i.source}:${i.id}`} item={i} showSource={showSource} />)}
@@ -26,8 +30,8 @@ export function HubMediaShelf({ title, items, view = 'grid', showSource }: {
       ) : (
         <HScroll>
           {items.map((i) => (
-            <div key={`${i.source}:${i.id}`} className={cn('shrink-0', i.vertical ? 'w-44' : 'w-72')}>
-              <HubVideoCard item={i} showSource={showSource} />
+            <div key={`${i.source}:${i.id}`} className={cn('shrink-0', tall ? 'w-44' : 'w-72')}>
+              <HubVideoCard item={i} showSource={showSource} shape={shape} />
             </div>
           ))}
         </HScroll>

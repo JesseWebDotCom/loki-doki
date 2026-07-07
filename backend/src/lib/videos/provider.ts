@@ -63,6 +63,11 @@ export interface VideoProvider {
   capabilities: ProviderCapabilities
   /** Named browse feeds (category chips). browse({feed}) accepts these ids. */
   browseFeeds?: Array<{ id: string; label: string }>
+  /** Discovery shelves this source can serve, as reserved browse feed ids: browse({feed:
+   *  'popular'|'trending'}) returns that ranking. Drives the Popular/Trending shelves on the
+   *  home + source pages. Omit or empty when a platform exposes no such ranking (TikTok has
+   *  no public trending; Vimeo has curated "popular" only). */
+  discovery?: Array<'popular' | 'trending'>
 
   /** Fast URL sniffing for the universal clipper / deep links. No network. */
   matchUrl(url: URL): UrlMatch | null

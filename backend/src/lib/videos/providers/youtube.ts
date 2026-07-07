@@ -8,7 +8,7 @@ import {
   innertubeComments, tryInnertube,
 } from '@/lib/youtube/innertube'
 import type { ItVideo } from '@/lib/youtube/innertube'
-import { fetchTrending } from '@/lib/youtube/discovery'
+import { fetchPopular, fetchTrending } from '@/lib/youtube/discovery'
 import type { VideoProvider } from '@/lib/videos/provider'
 import type { VideoItem } from '@/lib/videos/types'
 
@@ -40,6 +40,8 @@ export const youtubeProvider: VideoProvider = {
     downloadKinds: ['audio', 'video'],
     authConfig: 'none',
   },
+  discovery: ['popular', 'trending'],
+  browseFeeds: [{ id: 'trending', label: 'Trending' }, { id: 'popular', label: 'Popular' }],
 
   matchUrl(url) {
     const host = url.hostname.replace(/^www\.|^m\./, '')
@@ -58,10 +60,15 @@ export const youtubeProvider: VideoProvider = {
     return null
   },
 
-  async browse({ cursor }) {
-    // Hub browse = trending; personalized subscription feeds stay in the YouTube area.
+  async browse({ feed, cursor }) {
+    // Hub browse = the Popular or Trending ranking (default trending); personalized
+    // subscription feeds stay in the YouTube area. Single page (no continuation).
     if (cursor) return { items: [], cursor: null }
-    const videos = await tryInnertube('videos-hub-trending', () => fetchTrending(40), [] as ItVideo[])
+    const popular = feed === 'popular'
+    const videos = await tryInnertube(
+      `videos-hub-${popular ? 'popular' : 'trending'}`,
+      () => (popular ? fetchPopular(40) : fetchTrending(40)),
+      [] as ItVideo[])
     return { items: videos.map(toItem), cursor: null }
   },
 

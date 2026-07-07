@@ -42,6 +42,8 @@ export interface SourceInfo {
   source: VideoSource
   label: string
   browseFeeds: Array<{ id: string; label: string }>
+  /** Discovery shelves this source can serve (Popular/Trending); subset per platform. */
+  discovery: Array<'popular' | 'trending'>
   capabilities: {
     browse: boolean
     search: boolean

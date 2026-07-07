@@ -182,6 +182,9 @@ export const tiktokProvider: VideoProvider = {
     downloadKinds: ['audio', 'video'],
     authConfig: 'cookies',
   },
+  // Only "popular" (a curated pull from broadly-popular creators); TikTok has no public
+  // trending API. feed='popular' already maps to the CREATOR_GROUPS popular set.
+  discovery: ['popular'],
   browseFeeds: Object.entries(CREATOR_GROUPS).map(([id, g]) => ({ id, label: g.label })),
 
   async browse({ feed, cursor, warm }) {
