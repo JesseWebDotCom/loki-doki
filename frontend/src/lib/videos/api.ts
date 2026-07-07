@@ -76,9 +76,12 @@ export function getVideoSources(): Promise<{ sources: SourceInfo[] }> {
   return getJson('/api/videos/sources')
 }
 
-export function getHubHome(sources?: VideoSource[]): Promise<{ items: HubVideoItem[] }> {
-  const qs = sources?.length ? `?sources=${encodeURIComponent(sources.join(','))}` : ''
-  return getJson(`/api/videos/home${qs}`)
+export function getHubHome(sources?: VideoSource[], cursor?: string | null): Promise<{ items: HubVideoItem[]; cursor: string | null }> {
+  const params = new URLSearchParams()
+  if (sources?.length) params.set('sources', sources.join(','))
+  if (cursor) params.set('cursor', cursor)
+  const qs = params.toString()
+  return getJson(`/api/videos/home${qs ? `?${qs}` : ''}`)
 }
 
 export interface HubPager {

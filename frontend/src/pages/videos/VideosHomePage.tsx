@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Play, Film, Plug } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -10,6 +10,7 @@ import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { SourceChip } from '@/components/videos/SourceChip'
 import { getHistory, getSubscriptions } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
@@ -50,11 +51,14 @@ function HubLanding() {
   const allIds = useMemo(() => sources.map((s) => s.source), [sources])
   const active: VideoSource[] = selected.length === 0 ? allIds : selected
 
-  const { data: homeData, isLoading } = useQuery({
+  const homeQuery = useInfiniteQuery({
     queryKey: ['videos-home', [...active].sort().join(',')],
-    queryFn: () => getHubHome(selected.length === 0 ? undefined : selected),
+    queryFn: ({ pageParam }) => getHubHome(selected.length === 0 ? undefined : selected, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.cursor,
     enabled: sources.length > 0,
   })
+  const isLoading = homeQuery.isLoading
 
   const { data: history = [], isLoading: historyLoading } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
   const continueWatching = useMemo(
@@ -62,7 +66,16 @@ function HubLanding() {
     [history],
   )
 
-  const feedItems = useMemo(() => homeData?.items ?? [], [homeData])
+  // Flatten pages, dedup by source:id (a provider can occasionally repeat across pages).
+  const feedItems = useMemo(() => {
+    const seen = new Set<string>()
+    const out: HubVideoItem[] = []
+    for (const page of homeQuery.data?.pages ?? []) for (const it of page.items) {
+      const k = `${it.source}:${it.id}`
+      if (!seen.has(k)) { seen.add(k); out.push(it) }
+    }
+    return out
+  }, [homeQuery.data])
 
   return (
     <PageContainer width="wide" className="py-6">
@@ -91,18 +104,25 @@ function HubLanding() {
           {isLoading ? (
             <SkeletonCards count={12} className="xl:grid-cols-4" />
           ) : feedItems.length > 0 ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
-              {feedItems.map((it) => it.source === 'youtube' ? (
-                <div key={`yt:${it.id}`} className="relative">
-                  <span className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${SOURCE_META.youtube.badgeClass}`}>
-                    <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
-                  </span>
-                  <VideoCard item={hubToYtItem(it)} />
-                </div>
-              ) : (
-                <HubVideoCard key={`${it.source}:${it.id}`} item={it} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
+                {feedItems.map((it) => it.source === 'youtube' ? (
+                  <div key={`yt:${it.id}`} className="relative">
+                    <span className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${SOURCE_META.youtube.badgeClass}`}>
+                      <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
+                    </span>
+                    <VideoCard item={hubToYtItem(it)} />
+                  </div>
+                ) : (
+                  <HubVideoCard key={`${it.source}:${it.id}`} item={it} />
+                ))}
+              </div>
+              <InfiniteLoadMore
+                hasNextPage={!!homeQuery.hasNextPage}
+                isFetchingNextPage={homeQuery.isFetchingNextPage}
+                fetchNextPage={() => void homeQuery.fetchNextPage()}
+              />
+            </>
           ) : (
             <EmptyFeed />
           )}

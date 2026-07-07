@@ -26,6 +26,21 @@ import type { AppEnv } from '@/types'
 // in parallel and interleaved, so a slow one just drops out of this load rather than
 // holding up the whole page.
 const HOME_BROWSE_TIMEOUT_MS = 6_000
+const FOLLOWS_PAGE = 40
+
+// The mixed-home cursor: per-source browse cursors (`p`) + followed-uploads offset (`f`,
+// null once exhausted), base64url-JSON so it round-trips as one opaque query string.
+interface HomeCursor { p: Record<string, string>; f: number | null }
+function parseHomeCursor(raw: string | undefined): HomeCursor | null {
+  if (!raw) return null
+  try {
+    const obj = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Partial<HomeCursor>
+    if (obj && typeof obj === 'object' && obj.p && typeof obj.p === 'object') {
+      return { p: obj.p as Record<string, string>, f: typeof obj.f === 'number' ? obj.f : null }
+    }
+  } catch { /* malformed → treat as first page */ }
+  return null
+}
 
 const GENERIC_SOURCES = ['reddit', 'tiktok', 'vimeo', 'link'] as const
 type GenericSource = (typeof GENERIC_SOURCES)[number]
@@ -66,45 +81,63 @@ videosRoute.get('/home', async (c) => {
   const wanted = (c.req.query('sources') ?? '').split(',').filter(Boolean)
   const enabled = await getEnabledSources()
 
+  // Pagination: the cursor is a composite of each still-paginating provider's own cursor
+  // plus the followed-uploads offset, so "load more" advances every source together.
+  const incoming = parseHomeCursor(c.req.query('cursor'))
+  const isFirst = !incoming
+
   const active = listProviders().filter((p) =>
     p.browse && p.capabilities.browse && enabled.includes(p.source) && (wanted.length === 0 || wanted.includes(p.source)))
+
+  // First page browses every source; a "load more" only re-queries the ones that reported
+  // another page last time — a single-page source (TikTok / keyless Vimeo) would otherwise
+  // repeat its first page and duplicate content.
+  const toQuery = isFirst
+    ? active.map((p) => ({ p, cursor: null as string | null }))
+    : active.filter((p) => incoming!.p[p.source] != null).map((p) => ({ p, cursor: incoming!.p[p.source]! }))
 
   // A slow OR broken source never blanks (or stalls) the hub home: each provider browse is
   // both try/caught and time-boxed. TikTok already serves cache-only here (no yt-dlp on this
   // path); the timeout also bounds a slow Reddit/Vimeo network fetch.
-  const feeds = await Promise.all(active.map(async (p) => {
+  const nextP: Record<string, string> = {}
+  const feeds = await Promise.all(toQuery.map(async ({ p, cursor }) => {
     // .catch() BEFORE the race so a browse that rejects *after* the timeout already won
-    // resolves to empty instead of surfacing as an unhandled rejection. One broken/slow
-    // source never blanks — or stalls — the hub home.
-    const browse = p.browse!({ userId: user.id, allowAdult })
+    // resolves to empty instead of surfacing as an unhandled rejection.
+    const browse = p.browse!({ userId: user.id, allowAdult, cursor })
       .catch(() => ({ items: [], cursor: null }) as Pager<VideoItem>)
     const page = await Promise.race([
       browse,
       new Promise<Pager<VideoItem>>((resolve) => setTimeout(() => resolve({ items: [], cursor: null }), HOME_BROWSE_TIMEOUT_MS)),
     ])
+    if (page.cursor) nextP[p.source] = page.cursor
     return page.items.filter((it) => allowAdult || !it.isAdult)
   }))
 
   // Followed-creator uploads join the mix too — this is how TikTok (browse-less) and
-  // followed subreddits/channels surface on Home without their own trending feeds.
-  const follows = await db.select({ id: videoFollows.id, source: videoFollows.source }).from(videoFollows)
-    .where(eq(videoFollows.userId, user.id))
-  const followsWanted = follows.filter((f) => enabled.includes(f.source) && (wanted.length === 0 || wanted.includes(f.source)))
-  if (followsWanted.length > 0) {
-    const rows = await db.select().from(videoItems)
-      .where(inArray(videoItems.followId, followsWanted.map((f) => f.id)))
-      .orderBy(desc(videoItems.publishedAt), desc(videoItems.createdAt))
-      .limit(40)
-    const followFeed: VideoItem[] = rows
-      .filter((r) => allowAdult || !r.isAdult)
-      .map((r) => ({
-        source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
-        creator: r.creatorId || r.creatorName ? { id: r.creatorId ?? '', name: r.creatorName ?? '' } : null,
-        thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
-        publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
-        isAdult: r.isAdult, vertical: r.source === 'tiktok',
-      }))
-    if (followFeed.length > 0) feeds.push(followFeed)
+  // followed subreddits/channels surface on Home. Paginated by offset via the cursor's `f`.
+  const followsOffset = isFirst ? 0 : incoming!.f
+  let nextF: number | null = null
+  if (followsOffset != null) {
+    const follows = await db.select({ id: videoFollows.id, source: videoFollows.source }).from(videoFollows)
+      .where(eq(videoFollows.userId, user.id))
+    const followsWanted = follows.filter((f) => enabled.includes(f.source) && (wanted.length === 0 || wanted.includes(f.source)))
+    if (followsWanted.length > 0) {
+      const rows = await db.select().from(videoItems)
+        .where(inArray(videoItems.followId, followsWanted.map((f) => f.id)))
+        .orderBy(desc(videoItems.publishedAt), desc(videoItems.createdAt))
+        .limit(FOLLOWS_PAGE).offset(followsOffset)
+      const followFeed: VideoItem[] = rows
+        .filter((r) => allowAdult || !r.isAdult)
+        .map((r) => ({
+          source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
+          creator: r.creatorId || r.creatorName ? { id: r.creatorId ?? '', name: r.creatorName ?? '' } : null,
+          thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+          publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+          isAdult: r.isAdult, vertical: r.source === 'tiktok',
+        }))
+      if (followFeed.length > 0) feeds.push(followFeed)
+      nextF = rows.length === FOLLOWS_PAGE ? followsOffset + FOLLOWS_PAGE : null
+    }
   }
 
   // Round-robin interleave so every enabled source is visible above the fold.
@@ -116,7 +149,10 @@ videosRoute.get('/home', async (c) => {
       if (it && !seen.has(`${it.source}:${it.id}`)) { seen.add(`${it.source}:${it.id}`); items.push(it) }
     }
   }
-  return c.json({ items })
+
+  const hasMore = Object.keys(nextP).length > 0 || nextF != null
+  const cursor = hasMore ? Buffer.from(JSON.stringify({ p: nextP, f: nextF }), 'utf8').toString('base64url') : null
+  return c.json({ items, cursor })
 })
 
 // ── Universal clipper resolve: provider match first, yt-dlp fallback ───────────
