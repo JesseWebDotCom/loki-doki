@@ -5,7 +5,7 @@ import {
   HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
   ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
 } from 'lucide-react'
-import { ShieldCheck, Headphones, ExternalLink, Share2 } from 'lucide-react'
+import { ShieldCheck, Headphones, ExternalLink, Share2, PictureInPicture2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import {
@@ -795,6 +795,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // a source without comments never briefly renders (or fetches) the Comments tab before
   // capabilities load.
   const [explicitTab, setExplicitTab] = useState<SideTab | null>(null)
+  // TikTok/Vimeo play through a cross-origin embed <iframe>, which the browser won't let us
+  // Picture-in-Picture. When the user asks for PiP we swap the embed for a real <video> fed by
+  // the on-demand /api/vstream endpoint (yt-dlp), then request PiP — same handoff YouTube does.
+  const [pipStream, setPipStream] = useState(false)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['videos-item', source, id],
@@ -814,10 +818,35 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const onlineOnly = mode === 'offline' && !localUrl
 
   // TikTok/Vimeo play through their official embed <iframe> (instant, no yt-dlp). A saved
-  // offline copy always wins — that plays from the local blob via <video>.
+  // offline copy always wins — that plays from the local blob via <video>. When pipStream is
+  // on (user hit PiP on an embed source) we drop the iframe and stream a real <video> instead.
   const embedUrl = !localUrl && data?.playback?.mode === 'embed' ? data.playback.embedUrl : null
+  const showEmbed = !!embedUrl && !pipStream
+  const vstreamUrl = `/api/vstream/${source}/${encodeURIComponent(id)}`
+  // A real <video> exists whenever we're not showing the embed (native stream/hls/file modes,
+  // or the PiP stream swap) — that's what PiP can target.
+  const hasNativeVideo = !showEmbed
 
   usePlaybackAttach(videoRef, data?.playback ?? null, localUrl)
+
+  // Once the PiP stream swap mounts its <video>, fire the actual PiP request when it can play.
+  useEffect(() => {
+    if (!pipStream) return
+    const v = videoRef.current
+    if (!v) return
+    const onReady = () => { void v.requestPictureInPicture?.().catch(() => {}) }
+    if (v.readyState >= 1) onReady()
+    else v.addEventListener('loadedmetadata', onReady, { once: true })
+    return () => v.removeEventListener('loadedmetadata', onReady)
+  }, [pipStream])
+
+  const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled
+  const togglePip = () => {
+    const v = videoRef.current
+    if (v && document.pictureInPictureElement === v) { void document.exitPictureInPicture().catch(() => {}); return }
+    if (hasNativeVideo && v) { void v.requestPictureInPicture?.().catch(() => {}); return }
+    setPipStream(true)   // embed → swap to a streamed <video>, PiP fires on ready
+  }
 
   // Resume position + periodic watch-state sync (10s cadence + unmount flush).
   const lastSent = useRef(0)
@@ -904,23 +933,30 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     <PageContainer width="wide" className="grid grid-cols-1 gap-6 py-6 xl:grid-cols-[1fr_400px]">
       {/* Main column */}
       <div className="min-w-0 space-y-5">
-        <div className={item.vertical ? 'mx-auto max-w-md' : ''}>
-          {embedUrl ? (
+        {/* Vertical (TikTok/Reels) videos are capped by HEIGHT so the title + action row stay
+            visible beneath the player instead of a full 9:16 tower pushing them off-screen. */}
+        <div className={item.vertical ? 'flex justify-center' : ''}>
+          {showEmbed ? (
             <iframe
-              src={embedUrl}
+              src={embedUrl!}
               title={item.title}
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
               allowFullScreen
-              className={`w-full rounded-card border-0 bg-black ${item.vertical ? 'aspect-[9/16]' : 'aspect-video'}`}
+              className={item.vertical
+                ? 'aspect-[9/16] h-[min(64vh,600px)] rounded-card border-0 bg-black'
+                : 'aspect-video w-full rounded-card border-0 bg-black'}
             />
           ) : (
             <video
               ref={videoRef}
+              src={pipStream ? vstreamUrl : undefined}
               controls
               autoPlay
               playsInline
               poster={item.thumbnailUrl ?? undefined}
-              className={`w-full rounded-card bg-black ${item.vertical ? 'aspect-[9/16]' : 'aspect-video'}`}
+              className={item.vertical
+                ? 'aspect-[9/16] h-[min(64vh,600px)] rounded-card bg-black'
+                : 'aspect-video w-full rounded-card bg-black'}
             />
           )}
         </div>
@@ -952,6 +988,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
+                {pipSupported && (
+                  <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
+                    title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
+                )}
                 <SegBtn
                   icon={saveState === 'ready' ? Check : HardDriveDownload}
                   label={saveState === 'ready' ? 'Saved offline' : saveState === 'pending' || saveState === 'downloading' ? 'Saving offline…' : 'Save offline'}
