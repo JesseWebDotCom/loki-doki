@@ -56,11 +56,12 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
   // so it reads as a normal video and not a vertical short.
   const letterbox = shape === 'tall' && !item.vertical
 
-  // Hover-to-preview: Vimeo ships a muted, autoplay, looped "background" player that's built
-  // for exactly this; other sources have no such lightweight muted preview (TikTok's embed
-  // can't be muted cross-origin; Reddit needs its HLS stream), so they skip it for now.
-  const previewUrl = !ghosted && item.source === 'vimeo'
-    ? `https://player.vimeo.com/video/${encodeURIComponent(item.id)}?background=1&autoplay=1`
+  // Hover-to-preview via each source's official embed. Vimeo's "background" player is muted
+  // by design; TikTok's player autoplays (the browser forces muted autoplay without a user
+  // gesture, so it won't blast audio). Reddit would need its HLS stream, so it's skipped.
+  const previewUrl = ghosted ? null
+    : item.source === 'vimeo' ? `https://player.vimeo.com/video/${encodeURIComponent(item.id)}?background=1&autoplay=1`
+    : item.source === 'tiktok' ? `https://www.tiktok.com/player/v1/${encodeURIComponent(item.id)}?autoplay=1&loop=1&controls=0&music_info=0&description=0&rel=0`
     : null
   const [previewing, setPreviewing] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)

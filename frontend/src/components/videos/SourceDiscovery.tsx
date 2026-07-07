@@ -76,16 +76,16 @@ function MixedShelf({ targets, title, view }: { targets: Target[]; title: string
 }
 
 /** The hub home's two mixed discovery sections. Popular mixes every source's popular feed.
- *  Trending mixes ALL sources too, using each source's real trending feed where it has one
- *  (YouTube, Reddit) and its popular feed where it doesn't (TikTok/Vimeo expose no trending),
- *  so Trending is never a single-source shelf. */
+ *  Trending mixes only sources that expose a REAL, distinct trending ranking (YouTube,
+ *  Reddit) — TikTok/Vimeo have a single feed each, so folding them in just duplicated their
+ *  Popular; the Trending shelf simply doesn't include them rather than repeating content. */
 export function MixedDiscovery({ sources, view = 'grid' }: { sources: SourceInfo[]; view?: CardListView }) {
-  const withDiscovery = sources.filter((s) => s.discovery.length > 0)
-  const popular: Target[] = withDiscovery
+  const popular: Target[] = sources
     .filter((s) => s.discovery.includes('popular'))
     .map((s) => ({ source: s.source, feed: 'popular' }))
-  const trending: Target[] = withDiscovery
-    .map((s) => ({ source: s.source, feed: s.discovery.includes('trending') ? 'trending' : 'popular' }))
+  const trending: Target[] = sources
+    .filter((s) => s.discovery.includes('trending'))
+    .map((s) => ({ source: s.source, feed: 'trending' }))
   return (
     <>
       {popular.length > 0 && <MixedShelf targets={popular} title="Popular" view={view} />}
