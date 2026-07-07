@@ -58,10 +58,13 @@ export function YoutubeMiniBar() {
 
   const track = pb.track
   const isStream = !!track?.streamUrl
-  // A non-YouTube video docked from the hub watch page: plays as a real <video> off its
-  // streamVideoUrl (like the offline-file backend), so it's NOT the "online YouTube" iframe path.
-  const isHubVideo = !!track?.streamVideoUrl
-  const online = !!track && !track.localKind && !isStream && !isHubVideo
+  // Non-YouTube videos docked from the hub watch page. Embed sources (TikTok/Vimeo) play in
+  // their own <iframe> (instant, reliable); other hub sources play as a real <video> off
+  // streamVideoUrl. Both are excluded from the "online YouTube" iframe path.
+  const isHubEmbed = !!track?.embedUrl
+  const isHubVideo = !!track?.streamVideoUrl && !isHubEmbed
+  const isHub = isHubEmbed || isHubVideo
+  const online = !!track && !track.localKind && !isStream && !isHub
   const isLocalAudio = track?.localKind === 'audio'
   // Which backend is actually driving playback right now: the iframe embed, or a real
   // <video> (true offline file, or an online track swapped onto the proxy for PiP).
@@ -136,7 +139,7 @@ export function YoutubeMiniBar() {
     // the proxy mid-watch resumes at wherever the iframe had actually gotten to.
     const startAt = online ? pipSwitchPos.current : pb.startSec
     const onMeta = () => { try { el.currentTime = startAt } catch { /* not seekable */ } }
-    const onEnd = () => { if (!isHubVideo) void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
+    const onEnd = () => { if (!isHub) void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
     el.addEventListener('loadedmetadata', onMeta, { once: true })
     el.addEventListener('ended', onEnd)
     void el.play().then(() => {
@@ -173,7 +176,7 @@ export function YoutubeMiniBar() {
       pb.reportPosition(s.t); if (s.d) setDur(s.d)
       if (s.playing) setLoading(false)
       const now = Date.now()
-      if (!isHubVideo && s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.expandTo ? { origin: 'music' } : undefined) }
+      if (!isHub && s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.expandTo ? { origin: 'music' } : undefined) }
     }, 500)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,7 +269,7 @@ export function YoutubeMiniBar() {
   }
 
   const onClose = () => {
-    if (!isStream && !isHubVideo) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.expandTo ? { origin: 'music' } : undefined) }
+    if (!isStream && !isHub) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.expandTo ? { origin: 'music' } : undefined) }
     if (isStream) { audioStreamRef.current?.pause() }
     pb.close()
   }
@@ -394,7 +397,7 @@ export function YoutubeMiniBar() {
 
   // PiP is offered for any real video track — online included, via the proxy-switch in
   // togglePip above — just not local audio or live streams, which have no video at all.
-  const showPip = !isStream && !isLocalAudio
+  const showPip = !isStream && !isLocalAudio && !isHubEmbed
     && typeof document !== 'undefined' && document.pictureInPictureEnabled
 
   return (
@@ -413,7 +416,11 @@ export function YoutubeMiniBar() {
           since the docked surface would otherwise show an empty/duplicated box. */}
       {!isLocalAudio && !isStream && (
         <div className={cn(pipActive && 'hidden')}>
-          {useIframe
+          {isHubEmbed
+            ? <iframe src={track!.embedUrl} title={track!.title} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen
+                onLoad={() => setLoading(false)}
+                className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'overflow-hidden rounded-control border-0 bg-black shadow-lg')} style={posStyle} />
+            : useIframe
             ? <div ref={hostRef} className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'overflow-hidden rounded-control bg-black shadow-lg')} style={posStyle} />
             : <video ref={videoRef} playsInline autoPlay
                 onCanPlay={() => setLoading(false)}

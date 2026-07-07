@@ -15,6 +15,9 @@ export interface YtMiniTrack {
   /** Real-video URL for a hub track (e.g. /api/vstream/<source>/<id>) — makes the mini-player
    *  a controllable <video> for sources that normally play through a cross-origin embed. */
   streamVideoUrl?: string
+  /** Official embed URL (TikTok/Vimeo) — the mini-player plays it in an <iframe>, instantly,
+   *  the same way the watch page does (no yt-dlp, no autoplay quirks). */
+  embedUrl?: string
   /** Live audio stream URL (radio, etc.) — skips the YouTube IFrame entirely. */
   streamUrl?: string
   /** Thumbnail override for non-YouTube content (e.g. station favicon). */

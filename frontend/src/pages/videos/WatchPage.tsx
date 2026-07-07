@@ -882,7 +882,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
       thumbnail: data.item.thumbnailUrl ? proxyImg(data.item.thumbnailUrl) : undefined,
       // Raw creator-avatar URL — the mini-bar's CreatorAvatar proxies it through /api/img.
       channelThumb: data.item.creator?.avatarUrl ?? null,
-      streamVideoUrl: vstreamUrl, durationSec: data.item.durationSec ?? null,
+      // TikTok/Vimeo dock their embed iframe (instant, reliable); other sources dock a real
+      // <video> off /api/vstream.
+      ...(embedUrl ? { embedUrl } : { streamVideoUrl: vstreamUrl }),
+      durationSec: data.item.durationSec ?? null,
       expandTo: `/videos/${source}/watch/${id}`,
     }], 0, at)
     navigate(`/videos/${source}`)
