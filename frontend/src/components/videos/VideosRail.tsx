@@ -1,7 +1,7 @@
 import { NavLink, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Clapperboard, Home, Clock, Heart, History, Download, ListVideo, Link2, MessagesSquare, Music2, Play, Video, type LucideIcon,
+  Clapperboard, Globe, Home, Clock, Heart, History, Download, ListVideo, Link2, MessagesSquare, Music2, Play, Video, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
@@ -14,6 +14,9 @@ const SOURCE_LINKS: Record<VideoSource, { to: string; icon: LucideIcon; label: s
   reddit: { to: '/videos/reddit', icon: MessagesSquare, label: 'Reddit' },
   tiktok: { to: '/videos/tiktok', icon: Music2, label: 'TikTok' },
   vimeo: { to: '/videos/vimeo', icon: Clapperboard, label: 'Vimeo' },
+  // 'link' has no discovery surface; its rail target is the paste UI (the Clipper). It only
+  // appears if an admin explicitly enables it — normally you reach it via the search bar.
+  link: { to: '/videos/clip', icon: Globe, label: 'Other sites' },
 }
 
 function RailLink({ to, icon: Icon, label, end, className }: { to: string; icon: LucideIcon; label: string; end?: boolean; className?: string }) {

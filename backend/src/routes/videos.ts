@@ -27,7 +27,7 @@ import type { AppEnv } from '@/types'
 // holding up the whole page.
 const HOME_BROWSE_TIMEOUT_MS = 6_000
 
-const GENERIC_SOURCES = ['reddit', 'tiktok', 'vimeo'] as const
+const GENERIC_SOURCES = ['reddit', 'tiktok', 'vimeo', 'link'] as const
 type GenericSource = (typeof GENERIC_SOURCES)[number]
 const isGenericSource = (s: string): s is GenericSource => (GENERIC_SOURCES as readonly string[]).includes(s)
 
@@ -150,6 +150,28 @@ videosRoute.post('/resolve', async (c) => {
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : 'Could not resolve that link' }, 422)
   }
+})
+
+// Fast URL router for the search bar: sniff a pasted link against the curated providers
+// (no network) and return where to navigate, falling back to the universal 'link' source.
+// Unlike /resolve it never runs yt-dlp, so pasting a link navigates instantly — the actual
+// metadata resolve happens on the watch page (and is cached there).
+videosRoute.post('/route', async (c) => {
+  const { url } = await c.req.json<{ url?: string }>().catch(() => ({ url: undefined }))
+  const trimmed = url?.trim()
+  if (!trimmed) return c.json({ error: 'url required' }, 400)
+
+  const hit = matchUrlToProvider(trimmed)
+  if (hit) return c.json({ source: hit.provider.source, kind: hit.match.kind, id: hit.match.id })
+
+  // Unclaimed → the universal link source; its id is the base64url of the URL itself.
+  try {
+    const u = new URL(trimmed)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad scheme')
+  } catch {
+    return c.json({ error: 'invalid url' }, 400)
+  }
+  return c.json({ source: 'link', kind: 'video', id: Buffer.from(trimmed, 'utf8').toString('base64url') })
 })
 
 // ── Per-source endpoints (validated against the registry) ──────────────────────

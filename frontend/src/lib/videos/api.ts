@@ -2,7 +2,9 @@
 // shapes mirror backend/src/lib/videos/types.ts. YouTube-specific calls stay in
 // lib/youtube/api.ts.
 
-export type VideoSource = 'youtube' | 'reddit' | 'tiktok' | 'vimeo'
+// 'link' = the universal paste-any-URL source (yt-dlp-backed). No discovery surface; the
+// search bar routes a pasted URL to its watch page, where it plays like any hub item.
+export type VideoSource = 'youtube' | 'reddit' | 'tiktok' | 'vimeo' | 'link'
 
 export interface HubCreatorRef {
   id: string
@@ -241,6 +243,20 @@ export function putVimeoConfig(token: string): Promise<{ ok: true }> {
 /** Admin-only: which sources show up on discovery surfaces (rail, home feed, browse). */
 export function putEnabledSources(sources: VideoSource[]): Promise<{ ok: true }> {
   return sendJson('/api/videos/config/sources', 'PUT', { sources })
+}
+
+/** Fast URL router for the search bar: provider match (no yt-dlp) or the 'link' fallback.
+ *  Returns where to navigate; the watch page does the actual metadata resolve. */
+export async function routeVideoUrl(url: string): Promise<{ source: VideoSource; kind: 'video' | 'creator'; id: string }> {
+  const res = await fetch('/api/videos/route', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+  const data = await res.json().catch(() => null) as { source?: VideoSource; kind?: 'video' | 'creator'; id?: string; error?: string } | null
+  if (!res.ok || !data?.source || !data.id) throw new Error(data?.error ?? 'Could not open that link')
+  return { source: data.source, kind: data.kind ?? 'video', id: data.id }
 }
 
 export async function resolveVideoUrl(url: string): Promise<ResolveResult> {

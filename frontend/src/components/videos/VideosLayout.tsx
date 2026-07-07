@@ -5,12 +5,34 @@ import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { youtubeSuggestSource } from '@/lib/youtube/api'
+import { routeVideoUrl, type VideoSource } from '@/lib/videos/api'
 import { VideosRail } from '@/components/videos/VideosRail'
 import { DownloadDialog, SaveDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
 import { hydrateCollections } from '@/lib/youtube/collections'
 import { DeArrowProvider } from '@/lib/youtube/dearrow'
 
 export type YoutubeMode = 'online' | 'offline'
+
+// A search-bar entry that's a URL (not a query) is opened as a video: known hosts route to
+// their native watch/creator page, everything else to the universal 'link' source.
+function looksLikeUrl(s: string): boolean {
+  if (/\s/.test(s)) return false
+  if (/^https?:\/\//i.test(s)) return true
+  return /^[a-z0-9.-]+\.[a-z]{2,}(?:[/:?#]|$)/i.test(s)
+}
+function hubPath(source: VideoSource, kind: 'video' | 'creator', id: string): string {
+  const e = encodeURIComponent(id)
+  if (kind === 'creator') {
+    switch (source) {
+      case 'youtube': return `/videos/youtube/channel/${e}`
+      case 'reddit': return `/videos/reddit/r/${e}`
+      case 'tiktok': return `/videos/tiktok/creator/${e}`
+      case 'vimeo': return `/videos/vimeo/channel/${e}`
+      default: return `/videos/${source}/watch/${e}`
+    }
+  }
+  return `/videos/${source}/watch/${e}`
+}
 
 interface YoutubeUI {
   mode: YoutubeMode
@@ -99,7 +121,19 @@ export function VideosLayout() {
   useAppHeader({
     query,
     setQuery,
-    onSubmit: () => { const t = query.trim(); if (t) navigate(`/videos/youtube?q=${encodeURIComponent(t)}`) },
+    onSubmit: () => {
+      const t = query.trim()
+      if (!t) return
+      // A pasted URL opens the video directly; a plain query searches YouTube.
+      if (looksLikeUrl(t)) {
+        const url = /^https?:\/\//i.test(t) ? t : `https://${t}`
+        void routeVideoUrl(url)
+          .then((r) => navigate(hubPath(r.source, r.kind, r.id)))
+          .catch(() => navigate(`/videos/youtube?q=${encodeURIComponent(t)}`))
+        return
+      }
+      navigate(`/videos/youtube?q=${encodeURIComponent(t)}`)
+    },
     placeholder: mode === 'online' ? 'Search videos, channels, episodes…' : 'Search your offline library…',
     settingsHref: '/videos/settings',
     suggest: mode === 'online' ? youtubeSuggestSource : undefined,

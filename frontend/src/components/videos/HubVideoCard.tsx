@@ -20,6 +20,8 @@ export const HUB_PATHS = {
   reddit: { watch: (id: string) => `/videos/reddit/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/reddit/r/${encodeURIComponent(id)}` },
   tiktok: { watch: (id: string) => `/videos/tiktok/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/tiktok/creator/${encodeURIComponent(id)}` },
   vimeo: { watch: (id: string) => `/videos/vimeo/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/vimeo/channel/${encodeURIComponent(id)}` },
+  // 'link' items deep-link to the unified watch page; they have no creator pages.
+  link: { watch: (id: string) => `/videos/link/watch/${encodeURIComponent(id)}`, creator: (id: string) => `/videos/link/watch/${encodeURIComponent(id)}` },
 } as const
 
 

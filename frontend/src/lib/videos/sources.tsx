@@ -3,7 +3,7 @@
 // same ones the rail uses, paired with brand-adjacent colors and the referential name.
 // Tailwind can't see computed class names, so these are full strings.
 
-import { Clapperboard, MessagesSquare, Music2, Play, type LucideIcon } from 'lucide-react'
+import { Clapperboard, Globe, MessagesSquare, Music2, Play, type LucideIcon } from 'lucide-react'
 import type { VideoSource } from '@/lib/videos/api'
 
 export interface SourceMeta {
@@ -31,4 +31,7 @@ export const SOURCE_META: Record<VideoSource, SourceMeta> = {
   // design-ok(raw-palette-semantic): per-source brand identity colors
   // design-ok(hex-in-tsx): identity tile gradients for source page headers
   vimeo: { label: 'Vimeo', icon: Clapperboard, dotClass: 'bg-sky-500', badgeClass: 'bg-sky-600 text-white', pillActiveClass: 'bg-sky-600 text-white', gradient: 'linear-gradient(135deg,#0c4a6e,#0ea5e9)' },
+  // design-ok(hex-in-tsx): identity tile gradient for the source page header
+  // Universal paste-any-URL source — a neutral slate identity, not a brand.
+  link: { label: 'Other sites', icon: Globe, dotClass: 'bg-slate-500', badgeClass: 'bg-slate-700 text-white', pillActiveClass: 'bg-slate-700 text-white', gradient: 'linear-gradient(135deg,#334155,#64748b)' },
 }

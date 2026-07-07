@@ -9,12 +9,14 @@ import { youtubeProvider } from '@/lib/videos/providers/youtube'
 import { redditProvider } from '@/lib/videos/providers/reddit'
 import { tiktokProvider } from '@/lib/videos/providers/tiktok'
 import { vimeoProvider } from '@/lib/videos/providers/vimeo'
+import { linkProvider } from '@/lib/videos/providers/link'
 
 const providers = new Map<VideoSource, VideoProvider>([
   ['youtube', youtubeProvider],
   ['reddit', redditProvider],
   ['tiktok', tiktokProvider],
   ['vimeo', vimeoProvider],
+  ['link', linkProvider],
 ])
 
 export function listProviders(): VideoProvider[] {
@@ -32,6 +34,9 @@ export function getProvider(source: string): VideoProvider | null {
 export const ENABLED_SOURCES_KEY = 'videos.enabled_sources'
 // Reddit needs a registered app id before it does anything useful, so it starts off;
 // every other source works with zero setup.
+// 'link' (paste-any-URL) is intentionally NOT here: it has no discovery surface, so it
+// never shows in the rail/home. It still resolves, plays, and saves — the search bar routes
+// a pasted URL straight to its watch page, and item/stream/save aren't gated by this list.
 const DEFAULT_ENABLED_SOURCES: VideoSource[] = ['youtube', 'tiktok', 'vimeo']
 
 export async function getEnabledSources(): Promise<VideoSource[]> {

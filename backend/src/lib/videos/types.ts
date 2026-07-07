@@ -2,7 +2,9 @@
 // native shapes (InnerTube, Reddit JSON, yt-dlp dumps, Vimeo API) into these, so the
 // hub UI and library layer never see source-specific formats.
 
-export type VideoSource = 'youtube' | 'reddit' | 'tiktok' | 'vimeo'
+// 'link' = the universal paste-any-URL source (yt-dlp-backed); it has no discovery surface,
+// only resolve/play/save, and its item id is the base64url of the source URL.
+export type VideoSource = 'youtube' | 'reddit' | 'tiktok' | 'vimeo' | 'link'
 /** Sources persisted in the generic video_* tables (YouTube keeps its native yt_* tables). */
 export type GenericVideoSource = Exclude<VideoSource, 'youtube'>
 

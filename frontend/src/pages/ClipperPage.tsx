@@ -33,6 +33,7 @@ const SOURCE_PATHS: Record<VideoSource, { watch: (id: string) => string; creator
   reddit: { watch: (id) => `/videos/reddit/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/reddit/r/${encodeURIComponent(id)}` },
   tiktok: { watch: (id) => `/videos/tiktok/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/tiktok/creator/${encodeURIComponent(id)}` },
   vimeo: { watch: (id) => `/videos/vimeo/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/vimeo/channel/${encodeURIComponent(id)}` },
+  link: { watch: (id) => `/videos/link/watch/${encodeURIComponent(id)}`, creator: (id) => `/videos/link/watch/${encodeURIComponent(id)}` },
 }
 
 type ProviderHit = Extract<ResolveResult, { kind: 'provider' }>
