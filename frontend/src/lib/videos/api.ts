@@ -36,6 +36,8 @@ export interface HubCreator extends HubCreatorRef {
   bannerUrl?: string | null
   description?: string | null
   subscriberText?: string | null
+  /** Pre-formatted display count, e.g. "1.2K videos" — shown in the header meta line. */
+  videoCount?: string | null
 }
 
 export interface SourceInfo {

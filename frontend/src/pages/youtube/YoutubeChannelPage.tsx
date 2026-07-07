@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { HardDriveDownload, Check, Plus, Link2 } from 'lucide-react'
+import { HardDriveDownload, Check, Plus } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -17,9 +17,10 @@ import {
 } from '@/lib/youtube/api'
 import { itToItem, savedToItem, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
-import { ChannelAvatar } from '@/components/youtube/media'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { VideoCollection, YT_GRID as GRID } from '@/components/youtube/VideoCollection'
+import { ChannelHeader } from '@/components/videos/ChannelHeader'
+import { ChannelTabBar } from '@/components/videos/ChannelTabBar'
 import { PlaylistCard, PlaylistListRow } from '@/components/youtube/shelves'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
@@ -97,8 +98,6 @@ export function YoutubeChannelPage() {
   const { data: subs = [] } = useYtSubs()
   const { data: downloads = [] } = useYtDownloads()
   const [busy, setBusy] = useState(false)
-  const [descOpen, setDescOpen] = useState(false)
-  const [bannerOk, setBannerOk] = useState(true)
   // "Save latest N now" — immediately downloads this channel's current back-catalogue to the
   // Offline library (distinct from auto-save, which only covers future uploads).
   const [saveKind, setSaveKind] = useState<'video' | 'audio'>('video')
@@ -164,9 +163,6 @@ export function YoutubeChannelPage() {
   const title = meta?.title || sub?.title || navState.title || channelId
   const thumb = meta?.thumbnailUrl ?? sub?.thumbnailUrl ?? navState.thumbnailUrl ?? null
   const bannerUrl = meta?.bannerUrl ?? null
-  // Give a freshly-resolved banner a clean chance to load (the component stays mounted across
-  // channel navigations, so a prior broken banner shouldn't suppress the next channel's).
-  useEffect(() => { setBannerOk(true) }, [bannerUrl])
   // Prefer the description that arrives with the videos query (channel metadata) over the
   // one from the slower about query; same text, but using it avoids a re-layout when about
   // resolves a beat later.
@@ -237,16 +233,12 @@ export function YoutubeChannelPage() {
   if (!online) {
     return (
       <PageContainer width="wide" className="py-6">
-        <div className="mb-6 flex items-start gap-4">
-          <ChannelAvatar title={title} src={thumb} className="size-20 shrink-0 text-3xl ring-1 ring-border/40 sm:size-24" />
-          <div className="min-w-0 flex-1">
-            {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}
-            <h1 className="truncate text-display">{title}</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {offlineVideos.length} {offlineVideos.length === 1 ? 'video' : 'videos'} saved offline
-            </p>
-          </div>
-        </div>
+        <ChannelHeader
+          title={title}
+          avatarUrl={thumb}
+          proxyImage={ytImageProxy}
+          metaLine={`${offlineVideos.length} ${offlineVideos.length === 1 ? 'video' : 'videos'} saved offline`}
+        />
         {offlineVideos.length === 0
           ? <EmptyTab label="offline videos" />
           : <div className={GRID}>{offlineVideos.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>}
@@ -263,42 +255,16 @@ export function YoutubeChannelPage() {
     <PageContainer width="wide" className="py-6">
       {unsubDialog}
 
-      {bannerUrl && bannerOk && (
-        <div className="mb-5 overflow-hidden rounded-card ring-1 ring-border/40">
-          <img src={ytImageProxy(bannerUrl)} alt="" referrerPolicy="no-referrer" className="aspect-[6/1] w-full object-cover" onError={() => setBannerOk(false)} />
-        </div>
-      )}
-
-      <div className="mb-6 flex items-start gap-4">
-        <ChannelAvatar title={title} src={thumb} className="size-20 shrink-0 text-3xl ring-1 ring-border/40 sm:size-24" />
-        <div className="min-w-0 flex-1">
-          {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}
-          <h1 className="truncate text-display">{title}</h1>
-          {metaLine && <p className="mt-0.5 text-sm text-muted-foreground">{metaLine}</p>}
-          {description && (
-            <div className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted-foreground/80">
-              <p className={cn('whitespace-pre-line', !descOpen && 'line-clamp-2')}>{description}</p>
-              {description.length > 120 && (
-                <button onClick={() => setDescOpen(o => !o)} className="mt-0.5 font-semibold text-foreground/70 hover:text-foreground">
-                  {descOpen ? 'Show less' : '…more'}
-                </button>
-              )}
-            </div>
-          )}
-          {/* Links come from the slower about query; reserve a row for them while it loads so
-              they fill in place instead of shoving the tabs + grid down when they arrive. */}
-          {(links.length > 0 || aboutQuery.isLoading) && (
-            <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1.5">
-              {links.map(l => (
-                <a key={l.url} href={l.url} target="_blank" rel="noreferrer noopener"
-                  className="flex items-center gap-1 text-xs font-medium text-[var(--yt-accent-fg)] hover:underline">
-                  <Link2 className="size-3.5" />{l.title}
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
+      <ChannelHeader
+        title={title}
+        avatarUrl={thumb}
+        bannerUrl={bannerUrl}
+        proxyImage={ytImageProxy}
+        metaLine={metaLine}
+        description={description}
+        links={links}
+        linksLoading={aboutQuery.isLoading}
+        actions={<>
           <PodcastSourceButtons
             videos={videoItems.map(v => ({ videoId: v.videoId, title: v.title, author: v.author ?? title }))}
             sourceId={`channel:${channelId}`} suggestedShowName={title} sourceDescription={description ?? undefined} coverImageUrl={thumb ?? undefined} />
@@ -394,22 +360,15 @@ export function YoutubeChannelPage() {
               subscribed ? 'bg-[var(--yt-accent)] text-white hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
             {busy ? <Spinner className="text-current" /> : subscribed ? <Check className="size-4" /> : <Plus className="size-4" />}
           </Button>
-        </div>
-      </div>
+        </>}
+      />
 
-      {/* Tab bar + card/list view toggle */}
-      <div className="mb-6 flex items-end justify-between gap-4 border-b border-border/60">
-        <div className="flex min-w-0 gap-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {visibleTabs.map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)}
-              className={cn('relative -mb-px shrink-0 border-b-2 px-1 pb-3 text-sm font-semibold transition-colors',
-                activeTab === key ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <ViewToggle value={view} onChange={setView} className="mb-2 shrink-0" />
-      </div>
+      <ChannelTabBar
+        tabs={visibleTabs}
+        active={activeTab}
+        onChange={setTab}
+        right={<ViewToggle value={view} onChange={setView} className="mb-2 shrink-0" />}
+      />
 
       {activeTab === 'videos' && (
         videos.isLoading ? <TabLoading />

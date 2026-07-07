@@ -11,10 +11,17 @@ export const AVATAR_COLORS = ['bg-red-500/20 text-red-400', 'bg-blue-500/20 text
  *  youtube's ChannelAvatar but routed through the SSRF-safe generic image proxy (/api/img)
  *  instead of YouTube's own (/api/youtube/img, which allows only Google CDNs): Reddit/TikTok/
  *  Vimeo avatars don't live on YouTube's CDN, so ytImageProxy silently drops them. */
-export function CreatorAvatar({ title, src, className }: { title: string; src?: string | null; className?: string }) {
+export function CreatorAvatar({ title, src, className, proxy = proxyImg }: {
+  title: string
+  src?: string | null
+  className?: string
+  /** Image proxy to route through. Defaults to the generic /api/img; YouTube surfaces pass
+   *  ytImageProxy so Google-CDN avatars use YouTube's own cache. */
+  proxy?: (url: string) => string
+}) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
   if (src && failedSrc !== src) {
-    return <img key={src} src={proxyImg(src)} alt={title} className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
+    return <img key={src} src={proxy(src)} alt={title} referrerPolicy="no-referrer" className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
   }
   let h = 0
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0

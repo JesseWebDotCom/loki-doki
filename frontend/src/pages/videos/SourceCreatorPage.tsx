@@ -2,20 +2,23 @@ import { useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Plus } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
+import { ChannelHeader } from '@/components/videos/ChannelHeader'
+import { ChannelTabBar } from '@/components/videos/ChannelTabBar'
+import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { toast } from '@/lib/toast'
-import { proxyImg } from '@/lib/img'
 import { addFollow, getSourceCreator, listFollows, removeFollow, type VideoSource } from '@/lib/videos/api'
-import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 
-/** Creator page for non-YouTube sources (subreddits, TikTok creators, Vimeo channels).
- *  YouTube channels keep their richer native page. */
+/** Creator page for non-YouTube sources (subreddits, TikTok creators, Vimeo channels),
+ *  rendered through the same ChannelHeader + ChannelTabBar template as the YouTube channel
+ *  page so every subscription page looks identical. */
 export function SourceCreatorPage({ source }: { source: VideoSource }) {
   const params = useParams<{ id: string }>()
   const id = params.id ?? ''
@@ -57,42 +60,39 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
     )
   }
 
+  const metaLine = [creator.subscriberText, creator.handle, creator.videoCount].filter(Boolean).join(' · ')
+  const following = !!follow
+
   return (
     <PageContainer width="wide" className="py-6">
-      {creator.bannerUrl && (
-        <div className="mb-5 h-32 w-full overflow-hidden rounded-card bg-muted sm:h-44">
-          <img src={proxyImg(creator.bannerUrl)} alt="" className="size-full object-cover" />
-        </div>
-      )}
-      <div className="mb-8 flex items-center gap-4">
-        {creator.avatarUrl && (
-          <img src={proxyImg(creator.avatarUrl)} alt="" className="size-16 rounded-full object-cover ring-1 ring-border/40" />
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xl font-bold">{creator.name}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {[creator.subscriberText, creator.handle].filter(Boolean).join(' · ')}
-          </p>
-          {creator.description && <p className="mt-1 line-clamp-2 max-w-2xl text-sm text-muted-foreground">{creator.description}</p>}
-        </div>
-        <Button
-          variant={follow ? 'secondary' : 'default'}
-          className="shrink-0 gap-1.5"
-          disabled={followMutation.isPending}
-          onClick={() => followMutation.mutate()}
-        >
-          {follow ? <Check className="size-4" /> : <Plus className="size-4" />}
-          {follow ? 'Following' : 'Follow'}
-        </Button>
-      </div>
+      <ChannelHeader
+        title={creator.name}
+        avatarUrl={creator.avatarUrl}
+        bannerUrl={creator.bannerUrl}
+        metaLine={metaLine}
+        description={creator.description}
+        actions={
+          <Button size="icon" onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
+            aria-label={following ? 'Following. Click to unfollow' : 'Follow'}
+            title={following ? 'Following. Click to unfollow' : 'Follow'}
+            className={cn('group size-10 disabled:opacity-60',
+              following ? 'bg-[var(--yt-accent)] text-white hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
+            {followMutation.isPending ? <Spinner className="text-current" /> : following ? <Check className="size-4" /> : <Plus className="size-4" />}
+          </Button>
+        }
+      />
+
+      <ChannelTabBar
+        tabs={[['videos', 'Videos']]}
+        active="videos"
+        onChange={() => {}}
+        right={<ViewToggle value={view} onChange={setView} className="mb-2 shrink-0" />}
+      />
 
       {items.length === 0 ? (
         <p className="py-20 text-center text-sm text-muted-foreground">No playable videos here right now.</p>
       ) : (
         <>
-          <div className="mb-4 flex justify-end">
-            <ViewToggle value={view} onChange={setView} className="shrink-0" />
-          </div>
           <HubVideoCollection items={items} view={view} showSource={false} />
           <InfiniteLoadMore
             hasNextPage={!!creatorQuery.hasNextPage}
