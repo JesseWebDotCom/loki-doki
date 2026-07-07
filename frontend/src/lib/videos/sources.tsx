@@ -32,6 +32,6 @@ export const SOURCE_META: Record<VideoSource, SourceMeta> = {
   // design-ok(hex-in-tsx): identity tile gradients for source page headers
   vimeo: { label: 'Vimeo', icon: Clapperboard, dotClass: 'bg-sky-500', badgeClass: 'bg-sky-600 text-white', pillActiveClass: 'bg-sky-600 text-white', gradient: 'linear-gradient(135deg,#0c4a6e,#0ea5e9)' },
   // design-ok(hex-in-tsx): identity tile gradient for the source page header
-  // Universal paste-any-URL source — a neutral slate identity, not a brand.
+  // Universal paste-any-URL source: a neutral slate identity, not a brand.
   link: { label: 'Other sites', icon: Globe, dotClass: 'bg-slate-500', badgeClass: 'bg-slate-700 text-white', pillActiveClass: 'bg-slate-700 text-white', gradient: 'linear-gradient(135deg,#334155,#64748b)' },
 }
