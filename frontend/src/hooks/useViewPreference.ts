@@ -20,7 +20,7 @@ export function useViewPreference(key: string, fallback: CardListView = 'grid') 
     if (loadedRef.current) return
     if (prefsQuery.data === undefined && !prefsQuery.isError) return // still loading
     const saved = (prefsQuery.data ?? {})[key]
-    if (saved === 'grid' || saved === 'list') setViewState(saved)
+    if (saved === 'grid' || saved === 'list' || saved === 'big') setViewState(saved)
     loadedRef.current = true
   }, [prefsQuery.data, prefsQuery.isError, key])
 

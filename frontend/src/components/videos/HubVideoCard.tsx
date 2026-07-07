@@ -42,7 +42,7 @@ function fmtAge(ms?: number | null): string | null {
 
 /** Card for non-YouTube hub items (YouTube items keep the richer VideoCard). Shows a
  *  source badge in mixed contexts; omit it inside a single source's own browse area. */
-export function HubVideoCard({ item, showSource = true }: { item: HubVideoItem; showSource?: boolean }) {
+export function HubVideoCard({ item, showSource = true, big = false }: { item: HubVideoItem; showSource?: boolean; big?: boolean }) {
   const dur = fmtDur(item.durationSec)
   const metaLine = [item.creator?.name, item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)]
     .filter(Boolean).join(' · ')
@@ -62,7 +62,9 @@ export function HubVideoCard({ item, showSource = true }: { item: HubVideoItem; 
     >
       <div className={cn(
         'relative w-full overflow-hidden rounded-card bg-muted',
-        item.vertical ? 'aspect-[9/16] max-h-72' : 'aspect-video',
+        // Vertical (TikTok) is 9:16; in Large view it fills the taller cell (no cap) for a
+        // TikTok-style feed, but stays capped in the regular grid so rows don't blow out.
+        item.vertical ? (big ? 'aspect-[9/16]' : 'aspect-[9/16] max-h-72') : 'aspect-video',
       )}>
         {item.thumbnailUrl ? (
           <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy"
@@ -87,8 +89,8 @@ export function HubVideoCard({ item, showSource = true }: { item: HubVideoItem; 
         )}
       </div>
       <div className="min-w-0">
-        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{item.title}</p>
-        {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
+        <p className={cn('font-semibold leading-snug text-foreground', big ? 'line-clamp-3 text-[15px]' : 'line-clamp-2 text-sm')}>{item.title}</p>
+        {metaLine && <p className={cn('mt-1 truncate text-muted-foreground', big ? 'text-[13px]' : 'text-xs')}>{metaLine}</p>}
       </div>
     </Link>
   )

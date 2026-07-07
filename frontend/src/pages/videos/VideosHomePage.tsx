@@ -1,20 +1,24 @@
 import { useMemo } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Play, Film, Plug } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Play, Film } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ChipRow } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
-import { VideoCard } from '@/components/youtube/VideoCard'
+import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
+import { YT_GRID, YT_BIG_GRID } from '@/components/youtube/VideoCollection'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { HubVideoCard } from '@/components/videos/HubVideoCard'
+import { HubVideoListRow } from '@/components/videos/HubVideoListRow'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { SourceChip } from '@/components/videos/SourceChip'
-import { getHistory, getSubscriptions } from '@/lib/youtube/api'
+import { getHistory } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
-import { getHubHome, getVideoSources, listFollows, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
+import { getHubHome, getVideoSources, type HubVideoItem, type VideoSource } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
 
@@ -45,6 +49,7 @@ export function VideosHomePage() {
 
 function HubLanding() {
   const { selected, toggle } = useSourceFilter()
+  const [view, setView] = useViewPreference('videos.home_view', 'grid')
 
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
   const sources = (sourcesData?.sources ?? []).filter((s) => s.enabled)
@@ -90,9 +95,8 @@ function HubLanding() {
             />
           ))}
         </ChipRow>
+        <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
-
-      <SourceNudges sources={sources} />
 
       <div className="space-y-10">
         {continueWatching.length > 0 ? (
@@ -105,16 +109,9 @@ function HubLanding() {
             <SkeletonCards count={12} className="xl:grid-cols-4" />
           ) : feedItems.length > 0 ? (
             <>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
-                {feedItems.map((it) => it.source === 'youtube' ? (
-                  <div key={`yt:${it.id}`} className="relative">
-                    <span className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${SOURCE_META.youtube.badgeClass}`}>
-                      <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
-                    </span>
-                    <VideoCard item={hubToYtItem(it)} />
-                  </div>
-                ) : (
-                  <HubVideoCard key={`${it.source}:${it.id}`} item={it} />
+              <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_BIG_GRID : YT_GRID}>
+                {feedItems.map((it) => (
+                  <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} />
                 ))}
               </div>
               <InfiniteLoadMore
@@ -132,34 +129,25 @@ function HubLanding() {
   )
 }
 
-/** Why a feed looks generic: connect nudges for key-gated sources, personalize nudges
- *  for sources that show popular content but get better with follows/subscriptions.
- *  Each chip disappears once its condition is met. */
-function SourceNudges({ sources }: { sources: SourceInfo[] }) {
-  const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
-  const { data: ytSubs = [] } = useQuery({ queryKey: ['yt-subs'], queryFn: getSubscriptions })
-  const nudges: Array<{ key: string; to: string; text: string }> = []
-  if (ytSubs.length === 0) {
-    nudges.push({ key: 'youtube', to: '/videos/settings/channels', text: 'Add YouTube channels or sign in to personalize your feed' })
+/** One mixed-feed card. YouTube items keep the richer VideoCard (with a source badge added,
+ *  since it has none of its own); other sources use HubVideoCard. Honors the big/grid/list
+ *  view so every card matches size regardless of source. */
+function FeedCard({ item, view }: { item: HubVideoItem; view: 'big' | 'grid' | 'list' }) {
+  const isYt = item.source === 'youtube'
+  if (view === 'list') {
+    return isYt ? <VideoListRow item={hubToYtItem(item)} /> : <HubVideoListRow item={item} />
   }
-  for (const s of sources) {
-    if (!s.status.configured) {
-      nudges.push({ key: s.source, to: `/videos/${s.source}`, text: `Connect ${s.label} to see its videos here` })
-    } else if (s.source === 'tiktok' && !(followsData?.follows ?? []).some((f) => f.source === 'tiktok')) {
-      nudges.push({ key: 'tiktok', to: '/videos/tiktok', text: 'Follow TikTok creators to personalize their feed' })
-    }
+  if (isYt) {
+    return (
+      <div className="relative">
+        <span className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${SOURCE_META.youtube.badgeClass}`}>
+          <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
+        </span>
+        <VideoCard item={hubToYtItem(item)} big={view === 'big'} />
+      </div>
+    )
   }
-  if (nudges.length === 0) return null
-  return (
-    <div className="mb-6 flex flex-wrap gap-2">
-      {nudges.map((n) => (
-        <Link key={n.key} to={n.to}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground">
-          <Plug className="size-3.5" /> {n.text}
-        </Link>
-      ))}
-    </div>
-  )
+  return <HubVideoCard item={item} big={view === 'big'} />
 }
 
 function EmptyFeed() {
