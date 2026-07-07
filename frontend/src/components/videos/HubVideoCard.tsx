@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { CloudOff, Film } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Check, CloudOff, Film, HardDriveDownload } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { Spinner } from '@/components/ui/spinner'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { toast } from '@/lib/toast'
-import { listSaves, type HubVideoItem } from '@/lib/videos/api'
+import { listSaves, saveVideo, type HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 
@@ -53,6 +54,13 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
   const mode = useYoutubeModeOptional()
   const offline = useOfflineSet()
   const ghosted = mode === 'offline' && !offline.has(`${item.source}:${item.id}`)
+  const saved = offline.has(`${item.source}:${item.id}`)
+  const qc = useQueryClient()
+  const saveMutation = useMutation({
+    mutationFn: () => saveVideo(item.source, item.id, 'video'),
+    onSuccess: () => { toast.success('Saving offline'); void qc.invalidateQueries({ queryKey: ['videos-saves'] }) },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not save'),
+  })
   // A landscape item forced into a tall card is letterboxed over a blurred fill of itself,
   // so it reads as a normal video and not a vertical short.
   const letterbox = shape === 'tall' && !item.vertical
@@ -126,6 +134,19 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
         )}
         {dur && (
           <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
+        )}
+        {!ghosted && (
+          // One-click Save to the Offline library (hover-revealed; stays visible once saved).
+          <button type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!saved && !saveMutation.isPending) saveMutation.mutate() }}
+            title={saved ? 'Saved offline' : 'Save offline'}
+            aria-label={saved ? 'Saved offline' : 'Save offline'}
+            className={cn('absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full text-white transition-all',
+              saved ? 'bg-[var(--yt-accent)] opacity-100'
+                : saveMutation.isPending ? 'bg-black/75 opacity-100'
+                : 'bg-black/75 opacity-0 hover:bg-black/90 group-hover:opacity-100')}>
+            {saveMutation.isPending ? <Spinner className="size-3.5 text-white" /> : saved ? <Check className="size-3.5" /> : <HardDriveDownload className="size-3.5" />}
+          </button>
         )}
       </div>
       <div className="flex gap-2.5">
