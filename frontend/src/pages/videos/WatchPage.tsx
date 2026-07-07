@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
@@ -104,19 +104,33 @@ function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, o
   return <button onClick={onClick} title={title ?? label} aria-label={label} className={cls}>{icon}</button>
 }
 
-/** Views + expandable description, the same Card style everywhere. */
+/** Views + expandable description, the same Card style everywhere. The toggle only shows when
+ *  the 3-line clamp is actually cutting text off — a short description that fits within 3
+ *  lines has nothing more to reveal. Measured via scrollHeight vs clientHeight (line-clamp
+ *  keeps the full text laid out, just visually hidden, so this reads accurately) rather than
+ *  a character-count guess, since description length alone doesn't determine wrapped line count. */
 function DescriptionCard({ views, description }: { views: string | null; description: string | null }) {
   const [expanded, setExpanded] = useState(false)
+  const [overflowing, setOverflowing] = useState(false)
+  const textRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const el = textRef.current
+    setOverflowing(!!el && el.scrollHeight > el.clientHeight + 1)
+  }, [description])
+
   if (!views && !description) return null
   return (
     <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
       {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
       {description && (
         <>
-          <div className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
-          <button onClick={() => setExpanded((e) => !e)} className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
-            {expanded ? 'Show less' : '…more'}
-          </button>
+          <div ref={textRef} className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-3')}>{description}</div>
+          {overflowing && (
+            <button onClick={() => setExpanded((e) => !e)} className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
+              {expanded ? 'Show less' : '…more'}
+            </button>
+          )}
         </>
       )}
     </Card>
@@ -866,6 +880,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     pb.dock([{
       videoId: id, source, title: data.item.title, author: data.item.creator?.name ?? null,
       thumbnail: data.item.thumbnailUrl ? proxyImg(data.item.thumbnailUrl) : undefined,
+      // Raw creator-avatar URL — the mini-bar's CreatorAvatar proxies it through /api/img.
+      channelThumb: data.item.creator?.avatarUrl ?? null,
       streamVideoUrl: vstreamUrl, durationSec: data.item.durationSec ?? null,
       expandTo: `/videos/${source}/watch/${id}`,
     }], 0, at)

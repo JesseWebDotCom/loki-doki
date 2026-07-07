@@ -15,7 +15,7 @@ import { fileUrl, proxyStreamUrl, saveWatchState, ytImageProxy } from '@/lib/you
 import { proxyImg } from '@/lib/img'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
 import { loadYTApi } from '@/lib/youtube/ytapi'
-import { ChannelAvatar } from '@/components/youtube/media'
+import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { SeekBar } from '@/components/shared/SeekBar'
 
 /**
@@ -415,7 +415,14 @@ export function YoutubeMiniBar() {
         <div className={cn(pipActive && 'hidden')}>
           {useIframe
             ? <div ref={hostRef} className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'overflow-hidden rounded-control bg-black shadow-lg')} style={posStyle} />
-            : <video ref={videoRef} playsInline className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'rounded-control bg-black object-cover shadow-lg')} style={posStyle} />}
+            : <video ref={videoRef} playsInline autoPlay
+                onCanPlay={() => setLoading(false)}
+                onPlaying={() => { setPlaying(true); setLoading(false) }}
+                onWaiting={() => setLoading(true)}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onError={() => setLoading(false)}
+                className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'rounded-control bg-black object-cover shadow-lg')} style={posStyle} />}
 
           <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
             title={expanded ? 'Drag to move • tap to shrink' : 'Pop out'}
@@ -478,7 +485,8 @@ export function YoutubeMiniBar() {
           <button onClick={goWatch} className="min-w-0 flex-1 text-left">
             <p className="truncate text-sm font-semibold">{track!.title}</p>
             <span className="mt-0.5 flex items-center gap-1.5">
-              {!isStream && <ChannelAvatar title={track!.author ?? ''} src={track!.channelThumb} className="size-4 shrink-0 text-[8px]" />}
+              {/* Hub creators' avatars aren't on Google's CDN — route them through /api/img, not ytImageProxy. */}
+              {!isStream && <CreatorAvatar title={track!.author ?? ''} src={track!.channelThumb} proxy={isHubVideo ? proxyImg : ytImageProxy} className="size-4 shrink-0 text-[8px]" />}
               {isStream && <StatusDot status="error" pulse />}
               <span className="truncate text-xs text-muted-foreground">{track!.author ?? (isStream ? 'Live Radio' : 'YouTube')}</span>
             </span>
