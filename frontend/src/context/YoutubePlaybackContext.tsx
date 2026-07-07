@@ -9,6 +9,12 @@ export interface YtMiniTrack {
   author: string | null
   channelThumb?: string | null
   localKind?: 'audio' | 'video'
+  /** Non-YouTube source (tiktok/vimeo/reddit/link). When set, the mini-player plays a real
+   *  <video> from `streamVideoUrl` and skips all YouTube-only watch-state/proxy plumbing. */
+  source?: string
+  /** Real-video URL for a hub track (e.g. /api/vstream/<source>/<id>) — makes the mini-player
+   *  a controllable <video> for sources that normally play through a cross-origin embed. */
+  streamVideoUrl?: string
   /** Live audio stream URL (radio, etc.) — skips the YouTube IFrame entirely. */
   streamUrl?: string
   /** Thumbnail override for non-YouTube content (e.g. station favicon). */

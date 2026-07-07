@@ -58,7 +58,10 @@ export function YoutubeMiniBar() {
 
   const track = pb.track
   const isStream = !!track?.streamUrl
-  const online = !!track && !track.localKind && !isStream
+  // A non-YouTube video docked from the hub watch page: plays as a real <video> off its
+  // streamVideoUrl (like the offline-file backend), so it's NOT the "online YouTube" iframe path.
+  const isHubVideo = !!track?.streamVideoUrl
+  const online = !!track && !track.localKind && !isStream && !isHubVideo
   const isLocalAudio = track?.localKind === 'audio'
   // Which backend is actually driving playback right now: the iframe embed, or a real
   // <video> (true offline file, or an online track swapped onto the proxy for PiP).
@@ -70,7 +73,10 @@ export function YoutubeMiniBar() {
     if (pb.expandRequest > 0 && online) setExpanded(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pb.expandRequest])
-  const hidden = !track || location.pathname.startsWith('/videos/youtube/watch') || location.pathname.startsWith('/videos/youtube/shorts') || location.pathname.startsWith('/music/watch')
+  const hidden = !track || location.pathname.startsWith('/videos/youtube/shorts') || location.pathname.startsWith('/music/watch')
+    // Hide on ANY source's watch page (…/videos/<source>/watch/…), so a docked video doesn't
+    // double-play against the full watch player when you navigate back to it.
+    || /^\/videos\/[^/]+\/watch\//.test(location.pathname)
 
   // ── Online: drive the YouTube IFrame embed ───────────────────────────────────
   useEffect(() => {
@@ -120,7 +126,9 @@ export function YoutubeMiniBar() {
     if (!track || useIframe || isStream) return
     const el = videoRef.current; if (!el) return
     setLoading(true)
-    const src = online
+    const src = isHubVideo
+      ? track.streamVideoUrl!
+      : online
       ? proxyStreamUrl(track.videoId, 'video')
       : fileUrl(track.videoId, track.localKind === 'audio' ? 'audio' : 'video')
     if (!el.src.endsWith(src)) el.src = src
@@ -128,7 +136,7 @@ export function YoutubeMiniBar() {
     // the proxy mid-watch resumes at wherever the iframe had actually gotten to.
     const startAt = online ? pipSwitchPos.current : pb.startSec
     const onMeta = () => { try { el.currentTime = startAt } catch { /* not seekable */ } }
-    const onEnd = () => { void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
+    const onEnd = () => { if (!isHubVideo) void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
     el.addEventListener('loadedmetadata', onMeta, { once: true })
     el.addEventListener('ended', onEnd)
     void el.play().then(() => {
@@ -165,7 +173,7 @@ export function YoutubeMiniBar() {
       pb.reportPosition(s.t); if (s.d) setDur(s.d)
       if (s.playing) setLoading(false)
       const now = Date.now()
-      if (s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.expandTo ? { origin: 'music' } : undefined) }
+      if (!isHubVideo && s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.expandTo ? { origin: 'music' } : undefined) }
     }, 500)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,7 +266,7 @@ export function YoutubeMiniBar() {
   }
 
   const onClose = () => {
-    if (!isStream) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.expandTo ? { origin: 'music' } : undefined) }
+    if (!isStream && !isHubVideo) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.expandTo ? { origin: 'music' } : undefined) }
     if (isStream) { audioStreamRef.current?.pause() }
     pb.close()
   }
@@ -294,8 +302,8 @@ export function YoutubeMiniBar() {
       void fetch('/api/pod/now-playing', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          source: 'youtube', sessionId: pb.sessionId.current, videoId: track.videoId, title: track.title, artist: track.author ?? null,
-          cover: track.thumbnail ?? (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg` : ''),
+          source: track.source ?? 'youtube', sessionId: pb.sessionId.current, videoId: track.videoId, title: track.title, artist: track.author ?? null,
+          cover: track.thumbnail ?? (track.source ? '' : track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg` : ''),
           positionSec: Math.round(s?.t ?? 0), durationSec: Math.round(s?.d ?? 0),
           playing: s?.playing ?? false,
         }),
@@ -311,13 +319,14 @@ export function YoutubeMiniBar() {
   // a true had-track→no-track transition (never on initial mount), so a fresh tab loading with
   // no track doesn't wipe out a video another tab is legitimately still playing.
   const hadTrack = useRef(false)
+  const lastSourceRef = useRef('youtube')
   useEffect(() => {
-    if (track) { hadTrack.current = true; return }
+    if (track) { hadTrack.current = true; lastSourceRef.current = track.source ?? 'youtube'; return }
     if (!hadTrack.current) return
     hadTrack.current = false
     void fetch('/api/pod/now-playing/clear', {
       method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: 'youtube', sessionId: pb.sessionId.current }),
+      body: JSON.stringify({ source: lastSourceRef.current, sessionId: pb.sessionId.current }),
     }).catch(() => {})
   }, [track])
 

@@ -790,6 +790,8 @@ function usePlaybackAttach(videoRef: React.RefObject<HTMLVideoElement | null>, p
 
 function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: string }) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
+  const pb = useYoutubePlayback()
   const videoRef = useRef<HTMLVideoElement>(null)
   // null = no explicit user selection yet; falls back to a capability-derived default so
   // a source without comments never briefly renders (or fetches) the Comments tab before
@@ -847,6 +849,27 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     if (v && document.pictureInPictureElement === v) { void document.exitPictureInPicture().catch(() => {}); return }
     if (hasNativeVideo && v) { void v.requestPictureInPicture?.().catch(() => {}); return }
     setPipStream(true)   // embed → swap to a streamed <video>, PiP fires on ready
+  }
+
+  // If we arrived here by expanding this same video from the mini-player, adopt it: clear the
+  // dock so the mini-bar doesn't re-appear (and re-play) when we navigate on.
+  useEffect(() => {
+    if (pb.track?.source === source && pb.track?.videoId === id) pb.clearDock()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Minimize to the app mini-player: dock a real <video> (via /api/vstream for embed sources,
+  // which the mini-bar can't play as an iframe) and step back to the source's home.
+  const minimize = () => {
+    if (!data?.item) return
+    const at = videoRef.current?.currentTime ?? 0
+    pb.dock([{
+      videoId: id, source, title: data.item.title, author: data.item.creator?.name ?? null,
+      thumbnail: data.item.thumbnailUrl ? proxyImg(data.item.thumbnailUrl) : undefined,
+      streamVideoUrl: vstreamUrl, durationSec: data.item.durationSec ?? null,
+      expandTo: `/videos/${source}/watch/${id}`,
+    }], 0, at)
+    navigate(`/videos/${source}`)
   }
 
   // Resume position + periodic watch-state sync (10s cadence + unmount flush).
@@ -989,12 +1012,14 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {/* Player options — grouped so the row reads as one control (mirrors YouTube) */}
-              {pipSupported && (
-                <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-1">
+              <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-1">
+                <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={minimize}
+                  title="Minimize: keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
+                {pipSupported && (
                   <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
                     title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
-                </div>
-              )}
+                )}
+              </div>
               {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
               <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
                 <SegBtn
