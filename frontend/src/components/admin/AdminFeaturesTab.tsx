@@ -19,8 +19,6 @@ import { proxyImg } from '@/lib/img'
 import { DownloadProgress } from '@/components/shared/DownloadProgress'
 import type { DownloadStatus } from '@/components/shared/DownloadProgress'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { AdminHomeAssistantSection } from '@/components/admin/AdminHomeAssistantSection'
-import { AdminYoutubeLimitsSection } from '@/components/admin/AdminYoutubeLimitsSection'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -860,6 +858,11 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
 // ── Tools section (categorized) ───────────────────────────────────────────────
 // Rendered under the Apps tab (Apps is the home for tools). Exported for that use.
 
+// These tools' config fields now live on their own app's settings page (colocation
+// convention); the "who can use this" permissions here stay the central place for that,
+// so the Config button stays available even though the field list itself is empty.
+const MOVED_CONFIG_TOOL_IDS = new Set(['youtube', 'homeAssistant', 'where-to-watch', 'localNews', 'localEvents', 'plex'])
+
 export function ToolsSection({ query, focusToolId }: { query: string; focusToolId?: string }) {
   const [tools, setTools]           = useState<ToolInfo[]>([])
   const [loading, setLoading]       = useState(true)
@@ -1000,8 +1003,10 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                     const meta = TOOL_ICONS[tool.id] ?? { icon: Wrench, chip: 'bg-muted text-muted-foreground' }
                     const ToolIcon = meta.icon
                     const isExpanded   = expandedId === tool.id
-                    const globalFields = (tool.configSchema ?? []).filter(f => f.scope === 'global' || f.scope === 'both')
-                    const hasConfig    = globalFields.length > 0
+                    const globalFields = MOVED_CONFIG_TOOL_IDS.has(tool.id)
+                      ? []
+                      : (tool.configSchema ?? []).filter(f => f.scope === 'global' || f.scope === 'both')
+                    const hasConfig    = globalFields.length > 0 || MOVED_CONFIG_TOOL_IDS.has(tool.id)
 
                     return (
                       <Card key={tool.id} variant="surface" className="border-border/60">
@@ -1026,7 +1031,7 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                               className={cn('shrink-0 gap-1.5',
                                 isExpanded ? 'border-brand/40 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand' : 'text-muted-foreground')}>
                               <Settings2 className="size-3" />
-                              {isExpanded ? 'Done' : 'Config'}
+                              {isExpanded ? 'Done' : globalFields.length > 0 ? 'Config' : 'Manage'}
                             </Button>
                           )}
                           <ToggleSwitch checked={tool.enabled} disabled={tool.core || saving.has(tool.id)} onChange={enabled => toggleTool(tool.id, enabled)} />
@@ -1110,11 +1115,10 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                                 </div>
                               </div>
                             )}
-                            {tool.id === 'homeAssistant' && (
-                              <AdminHomeAssistantSection users={users} />
-                            )}
-                            {tool.id === 'youtube' && (
-                              <AdminYoutubeLimitsSection />
+                            {MOVED_CONFIG_TOOL_IDS.has(tool.id) && (
+                              <p className="text-[11px] text-muted-foreground/60">
+                                Config for this app now lives on its own settings page.
+                              </p>
                             )}
                           </div>
                         )}
