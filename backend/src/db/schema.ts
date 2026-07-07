@@ -1445,7 +1445,7 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
 export const podcastEpisodeSources = sqliteTable('podcast_episode_sources', {
   id: text('id').primaryKey(),
   episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
-  sourceType: text('source_type', { enum: ['youtube', 'tvshow', 'movie'] }).notNull().default('youtube'),
+  sourceType: text('source_type', { enum: ['youtube', 'tvshow', 'movie', 'tiktok', 'vimeo', 'reddit', 'link'] }).notNull().default('youtube'),
   sourceId: text('source_id').notNull(),   // YouTube videoId, TVMaze episode id, or movie title
   title: text('title'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),

@@ -1136,7 +1136,9 @@ async function ensureDigestShow(userId: string): Promise<string> {
 youtubeRoute.post('/podcast', async (c) => {
   const user = c.get('user')
   const body = await c.req.json<{
-    videos?: { videoId: string; title?: string; author?: string }[]
+    // videoId is the source-native id; source + url let non-YouTube videos (TikTok/Vimeo/
+    // Reddit/link) resolve a transcript from their page URL. Omitted → treated as YouTube.
+    videos?: { videoId: string; title?: string; author?: string; source?: string; url?: string }[]
     subscriptionId?: string
     label?: string
     // Target show: an existing show id, or a name to create a new show. When neither
@@ -1215,10 +1217,12 @@ youtubeRoute.post('/podcast', async (c) => {
     const batch = Math.min(25, Math.max(1, Math.floor(body.limit ?? 5)))
     // Skip videos already made into episodes in this show, so repeated calls walk the
     // back-catalogue ("generate next batch") rather than repeating the newest ones.
+    // Dedup by sourceId within the show regardless of sourceType — native ids are unique
+    // per platform, so no cross-source collision, and this now covers non-YouTube episodes too.
     const doneRows = await db.select({ sourceId: podcastEpisodeSources.sourceId })
       .from(podcastEpisodeSources)
       .innerJoin(podcastEpisodes, eq(podcastEpisodeSources.episodeId, podcastEpisodes.id))
-      .where(and(eq(podcastEpisodes.showId, showId), eq(podcastEpisodeSources.sourceType, 'youtube')))
+      .where(eq(podcastEpisodes.showId, showId))
     const done = new Set(doneRows.map(r => r.sourceId))
     const candidates = videos.filter(v => !done.has(v.videoId))
     const targets = candidates.slice(0, batch)

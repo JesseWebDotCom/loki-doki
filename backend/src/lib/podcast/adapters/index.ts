@@ -3,9 +3,9 @@
 import { db } from '@/db'
 import { ytVideos, ytSubscriptions } from '@/db/schema'
 import { eq, inArray, desc } from 'drizzle-orm'
-import { getTranscriptText } from '@/lib/youtube/transcript'
+import { resolveVideoTranscript } from '@/lib/podcast/transcript'
 import { summarizeVideo } from '../videoBrief'
-import type { ShowSegment, SegmentContent } from '../types'
+import type { ShowSegment, SegmentContent, PodcastSourceType } from '../types'
 import { getFastModel } from '@/lib/models'
 import { ollamaChat } from '@/llm/ollama'
 import { wikipediaSearch } from '@/lib/wikipediaSearch'
@@ -104,7 +104,9 @@ async function buildEnrichmentBlock(
   return `\nBackground context (for hosts' informed commentary — weave this in naturally):\n${blocks.map(b => `- ${b}`).join('\n')}`
 }
 
-interface VideoRef { videoId: string; title?: string; author?: string }
+// `source` + `url` let non-YouTube videos (TikTok/Vimeo/Reddit/link) resolve a transcript
+// from their page URL; both are absent for plain YouTube refs (source defaults to youtube).
+interface VideoRef { videoId: string; title?: string; author?: string; source?: string; url?: string }
 
 async function youtubeAdapter(
   userId: string,
@@ -126,7 +128,7 @@ async function youtubeAdapter(
     for (const v of explicit) {
       const who = v.author ?? 'the creator'
       const heading = v.author ? `Video: "${v.title ?? v.videoId}" — created by ${v.author}` : `Video: "${v.title ?? v.videoId}"`
-      const transcript = await getTranscriptText(v.videoId, userId, userFirstName)
+      const transcript = await resolveVideoTranscript(v, userId, userFirstName)
       if (!transcript) {
         items.push(`${heading}\n(No transcript available — discuss based on the title.)`)
         continue
@@ -150,7 +152,7 @@ async function youtubeAdapter(
         items.push(`${heading}\nTranscript of ${who} speaking in the video (their words, NOT the hosts' — discuss it in the third person):\n${transcript.slice(0, perVideo)}`)
       }
     }
-    const sources = explicit.map(v => ({ type: 'youtube' as const, id: v.videoId, title: v.title }))
+    const sources = explicit.map(v => ({ type: (v.source ?? 'youtube') as PodcastSourceType, id: v.videoId, title: v.title }))
     return { label: 'YouTube', items, sources }
   }
 

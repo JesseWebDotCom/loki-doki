@@ -228,7 +228,7 @@ export interface CreateEpisodeOpts {
   showId: string
   userId: string
   firstName: string
-  video: { videoId: string; title?: string; author?: string }
+  video: { videoId: string; title?: string; author?: string; source?: string; url?: string }
   dateLabel: string
   createdAt: Date
   /** Custom episode title (single-video case); falls back to the video's own title. */
@@ -254,7 +254,7 @@ export async function createYoutubeEpisode(opts: CreateEpisodeOpts): Promise<voi
   await db.insert(podcastEpisodeSources).values({
     id: crypto.randomUUID(),
     episodeId,
-    sourceType: 'youtube',
+    sourceType: (opts.video.source ?? 'youtube') as 'youtube',
     sourceId: opts.video.videoId,
     title: opts.video.title ?? null,
     createdAt: opts.createdAt,

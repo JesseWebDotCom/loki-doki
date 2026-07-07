@@ -9,7 +9,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { userPath, resolveUserPath, toRelativePath } from '@/lib/storage/paths'
 import type { DownloadProgress } from '@/lib/download'
-import type { ShowConfig, PodcastGeneratePayload, ShowCast, EpisodeBeat, CastBrief } from './types'
+import type { ShowConfig, PodcastGeneratePayload, ShowCast, EpisodeBeat, CastBrief, PodcastSourceType } from './types'
 import { runAdapter } from './adapters/index'
 import { generateScript } from './script'
 import { generateEpisodeMeta } from './episodeMeta'
@@ -202,10 +202,10 @@ export async function runPodcastGenerateJob(
 
     // Record which source items (e.g. YouTube videos) fed this episode so the YouTube
     // watch page can show "featured in podcasts". Deduped across segments; best-effort.
-    const sources = new Map<string, { id: string; title?: string }>()
+    const sources = new Map<string, { id: string; title?: string; type: PodcastSourceType }>()
     for (const sc of segmentContents) {
       for (const s of sc.sources ?? []) {
-        if (s.id && !sources.has(s.id)) sources.set(s.id, { id: s.id, title: s.title })
+        if (s.id && !sources.has(s.id)) sources.set(s.id, { id: s.id, title: s.title, type: s.type })
       }
     }
     if (sources.size > 0) {
@@ -215,7 +215,7 @@ export async function runPodcastGenerateJob(
           [...sources.values()].map(s => ({
             id: crypto.randomUUID(),
             episodeId,
-            sourceType: 'youtube' as const,
+            sourceType: s.type,
             sourceId: s.id,
             title: s.title ?? null,
             createdAt: now,

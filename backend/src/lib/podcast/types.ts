@@ -105,9 +105,13 @@ export interface PodcastGeneratePayload {
 }
 
 // What each content adapter returns
+/** Origin of a podcast episode's source items (mirrors podcast_episode_sources.sourceType).
+ *  Any yt-dlp-transcribable video source can seed an episode, not just YouTube. */
+export type PodcastSourceType = 'youtube' | 'tiktok' | 'vimeo' | 'reddit' | 'link' | 'tvshow' | 'movie'
+
 export interface SegmentContent {
   label: string
   items: string[]    // plaintext bullet lines
-  /** Source items used (e.g. YouTube videos), persisted for reverse "featured in podcasts" links. */
-  sources?: { type: 'youtube'; id: string; title?: string }[]
+  /** Source items used (e.g. YouTube/TikTok/Vimeo videos), persisted for reverse "featured in podcasts" links. */
+  sources?: { type: PodcastSourceType; id: string; title?: string }[]
 }
