@@ -3,8 +3,7 @@ import { SectionHeader } from '@/components/shared/SectionHeader'
 import { HScroll } from '@/components/youtube/shelves'
 import type { CardListView } from '@/components/shared/ViewToggle'
 import type { HubVideoItem } from '@/lib/videos/api'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
-import { HubVideoListRow } from '@/components/videos/HubVideoListRow'
+import { HubCard, HubRow } from '@/components/videos/HubCard'
 
 /** A titled shelf of hub items: the source-agnostic counterpart to youtube's MediaShelf.
  *  Horizontal card rail by default; renders as a vertical list when `view === 'list'` so a
@@ -25,13 +24,13 @@ export function HubMediaShelf({ title, to, items, view = 'grid', showSource }: {
       <SectionHeader title={title} to={to} className="mb-4" />
       {view === 'list' ? (
         <div className="space-y-1">
-          {items.map((i) => <HubVideoListRow key={`${i.source}:${i.id}`} item={i} showSource={showSource} />)}
+          {items.map((i) => <HubRow key={`${i.source}:${i.id}`} item={i} showSource={showSource} />)}
         </div>
       ) : (
         <HScroll>
           {items.map((i) => (
             <div key={`${i.source}:${i.id}`} className={cn('shrink-0', tall ? 'w-44' : 'w-72')}>
-              <HubVideoCard item={i} showSource={showSource} shape={shape} />
+              <HubCard item={i} showSource={showSource} shape={shape} />
             </div>
           ))}
         </HScroll>

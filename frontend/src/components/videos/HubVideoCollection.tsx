@@ -2,8 +2,7 @@ import { Fragment } from 'react'
 import { cn } from '@/lib/cn'
 import type { CardListView } from '@/components/shared/ViewToggle'
 import type { HubVideoItem } from '@/lib/videos/api'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
-import { HubVideoListRow } from '@/components/videos/HubVideoListRow'
+import { HubCard, HubRow } from '@/components/videos/HubCard'
 
 // Same grid metrics as YT_GRID/YT_SHORTS_GRID (components/youtube/VideoCollection.tsx)
 // so every source page's grid measures identically to YouTube's.
@@ -30,7 +29,7 @@ export function HubVideoCollection({ items, view, showSource, className }: {
     <div className={cn(gridClass, className)}>
       {items.map((i) => (
         <Fragment key={keyOf(i)}>
-          {isList ? <HubVideoListRow item={i} showSource={showSource} /> : <HubVideoCard item={i} showSource={showSource} shape={shape} />}
+          {isList ? <HubRow item={i} showSource={showSource} /> : <HubCard item={i} showSource={showSource} shape={shape} />}
         </Fragment>
       ))}
     </div>

@@ -9,34 +9,16 @@ import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
 import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
-import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
 import { YT_GRID, YT_SHORTS_GRID } from '@/components/youtube/VideoCollection'
 import { SearchResults } from '@/components/youtube/SearchResults'
-import { HubVideoCard } from '@/components/videos/HubVideoCard'
-import { HubVideoListRow } from '@/components/videos/HubVideoListRow'
+import { HubCard, HubRow } from '@/components/videos/HubCard'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { MixedDiscovery } from '@/components/videos/SourceDiscovery'
 import { SourceChip } from '@/components/videos/SourceChip'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem, type VideoItem } from '@/lib/youtube/types'
 import { getHubHome, getVideoSources, type HubVideoItem, type VideoSource } from '@/lib/videos/api'
-import { SOURCE_META } from '@/lib/videos/sources'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
-
-/** Hub items from the YouTube source render through the existing card system. Items
- *  from other sources get their own cards when those providers land (Phase 3+). */
-function hubToYtItem(it: HubVideoItem): VideoItem {
-  return {
-    videoId: it.id,
-    title: it.title,
-    author: it.creator?.name ?? null,
-    channelId: it.creator?.id ?? null,
-    channelThumb: it.creator?.avatarUrl ?? null,
-    durationSec: it.durationSec ?? null,
-    ageLabel: it.publishedText ?? undefined,
-    views: it.viewsText ?? null,
-  }
-}
 
 // The Videos hub landing: source pills filter a mixed feed interleaved across every
 // enabled provider. Doubles as search results when a `?q=` is present (search box
@@ -133,26 +115,11 @@ function HubLanding() {
   )
 }
 
-/** One mixed-feed card. YouTube items keep the richer VideoCard (with a source badge added,
- *  since it has none of its own); other sources use HubVideoCard. Honors the big/grid/list
- *  view so every card matches size regardless of source. */
+/** One mixed-feed card: HubCard renders YouTube items as the richer VideoCard (hover
+ *  preview, save, progress) and every other source as HubVideoCard, all one size via `view`. */
 function FeedCard({ item, view }: { item: HubVideoItem; view: 'big' | 'grid' | 'list' }) {
-  const isYt = item.source === 'youtube'
-  if (view === 'list') {
-    return isYt ? <VideoListRow item={hubToYtItem(item)} /> : <HubVideoListRow item={item} />
-  }
-  const shape = view === 'big' ? 'tall' : 'wide'
-  if (isYt) {
-    return (
-      <div className="relative">
-        <span className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${SOURCE_META.youtube.badgeClass}`}>
-          <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
-        </span>
-        <VideoCard item={hubToYtItem(item)} shape={shape} />
-      </div>
-    )
-  }
-  return <HubVideoCard item={item} shape={shape} />
+  if (view === 'list') return <HubRow item={item} />
+  return <HubCard item={item} shape={view === 'big' ? 'tall' : 'wide'} />
 }
 
 function EmptyFeed() {

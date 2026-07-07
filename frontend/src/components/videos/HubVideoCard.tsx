@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CloudOff, Film } from 'lucide-react'
@@ -55,10 +56,23 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
   // so it reads as a normal video and not a vertical short.
   const letterbox = shape === 'tall' && !item.vertical
 
+  // Hover-to-preview: Vimeo ships a muted, autoplay, looped "background" player that's built
+  // for exactly this; other sources have no such lightweight muted preview (TikTok's embed
+  // can't be muted cross-origin; Reddit needs its HLS stream), so they skip it for now.
+  const previewUrl = !ghosted && item.source === 'vimeo'
+    ? `https://player.vimeo.com/video/${encodeURIComponent(item.id)}?background=1&autoplay=1`
+    : null
+  const [previewing, setPreviewing] = useState(false)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const startPreview = () => { if (previewUrl) hoverTimer.current = setTimeout(() => setPreviewing(true), 450) }
+  const stopPreview = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); setPreviewing(false) }
+
   return (
     <Link
       to={HUB_PATHS[item.source].watch(item.id)}
       className={cn('group flex flex-col gap-2.5', ghosted && 'opacity-45 saturate-50')}
+      onMouseEnter={startPreview}
+      onMouseLeave={stopPreview}
       onClick={(e) => {
         if (ghosted) { e.preventDefault(); toast.info('Online only. Switch to Online or save it offline first.') }
       }}
@@ -92,6 +106,11 @@ export function HubVideoCard({ item, showSource = true, shape }: { item: HubVide
           <div className="flex size-full items-center justify-center">
             <Film className="size-8 text-muted-foreground/50" />
           </div>
+        )}
+        {previewUrl && previewing && (
+          // pointer-events-none so a click still falls through to the card's watch link.
+          <iframe src={previewUrl} title="" allow="autoplay" loading="lazy"
+            className="pointer-events-none absolute inset-0 size-full border-0" />
         )}
         {ghosted && (
           <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">

@@ -52,13 +52,15 @@ export function SourceDiscovery({ source, discovery, view = 'grid' }: {
   return <>{discovery.map((feed) => <DiscoveryShelf key={feed} source={source} feed={feed} view={view} />)}</>
 }
 
-/** One ranking (Popular or Trending) mixed across sources into a single shelf, round-robin
- *  ordered so it reads as one unified surface (the uniform card size makes this clean). */
-function MixedShelf({ sources, feed, view }: { sources: VideoSource[]; feed: 'popular' | 'trending'; view: CardListView }) {
+interface Target { source: VideoSource; feed: 'popular' | 'trending' }
+
+/** One mixed shelf: each source fetched with its assigned feed, then interleaved round-robin
+ *  so it reads as one unified surface (the uniform card size makes this clean). */
+function MixedShelf({ targets, title, view }: { targets: Target[]; title: string; view: CardListView }) {
   const results = useQueries({
-    queries: sources.map((s) => ({
-      queryKey: ['videos-discover', s, feed],
-      queryFn: () => browseSource(s, { feed }),
+    queries: targets.map((t) => ({
+      queryKey: ['videos-discover', t.source, t.feed],
+      queryFn: () => browseSource(t.source, { feed: t.feed }),
       staleTime: 10 * 60_000,
     })),
   })
@@ -70,18 +72,24 @@ function MixedShelf({ sources, feed, view }: { sources: VideoSource[]; feed: 'po
     [dataKey],
   )
   if (!items.length) return null
-  return <HubMediaShelf title={FEED_LABEL[feed]} items={items} view={view} showSource />
+  return <HubMediaShelf title={title} items={items} view={view} showSource />
 }
 
-/** The hub home's two mixed discovery sections: Popular (every source that has one) and
- *  Trending (only sources that expose a trending ranking — YouTube, Reddit). */
+/** The hub home's two mixed discovery sections. Popular mixes every source's popular feed.
+ *  Trending mixes ALL sources too, using each source's real trending feed where it has one
+ *  (YouTube, Reddit) and its popular feed where it doesn't (TikTok/Vimeo expose no trending),
+ *  so Trending is never a single-source shelf. */
 export function MixedDiscovery({ sources, view = 'grid' }: { sources: SourceInfo[]; view?: CardListView }) {
-  const popular = sources.filter((s) => s.discovery.includes('popular')).map((s) => s.source)
-  const trending = sources.filter((s) => s.discovery.includes('trending')).map((s) => s.source)
+  const withDiscovery = sources.filter((s) => s.discovery.length > 0)
+  const popular: Target[] = withDiscovery
+    .filter((s) => s.discovery.includes('popular'))
+    .map((s) => ({ source: s.source, feed: 'popular' }))
+  const trending: Target[] = withDiscovery
+    .map((s) => ({ source: s.source, feed: s.discovery.includes('trending') ? 'trending' : 'popular' }))
   return (
     <>
-      {popular.length > 0 && <MixedShelf sources={popular} feed="popular" view={view} />}
-      {trending.length > 0 && <MixedShelf sources={trending} feed="trending" view={view} />}
+      {popular.length > 0 && <MixedShelf targets={popular} title="Popular" view={view} />}
+      {trending.length > 0 && <MixedShelf targets={trending} title="Trending" view={view} />}
     </>
   )
 }
