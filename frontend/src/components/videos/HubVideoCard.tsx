@@ -5,7 +5,7 @@ import { Check, CloudOff, Film, HardDriveDownload } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { Spinner } from '@/components/ui/spinner'
-import { ChannelAvatar } from '@/components/youtube/media'
+import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { toast } from '@/lib/toast'
 import { listSaves, saveVideo, type HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -167,7 +167,7 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
       </div>
       <div className="flex gap-2.5">
         {item.creator?.avatarUrl && (
-          <ChannelAvatar title={item.creator.name} src={item.creator.avatarUrl}
+          <CreatorAvatar title={item.creator.name} src={item.creator.avatarUrl}
             className={cn('mt-0.5 size-8 shrink-0 text-[10px] ring-1 ring-border/40', ghosted && 'grayscale')} />
         )}
         <div className="min-w-0 flex-1">
