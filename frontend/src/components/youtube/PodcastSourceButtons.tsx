@@ -8,11 +8,14 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import { ytImageProxy } from '@/lib/youtube/api'
+import { proxyImg } from '@/lib/img'
 import { getShows } from '@/lib/podcast/api'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { ShowEditorDialog } from '@/components/podcast/ShowEditorDialog'
 
-export interface PodcastSourceVideo { videoId: string; title?: string; author?: string }
+// `source` + `url` let non-YouTube videos (TikTok/Vimeo/…) resolve a transcript server-side;
+// omitted for plain YouTube refs.
+export interface PodcastSourceVideo { videoId: string; title?: string; author?: string; source?: string; url?: string }
 
 /**
  * A "Podcast" dropdown for a YouTube source (channel or playlist): create a new podcast
@@ -76,7 +79,9 @@ export function PodcastSourceButtons({ videos, sourceId, suggestedShowName, sour
       <ShowEditorDialog open={open} onClose={() => setOpen(false)}
         youtube={{
           videos, sourceRef: sourceId,
-          coverImageUrl: coverImageUrl ? ytImageProxy(coverImageUrl) : undefined,
+          // Cover art proxied through the source's own image proxy — hub avatars (TikTok/Vimeo)
+          // aren't on Google's CDN, so ytImageProxy would drop them.
+          coverImageUrl: coverImageUrl ? ((videos[0]?.source ?? 'youtube') === 'youtube' ? ytImageProxy(coverImageUrl) : proxyImg(coverImageUrl)) : undefined,
           sourceName: suggestedShowName, sourceDescription,
         }}
         presetName={suggestedShowName ? `${suggestedShowName} Podcast` : undefined} />

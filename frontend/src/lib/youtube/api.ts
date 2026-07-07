@@ -707,7 +707,7 @@ export const ytImageProxy = (url: string) => `/api/youtube/img?u=${encodeURIComp
  * existing show, pass `newShowName` to create one, or neither to use "YouTube Digest".
  */
 export async function createPodcast(
-  videos: { videoId: string; title?: string; author?: string }[],
+  videos: { videoId: string; title?: string; author?: string; source?: string; url?: string }[],
   options?: { label?: string; showId?: string; newShowName?: string; limit?: number; sourceRef?: string },
 ): Promise<{ ok?: boolean; showId?: string; episodeCount?: number; remaining?: number; error?: string }> {
   const r = await fetch('/api/youtube/podcast', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videos, ...options }) })

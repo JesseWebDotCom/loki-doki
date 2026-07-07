@@ -25,7 +25,7 @@ import { getBatchSize, setBatchSize, MAX_BATCH } from '@/lib/youtube/podcast'
 
 /** Optional YouTube source: tag the new show + generate a first batch of episodes. */
 export interface YoutubeShowSource {
-  videos: { videoId: string; title?: string; author?: string }[]
+  videos: { videoId: string; title?: string; author?: string; source?: string; url?: string }[]
   sourceRef: string
   /** Source photo (channel avatar / thumbnail), already proxied — used in ~half the covers. */
   coverImageUrl?: string
