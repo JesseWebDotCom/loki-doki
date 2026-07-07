@@ -67,14 +67,19 @@ function useCardSave(item: Pick<VideoItem, 'videoId' | 'localKind'>, title: stri
   return { saveState, onSave }
 }
 
-function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null; saveState?: 'saved' | 'saving' | null; onSave?: (e: MouseEvent) => void }) {
+function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, onSave }: { i: VideoItem; aspect: 'video' | 'short'; shape?: 'wide' | 'tall'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null; saveState?: 'saved' | 'saving' | null; onSave?: (e: MouseEvent) => void }) {
   const dur = fmtDur(i.durationSec)
   const progress = watchProgress(i)
   // Fades in once the preview clip is actually decoding a frame, rather than the instant
   // its <video> mounts, so there's no flash of a black/blank box while it buffers.
   const [previewReady, setPreviewReady] = useState(false)
-  return (
-    <div className={cn('relative overflow-hidden rounded-card bg-muted', aspect === 'short' ? 'aspect-[9/16]' : 'aspect-video')}>
+  // The uniform toggle forces the card shape; `aspect` still marks true Shorts (9:16 content).
+  const cardTall = shape === 'tall' || (shape === undefined && aspect === 'short')
+  // A regular (landscape) video shown in a tall card is letterboxed over a blurred fill of
+  // itself, so it reads clearly as a normal video and NOT a Short.
+  const letterbox = cardTall && aspect !== 'short'
+  const media = (
+    <>
       <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
       {previewSrc && !ghosted && (
         <video
@@ -84,6 +89,19 @@ function Thumb({ i, aspect, ghosted, overrideSrc, previewSrc, saveState, onSave 
           onError={() => setPreviewReady(false)}
         />
       )}
+    </>
+  )
+  return (
+    <div className={cn('relative overflow-hidden rounded-card bg-muted', cardTall ? 'aspect-[9/16]' : 'aspect-video')}>
+      {letterbox ? (
+        <>
+          <VideoThumb videoId={i.videoId} title="" overrideSrc={overrideSrc} className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
+          <div className="pointer-events-none absolute inset-0 bg-black/20" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="relative aspect-video w-full overflow-hidden">{media}</div>
+          </div>
+        </>
+      ) : media}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       {i.watch?.completed && (
         <div className="pointer-events-none absolute inset-0 bg-black/40" />
@@ -163,12 +181,9 @@ export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; 
   // Online shorts open in the vertical Shorts feed; everything else (and offline
   // shorts, which need local playback) goes to the standard watch page.
   const to = aspect === 'short' && !item.localKind ? `/videos/youtube/shorts/${item.videoId}` : watchHref(item)
-  // `shape` (from the uniform view toggle) forces the visual aspect for ALL items; `aspect`
-  // still drives shorts routing above, so a normal video shown tall doesn't route to Shorts.
-  const thumbAspect = shape === 'tall' ? 'short' : shape === 'wide' ? 'video' : aspect
   const body = (
     <>
-      <Thumb i={item} aspect={thumbAspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
+      <Thumb i={item} aspect={aspect} shape={shape} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
       <div className="flex gap-2.5">
         {item.author && (
           <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('mt-0.5 size-8 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />

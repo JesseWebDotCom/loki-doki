@@ -32,7 +32,9 @@ export function HubVideoListRow({ item, showSource = true }: { item: HubVideoIte
         if (ghosted) { e.preventDefault(); toast.info('Online only. Switch to Online or save it offline first.') }
       }}
     >
-      <div className={cn('relative shrink-0 overflow-hidden rounded-card bg-muted', item.vertical ? 'w-24 aspect-[9/16] sm:w-28' : 'w-40 aspect-video sm:w-56')}>
+      {/* List rows are always small horizontal (16:9) cards, uniform across sources — a
+          vertical item's thumbnail simply crops to fit (matches youtube's VideoListRow). */}
+      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card bg-muted sm:w-56">
         {item.thumbnailUrl ? (
           <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy" className="size-full object-cover transition group-hover:scale-105" />
         ) : (

@@ -44,6 +44,11 @@ export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid' }
   view?: CardListView
 }) {
   if (!items.length) return null
+  // The toggle drives the rail's card shape too, so a shelf matches the grid below it: a
+  // dedicated Shorts shelf stays tall; otherwise Tall = 9:16 cells, Wide = 16:9 cells.
+  const shorts = aspect === 'short'
+  const tall = shorts || view === 'big'
+  const shape: 'wide' | 'tall' | undefined = shorts ? undefined : view === 'big' ? 'tall' : 'wide'
   return (
     <section>
       <SectionHeader title={title} to={to} className="mb-4" />
@@ -54,8 +59,8 @@ export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid' }
       ) : (
         <HScroll>
           {items.map(i => (
-            <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', aspect === 'short' ? 'w-44' : 'w-72')}>
-              <VideoCard item={i} aspect={aspect} />
+            <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', tall ? 'w-44' : 'w-72')}>
+              <VideoCard item={i} aspect={aspect} shape={shape} />
             </div>
           ))}
         </HScroll>

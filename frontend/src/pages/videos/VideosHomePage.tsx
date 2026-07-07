@@ -100,7 +100,7 @@ function HubLanding() {
 
       <div className="space-y-10">
         {continueWatching.length > 0 ? (
-          <MediaShelf title="Continue watching" items={continueWatching} view="grid" />
+          <MediaShelf title="Continue watching" items={continueWatching} view={view} />
         ) : historyLoading ? <ShelfSkeleton /> : null}
 
         <section>
