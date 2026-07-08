@@ -51,6 +51,38 @@ function Ensure-Bun {
   }
 }
 
+# ── Dependency bootstrap ──────────────────────────────────────────────────────
+# Install/refresh a workspace's dependencies when node_modules is missing OR the
+# lockfile/package.json has changed since the last successful install (e.g. a
+# `git pull` added a dependency). Gating only on "node_modules exists" is not
+# enough: after pulling a commit that adds a package, the stale node_modules is
+# missing it and the app fails at runtime with no obvious cause (observed: Vite
+# could not resolve `hls.js` after it was added to package.json but the machine's
+# node_modules predated it). A successful install stamps a marker we compare write
+# times against; `bun install` is a fast no-op when everything is already satisfied.
+function Ensure-Deps([string]$Dir) {
+  if (-not (Test-Path (Join-Path $Dir 'package.json'))) { return }
+  $stamp = Join-Path $Dir 'node_modules\.loki-install-stamp'
+  $needs = $false
+  if (-not (Test-Path (Join-Path $Dir 'node_modules'))) { $needs = $true }
+  elseif (-not (Test-Path $stamp)) { $needs = $true }
+  else {
+    $stampTime = (Get-Item $stamp).LastWriteTimeUtc
+    foreach ($f in @('bun.lock', 'package.json')) {
+      $p = Join-Path $Dir $f
+      if ((Test-Path $p) -and (Get-Item $p).LastWriteTimeUtc -gt $stampTime) { $needs = $true }
+    }
+  }
+  if ($needs) {
+    Write-Host "Installing/refreshing dependencies in $(Split-Path $Dir -Leaf)..."
+    Push-Location $Dir
+    bun install
+    $ok = ($LASTEXITCODE -eq 0)
+    Pop-Location
+    if ($ok) { New-Item -ItemType File -Path $stamp -Force | Out-Null }
+  }
+}
+
 # ── Teardown helpers ──────────────────────────────────────────────────────────
 function Stop-Port([int]$Port) {
   try {
@@ -134,17 +166,13 @@ try {
 
   Write-Host 'Starting backend...'
   $backendDir = Join-Path $Root 'backend'
-  if (-not (Test-Path (Join-Path $backendDir 'node_modules'))) {
-    Push-Location $backendDir; bun install; Pop-Location
-  }
+  Ensure-Deps $backendDir
   $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
     -WorkingDirectory $backendDir -NoNewWindow -PassThru
 
   Write-Host 'Starting frontend...'
   $frontendDir = Join-Path $Root 'frontend'
-  if (-not (Test-Path (Join-Path $frontendDir 'node_modules'))) {
-    Push-Location $frontendDir; bun install; Pop-Location
-  }
+  Ensure-Deps $frontendDir
   $frontend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
     -WorkingDirectory $frontendDir -NoNewWindow -PassThru
 

@@ -36,6 +36,25 @@ kill_port() {
   lsof -ti ":$1" | xargs kill -9 2>/dev/null || true
 }
 
+# Install/refresh a workspace's dependencies when node_modules is missing OR the
+# lockfile/package.json has changed since the last successful install (e.g. a
+# `git pull` added a dependency). Gating only on "node_modules exists" is not
+# enough: after pulling a commit that adds a package, the stale node_modules is
+# missing it and the app fails at runtime with no obvious cause (observed: Vite
+# could not resolve `hls.js` after it was added to package.json but the machine's
+# node_modules predated it). A successful install stamps a marker we compare mtimes
+# against; `bun install` is a fast no-op when everything is already satisfied.
+ensure_deps() {
+  dir="$1"
+  [ -f "$dir/package.json" ] || return 0
+  stamp="$dir/node_modules/.loki-install-stamp"
+  if [ ! -d "$dir/node_modules" ] || [ ! -f "$stamp" ] \
+     || [ "$dir/bun.lock" -nt "$stamp" ] || [ "$dir/package.json" -nt "$stamp" ]; then
+    echo "Installing/refreshing dependencies in $(basename "$dir")..."
+    (cd "$dir" && bun install) && touch "$stamp"
+  fi
+}
+
 # Completely stop any previous instance before starting. Killing the dev servers
 # (or their ports) is NOT enough: the backend spawns detached sidecars (ComfyUI,
 # voice server, kiwix, GraphHopper, the Wyoming pod gateway) that outlive it and
@@ -94,14 +113,14 @@ trap cleanup EXIT
 stop_existing
 
 echo "Starting backend..."
+ensure_deps "$ROOT/backend"
 cd "$ROOT/backend"
-[ ! -d node_modules ] && bun install
 bun run dev &
 BACKEND_PID=$!
 
 echo "Starting frontend..."
+ensure_deps "$ROOT/frontend"
 cd "$ROOT/frontend"
-[ ! -d node_modules ] && bun install
 bun run dev &
 FRONTEND_PID=$!
 
