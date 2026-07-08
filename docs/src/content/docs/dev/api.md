@@ -87,7 +87,9 @@ See [Boot & Feature System](../boot-features/) for the SSE event shapes.
 | Home inventory | (see `home-inventory` routes) | `home.ts` | Device tracker, service log, warranties |
 | Home layout | `/api/home-layout` | `homeLayout.ts` | Per-user home widget layout |
 | Home Assistant | `/api/home-assistant` | `homeAssistant.ts` | Smart-home control via HA Assist |
-| YouTube | `/api/youtube` | `youtube.ts` | InnerTube search/browse, stream proxy, collections |
+| Videos (hub) | `/api/videos` | `videos.ts` | Source-parameterized browse/search/creators/saves over the provider registry (Reddit/TikTok/Vimeo/link) |
+| Videos (YouTube source) | `/api/youtube` | `youtube.ts` | InnerTube search/browse, stream proxy, collections |
+| Videos (stream cache) | `/api/vstream` | `videoStream.ts` | On-demand real-file streaming for PiP/mini-player |
 | Podcasts | `/api/podcasts` | `podcasts.ts` | Show/episode generation + reverse-link |
 | Shows | `/api/shows` | `shows.ts` | TV discovery, watchlist, progress, Plex badge |
 | Movies | `/api/movies` | `movies.ts` | Film discovery, watchlist, Plex badge |

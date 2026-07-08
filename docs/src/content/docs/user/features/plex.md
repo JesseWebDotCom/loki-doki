@@ -21,17 +21,19 @@ An admin connects the shared Plex server once, in **Admin → Plex**: sign in wi
 
 After that, each household member links their **own** Plex account in **Settings → Plex**. This keeps watchlists and watched status personal to each person rather than shared across the household, the same way they work in Plex itself.
 
-## Syncing your YouTube saves into Plex
+## Syncing your video saves into Plex
 
-Loki Doki can give each person their own private "YouTube" library in Plex, built from what they've downloaded. It takes a few one-time steps in **Admin → Plex**:
+Loki Doki can give each person their own **private Plex libraries of their saved videos — one per source**: YouTube, TikTok, Vimeo, Reddit, and their own creations from the [Videos](../videos/) app. It takes a few one-time steps in **Admin → Plex**:
 
 1. **Connect Plex** — sign in with Plex or enter the server URL/token, as above.
 2. **Link your account** — each person links their own Plex account in **Settings → Plex**.
-3. **Add a storage location** — under "YouTube library storage," add the folder Plex can also see (a network share works best), and test access.
+3. **Add a storage location** — add the folder Plex can also see (a network share works best), and test access.
 4. **Map it to Plex's path** — enter how *Plex itself* sees that same folder (its path may differ from how Loki Doki sees it, e.g. mounted under a different drive letter or share name).
-5. **Sync the library** — once the storage location and mapping are set, click **Provision YouTube library** next to a linked user to create and populate their library in Plex.
+5. **Provision libraries** — once the storage location and mapping are set, provision a library per source next to a linked user to create and populate it in Plex.
 
-Once provisioned, new YouTube downloads for that person keep showing up in their Plex library automatically.
+Once provisioned, new saves for that person keep showing up in their Plex libraries automatically — with sponsor segments already cut out of YouTube exports.
+
+Each person then tunes their own libraries in **Videos → Settings → Plex sync**: keep everything, keep only the most recent videos per creator, or automatically delete a download from Plex once it's been fully watched — just like Plex's own downloads. Sources whose storage an admin hasn't set up yet appear there too, with a note saying exactly what's missing.
 
 ## Your privacy
 

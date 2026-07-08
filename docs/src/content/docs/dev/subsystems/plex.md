@@ -19,16 +19,18 @@ Engine lives in `backend/src/lib/plex/`. Exposed at `/api/plex` (`backend/src/ro
 
 Each user links their own Plex account in `Settings → Plex` (`POST /api/plex/me/link`, `lib/plex/account.ts`), storing a per-user token. `getUserPlexConnection(userId)` resolves the shared server config plus that user's token for every subsequent call, so library reads use the shared server but watchlist/watched actions act as that specific Plex user.
 
-## YouTube → Plex library export
+## Videos → Plex library export (per source)
 
-Each user can get a private Plex library populated from their YouTube downloads. Setup, in `Admin → Plex`:
+Each user can get private Plex libraries populated from their saved videos — one per content type (`youtube`, `tiktok`, `vimeo`, `reddit`, `mine`; see `lib/plex/export/contentTypes.ts`). YouTube rides the original exporter (`yt_plex_*` tables, SponsorBlock cutting); the rest share the generic exporter (`video_plex_*`, `lib/plex/export/genericSync.ts`). Setup, in `Admin → Plex`:
 
 1. Connect the shared server and link the user's account (above).
-2. Add a **storage location** (`AdminStorageLocationsTab.tsx`, `/api/admin/storage-locations`, `adminStorageLocations.ts`) pointing at a folder Plex can also reach, and assign it to the `youtube` content type — this is what makes YouTube downloads land there instead of the local data root.
+2. Add a **storage location** (`AdminStorageLocationsTab.tsx`, `/api/admin/storage-locations`, `adminStorageLocations.ts`) pointing at a folder Plex can also reach, and assign it to the content types — this is what makes saves land there instead of the local data root.
 3. Set that location's **Plex path mapping** (how Plex itself sees the same folder — often a different path than the app's own view of it, e.g. across a network share).
-4. Call `POST /api/plex/admin/provision` (`{ userId, contentType: 'youtube' }`), which enqueues `enqueuePlexProvision` (`lib/downloadJobs`) to create and populate the user's Plex library section. Status per user/contentType is tracked in `plexLibrarySections` and readable via `GET /api/plex/admin/library-sections`.
+4. Call `POST /api/plex/admin/provision` (`{ userId, contentType }`), which enqueues `enqueuePlexProvision` (`lib/downloadJobs`) to create and populate the user's Plex library section. Status per user/contentType is tracked in `plexLibrarySections` and readable via `GET /api/plex/admin/library-sections`.
 
-The admin UI checks storage-location + path-mapping readiness up front (`AdminPlexTab.tsx`) so "Provision" isn't clickable until both are actually set — otherwise the job fails with the error only visible server-side.
+The admin UI checks storage-location + path-mapping readiness up front (`AdminPlexTab.tsx`, or the guided `PlexSetupWizard.tsx`) so "Provision" isn't clickable until both are actually set — otherwise the job fails with the error only visible server-side.
+
+Per-library **policies** live on `plexLibrarySections` (`syncMode: all | recent` + `syncRecentCount`, and `removeWatched` — enforced by `lib/plex/export/policy.ts` and the 15-minute watched sweep in `watchedSweep.ts`, which detects watched via Plex view counts OR the app's own completed flag and then deletes the underlying save). Users tune their own libraries via `GET/PATCH /api/plex/me/library-sections` (the Videos settings "Plex sync" page, which also reports per-source `storageReady` so unprovisioned sources can explain what's missing).
 
 ## The two-ID-space problem
 

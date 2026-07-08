@@ -1,9 +1,14 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+const base = process.env.ASTRO_BASE ?? '/docs';
+
 export default defineConfig({
   site: process.env.ASTRO_SITE,
-  base: process.env.ASTRO_BASE ?? '/docs',
+  base,
+  // The YouTube app became the multi-source Videos app; keep old links working.
+  // (Redirect destinations are emitted verbatim, so the base must be baked in.)
+  redirects: { '/user/features/youtube': `${base}/user/features/videos` },
   integrations: [
     starlight({
       title: 'Loki Doki',

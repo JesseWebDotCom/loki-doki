@@ -170,9 +170,9 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 </tr>
 <tr>
 <td width="50%" valign="top">
-  <img src="assets/icons/youtube.svg" width="48" /><br/>
-  <b>YouTube, Privately</b><br/>
-  A private front-end for YouTube: search and watch with no Google account, no recommendation engine, and nothing phoning home. Keep a personal library to watch offline.
+  <img src="assets/icons/videos.svg" width="48" /><br/>
+  <b>Videos</b><br/>
+  YouTube, TikTok, Vimeo, Reddit, and your own clips in one private app: follow creators, AI-cleaned titles and summaries, audio mode with a live EQ, mini player and PiP, offline rules that keep the latest videos downloaded, background enhancement, per-source Plex libraries, and one-click video-to-podcast.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
@@ -186,7 +186,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/music.svg" width="48" /><br/>
   <b>Music</b><br/>
-  A private YouTube for music: AI radio stations built from any prompt, a full catalog to browse, synced lyrics, and offline saves, plus offline track generation and MIDI remix.
+  Your own private streaming music service: AI radio stations built from any prompt, a full catalog to browse, synced lyrics, and offline saves, plus offline track generation and MIDI remix.
   <br/><br/>
 </td>
 <td width="50%" valign="top">

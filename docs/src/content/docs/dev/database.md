@@ -100,18 +100,22 @@ The schema declares ~50 tables. Grouped by area:
 | `home_device_files` | Cached manuals/files per device |
 | `home_device_links` | Links per device |
 
-### YouTube & podcasts
+### Videos & podcasts
 | Table | Purpose |
 |---|---|
-| `yt_subscriptions` | Channel subscriptions |
-| `yt_videos` | Cached video metadata |
+| `yt_subscriptions` | YouTube channel subscriptions (the `yt_*` names predate the multi-source Videos app) |
+| `yt_videos` | Cached YouTube video metadata |
 | `yt_channel_cache` | Channel metadata cache |
-| `yt_downloads` | Downloaded video records |
-| `yt_watch_state` | Per-user watch progress |
-| `yt_collections` | DB-backed video collections |
+| `yt_downloads` | Downloaded YouTube video records |
+| `yt_watch_state` | Per-user watch progress (YouTube) |
+| `yt_collections` | Cross-source Watch Later / Liked collections |
+| `video_follows` | Followed creators on non-YouTube sources (Reddit/TikTok/Vimeo) |
+| `video_items` | Feed cache for followed creators' uploads |
+| `video_saves` | Offline saves for non-YouTube sources |
+| `video_watch_state` | Per-user watch progress (non-YouTube sources) |
 | `podcast_shows` | Podcast show definitions |
 | `podcast_episodes` | Generated/imported episodes |
-| `podcast_episode_sources` | Source links per episode (reverse-link to YouTube) |
+| `podcast_episode_sources` | Source links per episode (reverse-link to the source video) |
 | `podcast_suggestions` | Suggested episode topics |
 | `podcast_watch_state` | Per-user listen progress |
 

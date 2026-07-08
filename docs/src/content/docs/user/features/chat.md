@@ -29,7 +29,7 @@ When a question needs more than a chat, the AI reaches for the right tool on its
 - Tell you the time, date, or how many days until something
 - Do math and convert units
 - Look up a word's meaning
-- Find recipes and YouTube videos
+- Find recipes and videos
 - Check sports scores, the news, and local events near you
 - Tell you if a movie or show is appropriate for your kids
 - Create an image from a description

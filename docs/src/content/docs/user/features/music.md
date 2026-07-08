@@ -1,6 +1,6 @@
 ---
 title: Music
-description: A private "YouTube for music"; AI radio stations, a full catalog to browse, synced lyrics, offline saves, plus offline track generation and MIDI remix.
+description: Your own private streaming music service; AI radio stations, a full catalog to browse, synced lyrics, offline saves, plus offline track generation and MIDI remix.
 sidebar:
   order: 7
 ---

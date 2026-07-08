@@ -13,7 +13,7 @@ A **show** is an ongoing series, like a real podcast. It has a name, a cover, on
 
 You can build a show around:
 
-- New uploads from your YouTube subscriptions, or a specific channel or playlist.
+- New uploads from creators you follow in [Videos](../videos/), or a specific channel or playlist.
 - The latest news.
 - Sports scores and discussion.
 - A "morning briefing" that mixes news, weather, and what happened on this day in history.
@@ -36,9 +36,9 @@ This all happens in the background, so you can keep using the app. When it is re
 
 Your hosts even have a bit of an inner life: across episodes they carry small ongoing "beats," and on a show with several hosts one might occasionally sit an episode out, so the series feels like a real, evolving show rather than the same script every time.
 
-## From YouTube
+## From Videos
 
-Watching a video and want the gist as a podcast instead? From YouTube you can send a video, a whole channel, or a playlist to your hosts and they will turn it into episodes. Later, when you are back on that video's watch page, you will see a "Featured in podcasts" shelf linking to the episodes made from it.
+Watching something and want the gist as a podcast instead? From the [Videos](../videos/) app you can send a video, a whole creator, or a playlist — from any source — to your hosts and they will turn it into episodes. Later, when you are back on that video's watch page, you will see a "Featured in podcasts" shelf linking to the episodes made from it.
 
 ## Listening
 

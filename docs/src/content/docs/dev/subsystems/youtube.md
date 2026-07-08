@@ -1,13 +1,15 @@
 ---
-title: YouTube
-description: "The private YouTube front-end: InnerTube data, the yt-dlp privacy stream proxy, SponsorBlock, subscriptions/feeds, offline saves, and the YouTube-to-podcast bridge."
+title: "Videos: YouTube source"
+description: "The YouTube plumbing inside the Videos app: InnerTube data, the yt-dlp privacy stream proxy, SponsorBlock, subscriptions/feeds, offline saves, and the video-to-podcast bridge."
 sidebar:
-  order: 6
+  order: 7
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-A keyless, account-free YouTube front-end that never lets the browser talk to Google. Data comes from YouTube's internal `youtubei/v1` (InnerTube) API and privacy front-ends; playback streams through a server-side proxy that resolves a direct CDN URL with `yt-dlp` and proxies the bytes. Everything else (thumbnails, SponsorBlock, transcripts) is proxied too.
+The YouTube source inside the multi-source [Videos hub](../videos/). It predates the hub and keeps its own richer plumbing (`yt_*` tables, `/api/youtube` routes); the hub reaches it through a thin provider adapter (`lib/videos/providers/youtube.ts`) — wrap, never rewrite.
+
+A keyless, account-free YouTube integration that never lets the browser talk to Google. Data comes from YouTube's internal `youtubei/v1` (InnerTube) API and privacy front-ends; playback streams through a server-side proxy that resolves a direct CDN URL with `yt-dlp` and proxies the bytes. Everything else (thumbnails, SponsorBlock, transcripts) is proxied too.
 
 Key files:
 
