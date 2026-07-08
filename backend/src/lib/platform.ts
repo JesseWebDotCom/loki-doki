@@ -75,15 +75,24 @@ export async function findFileInTree(dir: string, name: string): Promise<string 
 }
 
 /**
- * Spawn a detached, windowless sidecar (ollama serve, SearXNG, kiwix, the voice/PTY
- * sidecars). Works around a Bun bug (verified on 1.3.14, Windows 11): node:child_process
- * silently drops `windowsHide` as soon as `env` or `cwd` is passed alongside
- * `detached: true`, so every such sidecar popped a visible terminal window at boot.
- * Instead of passing those options through, env extras and cwd are applied to this
- * process for the duration of the (synchronous) spawn call and restored right after —
- * the child snapshots both at CreateProcess time, and nothing else can interleave on a
- * single JS thread. Passing a full `{ ...process.env, X }` object is fine: entries that
- * already match the live env are skipped.
+ * Spawn a long-lived, windowless sidecar (ollama serve, SearXNG, kiwix, the voice/PTY
+ * sidecars). Two Windows pitfalls, both verified live on Bun 1.3.14 / Windows 11:
+ *
+ * 1. Bun's node:child_process silently drops `windowsHide` as soon as `env` or `cwd`
+ *    is passed in the options, so every such sidecar popped a visible terminal window.
+ *    Workaround: env extras and cwd are applied to this process for the duration of
+ *    the (synchronous) spawn call and restored right after — the child snapshots both
+ *    at CreateProcess time, and nothing can interleave on a single JS thread. Passing
+ *    a full `{ ...process.env, X }` object is fine: entries already matching the live
+ *    env are skipped.
+ *
+ * 2. `detached: true` must NOT be used on Windows even with windowsHide: the child
+ *    ends up console-less instead of hidden-console, so any console-app grandchild
+ *    (SearXNG's venv launcher re-execs the real python; ollama spawns llama-server on
+ *    every model load) allocates a fresh VISIBLE console window. Non-detached +
+ *    windowsHide gives the child its own hidden console that all descendants inherit,
+ *    and that console is independent of ours — the sidecar still survives Ctrl+C,
+ *    terminal close, and backend exit, which is everything `detached` bought us.
  */
 export function spawnDetachedHidden(
   bin: string,
@@ -102,7 +111,7 @@ export function spawnDetachedHidden(
   const savedCwd = opts.cwd ? process.cwd() : null
   try {
     if (opts.cwd) process.chdir(opts.cwd)
-    return spawn(bin, args, { detached: true, stdio: 'ignore', windowsHide: true })
+    return spawn(bin, args, { detached: !IS_WIN, stdio: 'ignore', windowsHide: true })
   } finally {
     if (savedCwd) process.chdir(savedCwd)
     for (const [k, v] of savedEnv) {
