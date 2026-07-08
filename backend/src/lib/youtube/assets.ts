@@ -163,6 +163,13 @@ export async function completeAsset(
     void maybeEnqueueEnhance(assetId).catch(() => {})
   }
 
+  // Audio landing on disk (downloads, offline stations, AND the radio prefetch cache all
+  // flow through here) → opportunistic loudness/waveform/codec scan. Fire-and-forget,
+  // in-process queue — coverage converges on everything the household actually plays.
+  if (asset.kind === 'audio' && asset.sourceType === 'youtube') {
+    void import('@/lib/music/audioScan').then((m) => m.queueAudioScan(asset.sourceId)).catch(() => {})
+  }
+
   // Chase a higher tier only when we actually improved this round (prevents looping when the
   // source simply can't deliver the requested height — the next attempt won't improve).
   const desired = await desiredHeight(assetId, asset.kind)

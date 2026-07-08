@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, Music2, SkipForward, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2 } from 'lucide-react'
+import { Heart, Music2, SkipForward, SkipBack, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { proxyImg } from '@/lib/img'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Spinner } from '@/components/ui/spinner'
 import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
@@ -18,6 +17,12 @@ import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, addFavorite, 
 import { useCatalogNav } from '@/lib/music/catalogNav'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { SectionLabel, LyricsPanel, AboutStrip, SmartLinksRow } from '@/components/music/nowPlayingParts'
+import { StarRating } from '@/components/music/StarRating'
+import { TrackTechBadge } from '@/components/music/TrackTechBadge'
+import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
+import { isYouTubeRef } from '@/lib/music/trackRef'
+
+const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, '0')}`
 
 // Generic fallback shown for the blink before the station's own lines load (or for legacy
 // preset stations with no saved id). The per-station LLM-written set replaces these.
@@ -58,60 +63,64 @@ function TuningLyrics({ stationId, color }: { stationId?: string; color: string 
   )
 }
 
+// The full-bleed player hero shell: blurred artwork backdrop over a forced-dark surface
+// (the Moosic/Apple-Music look), independent of the app theme like NowPlayingOverlay.
+function HeroShell({ backdropUrl, c1, children }: { backdropUrl: string | null; c1: string; children: React.ReactNode }) {
+  return (
+    <div data-theme="dark" className="relative overflow-hidden rounded-sheet bg-black shadow-lg">
+      {backdropUrl && (
+        <img src={backdropUrl} alt="" aria-hidden
+          className="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-50 blur-3xl saturate-150" />
+      )}
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/55 to-black/85" />
+      <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full opacity-20 blur-3xl" style={{ background: c1 }} />
+      {children}
+    </div>
+  )
+}
+
 // Shown while a station is spinning up - queue is still building and the DJ intro is
 // playing, so there's no track on deck yet. Mirrors the loaded layout with the real
-// station identity (colour, emoji, label) so the wait reads as "tuning in", not "broken".
+// station identity so the wait reads as "tuning in", not "broken".
 function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, stationId, showViz, iconUrl, sourceBackLink }: {
   c1: string; c2: string; emoji: string; label: string; paused: boolean; getAnalyser: () => AnalyserNode | null; stationId?: string; showViz: boolean; iconUrl?: string; sourceBackLink?: { url: string; label: string } | null
 }) {
   const navigate = useNavigate()
   return (
     <PageContainer width="full" className="pt-6 pb-8">
-      {/* Hero - same shell as when playing, with the station's accent and a live disc. */}
-      <div className="relative overflow-hidden rounded-sheet border border-border/50 p-5 shadow-lg"
-        style={{ background: `linear-gradient(135deg, ${c1}24, ${c2}0a 65%)` }}>
-        <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full opacity-25 blur-3xl" style={{ background: c1 }} />
+      <HeroShell backdropUrl={iconUrl ?? null} c1={c1}>
         {showViz && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2">
-            <EqVisualizer active={!paused} getAnalyser={getAnalyser} color={c1} colorDark={c2} opacity={0.28} fade />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3">
+            <EqVisualizer active={!paused} getAnalyser={getAnalyser} color={c1} colorDark={c2} opacity={0.25} fade />
           </div>
         )}
-        <div className="relative flex items-center gap-5">
-          <div className="relative size-24 shrink-0 overflow-hidden rounded-card shadow-2xl ring-1 ring-white/15"
+        <div className="relative flex flex-col items-center px-6 pb-8 pt-5">
+          <div className="mb-6 flex w-full flex-wrap items-center gap-2">
+            {/* design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chips float over the blurred-art hero */}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
+              <span>{emoji}</span> {label}
+            </span>
+            {sourceBackLink && (
+              <button onClick={() => navigate(sourceBackLink.url)}
+                // design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chip floats over the blurred-art hero
+                className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur transition hover:bg-white/20 hover:text-white">
+                ← {sourceBackLink.label}
+              </button>
+            )}
+          </div>
+          <div className="relative size-52 overflow-hidden rounded-card shadow-2xl ring-1 ring-white/15 md:size-60"
             style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
-            <Disc3 className="absolute left-1/2 top-1/2 size-10 -translate-x-1/2 -translate-y-1/2 text-white/40 motion-safe:animate-[spin_6s_linear_infinite]" />
+            <Disc3 className="absolute left-1/2 top-1/2 size-12 -translate-x-1/2 -translate-y-1/2 text-white/40 motion-safe:animate-[spin_6s_linear_infinite]" />
             {iconUrl && <img src={iconUrl} alt="" className="absolute inset-0 size-full object-cover" onError={e => { e.currentTarget.style.display = 'none' }} />}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chips float over the station-accent hero tint */}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
-                <span>{emoji}</span> {label}
-              </span>
-              {sourceBackLink && (
-                <button onClick={() => navigate(sourceBackLink.url)}
-                  // design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chip floats over the station-accent hero tint
-                  className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur transition hover:bg-white/20 hover:text-white">
-                  ← {sourceBackLink.label}
-                </button>
-              )}
-            </div>
-            <Skeleton className="mt-3 h-8 w-2/3 max-w-sm" />
-            <Skeleton className="mt-2 h-4 w-32" />
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Skeleton className="size-9 rounded-full" />
-            <Skeleton className="size-9 rounded-full" />
-            <Skeleton className="size-12 rounded-full" />
-            <Skeleton className="size-9 rounded-full" />
-            <Skeleton className="size-9 rounded-full" />
-            <Skeleton className="size-9 rounded-full" />
-          </div>
+          <Skeleton className="mt-6 h-7 w-64 max-w-full" />
+          <Skeleton className="mt-2 h-4 w-40" />
+          <Skeleton className="mt-6 h-10 w-full max-w-xl" />
+          <p className="mt-6 flex items-center gap-1.5 text-xs text-white/60">
+            <Spinner size="sm" /> Tuning in…
+          </p>
         </div>
-        <p className="relative mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Spinner size="sm" /> Tuning in…
-        </p>
-      </div>
+      </HeroShell>
 
       {/* Lyrics + Up Next - same 60/40 grid, skeleton content. */}
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[3fr_2fr]">
@@ -175,7 +184,7 @@ export function NowPlayingPage() {
   // for real stations (where the Watch button is shown), not one-off/instant track sessions.
   const watchableStation = radio.station?.stationId
   useEffect(() => {
-    if (cur?.videoId && watchableStation) void prefetchMedia(cur.videoId, 'video', 480)
+    if (cur?.videoId && watchableStation && isYouTubeRef(cur.videoId)) void prefetchMedia(cur.videoId, 'video', 480)
   }, [cur?.videoId, watchableStation])
 
   // Fast path: sourceRef is carried in the DjStation shape so it's available immediately.
@@ -218,6 +227,8 @@ export function NowPlayingPage() {
   // in" messages over the lyrics (which load behind) until the DJ is about to speak, rather than
   // flashing empty/half-loaded lyrics first.
   const djPending = radio.phase === 'intro' && !radio.djSpeaking
+  const canSeek = radio.phase === 'playing' && !radio.djSpeaking && radio.durationSec > 0
+  const isYt = isYouTubeRef(cur.videoId)
 
   const favorite = async () => {
     try { await addFavorite({ kind: 'song', refId: cur.videoId, title: cur.title, artist }); toast.success('Added to favorites') }
@@ -228,99 +239,143 @@ export function NowPlayingPage() {
     catch { toast.error('Could not save offline') }
   }
 
+  // design-ok(glass-on-plain-bg): utility buttons float over the blurred-art hero (forced-dark surface)
+  const utilBtn = 'flex size-9 items-center justify-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white'
+
   return (
     <PageContainer width="full" className="pt-6 pb-8">
-      {/* Hero - tinted with the station's accent colour for depth and identity. */}
-      <div className="relative overflow-hidden rounded-sheet border border-border/50 p-5 shadow-lg"
-        style={{ background: `linear-gradient(135deg, ${c1}24, ${c2}0a 65%)` }}>
-        <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full opacity-25 blur-3xl" style={{ background: c1 }} />
-        {/* Live faux-EQ band across the bottom of the hero - same engine as the mini-player. */}
+      {/* Player hero - full-bleed blurred artwork over a forced-dark surface. */}
+      <HeroShell backdropUrl={cur.thumbnail ? proxyImg(cur.thumbnail) : null} c1={c1}>
         {radio.visualizerEnabled && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2">
-            <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={c1} colorDark={c2} opacity={0.28} fade />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3">
+            <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={c1} colorDark={c2} opacity={0.25} fade />
           </div>
         )}
-        <div className="relative flex items-center gap-5">
-          <div className="relative size-24 shrink-0 overflow-hidden rounded-card shadow-2xl ring-1 ring-white/15"
+        <div className="relative flex flex-col items-center px-6 pb-7 pt-5">
+          {/* Station identity row */}
+          <div className="mb-5 flex w-full flex-wrap items-center gap-2">
+            {/* design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chips float over the blurred-art hero */}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
+              <span>{emoji}</span> {label}
+            </span>
+            {sourceBackLink && (
+              <button onClick={() => navigate(sourceBackLink.url)}
+                // design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chip floats over the blurred-art hero
+                className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur transition hover:bg-white/20 hover:text-white">
+                ← {sourceBackLink.label}
+              </button>
+            )}
+            {radio.sleepAtMs && (
+              <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-white/60">
+                <Moon className="size-3" /> stopping in ~{Math.max(0, Math.round((radio.sleepAtMs - Date.now()) / 60000))} min
+              </span>
+            )}
+          </div>
+
+          {/* Artwork */}
+          <div className="relative size-52 shrink-0 overflow-hidden rounded-card shadow-2xl ring-1 ring-white/15 md:size-64"
             style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
-            <Disc3 className={cn('absolute left-1/2 top-1/2 size-10 -translate-x-1/2 -translate-y-1/2 text-white/40', !radio.paused && 'motion-safe:animate-[spin_6s_linear_infinite]')} />
+            <Disc3 className={cn('absolute left-1/2 top-1/2 size-12 -translate-x-1/2 -translate-y-1/2 text-white/40', !radio.paused && 'motion-safe:animate-[spin_6s_linear_infinite]')} />
             <img src={proxyImg(cur.thumbnail)} alt="" className="relative size-full object-cover"
               onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chips float over the station-accent hero tint */}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
-                <span>{emoji}</span> {radio.station?.label ?? 'Radio'}
-              </span>
-              {sourceBackLink && (
-                <button onClick={() => navigate(sourceBackLink.url)}
-                  // design-ok(glass-on-plain-bg) design-ok(backdrop-blur-outside-chrome): chip floats over the station-accent hero tint
-                  className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur transition hover:bg-white/20 hover:text-white">
-                  ← {sourceBackLink.label}
-                </button>
-              )}
-            </div>
-            {/* One header per page: the track title is display text, not a second h1. Clicking the
-                title opens the song's album, the artist opens the artist page (both in-app MB detail). */}
-            <button onClick={() => cat.openSong(cur.title, artist)} disabled={cat.pending === 'song'}
-              className="mt-2 block max-w-full truncate text-display text-left transition hover:text-brand disabled:opacity-60"
-              title="View album details">{cur.title}</button>
-            {artist && (
-              <button onClick={() => cat.openArtist(artist)} disabled={cat.pending === 'artist'}
-                className="mt-0.5 block max-w-full truncate text-left text-sm text-muted-foreground transition hover:text-foreground hover:underline disabled:opacity-60"
-                title="View artist details">{artist}</button>
+
+          {/* Title / artist - big, centered, clickable through to catalog pages. */}
+          <button onClick={() => cat.openSong(cur.title, artist)} disabled={cat.pending === 'song'}
+            className="mt-6 max-w-2xl truncate text-center text-2xl font-bold tracking-tight text-white transition hover:text-white/80 disabled:opacity-60 md:text-3xl"
+            title="View album details">{cur.title}</button>
+          {artist && (
+            <button onClick={() => cat.openArtist(artist)} disabled={cat.pending === 'artist'}
+              className="mt-1 max-w-xl truncate text-center text-base text-white/60 transition hover:text-white disabled:opacity-60"
+              title="View artist details">{artist}</button>
+          )}
+
+          {/* Heart · stars row */}
+          <div className="mt-4 flex items-center gap-6">
+            <button onClick={favorite} aria-label="Favorite" className={utilBtn}>
+              <Heart className="size-5" />
+            </button>
+            <StarRating trackRef={cur.videoId} title={cur.title} artist={artist} />
+            {isYt && (
+              <button onClick={download} aria-label="Save offline" className={utilBtn}>
+                <Download className="size-5" />
+              </button>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button size="icon" variant="secondary" onClick={favorite} aria-label="Favorite"><Heart className="size-4" /></Button>
-            <Button size="icon" variant="secondary" onClick={download} aria-label="Save offline"><Download className="size-4" /></Button>
-            <Button size="icon" variant="secondary" onClick={() => navigate(radio.station?.stationId ? `/music/watch/${radio.station.stationId}` : '/music/watch/current')}
-              aria-label="Watch video" title="Switch to video - same song, same spot"><MonitorPlay className="size-4" /></Button>
-            <Button size="icon" variant="secondary" onClick={() => openPlayer()}
-              aria-label="Fullscreen player" title="Fullscreen player"><Maximize2 className="size-4" /></Button>
-            <button onClick={() => radio.togglePause()} aria-label="Play/pause"
-              className="flex size-12 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-105 active:scale-95"
-              style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
-              {radio.paused ? <Play className="size-5 translate-x-px fill-current" /> : <Pause className="size-5 fill-current" />}
+
+          {/* Waveform seek + clocks */}
+          <div className="mt-5 w-full max-w-2xl">
+            <WaveformSeekBar trackRef={cur.videoId} pos={radio.positionSec} total={radio.durationSec}
+              // design-ok(hex-in-tsx): white seek accent over the forced-dark hero (same as the overlay player)
+              onSeek={radio.seek} accent="#ffffff" disabled={!canSeek} />
+            <div className="mt-1 flex items-center justify-between text-[11px] tabular-nums text-white/50">
+              <span>{fmtClock(radio.positionSec)}</span>
+              <span>-{fmtClock(Math.max(0, radio.durationSec - radio.positionSec))}</span>
+            </div>
+          </div>
+
+          {/* Codec / lossless pill */}
+          <TrackTechBadge trackRef={cur.videoId} className="mt-1" />
+
+          {/* Transport */}
+          <div className="mt-4 flex items-center gap-8">
+            <button onClick={() => radio.seek(0)} aria-label="Restart song"
+              className="text-white/70 transition hover:text-white active:scale-95">
+              <SkipBack className="size-8 fill-current" />
             </button>
-            <Button size="icon" variant="secondary" onClick={() => radio.skip()} disabled={radio.skipping} aria-label="Skip">{radio.skipping ? <Spinner className="text-current" /> : <SkipForward className="size-4" />}</Button>
-            <Button size="icon" variant="secondary" onClick={radio.toggleVisualizer}
+            <button onClick={() => radio.togglePause()} aria-label="Play/pause"
+              className="flex size-16 items-center justify-center text-white transition hover:scale-105 active:scale-95">
+              {radio.paused ? <Play className="size-14 translate-x-0.5 fill-current" /> : <Pause className="size-14 fill-current" />}
+            </button>
+            <button onClick={() => radio.skip()} disabled={radio.skipping} aria-label="Skip"
+              className="text-white/70 transition hover:text-white active:scale-95 disabled:opacity-50">
+              {radio.skipping ? <Spinner className="size-8 text-current" /> : <SkipForward className="size-8 fill-current" />}
+            </button>
+          </div>
+
+          {/* Utility row */}
+          <div className="mt-5 flex items-center gap-2">
+            {isYt && (
+              <button onClick={() => navigate(radio.station?.stationId ? `/music/watch/${radio.station.stationId}` : '/music/watch/current')}
+                aria-label="Watch video" title="Switch to video - same song, same spot" className={utilBtn}>
+                <MonitorPlay className="size-4" />
+              </button>
+            )}
+            <button onClick={radio.toggleVisualizer} className={cn(utilBtn, !radio.visualizerEnabled && 'text-white/30')}
               aria-label={radio.visualizerEnabled ? 'Hide visualizer' : 'Show visualizer'}
               title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}>
-              <AudioLines className={cn('size-4', !radio.visualizerEnabled && 'text-muted-foreground/40')} />
-            </Button>
+              <AudioLines className="size-4" />
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="secondary" aria-label="DJ mode" title={`DJ: ${radio.station?.djMode ?? 'full'}`}>
-                  <Mic className={cn('size-4', (radio.station?.djMode ?? 'full') === 'silent' && 'text-muted-foreground/40')} />
-                </Button>
+                <button className={cn(utilBtn, (radio.station?.djMode ?? 'full') === 'silent' && 'text-white/30')}
+                  aria-label="DJ mode" title={`DJ: ${radio.station?.djMode ?? 'full'}`}>
+                  <Mic className="size-4" />
+                </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {([['full', 'Full DJ'], ['minimal', 'DJ minimal'], ['silent', 'Silent (no DJ)']] as const).map(([mode, label]) => (
+              <DropdownMenuContent align="center">
+                {([['full', 'Full DJ'], ['minimal', 'DJ minimal'], ['silent', 'Silent (no DJ)']] as const).map(([mode, modeLabel]) => (
                   <DropdownMenuItem key={mode} onClick={() => radio.setDjMode(mode)}>
-                    {(radio.station?.djMode ?? 'full') === mode ? '✓ ' : ''}{label}
+                    {(radio.station?.djMode ?? 'full') === mode ? '✓ ' : ''}{modeLabel}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="icon" variant={radio.sleepAtMs ? 'default' : 'secondary'} aria-label="Sleep timer"><Moon className="size-4" /></Button>
+                <button className={cn(utilBtn, radio.sleepAtMs && 'text-white')} aria-label="Sleep timer"><Moon className="size-4" /></button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="center">
                 {[15, 30, 45, 60].map(m => <DropdownMenuItem key={m} onClick={() => radio.setSleep(m)}>Stop in {m} minutes</DropdownMenuItem>)}
                 {radio.sleepAtMs && <DropdownMenuItem onClick={() => radio.setSleep(null)}>Turn off timer</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
+            <button onClick={() => openPlayer()} aria-label="Fullscreen player" title="Fullscreen player" className={utilBtn}>
+              <Maximize2 className="size-4" />
+            </button>
           </div>
         </div>
-        {radio.sleepAtMs && (
-          <p className="relative mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Moon className="size-3" /> Sleep timer: stopping in about {Math.max(0, Math.round((radio.sleepAtMs - Date.now()) / 60000))} min
-          </p>
-        )}
-      </div>
+      </HeroShell>
 
       <AboutStrip artist={artist} title={cur.title} color={c1} />
       <SmartLinksRow artist={artist} title={cur.title} color={c1} />

@@ -929,6 +929,40 @@ export const musicPlexTracks = sqliteTable('music_plex_tracks', {
   albumIdx: index('music_plex_tracks_album_idx').on(t.artist, t.album),
 }))
 
+// ─── Track audio facts + ratings ────────────────────────────────────────────────────
+// music_track_audio: cheap ffmpeg-derived facts per track ref — codec/bitrate probe,
+// EBU R128 integrated loudness (stored now, applied by the DSP phase), and a ~640-bucket
+// waveform envelope for the Now Playing seek bar. One row per ref, shared across users;
+// populated opportunistically (post-download hook + lazy on first waveform request).
+// Deliberately separate from the ML features table (that one is gated on the optional
+// stem-audio component; these facts must always be available).
+
+export const musicTrackAudio = sqliteTable('music_track_audio', {
+  ref: text('ref').primaryKey(),          // unified track ref (trackRef.ts)
+  lufs: real('lufs'),                     // EBU R128 integrated; null = not measured (too long / failed)
+  truePeakDb: real('true_peak_db'),
+  codec: text('codec'),
+  bitrateKbps: integer('bitrate_kbps'),
+  sampleRate: integer('sample_rate'),
+  channels: integer('channels'),
+  durationSec: real('duration_sec'),
+  peaks: blob('peaks', { mode: 'buffer' }), // Uint8Array envelope, 0..255 per bucket
+  scannedAt: integer('scanned_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Star ratings (1-5) per user per track ref. Denormalized title/artist follow the
+// music_favorites posture (a ref alone has no row to join for display). Feeds Smart
+// Rules + rail weighting later.
+export const musicRatings = sqliteTable('music_ratings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  ref: text('ref').notNull(),
+  title: text('title'),
+  artist: text('artist'),
+  stars: integer('stars').notNull(),      // 1..5
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userRefUnique: unique().on(t.userId, t.ref) }))
+
 // ─── LoRA System ──────────────────────────────────────────────────────────────
 
 export const imageLoraCategories = sqliteTable('image_lora_categories', {

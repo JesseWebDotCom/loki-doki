@@ -12,8 +12,10 @@ import { fmtClock } from '@/lib/youtube/format'
 import { useRadio } from '@/context/RadioContext'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useCatalogNav } from '@/lib/music/catalogNav'
-import { SeekBar } from '@/components/shared/SeekBar'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
+import { StarRating } from '@/components/music/StarRating'
+import { TrackTechBadge } from '@/components/music/TrackTechBadge'
+import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -76,6 +78,7 @@ export function NowPlayingOverlay() {
     // Portaled to <body> so it covers the app's left sidebar too (a nested mount would sit inside
     // the right column's stacking context and paint under the sidebar).
     <div
+      data-theme="dark"
       className="fixed inset-0 z-[100] flex flex-col text-white"
       style={{ transform: dragY ? `translateY(${dragY}px)` : undefined, transition: dragY ? 'none' : 'transform 0.25s ease' }}
     >
@@ -153,14 +156,19 @@ export function NowPlayingOverlay() {
               className="mt-1 block w-full truncate text-sm text-white/70 transition hover:text-white hover:underline disabled:opacity-60"
               title="View artist details">{artist}</button>
           )}
+          {cur && <StarRating trackRef={cur.videoId} title={cur.title} artist={artist} size="sm" className="mt-2 justify-center" />}
         </div>
 
-        {/* Seek */}
-        <div className="mt-4">
-          <SeekBar pos={radio.positionSec} total={radio.durationSec} onSeek={radio.seek} accent="#ffffff" disabled={!canSeek} />
-          <div className="mt-1 flex justify-between text-[11px] tabular-nums text-white/60">
+        {/* Seek: the track's real waveform when scanned, plain track otherwise */}
+        <div className="mt-3">
+          {cur ? (
+            <WaveformSeekBar trackRef={cur.videoId} pos={radio.positionSec} total={radio.durationSec}
+              onSeek={radio.seek} accent="#ffffff" disabled={!canSeek} />
+          ) : null}
+          <div className="mt-1 flex items-center justify-between text-[11px] tabular-nums text-white/60">
             <span>{fmtClock(radio.positionSec)}</span>
-            <span>{radio.durationSec > 0 ? fmtClock(radio.durationSec) : '--:--'}</span>
+            {cur && <TrackTechBadge trackRef={cur.videoId} />}
+            <span>{radio.durationSec > 0 ? `-${fmtClock(Math.max(0, radio.durationSec - radio.positionSec))}` : '--:--'}</span>
           </div>
         </div>
 

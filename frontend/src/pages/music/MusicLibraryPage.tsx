@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library } from 'lucide-react'
+import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { artUrlForRef } from '@/lib/music/trackRef'
 import { Input } from '@/components/ui/input'
@@ -26,6 +26,7 @@ import {
   type LiveLibraryStation, type LiveRecording,
 } from '@/lib/music/liveRadioApi'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
+import { getCollectionSummary } from '@/lib/music/collectionApi'
 import { StationCard } from '@/components/music/StationCard'
 import { SongDownloadButton } from '@/components/music/SongDownloadButton'
 import { CollectionTab } from '@/components/music/CollectionTab'
@@ -538,23 +539,95 @@ function RadioTab() {
   )
 }
 
+// Moosic-style Library landing: a compact index card (icon rows with counts + chevrons)
+// instead of a wall of tab chips. Picking a row deep-links to that section (?tab=), where
+// the tab bar takes over for quick switching.
+function LibraryIndex({ onPick }: { onPick: (t: Tab) => void }) {
+  const { data: summary } = useQuery({ queryKey: ['music-collection-summary'], queryFn: getCollectionSummary })
+  const { data: favs } = useQuery({ queryKey: ['music-favorites'], queryFn: () => getFavorites() })
+  const { data: playlists } = useQuery({ queryKey: ['music-playlists'], queryFn: listPlaylists })
+
+  const playlistCount = (playlists?.mine?.length ?? 0) + (playlists?.shared?.length ?? 0)
+  const rows: Array<{ tab: Tab; label: string; icon: typeof Heart; count: number | null }> = [
+    { tab: 'collection', label: 'Collection', icon: Library, count: summary?.total ?? null },
+    { tab: 'playlists', label: 'Playlists', icon: ListMusic, count: playlistCount || null },
+    { tab: 'favorites', label: 'Favorites', icon: Heart, count: favs?.favorites?.length ?? null },
+    { tab: 'created', label: 'Created', icon: Sparkles, count: null },
+    { tab: 'history', label: 'History', icon: History, count: null },
+    { tab: 'radio', label: 'Radio', icon: RadioTower, count: null },
+    { tab: 'offline', label: 'Downloaded', icon: Download, count: null },
+  ]
+
+  return (
+    <div className="max-w-2xl divide-y divide-border/40 overflow-hidden rounded-card border border-border/60 bg-card">
+      {rows.map((r) => (
+        <button key={r.tab} onClick={() => onPick(r.tab)}
+          className="flex w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-accent/40">
+          <r.icon className="size-5 shrink-0 text-brand" />
+          <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{r.label}</span>
+          {r.count != null && <span className="text-sm tabular-nums text-muted-foreground">{r.count.toLocaleString()}</span>}
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// "Made For You"-style shelf under the index: pick-up-where-you-left-off cards from history.
+function LibraryContinueShelf() {
+  const radio = useRadio()
+  const { data } = useQuery({ queryKey: ['music-history'], queryFn: () => getHistory() })
+  const recent = (data?.history ?? []).slice(0, 12)
+  if (!recent.length) return null
+  return (
+    <section className="mt-7 max-w-4xl">
+      <SectionHeader title="Jump back in" />
+      <div className="mt-3 flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+        {recent.map(h => (
+          <button key={h.id} onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })}
+            className="w-36 shrink-0 text-left">
+            <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-card bg-gradient-to-br from-brand/30 to-brand/10 shadow-sm transition hover:shadow-md">
+              <ListMusic className="absolute size-7 text-brand/50" />
+              <img src={artUrlForRef(h.videoId) ?? undefined} alt="" loading="lazy"
+                className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
+            </div>
+            <p className="mt-1.5 truncate text-xs font-semibold">{h.title}</p>
+            {h.artist && <p className="truncate text-[11px] text-muted-foreground">{h.artist}</p>}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function MusicLibraryPage() {
   const [params, setParams] = useSearchParams()
   const offline = useMusicModeOptional() === 'offline'
-  const tab = (params.get('tab') as Tab) ?? (offline ? 'offline' : 'favorites')
+  // No ?tab= → the Moosic-style index landing (offline mode still jumps straight to Offline).
+  const rawTab = params.get('tab') as Tab | null
+  const tab = rawTab ?? (offline ? 'offline' : null)
   const setTab = (t: Tab) => setParams(p => { p.set('tab', t); return p }, { replace: true })
 
   return (
     <PageContainer width="wide" className="pb-10">
       <PageHeader eyebrow="Music" title="Your Library" />
-      <AppTabBar tabs={TABS} value={tab} onChange={setTab} className="mb-4" />
-      {tab === 'collection' && <CollectionTab />}
-      {tab === 'favorites' && <FavoritesTab />}
-      {tab === 'playlists' && <PlaylistsTab />}
-      {tab === 'created' && <CreatedTab />}
-      {tab === 'history' && <HistoryTab />}
-      {tab === 'radio' && <RadioTab />}
-      {tab === 'offline' && <OfflineTab />}
+      {tab === null ? (
+        <>
+          <LibraryIndex onPick={setTab} />
+          <LibraryContinueShelf />
+        </>
+      ) : (
+        <>
+          <AppTabBar tabs={TABS} value={tab} onChange={setTab} className="mb-4" />
+          {tab === 'collection' && <CollectionTab />}
+          {tab === 'favorites' && <FavoritesTab />}
+          {tab === 'playlists' && <PlaylistsTab />}
+          {tab === 'created' && <CreatedTab />}
+          {tab === 'history' && <HistoryTab />}
+          {tab === 'radio' && <RadioTab />}
+          {tab === 'offline' && <OfflineTab />}
+        </>
+      )}
     </PageContainer>
   )
 }
