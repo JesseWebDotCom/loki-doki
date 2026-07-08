@@ -237,7 +237,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
       frameRef.current.appendChild(host)
       ytRef.current = new YT.Player(host, {
         videoId,
-        playerVars: { autoplay: 1, start: Math.floor(resumeSec) || 0, rel: 0, modestbranding: 1, controls: 0, playsinline: 1 },
+        playerVars: {
+          autoplay: 1, start: Math.floor(resumeSec) || 0, rel: 0, modestbranding: 1, controls: 0, playsinline: 1,
+          // Suppress YouTube's own chrome that bleeds through underneath our custom bar
+          // even with controls:0 — info-card annotations (share/watch-later icons),
+          // forced captions, the fullscreen button, and keyboard shortcuts.
+          iv_load_policy: 3, cc_load_policy: 0, fs: 0, disablekb: 1,
+        },
         events: {
           onReady: (e: any) => {
             try {
