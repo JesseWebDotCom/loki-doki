@@ -17,6 +17,8 @@ import { thumbUrl, fmtClock } from '@/lib/youtube/format'
 import { loadYTApi } from '@/lib/youtube/ytapi'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { SeekBar } from '@/components/shared/SeekBar'
+import { useVimeoPlayer } from '@/hooks/use-vimeo-player'
+import { useTikTokPlayer } from '@/hooks/use-tiktok-player'
 
 /**
  * Persistent docked mini-player, shown app-wide for YouTube videos AND internet radio streams.
@@ -37,6 +39,14 @@ export function YoutubeMiniBar() {
   const ytRef = useRef<any>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioStreamRef = useRef<HTMLAudioElement>(null)
+  const vimeoIframeRef = useRef<HTMLIFrameElement | null>(null)
+  const vimeoPlayingRef = useRef(false)
+  const vimeoPosRef = useRef(0)
+  const vimeoDurRef = useRef(0)
+  const tiktokIframeRef = useRef<HTMLIFrameElement | null>(null)
+  const tiktokPlayingRef = useRef(false)
+  const tiktokPosRef = useRef(0)
+  const tiktokDurRef = useRef(0)
   const lastSave = useRef(0)
   const [playing, setPlaying] = useState(true)
   const [pos, setPos] = useState(0)
@@ -69,6 +79,24 @@ export function YoutubeMiniBar() {
   // Which backend is actually driving playback right now: the iframe embed, or a real
   // <video> (true offline file, or an online track swapped onto the proxy for PiP).
   const useIframe = online && !pipProxyActive
+  // Vimeo's embed now plays with controls=0 (its native chrome, including the Like/Watch
+  // Later buttons, is hidden; see backend/src/lib/videos/providers/vimeo.ts), so this bar
+  // drives it over Player.js instead of leaving it uncontrollable.
+  const isVimeoEmbed = isHubEmbed && track?.source === 'vimeo'
+  const vimeoPlayer = useVimeoPlayer(vimeoIframeRef, track?.videoId ?? '', {
+    onPlay: () => { vimeoPlayingRef.current = true; setPlaying(true); setLoading(false) },
+    onPause: () => { vimeoPlayingRef.current = false; setPlaying(false) },
+    onTimeUpdate: (sec, dur) => { vimeoPosRef.current = sec; vimeoDurRef.current = dur },
+  })
+  // Same reasoning for TikTok: its embed now plays with controls=0 too (see
+  // backend/src/lib/videos/providers/tiktok.ts), so this bar drives it over TikTok's
+  // postMessage embed-player API instead of leaving play/pause/seek as silent no-ops.
+  const isTikTokEmbed = isHubEmbed && track?.source === 'tiktok'
+  const tiktokPlayer = useTikTokPlayer(tiktokIframeRef, track?.videoId ?? '', {
+    onPlay: () => { tiktokPlayingRef.current = true; setPlaying(true); setLoading(false) },
+    onPause: () => { tiktokPlayingRef.current = false; setPlaying(false) },
+    onTimeUpdate: (sec, dur) => { tiktokPosRef.current = sec; tiktokDurRef.current = dur },
+  })
 
   // When something asks to "play expanded" (e.g. a Shows/Movies trailer), pop the larger
   // player open. Only for real YouTube videos; local audio / live streams have no video.
@@ -100,7 +128,7 @@ export function YoutubeMiniBar() {
             else if (e.data === 2) setPlaying(false)
             else if (e.data === 3) setLoading(true)
             if (e.data === YT.PlayerState?.ENDED) {
-              void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined)
+              void saveWatchState(track.videoId, 0, true, track.origin === 'music' ? { origin: 'music' } : undefined)
               if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close()
             }
           },
@@ -121,25 +149,36 @@ export function YoutubeMiniBar() {
     el.addEventListener('enterpictureinpicture', onEnter)
     el.addEventListener('leavepictureinpicture', onLeave)
     return () => { el.removeEventListener('enterpictureinpicture', onEnter); el.removeEventListener('leavepictureinpicture', onLeave) }
-  }, [useIframe, isStream])
+    // `hidden` for the same mount-timing reason as the real-<video> effect below.
+  }, [useIframe, isStream, hidden])
 
-  // ── Real <video>: true offline file, or an online track swapped onto the proxy
-  // stream to satisfy a PiP request (see togglePip) ────────────────────────────────
+  // ── Real <video>: true offline file, or an online/hub-embed track swapped onto the
+  // proxy stream to satisfy a PiP request (see togglePip) ──────────────────────────
   useEffect(() => {
-    if (!track || useIframe || isStream) return
+    // `hidden` must gate AND re-trigger this effect: minimize() from a watch page docks the
+    // track while the bar is still hidden (we're on /videos/<source>/watch/…), so the
+    // <video> only mounts after navigation flips `hidden` — without `hidden` in the deps
+    // the effect never re-runs against the mounted element and src is never set (the
+    // "spinner forever" bug for saved hub videos). `pipProxyActive` must also retrigger it:
+    // a hub-embed track's `useIframe` never changes (always false), so without it here the
+    // swap from iframe to <video> would never actually set a src.
+    if (!track || useIframe || isStream || hidden) return
+    if (isHubEmbed && !pipProxyActive) return // still showing the iframe; nothing to mount yet
     const el = videoRef.current; if (!el) return
     setLoading(true)
     const src = isHubVideo
       ? track.streamVideoUrl!
+      : isHubEmbed
+      ? `/api/vstream/${track.source}/${encodeURIComponent(track.videoId)}`
       : online
       ? proxyStreamUrl(track.videoId, 'video')
       : fileUrl(track.videoId, track.localKind === 'audio' ? 'audio' : 'video')
     if (!el.src.endsWith(src)) el.src = src
-    // True offline resumes at the dock-time position; an online track switching onto
-    // the proxy mid-watch resumes at wherever the iframe had actually gotten to.
-    const startAt = online ? pipSwitchPos.current : pb.startSec
+    // True offline resumes at the dock-time position; an online/hub-embed track switching
+    // onto the proxy mid-watch resumes at wherever the iframe had actually gotten to.
+    const startAt = online || isHubEmbed ? pipSwitchPos.current : pb.startSec
     const onMeta = () => { try { el.currentTime = startAt } catch { /* not seekable */ } }
-    const onEnd = () => { if (!isHub) void saveWatchState(track.videoId, 0, true, track.expandTo ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
+    const onEnd = () => { if (!isHub) void saveWatchState(track.videoId, 0, true, track.origin === 'music' ? { origin: 'music' } : undefined); if (pbRef.current.hasNext) pbRef.current.next(); else pbRef.current.close() }
     el.addEventListener('loadedmetadata', onMeta, { once: true })
     el.addEventListener('ended', onEnd)
     void el.play().then(() => {
@@ -148,7 +187,7 @@ export function YoutubeMiniBar() {
     }).catch(() => setPlaying(false))
     return () => { el.removeEventListener('loadedmetadata', onMeta); el.removeEventListener('ended', onEnd) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.videoId, useIframe, isStream])
+  }, [track?.videoId, useIframe, isStream, hidden, pipProxyActive])
 
   // ── Live stream: drive the <audio> element ───────────────────────────────────
   useEffect(() => {
@@ -165,6 +204,8 @@ export function YoutubeMiniBar() {
   // ── Position reporting + watch-state save (online + offline only) ─────────────
   const read = () => {
     if (useIframe) { const y = ytRef.current; if (y?.getCurrentTime) { try { return { t: y.getCurrentTime() || 0, d: y.getDuration?.() || 0, playing: y.getPlayerState?.() === 1 } } catch { /* not ready */ } } }
+    else if (isVimeoEmbed) { return { t: vimeoPosRef.current, d: vimeoDurRef.current, playing: vimeoPlayingRef.current } }
+    else if (isTikTokEmbed) { return { t: tiktokPosRef.current, d: tiktokDurRef.current, playing: tiktokPlayingRef.current } }
     else if (!isStream) { const v = videoRef.current; if (v) return { t: v.currentTime || 0, d: v.duration || 0, playing: !v.paused } }
     return null
   }
@@ -176,7 +217,7 @@ export function YoutubeMiniBar() {
       pb.reportPosition(s.t); if (s.d) setDur(s.d)
       if (s.playing) setLoading(false)
       const now = Date.now()
-      if (!isHub && s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.expandTo ? { origin: 'music' } : undefined) }
+      if (!isHub && s.playing && now - lastSave.current > 5000) { lastSave.current = now; void saveWatchState(track.videoId, s.t, false, track.origin === 'music' ? { origin: 'music' } : undefined) }
     }, 500)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,7 +238,12 @@ export function YoutubeMiniBar() {
   // fire inconsistently across renders). These closures dereference `track!` only when
   // actually invoked, which only happens from JSX below that renders after `hidden` is
   // confirmed false, so `track` is guaranteed non-null by then.
-  const seekTo = (sec: number) => { if (useIframe) ytRef.current?.seekTo?.(sec, true); else if (videoRef.current) videoRef.current.currentTime = sec }
+  const seekTo = (sec: number) => {
+    if (useIframe) ytRef.current?.seekTo?.(sec, true)
+    else if (isVimeoEmbed) vimeoPlayer.seek(sec)
+    else if (isTikTokEmbed) tiktokPlayer.seek(sec)
+    else if (videoRef.current) videoRef.current.currentTime = sec
+  }
 
   const togglePlay = () => {
     if (isStream) {
@@ -207,6 +253,14 @@ export function YoutubeMiniBar() {
     }
     const s = read(); if (!s) return
     if (useIframe) { const y = ytRef.current; if (s.playing) { y?.pauseVideo?.(); setPlaying(false) } else { y?.playVideo?.(); setPlaying(true) } }
+    else if (isVimeoEmbed) {
+      if (s.playing) { vimeoPlayer.pause(); vimeoPlayingRef.current = false; setPlaying(false) }
+      else { vimeoPlayer.play(); vimeoPlayingRef.current = true; setPlaying(true) }
+    }
+    else if (isTikTokEmbed) {
+      if (s.playing) { tiktokPlayer.pause(); tiktokPlayingRef.current = false; setPlaying(false) }
+      else { tiktokPlayer.play(); tiktokPlayingRef.current = true; setPlaying(true) }
+    }
     else { const v = videoRef.current; if (!v) return; if (v.paused) { void v.play(); setPlaying(true) } else { v.pause(); setPlaying(false) } }
   }
 
@@ -236,6 +290,10 @@ export function YoutubeMiniBar() {
     }
     const el: FsEl | null = useIframe
       ? ((hostRef.current?.querySelector('iframe') as FsEl | null) ?? (hostRef.current as FsEl | null))
+      : isVimeoEmbed
+      ? (vimeoIframeRef.current as FsEl | null)
+      : isTikTokEmbed
+      ? (tiktokIframeRef.current as FsEl | null)
       : (videoRef.current as FsEl | null)
     if (!el) return
     const req = el.requestFullscreen ?? el.webkitRequestFullscreen ?? el.webkitEnterFullscreen
@@ -243,18 +301,19 @@ export function YoutubeMiniBar() {
   }
 
   // True OS-level Picture-in-Picture. Works directly on the real <video> element when
-  // one's already active (true offline file). The plain YouTube iframe embed has no
-  // PiP-eligible element to hand off — the Document PiP API (which can host arbitrary
-  // DOM, including iframes) was tried, but YouTube's embedded player rejects being
-  // hosted in a Document PiP window's top-level browsing context outright, throwing
-  // onError 153 ("video player configuration error") whether the existing iframe is
-  // moved there or a brand-new player is created there fresh — confirmed by testing,
-  // not a reload/move artifact. So requesting PiP while still on the iframe instead
-  // switches this video onto the same real-<video> proxy stream the watch page's
-  // "Private stream" toggle already uses, then fires PiP itself once that stream is
-  // actually playing (see the pendingPipRequest handling in the video effect above).
+  // one's already active (true offline file). Cross-origin iframe embeds (YouTube online,
+  // and now Vimeo/TikTok) have no PiP-eligible element to hand off; the Document PiP API
+  // (which can host arbitrary DOM, including iframes) was tried for YouTube, but its
+  // embedded player rejects being hosted in a Document PiP window's top-level browsing
+  // context outright, throwing onError 153 ("video player configuration error") whether the
+  // existing iframe is moved there or a brand-new player is created there fresh, confirmed
+  // by testing, not a reload/move artifact. So requesting PiP while still on any of these
+  // iframes instead switches the video onto a real <video> proxy stream (the watch page's
+  // "Private stream" toggle for YouTube, /api/vstream for Vimeo/TikTok), then fires PiP
+  // itself once that stream is actually playing (see the pendingPipRequest handling in the
+  // video effect above).
   const togglePip = async () => {
-    if (useIframe) {
+    if (useIframe || (isHubEmbed && !pipProxyActive)) {
       const s = read()
       pipSwitchPos.current = s?.t ?? 0
       pendingPipRequest.current = true
@@ -269,7 +328,7 @@ export function YoutubeMiniBar() {
   }
 
   const onClose = () => {
-    if (!isStream && !isHub) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.expandTo ? { origin: 'music' } : undefined) }
+    if (!isStream && !isHub) { const s = read(); if (s) void saveWatchState(track!.videoId, s.t, false, track!.origin === 'music' ? { origin: 'music' } : undefined) }
     if (isStream) { audioStreamRef.current?.pause() }
     pb.close()
   }
@@ -395,9 +454,10 @@ export function YoutubeMiniBar() {
   // Thumbnail: use override (station favicon/logo) if provided, else YouTube thumbnail.
   const thumbSrc = track!.thumbnail ?? ytImageProxy(thumbUrl(track!.videoId, 'mq'))
 
-  // PiP is offered for any real video track — online included, via the proxy-switch in
-  // togglePip above — just not local audio or live streams, which have no video at all.
-  const showPip = !isStream && !isLocalAudio && !isHubEmbed
+  // PiP is offered for any real video track (online YouTube and Vimeo/TikTok embeds
+  // included, via the proxy-switch in togglePip above), just not local audio or live
+  // streams, which have no video at all.
+  const showPip = !isStream && !isLocalAudio
     && typeof document !== 'undefined' && document.pictureInPictureEnabled
 
   return (
@@ -416,8 +476,9 @@ export function YoutubeMiniBar() {
           since the docked surface would otherwise show an empty/duplicated box. */}
       {!isLocalAudio && !isStream && (
         <div className={cn(pipActive && 'hidden')}>
-          {isHubEmbed
-            ? <iframe src={track!.embedUrl} title={track!.title} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen
+          {isHubEmbed && !pipProxyActive
+            ? <iframe ref={(el) => { if (isVimeoEmbed) vimeoIframeRef.current = el; else if (isTikTokEmbed) tiktokIframeRef.current = el }}
+                src={track!.embedUrl} title={track!.title} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen
                 onLoad={() => setLoading(false)}
                 className={cn(posClass, expanded && win ? 'z-[60]' : 'z-50', !win && 'transition-all', 'overflow-hidden rounded-control border-0 bg-black shadow-lg')} style={posStyle} />
             : useIframe
@@ -492,8 +553,8 @@ export function YoutubeMiniBar() {
           <button onClick={goWatch} className="min-w-0 flex-1 text-left">
             <p className="truncate text-sm font-semibold">{track!.title}</p>
             <span className="mt-0.5 flex items-center gap-1.5">
-              {/* Hub creators' avatars aren't on Google's CDN — route them through /api/img, not ytImageProxy. */}
-              {!isStream && <CreatorAvatar title={track!.author ?? ''} src={track!.channelThumb} proxy={isHubVideo ? proxyImg : ytImageProxy} className="size-4 shrink-0 text-[8px]" />}
+              {/* CreatorAvatar host-sniffs the right image proxy per URL. */}
+              {!isStream && <CreatorAvatar title={track!.author ?? ''} src={track!.channelThumb} className="size-4 shrink-0 text-[8px]" />}
               {isStream && <StatusDot status="error" pulse />}
               <span className="truncate text-xs text-muted-foreground">{track!.author ?? (isStream ? 'Live Radio' : 'YouTube')}</span>
             </span>

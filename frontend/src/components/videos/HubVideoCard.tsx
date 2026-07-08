@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, CloudOff, Film, HardDriveDownload } from 'lucide-react'
+import { Film } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { Spinner } from '@/components/ui/spinner'
-import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
+import { CardMetaBlock, DurationBadge, OnlineOnlyBadge, SaveOfflineButton, WatchProgressBar } from '@/components/videos/cardParts'
 import { toast } from '@/lib/toast'
 import { listSaves, saveVideo, type HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -28,21 +29,6 @@ export const HUB_PATHS = {
 } as const
 
 
-function fmtDur(sec?: number | null): string | null {
-  if (sec == null || sec <= 0) return null
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60)
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
-}
-
-function fmtAge(ms?: number | null): string | null {
-  if (!ms) return null
-  const days = Math.floor((Date.now() - ms) / 86_400_000)
-  if (days < 1) return 'today'
-  if (days < 30) return `${days}d ago`
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`
-  return `${Math.floor(days / 365)}y ago`
-}
-
 /** Card for non-YouTube hub items (YouTube items keep the richer VideoCard). Shows a
  *  source badge in mixed contexts; omit it inside a single source's own browse area. */
 export function HubVideoCard({ item, showSource = true, shape, interactive = true, savingLabel }: {
@@ -57,8 +43,11 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
   savingLabel?: string
 }) {
   const dur = fmtDur(item.durationSec)
-  const metaLine = [item.creator?.name, item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)]
-    .filter(Boolean).join(' · ')
+  const progress = item.watch && !item.watch.completed && item.durationSec ? Math.min(1, item.watch.positionSec / item.durationSec) : 0
+  // Kept apart (not one joined+truncated string) so a very long creator name only eats
+  // into itself — views/date stay fully visible instead of getting truncated away with it.
+  const creatorName = item.creator?.name ?? null
+  const metaSuffix = [item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ')
   const badge = SOURCE_META[item.source]
   // Offline mode: items without a ready local save ghost out instead of dead-ending.
   const mode = useYoutubeModeOptional()
@@ -132,19 +121,14 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
           <iframe src={previewUrl} title="" allow="autoplay" loading="lazy"
             className="pointer-events-none absolute inset-0 size-full border-0" />
         )}
-        {ghosted && (
-          <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">
-            <CloudOff className="size-2.5" aria-hidden /> Online only
-          </span>
-        )}
+        {ghosted && <OnlineOnlyBadge />}
         {showSource && (
           <span className={cn('absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.badgeClass)}>
             <badge.icon className="size-2.5" aria-hidden /> {badge.label}
           </span>
         )}
-        {dur && (
-          <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
-        )}
+        <DurationBadge label={dur} />
+        <WatchProgressBar progress={progress} completed={item.watch?.completed} />
         {savingLabel && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/40 text-white">
             <Spinner size="sm" className="text-white" />
@@ -153,28 +137,13 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
         )}
         {!ghosted && interactive && (
           // One-click Save to the Offline library (hover-revealed; stays visible once saved).
-          <button type="button"
+          <SaveOfflineButton
+            state={saved ? 'saved' : saveMutation.isPending ? 'saving' : null}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!saved && !saveMutation.isPending) saveMutation.mutate() }}
-            title={saved ? 'Saved offline' : 'Save offline'}
-            aria-label={saved ? 'Saved offline' : 'Save offline'}
-            className={cn('absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full text-white transition-all',
-              saved ? 'bg-[var(--yt-accent)] opacity-100'
-                : saveMutation.isPending ? 'bg-black/75 opacity-100'
-                : 'bg-black/75 opacity-0 hover:bg-black/90 group-hover:opacity-100')}>
-            {saveMutation.isPending ? <Spinner className="size-3.5 text-white" /> : saved ? <Check className="size-3.5" /> : <HardDriveDownload className="size-3.5" />}
-          </button>
+          />
         )}
       </div>
-      <div className="flex gap-2.5">
-        {item.creator?.avatarUrl && (
-          <CreatorAvatar title={item.creator.name} src={item.creator.avatarUrl}
-            className={cn('mt-0.5 size-8 shrink-0 text-[10px] ring-1 ring-border/40', ghosted && 'grayscale')} />
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{item.title}</p>
-          {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
-        </div>
-      </div>
+      <CardMetaBlock title={item.title} creatorName={creatorName} creatorAvatarUrl={item.creator?.avatarUrl} metaSuffix={metaSuffix} ghosted={ghosted} />
     </Link>
   )
 }

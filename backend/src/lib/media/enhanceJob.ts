@@ -21,6 +21,22 @@ export interface MediaEnhanceJobPayload { assetId: string }
 /** Format of the derived enhanced rendition (a sibling of the base 'mp4' asset). */
 export const ENHANCED_FORMAT = 'mp4:enhanced'
 
+/** Re-enqueue a Plex sync for every user whose library holds a placed episode of this
+ *  video, so their placement upgrades to the just-finished enhanced rendition. */
+async function replacePlexPlacements(sourceType: string, sourceId: string): Promise<void> {
+  const { ytPlexEpisodes, videoPlexEpisodes } = await import('@/db/schema')
+  const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+  if (sourceType === 'youtube') {
+    const rows = await db.select({ userId: ytPlexEpisodes.userId }).from(ytPlexEpisodes)
+      .where(and(eq(ytPlexEpisodes.videoId, sourceId), eq(ytPlexEpisodes.status, 'ready')))
+    for (const r of rows) await enqueuePlexSync(r.userId, sourceId, 'add').catch(() => {})
+  } else {
+    const rows = await db.select({ userId: videoPlexEpisodes.userId }).from(videoPlexEpisodes)
+      .where(and(eq(videoPlexEpisodes.source, sourceType), eq(videoPlexEpisodes.videoId, sourceId), eq(videoPlexEpisodes.status, 'ready')))
+    for (const r of rows) await enqueuePlexSync(r.userId, sourceId, 'add', sourceType).catch(() => {})
+  }
+}
+
 export async function runEnhanceJob(
   payload: MediaEnhanceJobPayload,
   signal?: AbortSignal,
@@ -75,6 +91,10 @@ export async function runEnhanceJob(
       .set({ blobHash: put.hash, sizeBytes: put.sizeBytes, height: base.height, status: 'ready', error: null, updatedAt: new Date() })
       .where(eq(mediaAssets.id, enhanced.id))
     logger.info(`[enhance] ${base.sourceId}: enhanced rendition ready (height ${base.height ?? '?'})`)
+    // Upgrade any Plex placements of this video: re-enqueue a sync for every user with a
+    // placed episode — the exporters re-place when their preferred rendition changed
+    // (opted-out users' syncs are cheap no-ops). Best-effort; playback benefits regardless.
+    void replacePlexPlacements(base.sourceType, base.sourceId).catch(() => {})
   } catch (err) {
     await db.update(mediaAssets).set({ status: 'failed', error: String(err), updatedAt: new Date() }).where(eq(mediaAssets.id, enhanced.id))
     throw err

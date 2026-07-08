@@ -22,7 +22,19 @@ export interface StudioBinItem {
   origin: string
   thumbUrl: string | null
   createdAt: number
+  /** Studio-owned items only: the studio_media row id (share toggle target). */
+  mediaId?: string
+  /** Studio-owned videos only: epoch ms when shared with the household, null = private. */
+  sharedAt?: number | null
 }
+
+// The bin also holds source clips pulled in from other providers as raw editing material —
+// those aren't "yours," they're someone else's video you're editing with. This is what
+// "Mine" means everywhere outside the Studio itself: exports, uploads, recordings, and AI
+// generations (and, later, videos shared with you by family). Named list (not every
+// non-source origin) so a future origin defaults to excluded, not silently included.
+const MINE_ORIGINS = new Set(['export', 'upload', 'recording', 'generated'])
+export const isMineBinItem = (i: StudioBinItem): boolean => i.kind === 'video' && MINE_ORIGINS.has(i.origin)
 
 export interface StudioExportStatus {
   export: { id: string; status: 'pending' | 'processing' | 'ready' | 'failed'; error: string | null; assetId: string | null; title: string }
@@ -56,6 +68,9 @@ export const saveStudioProject = (id: string, patch: { name?: string; edl?: Stud
 export const deleteStudioProject = (id: string) => sendJson<{ ok: true }>(`/api/videos/studio/projects/${encodeURIComponent(id)}`, 'DELETE')
 
 export const listStudioBin = () => getJson<{ items: StudioBinItem[] }>('/api/videos/studio/media')
+/** Share/unshare a Studio-owned video with the household (other members' My Videos Plex libraries). */
+export const setStudioMediaShared = (mediaId: string, shared: boolean) =>
+  sendJson<{ ok: true; sharedAt: number | null }>(`/api/videos/studio/media/${encodeURIComponent(mediaId)}`, 'PATCH', { shared })
 export const studioStreamUrl = (assetId: string) => `/api/videos/studio/media/${encodeURIComponent(assetId)}/stream`
 export const studioThumbUrl = (assetId: string) => `/api/videos/studio/media/${encodeURIComponent(assetId)}/thumb`
 

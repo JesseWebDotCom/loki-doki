@@ -33,28 +33,5 @@ export function VideoThumb({ videoId, title, quality = 'mq', className, override
   )
 }
 
-// Distinct per-channel avatar: the channel thumbnail when present, else a coloured
-// circle with the channel's initial, so subscription lists aren't a wall of clones.
-const AVATAR_COLORS = [
-  'bg-rose-500/20 text-rose-400', 'bg-amber-500/20 text-amber-400', 'bg-emerald-500/20 text-emerald-400', // design-ok(raw-palette-semantic): deterministic letter-avatar palette (channel identity data, not UI accents)
-  'bg-sky-500/20 text-sky-400', 'bg-brand/15 text-brand', 'bg-pink-500/20 text-pink-400', // design-ok(raw-palette-semantic): deterministic letter-avatar palette (channel identity data, not UI accents)
-  'bg-teal-500/20 text-teal-400', 'bg-orange-500/20 text-orange-400', // design-ok(raw-palette-semantic): deterministic letter-avatar palette (channel identity data, not UI accents)
-]
-
-export function ChannelAvatar({ title, src, className }: { title: string; src?: string | null; className?: string }) {
-  // Track the URL that failed (not a bare boolean) so navigating to a different channel with a
-  // new src gets a fresh chance to load instead of staying stuck on the letter fallback.
-  const [failedSrc, setFailedSrc] = useState<string | null>(null)
-  // referrerPolicy="no-referrer": Google's avatar CDN (yt3.googleusercontent.com) 429s hotlinked
-  // requests that carry a localhost Referer, which made avatars silently fall back to the letter.
-  if (src && failedSrc !== src) return <img key={src} src={ytImageProxy(src)} alt={title} referrerPolicy="no-referrer" className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
-  let h = 0
-  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0
-  const color = AVATAR_COLORS[h % AVATAR_COLORS.length]
-  const letter = (title.trim()[0] ?? '?').toUpperCase()
-  return (
-    <div className={cn('flex items-center justify-center rounded-full font-semibold shrink-0', color, className)}>
-      {letter}
-    </div>
-  )
-}
+// The channel/creator avatar now lives in @/components/videos/CreatorAvatar: one shared
+// component for YouTube and hub sources alike (proxy choice is host-sniffed internally).

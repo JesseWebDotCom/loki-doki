@@ -27,7 +27,7 @@ export function PlexConnectBanner() {
   const dismiss = () => {
     localStorage.setItem(DISMISS_KEY, '1')
     setDismissed(true)
-    toast.info('You can connect Plex anytime in Settings → Plex, or the gear in Movies.')
+    toast.info('You can connect Plex anytime from the Shows or Movies settings (the gear icon).')
   }
 
   return (

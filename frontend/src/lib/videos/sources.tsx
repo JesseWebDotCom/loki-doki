@@ -3,7 +3,7 @@
 // same ones the rail uses, paired with brand-adjacent colors and the referential name.
 // Tailwind can't see computed class names, so these are full strings.
 
-import { Clapperboard, Globe, MessagesSquare, Music2, Play, type LucideIcon } from 'lucide-react'
+import { Clapperboard, Globe, MessagesSquare, Music2, Play, Video, type LucideIcon } from 'lucide-react'
 import type { VideoSource } from '@/lib/videos/api'
 
 export interface SourceMeta {
@@ -34,4 +34,15 @@ export const SOURCE_META: Record<VideoSource, SourceMeta> = {
   // design-ok(hex-in-tsx): identity tile gradient for the source page header
   // Universal paste-any-URL source: a neutral slate identity, not a brand.
   link: { label: 'Other sites', icon: Globe, dotClass: 'bg-slate-500', badgeClass: 'bg-slate-700 text-white', pillActiveClass: 'bg-slate-700 text-white', gradient: 'linear-gradient(135deg,#334155,#64748b)' },
+}
+
+// 'Mine' isn't a VideoSource — it's Studio bin content (exports/uploads/recordings/AI
+// clips), which has no provider/browse surface of its own. Kept separate from SOURCE_META
+// (which every generic `item.source` lookup indexes into) so it can't silently satisfy a
+// VideoSource-keyed lookup as if it were a real playable hub source.
+// design-ok(hex-in-tsx): Mine identity gradient, matches MyVideosPage's header tile
+// design-ok(raw-palette-semantic): Mine identity color (amber), distinct from every real source's brand color
+export const MINE_META: SourceMeta = {
+  label: 'Mine', icon: Video, dotClass: 'bg-amber-500', badgeClass: 'bg-amber-600 text-white',
+  pillActiveClass: 'bg-amber-600 text-white', gradient: 'linear-gradient(135deg,#78350f,#f59e0b)',
 }

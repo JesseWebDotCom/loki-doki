@@ -249,7 +249,7 @@ export function SettingsYoutubeChannels() {
       <div className="space-y-2">
         <p className="text-overline text-muted-foreground">Add channels</p>
         <p className="text-[11px] text-muted-foreground/70 -mt-1">
-          Follow a channel or playlist to build your feed.
+          Subscribe to a channel or playlist to build your feed.
         </p>
         <div className="flex gap-2 pt-1">
           <input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}

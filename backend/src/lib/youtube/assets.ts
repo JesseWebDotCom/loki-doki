@@ -210,12 +210,12 @@ const ENHANCED_FORMAT = 'mp4:enhanced'
 /** If any user referencing this base video asset opted into enhancement, enqueue a background
  *  enhance. Best-effort helper for completeAsset — coalesced per asset by the queue. */
 async function maybeEnqueueEnhance(assetId: string): Promise<void> {
-  const { shouldEnhance } = await import('@/lib/media/enhancePolicy')
+  const { shouldEnhanceFor } = await import('@/lib/media/enhancePolicy')
   const refs = await db.select({ userId: ytDownloads.userId }).from(ytDownloads)
     .where(and(eq(ytDownloads.assetId, assetId), ne(ytDownloads.status, 'failed')))
   const userIds = [...new Set(refs.map((r) => r.userId))]
   let wanted = false
-  for (const uid of userIds) { if (await shouldEnhance(uid)) { wanted = true; break } }
+  for (const uid of userIds) { if (await shouldEnhanceFor(uid, 'youtube')) { wanted = true; break } }
   if (!wanted) return
   const { enqueueMediaEnhance } = await import('@/lib/downloadJobs')
   await enqueueMediaEnhance(assetId)
@@ -231,10 +231,10 @@ export async function resolvePlaybackBlob(
 ): Promise<{ hash: string; absPath: string; mime: string } | null> {
   const base = await resolveRefBlob(ref)
   if (!base || !ref.assetId) return base
-  const { shouldEnhance } = await import('@/lib/media/enhancePolicy')
-  if (!(await shouldEnhance(ref.userId))) return base
   const [baseAsset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, ref.assetId)).limit(1)
   if (!baseAsset || baseAsset.kind !== 'video') return base
+  const { shouldEnhanceFor } = await import('@/lib/media/enhancePolicy')
+  if (!(await shouldEnhanceFor(ref.userId, baseAsset.sourceType))) return base
   const [enh] = await db.select().from(mediaAssets).where(and(
     eq(mediaAssets.sourceType, baseAsset.sourceType), eq(mediaAssets.sourceId, baseAsset.sourceId),
     eq(mediaAssets.kind, 'video'), eq(mediaAssets.format, ENHANCED_FORMAT), eq(mediaAssets.status, 'ready'),

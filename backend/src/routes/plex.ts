@@ -213,6 +213,103 @@ plexRoute.post('/config', requireAdmin, async (c) => {
   return c.json({ saved: true, ...status })
 })
 
+// ── library sync policies (all / most-recent-N / remove-watched) ──────────────────
+
+interface PolicyPatch { syncMode?: unknown; syncRecentCount?: unknown; removeWatched?: unknown }
+
+/** Validate + apply a policy patch to one section row; returns an error string or null.
+ *  Side effects: shrinking/entering 'recent' enforces immediately; widening back to 'all'
+ *  re-backfills via a provision job (its backfill path re-adds every ready save). */
+async function applyPolicyPatch(section: { id: string; userId: string; contentType: string; syncMode: string }, body: PolicyPatch): Promise<string | null> {
+  const { db } = await import('@/db')
+  const { plexLibrarySections } = await import('@/db/schema')
+  const { eq } = await import('drizzle-orm')
+
+  const patch: Record<string, unknown> = {}
+  if (body.syncMode !== undefined) {
+    if (body.syncMode !== 'all' && body.syncMode !== 'recent') return 'syncMode must be "all" or "recent"'
+    patch.syncMode = body.syncMode
+  }
+  if (body.syncRecentCount !== undefined) {
+    if (body.syncRecentCount !== null && (typeof body.syncRecentCount !== 'number' || !Number.isInteger(body.syncRecentCount) || body.syncRecentCount < 1 || body.syncRecentCount > 500)) {
+      return 'syncRecentCount must be an integer 1-500 (or null for the default)'
+    }
+    patch.syncRecentCount = body.syncRecentCount
+  }
+  if (body.removeWatched !== undefined) {
+    if (typeof body.removeWatched !== 'boolean') return 'removeWatched must be a boolean'
+    if (body.removeWatched && section.contentType === 'mine') return 'removeWatched does not apply to My Videos — your own creations are never auto-deleted'
+    patch.removeWatched = body.removeWatched
+  }
+  if (!Object.keys(patch).length) return 'nothing to update'
+
+  await db.update(plexLibrarySections).set({ ...patch, updatedAt: new Date() }).where(eq(plexLibrarySections.id, section.id))
+
+  const newMode = (patch.syncMode as string | undefined) ?? section.syncMode
+  if (newMode === 'recent') {
+    const { enforceLibraryPolicy } = await import('@/lib/plex/export/policy')
+    void enforceLibraryPolicy(section.userId, section.contentType).catch(() => {})
+  } else if (section.syncMode === 'recent' && newMode === 'all') {
+    const { enqueuePlexProvision } = await import('@/lib/downloadJobs')
+    void enqueuePlexProvision(section.userId, section.contentType).catch(() => {})
+  }
+  return null
+}
+
+/** The current user's own exported libraries + policies (drives the Videos settings UI).
+ *  Also reports per-source storage readiness (a content_type_storage assignment whose
+ *  location has a Plex path mapping — the same condition provisioning enforces), so the
+ *  settings page can render unprovisioned sources disabled with the right "ask an admin"
+ *  note instead of hiding them. */
+plexRoute.get('/me/library-sections', async (c) => {
+  const user = c.get('user')
+  const { db } = await import('@/db')
+  const { plexLibrarySections, plexPathMappings } = await import('@/db/schema')
+  const { eq } = await import('drizzle-orm')
+  const { PLEX_EXPORT_CONTENT_TYPES } = await import('@/lib/plex/export/contentTypes')
+  const { getContentTypeStorageLocationId } = await import('@/lib/storage/contentRoots')
+  const rows = await db.select().from(plexLibrarySections).where(eq(plexLibrarySections.userId, user.id))
+  const storageReady: Record<string, boolean> = {}
+  for (const ct of PLEX_EXPORT_CONTENT_TYPES) {
+    const locId = await getContentTypeStorageLocationId(ct)
+    if (!locId) { storageReady[ct] = false; continue }
+    const [mapping] = await db.select({ id: plexPathMappings.id }).from(plexPathMappings)
+      .where(eq(plexPathMappings.storageLocationId, locId)).limit(1)
+    storageReady[ct] = !!mapping
+  }
+  return c.json({ sections: rows, storageReady })
+})
+
+plexRoute.patch('/me/library-sections/:contentType', async (c) => {
+  const user = c.get('user')
+  const contentType = c.req.param('contentType')
+  const { db } = await import('@/db')
+  const { plexLibrarySections } = await import('@/db/schema')
+  const { and, eq } = await import('drizzle-orm')
+  const [section] = await db.select().from(plexLibrarySections)
+    .where(and(eq(plexLibrarySections.userId, user.id), eq(plexLibrarySections.contentType, contentType)))
+    .limit(1)
+  if (!section) return c.json({ error: 'no library provisioned for this source' }, 404)
+  const body = (await c.req.json().catch(() => ({}))) as PolicyPatch
+  const err = await applyPolicyPatch(section, body)
+  if (err) return c.json({ error: err }, 400)
+  return c.json({ ok: true })
+})
+
+plexRoute.patch('/admin/library-sections/:id', requireAdmin, async (c) => {
+  const { db } = await import('@/db')
+  const { plexLibrarySections } = await import('@/db/schema')
+  const { eq } = await import('drizzle-orm')
+  const [section] = await db.select().from(plexLibrarySections)
+    .where(eq(plexLibrarySections.id, c.req.param('id')))
+    .limit(1)
+  if (!section) return c.json({ error: 'section not found' }, 404)
+  const body = (await c.req.json().catch(() => ({}))) as PolicyPatch
+  const err = await applyPolicyPatch(section, body)
+  if (err) return c.json({ error: err }, 400)
+  return c.json({ ok: true })
+})
+
 // ── admin: per-user library provisioning (Plex export feature) ────────────────────
 
 plexRoute.get('/admin/library-sections', requireAdmin, async (c) => {
@@ -222,9 +319,33 @@ plexRoute.get('/admin/library-sections', requireAdmin, async (c) => {
   return c.json({ sections: rows })
 })
 
+// Every Plex account the admin token can see (owner + friends + Plex Home users) — the
+// options for mapping app users to Plex accounts without each person signing in.
+plexRoute.get('/admin/accounts', requireAdmin, async (c) => {
+  const conn = await getPlexConnection()
+  if (!conn) return c.json({ accounts: [] })
+  const { listPlexServerAccounts } = await import('@/lib/plex/auth')
+  return c.json({ accounts: await listPlexServerAccounts(conn.token) })
+})
+
+// Map (or clear) an app user → Plex account. Mapping alone is enough to provision and
+// share their private libraries; personal watchlist/scrobble sync still needs their own
+// sign-in (Plex never exposes another account's token).
+plexRoute.put('/admin/user-mapping', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { userId?: string; plexAccountId?: string | null; plexUsername?: string | null }
+  if (!body.userId) return c.json({ error: 'userId is required' }, 400)
+  const { setUserPlexMapping } = await import('@/lib/plex/account')
+  await setUserPlexMapping(body.userId, body.plexAccountId
+    ? { accountId: body.plexAccountId, username: body.plexUsername ?? null }
+    : null)
+  return c.json({ ok: true })
+})
+
 plexRoute.post('/admin/provision', requireAdmin, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { userId?: string; contentType?: string }
   if (!body.userId || !body.contentType) return c.json({ ok: false, error: 'userId and contentType are required' }, 400)
+  const { isPlexExportContentType } = await import('@/lib/plex/export/contentTypes')
+  if (!isPlexExportContentType(body.contentType)) return c.json({ ok: false, error: `Unknown content type "${body.contentType}"` }, 400)
   const { enqueuePlexProvision } = await import('@/lib/downloadJobs')
   await enqueuePlexProvision(body.userId, body.contentType)
   return c.json({ ok: true })

@@ -111,12 +111,15 @@ youtubeRoute.get('/search', async (c) => {
   if (!q) return c.json({ results: [], error: 'Query required' }, 400)
 
   // Typed search (Videos / Shorts / Playlists / Channels chips) — restrict to one result
-  // type via the InnerTube filter param. Keyless InnerTube only.
+  // type via the InnerTube filter param. Keyless InnerTube only. Cached (20min, matching
+  // the other providers' warm-cycle-safe TTL): the Videos hub's unified category chips
+  // repeat these exact (type, label) pairs constantly (e.g. type=videos, q="Comedy"), so an
+  // uncached live search on every click was a real, avoidable ~0.6-1.2s per category.
   const type = c.req.query('type') as keyof typeof SEARCH_FILTERS | undefined
   if (type && SEARCH_FILTERS[type]) {
-    const page = await tryInnertube('typedSearch',
+    const page = await cachedLookup('youtube:search', `${type}:${q.toLowerCase()}`, 20 * 60_000, () => tryInnertube('typedSearch',
       () => innertubeSearch(q, 36, type === 'channels' ? 24 : 0, 8000, type === 'playlists' ? 30 : 0, SEARCH_FILTERS[type]),
-      { videos: [], channels: [], playlists: [], continuation: null })
+      { videos: [], channels: [], playlists: [], continuation: null }))
     const videos = type === 'shorts' ? page.videos.filter(v => v.durationSec == null || v.durationSec <= 90) : page.videos
     return c.json({
       results: videos.map(itVideoResult),
@@ -276,7 +279,7 @@ youtubeRoute.delete('/subscriptions/:id', async (c) => {
 youtubeRoute.patch('/subscriptions/:id', async (c) => {
   const user = c.get('user')
   const subId = c.req.param('id')
-  const body = (await c.req.json().catch(() => ({}))) as { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null }
+  const body = (await c.req.json().catch(() => ({}))) as { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean }
 
   const [sub] = await db.select({ id: ytSubscriptions.id }).from(ytSubscriptions)
     .where(and(eq(ytSubscriptions.id, subId), eq(ytSubscriptions.userId, user.id))).limit(1)
@@ -285,6 +288,7 @@ youtubeRoute.patch('/subscriptions/:id', async (c) => {
   const patch: Partial<typeof ytSubscriptions.$inferInsert> = {}
   if (typeof body.autoSave === 'boolean') patch.autoSave = body.autoSave
   if (body.autoSaveKind === 'audio' || body.autoSaveKind === 'video') patch.autoSaveKind = body.autoSaveKind
+  if (typeof body.removeWatched === 'boolean') patch.removeWatched = body.removeWatched
   if (body.autoSaveKeep === null) patch.autoSaveKeep = null
   else if (typeof body.autoSaveKeep === 'number' && Number.isFinite(body.autoSaveKeep)) {
     patch.autoSaveKeep = Math.max(0, Math.floor(body.autoSaveKeep))
@@ -617,13 +621,13 @@ youtubeRoute.post('/save', handleSave)
 youtubeRoute.post('/download', handleSave)   // legacy alias
 
 // Save a channel's current back-catalogue: fetch its latest `count` uploads and enqueue each
-// as a permanent offline save right now. This is the "grab what's already there" companion to
-// per-subscription auto-save (which only covers NEW uploads going forward). Because these are
-// explicit saves (auto:false), the rolling keep-N prune never touches them.
+// as an offline save right now. With auto:true (the "Configure for offline" backfill) the
+// rows join the rolling keep-N window alongside poller auto-saves; with auto:false (default)
+// they are explicit saves the prune never touches.
 youtubeRoute.post('/channel/:channelId/save-now', async (c) => {
   const user = c.get('user')
   const channelId = c.req.param('channelId')
-  const { kind: reqKind = 'video', count = 10 } = await c.req.json<{ kind?: 'audio' | 'video'; count?: number }>().catch(() => ({}) as { kind?: 'audio' | 'video'; count?: number })
+  const { kind: reqKind = 'video', count = 10, auto = false } = await c.req.json<{ kind?: 'audio' | 'video'; count?: number; auto?: boolean }>().catch(() => ({}) as { kind?: 'audio' | 'video'; count?: number; auto?: boolean })
   const kind: 'audio' | 'video' = reqKind === 'audio' ? 'audio' : 'video'
   const n = Math.max(1, Math.min(50, Math.floor(count) || 10))
 
@@ -635,9 +639,26 @@ youtubeRoute.post('/channel/:channelId/save-now', async (c) => {
   const cap = await getEffectiveCap(user.id)
   const maxHeight = kind === 'audio' ? null : Math.min((await getUserPreference(user.id)) ?? cap, cap)
 
+  // Auto backfill rows must be visible to the keep-N prune and the remove-watched sweep,
+  // which both join yt_videos on subscriptionId — make sure those rows exist (the RSS
+  // poller only ever covers the newest ~15, so deeper backfills would otherwise escape
+  // the rolling window forever).
+  if (auto === true) {
+    const [sub] = await db.select().from(ytSubscriptions).where(and(
+      eq(ytSubscriptions.userId, user.id), eq(ytSubscriptions.externalId, channelId), eq(ytSubscriptions.kind, 'channel'),
+    )).limit(1)
+    if (!sub) return c.json({ error: 'subscribe to this channel first' }, 400)
+    const { upsertSubscriptionVideos } = await import('@/lib/youtube/feed')
+    await upsertSubscriptionVideos(sub, videos.map(v => ({
+      videoId: v.videoId, title: v.title ?? '', author: v.author, channelId: v.channelId,
+      thumbnailUrl: v.thumbnailUrl, publishedAt: v.publishedAt ?? null,
+      durationSec: v.durationSec, views: v.views, description: null,
+    })))
+  }
+
   let queued = 0
   for (const v of videos) {
-    const r = await enqueueVideoSave({ userId: user.id, videoId: v.videoId, title: v.title ?? '', kind, maxHeight, firstName })
+    const r = await enqueueVideoSave({ userId: user.id, videoId: v.videoId, title: v.title ?? '', kind, maxHeight, firstName, auto: auto === true })
       .catch(() => null)
     if (r) queued++
   }
@@ -1019,13 +1040,38 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     return cachedLookup('yt-channel-avatar', channelId, 7 * 24 * 60 * 60 * 1000, () => innertubeChannelAvatar(channelId))
   }
 
+  // Subscriber count for the creator row (e.g. "22.7M subscribers") — cached a full day,
+  // same rationale as the avatar: this number doesn't move fast enough to justify a live
+  // fetch on every watch, and `limit: 1` keeps the underlying channel-page fetch cheap.
+  const subscribersFor = async (channelId: string | null | undefined): Promise<string | null> => {
+    if (!channelId) return null
+    return cachedLookup('yt-channel-subs', channelId, 24 * 60 * 60 * 1000, async () => {
+      const page = await innertubeChannel(channelId, null, 1).catch(() => null)
+      return page?.meta?.subscribers ?? null
+    })
+  }
+
   if (v?.description) {
     const sub = await subFor(v.channelId)
+    // Self-heal: a stub row can exist with description/views but a blank title/author (the
+    // schema's NOT NULL DEFAULT '' — e.g. ensureChannelThumb creating a row before any
+    // metadata fetch ever ran). This fast path would otherwise serve that blank forever, since
+    // it's the only branch a row with a description ever reaches again. One live top-up fixes
+    // it for good; every later hit stays on the true fast path below.
+    let title = v.title, author = v.author
+    if (!title || !author) {
+      const fix = await tryInnertube('playerMeta', () => innertubePlayerMeta(videoId), null)
+      if (fix?.title) {
+        title = fix.title
+        author = fix.author ?? author
+        await db.update(ytVideos).set({ title, author }).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+      }
+    }
     // No cached live signal on this row — a video that was live when it was first cached could
     // theoretically still be live, but this fast path is dominated by long-finished feed/saved
     // videos, so defaulting false here (rather than always paying for an InnerTube call) is the
     // right tradeoff. The Record button re-verifies via getLiveStatus() before it ever records.
-    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
+    return c.json({ videoId, title, author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), subscribers: await subscribersFor(v.channelId), description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, publishedAt: v.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
   }
 
   // Fast metadata path: InnerTube's player endpoint (structured JSON, no subprocess).
@@ -1033,21 +1079,27 @@ youtubeRoute.get('/video/:videoId', async (c) => {
   const it = await tryInnertube('playerMeta', () => innertubePlayerMeta(videoId), null)
   if (it?.title) {
     // Persist description + view count back onto the row so the cached path (above) and the
-    // Offline/Feed cards can show them without re-resolving.
-    if (v && (it.description || it.views)) {
+    // Offline/Feed cards can show them without re-resolving. Also backfills title/author when
+    // blank (e.g. a stub row created by ensureChannelThumb before any metadata fetch ran) so
+    // the row is never left to reach the cached path above with an empty title/author.
+    if (v && (it.description || it.views || (it.publishedAt && !v.publishedAt) || !v.title || !v.author)) {
       const patch: Partial<typeof ytVideos.$inferInsert> = {}
       if (it.description) patch.description = it.description
       if (it.views) patch.views = it.views
-      await db.update(ytVideos).set(patch).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+      if (it.publishedAt && !v.publishedAt) patch.publishedAt = it.publishedAt
+      if (!v.title && it.title) patch.title = it.title
+      if (!v.author && it.author) patch.author = it.author
+      if (Object.keys(patch).length > 0) await db.update(ytVideos).set(patch).where(eq(ytVideos.videoId, videoId)).catch(() => {})
     }
     const channelId = it.channelId ?? v?.channelId ?? null
     const sub = await subFor(channelId)
     return c.json({
       videoId, title: it.title, author: it.author ?? v?.author ?? null, channelId,
-      channelThumb: await avatarFor(sub, channelId), description: it.description ?? v?.description ?? null,
+      channelThumb: await avatarFor(sub, channelId), subscribers: await subscribersFor(channelId), description: it.description ?? v?.description ?? null,
       descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null, durationSec: it.durationSec ?? v?.durationSec ?? null,
       views: it.views ?? v?.views ?? null,
+      publishedAt: it.publishedAt ?? v?.publishedAt ?? null,
       positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: it.isLive,
     })
   }
@@ -1061,8 +1113,13 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       proc.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
       proc.on('error', reject)
     })
-    const m = JSON.parse(json) as { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; is_live?: boolean; view_count?: number }
+    const m = JSON.parse(json) as { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; is_live?: boolean; view_count?: number; timestamp?: number; upload_date?: string }
     const mViews = m.view_count != null ? String(m.view_count) : null
+    // Upload date: prefer the exact unix timestamp; fall back to the YYYYMMDD upload_date.
+    const mPublishedAt = m.timestamp ? m.timestamp * 1000
+      : m.upload_date && /^\d{8}$/.test(m.upload_date)
+        ? Date.parse(`${m.upload_date.slice(0, 4)}-${m.upload_date.slice(4, 6)}-${m.upload_date.slice(6, 8)}`)
+        : null
     // Persist description + view count back onto the row when we have them.
     if (v && (m.description || mViews)) {
       const patch: Partial<typeof ytVideos.$inferInsert> = {}
@@ -1078,11 +1135,13 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       author: m.channel ?? m.uploader ?? v?.author ?? null,
       channelId,
       channelThumb: await avatarFor(sub, channelId),
+      subscribers: await subscribersFor(channelId),
       description: m.description ?? v?.description ?? null,
       descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null,
       durationSec: m.duration ?? v?.durationSec ?? null,
       views: mViews ?? v?.views ?? null,
+      publishedAt: mPublishedAt ?? v?.publishedAt ?? null,
       positionSec,
       subscribed: !!sub,
       subscriptionId: sub?.id ?? null,
@@ -1090,7 +1149,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     })
   } catch {
     const sub = await subFor(v?.channelId)
-    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, views: v?.views ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
+    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), subscribers: await subscribersFor(v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, views: v?.views ?? null, publishedAt: v?.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
   }
 })
 
@@ -1671,7 +1730,9 @@ youtubeRoute.get('/collections', async (c) => {
     author: ytCollections.author,
     channelId: ytCollections.channelId,
     durationSec: ytCollections.durationSec,
+    thumbnailUrl: ytCollections.thumbnailUrl,
     addedAt: ytCollections.addedAt,
+    videoSource: ytCollections.videoSource,
     channelThumbSub: ytSubscriptions.thumbnailUrl,
     channelThumbVid: ytVideos.channelThumb,
   })
@@ -1685,8 +1746,10 @@ youtubeRoute.get('/collections', async (c) => {
     if (!isCollectionKey(r.collection)) continue
     out[r.collection].push({
       videoId: r.videoId, title: r.title, author: r.author, channelId: r.channelId,
-      channelThumb: r.channelThumbSub ?? r.channelThumbVid ?? null,
-      durationSec: r.durationSec, addedAt: r.addedAt ? r.addedAt.getTime() : 0,
+      channelThumb: r.videoSource === 'youtube' ? (r.channelThumbSub ?? r.channelThumbVid ?? null) : null,
+      durationSec: r.durationSec, thumbnailUrl: r.thumbnailUrl,
+      addedAt: r.addedAt ? r.addedAt.getTime() : 0,
+      videoSource: r.videoSource,
     })
   }
   // Resolve missing avatars in the background so logos fill in on the next poll.
@@ -1696,13 +1759,17 @@ youtubeRoute.get('/collections', async (c) => {
   return c.json(out)
 })
 
+const isVideoSourceLike = (s: unknown): s is 'youtube' | 'reddit' | 'tiktok' | 'vimeo' | 'link' | 'mine' =>
+  s === 'youtube' || s === 'reddit' || s === 'tiktok' || s === 'vimeo' || s === 'link' || s === 'mine'
+
 youtubeRoute.put('/collections/:key/:videoId', async (c) => {
   const user = c.get('user')
   const key = c.req.param('key')
   const videoId = c.req.param('videoId')
   if (!isCollectionKey(key)) return c.json({ error: 'Invalid collection' }, 400)
-  type CollBody = { title?: string; author?: string | null; channelId?: string | null; durationSec?: number | null }
+  type CollBody = { title?: string; author?: string | null; channelId?: string | null; durationSec?: number | null; thumbnailUrl?: string | null; videoSource?: string }
   const body = await c.req.json<CollBody>().catch(() => ({} as CollBody))
+  const videoSource = isVideoSourceLike(body.videoSource) ? body.videoSource : 'youtube'
 
   await db.insert(ytCollections).values({
     id: crypto.randomUUID(),
@@ -1713,11 +1780,14 @@ youtubeRoute.put('/collections/:key/:videoId', async (c) => {
     author: body.author ?? null,
     channelId: body.channelId ?? null,
     durationSec: body.durationSec ?? null,
+    thumbnailUrl: body.thumbnailUrl ?? null,
+    videoSource,
     addedAt: new Date(),
   }).onConflictDoNothing()
 
-  // Mirror to the linked YouTube account (Watch Later / like) — no-op when none.
-  pushCollectionChange(user.id, key, videoId, 'add')
+  // Mirror to the linked YouTube account (Watch Later / like) — no-op for non-YouTube sources
+  // (gated inside pushCollectionChange) and when no account is linked.
+  pushCollectionChange(user.id, key, videoId, 'add', videoSource)
 
   return c.json({ ok: true })
 })
@@ -1727,9 +1797,12 @@ youtubeRoute.delete('/collections/:key/:videoId', async (c) => {
   const key = c.req.param('key')
   const videoId = c.req.param('videoId')
   if (!isCollectionKey(key)) return c.json({ error: 'Invalid collection' }, 400)
+  const [existing] = await db.select({ videoSource: ytCollections.videoSource }).from(ytCollections)
+    .where(and(eq(ytCollections.userId, user.id), eq(ytCollections.collection, key), eq(ytCollections.videoId, videoId)))
+    .limit(1)
   await db.delete(ytCollections)
     .where(and(eq(ytCollections.userId, user.id), eq(ytCollections.collection, key), eq(ytCollections.videoId, videoId)))
-  pushCollectionChange(user.id, key, videoId, 'remove')
+  pushCollectionChange(user.id, key, videoId, 'remove', existing?.videoSource ?? 'youtube')
   return c.json({ ok: true })
 })
 
@@ -1841,7 +1914,10 @@ youtubeRoute.get('/history', async (c) => {
 
   const history = rows.map(r => ({
     videoId: r.videoId,
-    title: r.title ?? r.videoId,
+    // `||` (not `??`): a persisted-but-blank title (yt_videos.title defaults to '', and a
+    // couple of insert paths could write that) must fall back the same as a missing row,
+    // so the self-heal below (which matches on title === videoId) catches both shapes.
+    title: r.title || r.videoId,
     author: r.author ?? null,
     channelId: r.channelId ?? null,
     // Prefer the subscription thumb, then the avatar persisted + warmed for offline.

@@ -3,7 +3,7 @@
 // UI degrade honestly (e.g. TikTok ships without a trending browse, Vimeo browse only
 // unlocks once an API token is configured).
 
-import type { Creator, Pager, PlaybackInfo, VideoItem, VideoSource } from '@/lib/videos/types'
+import type { Creator, Pager, PlaybackInfo, Playlist, VideoItem, VideoSource } from '@/lib/videos/types'
 
 export interface ProviderCapabilities {
   /** Has a home/trending browse surface (may be config-dependent; see status()). */
@@ -16,6 +16,14 @@ export interface ProviderCapabilities {
   downloadKinds: Array<'audio' | 'video'>
   /** What admin setup unlocks or improves the source. */
   authConfig: 'none' | 'apiKey' | 'cookies'
+  /** Creator page has a Playlists tab (getCreatorPlaylists/getPlaylistItems). */
+  playlists?: boolean
+  /** Watch page has a "Related videos" shelf (getRelated). */
+  related?: boolean
+  /** Watch page shows Transcript + AI Summary tabs. Set false for platforms whose videos
+   *  never carry captions/subtitles (TikTok, Reddit's v.redd.it) — the tabs would always
+   *  render empty there. Absent = true (yt-dlp subtitle fetch generally works). */
+  transcript?: boolean
 }
 
 export interface UrlMatch {
@@ -82,9 +90,20 @@ export interface VideoProvider {
   browse?(opts: BrowseOpts): Promise<Pager<VideoItem>>
   search?(q: string, opts: SearchOpts): Promise<Pager<VideoItem>>
   getCreator?(id: string, cursor?: string | null, opts?: { warm?: boolean }): Promise<{ creator: Creator; videos: Pager<VideoItem> }>
-  getItem(id: string): Promise<(VideoItem & { description?: string | null }) | null>
+  /** Creator's playlists tab (capabilities.playlists). */
+  getCreatorPlaylists?(creatorId: string, cursor?: string | null): Promise<Pager<Playlist>>
+  /** Videos inside a single playlist. */
+  getPlaylistItems?(playlistId: string, cursor?: string | null): Promise<Pager<VideoItem>>
+  /** userId is optional (unauthenticated warm passes have none) — sources that gate AI
+   *  enrichment on a user preference (TikTok's Smart Titles) treat a missing id as "off". */
+  getItem(id: string, userId?: string): Promise<(VideoItem & { description?: string | null }) | null>
   getPlayback(id: string, kind?: 'audio' | 'video'): Promise<PlaybackInfo>
   getComments?(id: string): Promise<Array<{ author: string; text: string; likes?: string | null; publishedText?: string | null }>>
+  /** Videos related to this one, platform-ranked (capabilities.related). */
+  getRelated?(id: string): Promise<VideoItem[]>
+  /** Raw WebVTT captions straight from the platform's own API — a fast path the
+   *  transcript resolver tries before paying a yt-dlp subtitle fetch. Null = none. */
+  getCaptions?(id: string): Promise<string | null>
 
   /** Poll new uploads for a followed creator (drives video_items). `knownIds` lets a
    *  provider skip expensive fetches when nothing is new (e.g. reddit checks its free

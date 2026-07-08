@@ -14,14 +14,10 @@ import { Spinner } from '@/components/ui/spinner'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
-import {
-  addFollow, browseSource, getHubHistory, getVideoSources, listFollows, putRedditConfig,
-  type HubVideoItem,
-} from '@/lib/videos/api'
+import { addFollow, browseSource, getFollowingFeed, getVideoSources, listFollows, putRedditConfig } from '@/lib/videos/api'
+import { useSourceContinueWatching } from '@/lib/videos/useSourceContinueWatching'
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
-import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
-import { HubCreatorRail } from '@/components/videos/HubCreatorRail'
-import { SourceDiscovery } from '@/components/videos/SourceDiscovery'
+import { SourceHomeSections } from '@/components/videos/SourceHomeSections'
 import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 import { SOURCE_META } from '@/lib/videos/sources'
 
@@ -86,22 +82,27 @@ export function RedditBrowsePage() {
 
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows, enabled: configured && enabled })
   const subs = useMemo(() => (followsData?.follows ?? []).filter((f) => f.source === 'reddit'), [followsData])
+  const subEntries = useMemo(() => subs.map((s) => ({ id: s.externalId, title: s.title, thumbnailUrl: s.thumbnailUrl ?? null })), [subs])
 
-  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured && enabled })
-  const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
-    .filter((r) => r.source === 'reddit' && !r.completed && r.positionSec > 5)
-    .map((r) => ({
-      source: r.source, id: r.videoId, url: '', title: r.title,
-      creator: r.creatorName ? { id: '', name: r.creatorName } : null,
-      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
-    })), [hubHist])
+  const continueWatching = useSourceContinueWatching('reddit', configured && enabled)
+
+  // Dashboard = nothing selected (the default landing view); any feed/category chip or a
+  // specific followed subreddit swaps in the flat single-feed grid below instead.
+  const dashboard = activeFeed === null
+
+  const { data: latestData, isLoading: latestLoading } = useQuery({
+    queryKey: ['videos-following-feed', 'reddit'],
+    queryFn: () => getFollowingFeed('reddit'),
+    enabled: configured && enabled && subs.length > 0,
+  })
+  const latestItems = latestData?.items ?? []
 
   const feedQuery = useInfiniteQuery({
     queryKey: ['reddit-browse', activeFeed],
     queryFn: ({ pageParam }) => browseSource('reddit', { feed: activeFeed ?? undefined, cursor: pageParam }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.cursor,
-    enabled: configured && enabled,
+    enabled: configured && enabled && !dashboard,
   })
   const items = useMemo(() => (feedQuery.data?.pages ?? []).flatMap((p) => p.items), [feedQuery.data])
 
@@ -109,10 +110,10 @@ export function RedditBrowsePage() {
     mutationFn: (sub: string) => addFollow('reddit', sub),
     onSuccess: () => {
       setSubInput('')
-      toast.success('Following')
+      toast.success('Subscribed')
       void qc.invalidateQueries({ queryKey: ['videos-follows'] })
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not follow that subreddit'),
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not subscribe to that subreddit'),
   })
 
   const header = (extra?: React.ReactNode) => (
@@ -120,7 +121,7 @@ export function RedditBrowsePage() {
       title={SOURCE_META.reddit.label}
       icon={SOURCE_META.reddit.icon}
       gradient={SOURCE_META.reddit.gradient}
-      subtitle={!enabled ? 'Turned off by an admin.' : configured ? 'Video posts from the communities you follow.' : 'Connect Reddit to browse video communities.'}
+      subtitle={!enabled ? 'Turned off by an admin.' : configured ? 'Video posts from the communities you subscribe to.' : 'Connect Reddit to browse video communities.'}
       className="pt-4 pb-4"
       actions={extra}
     />
@@ -154,19 +155,20 @@ export function RedditBrowsePage() {
           onSubmit={(e) => { e.preventDefault(); const s = subInput.trim().replace(/^r\//, ''); if (s) followMutation.mutate(s) }}
         >
           <Input value={subInput} onChange={(e) => setSubInput(e.target.value)}
-            placeholder="Follow a subreddit…" className="h-9 w-44" autoComplete="off" />
+            placeholder="Subscribe to a subreddit…" className="h-9 w-44" autoComplete="off" />
           <Button type="submit" size="sm" variant="outline" className="gap-1" disabled={!subInput.trim() || followMutation.isPending}>
-            <Plus className="size-4" /> Follow
+            <Plus className="size-4" /> Subscribe
           </Button>
         </form>,
       )}
 
       <div className="mb-5 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
+          <Chip label="Home" active={dashboard} activeClassName={SOURCE_META.reddit.pillActiveClass}
+            onClick={() => setActiveFeed(null)} />
           {(reddit?.browseFeeds ?? []).map((f) => (
             <Chip key={f.id} label={f.label} activeClassName={SOURCE_META.reddit.pillActiveClass}
-              active={f.id === 'popular' ? activeFeed === null : activeFeed === f.id}
-              onClick={() => setActiveFeed(f.id === 'popular' ? null : f.id)} />
+              active={activeFeed === f.id} onClick={() => setActiveFeed(f.id)} />
           ))}
           {subs.length > 0 && <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />}
           {subs.map((f) => (
@@ -177,7 +179,17 @@ export function RedditBrowsePage() {
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
 
-      {feedQuery.isLoading ? (
+      {dashboard ? (
+        <SourceHomeSections
+          source="reddit"
+          view={view}
+          discovery={reddit?.discovery ?? []}
+          continueWatching={continueWatching}
+          creators={subEntries}
+          latestItems={latestItems}
+          latestLoading={subs.length > 0 && latestLoading}
+        />
+      ) : feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : feedQuery.isError ? (
         <Card variant="flat" className="p-5 text-sm text-muted-foreground">
@@ -186,24 +198,14 @@ export function RedditBrowsePage() {
       ) : items.length === 0 ? (
         <p className="py-20 text-center text-sm text-muted-foreground">No playable video posts here right now.</p>
       ) : (
-        <div className="space-y-10">
-          {!activeFeed && continueWatching.length > 0 && (
-            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} showSource={false} />
-          )}
-          {!activeFeed && subs.length > 0 && (
-            <HubCreatorRail title="Your communities" source="reddit"
-              creators={subs.map((s) => ({ id: s.externalId, title: s.title, thumbnailUrl: s.thumbnailUrl ?? null }))} />
-          )}
-          {!activeFeed && <SourceDiscovery source="reddit" discovery={reddit?.discovery ?? []} view={view} />}
-          <section>
-            <HubVideoCollection items={items} view={view} showSource={false} />
-            <InfiniteLoadMore
-              hasNextPage={!!feedQuery.hasNextPage}
-              isFetchingNextPage={feedQuery.isFetchingNextPage}
-              fetchNextPage={() => void feedQuery.fetchNextPage()}
-            />
-          </section>
-        </div>
+        <section>
+          <HubVideoCollection items={items} view={view} showSource={false} />
+          <InfiniteLoadMore
+            hasNextPage={!!feedQuery.hasNextPage}
+            isFetchingNextPage={feedQuery.isFetchingNextPage}
+            fetchNextPage={() => void feedQuery.fetchNextPage()}
+          />
+        </section>
       )}
     </PageContainer>
   )

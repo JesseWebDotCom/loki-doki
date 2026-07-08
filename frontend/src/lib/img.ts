@@ -21,3 +21,22 @@ export function proxyImg(url: string | null | undefined): string {
     return url
   }
 }
+
+// Mirrors the host allowlist of /api/youtube/img (backend routes/youtube.ts) — the yt proxy
+// rejects anything off Google's CDNs, so routing is fully determined by the URL's host.
+const YT_IMG_HOSTS = /(^|\.)(ytimg\.com|ggpht\.com|googleusercontent\.com|youtube\.com)$/i
+
+/** Source-aware image proxy: Google-CDN images go through /api/youtube/img (YouTube's own
+ *  read-through cache, which only allows Google hosts), everything else through /api/img.
+ *  Lets shared components (avatars, cards) render images from any source without callers
+ *  plumbing a proxy choice around. */
+export function proxyImgAuto(url: string | null | undefined): string {
+  if (!url) return ''
+  try {
+    const u = new URL(url, window.location.origin)
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && YT_IMG_HOSTS.test(u.hostname)) {
+      return `/api/youtube/img?u=${encodeURIComponent(u.toString())}`
+    }
+  } catch { /* fall through to the generic proxy's own handling */ }
+  return proxyImg(url)
+}

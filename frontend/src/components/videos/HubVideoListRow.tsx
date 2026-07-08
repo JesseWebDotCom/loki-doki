@@ -1,24 +1,24 @@
 import { Link } from 'react-router-dom'
-import { CloudOff, Film } from 'lucide-react'
+import { Film } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { toast } from '@/lib/toast'
 import type { HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
+import { CardMetaBlock, DurationBadge, OnlineOnlyBadge, WatchProgressBar } from '@/components/videos/cardParts'
 import { HUB_PATHS, useOfflineSet } from '@/components/videos/HubVideoCard'
 import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
-
-function fmtDur(sec?: number | null): string | null {
-  if (sec == null || sec <= 0) return null
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60)
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
-}
 
 /** Full-width horizontal list row, matching HubVideoCard's grid card layout: the list
  *  counterpart used when the view toggle is set to "list" (mirrors youtube's VideoListRow). */
 export function HubVideoListRow({ item, showSource = true }: { item: HubVideoItem; showSource?: boolean }) {
   const dur = fmtDur(item.durationSec)
-  const metaLine = [item.creator?.name, item.viewsText, item.publishedText].filter(Boolean).join(' · ')
+  const progress = item.watch && !item.watch.completed && item.durationSec ? Math.min(1, item.watch.positionSec / item.durationSec) : 0
+  // Kept apart (not one joined+truncated string) so a very long creator name only eats
+  // into itself — views/date stay fully visible instead of getting truncated away with it.
+  const creatorName = item.creator?.name ?? null
+  const metaSuffix = [item.viewsText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ')
   const badge = SOURCE_META[item.source]
   const mode = useYoutubeModeOptional()
   const offline = useOfflineSet()
@@ -45,19 +45,11 @@ export function HubVideoListRow({ item, showSource = true }: { item: HubVideoIte
             <badge.icon className="size-2.5" aria-hidden /> {badge.label}
           </span>
         )}
-        {ghosted && (
-          <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">
-            <CloudOff className="size-2.5" aria-hidden /> Online only
-          </span>
-        )}
-        {dur && (
-          <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
-        )}
+        {ghosted && <OnlineOnlyBadge />}
+        <DurationBadge label={dur} />
+        <WatchProgressBar progress={progress} completed={item.watch?.completed} />
       </div>
-      <div className="min-w-0 flex-1 py-0.5">
-        <p className="line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]">{item.title}</p>
-        {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
-      </div>
+      <CardMetaBlock layout="row" title={item.title} creatorName={creatorName} creatorAvatarUrl={item.creator?.avatarUrl} metaSuffix={metaSuffix} ghosted={ghosted} />
     </Link>
   )
 }

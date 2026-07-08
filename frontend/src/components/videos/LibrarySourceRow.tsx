@@ -1,10 +1,11 @@
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
-import { SourceChip } from '@/components/videos/SourceChip'
+import { SourceChip, MineChip } from '@/components/videos/SourceChip'
 import type { VideoSource } from '@/lib/videos/api'
 
-export type LibrarySourceFilter = 'all' | VideoSource
+export type LibrarySourceFilter = 'all' | 'mine' | VideoSource
 
-/** The Library pages' shared source filter row (All + one pill per source with content). */
+/** The Library pages' shared source filter row: Mine (your own Studio content) leads every
+ *  row, then All + one pill per source with content. */
 export function LibrarySourceRow({ available, active, onChange, className }: {
   available: VideoSource[]
   active: LibrarySourceFilter
@@ -13,6 +14,7 @@ export function LibrarySourceRow({ available, active, onChange, className }: {
 }) {
   return (
     <ChipRow className={className ?? 'mb-6'}>
+      <MineChip active={active === 'mine'} onClick={() => onChange(active === 'mine' ? 'all' : 'mine')} />
       <Chip label="All" active={active === 'all'} onClick={() => onChange('all')} />
       {available.map((s) => (
         <SourceChip key={s} source={s} active={active === s} onClick={() => onChange(active === s ? 'all' : s)} />

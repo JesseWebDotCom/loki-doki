@@ -2,18 +2,31 @@ import { ListPlus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { AddToPlaylistMenu } from '@/components/shared/AddToPlaylistMenu'
-import { listYtPlaylists, createYtPlaylist, addYtPlaylistVideo } from '@/lib/youtube/playlists'
+import { listYtPlaylists, createYtPlaylist, addYtPlaylistVideo, type PlaylistVideoSource } from '@/lib/youtube/playlists'
 
-interface Vid { videoId: string; title: string; author?: string; channelId?: string; durationSec?: number }
+/** `videoSource` absent means YouTube — every existing call site predates cross-source
+ *  playlists. `thumbnailUrl` only matters for non-YouTube sources (YouTube thumbnails are
+ *  derived from videoId), so it's fine to leave unset there. */
+interface Vid {
+  videoId: string; title: string; author?: string; channelId?: string; durationSec?: number | null
+  videoSource?: PlaylistVideoSource; thumbnailUrl?: string | null
+}
 
 function useAddVideoProps(video: Vid) {
   const qc = useQueryClient()
   return {
     item: video,
-    queryKey: ['yt-playlists'] as unknown[],
+    // Distinct from the ['yt-playlists'] key YoutubeLibraryPage uses for the full
+    // { mine, shared } list response — sharing that key here served up the wrong shape (the
+    // whole object where an array was expected) as soon as both were cached, throwing on
+    // `mine.map`. Still gets swept by invalidateQueries(['yt-playlists']) below (prefix match).
+    queryKey: ['yt-playlists', 'mine'] as unknown[],
     listMine: async () => (await listYtPlaylists()).mine,
     createAndReturn: async (name: string) => (await createYtPlaylist({ name })).playlist,
-    addToPlaylist: (playlistId: string, v: Vid) => addYtPlaylistVideo(playlistId, { videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId, durationSec: v.durationSec }),
+    addToPlaylist: (playlistId: string, v: Vid) => addYtPlaylistVideo(playlistId, {
+      videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId, durationSec: v.durationSec,
+      videoSource: v.videoSource, thumbnailUrl: v.thumbnailUrl,
+    }),
     onAdded: (playlistId: string) => {
       qc.invalidateQueries({ queryKey: ['yt-playlist', playlistId] })
       qc.invalidateQueries({ queryKey: ['yt-playlists'] })

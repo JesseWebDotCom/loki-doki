@@ -29,9 +29,16 @@ interface ContentTypeAssignment {
   storageLocationId: string | null
 }
 
-// Phase 0 ships YouTube only, extend this list as Podcasts/Music/Audiobooks reuse
-// the same generic Storage Locations infra.
-const CONTENT_TYPES = [{ key: 'youtube', label: 'YouTube' }]
+// Every Plex-exportable video source stores under its own content type (one per-user
+// library each - see backend lib/plex/export/contentTypes.ts). Extend as Podcasts/Music/
+// Audiobooks reuse the same generic Storage Locations infra.
+const CONTENT_TYPES = [
+  { key: 'youtube', label: 'YouTube' },
+  { key: 'tiktok', label: 'TikTok' },
+  { key: 'vimeo', label: 'Vimeo' },
+  { key: 'reddit', label: 'Reddit' },
+  { key: 'mine', label: 'My Videos (Studio)' },
+]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -218,6 +225,20 @@ export function AdminStorageLocationsTab({ onChange }: AdminStorageLocationsTabP
     }
   }
 
+  /** One-click "everything video lives here" - loops the same per-type endpoint. */
+  async function handleAssignAll(storageLocationId: string) {
+    try {
+      for (const ct of CONTENT_TYPES) {
+        await api(`/content-types/${ct.key}`, { method: 'PUT', body: JSON.stringify({ storageLocationId }) })
+      }
+      await load()
+      onChange?.()
+      toast.success('All video content types assigned')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update the assignments')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -400,6 +421,21 @@ export function AdminStorageLocationsTab({ onChange }: AdminStorageLocationsTabP
           Reassigning a content type off the default location makes that location its real
           store going forward; existing files aren't moved automatically.
         </p>
+        {locations.length > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-card border border-border bg-muted/40 px-3 py-2">
+            <span className="text-xs text-muted-foreground">Assign every video type at once</span>
+            <select
+              value=""
+              onChange={e => { if (e.target.value) void handleAssignAll(e.target.value) }}
+              className="rounded-control border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            >
+              <option value="">Pick a location…</option>
+              {locations.map(loc => (
+                <option key={loc.id} value={loc.id}>{loc.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {CONTENT_TYPES.map(ct => {
           const current = assignments.find(a => a.contentType === ct.key)?.storageLocationId ?? ''
           return (

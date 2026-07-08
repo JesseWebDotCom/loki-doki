@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SkipForward, Sparkles, Wand2, FileText, Rss, Bot, Play, Plug, ShieldCheck } from 'lucide-react'
+import { SkipForward, Sparkles, Wand2, Type, FileText, Rss, Bot, Play, Plug, ShieldCheck, Server } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { getAppByPath } from '@/lib/appCategories'
 import {
@@ -8,20 +8,44 @@ import {
   SettingsYoutubeTitlesThumbnails, SettingsYoutubeDescriptions,
 } from '@/components/settings/SettingsYoutubeTab'
 import { SettingsVideoSources } from '@/components/settings/SettingsVideoSources'
+import { SettingsVideoTitles } from '@/components/settings/SettingsVideoTitles'
+import { SettingsVideoFollows } from '@/components/settings/SettingsVideoFollows'
+import { SettingsVideosQuality } from '@/components/settings/SettingsVideosQuality'
+import { SettingsVideosPlexSync } from '@/components/settings/SettingsVideosPlexSync'
 import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 import { ToolConfigFields } from '@/components/shared/ToolConfigFields'
 import { AdminYoutubeLimitsSection } from '@/components/admin/AdminYoutubeLimitsSection'
 
 // Settings home for the Videos hub. ONE "Connect" section holds every source's connection
 // (YouTube account sign-in, Reddit/Vimeo keys, TikTok note) so linking a source is never
-// scattered. The remaining sections are YouTube-specific and grouped under a "YouTube"
-// heading so it's clear what applies where; the companion toggle + admin controls sit under
+// scattered. "Titles" is likewise hub-wide (Smart Titles applies to any caption-only source,
+// currently TikTok). "Library" covers every source's offline/automation/Plex behavior
+// (YouTube channels + generic follows, quality/enhance, Plex sync policies); the remaining
+// sections are YouTube-specific under a "YouTube" heading; companion + admin sit under
 // "General".
 const SECTIONS: AppSettingsSection[] = [
   { id: 'connect',      label: 'Connect',             icon: Plug,        content: <SettingsVideoSources /> },
-  { id: 'channels',     label: 'Channels',            icon: Rss,         group: 'YouTube', content: <SettingsYoutubeChannels /> },
+  { id: 'smart-titles', label: 'Titles',              icon: Type,        content: <SettingsVideoTitles /> },
+  {
+    id: 'channels', label: 'Channels', icon: Rss, group: 'Library',
+    content: (
+      <div className="space-y-8">
+        <SettingsYoutubeChannels />
+        <SettingsVideoFollows />
+      </div>
+    ),
+  },
+  {
+    id: 'quality', label: 'Video quality', icon: Sparkles, group: 'Library',
+    content: (
+      <div className="space-y-8">
+        <SettingsYoutubeVideoQuality />
+        <SettingsVideosQuality />
+      </div>
+    ),
+  },
+  { id: 'plex-sync',    label: 'Plex sync',           icon: Server,      group: 'Library', content: <SettingsVideosPlexSync /> },
   { id: 'auto-skip',    label: 'Auto-skip',           icon: SkipForward, group: 'YouTube', content: <SettingsYoutubeAutoSkip /> },
-  { id: 'quality',      label: 'Video quality',       icon: Sparkles,    group: 'YouTube', content: <SettingsYoutubeVideoQuality /> },
   { id: 'titles',       label: 'Titles & thumbnails', icon: Wand2,       group: 'YouTube', content: <SettingsYoutubeTitlesThumbnails /> },
   { id: 'descriptions', label: 'Descriptions',        icon: FileText,    group: 'YouTube', content: <SettingsYoutubeDescriptions /> },
   { id: 'companion',    label: 'Companion',           icon: Bot,         group: 'General', content: <CompanionAbilitiesCard appId="youtube" /> },

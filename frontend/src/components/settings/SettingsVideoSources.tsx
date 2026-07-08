@@ -1,83 +1,98 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Cookie, Eye, Globe, KeyRound } from 'lucide-react'
+import {
+  Check, Compass, Search, UserPlus, MessageSquare, Download, Radio, TriangleAlert, Info,
+} from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
+import { AppTabBar } from '@/components/shared/AppTabBar'
 import { useAuth } from '@/context/AuthContext'
 import { SettingsYoutubeAccount } from '@/components/settings/SettingsYoutubeAccount'
+import { SOURCE_META } from '@/lib/videos/sources'
 import { toast } from '@/lib/toast'
 import {
-  getRedditConfig, getVideoSources, getVimeoConfig, putEnabledSources, putRedditConfig, putVimeoConfig,
-  type VideoSource,
+  addFollow, getRedditConfig, getVideoSources, getVimeoConfig, putEnabledSources, putRedditConfig, putVimeoConfig,
+  type SourceInfo, type VideoSource,
 } from '@/lib/videos/api'
 
-const ALL_SOURCES: VideoSource[] = ['youtube', 'reddit', 'tiktok', 'vimeo']
+// Tabs for the Connect section, one per source. 'link' (Other sites) has no discovery
+// surface or follow concept, but still gets a tab so its "nothing to set up" note lives
+// somewhere discoverable instead of floating loose at the bottom of the old flat list.
+const TABS: VideoSource[] = ['youtube', 'reddit', 'tiktok', 'vimeo', 'link']
 
-/** Which sources show up on discovery surfaces (rail, home feed, browse pages).
- *  Admin-only control; everyone can see the current state. Already-followed/saved
- *  items and direct playback from a hidden source keep working: this just hides
- *  where you'd discover more of it. */
-function DisplayedSourcesCard({ sources, isAdmin }: { sources: Array<{ source: VideoSource; label: string; enabled: boolean }>; isAdmin: boolean }) {
-  const qc = useQueryClient()
-  const mutation = useMutation({
-    mutationFn: (next: VideoSource[]) => putEnabledSources(next),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['videos-sources'] }),
-    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not save'),
-  })
-  const enabledSet = new Set(sources.filter((s) => s.enabled).map((s) => s.source))
+const CAPABILITY_CHIPS: Array<{
+  key: string
+  label: string
+  icon: typeof Compass
+  active: (c: SourceInfo['capabilities']) => boolean
+}> = [
+  { key: 'browse', label: 'Browse', icon: Compass, active: (c) => c.browse },
+  { key: 'search', label: 'Search', icon: Search, active: (c) => c.search },
+  { key: 'follow', label: 'Follow', icon: UserPlus, active: (c) => c.creators },
+  { key: 'comments', label: 'Comments', icon: MessageSquare, active: (c) => c.comments },
+  { key: 'downloads', label: 'Downloads', icon: Download, active: (c) => c.downloadKinds.length > 0 },
+  { key: 'live', label: 'Live', icon: Radio, active: (c) => c.live },
+]
 
-  function toggle(source: VideoSource, checked: boolean) {
-    const next = checked ? [...enabledSet, source] : [...enabledSet].filter((s) => s !== source)
-    mutation.mutate(next)
-  }
-
-  return (
-    <Card className="p-5">
-      <div className="flex items-start gap-3">
-        <Eye className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">Displayed sources</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Which sources show up in the sidebar, the mixed home feed, and browse pages.
-            {!isAdmin && ' Only an admin can change this.'}
-          </p>
-          <div className="mt-3 space-y-2.5">
-            {ALL_SOURCES.map((source) => {
-              const info = sources.find((s) => s.source === source)
-              return (
-                <label key={source} className="flex items-center justify-between gap-3">
-                  <span className="text-sm text-foreground">{info?.label ?? source}</span>
-                  <Switch checked={info?.enabled ?? true} disabled={!isAdmin || mutation.isPending}
-                    onCheckedChange={(checked) => toggle(source, checked)} />
-                </label>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-    </Card>
-  )
+// Which capabilities the backend's status note is actually about, per source (both Reddit's
+// and Vimeo's notes call out browsing/search specifically). Drives the amber "needs setup"
+// chip state below instead of showing those chips as fully active while a note is pending.
+const SETUP_GATED_CAPABILITIES: Partial<Record<VideoSource, string[]>> = {
+  reddit: ['browse', 'search'],
+  vimeo: ['browse', 'search'],
 }
 
-function SourceCard({ title, icon: Icon, blurb, children }: {
-  title: string
-  icon: typeof KeyRound
-  blurb: string
-  children?: React.ReactNode
-}) {
+/** Graphical "what can this source do, right now" summary: a labeled, bordered card of
+ *  capability chips plus a readiness badge, both driven by the same GET /api/videos/sources
+ *  payload every other part of the hub already reads. Shown at the top of every source tab
+ *  so the connect controls below always have context.
+ *
+ *  Readiness is driven by whether the backend has a `note` at all, not the raw `configured`
+ *  boolean: Vimeo always reports configured:true (it works keyless) but still surfaces a note
+ *  when its optional token is missing, and that's exactly the "something's worth setting up"
+ *  signal a user cares about, so it renders the same amber "Setup needed" as Reddit's actually
+ *  blocking missing-key case. */
+function SourceCapabilityBar({ info }: { info?: SourceInfo }) {
+  if (!info) return null
+  const { note } = info.status
+  const ready = !note
+  const gated = SETUP_GATED_CAPABILITIES[info.source] ?? []
   return (
-    <Card className="p-5">
-      <div className="flex items-start gap-3">
-        <Icon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">{title}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{blurb}</p>
-          {children}
-        </div>
+    <Card className="space-y-3 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">What this source can do</p>
+        <Badge variant={ready ? 'success' : 'warning'} className="gap-1">
+          {ready ? <Check className="size-3" /> : <TriangleAlert className="size-3" />}
+          {ready ? 'Ready' : 'Setup needed'}
+        </Badge>
       </div>
+      <div className="flex flex-wrap gap-1.5">
+        {CAPABILITY_CHIPS.map(({ key, label, icon: Icon, active }) => {
+          const on = active(info.capabilities)
+          const needsSetup = on && !ready && gated.includes(key)
+          const variant = !on ? 'outline' : needsSetup ? 'warning' : 'info'
+          return (
+            <Badge key={key} variant={variant} className={`gap-1 ${on ? '' : 'text-muted-foreground'}`}>
+              {needsSetup ? <TriangleAlert className="size-3" /> : <Icon className="size-3" />}
+              {label}
+            </Badge>
+          )
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Filled = supported here right now, amber = works but needs setup below, outlined = not
+        available on this source.
+      </p>
+      {note && (
+        <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-3.5 shrink-0" />
+          {note}
+        </p>
+      )}
     </Card>
   )
 }
@@ -93,7 +108,7 @@ function TokenForm({ value, placeholder, saved, onSave, saving, masked }: {
   const [input, setInput] = useState(value)
   useEffect(() => { setInput(value) }, [value])
   return (
-    <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); onSave(input.trim()) }}>
+    <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); onSave(input.trim()) }}>
       <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder={placeholder}
         autoComplete="off" type={masked ? 'password' : 'text'} />
       <Button type="submit" variant={saved ? 'secondary' : 'default'} disabled={saving}>
@@ -103,16 +118,79 @@ function TokenForm({ value, placeholder, saved, onSave, saving, masked }: {
   )
 }
 
-/** Per-source connections for the Videos hub. Admin-only inputs (config is global);
- *  everyone can see connection state. Sign-in-and-sync for more sources follows the
- *  YouTube account pattern as providers gain auth support. */
+/** Follow a creator/subreddit/channel by handle or a pasted profile URL. This is the
+ *  keyless "sync via profile" affordance for sources with no account sign-in: there's no
+ *  reliable way to import a whole following list from a public profile (TikTok hides it,
+ *  subscribed subreddits are private, Vimeo's requires login), but following one profile
+ *  at a time works today via provider.getCreator(), so that's what's offered here. */
+function FollowByHandle({ source }: { source: VideoSource }) {
+  const [value, setValue] = useState('')
+  const mutation = useMutation({
+    mutationFn: (v: string) => addFollow(source, v),
+    onSuccess: () => { toast.success('Following'); setValue('') },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not follow'),
+  })
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-semibold">Follow a profile</p>
+      <p className="text-sm text-muted-foreground">
+        Paste a profile URL or handle to start following it, your own profile included.
+      </p>
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (value.trim()) mutation.mutate(value.trim()) }}>
+        <Input value={value} onChange={(e) => setValue(e.target.value)}
+          placeholder={source === 'reddit' ? 'subreddit or r/subreddit' : '@handle or profile URL'}
+          autoComplete="off" />
+        <Button type="submit" disabled={mutation.isPending || !value.trim()}>
+          {mutation.isPending ? <Spinner size="sm" /> : 'Follow'}
+        </Button>
+      </form>
+    </div>
+  )
+}
+
+/** Admin-only "show on discovery surfaces" toggle for one source, colocated in its own
+ *  tab instead of a separate global grid. */
+function DiscoveryToggle({ info, isAdmin, sources }: {
+  info?: SourceInfo
+  isAdmin: boolean
+  sources: SourceInfo[]
+}) {
+  const qc = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (next: VideoSource[]) => putEnabledSources(next),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['videos-sources'] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not save'),
+  })
+  if (!info) return null
+  const enabledSet = new Set(sources.filter((s) => s.enabled).map((s) => s.source))
+  function toggle(checked: boolean) {
+    if (!info) return
+    const next = checked ? [...enabledSet, info.source] : [...enabledSet].filter((s) => s !== info.source)
+    mutation.mutate(next)
+  }
+  return (
+    <label className="flex items-center justify-between gap-3 rounded-card border border-border/50 bg-muted/20 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Show on discovery surfaces</p>
+        <p className="text-sm text-muted-foreground">Sidebar rail, mixed home feed, and browse pages.</p>
+      </div>
+      <Switch checked={info.enabled} disabled={!isAdmin || mutation.isPending} onCheckedChange={toggle} />
+    </label>
+  )
+}
+
+/** Per-source connections for the Videos hub, one tab per source. Each tab opens with a
+ *  capability summary (what this source can do + whether it's connected) so linking a
+ *  source is never a guessing game, then that source's specific controls. */
 export function SettingsVideoSources() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const qc = useQueryClient()
+  const [tab, setTab] = useState<VideoSource>('youtube')
 
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
-  const status = (s: string) => sourcesData?.sources.find((x) => x.source === s)?.status
+  const sources = sourcesData?.sources ?? []
+  const info = sources.find((s) => s.source === tab)
 
   const { data: redditCfg } = useQuery({ queryKey: ['videos-config-reddit'], queryFn: getRedditConfig, enabled: isAdmin })
   const { data: vimeoCfg } = useQuery({ queryKey: ['videos-config-vimeo'], queryFn: getVimeoConfig, enabled: isAdmin })
@@ -140,49 +218,84 @@ export function SettingsVideoSources() {
         some take a free key, and some need nothing at all.
       </p>
 
-      {/* YouTube: full account sign-in (Google device flow); its own richer card. */}
-      <SettingsYoutubeAccount />
-
-      <SourceCard
-        title={`Reddit ${status('reddit')?.configured ? '· Connected' : ''}`}
-        icon={KeyRound}
-        blurb="Browsing needs a free registered app client id (reddit.com/prefs/apps, type: installed app). Follows, saves, and watch progress stay on this server either way."
-      >
-        {isAdmin && (
-          <TokenForm value={redditCfg?.clientId ?? ''} placeholder="Reddit app client id"
-            saved={!!redditCfg?.configured} saving={redditMutation.isPending}
-            onSave={(v) => redditMutation.mutate(v)} />
-        )}
-      </SourceCard>
-
-      <SourceCard
-        title={`Vimeo ${status('vimeo')?.configured ? '· Connected' : ''}`}
-        icon={KeyRound}
-        blurb="Staff Picks and search need a free API token (developer.vimeo.com/apps, public scope). Pasted vimeo.com links play without it."
-      >
-        {isAdmin && (
-          <TokenForm value={vimeoCfg?.token ?? ''} placeholder="Vimeo API token" masked
-            saved={!!vimeoCfg?.configured} saving={vimeoMutation.isPending}
-            onSave={(v) => vimeoMutation.mutate(v)} />
-        )}
-      </SourceCard>
-
-      <SourceCard
-        title="TikTok"
-        icon={Cookie}
-        blurb="Works out of the box for creator feeds and pasted links. If extraction gets flaky, uploading a cookies.txt in Admin makes it more reliable; the same cookies are shared by every source that uses yt-dlp."
+      <AppTabBar
+        tabs={TABS.map((s) => ({ id: s, label: SOURCE_META[s].label, icon: SOURCE_META[s].icon }))}
+        value={tab}
+        onChange={setTab}
       />
 
-      <SourceCard
-        title="Other sites"
-        icon={Globe}
-        blurb="Nothing to set up. Paste a link from any of yt-dlp's ~1800 supported sites (Instagram, X, Twitch clips, and more) into the Videos search bar and it plays right in the hub."
-      />
+      {tab === 'youtube' && (
+        <div className="space-y-4">
+          <SourceCapabilityBar info={info} />
+          <SettingsYoutubeAccount />
+        </div>
+      )}
 
-      <DisplayedSourcesCard
-        isAdmin={isAdmin}
-        sources={(sourcesData?.sources ?? []).map((s) => ({ source: s.source, label: s.label, enabled: s.enabled }))}
-      />
+      {tab === 'reddit' && (
+        <div className="space-y-4">
+          <SourceCapabilityBar info={info} />
+          <Card className="space-y-4 p-5">
+            <p className="text-sm text-muted-foreground">
+              Browsing needs a free registered app client id (reddit.com/prefs/apps, type:
+              installed app). Follows, saves, and watch progress stay on this server either way.
+            </p>
+            {isAdmin && (
+              <TokenForm value={redditCfg?.clientId ?? ''} placeholder="Reddit app client id"
+                saved={!!redditCfg?.configured} saving={redditMutation.isPending}
+                onSave={(v) => redditMutation.mutate(v)} />
+            )}
+            <FollowByHandle source="reddit" />
+            <DiscoveryToggle info={info} isAdmin={isAdmin} sources={sources} />
+          </Card>
+        </div>
+      )}
+
+      {tab === 'tiktok' && (
+        <div className="space-y-4">
+          <SourceCapabilityBar info={info} />
+          <Card className="space-y-4 p-5">
+            <p className="text-sm text-muted-foreground">
+              Works out of the box for creator feeds and pasted links, no sign-in or key needed.
+              If extraction gets flaky, uploading a cookies.txt in Admin makes it more reliable;
+              the same cookies are shared by every source that uses yt-dlp.
+            </p>
+            <FollowByHandle source="tiktok" />
+            <DiscoveryToggle info={info} isAdmin={isAdmin} sources={sources} />
+          </Card>
+        </div>
+      )}
+
+      {tab === 'vimeo' && (
+        <div className="space-y-4">
+          <SourceCapabilityBar info={info} />
+          <Card className="space-y-4 p-5">
+            <p className="text-sm text-muted-foreground">
+              Staff Picks and search need a free API token (developer.vimeo.com/apps, public
+              scope). Pasted vimeo.com links and profile follows work without it.
+            </p>
+            {isAdmin && (
+              <TokenForm value={vimeoCfg?.token ?? ''} placeholder="Vimeo API token" masked
+                saved={!!vimeoCfg?.configured} saving={vimeoMutation.isPending}
+                onSave={(v) => vimeoMutation.mutate(v)} />
+            )}
+            <FollowByHandle source="vimeo" />
+            <DiscoveryToggle info={info} isAdmin={isAdmin} sources={sources} />
+          </Card>
+        </div>
+      )}
+
+      {tab === 'link' && (
+        <div className="space-y-4">
+          <SourceCapabilityBar info={info} />
+          <Card className="p-5">
+            <p className="text-sm text-muted-foreground">
+              Nothing to set up. Paste a link from any of yt-dlp's ~1800 supported sites
+              (Instagram, X, Twitch clips, and more) into the Videos search bar and it plays right
+              in the hub.
+            </p>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

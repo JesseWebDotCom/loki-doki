@@ -36,6 +36,19 @@ function stripMetaOpener(text: string): string {
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
 }
 
+/** Summarize an arbitrary transcript (any source) with the same prompt/model as the YouTube
+ *  path. Used by the hub watch page's AI Summary tab. Returns null for empty/too-short text. */
+export async function summarizeTranscriptText(text: string): Promise<string | null> {
+  const clip = text.slice(0, 12_000)
+  if (clip.trim().length < 80) return null
+  const model = await getFastModel()
+  const result = await ollamaChat(model, [
+    { role: 'system', content: SUMMARY_SYSTEM },
+    { role: 'user', content: clip },
+  ], undefined, { temperature: 0.3, num_predict: 600 })
+  return stripMetaOpener(result.message.content.trim()) || null
+}
+
 // Coalesce concurrent requests for the same video (eager player open + on-play hook +
 // Save hook can all fire at once) into a single generation.
 const _inFlight = new Map<string, Promise<string | null>>()
@@ -68,33 +81,50 @@ async function generateSummary(videoId: string, userId: string, firstName: strin
   const summary = stripMetaOpener(result.message.content.trim())
   if (!summary) return null
 
-  // Upsert so search-result videos (no pre-existing row) still cache their summary.
+  // Upsert so search-result videos (no pre-existing row) still cache their summary. Title
+  // falls back to the raw id (never blank) — a blank title would stick forever (this only
+  // ever updates `summary` on conflict), whereas title === videoId is what the History
+  // route's self-heal already detects and fixes with real metadata on next load.
   await db.insert(ytVideos)
-    .values({ id: crypto.randomUUID(), videoId, title: video?.title ?? '', summary, createdAt: new Date() })
+    .values({ id: crypto.randomUUID(), videoId, title: video?.title || videoId, summary, createdAt: new Date() })
     .onConflictDoUpdate({ target: ytVideos.videoId, set: { summary } })
   logger.info({ videoId, chars: summary.length }, 'yt summary: cached')
   return summary
 }
 
 // "Smart Description": strips promotional content (sponsor reads, affiliate links, discount
-// codes, merch/social plugs, chapter/timestamp lists) from the real YouTube description,
-// keeping the creator's own descriptive wording verbatim rather than rewriting it. Falls back
-// to the transcript-based summary when nothing worth keeping survives — some videos' entire
-// description IS the sponsor read. Shown everywhere a description would be (YouTube app +
+// codes, merch/social plugs, channel self-promotion like Patreon/Super Thanks asks,
+// chapter/timestamp lists) from the real YouTube description, keeping the creator's own
+// descriptive wording verbatim rather than rewriting it. Falls back to the transcript-based
+// summary when nothing worth keeping survives — some videos' entire description IS the sponsor
+// read or a support-the-channel pitch. Shown everywhere a description would be (YouTube app +
 // Plex export) in place of the raw description, which routinely carries tappable sponsor
 // URLs (confirmed live: one triggered an app-install prompt inside a Plex client).
 const SMART_DESC_SYSTEM =
-  'You clean up a YouTube video description by removing promotional content: sponsor reads, ' +
-  'affiliate links, discount codes, "check out our sponsor" sections, merch/social-media plugs, ' +
-  'legal disclaimers tied to a sponsor, and chapter/timestamp lists. Keep any genuine descriptive ' +
-  'content about the video\'s actual subject exactly as the creator worded it — do not rewrite, ' +
-  'paraphrase, or summarize it, only remove the promotional parts, preserving paragraph breaks in ' +
-  'what remains. If NOTHING worth keeping remains after removing promotional content, respond ' +
-  'with exactly the single word NONE and nothing else. Output only the cleaned description (or ' +
-  'NONE) — no commentary, no preamble, no quotation marks around it.'
+  'You clean up a YouTube video description by deleting ONLY specific promotional lines/' +
+  'paragraphs: sponsor reads, affiliate/referral links, discount codes, "check out our ' +
+  'sponsor" sections, and legal disclaimers tied to a sponsor. Also delete the creator\'s own ' +
+  'self-promotion, even when it has nothing to do with a third-party sponsor: asks to support ' +
+  'the channel (Patreon, Super Thanks, memberships, donations, "more ways to support the ' +
+  'channel"), merch/store plugs, social-media plugs, and gear/product affiliate links the ' +
+  'creator recommends for their own cut. Also delete chapter/timestamp lists. ' +
+  'Every other sentence stays — this is deletion, not summarization. Keep every paragraph ' +
+  'that talks about the video\'s actual subject, story, technique, or the gear/equipment used ' +
+  'IN the video (as opposed to a paid affiliate link selling that gear), copied verbatim, ' +
+  'word-for-word, in its original order, with its paragraph breaks. Never paraphrase, ' +
+  'shorten, or reduce a kept paragraph to a single sentence. If you are unsure whether a ' +
+  'sentence is promotional, keep it. If NOTHING worth keeping remains after removing ' +
+  'promotional content, respond with exactly the single word NONE and nothing else. Output ' +
+  'only the cleaned description (or NONE) — no commentary, no preamble, no quotation marks ' +
+  'around it.'
 
 const NONE_SENTINEL = /^\s*none\.?\s*$/i
-const MIN_USEFUL_DESCRIPTION_LENGTH = 25
+// Deliberately generous: a "cleaned" result this short is almost always a sign the model
+// over-stripped down to one leftover sentence/question rather than genuinely having nothing
+// else to say (confirmed live: a video whose real 3-paragraph description got reduced to just
+// its trailing "What song do YOU think everybody should learn?"). Below this, prefer the
+// summary-based fallback (a real, longer description) over a thin, possibly-truncated scrap.
+const MIN_USEFUL_DESCRIPTION_LENGTH = 120
 
 // When cleaning leaves nothing worth keeping, the fallback is a SHORT, human-sounding
 // description generated from the (separately-styled, book-report-length) transcript summary
@@ -255,7 +285,7 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
           .values({
             id: crypto.randomUUID(),
             videoId,
-            title: m.title ?? v?.title ?? fallbackTitle,
+            title: m.title || v?.title || fallbackTitle || videoId,
             author: m.channel ?? m.uploader ?? '',
             channelId: m.channel_id ?? null,
             description: m.description ?? null,
@@ -294,14 +324,26 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
  * for 7 days, and warms the image bytes into the disk cache. reconcileSubscribed (imageCache.ts)
  * then pins any yt_videos.channel_thumb against the 24h eviction so it survives offline.
  */
-export async function ensureChannelThumb(videoId: string, channelId: string | null | undefined): Promise<void> {
+export async function ensureChannelThumb(
+  videoId: string, channelId: string | null | undefined,
+  // Known title/author from the caller (e.g. the yt_collections row), used only when this
+  // call has to INSERT a brand-new yt_videos stub — otherwise the schema's `NOT NULL
+  // DEFAULT ''` silently fills them with empty strings instead of the real values the
+  // caller already had in hand, and nothing else ever backfills them (see the /video/:id
+  // self-heal below, which only fires once a title is already non-blank).
+  known?: { title?: string | null; author?: string | null },
+): Promise<void> {
   if (!channelId) return
   const [v] = await db.select({ channelThumb: ytVideos.channelThumb }).from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
   if (v?.channelThumb) return
   const avatar = await cachedLookup('yt-channel-avatar', channelId, 7 * 24 * 60 * 60 * 1000, () => innertubeChannelAvatar(channelId)).catch(() => null)
   if (!avatar) return
   await db.insert(ytVideos)
-    .values({ id: crypto.randomUUID(), videoId, channelId, channelThumb: avatar, createdAt: new Date() })
+    .values({
+      id: crypto.randomUUID(), videoId, channelId, channelThumb: avatar, createdAt: new Date(),
+      ...(known?.title ? { title: known.title } : {}),
+      ...(known?.author ? { author: known.author } : {}),
+    })
     .onConflictDoUpdate({ target: ytVideos.videoId, set: { channelThumb: avatar, channelId } })
     .catch(() => {})
   await getOrFetchImage(avatar).catch(() => null)   // warm disk cache for offline
@@ -311,18 +353,21 @@ export async function ensureChannelThumb(videoId: string, channelId: string | nu
 // tabs. Each runs in the background off a list-endpoint poll; once a video's channel_thumb is
 // set it's skipped, so steady-state cost is zero.
 const _thumbJobs = new Set<string>()
-async function runThumbBackfill(rows: { videoId: string; channelId: string | null }[]): Promise<void> {
+async function runThumbBackfill(rows: { videoId: string; channelId: string | null; title?: string | null; author?: string | null }[]): Promise<void> {
   for (const r of rows) {
     if (_thumbJobs.has(r.videoId)) continue
     _thumbJobs.add(r.videoId)
-    try { await ensureChannelThumb(r.videoId, r.channelId) }
+    try { await ensureChannelThumb(r.videoId, r.channelId, { title: r.title, author: r.author }) }
     catch { /* best-effort */ } finally { _thumbJobs.delete(r.videoId) }
   }
 }
 
 /** Watch Later / Liked: resolve avatars using the channelId stored on the collection row. */
 export async function backfillCollectionChannelThumbs(userId: string): Promise<void> {
-  const rows = await db.select({ videoId: ytCollections.videoId, channelId: ytCollections.channelId })
+  const rows = await db.select({
+    videoId: ytCollections.videoId, channelId: ytCollections.channelId,
+    title: ytCollections.title, author: ytCollections.author,
+  })
     .from(ytCollections)
     .leftJoin(ytVideos, eq(ytVideos.videoId, ytCollections.videoId))
     .where(and(eq(ytCollections.userId, userId), isNotNull(ytCollections.channelId), isNull(ytVideos.channelThumb)))

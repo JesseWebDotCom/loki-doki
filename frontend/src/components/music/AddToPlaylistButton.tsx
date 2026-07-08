@@ -12,7 +12,11 @@ export function AddToPlaylistButton({ song, className }: { song: Song; className
     <AddToPlaylistMenu
       item={song}
       className={className}
-      queryKey={['music-playlists']}
+      // Distinct from the ['music-playlists'] key MusicLibraryPage uses for the full
+      // { mine, shared } list response — sharing that key served up the wrong shape as soon
+      // as both were cached, throwing on `mine.map`. Still swept by
+      // invalidateQueries(['music-playlists']) below (prefix match).
+      queryKey={['music-playlists', 'mine']}
       listMine={async () => (await listPlaylists()).mine}
       createAndReturn={async (name) => (await createPlaylist({ name })).playlist}
       addToPlaylist={(playlistId, s) => addPlaylistTrack(playlistId, { videoId: s.videoId, title: s.title, artist: s.artist, mbid: s.mbid, durationSec: s.durationSec })}

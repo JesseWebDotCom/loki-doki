@@ -190,7 +190,12 @@ export function pushUnsubscribe(userId: string, channelId: string): void {
   void push(userId, `unsubscribe ${channelId}`, token => tvUnsubscribe(token, channelId))
 }
 
-export function pushCollectionChange(userId: string, key: 'watch-later' | 'liked', videoId: string, op: 'add' | 'remove'): void {
+/** `videoSource` gates this: only real YouTube video IDs are ever pushed to the linked
+ *  Google account. Cross-source collection entries (Reddit/TikTok/Vimeo/link/Mine) have no
+ *  corresponding YouTube video, so pushing them would just be a bogus API call against a
+ *  made-up ID. */
+export function pushCollectionChange(userId: string, key: 'watch-later' | 'liked', videoId: string, op: 'add' | 'remove', videoSource: string = 'youtube'): void {
+  if (videoSource !== 'youtube') return
   const label = `${key} ${op} ${videoId}`
   if (key === 'watch-later') {
     void push(userId, label, token => (op === 'add' ? tvPlaylistAdd(token, 'WL', videoId) : tvPlaylistRemove(token, 'WL', videoId)))

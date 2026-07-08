@@ -2,7 +2,11 @@
 // from Watch Later/Liked (./collections.ts) and from viewing someone else's real YouTube
 // playlist (getPlaylist in ./api.ts). Thin typed wrappers, mirroring the Music playlist client.
 
+import type { VideoSource } from '@/lib/videos/api'
+
 export type YtVisibility = 'private' | 'shared'
+/** Absent/'youtube' for pre-existing rows — playlists predate cross-source entries. */
+export type PlaylistVideoSource = VideoSource | 'mine'
 
 export interface YtPlaylist {
   id: string; name: string; description: string | null; visibility: YtVisibility
@@ -13,13 +17,19 @@ export interface YtPlaylist {
 export interface YtPlaylistVideo {
   id: string; playlistId: string; videoId: string; title: string
   author: string | null; channelId: string | null; durationSec: number | null; position: number
+  videoSource: PlaylistVideoSource
+  thumbnailUrl: string | null
 }
 
 const opts: RequestInit = { credentials: 'include' }
 const J = { 'Content-Type': 'application/json' }
 
+// The backend's router is trailing-slash-strict: '/api/youtube/playlists' matches the
+// collection root, '/api/youtube/playlists/' (with a bare '/' appended below) does not and
+// 404s. Normalizing here protects every caller, not just the two that hit this today.
 async function yfetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/youtube/playlists${path}`, { ...opts, ...init })
+  const suffix = path === '/' ? '' : path
+  const res = await fetch(`/api/youtube/playlists${suffix}`, { ...opts, ...init })
   if (!res.ok) throw new Error(`yt-playlists ${path} → ${res.status}`)
   return res.json() as Promise<T>
 }
@@ -34,7 +44,10 @@ export function updateYtPlaylist(id: string, b: Partial<Pick<YtPlaylist, 'name' 
   return yfetch<{ playlist: YtPlaylist }>(`/${id}`, { method: 'PATCH', headers: J, body: body(b) })
 }
 export function deleteYtPlaylist(id: string) { return yfetch<{ ok: true }>(`/${id}`, { method: 'DELETE' }) }
-export function addYtPlaylistVideo(id: string, v: { videoId: string; title: string; author?: string; channelId?: string; durationSec?: number }) {
+export function addYtPlaylistVideo(id: string, v: {
+  videoId: string; title: string; author?: string; channelId?: string; durationSec?: number | null
+  videoSource?: PlaylistVideoSource; thumbnailUrl?: string | null
+}) {
   return yfetch<{ ok: true }>(`/${id}/videos`, { method: 'POST', headers: J, body: body(v) })
 }
 export function removeYtPlaylistVideo(id: string, rowId: string) {

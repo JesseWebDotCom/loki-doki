@@ -5,7 +5,7 @@ import { ChevronUp, ChevronDown, Heart, Clock, Maximize2, type LucideIcon } from
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
-import { ChannelAvatar } from '@/components/youtube/media'
+import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { useYtFeed } from '@/lib/youtube/useData'
 import { getVideoMeta } from '@/lib/youtube/api'
 import { isShort } from '@/lib/youtube/types'
@@ -111,12 +111,12 @@ export function YoutubeShortsPage() {
           {author && (channelId ? (
             <Link to={`/videos/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
               className="pointer-events-auto inline-flex items-center gap-2.5">
-              <ChannelAvatar title={author} src={channelThumb} className="size-9 text-xs ring-2 ring-white/70" />
+              <CreatorAvatar title={author} src={channelThumb} className="size-9 text-xs ring-2 ring-white/70" />
               <span className="text-sm font-semibold text-white">{author}</span>
             </Link>
           ) : (
             <div className="inline-flex items-center gap-2.5">
-              <ChannelAvatar title={author} src={channelThumb} className="size-9 text-xs ring-2 ring-white/70" />
+              <CreatorAvatar title={author} src={channelThumb} className="size-9 text-xs ring-2 ring-white/70" />
               <span className="text-sm font-semibold text-white">{author}</span>
             </div>
           ))}

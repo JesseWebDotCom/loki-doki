@@ -20,21 +20,20 @@ import { proxyImg } from '@/lib/img'
 import { useYoutubeUI, useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
 import { UpNextRow, watchHref } from '@/components/youtube/VideoCard'
-import { AutoplayCountdown } from '@/components/youtube/AutoplayCountdown'
+import { AutoplayCountdown, type AutoplayNextItem } from '@/components/youtube/AutoplayCountdown'
 import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
-import { ChannelAvatar } from '@/components/youtube/media'
-import { CreatorAvatar } from '@/components/videos/HubCreatorRail'
+import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
 import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
   startLiveRecord, stopLiveRecord, saveOffline,
-  ytImageProxy, type VideoMeta, type VideoVotes,
+  type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
-import { fmtViews } from '@/lib/youtube/format'
+import { fmtAge, fmtViews } from '@/lib/youtube/format'
 import { parseChapters } from '@/lib/youtube/chapters'
 import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
@@ -43,12 +42,19 @@ import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackC
 import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
 import { useShareLink } from '@/hooks/use-share-link'
 import {
-  getSourceItem, getSourceComments, getSourceCreator, listSaves, saveVideo, putWatchState, savedFileUrl,
+  getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, listSaves, saveVideo, putWatchState, savedFileUrl,
   listFollows, addFollow, removeFollow, getVideoSources,
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
 import { SOURCE_META } from '@/lib/videos/sources'
+import { usePlaylistQueue, playlistWatchHref } from '@/lib/videos/playlistWatch'
+import { PlaylistQueuePanel } from '@/components/videos/PlaylistQueuePanel'
+import { VimeoWatchPlayer } from '@/components/videos/VimeoWatchPlayer'
+import { TikTokWatchPlayer } from '@/components/videos/TikTokWatchPlayer'
+import { PlayerControlBar } from '@/components/videos/PlayerControlBar'
+import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
+import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -56,7 +62,7 @@ const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
   channelThumb: v.channelThumb ?? null, localKind: v.localKind, durationSec: v.durationSec ?? null,
 })
 
-type SideTab = 'transcript' | 'summary' | 'comments' | 'about'
+type SideTab = 'transcript' | 'summary' | 'comments'
 
 /** Compact like/dislike counts (1234 → "1.2K"). */
 function fmtCount(n: number): string {
@@ -179,6 +185,10 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [tab, setTab] = useState<SideTab>('transcript')
   const [autoplay, setAutoplay] = useState(true)
+  // Present when this video was opened via a playlist's "Play all" or a row click (?plist=&
+  // ppos=) — autoplay then advances through the playlist's own order instead of algorithmic
+  // "related" videos, and the sidebar shows the playlist queue instead of Up Next.
+  const pq = usePlaylistQueue()
   // "Playing next in Ns" overlay shown instead of navigating immediately on end, so the
   // viewer gets a beat to cancel. Cleared on scrub-back/replay (see onTime/onPlaying below).
   const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
@@ -314,21 +324,39 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   }), [meta?.title, meta?.channelId, meta?.durationSec, author, feedItem?.title, navState.title])
 
   function onEnded() {
-    if (autoplay && upNext[0]) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
+    if (!autoplay) return
+    if (pq.active) { if (pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC }); return }
+    if (upNext[0]) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
+  }
+
+  // Advances to whatever's "next" — the playlist's own next entry when one is active,
+  // otherwise the algorithmic up-next pick.
+  function goToNext() {
+    setCountdown(null)
+    if (pq.active) {
+      // usePlaylistQueue already skips Mine (no watch page) when picking `next`; the check
+      // here is just to satisfy the type narrowing, not a real runtime case.
+      if (pq.next && pq.next.videoSource !== 'mine' && pq.playlistId) {
+        navigate(playlistWatchHref(pq.next.videoSource, pq.next.videoId, pq.playlistId, pq.nextIndex))
+      }
+      return
+    }
+    const nx = upNext[0]
+    if (nx) navigate(watchHref(nx))
   }
 
   // Ticks the "playing next" countdown down once a second and navigates when it hits 0.
   useEffect(() => {
     if (!countdown) return
-    if (countdown.secondsLeft <= 0) {
-      const nx = upNext[0]
-      setCountdown(null)
-      if (nx) navigate(watchHref(nx))
-      return
-    }
+    if (countdown.secondsLeft <= 0) { goToNext(); return }
     const t = setTimeout(() => setCountdown(c => (c ? { ...c, secondsLeft: c.secondsLeft - 1 } : null)), 1000)
     return () => clearTimeout(t)
-  }, [countdown, upNext, navigate])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdown])
+
+  const countdownNext: AutoplayNextItem | null = pq.active
+    ? (pq.next ? { title: pq.next.title, author: pq.next.author, videoId: pq.next.videoSource === 'youtube' ? pq.next.videoId : undefined, thumbnailUrl: pq.next.videoSource === 'youtube' ? undefined : pq.next.thumbnailUrl } : null)
+    : (upNext[0] ?? null)
 
   // Pop the video into the docked mini-player and leave the watch page. Forces the dock
   // (even if paused) so the button always does something; navigating away would otherwise
@@ -366,11 +394,11 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               onPlaying={(p) => { playingRef.current = p; if (p && countdown) setCountdown(null) }}
               videoMeta={videoMeta}
             />
-            {countdown && upNext[0] && (
+            {countdown && countdownNext && (
               <AutoplayCountdown
-                nextItem={upNext[0]} secondsLeft={countdown.secondsLeft} total={countdown.total}
+                nextItem={countdownNext} secondsLeft={countdown.secondsLeft} total={countdown.total}
                 onCancel={() => setCountdown(null)}
-                onPlayNow={() => { const nx = upNext[0]; setCountdown(null); navigate(watchHref(nx)) }}
+                onPlayNow={goToNext}
               />
             )}
           </div>
@@ -389,22 +417,35 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           videoId={videoId} tab={tab} setTab={setTab} currentSec={currentSec}
           onSeek={(sec) => playerRef.current?.seek(sec)} initialSummary={meta?.summary ?? null}
         />
-        <Card className="p-3">
-          <div className="mb-2 flex items-center justify-between px-1">
-            <h3 className="text-sm font-semibold">Up next</h3>
-            <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
+        {pq.active && pq.playlistId ? (
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
               Autoplay
               <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
                 className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
                 <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
               </button>
             </label>
+            <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
           </div>
-          <div className="space-y-1">
-            {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
-            {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
-          </div>
-        </Card>
+        ) : (
+          <Card className="p-3">
+            <div className="mb-2 flex items-center justify-between px-1">
+              <h3 className="text-sm font-semibold">Up next</h3>
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
+                Autoplay
+                <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
+                  className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
+                  <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
+                </button>
+              </label>
+            </div>
+            <div className="space-y-1">
+              {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
+              {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
+            </div>
+          </Card>
+        )}
       </aside>
     </PageContainer>
   )
@@ -452,6 +493,7 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
   const [subId, setSubId] = useState(meta?.subscriptionId ?? null)
   const [subBusy, setSubBusy] = useState(false)
   const channelId = meta?.channelId ?? null
+  const subscribers = meta?.subscribers ?? null
   // Smart Description (promotional content stripped) once the background enrichment has
   // generated one; the raw description is still what's used for chapter parsing above
   // (descChapters), since chapters are creator-authored timestamps, not promotional content.
@@ -460,14 +502,15 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
   // identical descriptionClean, so there'd be nothing to toggle to.
   const hasOriginalDescription = !!meta?.descriptionClean && !!meta?.description && meta.descriptionClean !== meta.description
   const description = (showOriginalDescription ? meta?.description : meta?.descriptionClean) ?? meta?.description ?? null
-  const views = fmtViews(meta?.views)
+  // "1.2M views · 7y ago" under the title, matching what every card already shows.
+  const views = [fmtViews(meta?.views), fmtAge(meta?.publishedAt)].filter(Boolean).join(' · ')
 
   // Sync subscribe state once meta resolves (InfoPanel renders before meta loads).
   useEffect(() => {
     if (meta?.subscribed !== undefined) { setSubbed(meta.subscribed); setSubId(meta.subscriptionId ?? null) }
   }, [meta?.subscribed, meta?.subscriptionId])
 
-  const snapshot = { videoId, title, author, channelId, channelThumb, durationSec: meta?.durationSec ?? null }
+  const snapshot = { videoId, title, author, channelId, channelThumb, durationSec: meta?.durationSec ?? null, videoSource: 'youtube' as const }
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
 
@@ -522,20 +565,45 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
   return (
     <div className="space-y-4">
       {unsubDialog}
-      {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-      <h1 className="text-title leading-tight">{title}</h1>
+      <div className="flex items-start justify-between gap-3">
+        {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
+        <h1 className="text-title leading-tight">{title}</h1>
+        {/* Player options live on the title line — display/viewing prefs, not social actions,
+         *  so they don't compete with the creator row for width and force it to wrap. */}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border/60 p-1">
+          <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
+            title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
+          {online && (
+            <SegBtn icon={ShieldCheck} label="Private stream" active={privacy} tone="success" iconFill={privacy} onClick={onTogglePrivacy}
+              title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." />
+          )}
+          {online && (
+            <SegBtn icon={Headphones} label="Audio only" active={audioOnly} tone="info" onClick={onToggleAudioOnly}
+              title="Audio only: play just the audio to save bandwidth." />
+          )}
+          {isShortVid && (
+            <SegBtn icon={Smartphone} label="Shorts view" to={`/videos/youtube/shorts/${videoId}`} title="Open in Shorts view" />
+          )}
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-3">
         {author && (channelId ? (
           <Link to={`/videos/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
             className="group flex items-center gap-2.5">
-            <ChannelAvatar title={author} src={channelThumb} className="size-10 text-sm ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
-            <p className="text-sm font-semibold transition-colors group-hover:text-[var(--yt-accent-fg)]">{author}</p>
+            <CreatorAvatar title={author} src={channelThumb} className="size-10 text-sm ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+            <div>
+              <p className="text-sm font-semibold leading-tight transition-colors group-hover:text-[var(--yt-accent-fg)]">{author}</p>
+              {subscribers && <p className="text-xs text-muted-foreground">{subscribers}</p>}
+            </div>
           </Link>
         ) : (
           <div className="flex items-center gap-2.5">
-            <ChannelAvatar title={author} src={channelThumb} className="size-10 text-sm ring-1 ring-border/40" />
-            <p className="text-sm font-semibold">{author}</p>
+            <CreatorAvatar title={author} src={channelThumb} className="size-10 text-sm ring-1 ring-border/40" />
+            <div>
+              <p className="text-sm font-semibold leading-tight">{author}</p>
+              {subscribers && <p className="text-xs text-muted-foreground">{subscribers}</p>}
+            </div>
           </div>
         ))}
         {channelId && (subbed ? (
@@ -544,30 +612,13 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
             {subBusy ? <Spinner /> : <Check className="size-4" />}
           </Button>
         ) : (
-          <Button onClick={toggleSub} disabled={subBusy}
-            className="gap-1.5 bg-[var(--yt-accent)] font-semibold text-white hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
-            {subBusy && <Spinner className="text-white" />}Subscribe
+          <Button size="icon" onClick={toggleSub} disabled={subBusy} title="Subscribe" aria-label="Subscribe"
+            className="bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+            {subBusy ? <Spinner className="text-white" /> : <Plus className="size-4" />}
           </Button>
         ))}
         {votes && <VotesBar votes={votes} />}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {/* Player options — grouped so the row reads as one control, not a scatter of circles */}
-          <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-1">
-            <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
-              title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
-            {online && (
-              <SegBtn icon={ShieldCheck} label="Private stream" active={privacy} tone="success" iconFill={privacy} onClick={onTogglePrivacy}
-                title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." />
-            )}
-            {online && (
-              <SegBtn icon={Headphones} label="Audio only" active={audioOnly} tone="info" onClick={onToggleAudioOnly}
-                title="Audio only: play just the audio to save bandwidth." />
-            )}
-            {isShortVid && (
-              <SegBtn icon={Smartphone} label="Shorts view" to={`/videos/youtube/shorts/${videoId}`} title="Open in Shorts view" />
-            )}
-          </div>
-
           {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
           <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
             <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked} onClick={() => toggleCollection('liked', snapshot)} />
@@ -660,12 +711,18 @@ function YoutubeSidePanel({ videoId, tab, setTab, onSeek, initialSummary, curren
   )
 }
 
-function TranscriptTab({ videoId, onSeek, currentSec }: { videoId: string; onSeek: (sec: number) => void; currentSec: number }) {
+/** Timed transcript panel. YouTube reads its own caption endpoints; any other source
+ *  (pass `source`) reads the hub transcript route (provider captions API or yt-dlp). */
+function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { videoId: string; onSeek: (sec: number) => void; currentSec: number; source?: VideoSource }) {
   const [q, setQ] = useState('')
   const activeRef = useRef<HTMLButtonElement>(null)
   const { data, isPending } = useQuery({
-    queryKey: ['yt-transcript', videoId],
+    queryKey: source === 'youtube' ? ['yt-transcript', videoId] : ['videos-transcript', source, videoId],
     queryFn: async () => {
+      if (source !== 'youtube') {
+        const vtt = await getSourceTranscript(source, videoId).catch(() => '')
+        return { lines: parseVtt(vtt) as TranscriptLine[], prose: null as string | null }
+      }
       const [vtt, prose] = await Promise.all([
         fetch(`/api/youtube/transcript/${videoId}`, { credentials: 'include' }).then(r => (r.ok ? r.text() : '')).catch(() => ''),
         getTranscriptText(videoId).catch(() => null),
@@ -725,10 +782,12 @@ function TranscriptTab({ videoId, onSeek, currentSec }: { videoId: string; onSee
   )
 }
 
-function SummaryTab({ videoId, initial }: { videoId: string; initial: string | null }) {
+/** Transcript-based AI summary. YouTube posts to its own summarize endpoint; any other
+ *  source (pass `source`) reads the hub summary route (same prompt/model server-side). */
+function SummaryTab({ videoId, initial, source = 'youtube' }: { videoId: string; initial: string | null; source?: VideoSource }) {
   const { data, isPending } = useQuery({
-    queryKey: ['yt-summary', videoId],
-    queryFn: () => summarize(videoId),
+    queryKey: source === 'youtube' ? ['yt-summary', videoId] : ['videos-summary', source, videoId],
+    queryFn: () => source === 'youtube' ? summarize(videoId) : getSourceSummary(source, videoId).then((r) => r.summary),
     initialData: initial && initial.length > 0 ? initial : undefined,
   })
   if (isPending) return <Centered><Spinner /> Summarizing…</Centered>
@@ -744,9 +803,7 @@ function YoutubeCommentsTab({ videoId }: { videoId: string }) {
     <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1">
       {comments.map((c, i) => (
         <div key={i} className="flex gap-2.5">
-          {c.authorThumb
-            ? <img src={ytImageProxy(c.authorThumb)} alt="" referrerPolicy="no-referrer" className="mt-0.5 size-7 shrink-0 rounded-full object-cover" />
-            : <div className="mt-0.5 size-7 shrink-0 rounded-full bg-muted" />}
+          <CreatorAvatar title={c.author || '?'} src={c.authorThumb} className="mt-0.5 size-7 shrink-0 text-[10px]" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {c.pinned && <Pin className="size-3 text-[var(--yt-accent-fg)]" />}
@@ -807,10 +864,15 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const navigate = useNavigate()
   const pb = useYoutubePlayback()
   const videoRef = useRef<HTMLVideoElement>(null)
-  // null = no explicit user selection yet; falls back to a capability-derived default so
-  // a source without comments never briefly renders (or fetches) the Comments tab before
-  // capabilities load.
+  const nativeWrapRef = useRef<HTMLDivElement>(null)
+  const toggleNativeFullscreen = useFullscreenToggle(nativeWrapRef)
   const [explicitTab, setExplicitTab] = useState<SideTab | null>(null)
+  // Present when this video was opened via a playlist's "Play all" or a row click. Autoplay
+  // here only ever means "advance through that playlist" — there's no algorithmic "related"
+  // autoplay fallback for hub sources (matches today's no-queue behavior outside a playlist).
+  const pq = usePlaylistQueue()
+  const [autoplay, setAutoplay] = useState(true)
+  const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
   // TikTok/Vimeo play through a cross-origin embed <iframe>, which the browser won't let us
   // Picture-in-Picture. When the user asks for PiP we swap the embed for a real <video> fed by
   // the on-demand /api/vstream endpoint (yt-dlp), then request PiP — same handoff YouTube does.
@@ -824,9 +886,22 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   })
   const item: HubVideoItem | undefined = data?.item
 
+  // Liked / Watch Later use the same cross-source collections store as YouTube - rows carry
+  // videoSource so the Liked/Watch Later pages can badge and route them per source.
+  const liked = useCollection('liked').some(v => v.videoId === id)
+  const watchLater = useCollection('watch-later').some(v => v.videoId === id)
+  const collectionSnapshot = () => ({
+    videoId: id, title: item?.title ?? id, author: item?.creator?.name ?? null,
+    channelId: item?.creator?.id ?? null, channelThumb: item?.creator?.avatarUrl ?? null,
+    thumbnailUrl: item?.thumbnailUrl ?? null, durationSec: item?.durationSec ?? null,
+    videoSource: source as 'reddit' | 'tiktok' | 'vimeo' | 'link',
+  })
+
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const capabilities = sourcesData?.sources.find((s) => s.source === source)?.capabilities
-  const tab: SideTab = explicitTab ?? (capabilities?.comments === false ? 'about' : 'comments')
+  // Default to Transcript like the YouTube panel, unless this source has no transcript
+  // capability (its first tab is then Comments, when present).
+  const tab: SideTab = explicitTab ?? (capabilities?.transcript === false ? 'comments' : 'transcript')
 
   const { data: savesData } = useQuery({ queryKey: ['videos-saves', source], queryFn: () => listSaves(source) })
   const save = savesData?.saves.find((s) => s.videoId === id && s.kind === 'video')
@@ -843,6 +918,12 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // A real <video> exists whenever we're not showing the embed (native stream/hls/file modes,
   // or the PiP stream swap) — that's what PiP can target.
   const hasNativeVideo = !showEmbed
+  // Drives the shared PlayerControlBar over the native <video> (Reddit/link, and the PiP
+  // stream swap for embed sources) so it matches the Vimeo/TikTok bar instead of leaving the
+  // browser's own native controls, which look different from the rest of the hub.
+  const [nativePlaying, setNativePlaying] = useState(true)
+  const [nativeMuted, setNativeMuted] = useState(false)
+  const [nativeDuration, setNativeDuration] = useState(0)
 
   usePlaybackAttach(videoRef, data?.playback ?? null, localUrl)
 
@@ -882,14 +963,52 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
       thumbnail: data.item.thumbnailUrl ? proxyImg(data.item.thumbnailUrl) : undefined,
       // Raw creator-avatar URL — the mini-bar's CreatorAvatar proxies it through /api/img.
       channelThumb: data.item.creator?.avatarUrl ?? null,
-      // TikTok/Vimeo dock their embed iframe (instant, reliable); other sources dock a real
-      // <video> off /api/vstream.
-      ...(embedUrl ? { embedUrl } : { streamVideoUrl: vstreamUrl }),
+      // A saved offline copy docks its local file (it's exactly why embedUrl is null for
+      // saved TikTok/Vimeo — don't make /api/vstream re-download what's already on disk);
+      // then TikTok/Vimeo dock their embed iframe (instant, reliable); every other source
+      // docks a real <video> off /api/vstream.
+      ...(localUrl ? { streamVideoUrl: localUrl } : embedUrl ? { embedUrl } : { streamVideoUrl: vstreamUrl }),
       durationSec: data.item.durationSec ?? null,
       expandTo: `/videos/${source}/watch/${id}`,
     }], 0, at)
     navigate(`/videos/${source}`)
   }
+
+  // Playback second for the transcript's follow-along highlight. Native <video> only —
+  // embed iframes (TikTok/Vimeo online) expose no time, so it stays -1 and no line
+  // highlights; tapping a line still seeks when a native video exists.
+  const [currentSec, setCurrentSec] = useState(-1)
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onTime = () => setCurrentSec(v.currentTime)
+    v.addEventListener('timeupdate', onTime)
+    return () => v.removeEventListener('timeupdate', onTime)
+  }, [showEmbed, id])
+  const seekTo = (sec: number) => {
+    const v = videoRef.current
+    if (v) { v.currentTime = sec; void v.play().catch(() => {}) }
+  }
+  const toggleNativePlay = () => { const v = videoRef.current; if (!v) return; v.paused ? void v.play().catch(() => {}) : v.pause() }
+
+  // Advances to the playlist's next entry. There's no algorithmic "up next" for hub sources,
+  // so outside a playlist context this is simply never triggered.
+  function goToNext() {
+    setCountdown(null)
+    if (pq.next && pq.next.videoSource !== 'mine' && pq.playlistId) {
+      navigate(playlistWatchHref(pq.next.videoSource, pq.next.videoId, pq.playlistId, pq.nextIndex))
+    }
+  }
+  function onVideoEnded() {
+    if (autoplay && pq.active && pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
+  }
+  useEffect(() => {
+    if (!countdown) return
+    if (countdown.secondsLeft <= 0) { goToNext(); return }
+    const t = setTimeout(() => setCountdown(c => (c ? { ...c, secondsLeft: c.secondsLeft - 1 } : null)), 1000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdown])
 
   // Resume position + periodic watch-state sync (10s cadence + unmount flush).
   const lastSent = useRef(0)
@@ -938,7 +1057,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const followMutation = useMutation({
     mutationFn: () => (follow ? removeFollow(follow.id) : addFollow(source, item!.creator!.id)),
     onSuccess: () => {
-      toast.success(follow ? 'Unfollowed' : 'Following')
+      toast.success(follow ? 'Unsubscribed' : 'Subscribed')
       void qc.invalidateQueries({ queryKey: ['videos-follows'] })
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not update follow'),
@@ -968,9 +1087,15 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
   const saveState = save?.status
   const badge = SOURCE_META[source]
+  // Same panel as YouTube's, same order: Transcript / AI Summary / Comments. Each tab is
+  // capability-gated: Transcript + AI Summary drop off where the platform's videos never
+  // carry captions (TikTok, Reddit), where they'd always render empty, and Comments drops off
+  // where there's no comments API at all (TikTok).
   const tabs: Array<{ key: SideTab; label: string }> = []
-  if (capabilities?.comments) tabs.push({ key: 'comments', label: 'Comments' })
-  if (item.creator) tabs.push({ key: 'about', label: 'About' })
+  if (capabilities?.transcript !== false) {
+    tabs.push({ key: 'transcript', label: 'Transcript' }, { key: 'summary', label: 'AI Summary' })
+  }
+  if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments' })
 
   return (
     <PageContainer width="wide" className="grid grid-cols-1 gap-6 py-6 xl:grid-cols-[1fr_400px]">
@@ -979,34 +1104,74 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
         {/* Vertical (TikTok/Reels) videos are capped by HEIGHT so the title + action row stay
             visible beneath the player instead of a full 9:16 tower pushing them off-screen. */}
         <div className={item.vertical ? 'flex justify-center' : ''}>
-          {showEmbed ? (
-            <iframe
-              src={embedUrl!}
-              title={item.title}
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-              allowFullScreen
-              className={item.vertical
-                ? 'aspect-[9/16] h-[min(64vh,600px)] rounded-card border-0 bg-black'
-                : 'aspect-video w-full rounded-card border-0 bg-black'}
-            />
-          ) : (
-            <video
-              ref={videoRef}
-              src={pipStream ? vstreamUrl : undefined}
-              controls
-              autoPlay
-              playsInline
-              poster={item.thumbnailUrl ?? undefined}
-              className={item.vertical
-                ? 'aspect-[9/16] h-[min(64vh,600px)] rounded-card bg-black'
-                : 'aspect-video w-full rounded-card bg-black'}
-            />
-          )}
+          <div className="relative">
+            {showEmbed ? (
+              source === 'vimeo' ? (
+                <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
+              ) : source === 'tiktok' ? (
+                <TikTokWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
+              ) : (
+                <iframe
+                  src={embedUrl!}
+                  title={item.title}
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  className={item.vertical
+                    ? 'aspect-[9/16] h-[min(64vh,600px)] rounded-card border-0 bg-black'
+                    : 'aspect-video w-full rounded-card border-0 bg-black'}
+                />
+              )
+            ) : (
+              <div ref={nativeWrapRef} className={cn('group relative overflow-hidden rounded-card bg-black',
+                item.vertical ? 'aspect-[9/16] h-[min(64vh,600px)]' : 'aspect-video w-full')}>
+                <video
+                  ref={videoRef}
+                  src={pipStream ? vstreamUrl : undefined}
+                  autoPlay
+                  playsInline
+                  poster={item.thumbnailUrl ?? undefined}
+                  onEnded={onVideoEnded}
+                  onPlay={() => setNativePlaying(true)}
+                  onPause={() => setNativePlaying(false)}
+                  onDurationChange={(e) => setNativeDuration(e.currentTarget.duration || 0)}
+                  onVolumeChange={(e) => setNativeMuted(e.currentTarget.muted)}
+                  className="size-full"
+                />
+                <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay} />
+                <PlayerControlBar playing={nativePlaying} muted={nativeMuted}
+                  position={currentSec < 0 ? 0 : currentSec} duration={nativeDuration}
+                  onToggle={toggleNativePlay}
+                  onToggleMute={() => { const v = videoRef.current; if (!v) return; v.muted = !v.muted; setNativeMuted(v.muted) }}
+                  onSeek={seekTo}
+                  onFullscreen={toggleNativeFullscreen} />
+              </div>
+            )}
+            {countdown && pq.next && (
+              <AutoplayCountdown
+                nextItem={{ title: pq.next.title, author: pq.next.author, videoId: pq.next.videoSource === 'youtube' ? pq.next.videoId : undefined, thumbnailUrl: pq.next.videoSource === 'youtube' ? undefined : pq.next.thumbnailUrl }}
+                secondsLeft={countdown.secondsLeft} total={countdown.total}
+                onCancel={() => setCountdown(null)}
+                onPlayNow={goToNext}
+              />
+            )}
+          </div>
         </div>
 
         <div className="space-y-4">
-          {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-          <h1 className="text-title leading-tight">{item.title}</h1>
+          <div className="flex items-start justify-between gap-3">
+            {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
+            <h1 className="text-title leading-tight">{item.title}</h1>
+            {/* Player options live on the title line — display/viewing prefs, not social
+             *  actions, so they don't compete with the creator row for width and force it to wrap. */}
+            <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border/60 p-1">
+              <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={minimize}
+                title="Minimize: keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
+              {pipSupported && (
+                <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
+                  title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
+              )}
+            </div>
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
             {item.creator && creatorPath && (
@@ -1018,29 +1183,22 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             )}
             {item.creator && (follow ? (
               <Button variant="secondary" size="icon" onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
-                title="Following. Click to unfollow" aria-label="Following"
+                title="Subscribed. Click to unsubscribe" aria-label="Subscribed"
                 className="bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-60">
                 {followMutation.isPending ? <Spinner /> : <Check className="size-4" />}
               </Button>
             ) : (
-              <Button onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
-                className="gap-1.5 bg-[var(--yt-accent)] font-semibold text-white hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
-                {followMutation.isPending ? <Spinner className="text-white" /> : <Plus className="size-4" />}Follow
+              <Button size="icon" onClick={() => followMutation.mutate()} disabled={followMutation.isPending} title="Subscribe" aria-label="Subscribe"
+                className="bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+                {followMutation.isPending ? <Spinner className="text-white" /> : <Plus className="size-4" />}
               </Button>
             ))}
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {/* Player options — grouped so the row reads as one control (mirrors YouTube) */}
-              <div className="flex items-center gap-0.5 rounded-full border border-border/60 p-1">
-                <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={minimize}
-                  title="Minimize: keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
-                {pipSupported && (
-                  <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
-                    title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
-                )}
-              </div>
               {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
               <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
+                <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked}
+                  onClick={() => toggleCollection('liked', collectionSnapshot())} />
                 <SegBtn
                   icon={saveState === 'ready' ? Check : HardDriveDownload}
                   label={saveState === 'ready' ? 'Saved offline' : saveState === 'pending' || saveState === 'downloading' ? 'Saving offline…' : 'Save offline'}
@@ -1051,6 +1209,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   onClick={() => { const a = document.createElement('a'); a.href = vstreamUrl; a.download = `${item.title || 'video'}.mp4`; document.body.appendChild(a); a.click(); a.remove() }}
                   title="Download: pull the video file down to this device (like any web download)." />
                 <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })} />
+                <AddToPlaylistPill compact video={{
+                  videoId: id, title: item.title, author: item.creator?.name ?? undefined, channelId: item.creator?.id ?? undefined,
+                  durationSec: item.durationSec ?? undefined, videoSource: source, thumbnailUrl: item.thumbnailUrl,
+                }} />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button title="More actions" aria-label="More actions"
@@ -1059,6 +1221,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem onClick={() => toggleCollection('watch-later', collectionSnapshot())}>
+                      <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
+                      {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
                       <Mic className="size-4" /> Create podcast
                     </DropdownMenuItem>
@@ -1071,7 +1237,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             </div>
           </div>
 
-          <DescriptionCard views={item.viewsText ?? null} description={item.description ?? null} />
+          <DescriptionCard views={[item.viewsText, item.likesText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ') || null} description={item.description ?? null} />
         </div>
 
         <CreatePodcastDialog open={podcastOpen} onClose={() => setPodcastOpen(false)}
@@ -1085,9 +1251,23 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
       {/* Side column */}
       <aside className="min-w-0 space-y-5">
         <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}>
+          {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
+          {tab === 'summary' && <SummaryTab videoId={id} initial={null} source={source} />}
           {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
-          {tab === 'about' && <AboutTab source={source} creatorId={item.creator?.id ?? null} />}
         </SidePanelShell>
+        {pq.active && pq.playlistId && (
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
+              Autoplay
+              <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
+                className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
+                <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
+              </button>
+            </label>
+            <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
+          </div>
+        )}
+        {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
         {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
       </aside>
     </PageContainer>
@@ -1113,23 +1293,34 @@ function GenericCommentsTab({ source, id }: { source: VideoSource; id: string })
   )
 }
 
-/** Fallback tab for sources without comments (TikTok/Vimeo): the creator's own description,
- *  so the side panel is never structurally empty. */
-function AboutTab({ source, creatorId }: { source: VideoSource; creatorId: string | null }) {
-  const { data, isPending } = useQuery({
-    queryKey: ['videos-creator', source, creatorId],
-    queryFn: () => getSourceCreator(source, creatorId!),
-    enabled: !!creatorId,
+/** Platform-ranked "watch next" shelf (capabilities.related — Vimeo's related listing). */
+function RelatedVideosCard({ source, excludeId }: { source: VideoSource; excludeId: string }) {
+  const { data } = useQuery({
+    queryKey: ['videos-related', source, excludeId],
+    queryFn: () => getSourceRelated(source, excludeId),
+    staleTime: 5 * 60_000,
   })
-  if (!creatorId) return <Empty>No creator information available.</Empty>
-  if (isPending) return <Centered><Spinner /> Loading…</Centered>
-  const creator = data?.creator
-  if (!creator?.description && !creator?.subscriberText) return <Empty>Nothing more to show here.</Empty>
+  const items = (data?.items ?? []).filter((i) => i.id !== excludeId).slice(0, 12)
+  if (!items.length) return null
   return (
-    <div className="space-y-2 px-1 text-sm leading-relaxed text-foreground/85">
-      {creator.subscriberText && <p className="font-semibold text-foreground">{creator.subscriberText}</p>}
-      {creator.description && <p className="whitespace-pre-wrap">{creator.description}</p>}
-    </div>
+    <Card className="p-3">
+      <div className="mb-2 px-1"><h3 className="text-sm font-semibold">Related videos</h3></div>
+      <div className="space-y-1">
+        {items.map((i) => (
+          <Link key={i.id} to={HUB_PATHS[i.source].watch(i.id)} className="group flex gap-2.5 rounded-card p-1.5 transition-colors hover:bg-accent/50">
+            <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-card bg-muted sm:w-36">
+              {i.thumbnailUrl && <img src={proxyImg(i.thumbnailUrl)} alt="" loading="lazy" className="size-full object-cover transition group-hover:scale-105" />}
+            </div>
+            <div className="min-w-0 flex-1 py-0.5">
+              <p className="line-clamp-2 text-sm font-semibold leading-snug">{i.title}</p>
+              {(i.creator?.name || i.viewsText) && (
+                <p className="mt-1 truncate text-xs text-muted-foreground">{[i.creator?.name, i.viewsText].filter(Boolean).join(' · ')}</p>
+              )}
+            </div>
+          </Link>
+        ))}
+      </div>
+    </Card>
   )
 }
 

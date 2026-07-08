@@ -34,6 +34,10 @@ export interface VideoItem {
   publishedAt?: number | null
   publishedText?: string | null
   viewsText?: string | null
+  /** Pre-formatted like count, e.g. "4.4K likes" (getItem only — not populated on list/browse cards). */
+  likesText?: string | null
+  /** Compact comment count, e.g. "149" or "1.2K" (getItem only) — feeds the watch page's "Comments (N)" tab label. */
+  commentsCount?: string | null
   isAdult?: boolean
   live?: boolean
   /** Short-form hint (shorts / TikTok / reels) so mixed grids can pick the 9:16 card. */
@@ -48,7 +52,19 @@ export interface Creator extends CreatorRef {
   bannerUrl?: string | null
   description?: string | null
   subscriberText?: string | null
+  /** Pre-formatted display counts, e.g. "350 following" / "127.7M likes" / "1.4K videos". */
+  followingText?: string | null
+  likesText?: string | null
+  videoCount?: string | null
   isAdult?: boolean
+}
+
+/** A creator's curated video collection (TikTok's playlist tab, etc). */
+export interface Playlist {
+  id: string
+  title: string
+  thumbnailUrl?: string | null
+  videoCount?: number | null
 }
 
 /** Cursor-string pager: cursors are provider-opaque (InnerTube continuation, reddit

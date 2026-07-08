@@ -46,6 +46,8 @@ export interface Subscription {
   autoSave: boolean
   autoSaveKind: 'audio' | 'video'
   autoSaveKeep: number | null
+  /** Delete auto-saved copies once fully watched (offline rule, independent of Plex). */
+  removeWatched: boolean
   addedAt: string
 }
 
@@ -105,12 +107,15 @@ export interface VideoMeta {
   author: string | null
   channelId: string | null
   channelThumb?: string | null
+  subscribers?: string | null
   description: string | null
   descriptionClean?: string | null
   summary?: string | null
   positionSec: number
   durationSec: number | null
   views?: string | null
+  /** Upload date, unix ms (from the cached row, InnerTube microformat, or yt-dlp). */
+  publishedAt?: number | null
   subscribed?: boolean
   subscriptionId?: string | null
   isLive?: boolean
@@ -354,8 +359,12 @@ export interface CollectionRow {
   author: string | null
   channelId: string | null
   channelThumb?: string | null
+  /** Video thumbnail snapshot — carried for non-YouTube sources (yt derives from videoId). */
+  thumbnailUrl?: string | null
   durationSec: number | null
   addedAt: number
+  /** Which video source this entry belongs to — absent/'youtube' for pre-existing rows. */
+  videoSource?: 'youtube' | 'reddit' | 'tiktok' | 'vimeo' | 'link' | 'mine'
 }
 
 export async function getCollections(): Promise<Record<'watch-later' | 'liked', CollectionRow[]>> {
@@ -549,7 +558,7 @@ export async function deleteSubscription(id: string): Promise<void> {
 
 export async function updateSubscription(
   id: string,
-  patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null },
+  patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean },
 ): Promise<void> {
   await fetch(`/api/youtube/subscriptions/${id}`, { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(patch) })
 }
@@ -600,8 +609,9 @@ export async function getSaveQuality(): Promise<SaveQuality> {
   return r.json() as Promise<SaveQuality>
 }
 
-/** Save a channel's current back-catalogue (latest `count` uploads) to the Offline library now. */
-export async function saveChannelNow(channelId: string, body: { kind: 'audio' | 'video'; count: number }): Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }> {
+/** Save a channel's current back-catalogue (latest `count` uploads) to the Offline library now.
+ *  auto:true = the "Configure for offline" backfill (rows join the rolling keep-N window). */
+export async function saveChannelNow(channelId: string, body: { kind: 'audio' | 'video'; count: number; auto?: boolean }): Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }> {
   const r = await fetch(`/api/youtube/channel/${encodeURIComponent(channelId)}/save-now`, { ...opts, method: 'POST', headers: J, body: JSON.stringify(body) })
   return r.json() as Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }>
 }

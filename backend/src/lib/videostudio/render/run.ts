@@ -152,6 +152,9 @@ export async function runStudioRenderJob(
         width: preset.width, height: preset.height, error: null, updatedAt: now,
       }).where(eq(studioMedia.id, row.id))
     })
+    // Place into the owner's (and, if shared, other members') My Videos Plex library.
+    const { enqueueMinePlacement } = await import('@/lib/videostudio/plexExport')
+    void enqueueMinePlacement(row.id).catch(() => {})
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await db.update(studioMedia).set({ status: 'failed', error: message.slice(0, 500), updatedAt: new Date() }).where(eq(studioMedia.id, row.id))

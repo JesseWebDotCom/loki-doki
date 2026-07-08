@@ -115,7 +115,41 @@ export interface PlexServer {
 export interface PlexConfigSummary {
   baseUrl: string
   hasToken: boolean
-  users: Array<{ id: string; name: string; linked: boolean }>
+  users: Array<{
+    id: string
+    name: string
+    /** Signed in with their own Plex account (needed for personal watchlist/scrobble sync). */
+    linked: boolean
+    /** Admin-side mapping to a Plex account (enough to provision/share libraries). */
+    plexAccountId: string | null
+    plexUsername: string | null
+  }>
+}
+
+/** A Plex account visible to the server admin (owner, friends, Plex Home users). */
+export interface PlexKnownAccount {
+  id: string
+  name: string
+  username: string | null
+  email: string | null
+  owner: boolean
+  restricted: boolean
+}
+
+export async function getPlexAccounts(): Promise<PlexKnownAccount[]> {
+  const res = await fetch('/api/plex/admin/accounts', opts)
+  if (!res.ok) return []
+  return ((await res.json()) as { accounts: PlexKnownAccount[] }).accounts ?? []
+}
+
+export async function setPlexUserMapping(userId: string, account: { id: string; username: string | null } | null): Promise<boolean> {
+  const res = await fetch('/api/plex/admin/user-mapping', {
+    ...opts,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, plexAccountId: account?.id ?? null, plexUsername: account?.username ?? null }),
+  })
+  return res.ok
 }
 
 // Current-user linking (per-user account). Reuses the PIN flow above.
@@ -185,6 +219,87 @@ export async function savePlexConfig(patch: { baseUrl?: string; token?: string }
   if (!res.ok) return { ok: false, serverName: null }
   const data = (await res.json()) as { ok: boolean; serverName: string | null }
   return { ok: data.ok, serverName: data.serverName }
+}
+
+// ── Exported video libraries (per-user per-source) + sync policies ────────────────
+
+export const PLEX_EXPORT_SOURCES = [
+  { key: 'youtube', label: 'YouTube' },
+  { key: 'tiktok', label: 'TikTok' },
+  { key: 'vimeo', label: 'Vimeo' },
+  { key: 'reddit', label: 'Reddit' },
+  { key: 'mine', label: 'My Videos' },
+] as const
+export type PlexExportSource = (typeof PLEX_EXPORT_SOURCES)[number]['key']
+
+export interface PlexLibrarySection {
+  id: string
+  userId: string
+  contentType: string
+  status: 'pending' | 'provisioning' | 'ready' | 'error'
+  error: string | null
+  syncMode: 'all' | 'recent'
+  syncRecentCount: number | null
+  removeWatched: boolean
+}
+
+export interface LibraryPolicyPatch {
+  syncMode?: 'all' | 'recent'
+  syncRecentCount?: number | null
+  removeWatched?: boolean
+}
+
+export async function getAdminLibrarySections(): Promise<PlexLibrarySection[]> {
+  const res = await fetch('/api/plex/admin/library-sections', opts)
+  if (!res.ok) return []
+  return ((await res.json()) as { sections: PlexLibrarySection[] }).sections ?? []
+}
+
+export interface MyLibrarySections {
+  sections: PlexLibrarySection[]
+  /** Per-contentType: admin has assigned a storage location WITH a Plex path mapping —
+   *  the prerequisite for provisioning. Lets the settings page show unprovisioned sources
+   *  disabled with the right "what's missing" note instead of hiding them. */
+  storageReady: Record<string, boolean>
+}
+
+export async function getMyLibrarySections(): Promise<MyLibrarySections> {
+  const res = await fetch('/api/plex/me/library-sections', opts)
+  if (!res.ok) return { sections: [], storageReady: {} }
+  const data = (await res.json()) as Partial<MyLibrarySections>
+  return { sections: data.sections ?? [], storageReady: data.storageReady ?? {} }
+}
+
+export async function provisionLibrary(userId: string, contentType: string): Promise<boolean> {
+  const res = await fetch('/api/plex/admin/provision', {
+    ...opts,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, contentType }),
+  })
+  return res.ok
+}
+
+export async function patchMyLibraryPolicy(contentType: string, patch: LibraryPolicyPatch): Promise<string | null> {
+  const res = await fetch(`/api/plex/me/library-sections/${encodeURIComponent(contentType)}`, {
+    ...opts,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (res.ok) return null
+  return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Could not update the policy'
+}
+
+export async function patchAdminLibraryPolicy(sectionId: string, patch: LibraryPolicyPatch): Promise<string | null> {
+  const res = await fetch(`/api/plex/admin/library-sections/${encodeURIComponent(sectionId)}`, {
+    ...opts,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (res.ok) return null
+  return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Could not update the policy'
 }
 
 export async function addToPlexWatchlist(plexGuid: string): Promise<boolean> {

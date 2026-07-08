@@ -11,8 +11,12 @@ export interface SavedVideoMeta {
   author?: string | null
   channelId?: string | null
   channelThumb?: string | null
+  /** Video thumbnail snapshot — needed for non-YouTube sources (yt cards derive theirs from videoId). */
+  thumbnailUrl?: string | null
   durationSec?: number | null
   addedAt: number
+  /** Absent means 'youtube' — every entry before cross-source collections existed. */
+  videoSource?: 'youtube' | 'reddit' | 'tiktok' | 'vimeo' | 'link' | 'mine'
 }
 
 export type CollectionKey = 'watch-later' | 'liked'
@@ -50,7 +54,7 @@ export function toggleCollection(k: CollectionKey, meta: Omit<SavedVideoMeta, 'a
   }
   items.push({ ...meta, addedAt: Date.now() })
   write(k, items)
-  void putCollection(k, meta.videoId, { title: meta.title, author: meta.author, channelId: meta.channelId, durationSec: meta.durationSec })
+  void putCollection(k, meta.videoId, { title: meta.title, author: meta.author, channelId: meta.channelId, durationSec: meta.durationSec, thumbnailUrl: meta.thumbnailUrl, videoSource: meta.videoSource })
   return true
 }
 
@@ -71,8 +75,9 @@ export async function hydrateCollections(): Promise<void> {
       const rows = server[k] ?? []
       write(k, rows.map(r => ({
         videoId: r.videoId, title: r.title, author: r.author, channelId: r.channelId,
-        channelThumb: r.channelThumb ?? null,
+        channelThumb: r.channelThumb ?? null, thumbnailUrl: r.thumbnailUrl ?? null,
         durationSec: r.durationSec, addedAt: r.addedAt || Date.now(),
+        videoSource: r.videoSource,
       })))
     }
   } catch { _hydrated = false /* allow retry */ }

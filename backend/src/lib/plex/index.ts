@@ -361,6 +361,30 @@ export async function allLeaves(conn: PlexConnection, showRatingKey: string): Pr
     .filter((l) => l.ratingKey)
 }
 
+export interface PlexSectionEpisode {
+  ratingKey: string
+  viewCount: number
+  /** The media file's path AS PLEX SEES IT (Media[0].Part[0].file) — null when the item
+   *  hasn't been fully analyzed yet (fresh scan race). */
+  file: string | null
+}
+
+/** Every episode in a SECTION with watched state + backing file path — one call per
+ *  section, for the remove-watched sweep over exported video libraries. `type=4` is
+ *  Plex's episode type filter; Media/Part are included by default in section listings. */
+export async function sectionEpisodes(conn: PlexConnection, sectionKey: string): Promise<PlexSectionEpisode[]> {
+  interface EpisodeMeta extends PlexMeta { Media?: Array<{ Part?: Array<{ file?: string }> }> }
+  const data = await plexGet<{ MediaContainer?: { Metadata?: EpisodeMeta[] } }>(
+    conn, `/library/sections/${encodeURIComponent(sectionKey)}/all?type=4`)
+  return (data?.MediaContainer?.Metadata ?? [])
+    .map((m) => ({
+      ratingKey: String(m.ratingKey ?? ''),
+      viewCount: Number(m.viewCount ?? 0),
+      file: m.Media?.[0]?.Part?.[0]?.file ?? null,
+    }))
+    .filter((e) => e.ratingKey)
+}
+
 /** Mark an item watched on the server (scrobble). */
 export async function scrobble(conn: PlexConnection, ratingKey: string): Promise<boolean> {
   if (!ratingKey) return false

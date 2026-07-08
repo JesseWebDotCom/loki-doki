@@ -1127,6 +1127,9 @@ export const ytSubscriptions = sqliteTable('yt_subscriptions', {
   autoSave: integer('auto_save', { mode: 'boolean' }).notNull().default(false),
   autoSaveKind: text('auto_save_kind', { enum: ['audio', 'video'] }).notNull().default('video'),
   autoSaveKeep: integer('auto_save_keep'),
+  // Delete this channel's auto-saved offline copies once fully watched (in-app completed
+  // flag; independent of any Plex library policy — see lib/videos/offlineSweep.ts).
+  removeWatched: integer('remove_watched', { mode: 'boolean' }).notNull().default(false),
   // 'local' = added in-app; 'google' = mirrored from the user's linked YouTube account.
   // Google-sourced rows are reconciled against the account every sync pass (removed there
   // → removed here); local rows are never touched by sync. See youtube/accountSync.ts.
@@ -1281,12 +1284,19 @@ export const ytCollections = sqliteTable('yt_collections', {
   author: text('author'),
   channelId: text('channel_id'),
   durationSec: integer('duration_sec'),
+  // Video thumbnail snapshot. YouTube cards derive theirs from the videoId, but
+  // non-YouTube hub sources have no derivable thumb URL — without this, their
+  // Liked/Watch Later cards would render blank.
+  thumbnailUrl: text('thumbnail_url'),
   // 'local' vs 'google' — same contract as ytSubscriptions.source: google rows mirror the
   // linked account's Watch Later / Liked and are owned by account sync.
   source: text('source', { enum: ['local', 'google'] }).notNull().default('local'),
   // Which VIDEO source the saved item belongs to (Videos hub cross-source collections).
-  // Distinct from `source` above, which is account-sync ownership.
-  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo'] }).notNull().default('youtube'),
+  // Distinct from `source` above, which is account-sync ownership. 'mine' = Studio bin
+  // items (exports/uploads/recordings/generated clips) — never mirrored to the linked
+  // Google account (see pushCollectionChange's videoSource guard), since there's no real
+  // YouTube video ID to push.
+  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo', 'link', 'mine'] }).notNull().default('youtube'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userColVidUnique: unique().on(t.userId, t.collection, t.videoId) }))
 
@@ -1344,7 +1354,10 @@ export const ytPlaylistVideos = sqliteTable('yt_playlist_videos', {
   durationSec: integer('duration_sec'),
   position: integer('position').notNull().default(0),
   // Which video source this entry came from (Videos hub cross-source playlists).
-  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo'] }).notNull().default('youtube'),
+  videoSource: text('video_source', { enum: ['youtube', 'reddit', 'tiktok', 'vimeo', 'link', 'mine'] }).notNull().default('youtube'),
+  // YouTube thumbnails are derived from videoId at render time; every other source's
+  // thumbnail is an arbitrary provider URL that has to be stored to display it here.
+  thumbnailUrl: text('thumbnail_url'),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 })
 
@@ -2433,6 +2446,9 @@ export const videoFollows = sqliteTable('video_follows', {
   autoSave: integer('auto_save', { mode: 'boolean' }).notNull().default(false),
   autoSaveKind: text('auto_save_kind', { enum: ['audio', 'video'] }).notNull().default('video'),
   autoSaveKeep: integer('auto_save_keep'),     // null → global default
+  // Delete this creator's auto-saved offline copies once fully watched (in-app completed
+  // flag; independent of any Plex library policy — see lib/videos/offlineSweep.ts).
+  removeWatched: integer('remove_watched', { mode: 'boolean' }).notNull().default(false),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userSourceExternalUnique: unique().on(t.userId, t.source, t.externalId) }))
 
@@ -2448,6 +2464,7 @@ export const videoItems = sqliteTable('video_items', {
   url: text('url'),
   thumbnailUrl: text('thumbnail_url'),
   durationSec: integer('duration_sec'),
+  viewsText: text('views_text'),                // pre-formatted, e.g. "4.9M views" (snapshot at poll time)
   publishedAt: integer('published_at', { mode: 'timestamp' }),
   isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
   metaJson: text('meta_json'),                 // provider extras (v.redd.it urls, permalink…)
@@ -2522,6 +2539,9 @@ export const studioMedia = sqliteTable('studio_media', {
   height: integer('height'),
   // JSON context: {imageId} for generated imports, {projectId, preset, edlSnapshot} for exports.
   sourceMeta: text('source_meta'),
+  // Set = "shared with household": other members see this video in their My Videos Plex
+  // library (under the owner's show) and in shared surfaces. Null = private to the owner.
+  sharedAt: integer('shared_at', { mode: 'timestamp' }),
   error: text('error'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
@@ -2587,6 +2607,14 @@ export const plexLibrarySections = sqliteTable('plex_library_sections', {
   rootAbsPath: text('root_abs_path'),
   status: text('status', { enum: ['pending', 'provisioning', 'ready', 'error'] }).notNull().default('pending'),
   error: text('error'),
+  // Per-library sync policy (mirrors Plex's own download options). `syncMode: 'recent'`
+  // trims the Plex TREE to the newest N per show — it never deletes the underlying saves
+  // (channel keep-N pruning owns that). `removeWatched` is the Plex-style delete-after-
+  // watching: a fully-played episode is removed from the tree AND its save row deleted
+  // (never offered for 'mine' — own creations aren't downloads).
+  syncMode: text('sync_mode', { enum: ['all', 'recent'] }).notNull().default('all'),
+  syncRecentCount: integer('sync_recent_count'),      // null → DEFAULT_SYNC_RECENT_COUNT when mode='recent'
+  removeWatched: integer('remove_watched', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userContentTypeUnique: unique().on(t.userId, t.contentType) }))
@@ -2650,6 +2678,61 @@ export const ytPlexEpisodes = sqliteTable('yt_plex_episodes', {
   status: text('status', { enum: ['pending', 'cutting', 'placing', 'ready', 'failed'] }).notNull().default('pending'),
   error: text('error'),
   plexRefreshedAt: integer('plex_refreshed_at', { mode: 'timestamp' }),
+  // Plex's ratingKey for this placed episode, learned lazily by the watched sweep's
+  // basename match — makes subsequent sweeps a cheap id lookup instead of a path match.
+  plexRatingKey: text('plex_rating_key'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userVideoUnique: unique().on(t.userId, t.videoId) }))
+
+// ─── Videos hub → Plex export tree tracking (generic sources) ──────────────────
+// The non-YouTube twin of ytPlexShows/ytPlexEpisodes, one pair of tables for every
+// hub source ('tiktok' | 'vimeo' | 'reddit' | 'mine') distinguished by `source`.
+// Kept separate from the yt_* tables on purpose: those carry SponsorBlock cut columns
+// and shorts-variant semantics that don't generalize, and reusing them would put the
+// shipped YouTube export at migration risk for zero benefit.
+//
+// creatorKey per source: follow externalId (tiktok/vimeo), normalized subreddit
+// ('r-AskReddit', never 'r/AskReddit' — '/' is a path separator) for reddit, and the
+// OWNER's userId for 'mine' (shows = household members; a shared studio video appears
+// in every member's My Videos library under the sharer's show).
+export const videoPlexShows = sqliteTable('video_plex_shows', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),                   // 'tiktok' | 'vimeo' | 'reddit' | 'mine'
+  creatorKey: text('creator_key').notNull(),
+  title: text('title').notNull(),
+  folderRelPath: text('folder_rel_path').notNull(),   // relative to this user's content root
+  nfoHash: text('nfo_hash'),                          // "creator metadata changed, rewrite tvshow.nfo"
+  nfoWrittenAt: integer('nfo_written_at', { mode: 'timestamp' }),
+  postersWrittenAt: integer('posters_written_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userSourceCreatorUnique: unique().on(t.userId, t.source, t.creatorKey) }))
+
+// One row per (user, source, video) placed into that user's per-source Plex tree.
+// videoId is the provider externalId — or studio_media.id for 'mine'. sourceAssetId is
+// the media_assets row actually placed (base OR enhanced rendition); a mismatch against
+// the freshly-resolved rendition is what triggers a re-place after an enhance completes.
+export const videoPlexEpisodes = sqliteTable('video_plex_episodes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  showId: text('show_id').notNull().references(() => videoPlexShows.id, { onDelete: 'cascade' }),
+  seasonYear: integer('season_year').notNull(),
+  // MMDD-derived, bumped by 1 on same-day collision within (showId, seasonYear) —
+  // same scheme as ytPlexEpisodes so filenames stay date-sortable.
+  episodeNumber: integer('episode_number').notNull(),
+  sourceAssetId: text('source_asset_id'),
+  relPath: text('rel_path'),                          // placed file's path, relative to this user's content root
+  plexRatingKey: text('plex_rating_key'),             // learned lazily by the watched sweep
+  nfoWrittenAt: integer('nfo_written_at', { mode: 'timestamp' }),
+  thumbWrittenAt: integer('thumb_written_at', { mode: 'timestamp' }),
+  srtWrittenAt: integer('srt_written_at', { mode: 'timestamp' }),
+  status: text('status', { enum: ['pending', 'placing', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'),
+  plexRefreshedAt: integer('plex_refreshed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userSourceVideoUnique: unique().on(t.userId, t.source, t.videoId) }))

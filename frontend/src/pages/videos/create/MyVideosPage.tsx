@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clapperboard, Film, Plus, Sparkles, Trash2, Video } from 'lucide-react'
+import { Clapperboard, Clock, Film, Heart, Plus, Sparkles, Trash2, Users, Video } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
@@ -11,9 +12,11 @@ import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/lib/toast'
+import { toggleCollection, useCollection } from '@/lib/youtube/collections'
+import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
 import {
-  createStudioProject, deleteStudioProject, listStudioBin, listStudioProjects,
-  studioStreamUrl, type StudioBinItem,
+  createStudioProject, deleteStudioProject, isMineBinItem, listStudioBin, listStudioProjects,
+  setStudioMediaShared, studioStreamUrl, type StudioBinItem,
 } from '@/lib/videos/studioApi'
 
 function fmtDur(sec: number | null): string {
@@ -23,20 +26,87 @@ function fmtDur(sec: number | null): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+const binIconBtnClass = 'grid size-7 place-items-center rounded-full bg-black/70 text-white opacity-0 transition-opacity hover:bg-black/90 group-hover:opacity-100'
+
+/** A Studio bin card, with hover-revealed Like / Watch Later toggles - the only way to get
+ *  a Mine item into those collections, since there's no "watch" event to hang it off of.
+ *  Also carries the household-share toggle (shared videos land in other members' My Videos
+ *  Plex libraries under your show); unsharing confirms since it removes them there. */
+function MineBinCard({ item, onPlay, onAskUnshare }: { item: StudioBinItem; onPlay: () => void; onAskUnshare: (item: StudioBinItem) => void }) {
+  const qc = useQueryClient()
+  const liked = useCollection('liked').some((v) => v.videoId === item.assetId)
+  const watchLater = useCollection('watch-later').some((v) => v.videoId === item.assetId)
+  const meta = { videoId: item.assetId, title: item.title, durationSec: item.durationSec, videoSource: 'mine' as const, thumbnailUrl: item.thumbUrl }
+  const shared = item.sharedAt != null
+
+  const share = async () => {
+    if (!item.mediaId) return
+    try {
+      await setStudioMediaShared(item.mediaId, true)
+      toast.success('Shared with the household')
+      void qc.invalidateQueries({ queryKey: ['studio-bin'] })
+    } catch {
+      toast.error('Could not share this video')
+    }
+  }
+
+  return (
+    <div className="group flex flex-col gap-2">
+      <button type="button" className="relative aspect-video w-full overflow-hidden rounded-card bg-muted text-left" onClick={onPlay}>
+        {item.thumbUrl ? (
+          <img src={item.thumbUrl} alt="" loading="lazy" className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
+        ) : (
+          <div className="flex size-full items-center justify-center"><Film className="size-8 text-muted-foreground/50" /></div>
+        )}
+        {item.durationSec ? (
+          <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{fmtDur(item.durationSec)}</span>
+        ) : null}
+        <div className="absolute right-1.5 top-1.5 flex items-center gap-1.5">
+          <AddToPlaylistButton video={meta} className={binIconBtnClass} />
+          <button type="button" title={liked ? 'Unlike' : 'Like'} aria-label={liked ? 'Unlike' : 'Like'}
+            onClick={(e) => { e.stopPropagation(); toggleCollection('liked', meta) }}
+            className={cn(binIconBtnClass, liked && 'opacity-100 text-[var(--yt-accent-fg)]')}>
+            <Heart className={cn('size-3.5', liked && 'fill-current')} />
+          </button>
+          <button type="button" title={watchLater ? 'Remove from Watch Later' : 'Watch later'} aria-label={watchLater ? 'Remove from Watch Later' : 'Watch later'}
+            onClick={(e) => { e.stopPropagation(); toggleCollection('watch-later', meta) }}
+            className={cn(binIconBtnClass, watchLater && 'opacity-100 text-[var(--yt-accent-fg)]')}>
+            <Clock className={cn('size-3.5', watchLater && 'fill-current')} />
+          </button>
+          {item.mediaId && (
+            <button type="button" title={shared ? 'Shared with household - click to unshare' : 'Share with household'}
+              aria-label={shared ? 'Unshare from household' : 'Share with household'}
+              onClick={(e) => { e.stopPropagation(); if (shared) onAskUnshare(item); else void share() }}
+              className={cn(binIconBtnClass, shared && 'opacity-100 text-[var(--yt-accent-fg)]')}>
+              <Users className={cn('size-3.5', shared && 'fill-current')} />
+            </button>
+          )}
+        </div>
+      </button>
+      <div className="min-w-0">
+        <p className="line-clamp-2 text-sm font-semibold leading-snug">{item.title}</p>
+        <p className="mt-0.5 text-xs capitalize text-muted-foreground">
+          {item.origin}{shared ? ' · shared' : ''}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 /** My Videos: everything that's yours (exports, uploads, recordings, AI generations)
  *  plus your edit projects, with the create actions living right here. */
 export function MyVideosPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null)
+  const [confirmUnshare, setConfirmUnshare] = useState<StudioBinItem | null>(null)
   const [playing, setPlaying] = useState<StudioBinItem | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ['studio-projects'], queryFn: listStudioProjects })
   const projects = data?.projects ?? []
 
   const { data: binData } = useQuery({ queryKey: ['studio-bin'], queryFn: listStudioBin })
-  const mine = (binData?.items ?? []).filter((i) =>
-    i.kind === 'video' && ['export', 'upload', 'recording', 'generated'].includes(i.origin))
+  const mine = (binData?.items ?? []).filter(isMineBinItem)
 
   const createMutation = useMutation({
     mutationFn: () => createStudioProject(),
@@ -80,22 +150,7 @@ export function MyVideosPage() {
           <SectionHeader title="Your videos" className="mb-4" />
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4">
             {mine.map((item) => (
-              <button key={item.assetId} type="button" className="group flex flex-col gap-2 text-left" onClick={() => setPlaying(item)}>
-                <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted">
-                  {item.thumbUrl ? (
-                    <img src={item.thumbUrl} alt="" loading="lazy" className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
-                  ) : (
-                    <div className="flex size-full items-center justify-center"><Film className="size-8 text-muted-foreground/50" /></div>
-                  )}
-                  {item.durationSec ? (
-                    <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{fmtDur(item.durationSec)}</span>
-                  ) : null}
-                </div>
-                <div className="min-w-0">
-                  <p className="line-clamp-2 text-sm font-semibold leading-snug">{item.title}</p>
-                  <p className="mt-0.5 text-xs capitalize text-muted-foreground">{item.origin}</p>
-                </div>
-              </button>
+              <MineBinCard key={item.assetId} item={item} onPlay={() => setPlaying(item)} onAskUnshare={setConfirmUnshare} />
             ))}
           </div>
         </section>
@@ -143,6 +198,22 @@ export function MyVideosPage() {
         confirmLabel="Delete"
         destructive
         onConfirm={() => { if (confirmDelete) deleteMutation.mutate(confirmDelete.id); setConfirmDelete(null) }}
+      />
+
+      <ConfirmDialog
+        open={!!confirmUnshare}
+        onOpenChange={(v) => { if (!v) setConfirmUnshare(null) }}
+        title="Stop sharing with the household?"
+        description={`"${confirmUnshare?.title}" will disappear from other members' My Videos Plex libraries. Your own copy is unaffected.`}
+        confirmLabel="Unshare"
+        onConfirm={() => {
+          const item = confirmUnshare
+          setConfirmUnshare(null)
+          if (!item?.mediaId) return
+          void setStudioMediaShared(item.mediaId, false)
+            .then(() => { toast.success('No longer shared'); void qc.invalidateQueries({ queryKey: ['studio-bin'] }) })
+            .catch(() => toast.error('Could not unshare this video'))
+        }}
       />
 
       <Dialog open={!!playing} onOpenChange={(v) => { if (!v) setPlaying(null) }}>

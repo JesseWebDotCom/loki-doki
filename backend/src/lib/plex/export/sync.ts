@@ -31,7 +31,7 @@ import { logger } from '@/lib/logger'
 
 /** Container duration in seconds via ffprobe (same probe media/enhance.ts uses); 0 when
  *  unreadable — which makes writeEpisodeThumb skip rather than publish a badge-less thumb. */
-function probeDurationSec(path: string): Promise<number> {
+export function probeDurationSec(path: string): Promise<number> {
   return new Promise((resolve) => {
     const p = spawn(ffprobeBin(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     let out = ''
@@ -79,7 +79,7 @@ const ISO639_2: Record<string, string> = {
   no: 'nor', da: 'dan', fi: 'fin', pl: 'pol', ru: 'rus', uk: 'ukr', cs: 'ces', tr: 'tur',
   ar: 'ara', he: 'heb', hi: 'hin', ja: 'jpn', ko: 'kor', zh: 'zho', vi: 'vie', th: 'tha', id: 'ind',
 }
-function toIso639_2(captionLang: string): string {
+export function toIso639_2(captionLang: string): string {
   return ISO639_2[captionLang.toLowerCase().split('-')[0] ?? ''] ?? 'und'
 }
 
@@ -102,7 +102,7 @@ async function resolveShowRatingKey(conn: PlexConnection, sectionKey: string, sh
  *  (re-)match. Best-effort — the show might not be scanned into Plex's index yet (its
  *  season/episode file was just placed and refresh is async), so a short retry covers the
  *  common case without blocking the whole sync on it. */
-async function setShowDescription(sectionKey: string, showTitle: string, description: string): Promise<void> {
+export async function setShowDescription(sectionKey: string, showTitle: string, description: string): Promise<void> {
   if (!description) return
   const conn = await getPlexConnection()
   if (!conn) return
@@ -290,21 +290,43 @@ async function resolveEpisodeNumber(showId: string, seasonYear: number, publishe
 
 interface ResolvedRendition { blobHash: string; assetId: string; keepRanges: Range[]; cutFormatKey: string | null }
 
+/** No-cut placements prefer the enhanced rendition when the user opted in and it's current
+ *  (same height-freshness proxy as resolvePlaybackBlob in lib/youtube/assets.ts). Cut and
+ *  enhance are NEVER combined — cut wins: the SponsorBlock cut is produced from the base
+ *  rendition, and enhancing a cut output would need a derived-of-derived pipeline for
+ *  marginal gain. */
+async function preferEnhancedAsset(
+  userId: string, videoId: string, original: { id: string; blobHash: string | null; height: number | null },
+): Promise<{ id: string; blobHash: string | null }> {
+  const { shouldEnhanceFor } = await import('@/lib/media/enhancePolicy')
+  if (!(await shouldEnhanceFor(userId, 'youtube'))) return original
+  const [enh] = await db.select().from(mediaAssets).where(and(
+    eq(mediaAssets.sourceType, 'youtube'), eq(mediaAssets.sourceId, videoId),
+    eq(mediaAssets.kind, 'video'), eq(mediaAssets.format, 'mp4:enhanced'), eq(mediaAssets.status, 'ready'),
+  )).limit(1)
+  if (enh?.blobHash && enh.height === original.height) return { id: enh.id, blobHash: enh.blobHash }
+  return original
+}
+
 /** Decide whether the ORIGINAL rendition can be placed as-is, or whether a SponsorBlock cut
  *  is needed first. Returns 'waiting' when a cut is needed but not ready yet — the caller
  *  must have already upserted a 'cutting' episode row before this returns 'waiting' (done
  *  by the caller, not here, since only it knows the show/season/episode-number to write). */
 async function resolveRendition(
-  userId: string, videoId: string, originalAsset: { id: string; blobHash: string | null }, durationSec: number | null,
+  userId: string, videoId: string, originalAsset: { id: string; blobHash: string | null; height: number | null }, durationSec: number | null,
 ): Promise<ResolvedRendition | { waiting: true; cutSetHash: string; enabled: Record<string, boolean> }> {
   const fullRange: Range[] = [{ start: 0, end: durationSec ?? Number.MAX_SAFE_INTEGER }]
   const enabled = await getUserSkipCategories(userId)
   if (!hasAnyEnabled(enabled) || !originalAsset.blobHash) {
-    return { blobHash: originalAsset.blobHash!, assetId: originalAsset.id, keepRanges: fullRange, cutFormatKey: null }
+    const chosen = await preferEnhancedAsset(userId, videoId, originalAsset)
+    return { blobHash: chosen.blobHash!, assetId: chosen.id, keepRanges: fullRange, cutFormatKey: null }
   }
   const segments = await getSkipSegments(videoId)
   const cutRanges = segments.filter(s => enabled[s.category as keyof typeof enabled] === true)
-  if (!cutRanges.length) return { blobHash: originalAsset.blobHash, assetId: originalAsset.id, keepRanges: fullRange, cutFormatKey: null }
+  if (!cutRanges.length) {
+    const chosen = await preferEnhancedAsset(userId, videoId, originalAsset)
+    return { blobHash: chosen.blobHash!, assetId: chosen.id, keepRanges: fullRange, cutFormatKey: null }
+  }
 
   const hash = cutSetHash(enabled)
   const format = plexCutFormat(hash)
@@ -353,6 +375,14 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
 
   const show = await ensureShow(userId, user.firstName, video.channelId, video.author, variant, seasonYear, section.plexSectionKey)
   const episodeNumber = await resolveEpisodeNumber(show.id, seasonYear, video.publishedAt, videoId)
+
+  // Library policy pre-check: under 'recent' mode a video that wouldn't make the show's
+  // newest-N cut is skipped before any cut/placement work — placing it just to have
+  // enforcement remove it again would churn the tree (and burn a SponsorBlock cut encode).
+  const { wouldMakeRecentCut, enforceLibraryPolicy } = await import('@/lib/plex/export/policy')
+  if (!(await wouldMakeRecentCut(section, { table: 'youtube', showId: show.id, videoId, seasonYear, episodeNumber }))) {
+    return
+  }
 
   const rendition = await resolveRendition(userId, videoId, asset, video.durationSec)
   if ('waiting' in rendition) {
@@ -443,6 +473,9 @@ export async function syncVideoToPlex(userId: string, videoId: string): Promise<
   } else {
     logger.warn(`[plex-export] no Plex path mapping for youtube storage location — placed file but could not trigger a targeted refresh`)
   }
+
+  // Trim the tree if this placement pushed the show past its recent-N window.
+  await enforceLibraryPolicy(userId, CONTENT_TYPE, show.id)
 }
 
 /** Remove a video from a user's Plex tree (unsave / auto-prune). Deletes the placed file +

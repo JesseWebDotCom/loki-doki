@@ -39,10 +39,14 @@ import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
 import { useYtFeed } from "@/lib/youtube/useData";
-import { watchHref } from "@/components/youtube/VideoCard";
 import { fmtAge } from "@/lib/youtube/format";
 import { ytImageProxy } from "@/lib/youtube/api";
 import { proxyImg } from "@/lib/img";
+import { ytItemToHub } from "@/components/videos/HubCard";
+import { VIDEO_CATEGORIES } from "@/lib/videos/categories";
+import { HUB_PATHS } from "@/components/videos/HubVideoCard";
+import { SOURCE_META } from "@/lib/videos/sources";
+import { getFollowingFeed, type HubVideoItem } from "@/lib/videos/api";
 import { getHistory, getFavorites, listStations, stationToDj, type Station } from "@/lib/music/catalogApi";
 import { useRadio } from "@/context/RadioContext";
 import { usePodcastFeed, continueListening, newEpisodes } from "@/lib/podcast/useFeed";
@@ -782,41 +786,63 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
 // Standard YouTube thumbnail for a video id, routed through the same-origin cache.
 const ytThumb = (videoId: string) => ytImageProxy(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`);
 
-function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
-  const feedLimit = displayMode === 'row' ? 10 : 6;
+// Hub items don't carry a YouTube thumbnail URL (ytItemToHub omits it); derive it from
+// the id, and proxy everything else through the generic image cache.
+function hubThumb(it: HubVideoItem): string | null {
+  if (it.source === 'youtube') return ytThumb(it.id);
+  return it.thumbnailUrl ? proxyImg(it.thumbnailUrl) : null;
+}
+
+/** Shared body for every subscriptions widget (unified + per-source). */
+function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loading, empty, displayMode, showSourceDot }: {
+  label: string;
+  icon: LucideIcon;
+  accent: string;
+  seeAll: string;
+  items: HubVideoItem[];
+  loading: boolean;
+  empty: string;
+  displayMode: 'row' | 'column';
+  showSourceDot?: boolean;
+}) {
   const showCount = displayMode === 'row' ? 8 : 4;
-  const { items, loading } = useYtFeed(feedLimit);
   const vids = items.slice(0, showCount);
 
   return (
     <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
-        {/* design-ok(raw-palette-semantic): YouTube brand-red identity accent */}
-        <div className="flex items-center gap-1.5 text-overline text-red-500">
-          <PlaySquare className="size-3" />
-          <span>Subscriptions</span>
+        {/* design-ok(raw-palette-semantic): per-source brand identity accent */}
+        <div className={cn("flex items-center gap-1.5 text-overline", accent)}>
+          <HeaderIcon className="size-3" />
+          <span>{label}</span>
         </div>
-        <Link to="/videos/youtube" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
+        <Link to={seeAll} className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
       </div>
       {loading && vids.length === 0 && <Spinner className="text-muted-foreground/30" />}
       {!loading && vids.length === 0 && (
-        <p className="text-[12px] text-muted-foreground/60">No recent uploads. Subscribe to channels in YouTube.</p>
+        <p className="text-[12px] text-muted-foreground/60">{empty}</p>
       )}
       {displayMode === 'row' ? (
         <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
-          {vids.map((v: VideoItem) => {
-            const age = v.ageLabel ?? fmtAge(v.publishedAt);
+          {vids.map((it) => {
+            const age = it.publishedText ?? fmtAge(it.publishedAt);
+            const thumb = hubThumb(it);
             return (
-              <Link key={v.videoId} to={watchHref(v)} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
+              <Link key={`${it.source}:${it.id}`} to={HUB_PATHS[it.source].watch(it.id)} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
                 <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted">
-                  <img
-                    src={ytThumb(v.videoId)} alt="" loading="lazy"
-                    className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                  />
+                  {thumb && (
+                    <img
+                      src={thumb} alt="" loading="lazy"
+                      className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                    />
+                  )}
+                  {showSourceDot && (
+                    <span className={cn("absolute bottom-1 right-1 size-2.5 rounded-full ring-2 ring-background", SOURCE_META[it.source].dotClass)} />
+                  )}
                 </div>
-                <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{v.title}</p>
+                <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{it.title}</p>
                 <p className="truncate text-[10px] text-muted-foreground/55">
-                  {v.author}{v.author && age ? " · " : ""}{age}
+                  {it.creator?.name}{it.creator?.name && age ? " · " : ""}{age}
                 </p>
               </Link>
             );
@@ -824,20 +850,26 @@ function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | '
         </div>
       ) : (
         <div className="space-y-2 flex-1">
-          {vids.map((v: VideoItem) => {
-            const age = v.ageLabel ?? fmtAge(v.publishedAt);
+          {vids.map((it) => {
+            const age = it.publishedText ?? fmtAge(it.publishedAt);
+            const thumb = hubThumb(it);
             return (
-              <Link key={v.videoId} to={watchHref(v)} className="group flex gap-2.5">
+              <Link key={`${it.source}:${it.id}`} to={HUB_PATHS[it.source].watch(it.id)} className="group flex gap-2.5">
                 <div className="relative aspect-video w-[88px] shrink-0 overflow-hidden rounded-control bg-muted">
-                  <img
-                    src={ytThumb(v.videoId)} alt="" loading="lazy"
-                    className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                  />
+                  {thumb && (
+                    <img
+                      src={thumb} alt="" loading="lazy"
+                      className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                    />
+                  )}
+                  {showSourceDot && (
+                    <span className={cn("absolute bottom-0.5 right-0.5 size-2 rounded-full ring-2 ring-background", SOURCE_META[it.source].dotClass)} />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground/85">{v.title}</p>
+                  <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground/85">{it.title}</p>
                   <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">
-                    {v.author}{v.author && age ? " · " : ""}{age}
+                    {it.creator?.name}{it.creator?.name && age ? " · " : ""}{age}
                   </p>
                 </div>
               </Link>
@@ -846,6 +878,92 @@ function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | '
         </div>
       )}
     </div>
+  );
+}
+
+/** Unified subscriptions: YouTube feed + the follows feed (TikTok/Vimeo/Reddit) merged
+ *  by recency — the widget counterpart of VideosSubscriptionsPage. */
+function WidgetSubs({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const feedLimit = displayMode === 'row' ? 10 : 6;
+  const { items: ytItems, loading: ytLoading } = useYtFeed(feedLimit);
+  const { data: genData, isLoading: genLoading } = useQuery({
+    queryKey: ['videos-following-feed'], queryFn: () => getFollowingFeed(), staleTime: 60_000,
+  });
+  const items = useMemo(
+    () => [...ytItems.map(ytItemToHub), ...(genData?.items ?? [])]
+      .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0)),
+    [ytItems, genData],
+  );
+  return (
+    <WidgetSubsShell
+      label="Subscriptions" icon={PlaySquare} accent="text-fuchsia-500"
+      seeAll="/videos/subscriptions" items={items} loading={ytLoading || genLoading}
+      empty="No recent uploads. Subscribe to channels and creators in Videos."
+      displayMode={displayMode} showSourceDot
+    />
+  );
+}
+
+function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const feedLimit = displayMode === 'row' ? 10 : 6;
+  const { items, loading } = useYtFeed(feedLimit);
+  const hubItems = useMemo(() => items.map(ytItemToHub), [items]);
+  return (
+    <WidgetSubsShell
+      label="YouTube" icon={Play} accent="text-red-500"
+      seeAll="/videos/youtube" items={hubItems} loading={loading}
+      empty="No recent uploads. Subscribe to channels in YouTube."
+      displayMode={displayMode}
+    />
+  );
+}
+
+/** Lightweight entry point onto the Videos hub's unified category chips (see
+ *  VideosHomePage's CategoryBody) — just navigation, no query fan-out on the home canvas. */
+function WidgetVideoCategories() {
+  return (
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-overline text-fuchsia-500">
+          <Tag className="size-3" />
+          <span>Browse Videos</span>
+        </div>
+        <Link to="/videos" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
+      </div>
+      <div className="flex flex-1 flex-wrap content-start gap-1.5">
+        {VIDEO_CATEGORIES.map((c) => (
+          <Link
+            key={c.id}
+            to={`/videos?category=${c.id}`}
+            className="inline-flex shrink-0 items-center rounded-full bg-foreground/8 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-foreground/12"
+          >
+            {c.label}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const SOURCE_SUBS_ACCENT: Record<string, string> = {
+  tiktok: 'text-foreground/70',
+  vimeo: 'text-sky-500',
+  reddit: 'text-orange-500',
+};
+
+/** Per-source subscriptions widget for the follows-based sources. */
+function WidgetSourceSubs({ source, displayMode = 'column' }: { source: 'tiktok' | 'vimeo' | 'reddit'; displayMode?: 'row' | 'column' }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['videos-following-feed', source], queryFn: () => getFollowingFeed(source), staleTime: 60_000,
+  });
+  const meta = SOURCE_META[source];
+  return (
+    <WidgetSubsShell
+      label={meta.label} icon={meta.icon} accent={SOURCE_SUBS_ACCENT[source]!}
+      seeAll={`/videos/${source}`} items={data?.items ?? []} loading={isLoading}
+      empty={`No recent videos. Subscribe to ${source === 'reddit' ? 'subreddits' : 'creators'} in ${meta.label}.`}
+      displayMode={displayMode}
+    />
   );
 }
 
@@ -1796,7 +1914,12 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'sports':             () => <WidgetSports />,
   'on-this-day':        () => <WidgetOnThisDay />,
   'morning-briefing':   (m) => <WidgetBriefing displayMode={m} />,
-  'yt-subs':            (m) => <WidgetYoutubeSubs displayMode={m} />,
+  'yt-subs':            (m) => <WidgetSubs displayMode={m} />,
+  'subs-youtube':       (m) => <WidgetYoutubeSubs displayMode={m} />,
+  'subs-tiktok':        (m) => <WidgetSourceSubs source="tiktok" displayMode={m} />,
+  'subs-vimeo':         (m) => <WidgetSourceSubs source="vimeo" displayMode={m} />,
+  'subs-reddit':        (m) => <WidgetSourceSubs source="reddit" displayMode={m} />,
+  'video-categories':   () => <WidgetVideoCategories />,
   'music':              () => <WidgetMusic />,
   'price-drops':        (m) => <WidgetPriceDrops displayMode={m} />,
   'bookmarks-recent':   (m) => <WidgetBookmarksRecent displayMode={m} />,

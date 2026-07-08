@@ -12,7 +12,7 @@ import { getPlaylist, addSubscription } from '@/lib/youtube/api'
 import { itToItem } from '@/lib/youtube/types'
 import { thumbUrl } from '@/lib/youtube/format'
 import { useYtSubs } from '@/lib/youtube/useData'
-import { ChannelAvatar } from '@/components/youtube/media'
+import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { VideoCollection } from '@/components/youtube/VideoCollection'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
@@ -70,7 +70,7 @@ export function YoutubePlaylistPage() {
             <Link to={`/videos/youtube/channel/${encodeURIComponent(owner.channelId)}`}
               state={{ title: owner.name, thumbnailUrl: owner.thumbnailUrl }}
               className="mt-1 inline-flex items-center gap-2 rounded-full py-0.5 pr-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-              <ChannelAvatar title={owner.name ?? 'Channel'} src={owner.thumbnailUrl} className="size-6 text-[10px] ring-1 ring-border/40" />
+              <CreatorAvatar title={owner.name ?? 'Channel'} src={owner.thumbnailUrl} className="size-6 text-[10px] ring-1 ring-border/40" />
               <span className="truncate">{owner.name ?? 'View channel'}</span>
             </Link>
           ) : owner?.name ? (

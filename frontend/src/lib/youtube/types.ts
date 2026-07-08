@@ -50,11 +50,15 @@ export function savedToItem(r: SavedRow, qualityBadge: string): VideoItem {
   }
 }
 
-/** Watch-history row → card view-model (carries resume progress). */
+/** Watch-history row → card view-model (carries resume progress). `publishedAt` is when
+ *  you last watched it (not the video's upload date) — there's no upload date on a
+ *  history row, and "X ago" reading as "watched X ago" is the useful signal here anyway;
+ *  VideoCard's fmtAge(publishedAt) fallback turns it into the relative-time label. */
 export function historyToItem(h: HistoryRow): VideoItem {
   return {
     videoId: h.videoId, title: h.title, author: h.author, channelId: h.channelId,
     channelThumb: h.channelThumb, durationSec: h.durationSec, views: h.views,
+    publishedAt: h.updatedAt,
     watch: { positionSec: h.positionSec, completed: h.completed },
   }
 }

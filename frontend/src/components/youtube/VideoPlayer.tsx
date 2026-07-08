@@ -3,13 +3,15 @@ import { useQuery } from '@tanstack/react-query'
 import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
-import { fmtClock } from '@/lib/youtube/format'
+import { fmtClock, thumbUrl } from '@/lib/youtube/format'
 import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, getStoryboards, ytImageProxy, type SkipSegment, type WatchMeta, type StreamQuality, type StoryboardLevel } from '@/lib/youtube/api'
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
 import { pickStoryboardLevel, frameForTime } from '@/lib/youtube/storyboard'
 import { VideoThumb } from '@/components/youtube/media'
 import { useZoomToFillFullscreen } from '@/hooks/use-zoom-to-fill-fullscreen'
 import { useAudioBoost } from '@/hooks/use-audio-boost'
+import { useMediaAnalyser } from '@/hooks/use-media-analyser'
+import { EqVisualizer } from '@/components/shared/EqVisualizer'
 
 export interface VideoPlayerHandle {
   seek: (sec: number) => void
@@ -325,6 +327,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   }
   const { isFullscreen, fillMode, toggleFullscreen, toggleFillMode } = useZoomToFillFullscreen(mediaRef, wrapRef)
   const { boost, setBoost } = useAudioBoost(mediaRef)
+  // Live spectrum for the audio-only EQ overlay (shares the boost's Web-Audio graph).
+  const getAnalyser = useMediaAnalyser(mediaRef, !nativeVideoSrc && !!nativeAudioSrc)
 
   // PiP state sync: reflect browser-driven exits (e.g. the PiP window's own close
   // button) back into our icon. Native <video> only — no PiP-eligible element while
@@ -455,22 +459,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             onEnded={() => { persist(true); onEnded?.() }} />
         ) : nativeAudioSrc ? (
           <div className="relative flex size-full items-center justify-center bg-black">
-            {onlineAudio ? (
-              // Keep the video's thumbnail as a poster while only the audio plays.
-              <>
-                <VideoThumb videoId={videoId} title="" quality="maxres" className="size-full object-cover opacity-90" />
-                <div className="absolute inset-0 bg-black/30" />
-                {/* design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): status badge on a theme-invariant chip floating over the video surface */}
-                <span className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-semibold text-sky-300 opacity-0 backdrop-blur transition group-hover:opacity-100">
-                  <Music className="size-3.5" /> Audio only
-                </span>
-              </>
-            ) : (
-              // design-ok(raw-palette-semantic): theme-invariant dark audio placeholder inside the black player
-              <div className="flex size-full flex-col items-center justify-center bg-gradient-to-br from-zinc-900 to-black">
-                <Music className="size-20 text-white/20" />
-              </div>
-            )}
+            {/* Keep the video's thumbnail as a poster while only the audio plays - in BOTH
+                the streamed and local-save audio modes. Try maxres first via overrideSrc,
+                since it 404s for many videos (that was the "blank player"); VideoThumb then
+                falls back to the always-present hqdefault, and only then to its icon. */}
+            <VideoThumb videoId={videoId} title="" quality="hq"
+              overrideSrc={ytImageProxy(thumbUrl(videoId, 'maxres'))}
+              className="size-full object-cover opacity-90" />
+            <div className="absolute inset-0 bg-black/30" />
+            {/* Audio-reactive EQ over the poster's lower half (same visualizer as the music
+                mini-players), kept clear of the bottom control bar. */}
+            {/* design-ok(hex-in-tsx): canvas fillStyle cannot consume CSS vars; hues match the Videos accent (--yt-accent-fg/--yt-accent) */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-14 top-1/2">
+              <EqVisualizer active={playing} getAnalyser={getAnalyser} color="#22d3ee" colorDark="#0891b2" opacity={0.7} fade />
+            </div>
+            {/* design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): status badge on a theme-invariant chip floating over the video surface */}
+            <span className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-semibold text-sky-300 opacity-0 backdrop-blur transition group-hover:opacity-100">
+              <Music className="size-3.5" /> Audio only
+            </span>
             <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} src={nativeAudioSrc} className="hidden"
               onLoadStart={() => setBuffering(true)} onWaiting={() => setBuffering(true)}
               onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)} onPlaying={() => setBuffering(false)}

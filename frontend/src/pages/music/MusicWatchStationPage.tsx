@@ -210,7 +210,8 @@ export function MusicWatchStationPage() {
                   {/* Remount per track so the player cleanly loads the next video; it keeps its own
                       transport. resumeSec resumes the hand-off song at the same spot. */}
                   <VideoPlayer key={cur.videoId} videoId={cur.videoId} localKind={localVideo ? 'video' : undefined}
-                    resumeSec={curResume} onTime={s => { videoPos.current = s }} onPlaying={p => { playingRef.current = p }} onEnded={advance} />
+                    resumeSec={curResume} onTime={s => { videoPos.current = s }} onPlaying={p => { playingRef.current = p }} onEnded={advance}
+                    videoMeta={{ title: cur.title, author: cur.artist, origin: 'music' }} />
                 </div>
               )}
 

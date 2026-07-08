@@ -87,7 +87,7 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
     const asset = await getOrCreateAsset(videoId, kind, format)
 
     // Upsert the user's reference, pointing it at the shared asset.
-    const [existing] = await db.select({ id: ytDownloads.id }).from(ytDownloads)
+    const [existing] = await db.select({ id: ytDownloads.id, prefetch: ytDownloads.prefetch, auto: ytDownloads.auto }).from(ytDownloads)
       .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind)))
       .limit(1)
     const refId = existing?.id ?? crypto.randomUUID()
@@ -98,11 +98,15 @@ export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status:
       })
     } else {
       // An explicit save promotes a transient prefetch ref into a permanent one (prefetch→false),
-      // so it survives the prefetch prune. Don't downgrade a manual save's `auto` flag. Origin only
-      // ever upgrades toward 'youtube' (a YouTube save of a music-saved track surfaces it in YouTube;
-      // a music save never hides a track the user had saved from YouTube).
+      // so it survives the prefetch prune. The `auto` flag moves in one direction per intent:
+      // a manual save (auto:false) always clears it, and an auto save only marks rows that were
+      // transient (prefetch) or already auto — it NEVER flips a user's manual save to prunable
+      // (auto-save/backfill re-touching a manually-saved video must not put it in the keep-N
+      // window). Origin only ever upgrades toward 'youtube' (a YouTube save of a music-saved
+      // track surfaces it in YouTube; a music save never hides a track saved from YouTube).
+      const setAuto = auto ? (existing.prefetch || existing.auto) : false
       await db.update(ytDownloads)
-        .set({ status: 'pending', error: null, maxHeight, assetId: asset.id, prefetch: false, ...(auto ? { auto: true } : {}), ...(origin === 'youtube' ? { origin: 'youtube' as const } : {}), updatedAt: now })
+        .set({ status: 'pending', error: null, maxHeight, assetId: asset.id, prefetch: false, auto: setAuto, ...(origin === 'youtube' ? { origin: 'youtube' as const } : {}), updatedAt: now })
         .where(eq(ytDownloads.id, refId))
     }
 

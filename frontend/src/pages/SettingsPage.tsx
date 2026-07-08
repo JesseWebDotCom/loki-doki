@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { Bell, Brain, Cpu, Home, Info, Menu, MonitorPlay, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Bell, Brain, Cpu, Home, Info, Menu, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
 import type { PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,6 @@ import { SettingsHomeTab } from '@/components/settings/SettingsHomeTab'
 import { SettingsAboutTab } from '@/components/settings/SettingsAboutTab'
 import { SettingsPrivacyTab } from '@/components/settings/SettingsPrivacyTab'
 import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab'
-import { SettingsPlexTab } from '@/components/settings/SettingsPlexTab'
 import { SettingsDevicesTab } from '@/components/settings/SettingsDevicesTab'
 import { SettingsMemoryTab } from '@/components/settings/SettingsMemoryTab'
 import { usePublishUIContext } from '@/context/UIContextProvider'
@@ -22,7 +21,6 @@ const SECTIONS: PanelSection[] = [
   { id: 'profile',       label: 'Profile',        icon: UserCircle },
   { id: 'home',          label: 'Home',            icon: Home       },
   { id: 'tools',         label: 'Tools',           icon: Wrench     },
-  { id: 'plex',          label: 'Plex',            icon: MonitorPlay },
   { id: 'appearance',    label: 'Appearance',      icon: Palette    },
   { id: 'content',       label: 'Content',         icon: SlidersHorizontal },
   { id: 'memory',        label: 'Memory',          icon: Brain      },
@@ -61,6 +59,11 @@ export function SettingsPage() {
     extraCrumbs: [{ label: sectionLabel }],
   })
 
+  // The personal Plex link moved into the apps it actually serves (Shows/Movies settings,
+  // watchlist + progress sync) - keep old /settings/plex deep links working. After the
+  // hooks above, so tab-to-tab renders never change the hook count.
+  if (section === 'plex') return <Navigate to="/movies/settings" replace />
+
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Desktop sidebar (collapsible icon rail) */}
@@ -83,7 +86,6 @@ export function SettingsPage() {
           {section === 'profile'       && <SettingsProfileTab />}
           {section === 'home'          && <SettingsHomeTab />}
           {section === 'tools'         && <SettingsToolsTab />}
-          {section === 'plex'          && <SettingsPlexTab />}
           {section === 'appearance'    && <SettingsAppearanceTab />}
           {section === 'content'       && <SettingsPrivacyTab />}
           {section === 'memory'        && <SettingsMemoryTab />}

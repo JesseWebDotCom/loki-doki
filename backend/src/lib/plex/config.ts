@@ -29,7 +29,7 @@ export async function savePlexConfig(patch: { baseUrl?: string; token?: string }
 export interface PlexConfigSummary {
   baseUrl: string
   hasToken: boolean
-  users: Array<{ id: string; name: string; linked: boolean }>
+  users: Array<{ id: string; name: string; linked: boolean; plexAccountId: string | null; plexUsername: string | null }>
 }
 
 /** Admin view of the shared server config (token never returned) + who's linked their account. */

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { HardDriveDownload, Check, Plus } from 'lucide-react'
+import { Check, Plus } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,7 +12,7 @@ import { toast } from '@/lib/toast'
 import { useYtSubs, useYtDownloads } from '@/lib/youtube/useData'
 import {
   addSubscription, deleteSubscription, updateSubscription, saveChannelNow,
-  getChannelPage, getChannelPlaylists, getChannelAbout, ytImageProxy,
+  getChannelPage, getChannelPlaylists, getChannelAbout,
   type ItVideo, type Subscription, type ChannelVideoTab,
 } from '@/lib/youtube/api'
 import { itToItem, savedToItem, type VideoItem } from '@/lib/youtube/types'
@@ -27,8 +27,7 @@ import { useViewPreference } from '@/hooks/useViewPreference'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { useYoutubeMode } from '@/components/videos/VideosLayout'
-import { Switch } from '@/components/ui/switch'
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui/dropdown-menu'
+import { ConfigureOfflinePopover } from '@/components/videos/ConfigureOfflinePopover'
 
 type Tab = ChannelVideoTab | 'playlists'
 const TABS: [Tab, string][] = [['videos', 'Videos'], ['shorts', 'Shorts'], ['live', 'Live'], ['playlists', 'Playlists']]
@@ -98,11 +97,6 @@ export function YoutubeChannelPage() {
   const { data: subs = [] } = useYtSubs()
   const { data: downloads = [] } = useYtDownloads()
   const [busy, setBusy] = useState(false)
-  // "Save latest N now" — immediately downloads this channel's current back-catalogue to the
-  // Offline library (distinct from auto-save, which only covers future uploads).
-  const [saveKind, setSaveKind] = useState<'video' | 'audio'>('video')
-  const [saveCount, setSaveCount] = useState(10)
-  const [savingNow, setSavingNow] = useState(false)
   // Card vs list view for the tab grids: persisted per-user so it sticks across visits.
   const [view, setView] = useViewPreference('youtube.channel_view', 'grid')
 
@@ -203,29 +197,18 @@ export function YoutubeChannelPage() {
     } catch { toast.error('Could not update subscription') } finally { setBusy(false) }
   }
 
-  // Per-subscription auto-save settings (optimistic; persisted via PATCH). Auto-save
-  // applies to NEW uploads going forward, not the existing back-catalogue.
-  async function patchSub(patch: Partial<Pick<Subscription, 'autoSave' | 'autoSaveKind' | 'autoSaveKeep'>>) {
+  // Per-subscription offline rules (optimistic; persisted via PATCH). Enabling backfills
+  // the back-catalogue via ConfigureOfflinePopover's onBackfill, so no toast here for it.
+  async function patchSub(patch: Partial<Pick<Subscription, 'autoSave' | 'autoSaveKind' | 'autoSaveKeep' | 'removeWatched'>>) {
     if (!sub) return
     qc.setQueryData<Subscription[]>(['yt-subs'], prev => prev?.map(s => s.id === sub.id ? { ...s, ...patch } : s))
     try {
       await updateSubscription(sub.id, patch)
-      if (patch.autoSave !== undefined) toast.success(patch.autoSave ? 'Auto-saving new uploads from this channel' : 'Auto-save turned off')
+      if (patch.autoSave === false) toast.success('Offline rules turned off. Saved videos stay in Offline.')
     } catch {
-      toast.error('Could not update auto-save')
+      toast.error('Could not update offline settings')
       qc.invalidateQueries({ queryKey: ['yt-subs'] })
     }
-  }
-
-  // Immediately save this channel's latest N uploads to the Offline library.
-  async function saveChannelNowClick() {
-    setSavingNow(true)
-    try {
-      const d = await saveChannelNow(channelId, { kind: saveKind, count: saveCount })
-      if (d.error) { toast.error(d.error); return }
-      toast.success(`Saving ${d.queued ?? 0} ${saveKind === 'audio' ? 'audio track' : 'video'}${(d.queued ?? 0) === 1 ? '' : 's'} offline`)
-      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
-    } catch { toast.error('Could not save this channel') } finally { setSavingNow(false) }
   }
 
   // Offline: no live fetch, just the channel header (from local sub/nav state) over a grid of
@@ -236,8 +219,9 @@ export function YoutubeChannelPage() {
         <ChannelHeader
           title={title}
           avatarUrl={thumb}
-          proxyImage={ytImageProxy}
+         
           metaLine={`${offlineVideos.length} ${offlineVideos.length === 1 ? 'video' : 'videos'} saved offline`}
+          source="youtube"
         />
         {offlineVideos.length === 0
           ? <EmptyTab label="offline videos" />
@@ -259,100 +243,26 @@ export function YoutubeChannelPage() {
         title={title}
         avatarUrl={thumb}
         bannerUrl={bannerUrl}
-        proxyImage={ytImageProxy}
+       
         metaLine={metaLine}
         description={description}
+        source="youtube"
         links={links}
         linksLoading={aboutQuery.isLoading}
         actions={<>
           <PodcastSourceButtons
             videos={videoItems.map(v => ({ videoId: v.videoId, title: v.title, author: v.author ?? title }))}
             sourceId={`channel:${channelId}`} suggestedShowName={title} sourceDescription={description ?? undefined} coverImageUrl={thumb ?? undefined} />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="icon"
-                aria-label="Save this channel offline"
-                title={sub?.autoSave ? `Auto-saving new ${sub.autoSaveKind}` : 'Save this channel offline'}
-                className={cn('size-10',
-                  sub?.autoSave ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
-                <HardDriveDownload className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-72 space-y-3 p-3">
-              {/* Save now: immediately grab this channel's current back-catalogue. */}
-              <div className="space-y-2.5">
-                <div>
-                  <p className="text-sm font-medium">Save videos now</p>
-                  <p className="text-xs text-muted-foreground">Download this channel's latest uploads to Offline.</p>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm text-muted-foreground">Save as</span>
-                  <div className="flex overflow-hidden rounded-full border border-border">
-                    {(['video', 'audio'] as const).map(k => (
-                      <button key={k} onClick={() => setSaveKind(k)}
-                        className={cn('px-3 py-1 text-xs font-medium capitalize transition-colors',
-                          saveKind === k ? 'bg-[var(--yt-accent)] text-white' : 'bg-background text-muted-foreground hover:text-foreground')}>
-                        {k}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm text-muted-foreground">How many</span>
-                  <div className="flex items-center gap-1.5">
-                    <input type="number" min={1} max={50} value={saveCount}
-                      onChange={e => setSaveCount(Math.max(1, Math.min(50, Math.floor(Number(e.target.value)) || 1)))}
-                      className="w-16 rounded-control border border-border bg-background px-2 py-1 text-sm" />
-                    <span className="text-xs text-muted-foreground">latest</span>
-                  </div>
-                </div>
-                <Button onClick={saveChannelNowClick} disabled={savingNow} className="w-full gap-1.5 font-semibold">
-                  {savingNow ? <Spinner className="text-primary-foreground" /> : <HardDriveDownload className="size-4" />}
-                  Save {saveCount} now
-                </Button>
-              </div>
-
-              {/* Auto-save future uploads (subscription-scoped). */}
-              {sub ? (
-                <div className="space-y-3 border-t border-border/50 pt-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">Auto-save new videos</p>
-                      <p className="text-xs text-muted-foreground">Also grab future uploads automatically.</p>
-                    </div>
-                    <Switch checked={sub.autoSave} onCheckedChange={v => void patchSub({ autoSave: v })} />
-                  </div>
-                  {sub.autoSave && (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm text-muted-foreground">Save as</span>
-                        <div className="flex overflow-hidden rounded-full border border-border">
-                          {(['video', 'audio'] as const).map(k => (
-                            <button key={k} onClick={() => void patchSub({ autoSaveKind: k })}
-                              className={cn('px-3 py-1 text-xs font-medium capitalize transition-colors',
-                                sub.autoSaveKind === k ? 'bg-[var(--yt-accent)] text-white' : 'bg-background text-muted-foreground hover:text-foreground')}>
-                              {k}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm text-muted-foreground">Keep latest</span>
-                        <div className="flex items-center gap-1.5">
-                          <input type="number" min={0} value={sub.autoSaveKeep ?? ''} placeholder="default"
-                            onChange={e => void patchSub({ autoSaveKeep: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })}
-                            className="w-16 rounded-control border border-border bg-background px-2 py-1 text-sm" />
-                          <span className="text-xs text-muted-foreground">videos</span>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <p className="border-t border-border/50 pt-3 text-xs text-muted-foreground">Subscribe to auto-save new uploads from this channel.</p>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ConfigureOfflinePopover
+            policy={sub ? { autoSave: sub.autoSave, autoSaveKind: sub.autoSaveKind, autoSaveKeep: sub.autoSaveKeep, removeWatched: sub.removeWatched } : null}
+            downloadKinds={['audio', 'video']}
+            onPatch={patchSub}
+            onBackfill={async ({ kind, count }) => {
+              const d = await saveChannelNow(channelId, { kind, count, auto: true })
+              qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+              return d
+            }}
+          />
           <Button size="icon" onClick={toggleSub} disabled={busy}
             aria-label={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
             title={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}

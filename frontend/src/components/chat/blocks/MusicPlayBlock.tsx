@@ -26,6 +26,7 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
       author: v.artist ?? null,
       thumbnail: v.thumbnail,
       durationSec: v.durationSec,
+      origin: 'music',
     })
   }
 

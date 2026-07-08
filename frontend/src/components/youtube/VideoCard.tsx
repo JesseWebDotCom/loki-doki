@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, CheckCircle2, CloudOff, Download, HardDriveDownload, Sparkles, X } from 'lucide-react'
+import { CheckCircle2, CloudOff, Download, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Spinner } from '@/components/ui/spinner'
@@ -9,7 +9,8 @@ import { fmtAge, fmtDur, fmtViews } from '@/lib/youtube/format'
 import { watchProgress, type VideoItem } from '@/lib/youtube/types'
 import { saveOffline, cancelDownloads } from '@/lib/youtube/api'
 import { useSavedState, useYtDownloads } from '@/lib/youtube/useData'
-import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
+import { VideoThumb } from '@/components/youtube/media'
+import { CardMetaBlock, DurationBadge, SaveOfflineButton, WatchProgressBar } from '@/components/videos/cardParts'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/videos/VideosLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useCardHoverPreview } from '@/hooks/use-card-hover-preview'
@@ -136,34 +137,11 @@ function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, 
         </span>
       )}
       {onSave && !ghosted && (
-        // One-click Save: yt-dlp downloads this to the Offline library for later viewing. Sits over
-        // the thumbnail (top-right, clear of the top-left status badges); hover-revealed, but stays
-        // visible once saving/saved so the state reads at a glance.
-        <button type="button" onClick={onSave}
-          title={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline — click to cancel' : 'Save offline'}
-          aria-label={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Cancel save' : 'Save offline'}
-          className={cn('absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full text-white transition-all',
-            saveState === 'saved' ? 'bg-[var(--yt-accent)] opacity-100 hover:bg-[var(--yt-accent-hover)]'
-              : saveState === 'saving' ? 'bg-black/75 opacity-100 hover:bg-black/90'
-              : 'bg-black/75 opacity-0 hover:bg-black/90 group-hover:opacity-100')}>
-          {saveState === 'saving' ? (
-            // Spinner by default; swaps to an ✕ on hover so it reads as "click to cancel".
-            <>
-              <Spinner className="size-3.5 text-white group-hover:hidden" />
-              <X className="hidden size-3.5 group-hover:block" />
-            </>
-          ) : saveState === 'saved' ? <Check className="size-3.5" />
-            : <HardDriveDownload className="size-3.5" />}
-        </button>
+        // One-click Save: yt-dlp downloads this to the Offline library for later viewing.
+        <SaveOfflineButton state={saveState ?? null} onClick={onSave} cancelable />
       )}
-      {dur && (
-        <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>
-      )}
-      {(progress > 0 || i.watch?.completed) && (
-        <div className="absolute inset-x-0 bottom-0 h-1 bg-black/40">
-          <div className={cn('h-full', i.watch?.completed ? 'w-full bg-white/50' : 'bg-[var(--yt-accent)]')} style={i.watch?.completed ? undefined : { width: `${Math.min(100, progress * 100)}%` }} />
-        </div>
-      )}
+      <DurationBadge label={dur} />
+      <WatchProgressBar progress={progress} completed={i.watch?.completed} />
     </div>
   )
 }
@@ -171,7 +149,9 @@ function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, 
 /** Vertical video card: thumbnail, title, channel · age. Click opens the watch (or Shorts) page. */
 export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; aspect?: 'video' | 'short'; shape?: 'wide' | 'tall' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
-  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
+  // Kept apart (not one joined+truncated string) so a very long channel name only eats
+  // into itself — views/age stay fully visible instead of getting truncated away with it.
+  const metaSuffix = [fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   // DeArrow swaps clickbait titles/thumbnails for community-voted ones (no-op when off).
   const da = useDeArrow(item.videoId)
@@ -184,15 +164,7 @@ export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; 
   const body = (
     <>
       <Thumb i={item} aspect={aspect} shape={shape} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
-      <div className="flex gap-2.5">
-        {item.author && (
-          <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('mt-0.5 size-8 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />
-        )}
-        <div className="min-w-0 flex-1">
-          <p className={cn('line-clamp-2 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-          {metaLine && <p className="mt-1 truncate text-xs text-muted-foreground">{metaLine}</p>}
-        </div>
-      </div>
+      <CardMetaBlock title={title} creatorName={item.author} creatorAvatarUrl={item.channelThumb} metaSuffix={metaSuffix} ghosted={ghosted} />
     </>
   )
   if (ghosted) {
@@ -213,7 +185,9 @@ export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; 
  *  channel page's list view; mirrors VideoCard's ghost/save/navigation behavior. */
 export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
-  const metaLine = [item.author, fmtViews(item.views), age].filter(Boolean).join(' · ')
+  // Kept apart (not one joined+truncated string) so a very long channel name only eats
+  // into itself — views/age stay fully visible instead of getting truncated away with it.
+  const metaSuffix = [fmtViews(item.views), age].filter(Boolean).join(' · ')
   const { ghosted, onClick } = useGhost(item)
   const da = useDeArrow(item.videoId)
   const title = da?.title || item.title
@@ -225,15 +199,7 @@ export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspe
       <div className={cn('shrink-0', aspect === 'short' ? 'w-24 sm:w-28' : 'w-40 sm:w-56')}>
         <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
       </div>
-      <div className="min-w-0 flex-1 py-0.5">
-        <p className={cn('line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-        {metaLine && (
-          <div className="mt-1.5 flex items-center gap-2">
-            {item.author && <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-border/40', ghosted && 'grayscale')} />}
-            <p className="truncate text-xs text-muted-foreground">{metaLine}</p>
-          </div>
-        )}
-      </div>
+      <CardMetaBlock layout="row" title={title} creatorName={item.author} creatorAvatarUrl={item.channelThumb} metaSuffix={metaSuffix} ghosted={ghosted} />
     </>
   )
   if (ghosted) {

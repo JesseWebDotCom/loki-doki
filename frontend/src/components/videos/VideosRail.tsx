@@ -7,8 +7,6 @@ import {
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
-import { ytImageProxy } from '@/lib/youtube/api'
-import { proxyImg } from '@/lib/img'
 import { getSubscriptions } from '@/lib/youtube/api'
 import { getVideoSources, listFollows, type VideoSource } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -123,7 +121,7 @@ export function VideosRail() {
       <RailLink to="/videos/offline" icon={Download} label="Offline" />
 
       <div className="mb-1 mt-5 flex items-center justify-between gap-2 px-3">
-        <span className="text-overline text-muted-foreground/60">Subscriptions</span>
+        <Link to="/videos/subscriptions" className="text-overline text-muted-foreground/60 transition-colors hover:text-foreground">Subscriptions</Link>
         {unifiedSubs.length > 1 && (
           <button type="button" onClick={toggleSubSort}
             title={subSort === 'recent' ? 'Sorted by most recent (click for A–Z)' : 'Sorted A–Z (click for most recent)'}
@@ -139,7 +137,7 @@ export function VideosRail() {
             <Link key={s.key} to={s.to}
               className="flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
               <span className="relative shrink-0">
-                <CreatorAvatar title={s.title} src={s.thumbnailUrl} proxy={s.source === 'youtube' ? ytImageProxy : proxyImg} className="size-6 text-[10px] ring-1 ring-border/40" />
+                <CreatorAvatar title={s.title} src={s.thumbnailUrl} className="size-6 text-[10px] ring-1 ring-border/40" />
                 {/* Source dot so a Vimeo/TikTok/Reddit follow is distinguishable from a YouTube one. */}
                 <span className={cn('absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-background', SOURCE_META[s.source].dotClass)} />
               </span>
@@ -147,7 +145,7 @@ export function VideosRail() {
             </Link>
           ))}
           {unifiedSubs.length > 8 && (
-            <Link to="/videos/youtube/subscriptions"
+            <Link to="/videos/subscriptions"
               className="block rounded-control px-2.5 py-1.5 text-xs font-medium text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground">
               Show all ({unifiedSubs.length})
             </Link>

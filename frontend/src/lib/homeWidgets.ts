@@ -1,6 +1,6 @@
 import {
-  Bookmark, BookOpen, CalendarDays, CirclePlay, CloudSun, Globe, Headphones, Home, Laugh, ListVideo,
-  Music, Network, Newspaper, PlaySquare, Radio, Server, Star, Sunrise, Tag, Trophy, Tv, type LucideIcon,
+  Bookmark, BookOpen, CalendarDays, CirclePlay, Clapperboard, CloudSun, Globe, Headphones, Home, Laugh, ListVideo,
+  MessagesSquare, Music, Music2, Network, Newspaper, Play, PlaySquare, Radio, Server, Star, Sunrise, Tag, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -76,11 +76,48 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     allowWide: false, toolId: "jokes",
   },
   {
+    // Keeps the legacy "yt-subs" id so layouts placed before it went multi-source
+    // still resolve; the per-source YouTube variant below is "subs-youtube".
     id: "yt-subs", title: "Subscriptions",
-    description: "Latest from your YouTube subscriptions",
-    icon: PlaySquare, color: "#dc2626",
+    description: "Latest from all your subscriptions: YouTube, TikTok, Vimeo & Reddit",
+    icon: PlaySquare, color: "#d946ef",
+    gradient: "linear-gradient(135deg,#581c87,#c026d3)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "subs-youtube", title: "YouTube Subscriptions",
+    description: "Latest uploads from your YouTube subscriptions",
+    icon: Play, color: "#dc2626",
     gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)",
     allowWide: true, toolId: "youtube", supportsRowMode: true,
+  },
+  {
+    id: "subs-tiktok", title: "TikTok Subscriptions",
+    description: "Latest from creators you follow on TikTok",
+    icon: Music2, color: "#a1a1aa",
+    gradient: "linear-gradient(135deg,#18181b,#52525b)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "subs-vimeo", title: "Vimeo Subscriptions",
+    description: "Latest from creators you follow on Vimeo",
+    icon: Clapperboard, color: "#0ea5e9",
+    gradient: "linear-gradient(135deg,#0c4a6e,#0ea5e9)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "subs-reddit", title: "Reddit Subscriptions",
+    description: "New videos from subreddits you follow",
+    icon: MessagesSquare, color: "#ea580c",
+    gradient: "linear-gradient(135deg,#7c2d12,#ea580c)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "video-categories", title: "Browse Videos",
+    description: "Jump into a category across YouTube, TikTok, Vimeo & Reddit",
+    icon: Tag, color: "#d946ef",
+    gradient: "linear-gradient(135deg,#581c87,#c026d3)",
+    allowWide: true,
   },
   {
     id: "music", title: "Music",

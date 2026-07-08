@@ -58,6 +58,10 @@ export interface ItVideo {
   thumbnailUrl: string | null
   durationSec: number | null
   publishedText: string | null
+  /** Numeric fallback for publishedText — only set by the discovery (Popular/Trending)
+   *  privacy-frontend sources, which sometimes omit a relative-time string but include a
+   *  raw timestamp; lets the card compute "X ago" itself instead of showing nothing. */
+  publishedAt?: number | null
   views: string | null
 }
 
@@ -845,6 +849,9 @@ export interface ItPlayerMeta {
    *  same player response this call already fetches — no extra request. yt-dlp's `-J` (see
    *  live.ts's getLiveStatus) is the authoritative check right before a recording starts. */
   isLive: boolean
+  /** Upload date (unix ms) from the player response's microformat — videoDetails itself
+   *  carries no date. Null when microformat is absent (some live/agegated responses). */
+  publishedAt: number | null
 }
 
 /** Fast video metadata (title/author/description/length) without spawning yt-dlp. */
@@ -853,6 +860,8 @@ export async function innertubePlayerMeta(videoId: string, timeout = 8000): Prom
   const d = data?.videoDetails
   if (!d?.videoId) return null
   const len = parseInt(d.lengthSeconds ?? '', 10)
+  const publishDate = data?.microformat?.playerMicroformatRenderer?.publishDate as string | undefined
+  const publishedMs = publishDate ? Date.parse(publishDate) : NaN
   return {
     videoId: d.videoId,
     title: d.title ?? '',
@@ -862,6 +871,7 @@ export async function innertubePlayerMeta(videoId: string, timeout = 8000): Prom
     durationSec: Number.isFinite(len) && len > 0 ? len : null,
     views: d.viewCount ?? null,
     isLive: !!d.isLive,
+    publishedAt: Number.isFinite(publishedMs) ? publishedMs : null,
   }
 }
 

@@ -71,6 +71,9 @@ function invidiousToItVideo(v: any): ItVideo | null {
     thumbnailUrl: ytThumb(videoId),
     durationSec: len > 0 ? len : null,
     publishedText: v.publishedText ?? null,
+    // Invidious carries both; publishedText is occasionally absent (some renderers) even
+    // when the raw unix-seconds timestamp is there — fmtAge(publishedAt) covers the gap.
+    publishedAt: typeof v?.published === 'number' && v.published > 0 ? v.published * 1000 : null,
     views,
   }
 }
@@ -91,6 +94,9 @@ function pipedToItVideo(v: any): ItVideo | null {
     thumbnailUrl: ytThumb(videoId),
     durationSec: len > 0 ? len : null,
     publishedText: v.uploadedDate ?? null,
+    // Piped's `uploaded` is -1 (sentinel) for live/ongoing streams, which genuinely have
+    // no fixed publish date — nothing to fall back to in that case, same as YouTube itself.
+    publishedAt: typeof v?.uploaded === 'number' && v.uploaded > 0 ? v.uploaded : null,
     views,
   }
 }

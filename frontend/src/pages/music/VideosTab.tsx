@@ -138,6 +138,7 @@ export function VideosTab() {
         title: vid.title,
         author: vid.author,
         durationSec: vid.durationSec,
+        origin: 'music',
       })),
       Math.max(0, idx),
       0,

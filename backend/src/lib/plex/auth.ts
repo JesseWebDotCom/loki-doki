@@ -82,6 +82,64 @@ export async function getPlexAccountInfo(token: string): Promise<PlexAccountInfo
   }
 }
 
+export interface PlexKnownAccount {
+  id: string
+  /** Display name (title falls back to username). */
+  name: string
+  username: string | null
+  email: string | null
+  /** True for the server owner's own account. */
+  owner: boolean
+  /** True for a managed (PIN-only, no email) Plex Home user. */
+  restricted: boolean
+}
+
+/** Every Plex account the ADMIN token can see: the owner themself, plex.tv friends, and
+ *  Plex Home users. This is what lets an admin map app users → Plex accounts without each
+ *  person signing in: sharing a library section only needs the invited account's id, never
+ *  their token. Both endpoints are best-effort — one failing just yields fewer options.
+ *  (Same documented-community-knowledge caveat as getPlexAccountInfo: shapes match
+ *  python-plexapi's MyPlexAccount/friends/home models, verify once against real data.) */
+export async function listPlexServerAccounts(token: string): Promise<PlexKnownAccount[]> {
+  const h = { ...headers('media-companion-server'), 'X-Plex-Token': token }
+  const byId = new Map<string, PlexKnownAccount>()
+
+  const owner = await getPlexAccountInfo(token)
+  if (owner) byId.set(owner.id, { id: owner.id, name: owner.username ?? 'Owner', username: owner.username, email: null, owner: true, restricted: false })
+
+  interface RawAccount { id?: number | string; username?: string; title?: string; email?: string; restricted?: boolean }
+  const collect = (list: RawAccount[] | undefined, restrictedDefault = false) => {
+    for (const u of list ?? []) {
+      if (u.id == null) continue
+      const id = String(u.id)
+      if (byId.has(id)) continue
+      byId.set(id, {
+        id,
+        name: u.title || u.username || u.email || `Account ${id}`,
+        username: u.username ?? null,
+        email: u.email ?? null,
+        owner: false,
+        restricted: u.restricted ?? restrictedDefault,
+      })
+    }
+  }
+
+  try {
+    const res = await fetch(`${PLEX_TV}/friends`, { headers: h, signal: AbortSignal.timeout(TIMEOUT_MS) })
+    if (res.ok) collect((await res.json()) as RawAccount[])
+  } catch { /* best-effort */ }
+
+  try {
+    const res = await fetch(`${PLEX_TV}/home/users`, { headers: h, signal: AbortSignal.timeout(TIMEOUT_MS) })
+    if (res.ok) {
+      const data = (await res.json()) as { users?: RawAccount[] } | RawAccount[]
+      collect(Array.isArray(data) ? data : data.users, true)
+    }
+  } catch { /* best-effort */ }
+
+  return [...byId.values()].sort((a, b) => Number(b.owner) - Number(a.owner) || a.name.localeCompare(b.name))
+}
+
 export interface PlexServer {
   name: string
   uri: string

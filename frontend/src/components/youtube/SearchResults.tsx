@@ -13,7 +13,7 @@ import { search as ytSearch, type SearchResult, type PlaylistSearchResult, type 
 import { searchToItem, savedToItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
 import { useYtDownloads } from '@/lib/youtube/useData'
-import { ChannelAvatar } from '@/components/youtube/media'
+import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { VideoCollection, YT_GRID as GRID } from '@/components/youtube/VideoCollection'
 import { ChannelRail, HScroll, PlaylistCard, PlaylistListRow, type ChannelEntry } from '@/components/youtube/shelves'
 import { ViewToggle } from '@/components/shared/ViewToggle'
@@ -118,7 +118,7 @@ export function SearchResults({ q }: { q: string }) {
             {channels.map(c => (
               <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`} state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
                 className="group flex items-center gap-3 rounded-card border border-border bg-card p-3 transition hover:border-[var(--yt-accent)]">
-                <ChannelAvatar title={c.title} src={c.thumbnailUrl} className="size-14 shrink-0 text-xl ring-1 ring-border/40" />
+                <CreatorAvatar title={c.title} src={c.thumbnailUrl} className="size-14 shrink-0 text-xl ring-1 ring-border/40" />
                 <div className="min-w-0"><p className="truncate text-sm font-semibold">{c.title}</p>{c.subtitle && <p className="truncate text-xs text-muted-foreground">{c.subtitle}</p>}</div>
               </Link>
             ))}

@@ -115,6 +115,46 @@ export async function setUserPlexUsername(userId: string, username: string): Pro
   await upsertUserPlexKey(userId, 'plex_username', username)
 }
 
+// ── Admin-side Plex account mapping ────────────────────────────────────────────────
+// An admin can map an app user → a Plex account (picked from the server owner's friends /
+// Plex Home users, listed with the admin token) WITHOUT that user ever signing in. Sharing
+// a private library section only needs the invited account's id, never their token — so
+// the mapping alone unlocks provisioning. The user's own PIN sign-in (token) stays the
+// only path for personal watchlist/scrobble sync, since Plex never exposes other accounts'
+// tokens. Stored per user under key 'plex_account_id'; the display name reuses the same
+// 'plex_username' key session attribution reads.
+
+export async function setUserPlexMapping(userId: string, mapping: { accountId: string; username: string | null } | null): Promise<void> {
+  if (!mapping) {
+    await db.delete(toolUserConfig).where(and(eq(toolUserConfig.userId, userId), eq(toolUserConfig.toolId, 'plex'), eq(toolUserConfig.key, 'plex_account_id')))
+    return
+  }
+  await upsertUserPlexKey(userId, 'plex_account_id', mapping.accountId)
+  if (mapping.username) await upsertUserPlexKey(userId, 'plex_username', mapping.username)
+}
+
+export async function getUserPlexMappedAccountId(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ value: toolUserConfig.value })
+    .from(toolUserConfig)
+    .where(and(eq(toolUserConfig.userId, userId), eq(toolUserConfig.toolId, 'plex'), eq(toolUserConfig.key, 'plex_account_id')))
+    .limit(1)
+  if (!row) return null
+  try { return String(JSON.parse(row.value) ?? '').trim() || null } catch { return null }
+}
+
+/** The Plex account a library share for this user should be invited to: the admin mapping
+ *  when set, else the identity behind the user's own linked token. Null = neither exists. */
+export async function resolvePlexAccountForUser(userId: string): Promise<{ id: string; source: 'mapped' | 'linked' } | null> {
+  const mapped = await getUserPlexMappedAccountId(userId)
+  if (mapped) return { id: mapped, source: 'mapped' }
+  const token = await userPlexToken(userId)
+  if (!token) return null
+  const { getPlexAccountInfo } = await import('./auth')
+  const account = await getPlexAccountInfo(token)
+  return account ? { id: account.id, source: 'linked' } : null
+}
+
 export async function getUserPlexUsername(userId: string): Promise<string | null> {
   const [row] = await db
     .select({ value: toolUserConfig.value })
@@ -141,12 +181,29 @@ export async function listLinkedPlexUsers(): Promise<Array<{ userId: string; ple
   return [...byUser.entries()].filter(([, v]) => v.token).map(([userId, v]) => ({ userId, plexUsername: v.username }))
 }
 
-/** Admin view: every user with their linked status + display name. */
-export async function listUsersWithPlexStatus(): Promise<Array<{ id: string; name: string; linked: boolean }>> {
-  const [userRows, linked] = await Promise.all([
+/** Admin view: every user with their linked status, admin mapping, and display name. */
+export async function listUsersWithPlexStatus(): Promise<Array<{ id: string; name: string; linked: boolean; plexAccountId: string | null; plexUsername: string | null }>> {
+  const [userRows, cfgRows] = await Promise.all([
     db.select({ id: users.id, firstName: users.firstName, nickname: users.nickname }).from(users),
-    listLinkedPlexUserIds(),
+    db.select({ userId: toolUserConfig.userId, key: toolUserConfig.key, value: toolUserConfig.value })
+      .from(toolUserConfig).where(eq(toolUserConfig.toolId, 'plex')),
   ])
-  const set = new Set(linked)
-  return userRows.map((u) => ({ id: u.id, name: u.nickname || u.firstName, linked: set.has(u.id) }))
+  const byUser = new Map<string, { linked: boolean; accountId: string | null; username: string | null }>()
+  for (const r of cfgRows) {
+    if (!byUser.has(r.userId)) byUser.set(r.userId, { linked: false, accountId: null, username: null })
+    const entry = byUser.get(r.userId)!
+    try {
+      const v = String(JSON.parse(r.value) ?? '').trim()
+      if (r.key === 'token' && v) entry.linked = true
+      if (r.key === 'plex_account_id' && v) entry.accountId = v
+      if (r.key === 'plex_username' && v) entry.username = v
+    } catch { /* ignore malformed */ }
+  }
+  return userRows.map((u) => {
+    const e = byUser.get(u.id)
+    return {
+      id: u.id, name: u.nickname || u.firstName,
+      linked: e?.linked ?? false, plexAccountId: e?.accountId ?? null, plexUsername: e?.username ?? null,
+    }
+  })
 }

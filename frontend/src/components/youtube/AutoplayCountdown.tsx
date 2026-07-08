@@ -1,12 +1,22 @@
 import { Play, X } from 'lucide-react'
 import { VideoThumb } from '@/components/youtube/media'
-import type { VideoItem } from '@/lib/youtube/types'
+
+/** A superset of VideoItem's shape a plain YouTube VideoItem already satisfies structurally —
+ *  widened so a playlist's next entry (any source) can drive this overlay too. `videoId`
+ *  drives YouTube's own thumbnail proxy; non-YouTube entries instead pass `thumbnailUrl`,
+ *  which VideoThumb's `overrideSrc` renders directly. */
+export interface AutoplayNextItem {
+  title: string
+  author?: string | null
+  videoId?: string
+  thumbnailUrl?: string | null
+}
 
 /** Overlay shown on top of the player once a video ends, before autoplay jumps to the
  *  next one — gives the viewer a beat to cancel instead of being yanked into the next
  *  video immediately (Netflix/Plex's "Playing next in Ns" pattern). */
 export function AutoplayCountdown({ nextItem, secondsLeft, total, onCancel, onPlayNow }: {
-  nextItem: VideoItem
+  nextItem: AutoplayNextItem
   secondsLeft: number
   total: number
   onCancel: () => void
@@ -19,7 +29,7 @@ export function AutoplayCountdown({ nextItem, secondsLeft, total, onCancel, onPl
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Up next in {secondsLeft}s</p>
         <button onClick={onPlayNow} className="group mb-3 flex w-full gap-3 text-left">
           <div className="relative w-32 shrink-0 overflow-hidden rounded-control">
-            <VideoThumb videoId={nextItem.videoId} title={nextItem.title} className="aspect-video size-full" />
+            <VideoThumb videoId={nextItem.videoId ?? ''} title={nextItem.title} overrideSrc={nextItem.thumbnailUrl} className="aspect-video size-full" />
             <span className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
               <Play className="size-6 fill-current" />
             </span>

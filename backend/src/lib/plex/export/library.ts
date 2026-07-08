@@ -7,11 +7,12 @@
 // Every step is wrapped so a failure lands as plexLibrarySections.status='error' with a
 // message, not a crash.
 
-import { eq, and } from 'drizzle-orm'
+import { eq, and, ne, isNotNull } from 'drizzle-orm'
 import { db } from '@/db'
-import { plexLibrarySections, users, ytDownloads } from '@/db/schema'
+import { plexLibrarySections, users, ytDownloads, videoSaves, studioMedia } from '@/db/schema'
+import { SECTION_NAMES, isPlexExportContentType, isGenericExportSource } from '@/lib/plex/export/contentTypes'
 import { getPlexConnection, machineId, type PlexConnection } from '@/lib/plex/index'
-import { getUserOwnPlexToken } from '@/lib/plex/account'
+import { resolvePlexAccountForUser } from '@/lib/plex/account'
 import { getPlexAccountInfo } from '@/lib/plex/auth'
 import { getContentTypeStorageLocationId, getStorageLocationPath, toPlexPath, joinUnderRoot } from '@/lib/storage/contentRoots'
 import { userSlug } from '@/lib/storage/paths'
@@ -183,11 +184,11 @@ export async function provisionUserLibrary(userId: string, contentType: string):
   const adminConn = await getPlexConnection()
   if (!adminConn) return fail('Plex server is not configured (Admin → Plex).')
 
-  const userToken = await getUserOwnPlexToken(userId)
-  if (!userToken) return fail('This user has not linked their own Plex account yet.')
-
-  const account = await getPlexAccountInfo(userToken)
-  if (!account) return fail('Could not resolve this user’s Plex account identity.')
+  // Which Plex account gets the share: the admin's user→account mapping when set (no
+  // sign-in needed — sharing only requires the invited account's id), else the identity
+  // behind the user's own linked token.
+  const account = await resolvePlexAccountForUser(userId)
+  if (!account) return fail('Map this user to a Plex account (Admin → Plex → Users & libraries) or have them sign in from the Shows/Movies settings.')
 
   // The owner can't be a RESTRICTED share target (discovered live: the invite API 404s,
   // since there's no "grant" to create), but that's not a dead end — the owner automatically
@@ -228,7 +229,7 @@ export async function provisionUserLibrary(userId: string, contentType: string):
   // section key until full success).
   let sectionKey = existing?.plexSectionKey ?? null
   if (!sectionKey) {
-    const sectionName = contentType === 'youtube' ? 'YouTube' : contentType
+    const sectionName = isPlexExportContentType(contentType) ? SECTION_NAMES[contentType] : contentType
     sectionKey = await createShowLibrarySection(adminConn, sectionName, plexLocation)
     if (!sectionKey) return fail('Failed to create the Plex library section — see server logs.')
     // Persist immediately, before attempting the (separately failure-prone) share step, so a
@@ -276,5 +277,21 @@ export async function runPlexProvisionJob(payload: PlexProvisionJobPayload): Pro
       .where(and(eq(ytDownloads.userId, payload.userId), eq(ytDownloads.kind, 'video'), eq(ytDownloads.status, 'ready'), eq(ytDownloads.prefetch, false)))
     for (const r of rows) await enqueuePlexSync(payload.userId, r.videoId, 'add')
     logger.info(`[plex-export] backfilled ${rows.length} existing video(s) into user ${payload.userId}'s new youtube library`)
+  } else if (payload.contentType === 'mine') {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    // Own studio videos (any origin) plus other members' explicitly-shared ones — a shared
+    // video lands in THIS user's My Videos library under the sharer's show.
+    const own = await db.select({ id: studioMedia.id }).from(studioMedia)
+      .where(and(eq(studioMedia.userId, payload.userId), eq(studioMedia.kind, 'video'), eq(studioMedia.status, 'ready')))
+    const shared = await db.select({ id: studioMedia.id }).from(studioMedia)
+      .where(and(ne(studioMedia.userId, payload.userId), eq(studioMedia.kind, 'video'), eq(studioMedia.status, 'ready'), isNotNull(studioMedia.sharedAt)))
+    for (const r of [...own, ...shared]) await enqueuePlexSync(payload.userId, r.id, 'add', 'mine')
+    logger.info(`[plex-export] backfilled ${own.length} own + ${shared.length} shared studio video(s) into user ${payload.userId}'s My Videos library`)
+  } else if (isGenericExportSource(payload.contentType)) {
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    const rows = await db.select({ videoId: videoSaves.videoId }).from(videoSaves)
+      .where(and(eq(videoSaves.userId, payload.userId), eq(videoSaves.source, payload.contentType as 'tiktok' | 'vimeo' | 'reddit'), eq(videoSaves.kind, 'video'), eq(videoSaves.status, 'ready')))
+    for (const r of rows) await enqueuePlexSync(payload.userId, r.videoId, 'add', payload.contentType)
+    logger.info(`[plex-export] backfilled ${rows.length} existing save(s) into user ${payload.userId}'s new ${payload.contentType} library`)
   }
 }

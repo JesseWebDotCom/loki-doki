@@ -207,6 +207,10 @@ const RECONCILE_INTERVAL_MS = 15 * 60 * 1000
 async function syncPass(): Promise<void> {
   await reconcileWatchlist()
   await pullPlexProgress()
+  // Remove-watched sweep over exported video libraries (YouTube/TikTok/Vimeo/Reddit) —
+  // fully-played episodes leave the Plex tree and their offline saves are deleted.
+  const { runWatchedSweep } = await import('@/lib/plex/export/watchedSweep')
+  await runWatchedSweep().catch((err) => logger.warn(`[plex] watched sweep failed: ${err}`))
 }
 
 /** Start the 15-minute Plex sync loop: watchlist mirror + watched-progress pull. No-op until configured. */

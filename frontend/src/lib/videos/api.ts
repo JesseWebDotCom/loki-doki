@@ -24,10 +24,16 @@ export interface HubVideoItem {
   publishedAt?: number | null
   publishedText?: string | null
   viewsText?: string | null
+  /** Pre-formatted like count, e.g. "4.4K likes" (getItem only — not populated on list/browse cards). */
+  likesText?: string | null
+  /** Compact comment count, e.g. "149" or "1.2K" (getItem only) — feeds the watch page's "Comments (N)" tab label. */
+  commentsCount?: string | null
   isAdult?: boolean
   live?: boolean
   vertical?: boolean
   description?: string | null
+  /** Resume position, set on Continue-watching items so cards can show a progress bar. */
+  watch?: { positionSec: number; completed: boolean } | null
 }
 
 export interface HubCreator extends HubCreatorRef {
@@ -36,8 +42,17 @@ export interface HubCreator extends HubCreatorRef {
   bannerUrl?: string | null
   description?: string | null
   subscriberText?: string | null
+  followingText?: string | null
+  likesText?: string | null
   /** Pre-formatted display count, e.g. "1.2K videos" — shown in the header meta line. */
   videoCount?: string | null
+}
+
+export interface HubPlaylist {
+  id: string
+  title: string
+  thumbnailUrl?: string | null
+  videoCount?: number | null
 }
 
 export interface SourceInfo {
@@ -54,6 +69,11 @@ export interface SourceInfo {
     live: boolean
     downloadKinds: Array<'audio' | 'video'>
     authConfig: 'none' | 'apiKey' | 'cookies'
+    playlists?: boolean
+    /** Watch page has a "Related videos" shelf. */
+    related?: boolean
+    /** Watch page shows Transcript + AI Summary tabs (absent = true). */
+    transcript?: boolean
   }
   status: { configured: boolean; note?: string }
   /** Admin-controlled: whether this source shows up on discovery surfaces (rail, home
@@ -101,10 +121,13 @@ export interface VideoFollow {
   title: string
   handle?: string | null
   thumbnailUrl?: string | null
+  description?: string | null
   isAdult: boolean
   autoSave: boolean
   autoSaveKind: 'audio' | 'video'
   autoSaveKeep: number | null
+  /** Delete auto-saved copies once fully watched (offline rule, independent of Plex). */
+  removeWatched: boolean
   /** Last time the poller pulled new uploads; used to sort the unified subscriptions list. */
   lastFetchedAt?: string | null
   addedAt?: string | null
@@ -142,6 +165,29 @@ export function getSourceCreator(source: VideoSource, id: string, cursor?: strin
   return getJson(`/api/videos/${source}/creator/${encodeURIComponent(id)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
 }
 
+export function getCreatorPlaylists(source: VideoSource, id: string, cursor?: string | null): Promise<{ items: HubPlaylist[]; cursor: string | null }> {
+  return getJson(`/api/videos/${source}/creator/${encodeURIComponent(id)}/playlists${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
+}
+
+export function getSourcePlaylist(source: VideoSource, id: string, cursor?: string | null): Promise<HubPager> {
+  return getJson(`/api/videos/${source}/playlist/${encodeURIComponent(id)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
+}
+
+export interface SubscriptionPlaylistGroup {
+  source: VideoSource
+  externalId: string
+  title: string
+  thumbnailUrl: string | null
+  playlists: HubPlaylist[]
+}
+
+/** Playlists published by every channel/creator you follow (YouTube subs + generic
+ *  follows), aggregated server-side from a warmed per-channel cache. `warming` is how
+ *  many channels are still being checked in the background — poll while it's nonzero. */
+export function getSubscriptionPlaylists(): Promise<{ groups: SubscriptionPlaylistGroup[]; warming: number }> {
+  return getJson('/api/videos/subscriptions/playlists')
+}
+
 export type HubPlayback =
   | { mode: 'native-app' }
   | { mode: 'stream'; streamUrl: string }
@@ -156,6 +202,21 @@ export function getSourceItem(source: VideoSource, id: string): Promise<{ item: 
 
 export function getSourceComments(source: VideoSource, id: string): Promise<{ comments: Array<{ author: string; text: string; likes?: string | null; publishedText?: string | null }> }> {
   return getJson(`/api/videos/${source}/comments/${encodeURIComponent(id)}`)
+}
+
+export function getSourceRelated(source: VideoSource, id: string): Promise<{ items: HubVideoItem[] }> {
+  return getJson(`/api/videos/${source}/related/${encodeURIComponent(id)}`)
+}
+
+/** Raw WebVTT for the transcript tab; '' when the video has no captions. */
+export async function getSourceTranscript(source: VideoSource, id: string): Promise<string> {
+  const res = await fetch(`/api/videos/${source}/transcript/${encodeURIComponent(id)}`, { credentials: 'include' })
+  return res.ok ? res.text() : ''
+}
+
+/** Transcript-based AI summary (generated + cached server-side); null = no captions. */
+export function getSourceSummary(source: VideoSource, id: string): Promise<{ summary: string | null }> {
+  return getJson(`/api/videos/${source}/summary/${encodeURIComponent(id)}`)
 }
 
 async function sendJson<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -179,8 +240,14 @@ export function addFollow(source: VideoSource, externalId: string): Promise<{ ok
 export function removeFollow(id: string): Promise<{ ok: true }> {
   return sendJson(`/api/videos/follows/${encodeURIComponent(id)}`, 'DELETE')
 }
-export function patchFollow(id: string, patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null }): Promise<{ ok: true }> {
+export function patchFollow(id: string, patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean }): Promise<{ ok: true }> {
   return sendJson(`/api/videos/follows/${encodeURIComponent(id)}`, 'PATCH', patch)
+}
+
+/** Back-catalogue grab for a creator. auto:true = the "Configure for offline" backfill
+ *  (rows join the rolling keep-N window); auto:false = explicit saves the prune never touches. */
+export function saveCreatorNow(source: VideoSource, creatorId: string, body: { kind: 'audio' | 'video'; count: number; auto: boolean }): Promise<{ ok?: boolean; queued?: number; total?: number; error?: string }> {
+  return sendJson(`/api/videos/${source}/creator/${encodeURIComponent(creatorId)}/save-now`, 'POST', body)
 }
 
 export function listSaves(source?: VideoSource): Promise<{ saves: VideoSave[] }> {
@@ -219,7 +286,11 @@ export interface HubHistoryRow {
   source: VideoSource
   videoId: string
   title: string
+  creatorId: string | null
   creatorName: string | null
+  /** Only set for followed creators (cached at follow time); otherwise the card falls back
+   *  to a letter avatar. */
+  creatorAvatarUrl: string | null
   thumbnailUrl: string | null
   durationSec: number | null
   positionSec: number

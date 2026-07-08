@@ -628,10 +628,18 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       return
     }
     case 'plex-sync': {
-      const payload = JSON.parse(job.refId) as { userId: string; videoId: string; op: 'add' | 'remove' }
-      const { syncVideoToPlex, removeVideoFromPlex } = await import('@/lib/plex/export/sync')
-      if (payload.op === 'remove') await removeVideoFromPlex(payload.userId, payload.videoId)
-      else await syncVideoToPlex(payload.userId, payload.videoId)
+      const payload = JSON.parse(job.refId) as { userId: string; videoId: string; op: 'add' | 'remove'; source?: string }
+      // Payloads queued before the multi-source expansion carry no `source` — they're youtube.
+      const source = payload.source ?? 'youtube'
+      if (source === 'youtube') {
+        const { syncVideoToPlex, removeVideoFromPlex } = await import('@/lib/plex/export/sync')
+        if (payload.op === 'remove') await removeVideoFromPlex(payload.userId, payload.videoId)
+        else await syncVideoToPlex(payload.userId, payload.videoId)
+      } else {
+        const { syncGenericVideoToPlex, removeGenericVideoFromPlex } = await import('@/lib/plex/export/genericSync')
+        if (payload.op === 'remove') await removeGenericVideoFromPlex(payload.userId, source, payload.videoId)
+        else await syncGenericVideoToPlex(payload.userId, source, payload.videoId)
+      }
       return
     }
     case 'plex-cut': {
@@ -778,11 +786,13 @@ export async function enqueueMediaEnhance(assetId: string, label = 'Enhance vide
 
 /** Enqueue placing (or removing) one video in one user's Plex tree. Cheap filesystem +
  *  one small HTTP refresh call — normal network lane, domain 'plex' (shared with
- *  plex-provision) serializes so a provisioning call and a sync never race each other. */
-export async function enqueuePlexSync(userId: string, videoId: string, op: 'add' | 'remove'): Promise<void> {
+ *  plex-provision) serializes so a provisioning call and a sync never race each other.
+ *  `source` picks the exporter: 'youtube' (default — legacy queued payloads without the
+ *  field parse as youtube too) vs the generic hub exporter (tiktok/vimeo/reddit/mine). */
+export async function enqueuePlexSync(userId: string, videoId: string, op: 'add' | 'remove', source = 'youtube'): Promise<void> {
   const now = new Date()
   await db.insert(downloadJobs).values({
-    id: randomUUID(), type: 'plex-sync', refId: JSON.stringify({ userId, videoId, op }), variantKey: `plex-sync:${userId}:${videoId}`,
+    id: randomUUID(), type: 'plex-sync', refId: JSON.stringify({ userId, videoId, op, source }), variantKey: `plex-sync:${userId}:${source}:${videoId}`,
     domain: 'plex', sizeClass: 'small', label: `Sync to Plex (${op})`, priority: 55,
     status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,

@@ -38,3 +38,46 @@ export async function shouldEnhance(userId: string): Promise<boolean> {
   if (mode === 'never') return false
   return getEnhanceDefault()
 }
+
+// ── Per-source overrides ────────────────────────────────────────────────────────
+// A third, more specific tier layered on the household policy: a user (or the admin
+// default) can pin enhancement on/off for ONE source (youtube/tiktok/vimeo/reddit)
+// without touching the household-wide setting. Unset (= 'default' / absent) falls
+// through to the household tiers above, so existing behavior is unchanged until
+// someone actually sets a per-source value.
+
+export const enhanceModeKeyFor = (source: string) => `${ENHANCE_MODE_KEY}.${source}`
+export const enhanceDefaultKeyFor = (source: string) => `${ENHANCE_DEFAULT_KEY}.${source}`
+
+/** A user's per-source override ('default' = no override, follow household policy). */
+export async function getEnhanceModeFor(userId: string, source: string): Promise<EnhanceMode> {
+  const [row] = await db.select({ value: userPreferences.value }).from(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, enhanceModeKeyFor(source))))
+    .limit(1)
+  if (!row) return 'default'
+  try {
+    const v = JSON.parse(row.value)
+    return v === 'always' || v === 'never' ? v : 'default'
+  } catch { return 'default' }
+}
+
+/** Admin per-source default: true/false when explicitly set, null = inherit household. */
+export async function getEnhanceDefaultFor(source: string): Promise<boolean | null> {
+  const v = await getAppSetting(enhanceDefaultKeyFor(source))
+  return typeof v === 'boolean' ? v : null
+}
+
+/** Whether a saved video FROM THIS SOURCE should be background-enhanced for this user.
+ *  Precedence: user per-source override → user household override → admin per-source
+ *  default → admin household default. */
+export async function shouldEnhanceFor(userId: string, source: string): Promise<boolean> {
+  const sourceMode = await getEnhanceModeFor(userId, source)
+  if (sourceMode === 'always') return true
+  if (sourceMode === 'never') return false
+  const mode = await getEnhanceMode(userId)
+  if (mode === 'always') return true
+  if (mode === 'never') return false
+  const sourceDefault = await getEnhanceDefaultFor(source)
+  if (sourceDefault != null) return sourceDefault
+  return getEnhanceDefault()
+}

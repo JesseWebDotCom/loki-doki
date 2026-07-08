@@ -162,6 +162,26 @@ studioRoute.post('/media/upload', async (c) => {
   }
 })
 
+// Share/unshare a bin video with the household: shared videos appear in other members'
+// My Videos Plex libraries (under this owner's show) and stay private otherwise.
+studioRoute.patch('/media/:id', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json<{ shared?: boolean }>().catch(() => ({}) as Record<string, never>)
+  if (typeof body.shared !== 'boolean') return c.json({ error: 'shared (boolean) required' }, 400)
+  const [row] = await db.select().from(studioMedia)
+    .where(and(eq(studioMedia.id, c.req.param('id')), eq(studioMedia.userId, user.id)))
+    .limit(1)
+  if (!row) return c.json({ error: 'not found' }, 404)
+  if (row.kind !== 'video') return c.json({ error: 'only videos can be shared' }, 400)
+  const now = new Date()
+  await db.update(studioMedia)
+    .set({ sharedAt: body.shared ? now : null, updatedAt: now })
+    .where(eq(studioMedia.id, row.id))
+  const { fanOutShareChange } = await import('@/lib/videostudio/plexExport')
+  void fanOutShareChange(row.id, body.shared).catch(() => {})
+  return c.json({ ok: true, sharedAt: body.shared ? now.getTime() : null })
+})
+
 // Range-capable source streaming for the editor's preview player.
 studioRoute.get('/media/:assetId/stream', async (c) => {
   const user = c.get('user')

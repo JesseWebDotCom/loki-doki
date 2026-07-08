@@ -82,9 +82,25 @@ async function completeVideoAsset(
       createdAt: now, updatedAt: now,
     })
   }
+  // Capture who was waiting BEFORE the flip — the update's where clause is the only thing
+  // that knows, and the Plex fan-out below needs the same set (mirrors lib/youtube/assets.ts).
+  const waiting = await db.select({ userId: videoSaves.userId }).from(videoSaves)
+    .where(and(eq(videoSaves.source, source), eq(videoSaves.videoId, videoId), eq(videoSaves.kind, kind), ne(videoSaves.status, 'ready')))
   await db.update(videoSaves)
     .set({ status: 'ready', assetId, sizeBytes, error: null, updatedAt: now })
     .where(and(eq(videoSaves.source, source), eq(videoSaves.videoId, videoId), eq(videoSaves.kind, kind), ne(videoSaves.status, 'ready')))
+
+  if (kind === 'video') {
+    // Plex export fan-out: every user whose save just went ready gets a placement job
+    // (each no-ops unless that user has a ready library for this source).
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    for (const userId of new Set(waiting.map(w => w.userId))) {
+      await enqueuePlexSync(userId, videoId, 'add', source).catch(() => {})
+    }
+    // Background enhance, if any referencing user opted in for this source.
+    const { maybeEnqueueEnhanceGeneric } = await import('@/lib/videos/enhance')
+    void maybeEnqueueEnhanceGeneric(assetId).catch(() => {})
+  }
 }
 
 export async function runVideoMediaJob(

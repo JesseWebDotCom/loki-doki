@@ -9,7 +9,7 @@
 // The app token is rate-limited (~100 req/min), so every fetch is wrapped in
 // cachedLookup with a short TTL — heavy browsing hits the cache, not reddit.
 
-import { cachedLookup } from '@/lib/lookupCache'
+import { cachedLookup, cachedLookupStale } from '@/lib/lookupCache'
 import { getRedditAccessToken, getRedditClientId, redditUserAgent } from '@/lib/videos/redditAuth'
 import type { VideoProvider } from '@/lib/videos/provider'
 import type { Creator, Pager, VideoItem } from '@/lib/videos/types'
@@ -77,6 +77,14 @@ export async function anonymousRedditWorks(): Promise<boolean> {
   return anonWorks
 }
 
+/** True when browsing can actually work: either a client id is configured, or reddit's
+ *  anonymous JSON happens to be open on this network. Shared by status()/resolveDiscovery()
+ *  so callers can skip browse() entirely instead of firing it only to catch the throw. */
+async function isConfigured(): Promise<boolean> {
+  if (await getRedditClientId()) return true
+  return anonymousRedditWorks()
+}
+
 async function redditJson<T>(path: string, ttl: number): Promise<T> {
   const token = await getRedditAccessToken()
   if (!token && !(await anonymousRedditWorks())) throw new RedditNotConfiguredError()
@@ -139,6 +147,28 @@ function listingToPager(data: { data?: { children?: Array<{ data: RedditPost }>;
   return { items, cursor: data.data?.after ?? null }
 }
 
+// Listing avatars: stale-read each distinct subreddit's about.json from the exact cache
+// entry getCreator/getItem already write (same 'reddit' namespace + path key), so browse/
+// search cards show the community icon instead of the letter fallback. A miss kicks ONE
+// deduped background warm per subreddit — the request path never blocks on it and repeat
+// listings cost zero API quota once warm (mirrors vimeo.ts's stampCreatorInfo).
+const aboutWarming = new Set<string>()
+function warmSubredditAbout(sub: string): void {
+  if (aboutWarming.has(sub)) return
+  aboutWarming.add(sub)
+  void redditJson(`/r/${sub}/about.json?raw_json=1`, ABOUT_TTL).catch(() => {}).finally(() => aboutWarming.delete(sub))
+}
+async function stampCreatorInfo(items: VideoItem[]): Promise<VideoItem[]> {
+  return Promise.all(items.map(async (it) => {
+    if (!it.creator?.id || it.creator.avatarUrl) return it
+    const cached = await cachedLookupStale<{ data?: { icon_img?: string; community_icon?: string } }>(
+      'reddit', `/r/${it.creator.id}/about.json?raw_json=1`)
+    if (!cached.fresh) warmSubredditAbout(it.creator.id)
+    const icon = (cached.value?.data?.community_icon || cached.value?.data?.icon_img || '').split('?')[0] || null
+    return icon ? { ...it, creator: { ...it.creator, avatarUrl: icon } } : it
+  }))
+}
+
 /** Fetch a single post by base36 id. Exported for the HLS proxy route, which needs
  *  the post's v.redd.it manifest URL. */
 export async function redditPost(id: string): Promise<VideoItem | null> {
@@ -160,14 +190,19 @@ export const redditProvider: VideoProvider = {
     live: false,
     downloadKinds: ['video'],
     authConfig: 'apiKey',
+    transcript: false,   // v.redd.it videos never carry captions
   },
-  discovery: ['popular', 'trending'],
   browseFeeds: Object.entries(FEED_MULTIS).map(([id, f]) => ({ id, label: f.label })),
 
+  // Unconfigured (no client id, anonymous JSON blocked on this network): report no
+  // discovery surface at all so mixed Popular/Trending shelves skip Reddit entirely
+  // instead of firing a browse() that can only fail. Same pattern as Vimeo's resolveDiscovery.
+  async resolveDiscovery() {
+    return (await isConfigured()) ? ['popular', 'trending'] : []
+  },
+
   async status() {
-    if (await getRedditClientId()) return { configured: true }
-    // No client id: usable anyway when reddit's anonymous JSON is open to this network.
-    if (await anonymousRedditWorks()) return { configured: true }
+    if (await isConfigured()) return { configured: true }
     return { configured: false, note: 'Add a free Reddit app client id (reddit.com/prefs/apps) to enable browsing.' }
   },
 
@@ -203,6 +238,7 @@ export const redditProvider: VideoProvider = {
       `/r/${multi}/${sort}.json?raw_json=1&limit=50${t}${after}`, LIST_TTL)
     const page = listingToPager(data)
     if (!allowAdult) page.items = page.items.filter((i) => !i.isAdult)
+    page.items = await stampCreatorInfo(page.items)
     return page
   },
 
@@ -213,6 +249,7 @@ export const redditProvider: VideoProvider = {
       `/search.json?raw_json=1&q=${encodeURIComponent(q)}&type=link&limit=50${nsfw}${after}`, LIST_TTL)
     const page = listingToPager(data)
     if (!allowAdult) page.items = page.items.filter((i) => !i.isAdult)
+    page.items = await stampCreatorInfo(page.items)
     return page
   },
 
@@ -238,11 +275,25 @@ export const redditProvider: VideoProvider = {
         ? `${Intl.NumberFormat('en', { notation: 'compact' }).format(a.subscribers)} members` : null,
       isAdult: !!a.over18,
     }
-    return { creator, videos: listingToPager(listing) }
+    const videos = listingToPager(listing)
+    // Same-subreddit items inherit the icon we just fetched — no extra lookups.
+    if (creator.avatarUrl) {
+      videos.items = videos.items.map((it) => it.creator && !it.creator.avatarUrl
+        ? { ...it, creator: { ...it.creator, avatarUrl: creator.avatarUrl } } : it)
+    }
+    return { creator, videos }
   },
 
   async getItem(id) {
-    return redditPost(id)
+    const item = await redditPost(id)
+    if (!item?.creator?.id) return item
+    // Stamp the community icon (the same about.json getCreator reads, cached 1h) so the
+    // watch page's creator header shows the real subreddit icon instead of the letter
+    // fallback. One item, one cached call — listings skip this to spare the rate limit.
+    const about = await redditJson<{ data?: { icon_img?: string; community_icon?: string } }>(
+      `/r/${item.creator.id}/about.json?raw_json=1`, ABOUT_TTL).catch(() => null)
+    const icon = (about?.data?.community_icon || about?.data?.icon_img || '').split('?')[0] || null
+    return icon ? { ...item, creator: { ...item.creator, avatarUrl: icon } } : item
   },
 
   async getPlayback(id) {

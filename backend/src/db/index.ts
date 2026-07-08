@@ -1249,6 +1249,9 @@ export function runMigrations() {
   addColumn('yt_subscriptions', 'auto_save', 'INTEGER NOT NULL DEFAULT 0')
   addColumn('yt_subscriptions', 'auto_save_kind', `TEXT NOT NULL DEFAULT 'video'`)
   addColumn('yt_subscriptions', 'auto_save_keep', 'INTEGER')
+  addColumn('yt_subscriptions', 'remove_watched', 'INTEGER NOT NULL DEFAULT 0')
+  // Thumbnail snapshot for non-YouTube collection rows (yt cards derive theirs from videoId).
+  addColumn('yt_collections', 'thumbnail_url', 'TEXT')
   // Last full back-catalog reconcile (closes the RSS 15-item-window data-loss gap).
   addColumn('yt_subscriptions', 'last_reconciled_at', 'INTEGER')
   // Marks downloads written by auto-save (only these are eligible for keep-N pruning).
@@ -2681,6 +2684,56 @@ export function runMigrations() {
     );
   `)
 
+  // Videos hub → Plex export (see schema.ts videoPlexShows/videoPlexEpisodes): the generic
+  // twin of the yt_plex_* tables for tiktok/vimeo/reddit/mine sources.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS video_plex_shows (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      creator_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      folder_rel_path TEXT NOT NULL,
+      nfo_hash TEXT,
+      nfo_written_at INTEGER,
+      posters_written_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, creator_key)
+    );
+    CREATE TABLE IF NOT EXISTS video_plex_episodes (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      show_id TEXT NOT NULL REFERENCES video_plex_shows(id) ON DELETE CASCADE,
+      season_year INTEGER NOT NULL,
+      episode_number INTEGER NOT NULL,
+      source_asset_id TEXT,
+      rel_path TEXT,
+      plex_rating_key TEXT,
+      nfo_written_at INTEGER,
+      thumb_written_at INTEGER,
+      srt_written_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      plex_refreshed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, video_id)
+    );
+  `)
+
+  // Per-library sync policy (all / most-recent-N / remove-watched) — see schema.ts
+  // plexLibrarySections. Defaults preserve today's behavior (sync everything, keep forever).
+  addColumn('plex_library_sections', 'sync_mode', "TEXT NOT NULL DEFAULT 'all'")
+  addColumn('plex_library_sections', 'sync_recent_count', 'INTEGER')
+  addColumn('plex_library_sections', 'remove_watched', 'INTEGER NOT NULL DEFAULT 0')
+
+  // Watched sweep learns each placed episode's Plex ratingKey lazily (basename match once,
+  // id lookup afterwards) — see schema.ts ytPlexEpisodes.plexRatingKey.
+  addColumn('yt_plex_episodes', 'plex_rating_key', 'TEXT')
+
   // "Smart Description" (see schema.ts ytVideos.descriptionClean) — LLM-cleaned description,
   // or the transcript summary when the real description is mostly sponsor/ad content.
   addColumn('yt_videos', 'description_clean', 'TEXT')
@@ -2730,6 +2783,10 @@ export function runMigrations() {
       UNIQUE(source, external_id)
     );
     CREATE INDEX IF NOT EXISTS video_items_follow_idx ON video_items(follow_id, published_at);
+  `)
+  addColumn('video_items', 'views_text', 'TEXT')
+  addColumn('video_follows', 'remove_watched', 'INTEGER NOT NULL DEFAULT 0')
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS video_watch_state (
       id TEXT NOT NULL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2771,6 +2828,9 @@ export function runMigrations() {
   // without a table rebuild — IDs across sources can't realistically collide; accept it.)
   addColumn('yt_collections', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
   addColumn('yt_playlist_videos', 'video_source', "TEXT NOT NULL DEFAULT 'youtube'")
+  // YouTube thumbnails are derived from videoId at render time; every other source's
+  // thumbnail is an arbitrary provider URL that has to be stored to display it.
+  addColumn('yt_playlist_videos', 'thumbnail_url', 'TEXT')
 
   // Watch-history hygiene: Music-station plays share the YouTube player but belong to
   // the Music app (see schema.ts ytWatchState.origin). Retro-tag rows whose video only
@@ -2816,4 +2876,9 @@ export function runMigrations() {
       UNIQUE(project_id, asset_id)
     );
   `)
+
+  // Studio "share with household" flag — shared videos appear in other members' My Videos
+  // Plex library under the owner's show (see schema.ts studioMedia.sharedAt). Must run
+  // AFTER the studio_media CREATE above so a fresh install gets the column too.
+  addColumn('studio_media', 'shared_at', 'INTEGER')
 }

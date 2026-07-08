@@ -1,38 +1,54 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Play, Film } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
-import { ChipRow } from '@/components/shared/ChipRow'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
-import { MediaShelf, ShelfSkeleton } from '@/components/youtube/shelves'
+import { ShelfSkeleton } from '@/components/youtube/shelves'
 import { YT_GRID, YT_SHORTS_GRID } from '@/components/youtube/VideoCollection'
-import { SearchResults } from '@/components/youtube/SearchResults'
-import { HubCard, HubRow } from '@/components/videos/HubCard'
+import { HubCard, HubRow, hubHistoryToItem, ytItemToHub } from '@/components/videos/HubCard'
+import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
+import { MineCard, MineRow } from '@/components/videos/MineCard'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
-import { MixedDiscovery } from '@/components/videos/SourceDiscovery'
-import { SourceChip } from '@/components/videos/SourceChip'
+import { MixedDiscovery, useCategoryFeed } from '@/components/videos/SourceDiscovery'
+import { SourceChip, MineChip } from '@/components/videos/SourceChip'
+import { MINE_META } from '@/lib/videos/sources'
+import { VIDEO_CATEGORIES, getVideoCategory, type VideoCategory } from '@/lib/videos/categories'
 import { getHistory } from '@/lib/youtube/api'
-import { historyToItem, type VideoItem } from '@/lib/youtube/types'
-import { getHubHome, getVideoSources, type HubVideoItem, type VideoSource } from '@/lib/videos/api'
+import { historyToItem } from '@/lib/youtube/types'
+import { getHubHistory, getHubHome, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
+import { listStudioBin, isMineBinItem } from '@/lib/videos/studioApi'
 
 // The Videos hub landing: source pills filter a mixed feed interleaved across every
-// enabled provider. Doubles as search results when a `?q=` is present (search box
-// submits to the YouTube results view until multi-source search lands).
+// enabled provider. (Search lives on /videos/search, the multi-source VideosSearchPage;
+// the old ?q= YouTube-only fallback here is gone.)
 export function VideosHomePage() {
-  const [params] = useSearchParams()
-  const q = (params.get('q') ?? '').trim()
-  if (q) return <SearchResults q={q} />
   return <HubLanding />
 }
 
 function HubLanding() {
+  const [params] = useSearchParams()
   const { selected, toggle } = useSourceFilter()
+  // Mine (Studio bin content) isn't a real VideoSource — no provider, no server pagination —
+  // so it's a separate exclusive toggle rather than folded into the persisted multi-select
+  // `selected` above.
+  const [mineOnly, setMineOnly] = useState(false)
+  // Unified category chips (Comedy, Sports, ...): selecting one swaps the default body for a
+  // single cross-source mixed feed, same interaction as YoutubeHomePage's own TOPICS chips.
+  // Seeded from `?category=` so the Home widget's entry chips can deep-link straight into one.
+  const [category, setCategory] = useState<string | null>(() => {
+    const c = params.get('category')
+    return c && getVideoCategory(c) ? c : null
+  })
   const [view, setView] = useViewPreference('videos.home_view', 'grid')
+  const { data: mineBin } = useQuery({ queryKey: ['studio-bin'], queryFn: listStudioBin, enabled: mineOnly })
+  const mineItems = useMemo(() => (mineBin?.items ?? []).filter(isMineBinItem), [mineBin])
 
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
   const sources = (sourcesData?.sources ?? []).filter((s) => s.enabled)
@@ -48,11 +64,20 @@ function HubLanding() {
   })
   const isLoading = homeQuery.isLoading
 
-  const { data: history = [], isLoading: historyLoading } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
-  const continueWatching = useMemo(
-    () => history.filter((h) => !h.completed && h.positionSec > 5).map(historyToItem),
-    [history],
-  )
+  const { data: history = [], isLoading: ytHistoryLoading } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
+  const { data: hubHistoryData, isLoading: hubHistoryLoading } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory })
+  const historyLoading = ytHistoryLoading || hubHistoryLoading
+  // Merged across every source (not just YouTube) so the shelf matches "Across your sources"
+  // below it — each card keeps its own source badge via HubCard.
+  const continueWatching = useMemo(() => {
+    const yt = history
+      .filter((h) => !h.completed && h.positionSec > 5 && h.title.trim())
+      .map((h) => ({ item: ytItemToHub(historyToItem(h)), updatedAt: h.updatedAt }))
+    const hub = (hubHistoryData?.history ?? [])
+      .filter((h) => !h.completed && h.positionSec > 5 && h.title.trim())
+      .map((h) => ({ item: hubHistoryToItem(h), updatedAt: h.updatedAt }))
+    return [...yt, ...hub].sort((a, b) => b.updatedAt - a.updatedAt).map((x) => x.item)
+  }, [history, hubHistoryData])
 
   // Flatten pages, dedup by source:id (a provider can occasionally repeat across pages).
   const feedItems = useMemo(() => {
@@ -65,53 +90,126 @@ function HubLanding() {
     return out
   }, [homeQuery.data])
 
+  const activeCategory = category ? getVideoCategory(category) : null
+
   return (
     <PageContainer width="wide" className="py-6">
+      <ChipRow className="mb-3">
+        <Chip label="All" active={category === null} onClick={() => { setMineOnly(false); setCategory(null) }} />
+        {VIDEO_CATEGORIES.map((c) => (
+          <Chip
+            key={c.id}
+            label={c.label}
+            active={category === c.id}
+            onClick={() => { setMineOnly(false); setCategory(category === c.id ? null : c.id) }}
+          />
+        ))}
+      </ChipRow>
+
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
+          <MineChip active={mineOnly} onClick={() => { setCategory(null); setMineOnly((v) => !v) }} />
           {sources.map((s) => (
             <SourceChip
               key={s.source}
               source={s.source}
-              active={active.includes(s.source)}
-              onClick={() => toggle(s.source, allIds)}
+              active={!mineOnly && active.includes(s.source)}
+              onClick={() => { setMineOnly(false); toggle(s.source, allIds) }}
             />
           ))}
         </ChipRow>
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
 
-      <div className="space-y-10">
-        {continueWatching.length > 0 ? (
-          <MediaShelf title="Continue watching" items={continueWatching} view={view} />
-        ) : historyLoading ? <ShelfSkeleton /> : null}
-
-        {/* One mixed Popular + one mixed Trending, interleaved across every active source. */}
-        <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />
-
+      {mineOnly ? (
         <section>
-          <SectionHeader title="Across your sources" className="mb-4" />
-          {isLoading ? (
-            <SkeletonCards count={12} className="xl:grid-cols-4" />
-          ) : feedItems.length > 0 ? (
-            <>
-              <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
-                {feedItems.map((it) => (
-                  <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} />
-                ))}
-              </div>
-              <InfiniteLoadMore
-                hasNextPage={!!homeQuery.hasNextPage}
-                isFetchingNextPage={homeQuery.isFetchingNextPage}
-                fetchNextPage={() => void homeQuery.fetchNextPage()}
-              />
-            </>
+          <SectionHeader title="Mine" className="mb-4" />
+          {mineItems.length > 0 ? (
+            <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
+              {mineItems.map((item) => view === 'list'
+                ? <MineRow key={item.assetId} item={item} />
+                : <MineCard key={item.assetId} item={item} shape={view === 'big' ? 'tall' : 'wide'} />)}
+            </div>
           ) : (
-            <EmptyFeed />
+            <EmptyMine />
           )}
         </section>
-      </div>
+      ) : activeCategory ? (
+        <CategoryBody category={activeCategory} activeSources={sources.filter((s) => active.includes(s.source))} view={view} />
+      ) : (
+        <div className="space-y-10">
+          {continueWatching.length > 0 ? (
+            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} />
+          ) : historyLoading ? <ShelfSkeleton /> : null}
+
+          {/* One mixed Popular + one mixed Trending, interleaved across every active source. */}
+          <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />
+
+          <section>
+            <SectionHeader title="Across your sources" className="mb-4" />
+            {isLoading ? (
+              <SkeletonCards count={12} className="xl:grid-cols-4" />
+            ) : feedItems.length > 0 ? (
+              <>
+                <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
+                  {feedItems.map((it) => (
+                    <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} />
+                  ))}
+                </div>
+                <InfiniteLoadMore
+                  hasNextPage={!!homeQuery.hasNextPage}
+                  isFetchingNextPage={homeQuery.isFetchingNextPage}
+                  fetchNextPage={() => void homeQuery.fetchNextPage()}
+                />
+              </>
+            ) : (
+              <EmptyFeed />
+            )}
+          </section>
+        </div>
+      )}
     </PageContainer>
+  )
+}
+
+/** Replaces the default body when a unified category chip is selected: one cross-source
+ *  grid for that category, restricted to whichever sources are still active. */
+function CategoryBody({ category, activeSources, view }: {
+  category: VideoCategory
+  activeSources: SourceInfo[]
+  view: 'big' | 'grid' | 'list'
+}) {
+  const { items, isLoading, isSettling, hasSources } = useCategoryFeed(category, activeSources)
+  return (
+    <section>
+      <div className="mb-4 flex items-center gap-2">
+        <SectionHeader title={category.label} className="mb-0" />
+        {/* A source (usually a cold TikTok category) is still fetching — the grid above
+         *  already shows whatever's landed so far and will grow/reorder as it arrives. */}
+        {isSettling && <Spinner className="size-3.5 text-muted-foreground/50" />}
+      </div>
+      {isLoading || (items.length === 0 && isSettling) ? (
+        <SkeletonCards count={12} className="xl:grid-cols-4" />
+      ) : items.length > 0 ? (
+        <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
+          {items.map((it) => <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} />)}
+        </div>
+      ) : (
+        <p className="py-20 text-center text-sm text-muted-foreground">
+          {hasSources ? `Nothing found for "${category.label}" right now.` : `No active sources support "${category.label}" yet.`}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function EmptyMine() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+      <MINE_META.icon className="mb-3 size-10 opacity-30" />
+      <p className="text-sm font-medium">Nothing here yet</p>
+      <p className="mt-1 text-xs">Upload, record, or generate a clip in Mine to see it here.</p>
+    </div>
   )
 }
 

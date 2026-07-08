@@ -28,6 +28,11 @@ export interface YtMiniTrack {
   /** Route to expand back into (defaults to the YouTube watch page). Music video stations set this
    *  to their in-music Watch page so the docked video re-opens there, not in the YouTube app. */
   expandTo?: string
+  /** Which app this play belongs to — must be set explicitly by Music-app callers (search
+   *  results, "play music" chat results, AI radio video mode) so their watch-state writes
+   *  land under origin='music' and never pollute the Videos hub's watch history/Continue
+   *  watching. Defaults to 'youtube' server-side when omitted. */
+  origin?: 'youtube' | 'music'
 }
 
 interface YoutubePlaybackCtx {

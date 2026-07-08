@@ -23,6 +23,10 @@ export interface BinItem {
   origin: 'youtube' | 'clip' | 'reddit' | 'tiktok' | 'vimeo' | 'upload' | 'recording' | 'generated' | 'export'
   thumbUrl: string | null
   createdAt: number
+  /** Studio-owned items only: the studio_media row id (share toggle target). */
+  mediaId?: string
+  /** Studio-owned videos only: epoch ms when shared with the household, null = private. */
+  sharedAt?: number | null
 }
 
 /** Everything in the user's libraries that's ready to edit, newest first. */
@@ -84,6 +88,7 @@ export async function listBin(userId: string): Promise<BinItem[]> {
       durationSec: r.durationSec, origin: r.origin,
       thumbUrl: `/api/videos/studio/media/${r.assetId}/thumb`,
       createdAt: r.createdAt.getTime(),
+      mediaId: r.id, sharedAt: r.sharedAt ? r.sharedAt.getTime() : null,
     })
   }
   return items.sort((a, b) => b.createdAt - a.createdAt)
@@ -153,6 +158,11 @@ export async function ingestUpload(userId: string, fileName: string, bytes: Uint
         width: probe?.width ?? null, height: probe?.height ?? null, updatedAt: ts,
       }).where(eq(studioMedia.id, id))
     })
+    if (kind === 'video') {
+      // Place into the owner's My Videos Plex library (no-op without a ready section).
+      const { enqueueMinePlacement } = await import('@/lib/videostudio/plexExport')
+      void enqueueMinePlacement(id).catch(() => {})
+    }
     return { id }
   } catch (err) {
     await db.update(studioMedia).set({ status: 'failed', error: String(err).slice(0, 500), updatedAt: new Date() }).where(eq(studioMedia.id, id))

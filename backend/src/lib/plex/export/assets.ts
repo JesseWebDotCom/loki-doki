@@ -6,6 +6,7 @@ import { writeFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import sharp from 'sharp'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
+import { getOrFetchProxyImage } from '@/lib/imageProxy'
 import { podcastFallback } from '@/lib/pod/podcastCover.generated'
 
 // SVG text font for everything sharp renders (duration badge, season posters). A generic
@@ -14,9 +15,21 @@ import { podcastFallback } from '@/lib/pod/podcastCover.generated'
 // renders real bold, and is the closest system match to YouTube's Roboto badge.
 const BADGE_FONT = `Arial, 'Helvetica Neue', 'Segoe UI', sans-serif`
 
+// YouTube artwork keeps riding the subscription-pinned imageCache (getOrFetchImage is
+// host-allowlisted to YouTube CDNs and would return null for anything else); every other
+// source's artwork (TikTok/Vimeo/Reddit thumbnails and avatars) goes through the app-wide
+// SSRF-guarded /api/img cache instead of failing silently.
+const YT_IMAGE_HOST = /(^|\.)(ytimg\.com|ggpht\.com|googleusercontent\.com|youtube\.com)$/i
+
+async function fetchArtwork(url: string): Promise<{ data: Buffer } | null> {
+  let host = ''
+  try { host = new URL(url).hostname } catch { return null }
+  return YT_IMAGE_HOST.test(host) ? getOrFetchImage(url) : getOrFetchProxyImage(url)
+}
+
 async function writeImage(url: string | null, destAbsPath: string): Promise<boolean> {
   if (!url) return false
-  const img = await getOrFetchImage(url)
+  const img = await fetchArtwork(url)
   if (!img) return false
   await mkdir(dirname(destAbsPath), { recursive: true })
   await writeFile(destAbsPath, img.data)
@@ -145,7 +158,7 @@ export async function writeEpisodeThumb(thumbAbsPath: string, url: string | null
   // which at least LOOKS intentionally different from a half-done YouTube-style thumb).
   // Callers resolve duration (DB, else ffprobe of the placed file) before calling.
   if (!durationSec || durationSec <= 0) return false
-  const img = await getOrFetchImage(url)
+  const img = await fetchArtwork(url)
   if (!img) return false
   let bytes: Buffer
   try { bytes = await overlayThumbBadges(await cropTo16x9(img.data), durationSec) } catch { return false }

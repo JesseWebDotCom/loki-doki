@@ -9,24 +9,28 @@ import { db } from '@/db'
 import { videoFollows, videoItems, videoSaves } from '@/db/schema'
 import { getProvider } from '@/lib/videos/registry'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
+import { effectiveSaveHeight } from '@/lib/videos/quality'
+import { getAutoSaveKeepDefault } from '@/lib/youtube/automation'
+import { runOfflineWatchedSweep } from '@/lib/videos/offlineSweep'
 import { logger } from '@/lib/logger'
 
 const POLL_INTERVAL_MS = 15 * 60_000
 const STALE_MS = 14 * 60_000
-const DEFAULT_KEEP = 10
 
 async function pollFollow(follow: typeof videoFollows.$inferSelect): Promise<void> {
   const provider = getProvider(follow.source)
   if (!provider?.fetchCreatorFeed) return
 
-  // Backfill the creator avatar/title for follows saved without one (older follows, a failed
-  // getCreator at follow time, or a provider that only gained avatars later — e.g. TikTok).
-  // getCreator is cached, so this is cheap once warm.
-  if (!follow.thumbnailUrl && provider.getCreator) {
+  // Refresh the creator name/avatar on every poll (not just when missing): this is the
+  // authoritative per-creator identity every followed-uploads card reads via a join, so it
+  // must self-heal as provider name resolution improves (e.g. TikTok's real display name
+  // landing after a handle-only follow) rather than staying stuck at whatever was captured
+  // at follow time. getCreator is cached at the provider layer, so this is cheap once warm.
+  if (provider.getCreator) {
     const creator = await provider.getCreator(follow.externalId).then((r) => r.creator).catch(() => null)
-    if (creator?.avatarUrl) {
+    if (creator && (creator.name !== follow.title || creator.avatarUrl !== follow.thumbnailUrl)) {
       await db.update(videoFollows)
-        .set({ thumbnailUrl: creator.avatarUrl, title: creator.name, handle: creator.handle ?? follow.handle })
+        .set({ thumbnailUrl: creator.avatarUrl ?? follow.thumbnailUrl, title: creator.name || follow.title, handle: creator.handle ?? follow.handle })
         .where(eq(videoFollows.id, follow.id))
     }
   }
@@ -43,6 +47,7 @@ async function pollFollow(follow: typeof videoFollows.$inferSelect): Promise<voi
       id: randomUUID(), source: follow.source, externalId: it.id, followId: follow.id,
       title: it.title, creatorId: it.creator?.id ?? null, creatorName: it.creator?.name ?? null,
       url: it.url, thumbnailUrl: it.thumbnailUrl ?? null, durationSec: it.durationSec ?? null,
+      viewsText: it.viewsText ?? null,
       publishedAt: it.publishedAt ? new Date(it.publishedAt) : null,
       isAdult: !!it.isAdult, metaJson: it.meta ? JSON.stringify(it.meta) : null, createdAt: now,
     }).onConflictDoNothing().returning({ id: videoItems.id })
@@ -53,29 +58,46 @@ async function pollFollow(follow: typeof videoFollows.$inferSelect): Promise<voi
   // Auto-save: enqueue downloads for genuinely new uploads, then prune the rolling window.
   if (!follow.autoSave || fresh.length === 0) return
   const kind = follow.autoSaveKind
+  // Per-source quality tiers apply to auto-saves the same as manual ones (audio → null).
+  const maxHeight = kind === 'video' ? await effectiveSaveHeight(follow.userId, follow.source) : null
   for (const videoId of fresh) {
     const item = items.find((i) => i.id === videoId)
     if (!item || item.isAdult) continue   // auto-save never pulls adult-flagged content
     await db.insert(videoSaves).values({
       id: randomUUID(), userId: follow.userId, source: follow.source, videoId, title: item.title,
-      kind, status: 'pending', assetId: null, sizeBytes: null, maxHeight: null,
+      kind, status: 'pending', assetId: null, sizeBytes: null, maxHeight,
       thumbnailUrl: item.thumbnailUrl ?? null, creatorName: item.creator?.name ?? null,
       durationSec: item.durationSec ?? null, sourceUrl: item.url, auto: true,
       isAdult: false, error: null, createdAt: now, updatedAt: now,
     }).onConflictDoNothing()
-    await enqueueVideoMedia({ source: follow.source, videoId, kind }, `${follow.title}: ${item.title}`)
+    await enqueueVideoMedia({ source: follow.source, videoId, kind, maxHeight }, `${follow.title}: ${item.title}`)
   }
 
-  const keep = follow.autoSaveKeep ?? DEFAULT_KEEP
-  const autoRows = await db.select({ id: videoSaves.id }).from(videoSaves)
+  // keepN semantics: null → global default (shared with YouTube's admin knob), 0 → unlimited.
+  const keep = follow.autoSaveKeep ?? await getAutoSaveKeepDefault()
+  if (keep <= 0) return
+  // Match auto rows to this follow via video_items.follow_id, NOT creatorName — the poller
+  // self-heals follow.title above, which would orphan every save made under the old name.
+  // Order by real upload date (save time as tiebreak) so the window mirrors youtube's
+  // pruneAutoSaves rather than tracking download order.
+  const autoRows = await db.select({ id: videoSaves.id, videoId: videoSaves.videoId, publishedAt: videoItems.publishedAt, createdAt: videoSaves.createdAt })
+    .from(videoSaves)
+    .innerJoin(videoItems, and(eq(videoItems.source, videoSaves.source), eq(videoItems.externalId, videoSaves.videoId)))
     .where(and(
       eq(videoSaves.userId, follow.userId), eq(videoSaves.source, follow.source),
-      eq(videoSaves.creatorName, follow.title), eq(videoSaves.auto, true), eq(videoSaves.kind, kind),
+      eq(videoItems.followId, follow.id), eq(videoSaves.auto, true), eq(videoSaves.kind, kind),
     ))
-    .orderBy(desc(videoSaves.createdAt))
+  autoRows.sort((a, b) =>
+    (Number(b.publishedAt ?? 0) - Number(a.publishedAt ?? 0)) ||
+    (b.createdAt.getTime() - a.createdAt.getTime()))
   const excess = autoRows.slice(keep)
   if (excess.length > 0) {
-    for (const row of excess) await db.delete(videoSaves).where(eq(videoSaves.id, row.id))
+    const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+    for (const row of excess) {
+      await db.delete(videoSaves).where(eq(videoSaves.id, row.id))
+      // Keep the user's Plex tree in step with the prune (no-op if never placed).
+      if (kind === 'video') void enqueuePlexSync(follow.userId, row.videoId, 'remove', follow.source).catch(() => {})
+    }
     // Orphaned assets/blobs are reclaimed by the content store's GC sweep.
   }
 }
@@ -93,6 +115,8 @@ async function pollOnce(): Promise<void> {
       logger.warn(`[videos-feed] poll failed for ${follow.source}:${follow.externalId}: ${err}`)
     }
   }
+  // Follow/subscription-level remove-once-watched rides the same tick (covers YouTube too).
+  await runOfflineWatchedSweep().catch((err) => logger.warn(`[videos-feed] offline watched sweep failed: ${err}`))
 }
 
 const MAX_WARM_CREATORS = 30   // bound background yt-dlp load per source per tick

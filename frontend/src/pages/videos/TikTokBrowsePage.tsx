@@ -11,14 +11,11 @@ import { useViewPreference } from '@/hooks/useViewPreference'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
-import {
-  addFollow, browseSource, getFollowingFeed, getHubHistory, getVideoSources, listFollows,
-  type HubVideoItem,
-} from '@/lib/videos/api'
+import { addFollow, browseSource, getFollowingFeed, getVideoSources, listFollows } from '@/lib/videos/api'
+import { useSourceContinueWatching } from '@/lib/videos/useSourceContinueWatching'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
-import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
-import { HubCreatorRail } from '@/components/videos/HubCreatorRail'
+import { SourceHomeSections } from '@/components/videos/SourceHomeSections'
 import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 
 // TikTok has no browsable trending here (scrape-only, flaky), so this page defaults to
@@ -37,46 +34,43 @@ export function TikTokBrowsePage() {
 
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
   const creators = useMemo(() => (followsData?.follows ?? []).filter((f) => f.source === 'tiktok'), [followsData])
+  const creatorEntries = useMemo(() => creators.map((c) => ({ id: c.externalId, title: c.title, thumbnailUrl: c.thumbnailUrl ?? null })), [creators])
 
-  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory })
-  const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
-    .filter((r) => r.source === 'tiktok' && !r.completed && r.positionSec > 5)
-    .map((r) => ({
-      source: r.source, id: r.videoId, url: '', title: r.title,
-      creator: r.creatorName ? { id: '', name: r.creatorName } : null,
-      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, vertical: true,
-    })), [hubHist])
+  const continueWatching = useSourceContinueWatching('tiktok', enabled)
 
-  const { data: feedData, isLoading } = useQuery({
+  // Dashboard = nothing selected (the default landing view); a category or a specific
+  // followed creator swaps in the flat single-feed grid below instead.
+  const dashboard = !category && !activeCreator
+
+  const { data: feedData, isLoading: feedLoading } = useQuery({
     queryKey: ['videos-following-feed', 'tiktok'],
     queryFn: () => getFollowingFeed('tiktok'),
     enabled: enabled && creators.length > 0,
   })
+  const latestItems = feedData?.items ?? []
+  const items = useMemo(() => {
+    if (!activeCreator) return latestItems
+    return latestItems.filter((it) => it.creator?.id === activeCreator)
+  }, [latestItems, activeCreator])
 
-  // Zero-setup surface: popular creators' latest videos (cold load takes a few seconds
-  // while yt-dlp extracts the first profiles; cached ten minutes after that).
-  const showPopular = creators.length === 0 || category !== null
-  const popularQuery = useQuery({
-    queryKey: ['tiktok-popular', category ?? 'popular'],
+  // Category chip selected: a flat grid for that category (cold load takes a few seconds
+  // the first time while yt-dlp extracts the first profiles; cached ten minutes after).
+  const categoryQuery = useQuery({
+    queryKey: ['tiktok-popular', category],
     queryFn: () => browseSource('tiktok', { feed: category ?? undefined }),
-    enabled: enabled && showPopular,
+    enabled: enabled && !!category,
     staleTime: 5 * 60_000,
   })
-  const items = useMemo(() => {
-    const all = feedData?.items ?? []
-    if (!activeCreator) return all
-    return all.filter((it) => it.creator?.id === activeCreator)
-  }, [feedData, activeCreator])
 
   const followMutation = useMutation({
     mutationFn: (handle: string) => addFollow('tiktok', handle),
     onSuccess: () => {
       setHandleInput('')
-      toast.success('Following')
+      toast.success('Subscribed')
       void qc.invalidateQueries({ queryKey: ['videos-follows'] })
       void qc.invalidateQueries({ queryKey: ['videos-following-feed', 'tiktok'] })
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not follow that creator'),
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not subscribe to that creator'),
   })
 
   if (!enabled) {
@@ -95,7 +89,7 @@ export function TikTokBrowsePage() {
         title={SOURCE_META.tiktok.label}
         icon={SOURCE_META.tiktok.icon}
         gradient={SOURCE_META.tiktok.gradient}
-        subtitle={creators.length > 0 ? 'Latest from the creators you follow.' : 'Popular right now. Follow creators to make this feed yours.'}
+        subtitle={creators.length > 0 ? 'Latest from the creators you subscribe to.' : 'Popular right now. Subscribe to creators to make this feed yours.'}
         className="pt-4 pb-4"
         actions={
           <form
@@ -103,9 +97,9 @@ export function TikTokBrowsePage() {
             onSubmit={(e) => { e.preventDefault(); const h = handleInput.trim().replace(/^@/, ''); if (h) followMutation.mutate(h) }}
           >
             <Input value={handleInput} onChange={(e) => setHandleInput(e.target.value)}
-              placeholder="Follow @creator…" className="h-9 w-44" autoComplete="off" />
+              placeholder="Subscribe to @creator…" className="h-9 w-44" autoComplete="off" />
             <Button type="submit" size="sm" variant="outline" className="gap-1" disabled={!handleInput.trim() || followMutation.isPending}>
-              <Plus className="size-4" /> Follow
+              <Plus className="size-4" /> Subscribe
             </Button>
           </form>
         }
@@ -113,14 +107,11 @@ export function TikTokBrowsePage() {
 
       <div className="mb-5 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
-          {creators.length > 0 && (
-            <Chip label="Following" active={activeCreator === null && category === null} activeClassName={SOURCE_META.tiktok.pillActiveClass}
-              onClick={() => { setActiveCreator(null); setCategory(null) }} />
-          )}
+          <Chip label="Home" active={dashboard} activeClassName={SOURCE_META.tiktok.pillActiveClass}
+            onClick={() => { setActiveCreator(null); setCategory(null) }} />
           {categories.map((f) => (
             <Chip key={f.id} label={f.label} activeClassName={SOURCE_META.tiktok.pillActiveClass}
-              active={category === f.id || (creators.length === 0 && category === null && f.id === 'popular')}
-              onClick={() => { setCategory(f.id); setActiveCreator(null) }} />
+              active={category === f.id} onClick={() => { setCategory(f.id); setActiveCreator(null) }} />
           ))}
           {creators.length > 0 && <span className="mx-1 h-5 w-px shrink-0 self-center bg-border/70" aria-hidden />}
           {creators.map((f) => (
@@ -131,45 +122,45 @@ export function TikTokBrowsePage() {
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
 
-      {showPopular ? (
-        popularQuery.isLoading ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-            <SkeletonCards count={12} className="w-full md:grid-cols-4 xl:grid-cols-6" />
-            <p className="text-xs">Fetching popular creators, this takes a few seconds the first time…</p>
-          </div>
-        ) : (popularQuery.data?.items.length ?? 0) > 0 ? (
-          <HubVideoCollection items={popularQuery.data!.items} view={view} showSource={false} />
+      {dashboard ? (
+        <SourceHomeSections
+          source="tiktok"
+          view={view}
+          discovery={tiktokSource?.discovery ?? []}
+          continueWatching={continueWatching}
+          creators={creatorEntries}
+          latestItems={items}
+          latestLoading={enabled && creators.length > 0 && feedLoading}
+        />
+      ) : category ? (
+        categoryQuery.isLoading ? (
+          <SkeletonCards count={12} className="xl:grid-cols-4" />
+        ) : (categoryQuery.data?.items.length ?? 0) > 0 ? (
+          <HubVideoCollection items={categoryQuery.data!.items} view={view} showSource={false} />
         ) : (
-          <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
-            <UserRound className="mb-3 size-10 opacity-30" />
-            <p className="text-sm font-medium">Follow a TikTok creator to build your feed</p>
-            <p className="mt-1 max-w-sm text-xs">
-              Add an @handle above, or paste any TikTok link into{' '}
-              <Link to="/videos/clip" className="inline-flex items-center gap-0.5 font-medium text-foreground underline underline-offset-2">
-                <Link2 className="size-3" /> Clip a Link
-              </Link>{' '}
-              to watch or save it.
-            </p>
-          </div>
+          <p className="py-20 text-center text-sm text-muted-foreground">Nothing here yet.</p>
         )
-      ) : isLoading ? (
+      ) : feedLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : items.length === 0 ? (
         <p className="py-20 text-center text-sm text-muted-foreground">
-          Nothing here yet. New uploads appear within about 15 minutes of following.
+          Nothing here yet. New uploads appear within about 15 minutes of subscribing.
         </p>
       ) : (
-        <div className="space-y-10">
-          {!activeCreator && continueWatching.length > 0 && (
-            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} showSource={false} />
-          )}
-          {!activeCreator && creators.length > 0 && (
-            <HubCreatorRail title="Following" source="tiktok"
-              creators={creators.map((c) => ({ id: c.externalId, title: c.title, thumbnailUrl: c.thumbnailUrl ?? null }))} />
-          )}
-          <section>
-            <HubVideoCollection items={items} view={view} showSource={false} />
-          </section>
+        <HubVideoCollection items={items} view={view} showSource={false} />
+      )}
+
+      {dashboard && creators.length === 0 && !feedLoading && (
+        <div className="mt-10 flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+          <UserRound className="mb-3 size-10 opacity-30" />
+          <p className="text-sm font-medium">Subscribe to a TikTok creator to build your feed</p>
+          <p className="mt-1 max-w-sm text-xs">
+            Add an @handle above, or paste any TikTok link into{' '}
+            <Link to="/videos/clip" className="inline-flex items-center gap-0.5 font-medium text-foreground underline underline-offset-2">
+              <Link2 className="size-3" /> Clip a Link
+            </Link>{' '}
+            to watch or save it.
+          </p>
         </div>
       )}
     </PageContainer>

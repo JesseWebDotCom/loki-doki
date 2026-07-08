@@ -16,6 +16,9 @@ export { ytPlaylists_route as ytPlaylists }
 
 type PlaylistRow = typeof ytPlaylists.$inferSelect
 
+const isVideoSourceLike = (s: unknown): s is 'youtube' | 'reddit' | 'tiktok' | 'vimeo' | 'link' | 'mine' =>
+  s === 'youtube' || s === 'reddit' || s === 'tiktok' || s === 'vimeo' || s === 'link' || s === 'mine'
+
 function serialize(row: PlaylistRow, currentUserId: string, ownerName?: string | null, videoCount?: number, coverVideoIds?: string[]) {
   return {
     id: row.id,
@@ -128,15 +131,16 @@ ytPlaylists_route.post('/:id/videos', async (c) => {
   const [row] = await db.select().from(ytPlaylists).where(eq(ytPlaylists.id, id))
   if (!row) return c.json({ error: 'not found' }, 404)
   if (row.userId !== user.id) return c.json({ error: 'not your playlist' }, 403)
-  const body = await c.req.json<{ videoId?: string; title?: string; author?: string; channelId?: string; durationSec?: number }>().catch(() => ({} as { videoId?: string; title?: string; author?: string; channelId?: string; durationSec?: number }))
+  const body = await c.req.json<{ videoId?: string; title?: string; author?: string; channelId?: string; durationSec?: number; videoSource?: string; thumbnailUrl?: string | null }>().catch(() => ({} as { videoId?: string; title?: string; author?: string; channelId?: string; durationSec?: number; videoSource?: string; thumbnailUrl?: string | null }))
   if (!body.videoId || !body.title) return c.json({ error: 'videoId and title required' }, 400)
+  const videoSource = isVideoSourceLike(body.videoSource) ? body.videoSource : 'youtube'
   const [{ maxPos } = { maxPos: null }] = await db
     .select({ maxPos: max(ytPlaylistVideos.position) })
     .from(ytPlaylistVideos).where(eq(ytPlaylistVideos.playlistId, id))
   await db.insert(ytPlaylistVideos).values({
     id: crypto.randomUUID(), playlistId: id, videoId: body.videoId, title: body.title,
     author: body.author?.trim() || null, channelId: body.channelId || null, durationSec: body.durationSec ?? null,
-    position: (maxPos ?? -1) + 1, addedAt: new Date(),
+    videoSource, thumbnailUrl: body.thumbnailUrl || null, position: (maxPos ?? -1) + 1, addedAt: new Date(),
   })
   await db.update(ytPlaylists).set({ updatedAt: new Date() }).where(eq(ytPlaylists.id, id))
   return c.json({ ok: true })
@@ -223,7 +227,8 @@ ytPlaylists_route.post('/:id/clone', async (c) => {
   for (const v of srcVideos) {
     await db.insert(ytPlaylistVideos).values({
       id: crypto.randomUUID(), playlistId: newId, videoId: v.videoId, title: v.title,
-      author: v.author, channelId: v.channelId, durationSec: v.durationSec, position: v.position, addedAt: now,
+      author: v.author, channelId: v.channelId, durationSec: v.durationSec, videoSource: v.videoSource,
+      thumbnailUrl: v.thumbnailUrl, position: v.position, addedAt: now,
     })
   }
   const [created] = await db.select().from(ytPlaylists).where(eq(ytPlaylists.id, newId))

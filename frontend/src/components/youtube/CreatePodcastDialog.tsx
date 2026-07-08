@@ -16,7 +16,9 @@ import { getBatchSize, setBatchSize, MAX_BATCH } from '@/lib/youtube/podcast'
 // next batch; it only ever generates `limit` at a time.
 const MAX_PAYLOAD = 100
 
-export interface PodcastSourceVideo { videoId: string; title?: string; author?: string }
+// source/url carry non-YouTube hub videos through to the episode payload (matches
+// PodcastSourceButtons' shape); absent means YouTube.
+export interface PodcastSourceVideo { videoId: string; title?: string; author?: string; source?: string; url?: string }
 
 /**
  * "Create podcast" from YouTube content (a video, channel, or playlist). Creates a new

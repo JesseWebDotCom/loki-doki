@@ -14,9 +14,10 @@ import { Spinner } from '@/components/ui/spinner'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
-import { browseSource, getHubHistory, getVideoSources, putVimeoConfig, type HubVideoItem } from '@/lib/videos/api'
+import { browseSource, getVideoSources, putVimeoConfig } from '@/lib/videos/api'
+import { useSourceContinueWatching } from '@/lib/videos/useSourceContinueWatching'
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
-import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
+import { SourceHomeSections } from '@/components/videos/SourceHomeSections'
 import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 import { SOURCE_META } from '@/lib/videos/sources'
 
@@ -67,7 +68,7 @@ function ConnectVimeoCard({ onConfigured }: { onConfigured: () => void }) {
 
 export function VimeoBrowsePage() {
   const qc = useQueryClient()
-  const [feed, setFeed] = useState<string>('staffpicks')
+  const [feed, setFeed] = useState<string | null>(null)
   const [view, setView] = useViewPreference('videos.vimeo_view', 'grid')
   const { data: sourcesData, refetch: refetchSources } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources })
   const vimeo = sourcesData?.sources.find((s) => s.source === 'vimeo')
@@ -75,21 +76,19 @@ export function VimeoBrowsePage() {
   const enabled = vimeo?.enabled ?? true
   const feeds = vimeo?.browseFeeds ?? []
 
-  const { data: hubHist } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory, enabled: configured && enabled })
-  const continueWatching = useMemo<HubVideoItem[]>(() => (hubHist?.history ?? [])
-    .filter((r) => r.source === 'vimeo' && !r.completed && r.positionSec > 5)
-    .map((r) => ({
-      source: r.source, id: r.videoId, url: '', title: r.title,
-      creator: r.creatorName ? { id: '', name: r.creatorName } : null,
-      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
-    })), [hubHist])
+  const continueWatching = useSourceContinueWatching('vimeo', configured && enabled)
+
+  // Dashboard = nothing selected (the default landing view); a category chip swaps in the
+  // flat single-feed grid below instead. Vimeo has no follow system yet, so the dashboard
+  // reduces to Popular + Trending + Continue watching (no subscriptions/latest rows).
+  const dashboard = feed === null
 
   const feedQuery = useInfiniteQuery({
     queryKey: ['vimeo-browse', feed],
-    queryFn: ({ pageParam }) => browseSource('vimeo', { feed, cursor: pageParam }),
+    queryFn: ({ pageParam }) => browseSource('vimeo', { feed: feed ?? undefined, cursor: pageParam }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.cursor,
-    enabled: configured && enabled,
+    enabled: configured && enabled && !dashboard,
   })
   const items = useMemo(() => (feedQuery.data?.pages ?? []).flatMap((p) => p.items), [feedQuery.data])
 
@@ -98,7 +97,7 @@ export function VimeoBrowsePage() {
       title={SOURCE_META.vimeo.label}
       icon={SOURCE_META.vimeo.icon}
       gradient={SOURCE_META.vimeo.gradient}
-      subtitle={!enabled ? 'Turned off by an admin.' : 'Staff Picks, handpicked by Vimeo.'}
+      subtitle={!enabled ? 'Turned off by an admin.' : 'Popular right now, plus Staff Picks handpicked by Vimeo.'}
       className="pt-4 pb-4"
     />
   )
@@ -127,36 +126,40 @@ export function VimeoBrowsePage() {
     <PageContainer width="wide" className="pt-1 pb-8">
       {header}
       <div className="mb-6 flex items-center gap-3">
-        {feeds.length > 0 && (
-          <ChipRow className="mb-0 min-w-0 flex-1">
-            {feeds.map((f) => (
-              <Chip key={f.id} label={f.label} active={feed === f.id} activeClassName={SOURCE_META.vimeo.pillActiveClass}
-                onClick={() => setFeed(f.id)} />
-            ))}
-          </ChipRow>
-        )}
+        <ChipRow className="mb-0 min-w-0 flex-1">
+          <Chip label="Home" active={dashboard} activeClassName={SOURCE_META.vimeo.pillActiveClass}
+            onClick={() => setFeed(null)} />
+          {feeds.map((f) => (
+            <Chip key={f.id} label={f.label} active={feed === f.id} activeClassName={SOURCE_META.vimeo.pillActiveClass}
+              onClick={() => setFeed(f.id)} />
+          ))}
+        </ChipRow>
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
-      {feedQuery.isLoading ? (
+      {dashboard ? (
+        <SourceHomeSections
+          source="vimeo"
+          view={view}
+          discovery={vimeo?.discovery ?? []}
+          continueWatching={continueWatching}
+          creators={[]}
+          latestItems={[]}
+        />
+      ) : feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : feedQuery.isError ? (
         <Card variant="flat" className="p-5 text-sm text-muted-foreground">
           {feedQuery.error instanceof Error ? feedQuery.error.message : 'Could not load Vimeo right now.'}
         </Card>
       ) : (
-        <div className="space-y-10">
-          {feed === 'staffpicks' && continueWatching.length > 0 && (
-            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} showSource={false} />
-          )}
-          <section>
-            <HubVideoCollection items={items} view={view} showSource={false} />
-            <InfiniteLoadMore
-              hasNextPage={!!feedQuery.hasNextPage}
-              isFetchingNextPage={feedQuery.isFetchingNextPage}
-              fetchNextPage={() => void feedQuery.fetchNextPage()}
-            />
-          </section>
-        </div>
+        <section>
+          <HubVideoCollection items={items} view={view} showSource={false} />
+          <InfiniteLoadMore
+            hasNextPage={!!feedQuery.hasNextPage}
+            isFetchingNextPage={feedQuery.isFetchingNextPage}
+            fetchNextPage={() => void feedQuery.fetchNextPage()}
+          />
+        </section>
       )}
     </PageContainer>
   )

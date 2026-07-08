@@ -91,6 +91,9 @@ export function applyPlayDirective(directive: Directive, deps: PlayDirectiveDeps
       channelThumb: directive.channelThumb ?? null,
       thumbnail: directive.thumbnail ?? undefined,
       durationSec: directive.durationSec ?? null,
+      // This directive is only emitted by the companion's play_music tool (video vs AI
+      // station), so it must not pollute the Videos hub's watch history.
+      origin: 'music',
     })
     return
   }

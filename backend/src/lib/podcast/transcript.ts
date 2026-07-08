@@ -6,11 +6,12 @@
 // failing. The script/TTS half of the pipeline is already source-agnostic once it has text.
 
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, readdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
 import { userPath } from '@/lib/storage/paths'
 import { cleanVttText, getTranscriptText } from '@/lib/youtube/transcript'
+import { getProvider } from '@/lib/videos/registry'
 
 /** A video to transcribe. `source` defaults to youtube; non-YouTube sources must carry the
  *  canonical page `url` (yt-dlp needs a real URL — a bare id isn't enough for TikTok etc.). */
@@ -23,18 +24,34 @@ export interface TranscriptRef {
 export async function resolveVideoTranscript(ref: TranscriptRef, userId: string, userFirstName: string): Promise<string | null> {
   const source = ref.source ?? 'youtube'
   if (source === 'youtube') return getTranscriptText(ref.videoId, userId, userFirstName)
-  if (!ref.url) return null
-  return fetchSubsTranscript(source, ref.videoId, ref.url, userId, userFirstName)
+  const vtt = await resolveVideoVtt(ref, userId, userFirstName)
+  if (!vtt) return null
+  const text = cleanVttText(vtt)
+  return text.length >= 80 ? text : null
 }
 
-async function fetchSubsTranscript(source: string, id: string, url: string, userId: string, userFirstName: string): Promise<string | null> {
+/** Raw WebVTT (with cue timings) for a non-YouTube video — for the timed transcript panel.
+ *  Same yt-dlp subtitle fetch as the plain-text path, cached on disk per user/source. */
+export async function resolveVideoVtt(ref: TranscriptRef, userId: string, userFirstName: string): Promise<string | null> {
+  if ((ref.source ?? 'youtube') === 'youtube' || !ref.url) return null
+  const source = ref.source!
   const outDir = await userPath(userId, userFirstName, 'videos/transcripts' as never, source)
   await mkdir(outDir, { recursive: true })
-  const base = id.replace(/[^\w.-]/g, '_')
+  const base = ref.videoId.replace(/[^\w.-]/g, '_')
   const findVtt = async () => (await readdir(outDir).catch(() => [] as string[])).find((f) => f.startsWith(`${base}.`) && f.endsWith('.vtt'))
 
   // Reuse an already-fetched transcript before spending a yt-dlp call.
   let file = await findVtt()
+  if (!file) {
+    // Platform-API fast path (provider.getCaptions, e.g. Vimeo texttracks): one small
+    // fetch instead of a whole yt-dlp subtitle run. Cached to the same per-user dir so
+    // subsequent reads never refetch.
+    const apiVtt = await getProvider(source)?.getCaptions?.(ref.videoId).catch(() => null)
+    if (apiVtt) {
+      await writeFile(join(outDir, `${base}.api.vtt`), apiVtt, 'utf-8').catch(() => {})
+      return apiVtt
+    }
+  }
   if (!file) {
     try {
       await withYtDlpSlot(() => new Promise<void>((resolve, reject) => {
@@ -45,7 +62,7 @@ async function fetchSubsTranscript(source: string, id: string, url: string, user
           '--skip-download',
           '--output', join(outDir, `${base}.%(ext)s`),
           '--no-playlist', '--quiet',
-          url,
+          ref.url!,
         ], { stdio: 'ignore', windowsHide: true })
         proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`code ${code}`)))
         proc.on('error', reject)
@@ -54,6 +71,5 @@ async function fetchSubsTranscript(source: string, id: string, url: string, user
     file = await findVtt()
   }
   if (!file) return null
-  const text = cleanVttText(await readFile(join(outDir, file), 'utf-8'))
-  return text.length >= 80 ? text : null
+  return readFile(join(outDir, file), 'utf-8')
 }

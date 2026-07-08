@@ -2,10 +2,17 @@ import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { browseSource, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
-import { SOURCE_META } from '@/lib/videos/sources'
+import { ytItemToHub } from '@/components/videos/HubCard'
+import { ShelfSkeleton } from '@/components/youtube/shelves'
 import type { CardListView } from '@/components/shared/ViewToggle'
+import type { VideoCategory } from '@/lib/videos/categories'
+import { search as ytSearch } from '@/lib/youtube/api'
+import { searchToItem } from '@/lib/youtube/types'
 
-const FEED_LABEL: Record<'popular' | 'trending', string> = { popular: 'Popular', trending: 'Trending' }
+// Same emoji + plain labels as YoutubeHomePage's own Popular/Trending shelves — no "on
+// {source}" suffix, since this renders on that source's own page (redundant there, the
+// way YouTube's Home doesn't say "Popular on YouTube" either).
+const FEED_LABEL: Record<'popular' | 'trending', string> = { popular: '🔥 Popular', trending: '📈 Trending' }
 
 /** Round-robin interleave: a[0], b[0], c[0], a[1], b[1]… so every source is represented
  *  evenly near the top even when one has far more items than another. */
@@ -23,17 +30,16 @@ function interleave(lists: HubVideoItem[][]): HubVideoItem[] {
 }
 
 function DiscoveryShelf({ source, feed, view }: { source: VideoSource; feed: 'popular' | 'trending'; view: CardListView }) {
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['videos-discover', source, feed],
     queryFn: () => browseSource(source, { feed }),
     staleTime: 10 * 60_000,
   })
   const items = data?.items ?? []
-  if (!items.length) return null
+  if (!items.length) return isLoading ? <ShelfSkeleton /> : null
   return (
     <HubMediaShelf
-      title={`${FEED_LABEL[feed]} on ${SOURCE_META[source].label}`}
-      to={`/videos/${source}`}
+      title={FEED_LABEL[feed]}
       items={items}
       view={view}
       showSource={false}
@@ -88,8 +94,63 @@ export function MixedDiscovery({ sources, view = 'grid' }: { sources: SourceInfo
     .map((s) => ({ source: s.source, feed: 'trending' }))
   return (
     <>
-      {popular.length > 0 && <MixedShelf targets={popular} title="Popular" view={view} />}
-      {trending.length > 0 && <MixedShelf targets={trending} title="Trending" view={view} />}
+      {popular.length > 0 && <MixedShelf targets={popular} title={FEED_LABEL.popular} view={view} />}
+      {trending.length > 0 && <MixedShelf targets={trending} title={FEED_LABEL.trending} view={view} />}
     </>
   )
+}
+
+// A source's leg of a unified category: the three hub providers browse a mapped feed id;
+// YouTube has no real category/genre browse surface, so it fakes one via live search —
+// the same approach YoutubeHomePage's own TopicFeed already uses successfully.
+type CategoryTarget = { source: Exclude<VideoSource, 'youtube' | 'link'>; feed: string } | { source: 'youtube'; searchQuery: string }
+
+async function fetchCategoryItems(t: CategoryTarget): Promise<HubVideoItem[]> {
+  if (t.source === 'youtube') {
+    const r = await ytSearch(t.searchQuery, null, 'videos')
+    return r.results.map(searchToItem).map(ytItemToHub)
+  }
+  const r = await browseSource(t.source, { feed: t.feed })
+  return r.items
+}
+
+/** Cross-source data for one unified category, restricted to whichever sources are
+ *  currently active AND actually configured (e.g. Reddit with no client id never gets
+ *  queried here — same "don't even ask" contract as its own ConnectRedditCard gate).
+ *  Each source contributes at most one leg (its mapped feed, or a YouTube search on the
+ *  category label), interleaved round-robin like every other mixed surface here. */
+export function useCategoryFeed(category: VideoCategory, activeSources: SourceInfo[]) {
+  const configured = new Set(activeSources.filter((s) => s.status.configured).map((s) => s.source))
+  const targets: CategoryTarget[] = []
+  for (const [source, feed] of Object.entries(category.feeds) as Array<[Exclude<VideoSource, 'youtube' | 'link'>, string]>) {
+    if (configured.has(source)) targets.push({ source, feed })
+  }
+  if (configured.has('youtube')) targets.push({ source: 'youtube', searchQuery: category.label })
+
+  const results = useQueries({
+    queries: targets.map((t) => ({
+      queryKey: t.source === 'youtube' ? ['videos-category-yt', t.searchQuery] : ['videos-discover', t.source, t.feed],
+      queryFn: () => fetchCategoryItems(t),
+      staleTime: 10 * 60_000,
+    })),
+  })
+  // Depend on the settled data, not the (new-each-render) results array.
+  const dataKey = results.map((r) => (r.data ? r.data.length : -1)).join(',')
+  const items = useMemo(
+    () => interleave(results.map((r) => r.data ?? [])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dataKey],
+  )
+  return {
+    items,
+    hasSources: targets.length > 0,
+    // Blocks only the initial skeleton — as soon as the fastest leg resolves, show what
+    // it has. Waiting for EVERY leg (a cold TikTok category can take ~10s of yt-dlp
+    // extraction) would make the whole grid hang instead of just growing/reordering
+    // in place as slower sources land.
+    isLoading: targets.length > 0 && results.every((r) => r.isLoading),
+    // True while some (but not all) legs are still in flight — lets the caller show a
+    // small "still loading more sources" cue instead of pretending the grid is final.
+    isSettling: targets.length > 1 && results.some((r) => r.isLoading) && results.some((r) => !r.isLoading),
+  }
 }

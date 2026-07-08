@@ -5,8 +5,6 @@ import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
 import type { VideoSource } from '@/lib/videos/api'
 
-export { CreatorAvatar }
-
 export interface HubCreatorEntry {
   id: string
   title: string

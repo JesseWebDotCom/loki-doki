@@ -163,6 +163,7 @@ const VimeoBrowsePage = lazy(() => import('@/pages/videos/VimeoBrowsePage').then
 const MyVideosPage = lazy(() => import('@/pages/videos/create/MyVideosPage').then((m) => ({ default: m.MyVideosPage })))
 const StudioEditorPage = lazy(() => import('@/pages/videos/create/StudioEditorPage').then((m) => ({ default: m.StudioEditorPage })))
 const SourceCreatorPage = lazy(() => import('@/pages/videos/SourceCreatorPage').then((m) => ({ default: m.SourceCreatorPage })))
+const SourcePlaylistPage = lazy(() => import('@/pages/videos/SourcePlaylistPage').then((m) => ({ default: m.SourcePlaylistPage })))
 const LegacyYoutubeRedirect = lazy(() => import('@/components/videos/LegacyYoutubeRedirect').then((m) => ({ default: m.LegacyYoutubeRedirect })))
 const YoutubeHomePage = lazy(() => import('@/pages/youtube/YoutubeHomePage').then((m) => ({ default: m.YoutubeHomePage })))
 const YoutubeHistoryPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeHistoryPage })))
@@ -171,6 +172,7 @@ const YoutubeWatchLaterPage = lazy(() => import('@/pages/youtube/YoutubeLibraryP
 const YoutubeLikedPage = lazy(() => import('@/pages/youtube/YoutubeLibraryPage').then((m) => ({ default: m.YoutubeLikedPage })))
 const YoutubeChannelPage = lazy(() => import('@/pages/youtube/YoutubeChannelPage').then((m) => ({ default: m.YoutubeChannelPage })))
 const YoutubeSubscriptionsPage = lazy(() => import('@/pages/youtube/YoutubeSubscriptionsPage').then((m) => ({ default: m.YoutubeSubscriptionsPage })))
+const VideosSubscriptionsPage = lazy(() => import('@/pages/videos/VideosSubscriptionsPage').then((m) => ({ default: m.VideosSubscriptionsPage })))
 const YoutubeShortsPage = lazy(() => import('@/pages/youtube/YoutubeShortsPage').then((m) => ({ default: m.YoutubeShortsPage })))
 const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPage').then((m) => ({ default: m.YoutubePlaylistPage })))
 const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
@@ -407,6 +409,7 @@ export default function App() {
                   <Route index element={<VideosHomePage />} />
                   <Route path="search" element={<VideosSearchPage />} />
                   {/* Cross-source library (YouTube-only until more providers land). */}
+                  <Route path="subscriptions" element={<VideosSubscriptionsPage />} />
                   <Route path="history" element={<YoutubeHistoryPage />} />
                   <Route path="playlists" element={<YoutubePlaylistsPage />} />
                   <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
@@ -427,6 +430,7 @@ export default function App() {
                   {/* TikTok source area. */}
                   <Route path="tiktok" element={<TikTokBrowsePage />} />
                   <Route path="tiktok/creator/:id" element={<SourceCreatorPage source="tiktok" />} />
+                  <Route path="tiktok/playlist/:id" element={<SourcePlaylistPage source="tiktok" />} />
                   {/* Vimeo source area. */}
                   <Route path="vimeo" element={<VimeoBrowsePage />} />
                   <Route path="vimeo/channel/:id" element={<SourceCreatorPage source="vimeo" />} />

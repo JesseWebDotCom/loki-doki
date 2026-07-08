@@ -5,12 +5,12 @@
 
 import {
   innertubeSearch, innertubeSearchMore, innertubeChannel, innertubePlayerMeta,
-  innertubeComments, tryInnertube,
+  innertubeComments, innertubeChannelPlaylists, innertubePlaylist, tryInnertube,
 } from '@/lib/youtube/innertube'
 import type { ItVideo } from '@/lib/youtube/innertube'
-import { fetchPopular, fetchTrending } from '@/lib/youtube/discovery'
+import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import type { VideoProvider } from '@/lib/videos/provider'
-import type { VideoItem } from '@/lib/videos/types'
+import type { Playlist, VideoItem } from '@/lib/videos/types'
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/
 
@@ -24,6 +24,7 @@ function toItem(v: ItVideo): VideoItem {
     thumbnailUrl: v.thumbnailUrl,
     durationSec: v.durationSec,
     publishedText: v.publishedText,
+    publishedAt: v.publishedAt ?? null,
     viewsText: v.views,
   }
 }
@@ -39,6 +40,7 @@ export const youtubeProvider: VideoProvider = {
     live: true,
     downloadKinds: ['audio', 'video'],
     authConfig: 'none',
+    playlists: true,
   },
   discovery: ['popular', 'trending'],
   browseFeeds: [{ id: 'trending', label: 'Trending' }, { id: 'popular', label: 'Popular' }],
@@ -69,6 +71,11 @@ export const youtubeProvider: VideoProvider = {
       `videos-hub-${popular ? 'popular' : 'trending'}`,
       () => (popular ? fetchPopular(40) : fetchTrending(40)),
       [] as ItVideo[])
+    // Discovery sources often omit channel avatars — fill from the shared avatar cache
+    // (bounded ~4.5s cold, instant warm; same call the native trending route makes) so hub
+    // home cards show channel logos instead of letter fallbacks. The mixed-home route's
+    // per-provider timeout (routes/videos.ts) still bounds the worst case.
+    await enrichChannelThumbs(videos)
     return { items: videos.map(toItem), cursor: null }
   },
 
@@ -95,6 +102,19 @@ export const youtubeProvider: VideoProvider = {
       },
       videos: { items: page.videos.map(toItem), cursor: page.continuation },
     }
+  },
+
+  async getCreatorPlaylists(id, cursor) {
+    const page = await innertubeChannelPlaylists(id, cursor || null)
+    return {
+      items: page.playlists.map((p): Playlist => ({ id: p.playlistId, title: p.title, thumbnailUrl: p.thumbnailUrl, videoCount: p.videoCount })),
+      cursor: page.continuation,
+    }
+  },
+
+  async getPlaylistItems(id) {
+    const page = await innertubePlaylist(id, 50)
+    return { items: page.videos.map(toItem), cursor: null }
   },
 
   async getItem(id) {

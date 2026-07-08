@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from '@/lib/toast'
 import {
-  ArrowLeft, ListVideo, Play, Shuffle, Trash2, Pencil, Check, X, Share2, Copy, GripVertical,
+  ArrowLeft, Film, ListVideo, Play, Shuffle, Trash2, Pencil, Check, X, Share2, Copy, GripVertical,
   Download, Music, Video as VideoIcon,
 } from 'lucide-react'
 import {
@@ -11,15 +11,21 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { VideoThumb } from '@/components/youtube/media'
 import { PlaylistCover } from '@/components/youtube/PlaylistCover'
+import { SOURCE_META, MINE_META } from '@/lib/videos/sources'
+import { studioStreamUrl } from '@/lib/videos/studioApi'
+import { playlistWatchHref, firstPlayableIndex } from '@/lib/videos/playlistWatch'
 import { fmtDur, resLabel } from '@/lib/youtube/format'
 import { getSaveQuality } from '@/lib/youtube/api'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
@@ -29,12 +35,39 @@ import {
   type YtPlaylistVideo, type YtPlaylistBatchStatus,
 } from '@/lib/youtube/playlists'
 
-const toMiniTrack = (v: YtPlaylistVideo): YtMiniTrack => ({ videoId: v.videoId, title: v.title, author: v.author, durationSec: v.durationSec })
+// The mini-player already knows how to play non-YouTube tracks (see WatchPage's own
+// minimize()): an official embed for TikTok/Vimeo, or a real <video> off a stream URL for
+// everything else. Reusing that here is what makes Play all/Shuffle mixed-source-capable.
+function toMiniTrack(v: YtPlaylistVideo): YtMiniTrack {
+  if (v.videoSource === 'youtube') {
+    return { videoId: v.videoId, title: v.title, author: v.author, durationSec: v.durationSec }
+  }
+  if (v.videoSource === 'mine') {
+    return {
+      videoId: v.videoId, title: v.title, author: v.author, durationSec: v.durationSec,
+      source: 'mine', streamVideoUrl: studioStreamUrl(v.videoId),
+      thumbnail: v.thumbnailUrl ?? undefined, expandTo: '/videos/mine',
+    }
+  }
+  return {
+    videoId: v.videoId, title: v.title, author: v.author, durationSec: v.durationSec,
+    source: v.videoSource, streamVideoUrl: `/api/vstream/${v.videoSource}/${encodeURIComponent(v.videoId)}`,
+    thumbnail: v.thumbnailUrl ? proxyImg(v.thumbnailUrl) : undefined,
+    expandTo: `/videos/${v.videoSource}/watch/${encodeURIComponent(v.videoId)}`,
+  }
+}
 
-function VideoRow({ video, videos, editable, onRemoved }: { video: YtPlaylistVideo; videos: YtPlaylistVideo[]; editable: boolean; onRemoved: () => void }) {
-  const pb = useYoutubePlayback()
+/** Clicking any row opens the video's own full watch page with this playlist queued (like
+ *  YouTube's own playlist rows) — not the mini-player. Mine has no watch page, so it opens
+ *  the raw file directly and can't carry playlist context. */
+function VideoRow({ video, videos, editable, onRemoved, playlistId }: {
+  video: YtPlaylistVideo; videos: YtPlaylistVideo[]; editable: boolean; onRemoved: () => void; playlistId: string
+}) {
   const [removing, setRemoving] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: video.id, disabled: !editable })
+  const isYoutube = video.videoSource === 'youtube'
+  const badge = video.videoSource === 'mine' ? MINE_META : !isYoutube ? SOURCE_META[video.videoSource] : null
+  const index = videos.findIndex(v => v.id === video.id)
 
   const remove = async () => {
     setRemoving(true)
@@ -42,10 +75,35 @@ function VideoRow({ video, videos, editable, onRemoved }: { video: YtPlaylistVid
     catch { toast.error('Could not remove video'); setRemoving(false) }
   }
 
-  const play = () => {
-    const idx = videos.findIndex(v => v.id === video.id)
-    pb.dock(videos.map(toMiniTrack), Math.max(0, idx), 0)
-  }
+  const rowBody = (
+    <>
+      <div className="relative shrink-0">
+        {isYoutube ? (
+          <VideoThumb videoId={video.videoId} title={video.title} quality="mq" className="size-10 rounded-control object-cover" />
+        ) : video.thumbnailUrl ? (
+          <img src={proxyImg(video.thumbnailUrl)} alt="" className="size-10 rounded-control object-cover" />
+        ) : (
+          <div className="flex size-10 items-center justify-center rounded-control bg-muted"><Film className="size-4 text-muted-foreground/50" /></div>
+        )}
+        {isYoutube && (
+          <span className="absolute inset-0 grid place-items-center rounded-control bg-black/45 opacity-0 transition group-hover:opacity-100">
+            <Play className="size-4 fill-white text-white" />
+          </span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{video.title}</p>
+        {video.author && <p className="truncate text-xs text-muted-foreground">{video.author}</p>}
+      </div>
+      {badge && (
+        <span className={cn('shrink-0 inline-flex items-center gap-1 rounded-full p-1', badge.badgeClass)}>
+          <badge.icon className="size-2.5" aria-hidden />
+        </span>
+      )}
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{fmtDur(video.durationSec)}</span>
+    </>
+  )
+  const rowClass = 'flex min-w-0 flex-1 items-center gap-3 text-left'
 
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
@@ -56,19 +114,11 @@ function VideoRow({ video, videos, editable, onRemoved }: { video: YtPlaylistVid
           <GripVertical className="size-4" />
         </button>
       )}
-      <button onClick={play} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-        <div className="relative shrink-0">
-          <VideoThumb videoId={video.videoId} title={video.title} quality="mq" className="size-10 rounded-control object-cover" />
-          <span className="absolute inset-0 grid place-items-center rounded-control bg-black/45 opacity-0 transition group-hover:opacity-100">
-            <Play className="size-4 fill-white text-white" />
-          </span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{video.title}</p>
-          {video.author && <p className="truncate text-xs text-muted-foreground">{video.author}</p>}
-        </div>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{fmtDur(video.durationSec)}</span>
-      </button>
+      {video.videoSource === 'mine' ? (
+        <a href={studioStreamUrl(video.videoId)} target="_blank" rel="noreferrer noopener" className={rowClass}>{rowBody}</a>
+      ) : (
+        <Link to={playlistWatchHref(video.videoSource, video.videoId, playlistId, Math.max(0, index))} className={rowClass}>{rowBody}</Link>
+      )}
       {editable && (
         <button type="button" onClick={() => void remove()} disabled={removing} aria-label="Remove from playlist"
           className="shrink-0 rounded-full p-2 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100">
@@ -162,8 +212,9 @@ export function YoutubeMyPlaylistPage() {
   const qc = useQueryClient()
   const pb = useYoutubePlayback()
   const { data, isLoading } = useQuery({ queryKey: ['yt-playlist', id], queryFn: () => getYtPlaylist(id!), enabled: !!id })
-  const [editingName, setEditingName] = useState(false)
+  const [editingMeta, setEditingMeta] = useState(false)
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [confirmDel, setConfirmDel] = useState(false)
   const [cloning, setCloning] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
@@ -172,16 +223,24 @@ export function YoutubeMyPlaylistPage() {
   const playlist = data?.playlist
   const videos = data?.videos ?? []
   const editable = !!playlist?.owned
+  // PlaylistCover derives its thumbnail from a YouTube videoId (VideoThumb); every other
+  // source stores a real thumbnailUrl instead, so the cover sticks to the YouTube subset.
+  const ytVideos = videos.filter(v => v.videoSource === 'youtube')
+  // 'link' saves aren't wired into the download pipeline yet and Mine content is already
+  // local — Download all only ever targets what it can actually enqueue.
+  const downloadableVideos = videos.filter(v => v.videoSource !== 'mine' && v.videoSource !== 'link')
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['yt-playlist', id] })
 
-  const startEdit = () => { setName(playlist?.name ?? ''); setEditingName(true) }
-  const saveName = async () => {
-    setEditingName(false)
+  const startEdit = () => { setName(playlist?.name ?? ''); setDescription(playlist?.description ?? ''); setEditingMeta(true) }
+  const saveMeta = async () => {
+    setEditingMeta(false)
     const n = name.trim()
-    if (!id || !n || n === playlist?.name) return
-    try { await updateYtPlaylist(id, { name: n }); invalidate(); qc.invalidateQueries({ queryKey: ['yt-playlists'] }) }
-    catch { toast.error('Rename failed') }
+    if (!id || !n) return
+    const d = description.trim()
+    if (n === playlist?.name && d === (playlist?.description ?? '')) return
+    try { await updateYtPlaylist(id, { name: n, description: d }); invalidate(); qc.invalidateQueries({ queryKey: ['yt-playlists'] }) }
+    catch { toast.error('Could not save changes') }
   }
 
   const toggleShare = async (shared: boolean) => {
@@ -190,7 +249,15 @@ export function YoutubeMyPlaylistPage() {
     catch { toast.error('Could not update sharing') }
   }
 
-  const playAll = () => pb.dock(videos.map(toMiniTrack), 0, 0)
+  // Opens the full watch page (like YouTube's own "Play all"), not the mini-player — the
+  // playlist queue rides along via ?plist=&ppos= so autoplay/up-next continue through it.
+  const playAll = () => {
+    const idx = firstPlayableIndex(videos)
+    if (idx < 0 || !id) return
+    const v = videos[idx]!
+    if (v.videoSource === 'mine') return   // firstPlayableIndex already excludes this; narrows the type below
+    navigate(playlistWatchHref(v.videoSource, v.videoId, id, idx))
+  }
   const playShuffled = () => {
     const q = videos.map(toMiniTrack)
     for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [q[i], q[j]] = [q[j]!, q[i]!] }
@@ -244,22 +311,26 @@ export function YoutubeMyPlaylistPage() {
 
       <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-start">
         <div className="w-full shrink-0 sm:w-64 md:w-72">
-          <PlaylistCover videoIds={videos.slice(0, 4).map(v => v.videoId)} title={playlist.name} count={videos.length} />
+          <PlaylistCover videoIds={ytVideos.slice(0, 4).map(v => v.videoId)} title={playlist.name} count={videos.length} />
         </div>
         <div className="min-w-0 flex-1">
-          {editingName ? (
-            <div className="flex items-center gap-1.5">
-              <Input value={name} onChange={e => setName(e.target.value)} autoFocus
-                onKeyDown={e => { if (e.key === 'Enter') void saveName(); if (e.key === 'Escape') setEditingName(false) }}
-                className="h-9 text-xl font-semibold" />
-              <button type="button" onClick={() => void saveName()} className="text-[var(--yt-accent)]"><Check className="size-5" /></button>
-              <button type="button" onClick={() => setEditingName(false)} className="text-muted-foreground"><X className="size-5" /></button>
+          {editingMeta ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Input value={name} onChange={e => setName(e.target.value)} autoFocus
+                  onKeyDown={e => { if (e.key === 'Escape') setEditingMeta(false) }}
+                  className="h-9 text-xl font-semibold" />
+                <button type="button" onClick={() => void saveMeta()} className="text-[var(--yt-accent)]"><Check className="size-5" /></button>
+                <button type="button" onClick={() => setEditingMeta(false)} className="text-muted-foreground"><X className="size-5" /></button>
+              </div>
+              <Textarea value={description} onChange={e => setDescription(e.target.value)}
+                placeholder="Description (optional)" rows={2} className="text-sm" />
             </div>
           ) : (
             <div className="flex items-center gap-2">
               <div className="truncate text-display">{playlist.name}</div>
               {editable && (
-                <button type="button" onClick={startEdit} aria-label="Rename playlist" className="shrink-0 text-muted-foreground hover:text-foreground">
+                <button type="button" onClick={startEdit} aria-label="Edit playlist" className="shrink-0 text-muted-foreground hover:text-foreground">
                   <Pencil className="size-4" />
                 </button>
               )}
@@ -269,6 +340,9 @@ export function YoutubeMyPlaylistPage() {
             {editable ? (playlist.visibility === 'shared' ? 'Shared with family' : 'Private') : (playlist.ownerName ? `by ${playlist.ownerName}` : 'Shared')}
             {' · '}{videos.length} video{videos.length === 1 ? '' : 's'}
           </p>
+          {!editingMeta && playlist.description && (
+            <p className="mt-1 max-w-prose whitespace-pre-line text-sm text-muted-foreground">{playlist.description}</p>
+          )}
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {videos.length > 0 && (
               <>
@@ -282,7 +356,7 @@ export function YoutubeMyPlaylistPage() {
             )}
             {editable ? (
               <>
-                {videos.length > 0 && (
+                {downloadableVideos.length > 0 && (
                   <Button variant="outline" size="sm" onClick={() => setDownloadOpen(true)}>
                     <Download className="size-4" /> Download all
                   </Button>
@@ -307,19 +381,19 @@ export function YoutubeMyPlaylistPage() {
       {!videos.length ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
           <ListVideo className="size-8 opacity-40" />
-          <p className="text-sm">{editable ? 'Add videos from anywhere in YouTube via the “Add to playlist” button.' : 'This playlist is empty.'}</p>
+          <p className="text-sm">{editable ? 'Add videos from anywhere — YouTube, Reddit, TikTok, Vimeo, or Mine — via the “Add to playlist” button.' : 'This playlist is empty.'}</p>
         </div>
       ) : editable ? (
         <DndContext sensors={sensors} onDragEnd={e => void onDragEnd(e)}>
           <SortableContext items={videos.map(v => v.id)} strategy={verticalListSortingStrategy}>
             <div className="divide-y divide-border/50 rounded-card border border-border/60">
-              {videos.map(v => <VideoRow key={v.id} video={v} videos={videos} editable onRemoved={invalidate} />)}
+              {videos.map(v => <VideoRow key={v.id} video={v} videos={videos} editable onRemoved={invalidate} playlistId={id!} />)}
             </div>
           </SortableContext>
         </DndContext>
       ) : (
         <div className="divide-y divide-border/50 rounded-card border border-border/60">
-          {videos.map(v => <VideoRow key={v.id} video={v} videos={videos} editable={false} onRemoved={invalidate} />)}
+          {videos.map(v => <VideoRow key={v.id} video={v} videos={videos} editable={false} onRemoved={invalidate} playlistId={id!} />)}
         </div>
       )}
 

@@ -5,7 +5,7 @@ import { usePlexLinkFlow } from '@/lib/plex/useLinkFlow'
 import { PlexLinkModal } from './PlexLinkModal'
 
 // Lets the CURRENT user link their own Plex account via the plex.tv PIN flow (code shown in a
-// modal). Used in Settings → Plex and the Movies settings page. `compact` trims copy.
+// modal). Used in the Shows and Movies settings pages. `compact` trims copy.
 export function PlexConnectCard({ compact }: { compact?: boolean }) {
   const { me, pin, linking, begin, unlink, cancel } = usePlexLinkFlow()
 

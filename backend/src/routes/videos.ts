@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState } from '@/db/schema'
+import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos } from '@/lib/videos/policy'
@@ -19,7 +19,11 @@ import { getVimeoToken, VIMEO_TOKEN_KEY } from '@/lib/videos/providers/vimeo'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { blobAbsPath, acquireRead, releaseRead } from '@/lib/content/store'
 import { resolveClip } from '@/lib/clipper/resolve'
-import type { Pager, VideoItem, VideoSource } from '@/lib/videos/types'
+import { resolveVideoTranscript, resolveVideoVtt } from '@/lib/podcast/transcript'
+import { summarizeTranscriptText } from '@/lib/youtube/summarize'
+import { stampSmartTitles } from '@/lib/videos/smartTitle'
+import { cachedLookup, cachedLookupStale } from '@/lib/lookupCache'
+import type { Pager, Playlist, VideoItem, VideoSource } from '@/lib/videos/types'
 import type { AppEnv } from '@/types'
 
 // Cap how long the mixed-home feed waits on any one provider's browse. Sources are fetched
@@ -119,23 +123,32 @@ videosRoute.get('/home', async (c) => {
   const followsOffset = isFirst ? 0 : incoming!.f
   let nextF: number | null = null
   if (followsOffset != null) {
-    const follows = await db.select({ id: videoFollows.id, source: videoFollows.source }).from(videoFollows)
-      .where(eq(videoFollows.userId, user.id))
+    const follows = await db.select({ id: videoFollows.id, source: videoFollows.source, title: videoFollows.title, thumbnailUrl: videoFollows.thumbnailUrl })
+      .from(videoFollows).where(eq(videoFollows.userId, user.id))
     const followsWanted = follows.filter((f) => enabled.includes(f.source) && (wanted.length === 0 || wanted.includes(f.source)))
     if (followsWanted.length > 0) {
+      // The follow row is the creator's one authoritative, self-healing identity (refreshed
+      // every poll tick); a video_items row is a write-once snapshot from whenever it was
+      // first polled, so prefer the follow's name/avatar over the per-item columns.
+      const followsById = new Map(followsWanted.map((f) => [f.id, f]))
       const rows = await db.select().from(videoItems)
         .where(inArray(videoItems.followId, followsWanted.map((f) => f.id)))
         .orderBy(desc(videoItems.publishedAt), desc(videoItems.createdAt))
         .limit(FOLLOWS_PAGE).offset(followsOffset)
       const followFeed: VideoItem[] = rows
         .filter((r) => allowAdult || !r.isAdult)
-        .map((r) => ({
-          source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
-          creator: r.creatorId || r.creatorName ? { id: r.creatorId ?? '', name: r.creatorName ?? '' } : null,
-          thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
-          publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
-          isAdult: r.isAdult, vertical: r.source === 'tiktok',
-        }))
+        .map((r) => {
+          const follow = r.followId ? followsById.get(r.followId) : null
+          return {
+            source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
+            creator: follow?.title || r.creatorId || r.creatorName
+              ? { id: r.creatorId ?? '', name: follow?.title || r.creatorName || '', avatarUrl: follow?.thumbnailUrl ?? null }
+              : null,
+            thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, viewsText: r.viewsText ?? null,
+            publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+            isAdult: r.isAdult, vertical: r.source === 'tiktok',
+          }
+        })
       if (followFeed.length > 0) feeds.push(followFeed)
       nextF = rows.length === FOLLOWS_PAGE ? followsOffset + FOLLOWS_PAGE : null
     }
@@ -153,7 +166,7 @@ videosRoute.get('/home', async (c) => {
 
   const hasMore = Object.keys(nextP).length > 0 || nextF != null
   const cursor = hasMore ? Buffer.from(JSON.stringify({ p: nextP, f: nextF }), 'utf8').toString('base64url') : null
-  return c.json({ items, cursor })
+  return c.json({ items: await stampSmartTitles(items, user.id), cursor })
 })
 
 // ── Universal clipper resolve: provider match first, yt-dlp fallback ───────────
@@ -168,7 +181,7 @@ videosRoute.post('/resolve', async (c) => {
     const { provider, match } = hit
     if (match.kind === 'video') {
       try {
-        const item = await provider.getItem(match.id)
+        const item = await provider.getItem(match.id, c.get('user').id)
         if (item) return c.json({ ok: true, kind: 'provider', match: 'video', source: provider.source, item })
       } catch { /* fall through to the generic path */ }
     } else if (match.kind === 'creator' && provider.getCreator) {
@@ -218,13 +231,17 @@ videosRoute.get('/:source/browse', async (c) => {
   if (!provider?.browse) return c.json({ error: 'unknown source' }, 404)
   const user = c.get('user')
   const allowAdult = await allowAdultVideos(user.id)
+  // Not-configured (e.g. Reddit with no client id) is an expected, common state — never let
+  // it (or any other provider hiccup) surface as a hard 500; an empty page is the correct
+  // answer both for the ConnectRedditCard flow and for cross-source aggregators like the
+  // Videos hub's mixed category shelves.
   const page = await provider.browse({
     userId: user.id,
     feed: c.req.query('feed') ?? undefined,
     cursor: c.req.query('cursor') ?? null,
     allowAdult,
-  })
-  page.items = page.items.filter((it) => allowAdult || !it.isAdult)
+  }).catch(() => ({ items: [], cursor: null }) as Pager<VideoItem>)
+  page.items = await stampSmartTitles(page.items.filter((it) => allowAdult || !it.isAdult), user.id)
   return c.json(page)
 })
 
@@ -236,7 +253,7 @@ videosRoute.get('/:source/search', async (c) => {
   const user = c.get('user')
   const allowAdult = await allowAdultVideos(user.id)
   const page = await provider.search(q, { cursor: c.req.query('cursor') ?? null, allowAdult })
-  page.items = page.items.filter((it) => allowAdult || !it.isAdult)
+  page.items = await stampSmartTitles(page.items.filter((it) => allowAdult || !it.isAdult), user.id)
   return c.json(page)
 })
 
@@ -247,17 +264,99 @@ videosRoute.get('/:source/creator/:id', async (c) => {
   const user = c.get('user')
   const allowAdult = await allowAdultVideos(user.id)
   if (!allowAdult && res.creator.isAdult) return c.json({ error: 'not available' }, 403)
-  res.videos.items = res.videos.items.filter((it) => allowAdult || !it.isAdult)
+  res.videos.items = await stampSmartTitles(res.videos.items.filter((it) => allowAdult || !it.isAdult), user.id)
   return c.json(res)
+})
+
+videosRoute.get('/:source/creator/:id/playlists', async (c) => {
+  const provider = getProvider(c.req.param('source'))
+  if (!provider?.getCreatorPlaylists) return c.json({ error: 'unknown source' }, 404)
+  const page = await provider.getCreatorPlaylists(c.req.param('id'), c.req.query('cursor') ?? null)
+  return c.json(page)
+})
+
+videosRoute.get('/:source/playlist/:id', async (c) => {
+  const provider = getProvider(c.req.param('source'))
+  if (!provider?.getPlaylistItems) return c.json({ error: 'unknown source' }, 404)
+  const user = c.get('user')
+  const allowAdult = await allowAdultVideos(user.id)
+  const page = await provider.getPlaylistItems(c.req.param('id'), c.req.query('cursor') ?? null)
+  page.items = page.items.filter((it) => allowAdult || !it.isAdult)
+  return c.json(page)
+})
+
+// ── Subscriptions' playlists: aggregated across every followed channel/creator ─────────
+// A user's subscriptions (YouTube especially) can number in the hundreds; fetching each
+// one's playlists live on every page load would mean hundreds of concurrent InnerTube/
+// TikTok calls per request. Instead this reads a shared, hard-cached-per-channel store
+// (stale-while-revalidate, same idiom as TikTok's own creatorRecentCached) and warms
+// misses/stale entries in the background at bounded concurrency, so a first visit returns
+// instantly with whatever's already known and fills in over the following visits/refetches.
+const SUB_PLAYLISTS_NS = 'videos:creator-playlists'
+const SUB_PLAYLISTS_TTL = 6 * 60 * 60_000
+const SUB_PLAYLISTS_WARM_CONCURRENCY = 4
+
+const activePlaylistWarms = new Set<string>()
+async function warmOneCreatorPlaylists(source: VideoSource, externalId: string): Promise<void> {
+  const key = `${source}:${externalId}`
+  if (activePlaylistWarms.has(key)) return
+  activePlaylistWarms.add(key)
+  try {
+    await cachedLookup(SUB_PLAYLISTS_NS, key, SUB_PLAYLISTS_TTL, async () => {
+      const provider = getProvider(source)
+      if (!provider?.getCreatorPlaylists) return { items: [], cursor: null } as Pager<Playlist>
+      return provider.getCreatorPlaylists(externalId, null).catch(() => ({ items: [], cursor: null }) as Pager<Playlist>)
+    })
+  } finally {
+    activePlaylistWarms.delete(key)
+  }
+}
+function warmCreatorPlaylistsInBackground(targets: Array<{ source: VideoSource; externalId: string }>): void {
+  let i = 0
+  const worker = async () => {
+    while (i < targets.length) {
+      const t = targets[i++]!
+      await warmOneCreatorPlaylists(t.source, t.externalId)
+    }
+  }
+  void Promise.all(Array.from({ length: Math.min(SUB_PLAYLISTS_WARM_CONCURRENCY, targets.length) }, worker))
+}
+
+videosRoute.get('/subscriptions/playlists', async (c) => {
+  const user = c.get('user')
+  const [ytSubs, follows] = await Promise.all([
+    db.select({ externalId: ytSubscriptions.externalId, title: ytSubscriptions.title, thumbnailUrl: ytSubscriptions.thumbnailUrl })
+      .from(ytSubscriptions).where(and(eq(ytSubscriptions.userId, user.id), eq(ytSubscriptions.kind, 'channel'))),
+    db.select().from(videoFollows).where(eq(videoFollows.userId, user.id)),
+  ])
+  const channels: Array<{ source: VideoSource; externalId: string; title: string; thumbnailUrl: string | null }> = [
+    ...ytSubs.map((s) => ({ source: 'youtube' as const, externalId: s.externalId, title: s.title, thumbnailUrl: s.thumbnailUrl })),
+    ...follows
+      .filter((f) => f.kind !== 'subreddit')
+      .map((f) => ({ source: f.source, externalId: f.externalId, title: f.title, thumbnailUrl: f.thumbnailUrl })),
+  ]
+
+  const results = await Promise.all(channels.map(async (ch) => {
+    const cached = await cachedLookupStale<Pager<Playlist>>(SUB_PLAYLISTS_NS, `${ch.source}:${ch.externalId}`)
+    return { ...ch, playlists: cached.value?.items ?? [], stale: !cached.fresh }
+  }))
+
+  const toWarm = results.filter((r) => r.stale).map((r) => ({ source: r.source, externalId: r.externalId }))
+  warmCreatorPlaylistsInBackground(toWarm)
+
+  const groups = results
+    .filter((r) => r.playlists.length > 0)
+    .map(({ source, externalId, title, thumbnailUrl, playlists }) => ({ source, externalId, title, thumbnailUrl, playlists }))
+  return c.json({ groups, warming: toWarm.length })
 })
 
 videosRoute.get('/:source/item/:id', async (c) => {
   const source = c.req.param('source')
   const provider = getProvider(source)
   if (!provider) return c.json({ error: 'unknown source' }, 404)
-  const item = await provider.getItem(c.req.param('id'))
-  if (!item) return c.json({ error: 'not found' }, 404)
   const user = c.get('user')
+  const item = await provider.getItem(c.req.param('id'), user.id)
+  if (!item) return c.json({ error: 'not found' }, 404)
   if (item.isAdult && !(await allowAdultVideos(user.id))) return c.json({ error: 'not available' }, 403)
   // Rewrite playback for the client: upstream URLs (signed, Referer-gated) never leave
   // the server — progressive and yt-dlp-piped sources both play through /stream below,
@@ -370,21 +469,31 @@ videosRoute.get('/history', async (c) => {
     completed: videoWatchState.completed,
     updatedAt: videoWatchState.updatedAt,
     title: videoItems.title,
+    creatorId: videoItems.creatorId,
     creatorName: videoItems.creatorName,
+    creatorAvatarUrl: videoFollows.thumbnailUrl,
     thumbnailUrl: videoItems.thumbnailUrl,
     durationSec: videoItems.durationSec,
     isAdult: videoItems.isAdult,
   })
     .from(videoWatchState)
     .leftJoin(videoItems, and(eq(videoItems.source, videoWatchState.source), eq(videoItems.externalId, videoWatchState.videoId)))
+    // Best-effort creator avatar: only followed creators have a cached thumbnail — anything
+    // watched via search/a pasted link falls back to CreatorAvatar's letter avatar client-side.
+    .leftJoin(videoFollows, and(eq(videoFollows.userId, user.id), eq(videoFollows.source, videoWatchState.source), eq(videoFollows.externalId, videoItems.creatorId)))
     .where(eq(videoWatchState.userId, user.id))
     .orderBy(desc(videoWatchState.updatedAt))
     .limit(150)
   const history = rows
     .filter((r) => allowAdult || !r.isAdult)
+    // A row with no video_items match at all (title null) has nothing to render — predates
+    // the watch-state snapshot, or the snapshot write raced the item lookup. Drop it rather
+    // than show a blank "videoId as title" card.
+    .filter((r) => r.title != null)
     .map((r) => ({
-      source: r.source, videoId: r.videoId, title: r.title ?? r.videoId,
-      creatorName: r.creatorName, thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+      source: r.source, videoId: r.videoId, title: r.title!,
+      creatorId: r.creatorId, creatorName: r.creatorName, creatorAvatarUrl: r.creatorAvatarUrl,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
       positionSec: r.positionSec, completed: r.completed,
       updatedAt: r.updatedAt ? r.updatedAt.getTime() : 0,
     }))
@@ -397,31 +506,83 @@ videosRoute.get('/following-feed', async (c) => {
   const user = c.get('user')
   const source = c.req.query('source')
   const allowAdult = await allowAdultVideos(user.id)
-  const follows = await db.select({ id: videoFollows.id }).from(videoFollows).where(and(
+  const follows = await db.select({ id: videoFollows.id, title: videoFollows.title, thumbnailUrl: videoFollows.thumbnailUrl }).from(videoFollows).where(and(
     eq(videoFollows.userId, user.id),
     ...(source && isGenericSource(source) ? [eq(videoFollows.source, source)] : []),
   ))
   if (follows.length === 0) return c.json({ items: [] })
+  // The follow row is the creator's one authoritative, self-healing identity (refreshed
+  // every poll tick); a video_items row is a write-once snapshot from whenever it was first
+  // polled, so prefer the follow's name/avatar over the per-item columns.
+  const followsById = new Map(follows.map((f) => [f.id, f]))
   const rows = await db.select().from(videoItems)
     .where(inArray(videoItems.followId, follows.map((f) => f.id)))
     .orderBy(desc(videoItems.publishedAt), desc(videoItems.createdAt))
     .limit(120)
   const items = rows
     .filter((r) => allowAdult || !r.isAdult)
-    .map((r) => ({
-      source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
-      creator: r.creatorId || r.creatorName ? { id: r.creatorId ?? '', name: r.creatorName ?? '' } : null,
-      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
-      publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
-      isAdult: r.isAdult, vertical: r.source === 'tiktok',
-    }))
-  return c.json({ items })
+    .map((r) => {
+      const follow = r.followId ? followsById.get(r.followId) : null
+      return {
+        source: r.source, id: r.externalId, url: r.url ?? '', title: r.title,
+        creator: follow?.title || r.creatorId || r.creatorName
+          ? { id: r.creatorId ?? '', name: follow?.title || r.creatorName || '', avatarUrl: follow?.thumbnailUrl ?? null }
+          : null,
+        thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, viewsText: r.viewsText ?? null,
+        publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+        isAdult: r.isAdult, vertical: r.source === 'tiktok',
+      }
+    })
+  return c.json({ items: await stampSmartTitles(items, user.id) })
 })
 
 videosRoute.get('/:source/comments/:id', async (c) => {
   const provider = getProvider(c.req.param('source'))
   if (!provider?.getComments) return c.json({ error: 'unknown source' }, 404)
   return c.json({ comments: await provider.getComments(c.req.param('id')) })
+})
+
+videosRoute.get('/:source/related/:id', async (c) => {
+  const provider = getProvider(c.req.param('source'))
+  if (!provider?.getRelated) return c.json({ error: 'unknown source' }, 404)
+  const items = await provider.getRelated(c.req.param('id')).catch(() => [])
+  const allowAdult = await allowAdultVideos(c.get('user').id)
+  return c.json({ items: allowAdult ? items : items.filter((i) => !i.isAdult) })
+})
+
+// Raw WebVTT for the watch page's transcript tab. Provider caption APIs answer fast
+// (Vimeo texttracks); everything else falls back to the yt-dlp subtitle fetch inside
+// resolveVideoVtt, disk-cached per user. YouTube has its own /api/youtube/transcript.
+videosRoute.get('/:source/transcript/:id', async (c) => {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const provider = getProvider(source)
+  if (!provider || source === 'youtube') return c.text('', 404)
+  const user = c.get('user')
+  const item = await provider.getItem(id, user.id).catch(() => null)
+  if (!item) return c.text('', 404)
+  const vtt = await resolveVideoVtt({ videoId: id, source, url: item.url }, user.id, user.firstName).catch(() => null)
+  if (!vtt) return c.text('', 404)
+  return c.text(vtt, 200, { 'Content-Type': 'text/vtt; charset=utf-8' })
+})
+
+// AI summary for a hub video: transcript (provider captions API or yt-dlp) through the
+// same summarizer prompt/model as YouTube's. Cached a week — transcripts don't change.
+// An LLM failure throws out of cachedLookup (nothing cached) so a transient outage
+// doesn't pin "no summary" for a week; genuinely caption-less videos do cache null.
+videosRoute.get('/:source/summary/:id', async (c) => {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const provider = getProvider(source)
+  if (!provider || source === 'youtube') return c.json({ error: 'unknown source' }, 404)
+  const user = c.get('user')
+  const item = await provider.getItem(id, user.id).catch(() => null)
+  if (!item) return c.json({ error: 'not found' }, 404)
+  const summary = await cachedLookup('videos:summary', `${source}:${id}`, 7 * 24 * 60 * 60_000, async () => {
+    const text = await resolveVideoTranscript({ videoId: id, source, url: item.url }, user.id, user.firstName)
+    return text ? summarizeTranscriptText(text) : null
+  }).catch(() => null)
+  return c.json({ summary })
 })
 
 // ── Follows (non-YouTube sources; yt_subscriptions stays authoritative for YouTube) ──
@@ -470,12 +631,13 @@ videosRoute.post('/follows', async (c) => {
 
 videosRoute.patch('/follows/:id', async (c) => {
   const user = c.get('user')
-  const body: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null } =
+  const body: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean } =
     await c.req.json().catch(() => ({}))
   const patch: Record<string, unknown> = {}
   if (typeof body.autoSave === 'boolean') patch.autoSave = body.autoSave
   if (body.autoSaveKind === 'audio' || body.autoSaveKind === 'video') patch.autoSaveKind = body.autoSaveKind
   if (body.autoSaveKeep === null || typeof body.autoSaveKeep === 'number') patch.autoSaveKeep = body.autoSaveKeep
+  if (typeof body.removeWatched === 'boolean') patch.removeWatched = body.removeWatched
   if (Object.keys(patch).length === 0) return c.json({ error: 'nothing to update' }, 400)
   await db.update(videoFollows).set(patch)
     .where(and(eq(videoFollows.id, c.req.param('id')), eq(videoFollows.userId, user.id)))
@@ -544,32 +706,25 @@ videosRoute.get('/saves', async (c) => {
   return c.json({ saves: allowAdult ? rows : rows.filter((r) => !r.isAdult) })
 })
 
-videosRoute.post('/:source/save', async (c) => {
-  const user = c.get('user')
-  const source = c.req.param('source')
-  if (!isGenericSource(source)) return c.json({ error: 'unknown source' }, 404)
-  const provider = getProvider(source)
-  if (!provider) return c.json({ error: 'unknown source' }, 404)
-  const body = await c.req.json<{ videoId?: string; kind?: 'audio' | 'video'; maxHeight?: number | null }>().catch(() => ({}) as Record<string, never>)
-  if (!body.videoId) return c.json({ error: 'videoId required' }, 400)
-  const kind: 'audio' | 'video' = body.kind === 'audio' ? 'audio' : 'video'
-  if (!provider.capabilities.downloadKinds.includes(kind)) return c.json({ error: `${kind} not supported for ${source}` }, 400)
-
-  const item = await provider.getItem(body.videoId)
-  if (!item) return c.json({ error: 'not found' }, 404)
-  if (item.isAdult && !(await allowAdultVideos(user.id))) return c.json({ error: 'not available' }, 403)
-
+/** Shared save write path (manual single-save + creator backfill): upsert the videoSaves
+ *  ref, attach instantly when the household already holds the rendition, else enqueue the
+ *  download. `auto` rows belong to the rolling keep-N window; a conflict never flips an
+ *  existing manual row to auto (manual saves must stay prune-exempt). */
+async function saveVideoItem(
+  userId: string, source: GenericSource, providerLabel: string,
+  item: VideoItem, kind: 'audio' | 'video', maxHeight: number | null, auto: boolean,
+): Promise<string> {
   const now = new Date()
   const id = randomUUID()
   await db.insert(videoSaves).values({
-    id, userId: user.id, source, videoId: item.id, title: item.title, kind,
-    status: 'pending', assetId: null, sizeBytes: null, maxHeight: body.maxHeight ?? null,
+    id, userId, source, videoId: item.id, title: item.title, kind,
+    status: 'pending', assetId: null, sizeBytes: null, maxHeight,
     thumbnailUrl: item.thumbnailUrl ?? null, creatorName: item.creator?.name ?? null,
-    durationSec: item.durationSec ?? null, sourceUrl: item.url, auto: false,
+    durationSec: item.durationSec ?? null, sourceUrl: item.url, auto,
     isAdult: !!item.isAdult, error: null, createdAt: now, updatedAt: now,
   }).onConflictDoUpdate({
     target: [videoSaves.userId, videoSaves.source, videoSaves.videoId, videoSaves.kind],
-    set: { status: 'pending', error: null, updatedAt: now },
+    set: { status: 'pending', error: null, updatedAt: now, ...(auto ? {} : { auto: false }) },
   })
 
   // Someone else in the household may already hold this rendition — attach instantly.
@@ -581,17 +736,142 @@ videosRoute.post('/:source/save', async (c) => {
   if (ready?.blobHash) {
     await db.update(videoSaves)
       .set({ status: 'ready', assetId: ready.id, sizeBytes: ready.sizeBytes, updatedAt: new Date() })
-      .where(and(eq(videoSaves.userId, user.id), eq(videoSaves.source, source), eq(videoSaves.videoId, item.id), eq(videoSaves.kind, kind)))
+      .where(and(eq(videoSaves.userId, userId), eq(videoSaves.source, source), eq(videoSaves.videoId, item.id), eq(videoSaves.kind, kind)))
+    // Dedup-satisfied saves never pass through completeVideoAsset's fan-out — enqueue the
+    // Plex placement directly (no-ops unless this user has a ready library for the source).
+    if (kind === 'video') {
+      const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+      void enqueuePlexSync(userId, item.id, 'add', source).catch(() => {})
+    }
   } else {
-    await enqueueVideoMedia({ source, videoId: item.id, kind, maxHeight: body.maxHeight ?? null }, `${provider.label}: ${item.title}`)
+    await enqueueVideoMedia({ source, videoId: item.id, kind, maxHeight }, `${providerLabel}: ${item.title}`)
   }
+  return id
+}
+
+videosRoute.post('/:source/save', async (c) => {
+  const user = c.get('user')
+  const source = c.req.param('source')
+  if (!isGenericSource(source)) return c.json({ error: 'unknown source' }, 404)
+  const provider = getProvider(source)
+  if (!provider) return c.json({ error: 'unknown source' }, 404)
+  const body = await c.req.json<{ videoId?: string; kind?: 'audio' | 'video'; maxHeight?: number | null }>().catch(() => ({}) as Record<string, never>)
+  if (!body.videoId) return c.json({ error: 'videoId required' }, 400)
+  const kind: 'audio' | 'video' = body.kind === 'audio' ? 'audio' : 'video'
+  if (!provider.capabilities.downloadKinds.includes(kind)) return c.json({ error: `${kind} not supported for ${source}` }, 400)
+
+  const item = await provider.getItem(body.videoId, user.id)
+  if (!item) return c.json({ error: 'not found' }, 404)
+  if (item.isAdult && !(await allowAdultVideos(user.id))) return c.json({ error: 'not available' }, 403)
+
+  // Per-source quality tiers (lib/videos/quality.ts): an explicit request is clamped to
+  // the admin cap; no request → the user's effective height (preference ∧ cap).
+  let maxHeight: number | null = null
+  if (kind === 'video') {
+    const { effectiveSaveHeight, getEffectiveSourceCap } = await import('@/lib/videos/quality')
+    maxHeight = typeof body.maxHeight === 'number'
+      ? Math.min(body.maxHeight, await getEffectiveSourceCap(user.id, source))
+      : await effectiveSaveHeight(user.id, source)
+  }
+
+  const id = await saveVideoItem(user.id, source, provider.label, item, kind, maxHeight, false)
   return c.json({ ok: true, id })
+})
+
+// Back-catalogue grab for a creator, used by the "Configure for offline" popover: enabling
+// the rolling rules PATCHes the follow, then calls this with auto:true so keep-last-N is
+// true immediately (backfilled rows join the same prune window as poller auto-saves).
+// Also upserts video_items rows so the pruner and watched-sweep can join on followId and
+// order by real publishedAt.
+videosRoute.post('/:source/creator/:creatorId/save-now', async (c) => {
+  const user = c.get('user')
+  const source = c.req.param('source')
+  const creatorId = c.req.param('creatorId')
+  if (!isGenericSource(source)) return c.json({ error: 'unknown source' }, 404)
+  const provider = getProvider(source)
+  if (!provider?.getCreator) return c.json({ error: 'source does not support creators' }, 400)
+  const body = await c.req.json<{ kind?: 'audio' | 'video'; count?: number; auto?: boolean }>().catch(() => ({}) as Record<string, never>)
+  const kind: 'audio' | 'video' = body.kind === 'audio' ? 'audio' : 'video'
+  if (!provider.capabilities.downloadKinds.includes(kind)) return c.json({ error: `${kind} not supported for ${source}` }, 400)
+  const count = Math.max(1, Math.min(50, Math.trunc(body.count ?? 10)))
+  const auto = body.auto !== false
+
+  const [follow] = await db.select().from(videoFollows).where(and(
+    eq(videoFollows.userId, user.id), eq(videoFollows.source, source), eq(videoFollows.externalId, creatorId),
+  )).limit(1)
+  if (auto && !follow) return c.json({ error: 'follow this creator first' }, 400)
+
+  let items: VideoItem[] = []
+  try { items = (await provider.getCreator(creatorId, user.id)).videos?.items ?? [] } catch { /* fall through */ }
+  if (!items.length && provider.fetchCreatorFeed) {
+    items = await provider.fetchCreatorFeed(creatorId, new Set()).catch(() => [])
+  }
+
+  // Auto backfill never pulls adult-flagged content (mirrors the poller, feed.ts); a manual
+  // grab honors the user's content profile like single-save does.
+  const allowAdult = !auto && (await allowAdultVideos(user.id))
+  const wanted = items.filter((it) => allowAdult || !it.isAdult).slice(0, count)
+  if (!wanted.length) return c.json({ ok: true, queued: 0, total: 0 })
+
+  const maxHeight = kind === 'video'
+    ? await (await import('@/lib/videos/quality')).effectiveSaveHeight(user.id, source)
+    : null
+  const now = new Date()
+  for (const item of wanted) {
+    if (follow) {
+      await db.insert(videoItems).values({
+        id: randomUUID(), source, externalId: item.id, followId: follow.id,
+        title: item.title, creatorId: item.creator?.id ?? null, creatorName: item.creator?.name ?? null,
+        url: item.url, thumbnailUrl: item.thumbnailUrl ?? null, durationSec: item.durationSec ?? null,
+        viewsText: item.viewsText ?? null,
+        publishedAt: item.publishedAt ? new Date(item.publishedAt) : null,
+        isAdult: !!item.isAdult, metaJson: item.meta ? JSON.stringify(item.meta) : null, createdAt: now,
+      }).onConflictDoNothing()
+    }
+    await saveVideoItem(user.id, source, provider.label, item, kind, maxHeight, auto)
+  }
+  return c.json({ ok: true, queued: wanted.length, total: wanted.length })
+})
+
+// Manual (re)sync of every ready generic-source save into this user's per-source Plex
+// libraries — the non-YouTube companion to /api/youtube/plex/sync-all. Fails loudly when
+// no generic library is provisioned (see that route's note on why silent no-op misleads).
+videosRoute.post('/plex/sync-all', async (c) => {
+  const user = c.get('user')
+  const { plexLibrarySections } = await import('@/db/schema')
+  const sections = await db.select().from(plexLibrarySections).where(and(
+    eq(plexLibrarySections.userId, user.id), eq(plexLibrarySections.status, 'ready'),
+    inArray(plexLibrarySections.contentType, ['reddit', 'tiktok', 'vimeo']),
+  ))
+  if (!sections.length) {
+    return c.json({ ok: false, error: 'No Plex library is provisioned for these sources yet — ask an admin to set one up in Admin → Plex first.' }, 400)
+  }
+  const readySources = new Set(sections.map((s) => s.contentType))
+  const rows = await db.select({ source: videoSaves.source, videoId: videoSaves.videoId }).from(videoSaves)
+    .where(and(eq(videoSaves.userId, user.id), eq(videoSaves.kind, 'video'), eq(videoSaves.status, 'ready')))
+  const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+  let enqueued = 0
+  for (const r of rows) {
+    if (!readySources.has(r.source)) continue
+    await enqueuePlexSync(user.id, r.videoId, 'add', r.source)
+    enqueued++
+  }
+  return c.json({ ok: true, enqueued })
 })
 
 videosRoute.delete('/saves/:id', async (c) => {
   const user = c.get('user')
-  await db.delete(videoSaves)
+  const [row] = await db.select().from(videoSaves)
     .where(and(eq(videoSaves.id, c.req.param('id')), eq(videoSaves.userId, user.id)))
+    .limit(1)
+  if (row) {
+    await db.delete(videoSaves).where(eq(videoSaves.id, row.id))
+    // Placement-only removal: pulls the episode from the user's Plex tree if placed.
+    if (row.kind === 'video') {
+      const { enqueuePlexSync } = await import('@/lib/downloadJobs')
+      void enqueuePlexSync(user.id, row.videoId, 'remove', row.source).catch(() => {})
+    }
+  }
   return c.json({ ok: true })  // orphaned assets are reclaimed by the store's GC sweep
 })
 
@@ -709,6 +989,49 @@ videosRoute.get('/config/vimeo', requireAdmin, async (c) => {
 videosRoute.put('/config/vimeo', requireAdmin, async (c) => {
   const body: { token?: string } = await c.req.json().catch(() => ({}))
   await setAppSetting(VIMEO_TOKEN_KEY, (body.token ?? '').trim())
+  return c.json({ ok: true })
+})
+
+// ── Per-source save quality + auto-enhance (mirrors /api/youtube/save-quality) ────
+// User preferences (videos.save_quality.<source>, media.enhance_mode.<source>) are
+// written through the generic /preferences endpoint like YouTube's; only the admin caps
+// need dedicated routes since appSettings are not user-writable.
+
+const QUALITY_SOURCES = ['tiktok', 'vimeo', 'reddit'] as const
+
+videosRoute.get('/quality', async (c) => {
+  const user = c.get('user')
+  const { SAVE_HEIGHTS, getEffectiveSourceCap, getSourcePreference, effectiveSaveHeight } = await import('@/lib/videos/quality')
+  const { getEnhanceModeFor, getEnhanceDefaultFor, shouldEnhanceFor, getEnhanceDefault } = await import('@/lib/media/enhancePolicy')
+  const sources = await Promise.all(QUALITY_SOURCES.map(async (source) => ({
+    source,
+    cap: await getEffectiveSourceCap(user.id, source),
+    pref: await getSourcePreference(user.id, source),
+    effective: await effectiveSaveHeight(user.id, source),
+    enhanceMode: await getEnhanceModeFor(user.id, source),         // user per-source override
+    enhanceDefault: await getEnhanceDefaultFor(source),            // admin per-source default (null = household)
+    enhanceEffective: await shouldEnhanceFor(user.id, source),
+  })))
+  return c.json({ tiers: SAVE_HEIGHTS, householdEnhanceDefault: await getEnhanceDefault(), sources })
+})
+
+videosRoute.put('/quality/caps', requireAdmin, async (c) => {
+  const body: { source?: string; height?: number | null; userId?: string } = await c.req.json().catch(() => ({}))
+  if (!body.source || !(QUALITY_SOURCES as readonly string[]).includes(body.source)) return c.json({ error: 'unknown source' }, 400)
+  const { SAVE_HEIGHTS, sourceCapKey, sourceUserCapKey } = await import('@/lib/videos/quality')
+  if (body.height != null && !(SAVE_HEIGHTS as readonly number[]).includes(body.height)) return c.json({ error: 'invalid height' }, 400)
+  const key = body.userId ? sourceUserCapKey(body.source, body.userId) : sourceCapKey(body.source)
+  await setAppSetting(key, body.height ?? null)
+  return c.json({ ok: true })
+})
+
+videosRoute.put('/enhance/default', requireAdmin, async (c) => {
+  const body: { source?: string; value?: boolean | null } = await c.req.json().catch(() => ({}))
+  const validSources: readonly string[] = ['youtube', ...QUALITY_SOURCES]
+  if (!body.source || !validSources.includes(body.source)) return c.json({ error: 'unknown source' }, 400)
+  if (body.value !== null && typeof body.value !== 'boolean') return c.json({ error: 'value must be boolean or null (inherit household)' }, 400)
+  const { enhanceDefaultKeyFor } = await import('@/lib/media/enhancePolicy')
+  await setAppSetting(enhanceDefaultKeyFor(body.source), body.value)
   return c.json({ ok: true })
 })
 
