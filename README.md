@@ -172,7 +172,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/videos.svg" width="48" /><br/>
   <b>Videos</b><br/>
-  One place for all your video stuff: YouTube, TikTok, Vimeo, Reddit, and your own clips in a single private app that protects your family from the selling machine - no profiling, anti-clickbait titles, auto-skipped sponsor pitches, and AI descriptions that strip the scam bait aimed at kids and seniors. Follow creators, audio mode with a live EQ, mini player and PiP, offline rules that keep the latest videos downloaded, background enhancement, per-source Plex libraries, and one-click video-to-podcast.
+  One place for all your video stuff: YouTube, TikTok, Vimeo, Reddit, and your own clips in a single private app that protects your family from the selling machine - no profiling, anti-clickbait titles, auto-skipped sponsor pitches, and AI descriptions that strip the scam bait aimed at kids and seniors. You're in control, not an algorithm: you pick the sources, the feed is your subscriptions, and every cleanup is a reversible toggle. Follow creators, audio mode with a live EQ, mini player and PiP, offline rules that keep the latest videos downloaded, background enhancement, per-source Plex libraries, and one-click video-to-podcast.
   <br/><br/>
 </td>
 <td width="50%" valign="top">

@@ -5,7 +5,7 @@ sidebar:
   order: 5
 ---
 
-**One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - and none of the sponsor pitches and scam bait that modern video aims at the people you love.
+**One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - and none of the sponsor pitches and scam bait that modern video aims at the people you love. You decide what your family sees, not an algorithm.
 
 ## One app, many sources
 
@@ -50,6 +50,17 @@ And local AI helps everyone judge what's actually worth their time:
 - **Transcripts** let you read along, search within a video, highlight the current line as it plays, and jump anywhere with a click.
 
 The AI runs on your own hardware - nothing is sent to a cloud service.
+
+## You're in control
+
+On the platforms, an algorithm decides what your family sees, what plays next, and what gets pushed at them. Here, every one of those decisions is yours:
+
+- **You choose the sources.** An admin decides which platforms appear in the app at all - and a household without TikTok simply has no TikTok.
+- **Your feed is your subscriptions**, newest first. No algorithm reordering it, no engagement bait mixed in, no infinite rabbit hole engineered for "just one more."
+- **Every cleanup is a toggle, and every toggle is reversible.** Anti-clickbait, AI descriptions, sponsor skipping (category by category), autoplay - all optional, and "View original" always shows you exactly what was changed.
+- **Automation answers to you.** Per-creator offline rules do only what you set (keep N, remove once watched), and one master switch pauses all of it.
+- **You set the limits.** Per-source quality ceilings, which household members see adult content (through Loki Doki's content profiles), and what's shared with the family versus personal.
+- **Your library is yours.** Saves live on your own server as ordinary files - watch them in the app, in Plex, or copy them anywhere. Nothing is locked in, and nothing disappears because a platform changed its mind.
 
 ## Following creators
 
