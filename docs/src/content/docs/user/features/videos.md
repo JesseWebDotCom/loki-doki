@@ -5,7 +5,7 @@ sidebar:
   order: 5
 ---
 
-**One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - and none of the ads, sponsor pitches, and scam bait that modern video aims at the people you love.
+**One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - and none of the sponsor pitches and scam bait that modern video aims at the people you love.
 
 ## One app, many sources
 
@@ -38,7 +38,7 @@ Chapters appear on the scrubber, comments and restored like/dislike counts show 
 
 Modern video isn't just entertainment - it's a sales funnel aimed at the people least equipped to see it. Kids can't tell a sponsor read from the show. Seniors are the favorite target of "giveaway" scams, miracle-product pitches, and sketchy links in descriptions. And the profiling behind it all exists to figure out exactly which pitch will land on which member of your household. Videos takes that whole layer away:
 
-- **No profiling to aim with** - everything streams through your own server, so the platforms never build the viewing profile that targeted selling depends on. No ads, no pre-roll, no shopping shelf under the player.
+- **No profiling to aim with** - everything streams through your own server, so the platforms never build the viewing profile that targeted selling depends on. Nothing gets injected around the player - it's just the video.
 - **Anti-clickbait** - community-voted titles and thumbnails replace manipulative clickbait with a plain description of what the video actually is, so a thumbnail can't bait a kid (or anyone) into something it isn't.
 - **Sponsor reads, subscribe-begging, and self-promo skip themselves** during playback, using community-submitted markers - the pitch inside the video is gone before anyone hears it. You pick which categories to skip.
 - **AI descriptions defuse the description box** - sponsor plugs, product links, promo codes, and giveaway pitches (a classic scam vector) are stripped out, leaving just the real notes - and where a video has no useful description, the AI writes an honest one. "View original" brings the raw text back anytime.
@@ -99,3 +99,5 @@ The **Create** studio turns Videos into more than a viewer:
 ## Privacy in plain terms
 
 Everything runs through your home server: the video streams, the thumbnails and avatars, the subscription feeds, even the sponsor-skip lookups. The platforms never learn who's watching, nobody in your house is being profiled, and household content-profile rules apply here like everywhere else in Loki Doki. It's the parts of these services you want, without the parts you don't.
+
+The community data behind sponsor-skipping and anti-clickbait comes from the [SponsorBlock](https://sponsor.ajay.app/) and [DeArrow](https://dearrow.ajay.app/) projects (CC BY-NC-SA 4.0) - thank you to their contributors. Loki Doki is a self-hosted app for personal, non-commercial use and isn't affiliated with or endorsed by any video platform.

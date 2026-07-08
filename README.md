@@ -172,7 +172,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/videos.svg" width="48" /><br/>
   <b>Videos</b><br/>
-  One place for all your video stuff: YouTube, TikTok, Vimeo, Reddit, and your own clips in a single private app that protects your family from the selling machine - no ads or profiling, anti-clickbait titles, auto-skipped sponsor pitches, and AI descriptions that strip the scam bait aimed at kids and seniors. Follow creators, audio mode with a live EQ, mini player and PiP, offline rules that keep the latest videos downloaded, background enhancement, per-source Plex libraries, and one-click video-to-podcast.
+  One place for all your video stuff: YouTube, TikTok, Vimeo, Reddit, and your own clips in a single private app that protects your family from the selling machine - no profiling, anti-clickbait titles, auto-skipped sponsor pitches, and AI descriptions that strip the scam bait aimed at kids and seniors. Follow creators, audio mode with a live EQ, mini player and PiP, offline rules that keep the latest videos downloaded, background enhancement, per-source Plex libraries, and one-click video-to-podcast.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
@@ -305,3 +305,9 @@ A browser opens at `http://localhost:5173`. The setup wizard creates your admin 
 
 - [User Guide](https://jessewebdotcom.github.io/loki-doki/user/welcome/): getting started, features, and settings
 - [Developer Guide](https://jessewebdotcom.github.io/loki-doki/dev/architecture/): architecture, API, and contributing
+
+---
+
+## ⚖️ Disclaimer
+
+Loki Doki is open-source software for **personal, self-hosted, non-commercial use** by you and your household. It is not affiliated with, endorsed by, or sponsored by YouTube, Google, TikTok, Vimeo, Reddit, Plex, or any other platform it can connect to; all product names and trademarks belong to their respective owners. You are responsible for how you use the software and for complying with the terms and laws that apply to you and the services you access. Community datasets used for sponsor-skipping and title cleanup come from [SponsorBlock](https://sponsor.ajay.app/) and [DeArrow](https://dearrow.ajay.app/) (CC BY-NC-SA 4.0) - see [NOTICE](NOTICE) for full third-party attributions.

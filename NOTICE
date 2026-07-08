@@ -1,4 +1,4 @@
-loki-doki-v3
+Loki Doki
 Third-Party Licenses and Attributions
 
 This software incorporates components from third-party projects. The following
@@ -88,6 +88,31 @@ amCharts Animated SVG Weather Icons
   License: Creative Commons Attribution 4.0 International (CC-BY 4.0)
   © amCharts — https://www.amcharts.com/
   https://creativecommons.org/licenses/by/4.0/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VIDEOS DATA & SERVICES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SponsorBlock
+  Community-submitted sponsor/segment skip data, accessed via the public API
+  Uses SponsorBlock data licensed under CC BY-NC-SA 4.0 from https://sponsor.ajay.app/
+  © Ajay Ramachandran and SponsorBlock contributors
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+DeArrow
+  Community-submitted title and thumbnail replacements, accessed via the public API
+  Uses DeArrow data licensed under CC BY-NC-SA 4.0 from https://dearrow.ajay.app/
+  © Ajay Ramachandran and DeArrow contributors
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+Return YouTube Dislike
+  Community-estimated dislike counts, accessed via the public API
+  https://returnyoutubedislike.com/
+
+yt-dlp
+  Media download/stream resolution tool (managed binary)
+  License: Unlicense (public domain)
+  https://github.com/yt-dlp/yt-dlp
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 AI MODELS & RUNTIMES
