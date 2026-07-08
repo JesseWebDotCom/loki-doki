@@ -2,8 +2,17 @@
   Windows launcher for Loki Doki, the PowerShell counterpart to run.sh.
 
   Usage:
-    powershell -ExecutionPolicy Bypass -File .\run.ps1
+    powershell -ExecutionPolicy Bypass -File .\run.ps1            # production (default)
+    powershell -ExecutionPolicy Bypass -File .\run.ps1 -Dev       # dev servers + HMR
     powershell -ExecutionPolicy Bypass -File .\run.ps1 -Uninstall
+
+  Two modes:
+    • Production (default): builds the frontend bundle (only when stale) and serves
+      the whole app — API + bundled UI — from ONE backend process on port 3000. The
+      bundle is a fraction of dev's ~18 MB of unbundled modules, so remote/LAN loads
+      are fast. No live reload; rebuild happens on the next launch.
+    • Dev (-Dev, or run-dev.ps1): Vite dev server on 5173 + hot-reloading backend,
+      for local editing with instant HMR. Heavy to load over the LAN.
 
   Loki Doki runs on the Bun runtime. This installs Bun automatically on first run
   so a fresh machine needs nothing but this script and Ollama (which you install
@@ -12,6 +21,7 @@
 #>
 
 param(
+  [switch]$Dev,
   [switch]$Uninstall
 )
 
@@ -25,6 +35,8 @@ $Ports = @(5173, 3000, 8188, 8092, 8091, 8090, 8002, 8003, 10700)
 # Full-command-line signatures for detached sidecars that outlive the servers.
 $SidecarPatterns = @(
   'bun run --hot src/index.ts',                 # backend (dev)
+  'bun run src/index.ts',                        # backend (production)
+  'bun run start',                               # backend (production wrapper)
   "$Root\frontend\node_modules",                # frontend (vite)
   "$Root\data\comfyui",                         # ComfyUI (python)
   'bun run dev'                                 # leftover dev wrappers
@@ -81,6 +93,44 @@ function Ensure-Deps([string]$Dir) {
     Pop-Location
     if ($ok) { New-Item -ItemType File -Path $stamp -Force | Out-Null }
   }
+}
+
+# ── Production frontend build ──────────────────────────────────────────────────
+# Build the frontend bundle into frontend/dist, but only when it's missing or stale,
+# so a production `run` serves an up-to-date bundle without paying the (~1 min) build
+# on every launch. Staleness uses the same "stamp vs inputs" idea as Ensure-Deps: a
+# rebuild is needed when any source under src/ (or a build-config file) is newer than
+# the last successful build's stamp. `bun run build` runs `tsc -b && vite build` and
+# its prebuild hook (asset copies), so we always go through it rather than calling vite
+# directly. A failed build aborts the launch rather than serving a stale/broken bundle.
+function Ensure-FrontendBuild([string]$Dir) {
+  $dist  = Join-Path $Dir 'dist'
+  $index = Join-Path $dist 'index.html'
+  $stamp = Join-Path $dist '.loki-build-stamp'
+  $needs = $false
+  if (-not (Test-Path $index)) { $needs = $true }
+  elseif (-not (Test-Path $stamp)) { $needs = $true }
+  else {
+    $stampTime = (Get-Item $stamp).LastWriteTimeUtc
+    $inputs = [System.Collections.Generic.List[object]]::new()
+    $src = Join-Path $Dir 'src'
+    if (Test-Path $src) { Get-ChildItem -Path $src -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $inputs.Add($_) } }
+    foreach ($f in @('index.html','package.json','bun.lock','vite.config.ts','vite.config.js','tsconfig.json','tsconfig.app.json','tailwind.config.ts')) {
+      $p = Join-Path $Dir $f
+      if (Test-Path $p) { $inputs.Add((Get-Item $p)) }
+    }
+    $newest = ($inputs | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+    if ($newest -and $newest -gt $stampTime) { $needs = $true }
+  }
+  if (-not $needs) { Write-Host 'Frontend bundle is up to date.'; return }
+  Write-Host 'Building the frontend for production (this can take a minute)...'
+  Push-Location $Dir
+  bun run build
+  $ok = ($LASTEXITCODE -eq 0)
+  Pop-Location
+  if (-not $ok) { throw 'Frontend production build failed (see errors above). Fix it, or use run-dev.ps1 for the dev server.' }
+  # Stamp AFTER a clean build; vite empties dist on build, so the stamp must be recreated last.
+  New-Item -ItemType File -Path $stamp -Force | Out-Null
 }
 
 # ── Teardown helpers ──────────────────────────────────────────────────────────
@@ -164,26 +214,41 @@ $frontend = $null
 try {
   Stop-Existing
 
-  Write-Host 'Starting backend...'
-  $backendDir = Join-Path $Root 'backend'
-  Ensure-Deps $backendDir
-  $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
-    -WorkingDirectory $backendDir -NoNewWindow -PassThru
-
-  Write-Host 'Starting frontend...'
+  $backendDir  = Join-Path $Root 'backend'
   $frontendDir = Join-Path $Root 'frontend'
+  Ensure-Deps $backendDir
   Ensure-Deps $frontendDir
-  $frontend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
-    -WorkingDirectory $frontendDir -NoNewWindow -PassThru
 
-  # Wait for the frontend to bind, then open the browser (Chrome if available,
+  # The `dev` script sets NODE_ENV=development itself; production `start` doesn't, so
+  # set it here — the backend serves frontend/dist only when NODE_ENV != development.
+  $env:NODE_ENV = if ($Dev) { 'development' } else { 'production' }
+
+  if ($Dev) {
+    Write-Host 'Starting backend (dev, hot reload)...'
+    $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
+      -WorkingDirectory $backendDir -NoNewWindow -PassThru
+    Write-Host 'Starting frontend (Vite dev server)...'
+    $frontend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
+      -WorkingDirectory $frontendDir -NoNewWindow -PassThru
+    $webPort = 5173
+  } else {
+    Ensure-FrontendBuild $frontendDir
+    Write-Host 'Starting the app (production: one process serves the API + bundled UI)...'
+    $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'start' `
+      -WorkingDirectory $backendDir -NoNewWindow -PassThru
+    $frontend = $null   # production serves the built UI from the backend process
+    $webPort = 3000
+  }
+
+  # Wait for the web port to bind, then open the browser (Chrome if available,
   # otherwise the default browser).
-  Write-Host 'Waiting for the frontend...'
-  while (-not (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue)) {
-    if ($frontend.HasExited) { throw 'Frontend exited before it started listening on port 5173.' }
+  Write-Host 'Waiting for the app to come up...'
+  while (-not (Get-NetTCPConnection -LocalPort $webPort -State Listen -ErrorAction SilentlyContinue)) {
+    if ($backend.HasExited) { throw "Backend exited before it started listening on port $webPort. Check data\logs\app.log." }
+    if ($frontend -and $frontend.HasExited) { throw 'Frontend exited before it started listening on port 5173.' }
     Start-Sleep -Milliseconds 200
   }
-  $url = 'http://localhost:5173'
+  $url = "http://localhost:$webPort"
   try { Start-Process 'chrome.exe' "--new-window $url" }
   catch { Start-Process $url }
 
@@ -218,16 +283,17 @@ try {
     return -not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
   }
 
+  $backendArgs = if ($Dev) { @('run', 'dev') } else { @('run', 'start') }
   while ($true) {
     Start-Sleep -Milliseconds 500
     if ($backend.HasExited) {
       if (-not (Should-Restart 'backend')) { Write-Host 'Backend is crash-looping (5 restarts in 5 min) - giving up. Check data\logs\app.log.'; break }
       Write-Host "Backend exited (code $($backend.ExitCode)) - restarting it..."
       if (-not (Wait-PortFree 3000)) { Write-Host 'Port 3000 would not clear - giving up.'; break }
-      $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
+      $backend = Start-Process -FilePath 'bun' -ArgumentList $backendArgs `
         -WorkingDirectory $backendDir -NoNewWindow -PassThru
     }
-    if ($frontend.HasExited) {
+    if ($frontend -and $frontend.HasExited) {
       if (-not (Should-Restart 'frontend')) { Write-Host 'Frontend is crash-looping (5 restarts in 5 min) - giving up.'; break }
       Write-Host "Frontend exited (code $($frontend.ExitCode)) - restarting it..."
       if (-not (Wait-PortFree 5173)) { Write-Host 'Port 5173 would not clear - giving up.'; break }

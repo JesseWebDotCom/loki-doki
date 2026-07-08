@@ -29,6 +29,12 @@ if [ "$1" = "--uninstall" ]; then
   exec bun run src/uninstall-cli.ts
 fi
 
+# Mode: production by default (build the UI, serve everything from one fast process on
+# port 3000). `--dev` (or run-dev.sh) starts the Vite dev server + hot-reloading backend
+# for local editing with HMR — heavy to load over the LAN.
+MODE="prod"
+[ "$1" = "--dev" ] && MODE="dev"
+
 BACKEND_PID=""
 FRONTEND_PID=""
 
@@ -55,6 +61,33 @@ ensure_deps() {
   fi
 }
 
+# Build the frontend bundle into frontend/dist for production, but only when it's
+# missing or stale — so a production launch serves an up-to-date bundle without paying
+# the (~1 min) build every time. Same "stamp vs inputs" idea as ensure_deps: rebuild
+# when any source under src/ (or a build-config file) is newer than the last build's
+# stamp. `bun run build` runs `tsc -b && vite build` plus its asset-copy prebuild hook,
+# so we always go through it. A failed build aborts rather than serving a broken bundle.
+ensure_frontend_build() {
+  dir="$1"
+  dist="$dir/dist"; index="$dist/index.html"; stamp="$dist/.loki-build-stamp"
+  needs=0
+  if [ ! -f "$index" ] || [ ! -f "$stamp" ]; then
+    needs=1
+  else
+    if [ -n "$(find "$dir/src" -type f -newer "$stamp" -print -quit 2>/dev/null)" ]; then needs=1; fi
+    for f in index.html package.json bun.lock vite.config.ts vite.config.js tsconfig.json tsconfig.app.json tailwind.config.ts; do
+      [ -f "$dir/$f" ] && [ "$dir/$f" -nt "$stamp" ] && needs=1
+    done
+  fi
+  if [ "$needs" -eq 1 ]; then
+    echo "Building the frontend for production (this can take a minute)..."
+    (cd "$dir" && bun run build) || { echo "Frontend production build failed (see above). Fix it, or use run-dev.sh."; exit 1; }
+    touch "$stamp"   # stamp AFTER a clean build — vite empties dist, so recreate it last
+  else
+    echo "Frontend bundle is up to date."
+  fi
+}
+
 # Completely stop any previous instance before starting. Killing the dev servers
 # (or their ports) is NOT enough: the backend spawns detached sidecars (ComfyUI,
 # voice server, kiwix, GraphHopper, the Wyoming pod gateway) that outlive it and
@@ -69,6 +102,8 @@ stop_existing() {
   for p in 5173 3000 8188 8092 8091 8090 8002 8003 10700; do kill_port "$p"; done
   # Belt-and-suspenders for anything that crashed without releasing its port.
   pkill -f "bun run --hot src/index.ts"            2>/dev/null || true  # backend (dev)
+  pkill -f "bun run src/index.ts"                  2>/dev/null || true  # backend (production)
+  pkill -f "bun run start"                         2>/dev/null || true  # backend (production wrapper)
   pkill -f "$ROOT/frontend/node_modules/.bin/vite" 2>/dev/null || true  # frontend (vite)
   pkill -f "$ROOT/data/comfyui"                    2>/dev/null || true  # ComfyUI (python)
   pkill -f "bun run dev"                           2>/dev/null || true  # leftover dev wrappers
@@ -112,21 +147,36 @@ trap cleanup EXIT
 
 stop_existing
 
-echo "Starting backend..."
 ensure_deps "$ROOT/backend"
-cd "$ROOT/backend"
-bun run dev &
-BACKEND_PID=$!
-
-echo "Starting frontend..."
 ensure_deps "$ROOT/frontend"
-cd "$ROOT/frontend"
-bun run dev &
-FRONTEND_PID=$!
 
-# Wait for frontend then open browser (Chrome if available, otherwise default)
-while ! lsof -ti :5173 &>/dev/null; do sleep 0.2; done
-open -na "Google Chrome" --args --new-window "http://localhost:5173" 2>/dev/null || open "http://localhost:5173"
+# The `dev` script sets NODE_ENV=development itself; production `start` doesn't, so set
+# it here — the backend serves frontend/dist only when NODE_ENV != development.
+if [ "$MODE" = "dev" ]; then
+  export NODE_ENV=development
+  echo "Starting backend (dev, hot reload)..."
+  (cd "$ROOT/backend" && bun run dev) &
+  BACKEND_PID=$!
+  echo "Starting frontend (Vite dev server)..."
+  (cd "$ROOT/frontend" && bun run dev) &
+  FRONTEND_PID=$!
+  WEB_PORT=5173
+else
+  export NODE_ENV=production
+  ensure_frontend_build "$ROOT/frontend"
+  echo "Starting the app (production: one process serves the API + bundled UI)..."
+  (cd "$ROOT/backend" && bun run start) &
+  BACKEND_PID=$!
+  FRONTEND_PID=""   # production serves the built UI from the backend process
+  WEB_PORT=3000
+fi
+
+# Wait for the web port to bind, then open browser (Chrome if available, otherwise default)
+while ! lsof -ti ":$WEB_PORT" &>/dev/null; do
+  kill -0 "$BACKEND_PID" 2>/dev/null || { echo "Backend exited before binding port $WEB_PORT. Check data/logs/app.log."; exit 1; }
+  sleep 0.2
+done
+open -na "Google Chrome" --args --new-window "http://localhost:$WEB_PORT" 2>/dev/null || open "http://localhost:$WEB_PORT"
 
 # Supervise: a crashed server restarts automatically instead of taking the whole
 # app down (previously one backend crash ended the script and killed everything).
@@ -146,6 +196,8 @@ wait_port_free() {
   done
   ! lsof -ti ":$port" &>/dev/null
 }
+
+if [ "$MODE" = "dev" ]; then BACKEND_CMD="bun run dev"; else BACKEND_CMD="bun run start"; fi
 
 BACKEND_RESTARTS=0
 FRONTEND_RESTARTS=0
@@ -167,10 +219,11 @@ while true; do
       echo "Port 3000 would not clear — giving up."
       break
     fi
-    (cd "$ROOT/backend" && bun run dev) &
+    (cd "$ROOT/backend" && $BACKEND_CMD) &
     BACKEND_PID=$!
   fi
-  if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+  # Production has no separate frontend process (the backend serves the bundle).
+  if [ -n "$FRONTEND_PID" ] && ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
     FRONTEND_RESTARTS=$((FRONTEND_RESTARTS + 1))
     if [ "$FRONTEND_RESTARTS" -gt 5 ]; then
       echo "Frontend is crash-looping (>5 restarts in 5 min) — giving up."
