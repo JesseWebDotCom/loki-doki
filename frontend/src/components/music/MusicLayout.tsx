@@ -89,14 +89,17 @@ export function MusicLayout() {
     '--music-accent-fg': a.fg,
     '--music-accent-contrast': a.contrast,
     '--music-accent-soft': `color-mix(in oklab, ${a.fg} 15%, transparent)`,
-    // A faint accent wash over the page background so Online (brand) and Offline (warning) read
-    // at a glance. Layered on top of bg-background.
-    backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 7%, transparent)`}, ${`color-mix(in oklab, ${a.base} 7%, transparent)`})`,
+    // A faint accent wash over the near-black base so Online (brand) and Offline (warning)
+    // still read at a glance without lifting the black.
+    backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 4%, transparent)`}, ${`color-mix(in oklab, ${a.base} 4%, transparent)`})`,
   } as CSSProperties
 
   return (
     <MusicModeCtx.Provider value={{ mode, setMode }}>
-      <div className="flex min-h-0 flex-1 overflow-hidden bg-background" style={accentVars}>
+      {/* The Music app is an always-dark, true-black surface (the Moosic/Apple-Music look),
+          independent of the app-wide theme - same posture as the fullscreen player overlay,
+          applied to the whole sub-app. Tokens inside resolve via data-theme="dark". */}
+      <div data-theme="dark" className="flex min-h-0 flex-1 overflow-hidden bg-black text-foreground" style={accentVars}>
         <MusicRail />
         <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none pb-28 md:pb-32">
           <Outlet />

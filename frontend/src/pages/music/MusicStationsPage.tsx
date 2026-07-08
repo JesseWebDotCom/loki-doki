@@ -79,7 +79,7 @@ export function MusicStationsPage() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music" title="Stations" subtitle="Generative AI radio, built from a prompt."
+      <PageHeader plain title="Stations" subtitle="Generative AI radio, built from a prompt."
         actions={<Button onClick={() => setEditorOpen(true)}><Plus className="size-4" /> New station</Button>} />
 
       {(buckets?.mine.length ?? 0) > 0 && (

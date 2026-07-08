@@ -77,7 +77,7 @@ export function MusicHomePage() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music" title="Listen" subtitle="AI stations, your library, and the whole catalog." />
+      <PageHeader plain title="Listen" />
 
       {recent.length > 0 && (
         <section className="mt-2">

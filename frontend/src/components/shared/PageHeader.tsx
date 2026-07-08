@@ -12,6 +12,9 @@ interface PageHeaderProps {
   actions?: React.ReactNode;
   /** Editorial hero panel (app landing pages) instead of the standard header row. */
   hero?: boolean;
+  /** Bare display title (Apple-Music style): no identity tile, no eyebrow, larger type.
+   *  For media apps whose pages lead with content, not app identity. */
+  plain?: boolean;
   /** CTA row, hero only. */
   cta?: React.ReactNode;
   /** Override for pages not in the app registry (category pages, settings shells). */
@@ -54,6 +57,18 @@ export function PageHeader(props: PageHeaderProps) {
       <Icon className={cn("text-white", props.hero ? "size-7" : "size-6")} aria-hidden="true" />
     </div>
   );
+
+  if (props.plain) {
+    return (
+      <div className={cn("flex items-end justify-between gap-4 pt-7 pb-5", props.className)}>
+        <div className="min-w-0">
+          <h1 className="truncate text-display-lg font-extrabold tracking-tight text-foreground">{title}</h1>
+          {props.subtitle && <p className="mt-1.5 text-sm text-muted-foreground">{props.subtitle}</p>}
+        </div>
+        {props.actions && <div className="flex shrink-0 items-center gap-2">{props.actions}</div>}
+      </div>
+    );
+  }
 
   if (props.hero) {
     const glowStop = gradient ? firstStop(gradient) : null;

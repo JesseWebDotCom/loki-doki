@@ -206,7 +206,7 @@ export function NowPlayingPage() {
 
   // Nothing started yet - the only genuinely empty state.
   if (!radio.active) {
-    return <PageContainer width="wide"><PageHeader eyebrow="Music" title="Now Playing" subtitle="Start a station to see lyrics, info, and what's up next." /></PageContainer>
+    return <PageContainer width="wide"><PageHeader plain title="Now Playing" subtitle="Start a station to see lyrics, info, and what's up next." /></PageContainer>
   }
 
   // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - interpolated with alpha suffixes below

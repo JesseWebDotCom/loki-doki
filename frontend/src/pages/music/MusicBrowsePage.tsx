@@ -159,7 +159,7 @@ export function MusicBrowsePage() {
 
   if (!q) return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music" title="Browse" subtitle="Search the catalog for any artist, album, or song." />
+      <PageHeader plain title="Browse" subtitle="Search the catalog for any artist, album, or song." />
       {SearchBar}
       <p className="mb-2 text-overline text-muted-foreground/60">Browse by genre</p>
       <div className="flex flex-wrap gap-2">

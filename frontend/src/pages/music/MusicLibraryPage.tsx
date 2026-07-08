@@ -559,14 +559,16 @@ function LibraryIndex({ onPick }: { onPick: (t: Tab) => void }) {
   ]
 
   return (
-    <div className="max-w-2xl divide-y divide-border/40 overflow-hidden rounded-card border border-border/60 bg-card">
-      {rows.map((r) => (
+    // design-ok(glass-on-plain-bg): elevated list on the Music app's true-black surface
+    <div className="max-w-2xl overflow-hidden rounded-sheet bg-white/[0.06]">
+      {rows.map((r, i) => (
         <button key={r.tab} onClick={() => onPick(r.tab)}
-          className="flex w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-accent/40">
-          <r.icon className="size-5 shrink-0 text-brand" />
-          <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{r.label}</span>
+          className={cn('flex w-full items-center gap-4 px-4 py-3.5 text-left transition hover:bg-white/[0.06]',
+            i > 0 && 'border-t border-white/[0.07]')}>
+          <r.icon className="size-6 shrink-0 text-brand" />
+          <span className="min-w-0 flex-1 truncate text-[17px] font-medium">{r.label}</span>
           {r.count != null && <span className="text-sm tabular-nums text-muted-foreground">{r.count.toLocaleString()}</span>}
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
+          <ChevronRight className="size-5 shrink-0 text-muted-foreground/40" />
         </button>
       ))}
     </div>
@@ -610,7 +612,7 @@ export function MusicLibraryPage() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music" title="Your Library" />
+      <PageHeader plain title="Library" />
       {tab === null ? (
         <>
           <LibraryIndex onPick={setTab} />
