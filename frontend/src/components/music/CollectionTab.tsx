@@ -113,19 +113,22 @@ export function CollectionTab() {
   const [q, setQ] = useState('')
   const [artist, setArtist] = useState<string | null>(null)      // artist drill-in
   const [album, setAlbum] = useState<CollectionAlbum | null>(null) // album drill-in
+  const [source, setSource] = useState<'local' | 'plex' | null>(null) // All when null
   const [dragOver, setDragOver] = useState(false)
 
   const { data: summary } = useQuery({ queryKey: ['music-collection-summary'], queryFn: getCollectionSummary })
   const empty = (summary?.total ?? 0) === 0
+  // Source chips only matter once BOTH sources contribute tracks.
+  const multiSource = (summary?.local.tracks ?? 0) > 0 && (summary?.plex.tracks ?? 0) > 0
 
   const { data: artists, isLoading: artistsLoading } = useQuery({
-    queryKey: ['music-collection-artists', q],
-    queryFn: () => getCollectionArtists({ q: q || undefined }),
+    queryKey: ['music-collection-artists', q, source],
+    queryFn: () => getCollectionArtists({ q: q || undefined, source: source ?? undefined }),
     enabled: view === 'artists' && !artist && !empty,
   })
   const { data: albums, isLoading: albumsLoading } = useQuery({
-    queryKey: ['music-collection-albums', artist, view === 'albums' ? q : ''],
-    queryFn: () => getCollectionAlbums({ artist: artist ?? undefined, q: !artist && view === 'albums' ? q || undefined : undefined }),
+    queryKey: ['music-collection-albums', artist, view === 'albums' ? q : '', source],
+    queryFn: () => getCollectionAlbums({ artist: artist ?? undefined, q: !artist && view === 'albums' ? q || undefined : undefined, source: source ?? undefined }),
     enabled: (view === 'albums' || !!artist) && !album && !empty,
   })
   const { data: albumTracks, isLoading: albumLoading } = useQuery({
@@ -134,8 +137,8 @@ export function CollectionTab() {
     enabled: !!album,
   })
   const { data: songs, isLoading: songsLoading } = useQuery({
-    queryKey: ['music-collection-songs', q],
-    queryFn: () => getCollectionSongs({ q: q || undefined }),
+    queryKey: ['music-collection-songs', q, source],
+    queryFn: () => getCollectionSongs({ q: q || undefined, source: source ?? undefined }),
     enabled: view === 'songs' && !artist && !album && !empty,
   })
 
@@ -207,6 +210,18 @@ export function CollectionTab() {
             </button>
           ))}
         </div>
+        {multiSource && (
+          <div className="flex rounded-control bg-muted p-0.5">
+            {([null, 'local', 'plex'] as const).map(s => (
+              <button key={s ?? 'all'}
+                onClick={() => setSource(s)}
+                className={cn('rounded-control px-2.5 py-1.5 text-xs font-medium transition',
+                  source === s ? 'bg-card shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                {s === null ? 'All' : s === 'local' ? 'Local' : 'Plex'}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="relative min-w-40 flex-1">
           <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search your collection"

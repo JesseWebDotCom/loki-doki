@@ -18,6 +18,12 @@ import {
   streamPart,
 } from '@/lib/plex'
 import { getUserPlexConnection, isUserPlexLinked, isPlexServerConfigured, setUserPlexToken } from '@/lib/plex/account'
+import { getAudioPlayback } from '@/lib/plex/music'
+import { db } from '@/db'
+import { musicPlexTracks } from '@/db/schema'
+import { eq } from 'drizzle-orm'
+import { spawn } from 'node:child_process'
+import { ensureFfmpeg } from '@/lib/ffmpeg'
 import { plexItemsToPosters } from '@/lib/plex/resolve'
 import { createPlexPin, checkPlexPin, discoverPlexServers } from '@/lib/plex/auth'
 import { savePlexConfig, getPlexConfigSummary } from '@/lib/plex/config'
@@ -137,6 +143,61 @@ plexRoute.get('/stream/:ratingKey', async (c) => {
   const pb = await getPlayback(conn, c.req.param('ratingKey'))
   if (!pb?.partKey) return c.text('No playable part', 404)
   const upstream = await streamPart(conn, pb.partKey, c.req.header('range'))
+  if (!upstream || (!upstream.ok && upstream.status !== 206)) return c.text('Stream unavailable', 502)
+  const h = new Headers()
+  for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+    const v = upstream.headers.get(k)
+    if (v) h.set(k, v)
+  }
+  h.set('Cache-Control', 'private, max-age=0')
+  return new Response(upstream.body, { status: upstream.status, headers: h })
+})
+
+// Music track stream — sibling of the video route above, but partKey comes from the
+// synced music_plex_tracks mirror (no per-request metadata roundtrip; getAudioPlayback is
+// the fallback for tracks played between syncs). Same-origin so the Web-Audio DSP graph
+// stays untainted. A `plex:<machineId>:...` ref from a since-replaced server 404s here —
+// the radio engine's deck-failure path then re-resolves the song to YouTube.
+//
+// Codecs Chromium can't decode (ALAC/WMA/APE/DSD — common in Plex rips) are transcoded on
+// the fly with OUR managed ffmpeg reading the tokenized part URL. Deliberately not Plex's
+// universal-transcode endpoint: verified live that it intermittently 400s and truncates
+// streams on this server class. Transcoded playback is progressive (no Range/seek) —
+// same contract as the live-radio streams the player already handles.
+const TRANSCODE_CODECS = /alac|wma|ape|dsd|pcm/i
+
+plexRoute.get('/music/stream/:ratingKey', async (c) => {
+  const conn = await getUserPlexConnection(c.get('user').id)
+  if (!conn) return c.text('Plex not configured', 400)
+  const ratingKey = c.req.param('ratingKey')
+
+  const [row] = await db.select({ partKey: musicPlexTracks.partKey, codec: musicPlexTracks.codec })
+    .from(musicPlexTracks).where(eq(musicPlexTracks.ratingKey, ratingKey)).limit(1)
+  // Dead-ref guard: the mirror's rows always carry the CURRENT server's machine id (a
+  // server swap clears the mirror on next sync), so a row match is an implicit identity
+  // check. A miss falls through to a live lookup for freshly-added tracks.
+  let partKey = row?.partKey ?? null
+  let codec = row?.codec ?? null
+  if (!partKey) {
+    const pb = await getAudioPlayback(conn, ratingKey)
+    partKey = pb?.partKey ?? null
+    codec = pb?.codec ?? codec
+  }
+  if (!partKey) return c.text('No playable part', 404)
+
+  if (codec && TRANSCODE_CODECS.test(codec)) {
+    const ff = await ensureFfmpeg()
+    const sep = partKey.includes('?') ? '&' : '?'
+    const srcUrl = `${conn.baseUrl}${partKey}${sep}X-Plex-Token=${encodeURIComponent(conn.token)}`
+    const child = spawn(ff, ['-hide_banner', '-loglevel', 'error', '-i', srcUrl, '-vn', '-c:a', 'libmp3lame', '-b:a', '320k', '-f', 'mp3', 'pipe:1'],
+      { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    c.req.raw.signal.addEventListener('abort', () => { try { child.kill('SIGKILL') } catch { /* already gone */ } })
+    return new Response(child.stdout as unknown as ReadableStream, {
+      headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'private, max-age=0' },
+    })
+  }
+
+  const upstream = await streamPart(conn, partKey, c.req.header('range'))
   if (!upstream || (!upstream.ok && upstream.status !== 206)) return c.text('Stream unavailable', 502)
   const h = new Headers()
   for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {

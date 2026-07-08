@@ -3,13 +3,15 @@
 // content protections join this tab in later phases.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FolderOpen, Music, RefreshCw, Trash2, Upload, AlertTriangle, Plus } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { FolderOpen, LibraryBig, Music, RefreshCw, Trash2, Upload, AlertTriangle, Plus } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 
 interface MusicFolder {
   id: string
@@ -22,6 +24,14 @@ interface MusicFolder {
   lastScanStatus: 'idle' | 'scanning' | 'ok' | 'failed'
   lastScanError: string | null
   scanJob: { status: string; progress: { completed?: number; total?: number; status?: string } | null } | null
+}
+
+interface PlexMusicState {
+  configured: boolean
+  sections: Array<{ key: string; title: string; selected: boolean; trackCount: number }>
+  lastSyncAt: number | null
+  syncing: boolean
+  mirrorTracks: number
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -50,18 +60,21 @@ function scanStatusLabel(f: MusicFolder): { text: string; tone: 'muted' | 'succe
 
 export function AdminMusicTab() {
   const [folders, setFolders] = useState<MusicFolder[]>([])
+  const [plex, setPlex] = useState<PlexMusicState | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [newPath, setNewPath] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MusicFolder | null>(null)
+  const [sectionSaving, setSectionSaving] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const res = await api<{ local: { folders: MusicFolder[] } }>('/sources')
+      const res = await api<{ local: { folders: MusicFolder[] }; plex: PlexMusicState }>('/sources')
       setFolders(res.local?.folders ?? [])
+      setPlex(res.plex ?? null)
       setLoadError(null)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load music sources')
@@ -72,13 +85,44 @@ export function AdminMusicTab() {
 
   useEffect(() => { load() }, [load])
 
-  // Poll while any folder is scanning so counts/progress stay live without a manual refresh.
-  const anyScanning = folders.some((f) => f.lastScanStatus === 'scanning')
+  // Poll while any scan/sync runs so counts/progress stay live without a manual refresh.
+  const anyScanning = folders.some((f) => f.lastScanStatus === 'scanning') || !!plex?.syncing
   useEffect(() => {
     if (!anyScanning) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }; return }
     pollRef.current = setInterval(load, 4000)
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [anyScanning, load])
+
+  async function toggleSection(key: string, selected: boolean) {
+    if (!plex) return
+    const next = plex.sections.map((s) => (s.key === key ? { ...s, selected } : s))
+    setPlex({ ...plex, sections: next })  // optimistic
+    setSectionSaving(true)
+    try {
+      const res = await api<{ ok?: boolean; error?: string }>('/plex-sections', {
+        method: 'PUT', body: JSON.stringify({ keys: next.filter((s) => s.selected).map((s) => s.key) }),
+      })
+      if (res.error) { toast.error(res.error); await load(); return }
+      toast.success(selected ? 'Section added - syncing now' : 'Section removed - mirror updates on this sync')
+      await load()
+    } catch {
+      toast.error('Could not update Plex sections')
+      await load()
+    } finally {
+      setSectionSaving(false)
+    }
+  }
+
+  async function handlePlexSync() {
+    try {
+      const res = await api<{ ok?: boolean; error?: string }>('/plex-sync', { method: 'POST' })
+      if (res.error) { toast.error(res.error); return }
+      toast.success('Syncing your Plex music library')
+      await load()
+    } catch {
+      toast.error('Could not start the sync')
+    }
+  }
 
   async function handleAdd() {
     const path = newPath.trim()
@@ -207,6 +251,56 @@ export function AdminMusicTab() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Plex Music */}
+      {!loading && !loadError && (
+        <div className="rounded-card border border-border bg-card p-4">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">Plex Music</div>
+            {plex?.configured && (
+              <Button variant="ghost" size="sm" onClick={handlePlexSync} disabled={plex.syncing || sectionSaving} title="Sync now">
+                {plex.syncing ? <Spinner className="size-4" /> : <RefreshCw className="size-4" />}
+                {plex.syncing ? 'Syncing…' : 'Sync now'}
+              </Button>
+            )}
+          </div>
+          {!plex?.configured ? (
+            <p className="text-xs text-muted-foreground">
+              Connect a Plex server under{' '}
+              <Link to="/admin/integrations/plex" className="text-brand underline-offset-2 hover:underline">Integrations → Plex</Link>
+              {' '}to bring its music libraries into the Collection.
+            </p>
+          ) : plex.sections.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Your Plex server has no music libraries.</p>
+          ) : (
+            <>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Pick which Plex music libraries join the family's Collection. Tracks stream from Plex at original
+                quality and stay in sync automatically.
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {plex.sections.map((s) => (
+                  <label key={s.key} className="flex cursor-pointer items-center gap-2.5 rounded-control px-2 py-1.5 transition hover:bg-accent/40">
+                    <Switch size="sm" checked={s.selected} disabled={sectionSaving} onCheckedChange={(v) => toggleSection(s.key, v === true)} />
+                    <LibraryBig className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-sm">{s.title}</span>
+                    {s.selected && (
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {s.trackCount > 0 ? `${s.trackCount.toLocaleString()} tracks` : plex.syncing ? 'syncing…' : 'pending sync'}
+                      </span>
+                    )}
+                  </label>
+                ))}
+              </div>
+              {plex.lastSyncAt && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Last synced {new Date(plex.lastSyncAt).toLocaleString()} · {plex.mirrorTracks.toLocaleString()} tracks mirrored
+                </p>
+              )}
+            </>
+          )}
         </div>
       )}
 

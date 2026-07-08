@@ -1015,6 +1015,35 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS music_local_tracks_norm_idx ON music_local_tracks(norm_artist, norm_title);
     CREATE INDEX IF NOT EXISTS music_local_tracks_mbid_idx ON music_local_tracks(mbid);
     CREATE INDEX IF NOT EXISTS music_local_tracks_album_idx ON music_local_tracks(album_artist, album);
+
+    CREATE TABLE IF NOT EXISTS music_plex_tracks (
+      rating_key TEXT NOT NULL PRIMARY KEY,
+      machine_id TEXT NOT NULL,
+      section_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      artist TEXT,
+      album TEXT,
+      album_rating_key TEXT,
+      artist_rating_key TEXT,
+      track_no INTEGER,
+      disc_no INTEGER,
+      year INTEGER,
+      duration_sec REAL,
+      codec TEXT,
+      container TEXT,
+      bitrate INTEGER,
+      part_key TEXT,
+      thumb TEXT,
+      parent_thumb TEXT,
+      grandparent_thumb TEXT,
+      mbid TEXT,
+      norm_title TEXT NOT NULL,
+      norm_artist TEXT NOT NULL,
+      synced_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS music_plex_tracks_norm_idx ON music_plex_tracks(norm_artist, norm_title);
+    CREATE INDEX IF NOT EXISTS music_plex_tracks_mbid_idx ON music_plex_tracks(mbid);
+    CREATE INDEX IF NOT EXISTS music_plex_tracks_album_idx ON music_plex_tracks(artist, album);
   `)
 
   // Offline music: media type a station was downloaded as (audio | video | both).

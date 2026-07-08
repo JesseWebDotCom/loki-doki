@@ -204,6 +204,12 @@ async function reconcileWatchlistForUser(linked: string, conn: PlexConnection): 
 let _timer: ReturnType<typeof setInterval> | null = null
 const RECONCILE_INTERVAL_MS = 15 * 60 * 1000
 
+// Music-library mirror cadence: music libraries change slowly, so the mirror refreshes
+// every 6h by piggybacking on this 15-min loop (guarded by its own timestamp) instead of
+// keeping a second timer. Section-selection changes and the admin button sync immediately.
+const MUSIC_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
+let _lastMusicSyncAt = 0
+
 async function syncPass(): Promise<void> {
   await reconcileWatchlist()
   await pullPlexProgress()
@@ -211,6 +217,19 @@ async function syncPass(): Promise<void> {
   // fully-played episodes leave the Plex tree and their offline saves are deleted.
   const { runWatchedSweep } = await import('@/lib/plex/export/watchedSweep')
   await runWatchedSweep().catch((err) => logger.warn(`[plex] watched sweep failed: ${err}`))
+
+  if (Date.now() - _lastMusicSyncAt >= MUSIC_SYNC_INTERVAL_MS) {
+    _lastMusicSyncAt = Date.now()
+    try {
+      const { getSelectedSectionKeys } = await import('@/lib/plex/music')
+      if ((await getSelectedSectionKeys()).length) {
+        const { enqueuePlexMusicSync } = await import('@/lib/downloadJobs')
+        await enqueuePlexMusicSync()
+      }
+    } catch (err) {
+      logger.warn(`[plex] music sync enqueue failed: ${err}`)
+    }
+  }
 }
 
 /** Start the 15-minute Plex sync loop: watchlist mirror + watched-progress pull. No-op until configured. */

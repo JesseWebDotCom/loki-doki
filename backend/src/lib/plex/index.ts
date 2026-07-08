@@ -78,12 +78,14 @@ export async function isPlexConfigured(): Promise<boolean> {
   return (await getPlexConnection()) !== null
 }
 
-async function plexGet<T>(conn: PlexConnection, path: string): Promise<T | null> {
+// timeoutMs: the 6s default fits quick metadata calls; bulk pagination (music library sync
+// pulls 200-track pages) legitimately needs longer — pass ~20s there, not everywhere.
+export async function plexGet<T>(conn: PlexConnection, path: string, timeoutMs = TIMEOUT_MS): Promise<T | null> {
   try {
     const sep = path.includes('?') ? '&' : '?'
     const res = await fetch(`${conn.baseUrl}${path}${sep}X-Plex-Token=${encodeURIComponent(conn.token)}`, {
       headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     if (!res.ok) return null
     return (await res.json()) as T
@@ -191,6 +193,13 @@ export async function machineId(conn: PlexConnection): Promise<string | null> {
   return _machineId
 }
 
+/** Drop the memoised machine id. The module-level memo never expires on its own, so a
+ *  server swap would keep answering with the OLD id — the music sync calls this so
+ *  `plex:<machineId>:<ratingKey>` refs are verified against the current server. */
+export function resetMachineIdCache(): void {
+  _machineId = undefined
+}
+
 function deepLink(mid: string | null, ratingKey: string): string | null {
   if (!mid) return null
   const key = encodeURIComponent(`/library/metadata/${ratingKey}`)
@@ -286,17 +295,18 @@ export async function hubs(conn: PlexConnection, limit = 20): Promise<PlexNormIt
 
 export interface PlexSection {
   key: string
-  type: 'movie' | 'show' | 'other'
+  type: 'movie' | 'show' | 'artist' | 'other'
   title: string
 }
 
-/** Enumerate the server's library sections (Movies, TV Shows, …). */
+/** Enumerate the server's library sections (Movies, TV Shows, Music, …). Music libraries
+ *  report type 'artist' — Plex's name for a music section's top-level container. */
 export async function sections(conn: PlexConnection): Promise<PlexSection[]> {
   const data = await plexGet<{ MediaContainer?: { Directory?: Array<{ key?: string; type?: string; title?: string }> } }>(conn, '/library/sections')
   return (data?.MediaContainer?.Directory ?? [])
     .map((d) => ({
       key: String(d.key ?? ''),
-      type: (d.type === 'movie' ? 'movie' : d.type === 'show' ? 'show' : 'other') as 'movie' | 'show' | 'other',
+      type: (d.type === 'movie' ? 'movie' : d.type === 'show' ? 'show' : d.type === 'artist' ? 'artist' : 'other') as PlexSection['type'],
       title: String(d.title ?? ''),
     }))
     .filter((d) => d.key)

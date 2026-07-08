@@ -54,29 +54,32 @@ async function cfetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const getCollectionSummary = () => cfetch<CollectionSummary>('/summary')
 
-export const getCollectionArtists = (opts?: { q?: string; letter?: string }) => {
+export const getCollectionArtists = (opts?: { q?: string; letter?: string; source?: 'local' | 'plex' }) => {
   const p = new URLSearchParams()
   if (opts?.q) p.set('q', opts.q)
   if (opts?.letter) p.set('letter', opts.letter)
+  if (opts?.source) p.set('source', opts.source)
   return cfetch<{ artists: CollectionArtist[] }>(`/artists?${p}`)
 }
 
-export const getCollectionAlbums = (opts?: { artist?: string; q?: string }) => {
+export const getCollectionAlbums = (opts?: { artist?: string; q?: string; source?: 'local' | 'plex' }) => {
   const p = new URLSearchParams()
   if (opts?.artist) p.set('artist', opts.artist)
   if (opts?.q) p.set('q', opts.q)
+  if (opts?.source) p.set('source', opts.source)
   return cfetch<{ albums: CollectionAlbum[] }>(`/albums?${p}`)
 }
 
 export const getCollectionAlbum = (albumArtist: string, album: string) =>
   cfetch<{ tracks: CollectionTrack[] }>(`/album?artist=${encodeURIComponent(albumArtist)}&album=${encodeURIComponent(album)}`)
 
-export const getCollectionSongs = (opts?: { q?: string; artist?: string; limit?: number; offset?: number }) => {
+export const getCollectionSongs = (opts?: { q?: string; artist?: string; limit?: number; offset?: number; source?: 'local' | 'plex' }) => {
   const p = new URLSearchParams()
   if (opts?.q) p.set('q', opts.q)
   if (opts?.artist) p.set('artist', opts.artist)
   if (opts?.limit) p.set('limit', String(opts.limit))
   if (opts?.offset) p.set('offset', String(opts.offset))
+  if (opts?.source) p.set('source', opts.source)
   return cfetch<{ songs: CollectionTrack[] }>(`/songs?${p}`)
 }
 

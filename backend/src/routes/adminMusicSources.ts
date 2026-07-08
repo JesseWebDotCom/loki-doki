@@ -7,9 +7,11 @@ import { basename, isAbsolute, resolve as resolvePath } from 'node:path'
 import { Hono } from 'hono'
 import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs, musicLocalFolders, musicLocalTracks } from '@/db/schema'
+import { downloadJobs, musicLocalFolders, musicLocalTracks, musicPlexTracks } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
-import { enqueueMusicScan } from '@/lib/downloadJobs'
+import { enqueueMusicScan, enqueuePlexMusicSync } from '@/lib/downloadJobs'
+import { getPlexConnection } from '@/lib/plex'
+import { getSelectedSectionKeys, musicSections, setSelectedSectionKeys } from '@/lib/plex/music'
 import { crossPlatformPathHint } from '@/lib/storage/accessCheck'
 import { logger } from '@/lib/logger'
 
@@ -56,11 +58,69 @@ async function folderDto(row: typeof musicLocalFolders.$inferSelect) {
 // ── GET /sources — everything the Sources panel renders ───────────────────────────
 adminMusicSources.get('/sources', async (c) => {
   const folders = await db.select().from(musicLocalFolders).orderBy(asc(musicLocalFolders.createdAt))
+
+  // Plex half: available music sections + which are selected + mirror stats.
+  let plex: {
+    configured: boolean
+    sections: Array<{ key: string; title: string; selected: boolean; trackCount: number }>
+    lastSyncAt: number | null
+    syncing: boolean
+    mirrorTracks: number
+  } = { configured: false, sections: [], lastSyncAt: null, syncing: false, mirrorTracks: 0 }
+  const conn = await getPlexConnection()
+  if (conn) {
+    const [available, selected, counts, [latest], [job]] = await Promise.all([
+      musicSections(conn),
+      getSelectedSectionKeys(),
+      db.select({ sectionKey: musicPlexTracks.sectionKey, n: sql<number>`COUNT(*)` })
+        .from(musicPlexTracks).groupBy(musicPlexTracks.sectionKey),
+      db.select({ syncedAt: sql<number | null>`MAX(${musicPlexTracks.syncedAt})`, n: sql<number>`COUNT(*)` }).from(musicPlexTracks),
+      db.select({ status: downloadJobs.status }).from(downloadJobs)
+        .where(sql`${downloadJobs.variantKey} = 'music-plex-sync' AND ${downloadJobs.status} IN ('pending','running')`)
+        .limit(1),
+    ])
+    const countByKey = new Map(counts.map((r) => [r.sectionKey, r.n]))
+    const selectedSet = new Set(selected)
+    plex = {
+      configured: true,
+      sections: available.map((s) => ({
+        key: s.key, title: s.title, selected: selectedSet.has(s.key), trackCount: countByKey.get(s.key) ?? 0,
+      })),
+      lastSyncAt: latest?.syncedAt ?? null,
+      syncing: !!job,
+      mirrorTracks: latest?.n ?? 0,
+    }
+  }
+
   return c.json({
     local: { folders: await Promise.all(folders.map(folderDto)) },
-    // Plex music lands in phase A2; the shape is stable so the UI can build against it now.
-    plex: { configured: false, sections: [] },
+    plex,
   })
+})
+
+// ── PUT /plex-sections — select which music sections feed the Collection ───────────
+// Changing the selection IS the enable action: it persists and immediately re-syncs
+// (deselecting everything clears the mirror on that sync pass).
+adminMusicSources.put('/plex-sections', async (c) => {
+  const { keys } = await c.req.json<{ keys: string[] }>()
+  if (!Array.isArray(keys) || keys.some((k) => typeof k !== 'string')) {
+    return c.json({ error: 'keys must be a string array' }, 400)
+  }
+  const conn = await getPlexConnection()
+  if (!conn) return c.json({ error: 'Connect a Plex server first (Admin → Integrations → Plex).' }, 400)
+  const valid = new Set((await musicSections(conn)).map((s) => s.key))
+  const filtered = keys.filter((k) => valid.has(k))
+  await setSelectedSectionKeys(filtered)
+  await enqueuePlexMusicSync()
+  return c.json({ ok: true, keys: filtered })
+})
+
+// ── POST /plex-sync — manual "Sync now" ─────────────────────────────────────────────
+adminMusicSources.post('/plex-sync', async (c) => {
+  const conn = await getPlexConnection()
+  if (!conn) return c.json({ error: 'Plex is not configured' }, 400)
+  await enqueuePlexMusicSync()
+  return c.json({ ok: true })
 })
 
 // ── POST /local-folders — validate + add + kick the first scan ─────────────────────

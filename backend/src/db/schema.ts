@@ -891,6 +891,44 @@ export const musicLocalTracks = sqliteTable('music_local_tracks', {
   albumIdx: index('music_local_tracks_album_idx').on(t.albumArtist, t.album),
 }))
 
+// ─── Plex music index ─────────────────────────────────────────────────────────────
+// A local mirror of the selected Plex music sections' tracks (synced by lib/plex/music.ts,
+// 6-hourly + on demand). Mirroring — instead of live-proxying browse/search — is what makes
+// per-track library matching, unified Collection search across local+plex, and later
+// audio-analysis passes possible without hammering the Plex API. `machineId` is baked into
+// each row (and into `plex:<machineId>:<ratingKey>` refs) so a server swap turns stale refs
+// into clean 404s rather than pointing at the wrong library.
+
+export const musicPlexTracks = sqliteTable('music_plex_tracks', {
+  ratingKey: text('rating_key').primaryKey(),
+  machineId: text('machine_id').notNull(),
+  sectionKey: text('section_key').notNull(),
+  title: text('title').notNull(),
+  artist: text('artist'),                 // grandparentTitle
+  album: text('album'),                   // parentTitle
+  albumRatingKey: text('album_rating_key'),
+  artistRatingKey: text('artist_rating_key'),
+  trackNo: integer('track_no'),           // index
+  discNo: integer('disc_no'),             // parentIndex
+  year: integer('year'),
+  durationSec: real('duration_sec'),
+  codec: text('codec'),                   // Media[0].audioCodec
+  container: text('container'),
+  bitrate: integer('bitrate'),            // kbps, as Plex reports it
+  partKey: text('part_key'),              // Media[0].Part[0].key — stream without a metadata roundtrip
+  thumb: text('thumb'),                   // relative paths for the /api/plex/img proxy
+  parentThumb: text('parent_thumb'),
+  grandparentThumb: text('grandparent_thumb'),
+  mbid: text('mbid'),                     // from Guid "mbid://<uuid>" (MusicBrainz-agent libraries)
+  normTitle: text('norm_title').notNull(),
+  normArtist: text('norm_artist').notNull(),
+  syncedAt: integer('synced_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  normIdx: index('music_plex_tracks_norm_idx').on(t.normArtist, t.normTitle),
+  mbidIdx: index('music_plex_tracks_mbid_idx').on(t.mbid),
+  albumIdx: index('music_plex_tracks_album_idx').on(t.artist, t.album),
+}))
+
 // ─── LoRA System ──────────────────────────────────────────────────────────────
 
 export const imageLoraCategories = sqliteTable('image_lora_categories', {

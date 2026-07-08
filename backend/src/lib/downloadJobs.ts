@@ -32,7 +32,7 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'studio-source' | 'music-scan'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'studio-source' | 'music-scan' | 'music-plex-sync'
 export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
@@ -680,6 +680,13 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       }, signal)
       return
     }
+    case 'music-plex-sync': {
+      const { syncPlexMusic } = await import('@/lib/plex/music')
+      await syncPlexMusic((done, total) => {
+        onProgress({ completed: done, total, speedBps: 0, etaSeconds: 0, status: `${done}/${total} tracks` })
+      }, signal)
+      return
+    }
   }
 }
 
@@ -831,6 +838,32 @@ export async function enqueueMusicScan(folderId: string, label: string): Promise
     id: randomUUID(), type: 'music-scan', refId: JSON.stringify({ folderId }), variantKey: vk,
     domain: 'music-local', sizeClass: 'small', label: label.slice(0, 120), priority: 70,
     status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Coalesced enqueue of the Plex music-library mirror sync. One global job (the whole
+ *  mirror syncs in a single pass); pure HTTP pagination → network lane, domain 'plex' so
+ *  it serializes with the other Plex API jobs. A finished/failed prior job resets to
+ *  pending — admin "Sync now" and the 6-hour piggyback both re-run it. */
+export async function enqueuePlexMusicSync(): Promise<void> {
+  const vk = 'music-plex-sync'
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'music-plex-sync'), eq(downloadJobs.variantKey, vk))).limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'music-plex-sync', refId: JSON.stringify({}), variantKey: vk,
+    domain: 'plex', sizeClass: 'small', label: 'Sync Plex music library', priority: 55,
+    status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })
   kickScheduler()
