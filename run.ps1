@@ -137,16 +137,15 @@ function Ensure-FrontendBuild([string]$Dir) {
 }
 
 # ── GPU power cap ───────────────────────────────────────────────────────────────
-# Cap each settable NVIDIA GPU's sustained power limit to shrink the millisecond current
-# transient that fires when a large model loads onto the card. On this box those spikes (a
-# desktop-class RTX 3070 pulling ~2x its limit for a few ms) were browning out the laptop's
-# power rail and causing hard, no-log power-offs — Kernel-Power 41 with no WHEA and no
-# bugcheck. A lower ceiling barely dents inference throughput (Ampere is near-flat above
-# ~150 W) while meaningfully reducing the transient. Laptop Max-Q GPUs report an unsettable
-# limit ([N/A]) and are skipped automatically, so this only touches the desktop card.
-# Best-effort: `nvidia-smi -pl` needs an elevated shell to apply — if it can't, we warn and
-# launch anyway rather than block the app. Resets on reboot, so re-applying every launch is
-# what keeps it enforced. Pass -GpuPowerCap 0 to disable.
+# Best-effort launch-time cap on each settable NVIDIA GPU's sustained power limit. The
+# REAL brownout protection is gpu-power-guard.ps1 (install once, elevated:
+# `.\gpu-power-guard.ps1 -Install`): a SYSTEM scheduled task that applies the power cap
+# AND a graphics-clock lock at boot, on eGPU replug, and hourly. A sustained-power cap
+# alone cannot catch the millisecond transients that brown the machine out (the limiter
+# is an average controller; measured peaks stay far above a lowered cap), and this step
+# only works from an elevated shell anyway, so treat it as defense-in-depth, not the fix.
+# Laptop Max-Q GPUs report an unsettable limit ([N/A]) and are skipped automatically.
+# Pass -GpuPowerCap 0 to disable.
 function Set-GpuPowerCaps([int]$CapWatts) {
   if ($CapWatts -le 0) { return }
   $smi = (Get-Command nvidia-smi -ErrorAction SilentlyContinue).Source
@@ -168,7 +167,7 @@ function Set-GpuPowerCaps([int]$CapWatts) {
       if ($LASTEXITCODE -eq 0) {
         Write-Host "GPU $idx power limit capped to $target W (transient-brownout mitigation)."
       } else {
-        Write-Host "Could not cap GPU $idx power (run from an elevated shell to enable it). Launching uncapped." -ForegroundColor Yellow
+        Write-Host "Could not cap GPU $idx power from this (unelevated) shell. If the LokiDoki-GpuPowerGuard task is installed the card is already protected; otherwise run .\gpu-power-guard.ps1 -Install once from an elevated shell." -ForegroundColor Yellow
       }
     }
   } catch {
