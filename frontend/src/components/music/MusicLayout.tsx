@@ -67,6 +67,8 @@ export function MusicLayout() {
   }, [pathname, urlQ])
 
   const rightSlot = useMemo(() => <ModeToggle mode={mode} onChange={setMode} />, [mode])
+  // Same rail the desktop shows at lg+, published for the mobile top bar's drawer.
+  const rail = useMemo(() => <MusicRail variant="drawer" />, [])
   useAppHeader({
     query,
     setQuery,
@@ -76,6 +78,7 @@ export function MusicLayout() {
     // and only searches locally-saved stations. Mirrors YouTube's suggest wiring.
     suggest: mode === 'online' ? musicSuggestSource : undefined,
     rightSlot,
+    rail,
     settingsHref: '/apps/music/settings',
   })
 

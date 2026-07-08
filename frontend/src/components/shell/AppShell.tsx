@@ -19,11 +19,15 @@ import { AppIconTile } from "@/components/shared/AppIconTile";
 import { getAppByPath, getGroupByAppPath, getAppGroup } from "@/lib/appCategories";
 import { categoryVisual } from "@/lib/archiveCategories";
 import { LeftSidebar } from "./LeftSidebar";
-import { BottomTabBar } from "./BottomTabBar";
+import { MobileDock } from "./MobileDock";
+import { MobileTopBar } from "./MobileTopBar";
 import { CompanionEngineProvider } from "./CompanionEngineContext";
+import { NavPreferencesProvider } from "@/context/NavPreferencesContext";
+import { SpotlightSearch } from "@/components/shared/SpotlightSearch";
 import { QueueBanner } from "./QueueBanner";
 import { PodcastPlayerBar } from "@/components/podcast/PodcastPlayerBar";
 import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
+import { NowPlayingOverlay } from "@/components/music/NowPlayingOverlay";
 import { ArtifactPane } from "@/components/canvas/ArtifactPane";
 import { useArtifactState } from "@/lib/canvas/artifactStore";
 import { useChatContext } from "@/context/ChatContext";
@@ -132,7 +136,11 @@ export function AppShell() {
     : null;
 
   return (
+    <NavPreferencesProvider>
     <CompanionEngineProvider>
+    {/* One shared Spotlight dialog for the whole shell, opened from the sidebar row,
+        the mobile top bar, and the home hero (single instance = single Cmd/Ctrl+K). */}
+    <SpotlightSearch />
     <div className="flex h-screen bg-background">
 
       {/* Fixed left sidebar */}
@@ -221,8 +229,23 @@ export function AppShell() {
           </div>
         )}
 
-        {/* Breadcrumb — the reader provides its own header, so suppress it there. */}
+        {/* Mobile top bar: the phone-only replacement for the breadcrumb (app identity +
+            search + actions + rail drawer). Same guard as the breadcrumb below. */}
         {!isHome && pageTitle && !isReader && (
+          <MobileTopBar
+            title={pageTitle}
+            icon={PageIcon}
+            gradient={pageGradient}
+            color={pageColor}
+            onReload={reloadApp}
+            config={breadcrumbSearch}
+          />
+        )}
+
+        {/* Breadcrumb — the reader provides its own header, so suppress it there. Desktop
+            only; phones use MobileTopBar above. */}
+        {!isHome && pageTitle && !isReader && (
+          <div className="hidden md:block">
           <AppBreadcrumb crumbs={(() => {
             const home: BreadcrumbCrumb = { label: "Home", href: "/", icon: Home };
             // Non-last crumbs: plain muted icon only (no color, no tile).
@@ -322,6 +345,7 @@ export function AppShell() {
               </>
             )}
           </AppBreadcrumb>
+          </div>
         )}
 
         {/* Plex connect prompt — only in the Plex-relevant apps (Movies/Shows and their subpages),
@@ -353,10 +377,14 @@ export function AppShell() {
         <YoutubeMiniBar />
         <PodcastPlayerBar />
 
-        {/* Bottom tab bar — mobile only (hosts the companion at its center) */}
-        <BottomTabBar />
+        {/* App-wide full-page music player, raised from the mini bar / rail / deep link */}
+        <NowPlayingOverlay />
+
+        {/* Bottom dock: mobile only (Home + companion pill + Menu) */}
+        <MobileDock />
       </div>
     </div>
     </CompanionEngineProvider>
+    </NavPreferencesProvider>
   );
 }

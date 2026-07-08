@@ -78,6 +78,12 @@ async function persist(hash: string, url: string, f: Fetched): Promise<void> {
   })
 }
 
+// A grid of thumbnails all missing from a cold cache fires one request per card at once;
+// without this, N concurrent requests for the SAME url (e.g. a card + its list-row
+// counterpart re-rendering) each redo the full upstream fetch + disk write instead of
+// sharing one.
+const inflight = new Map<string, Promise<{ data: Buffer; contentType: string } | null>>()
+
 /** Read-through accessor used by the /img proxy. Serves cached bytes off disk, fetching
  *  and persisting on a miss. Returns null for a forbidden host or an upstream failure. */
 export async function getOrFetchImage(rawUrl: string): Promise<{ data: Buffer; contentType: string } | null> {
@@ -95,10 +101,17 @@ export async function getOrFetchImage(rawUrl: string): Promise<{ data: Buffer; c
     }
   }
 
-  const fetched = await fetchUpstream(url.toString())
-  if (!fetched || fetched === 'not-modified') return null
-  await persist(hash, rawUrl, fetched)
-  return { data: fetched.data, contentType: fetched.contentType }
+  const pending = inflight.get(hash)
+  if (pending) return pending
+  const p = (async () => {
+    const fetched = await fetchUpstream(url.toString())
+    if (!fetched || fetched === 'not-modified') return null
+    await persist(hash, rawUrl, fetched)
+    return { data: fetched.data, contentType: fetched.contentType }
+  })()
+  inflight.set(hash, p)
+  void p.finally(() => { if (inflight.get(hash) === p) inflight.delete(hash) })
+  return p
 }
 
 // ── Maintenance ────────────────────────────────────────────────────────────────

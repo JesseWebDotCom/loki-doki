@@ -40,6 +40,8 @@ const RULES = [
       'components/homeassistant/DeviceCard.tsx',
       'components/weather/',
       'lib/weather.ts',
+      // Full-bleed immersive music player: white-on-album-art surface, same category as PlexPlayer.
+      'components/music/NowPlayingOverlay.tsx',
     ],
   },
   {
@@ -53,6 +55,8 @@ const RULES = [
       'components/companion/',
       'pages/ImagingPage.tsx',
       'pages/maps/',
+      // SeekBar/EqVisualizer take literal color fallbacks (canvas can't read CSS vars).
+      'components/music/NowPlayingOverlay.tsx',
     ],
   },
   {
@@ -97,7 +101,7 @@ const RULES = [
     scope: 'pages/',
   },
   // Glass belongs on chrome; in-page glass tiles need a waiver ("over imagery").
-  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/ },
+  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/, allow: ['components/music/NowPlayingOverlay.tsx'] },
   { name: 'font-black', pattern: /\bfont-black\b/, allow: ['components/shared/BrandMark.tsx'] },
   {
     name: 'brand-gradient-outside-hero',
@@ -131,7 +135,7 @@ const RULES = [
 // Hand-styled native <button> tags (multiline aware): must be ui/Button.
 const BUTTON_RULE = {
   name: 'hand-styled-button',
-  allow: ['components/ui/', 'components/shared/RippleButton.tsx'],
+  allow: ['components/ui/', 'components/shared/RippleButton.tsx', 'components/music/NowPlayingOverlay.tsx'],
 }
 
 const EXTS = new Set(['.ts', '.tsx', '.css'])

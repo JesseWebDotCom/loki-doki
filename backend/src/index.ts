@@ -106,6 +106,7 @@ import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
 import { music } from '@/routes/music'
+import { musicStudio } from '@/routes/musicStudio'
 import { musicInfo } from '@/routes/musicInfo'
 import { musicRadio } from '@/routes/musicRadio'
 import { musicRadioLive } from '@/routes/musicRadioLive'
@@ -569,6 +570,7 @@ app.route('/api/youtube/playlists', ytPlaylists)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
 app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)
+app.route('/api/music/studio', musicStudio)
 app.route('/api/music/info', musicInfo)
 app.route('/api/music/radio/live', musicRadioLive)
 app.route('/api/music/radio', musicRadio)

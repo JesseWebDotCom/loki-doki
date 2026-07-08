@@ -17,7 +17,10 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = "17.5rem";
 const SIDEBAR_WIDTH_MOBILE = "19rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
-const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+// "\" rather than the shadcn default "b" — Cmd/Ctrl+B is the browser's
+// bookmarks-sidebar shortcut in Firefox. Cmd/Ctrl+\ matches Notion's
+// sidebar toggle and avoids the collision.
+const SIDEBAR_KEYBOARD_SHORTCUT = "\\";
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";

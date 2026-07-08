@@ -604,6 +604,41 @@ export const musicTracks = sqliteTable('music_tracks', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Music Studio projects (Moises-style): a source song that gets split into stems (Demucs)
+// and analysed (Essentia: tempo/beats/key/chords). Per-user, self-contained: the source
+// audio + separated stems live as files under music/studio/<id>/ (NOT the blob store —
+// the music app is per-user-file, and blob-store GC would orphan derived stems). The two
+// background jobs (audio-analyze, stem-separate) fill in the analysis columns and stems.
+export const musicStudioTracks = sqliteTable('music_studio_tracks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  artist: text('artist'),
+  sourceRelPath: text('source_rel_path'),   // relative; music/studio/<id>/source.<ext>
+  durationSec: real('duration_sec'),
+  // Source acquisition: 'ready' the moment an upload lands; 'fetching' while a studio-source
+  // job pulls a track picked from the Music app (resolve → saved blob or yt-dlp extract).
+  sourceStatus: text('source_status', { enum: ['ready', 'fetching', 'failed'] }).notNull().default('ready'),
+  sourceError: text('source_error'),
+  // Cover art file (music/studio/<id>/cover.jpg): Cover Art Archive for catalog picks,
+  // embedded art for uploads. Served via GET /:id/cover. Null when none was found.
+  coverRelPath: text('cover_rel_path'),
+  // Stem separation lifecycle. 'none' = not requested yet (analysis can still run).
+  stemStatus: text('stem_status', { enum: ['none', 'pending', 'separating', 'ready', 'failed'] }).notNull().default('none'),
+  stemModel: text('stem_model'),             // htdemucs | htdemucs_6s | htdemucs (2-stem)
+  stemsJson: text('stems_json'),             // JSON string[] of ready stem names
+  stemError: text('stem_error'),
+  // Analysis lifecycle (tempo/key/chords).
+  analysisStatus: text('analysis_status', { enum: ['none', 'pending', 'analyzing', 'ready', 'failed'] }).notNull().default('none'),
+  bpm: real('bpm'),
+  keyLabel: text('key_label'),
+  beatsJson: text('beats_json'),             // JSON [{time, downbeat}]
+  chordsJson: text('chords_json'),           // JSON [{startTime, endTime, label}]
+  analysisError: text('analysis_error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // Resolver cache: maps a MusicBrainz recording (or a synthetic keyless query key) to the
 // YouTube videoId we play for it. Resolution is fuzzy and rate-limited, so we cache the
 // answer permanently and reuse it everywhere (stations, playlists, search, offline). A row

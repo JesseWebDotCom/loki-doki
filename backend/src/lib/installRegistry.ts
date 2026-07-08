@@ -46,6 +46,7 @@ import {
 import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI, venvPython } from '@/lib/comfyui'
 import { isVtracerInstalled, ensureVtracer } from '@/lib/vtracer'
 import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG, searxngVenvPython } from '@/lib/searxng'
+import { isStemAudioInstalled, installStemAudio, stemVenvPython, isRoformerGuitarInstalled, installRoformerGuitar, roformerVenvPython } from '@/lib/stems/pyenv'
 import { isESPHomeInstalled, installESPHome, esphomeVenvBin } from '@/lib/esphome'
 import { warmUpToolchain } from '@/lib/pod/firmware'
 import { isKiwixInstalled, installKiwixTools } from '@/lib/kiwix'
@@ -256,6 +257,25 @@ const STATIC_COMPONENTS: InstallComponent[] = [
       try { await warmUpToolchain((msg) => statusAdapter(onP)(msg), sig) }
       catch (e) { logger.warn(`[esphome] toolchain warm-up skipped: ${e instanceof Error ? e.message : String(e)}`) }
     },
+  },
+  {
+    // Music Studio stem separation (Demucs) + analysis (Essentia). Big first install —
+    // torch wheels + the htdemucs model dominate. The Studio falls back to "install
+    // required" UI while absent, so repair is never blocking.
+    id: 'stem-audio', group: 'music', label: 'Music Studio (Demucs + Essentia)',
+    approxBytes: 2_500_000_000,
+    isInstalled: isStemAudioInstalled,
+    verify: () => probeRuns(stemVenvPython(), ['--version']),
+    repair: (onP, sig) => installStemAudio((msg) => statusAdapter(onP)(msg), sig),
+  },
+  {
+    // Optional guitar upgrade: a RoFormer model in its own venv. Depends on Music Studio
+    // being installed; the Studio uses Demucs' guitar until this is added.
+    id: 'stem-roformer-guitar', group: 'music', label: 'Music Studio: Enhanced Guitar (RoFormer)',
+    approxBytes: 2_100_000_000,
+    isInstalled: isRoformerGuitarInstalled,
+    verify: () => probeRuns(roformerVenvPython(), ['--version']),
+    repair: (onP, sig) => installRoformerGuitar((msg) => statusAdapter(onP)(msg), sig),
   },
   {
     id: 'voice-core', group: 'voice', label: 'Voice (Kokoro TTS + Whisper STT)',

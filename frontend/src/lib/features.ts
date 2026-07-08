@@ -246,6 +246,33 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     },
   },
   {
+    id: 'music',
+    name: 'Music Studio',
+    description: 'Split songs into stems and practise',
+    base: {
+      id: 'music-studio',
+      name: 'Music Studio',
+      description: 'Split any song into vocals, drums, bass and more, then remix, transpose and practise with a metronome, chords and key changer. Runs fully local.',
+      diskBytes: 2_500_000_000,  // Demucs/Essentia venv + torch wheels + htdemucs model
+      ramBytes:  4_000_000_000,
+      requires: [],
+      installs: [{ id: 'stem-audio', type: 'component' }],
+      advanced: 'Demucs (htdemucs) stem separation + Essentia analysis (managed Python venv)',
+    },
+    items: [
+      {
+        id: 'music-guitar',
+        name: 'Enhanced Guitar',
+        description: 'A RoFormer model that isolates guitar far more cleanly than Demucs.',
+        diskBytes: 2_100_000_000,
+        ramBytes: 2_000_000_000,
+        requires: ['music-studio'],
+        installs: [{ id: 'stem-roformer-guitar', type: 'component' }],
+        advanced: 'becruily Mel-Band RoFormer guitar model · isolated Python venv',
+      },
+    ],
+  },
+  {
     id: 'library',
     name: 'Books & Reference',
     description: 'Read books and browse references offline',
@@ -307,6 +334,7 @@ export const BOOT_STEP_FEATURE_NAME: Record<string, string> = {
   image:            'Images',
   voice:            'Voice',
   library:          'Library',
+  music:            'Music Studio',
   maps:             'Maps',
   'home-inventory': 'Home Inventory',
   'weather-icons':  'Weather',

@@ -31,13 +31,10 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js").catch(() => {});
-        });
-      }
-    </script>
+    <!-- Service worker is registered from main.tsx (prod only; dev unregisters it). Do NOT
+         register it here too: this inline script runs on window.load, AFTER main.tsx's dev
+         unregister, so it would re-register the SW in dev and serve a stale cached app shell
+         through reloads (breaking HMR/fresh code). -->
     <script>
       // Recover from ERR_NETWORK_CHANGED (macOS changes its network interface
       // on screen lock/unlock, aborting Vite's in-flight ESM module fetches

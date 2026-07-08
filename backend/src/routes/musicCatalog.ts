@@ -18,16 +18,17 @@ musicCatalog.use('*', requireAuth)
 
 // GET /api/music/catalog/search?q=…&type=all|artists|albums|songs|stations
 musicCatalog.get('/search', async (c) => {
-  const q = c.req.query('q')?.trim()
+  const q = c.req.query('q')?.trim() ?? ''
+  const artist = c.req.query('artist')?.trim() ?? ''   // optional band filter (songs only)
   const type = c.req.query('type') ?? 'all'
   const user = c.get('user')
-  if (!q) return c.json({ artists: [], albums: [], songs: [], stations: [] })
+  if (!q && !artist) return c.json({ artists: [], albums: [], songs: [], stations: [] })
 
   const [artists, albums, songs, stations] = await Promise.all([
-    type === 'all' || type === 'artists' ? searchArtists(q, type === 'artists' ? 24 : 6) : Promise.resolve([]),
-    type === 'all' || type === 'albums' ? searchAlbums(q, type === 'albums' ? 24 : 8) : Promise.resolve([]),
-    type === 'all' || type === 'songs' ? searchSongs(q, type === 'songs' ? 30 : 10) : Promise.resolve([]),
-    type === 'all' || type === 'stations' ? searchStations(q, user.id, type === 'stations' ? 24 : 8) : Promise.resolve([]),
+    (type === 'all' || type === 'artists') && q ? searchArtists(q, type === 'artists' ? 24 : 6) : Promise.resolve([]),
+    (type === 'all' || type === 'albums') && q ? searchAlbums(q, type === 'albums' ? 24 : 8) : Promise.resolve([]),
+    type === 'all' || type === 'songs' ? searchSongs(q, type === 'songs' ? 30 : 10, artist) : Promise.resolve([]),
+    (type === 'all' || type === 'stations') && q ? searchStations(q, user.id, type === 'stations' ? 24 : 8) : Promise.resolve([]),
   ])
   return c.json({ artists, albums, songs, stations })
 })

@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { BookmarksRail } from '@/components/bookmarks/BookmarksRail'
 import { BookmarkSaveDialog } from '@/components/bookmarks/BookmarkSaveDialog'
 
@@ -19,6 +20,10 @@ export function BookmarksLayout() {
 
   usePublishUIContext({ label: 'Bookmarks', description: 'User is browsing their Bookmarks library (saved links & offline articles).' })
   useEffect(() => { scrollRef.current?.scrollTo(0, 0) }, [pathname])
+
+  // Publish the rail for the mobile top bar's drawer (desktop renders it inline at lg+).
+  const rail = useMemo(() => <BookmarksRail variant="drawer" onSave={() => setSaveOpen(true)} />, [])
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, rail })
 
   return (
     <BookmarkUICtx.Provider value={{ openSave: () => setSaveOpen(true) }}>

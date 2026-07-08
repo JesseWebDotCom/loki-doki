@@ -44,7 +44,7 @@ import { ArchiveIcon } from "@/components/shared/ArchiveIcon";
 import { BrandMark } from "@/components/shared/BrandMark";
 import { StatusDot } from "@/components/shared/StatusDot";
 import { useAuth } from "@/context/AuthContext";
-import { SpotlightSearch } from "@/components/shared/SpotlightSearch";
+import { SpotlightTrigger } from "@/components/shared/SpotlightSearch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,7 +58,7 @@ import {
 import { SortableNavItem } from "./SortableNavItem";
 import { AppLauncher } from "./AppLauncher";
 import { CompanionDock } from "./CompanionDock";
-import { useNavPreferences } from "@/hooks/useNavPreferences";
+import { useNavPrefs } from "@/context/NavPreferencesContext";
 import { useIntentPrefetch } from "@/lib/prefetch/useIntentPrefetch";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -453,7 +453,7 @@ export function LeftSidebar() {
   }, [installedArchives]);
 
   const { pinnedIds, recentIds, collapsed, pin, unpin, reorder, toggleCollapsed } =
-    useNavPreferences(APPS);
+    useNavPrefs();
 
   const isWide = !collapsed;
 
@@ -721,7 +721,7 @@ export function LeftSidebar() {
         {/* Search, wide only */}
         {isWide && (
           <div className="shrink-0 px-2 mt-2 mb-1">
-            <SpotlightSearch />
+            <SpotlightTrigger />
           </div>
         )}
 

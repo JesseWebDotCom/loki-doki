@@ -245,7 +245,26 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
   A real terminal running the Claude Code CLI in its own sandboxed workspace per person, so anyone in the family can vibe-code a project without touching your host machine.
   <br/><br/>
 </td>
-<td></td>
+<td width="50%" valign="top">
+  <img src="assets/icons/images.svg" width="48" /><br/>
+  <b>Recognition</b><br/>
+  Show the AI any photo and it tells you what's in it: objects, vehicles down to the make and model, text and signs, the scene, and safety flags like fire or a stranger at the door. Runs on a local vision model, so no picture ever leaves your hardware.
+  <br/><br/>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="assets/icons/videos.svg" width="48" /><br/>
+  <b>Clips</b><br/>
+  Paste a link from TikTok, Instagram, X, Reddit, Vimeo, or almost any site and watch it right away or save it offline, in a calm private player with no feed, no account, and no algorithm deciding what plays next.
+  <br/><br/>
+</td>
+<td width="50%" valign="top">
+  <img src="assets/icons/offline.svg" width="48" /><br/>
+  <b>Drop</b><br/>
+  Send files, photos, and text between your own devices like AirDrop for the household. Everything hops across your home network through your own server and never touches the cloud.
+  <br/><br/>
+</td>
 </tr>
 </table>
 

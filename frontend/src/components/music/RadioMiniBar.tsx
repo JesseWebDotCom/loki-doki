@@ -1,6 +1,7 @@
-import { Pause, Play, SkipForward, X, Mic, AudioLines, MonitorPlay } from 'lucide-react'
+import { Pause, Play, SkipForward, X, Mic, AudioLines, MonitorPlay, Maximize2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
+import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useCatalogNav } from '@/lib/music/catalogNav'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
@@ -19,6 +20,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 export function RadioMiniBar() {
   const radio = useRadio()
   const navigate = useNavigate()
+  const { openPlayer } = usePlayerOverlay()
   const cat = useCatalogNav()
   const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec, skipping } = radio
   // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors
@@ -130,6 +132,11 @@ export function RadioMiniBar() {
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
                 aria-label="Watch video" title="Switch to video">
                 <MonitorPlay className="size-4" />
+              </button>
+              <button onClick={() => openPlayer()}
+                className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
+                aria-label="Fullscreen player" title="Fullscreen">
+                <Maximize2 className="size-4" />
               </button>
               {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.togglePause}

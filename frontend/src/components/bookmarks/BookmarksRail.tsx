@@ -49,7 +49,8 @@ function CollectionRow({ collection, active, onEdit }: { collection: BookmarkCol
   )
 }
 
-export function BookmarksRail({ onSave }: { onSave: () => void }) {
+export function BookmarksRail({ onSave, variant = 'sidebar' }: { onSave: () => void; variant?: 'sidebar' | 'drawer' }) {
+  const drawer = variant === 'drawer'
   const qc = useQueryClient()
   const { pathname } = useLocation()
   const navigate = useNavigate()
@@ -95,7 +96,10 @@ export function BookmarksRail({ onSave }: { onSave: () => void }) {
   }
 
   return (
-    <nav className="hidden h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto overscroll-none border-r border-border/40 px-3 py-5 lg:flex">
+    <nav className={cn(
+      'h-full min-h-0 shrink-0 flex-col overflow-y-auto overscroll-none px-3 py-5',
+      drawer ? 'flex w-full' : 'hidden w-60 border-r border-border/40 lg:flex',
+    )}>
       <AppRailHeader
         title="Bookmarks"
         className="mb-3"

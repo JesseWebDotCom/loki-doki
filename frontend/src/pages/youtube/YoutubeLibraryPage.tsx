@@ -280,7 +280,7 @@ function HistoryTab() {
           <VideoCollection
             items={accountHistory.map(v => ({
               videoId: v.videoId, title: v.title, author: v.author,
-              channelId: v.channelId, durationSec: v.durationSec,
+              channelId: v.channelId, durationSec: v.durationSec, channelThumb: v.channelThumb,
             }))}
             view={view}
           />

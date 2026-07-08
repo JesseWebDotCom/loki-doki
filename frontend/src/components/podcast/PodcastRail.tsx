@@ -20,11 +20,15 @@ function RailLink({ to, icon: Icon, label, end }: { to: string; icon: LucideIcon
   )
 }
 
-export function PodcastRail({ shows, onCreate }: { shows: Show[]; onCreate: () => void }) {
+export function PodcastRail({ shows, onCreate, variant = 'sidebar' }: { shows: Show[]; onCreate: () => void; variant?: 'sidebar' | 'drawer' }) {
+  const drawer = variant === 'drawer'
   const { user } = useAuth()
   const myShows = shows.filter(s => s.isOwn)
   return (
-    <nav className="sticky top-0 hidden h-fit w-56 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
+    <nav className={cn(
+      'shrink-0 flex-col gap-1 px-3 py-5',
+      drawer ? 'flex h-full w-full overflow-y-auto' : 'sticky top-0 hidden h-fit w-56 self-start border-r border-border/40 lg:flex',
+    )}>
       <AppRailHeader
         title="Podcasts"
         className="mb-4"

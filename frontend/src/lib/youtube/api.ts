@@ -688,7 +688,7 @@ export async function getHistory(): Promise<HistoryRow[]> {
   return (await r.json() as { history: HistoryRow[] }).history ?? []
 }
 
-export interface AccountHistoryRow { videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null }
+export interface AccountHistoryRow { videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null; channelThumb: string | null }
 
 /** Local history + the linked YouTube account's history (deduped server-side). */
 export async function getHistoryFull(): Promise<{ history: HistoryRow[]; accountHistory: AccountHistoryRow[] }> {

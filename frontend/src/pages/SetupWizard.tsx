@@ -5,7 +5,7 @@ import {
   Bot, Eye, Database, Wand2, Mic, Server, Route, ScanFace, Film, Eraser, Library, Code2,
   Map as MapIcon, Ear, MessageSquare, Image as ImageIcon, Users, Home, Lightbulb, Cpu,
   MapPin, Navigation, ShieldCheck, WifiOff, Lock as LockIcon, AlertTriangle, Globe,
-  ShieldQuestion,
+  ShieldQuestion, SlidersHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
@@ -164,6 +164,7 @@ const CAPABILITIES: Capability[] = [
   { id: 'voice-core',   label: 'Voice',               description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                        bytes: 320_000_000, defaultOn: false, requires: [],             icon: Mic },
   { id: 'wakeword-core', label: 'Wake Word',          description: 'Hands-free “Hey Jarvis” activation',                                                bytes: 6_000_000,   defaultOn: false, requires: ['voice-core'], icon: Ear },
   { id: 'esphome',       label: 'Devices',             description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.). Adds the ESP32 toolchain (~1 GB) - install later if you have devices.', bytes: 1_000_000_000, defaultOn: false, requires: [],             icon: Cpu },
+  { id: 'stem-audio',    label: 'Music Studio',        description: 'Split any song into vocals, drums, bass and more, then practise with a metronome, chords and key changer (Demucs + Essentia). Big download - add later if you want it.', bytes: 2_500_000_000, defaultOn: false, requires: [],             icon: SlidersHorizontal },
 ]
 
 // ── Feature showcase (welcome step + left panel) ────────────────────────────────
@@ -1079,8 +1080,8 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
   return (
     <div className="w-full space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div ref={titleRef} className="sticky top-0 z-20 -mx-6 glass-chrome px-6 pb-3 pt-1 sm:-mx-10 sm:px-10">
-        <h2 className="text-title">Choose your AI</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Pick the models and features to install. You can add more anytime from Admin → Features.</p>
+        <h2 className="text-title">Choose your core features</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Pick the AI models and features to install. You can add more anytime from Admin → Features.</p>
       </div>
 
       {/* Compact summary (default) */}
@@ -1713,7 +1714,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
   return (
     <div className="w-full space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
-        <h2 className="text-title">Installing your AI</h2>
+        <h2 className="text-title">Installing your features</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Downloading everything you selected. Large models like image generation can take a while - grab a coffee.
         </p>

@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'studio-source'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
 // one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
@@ -41,7 +41,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -654,6 +654,24 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runEnhanceJob(payload, signal, onProgress)
       return
     }
+    case 'audio-analyze': {
+      const payload = JSON.parse(job.refId) as import('@/lib/stems/analyzeJob').AudioAnalyzeJobPayload
+      const { runAnalyzeJob } = await import('@/lib/stems/analyzeJob')
+      await runAnalyzeJob(payload, signal, onProgress)
+      return
+    }
+    case 'stem-separate': {
+      const payload = JSON.parse(job.refId) as import('@/lib/stems/separateJob').StemSeparateJobPayload
+      const { runSeparateJob } = await import('@/lib/stems/separateJob')
+      await runSeparateJob(payload, signal, onProgress)
+      return
+    }
+    case 'studio-source': {
+      const payload = JSON.parse(job.refId) as import('@/lib/stems/fetchSource').StudioSourceJobPayload
+      const { runStudioSourceJob } = await import('@/lib/stems/fetchSource')
+      await runStudioSourceJob(payload, signal, onProgress)
+      return
+    }
   }
 }
 
@@ -778,6 +796,83 @@ export async function enqueueMediaEnhance(assetId: string, label = 'Enhance vide
   await db.insert(downloadJobs).values({
     id: randomUUID(), type: 'media-enhance', refId: JSON.stringify({ assetId }), variantKey: vk,
     domain: 'media-enhance', sizeClass: 'small', label: label.slice(0, 120), priority: 65,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue tempo/beats/key/chord analysis for a Music Studio track. Coalesced per track
+ *  (one analysis job/track); a finished/failed prior job is reset to pending so a re-open
+ *  re-analyses. Compute lane (domain 'stem-audio'), so it never eats a network slot. */
+export async function enqueueAudioAnalyze(studioTrackId: string, label = 'Analyse track'): Promise<void> {
+  const vk = `audio-analyze:${studioTrackId}`
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'audio-analyze'), eq(downloadJobs.variantKey, vk))).limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'audio-analyze', refId: JSON.stringify({ studioTrackId }), variantKey: vk,
+    domain: 'stem-audio', sizeClass: 'small', label: label.slice(0, 120), priority: 70,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue fetching a Music-app pick into a Studio source file (resolve → saved blob or
+ *  yt-dlp extract → source.wav → analysis). Network lane, domain 'youtube'. One per track. */
+export async function enqueueStudioSource(payload: import('@/lib/stems/fetchSource').StudioSourceJobPayload, label = 'Add to Studio'): Promise<void> {
+  const vk = `studio-source:${payload.studioTrackId}`
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'studio-source'), eq(downloadJobs.variantKey, vk))).limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'studio-source', refId: JSON.stringify(payload), variantKey: vk,
+    domain: 'youtube', sizeClass: 'small', label: label.slice(0, 120), priority: 60,
+    status: 'pending', attempts: 0, maxAttempts: 3, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue Demucs stem separation for a Music Studio track. `opts` is either a preset
+ *  ({model:'2-stem'|'4-stem'|'6-stem'}) or a custom subset ({stems:[...]}). Coalesced per
+ *  (track, requested set): re-requesting the same one while pending/running is a no-op, a
+ *  different set enqueues fresh, and a finished/failed prior job re-runs. Compute lane,
+ *  serialized one-per-domain against other GPU work. */
+export async function enqueueStemSeparation(studioTrackId: string, opts: { model?: string; stems?: string[]; enhancedGuitar?: boolean }, label = 'Generate AI stems'): Promise<void> {
+  const setKey = opts.stems?.length ? `custom:${[...opts.stems].sort().join('-')}` : (opts.model ?? '4-stem')
+  const vk = `stem-separate:${studioTrackId}:${setKey}:${opts.enhancedGuitar === false ? 'plain' : 'eg'}`
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'stem-separate'), eq(downloadJobs.variantKey, vk))).limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'stem-separate', refId: JSON.stringify({ studioTrackId, model: opts.model, stems: opts.stems, enhancedGuitar: opts.enhancedGuitar }), variantKey: vk,
+    domain: 'stem-audio', sizeClass: 'small', label: label.slice(0, 120), priority: 60,
     status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })

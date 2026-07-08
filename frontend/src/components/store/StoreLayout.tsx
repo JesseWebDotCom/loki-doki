@@ -52,11 +52,13 @@ export function StoreLayout() {
   }, [query])
 
   const leftSlot = useMemo(() => <NavButtons />, [])
+  const rail = useMemo(() => <StoreRail installedCount={installedCount} variant="drawer" />, [installedCount])
   useAppHeader({
     query,
     setQuery,
     placeholder: 'Search apps…',
     leftSlot,
+    rail,
   })
 
   return (

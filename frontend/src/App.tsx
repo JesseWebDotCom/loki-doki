@@ -5,6 +5,8 @@ import { ThemeProvider } from '@/context/ThemeContext'
 import { AppToaster } from '@/components/shared/AppToaster'
 import { UIContextProvider } from '@/context/UIContextProvider'
 import { BreadcrumbSearchProvider } from '@/context/BreadcrumbSearchContext'
+import { SpotlightProvider } from '@/components/shared/SpotlightSearch'
+import { PlayerOverlayProvider } from '@/context/PlayerOverlayContext'
 import { ChatProvider } from '@/context/ChatContext'
 import { GenerationProvider } from '@/context/GenerationContext'
 import { PrivacyProvider } from '@/context/PrivacyContext'
@@ -133,6 +135,8 @@ const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').the
 const MusicPlaylistPage = lazy(() => import('@/pages/music/MusicPlaylistPage').then((m) => ({ default: m.MusicPlaylistPage })))
 const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicGeneratePage })))
 const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
+const MusicStudioPage = lazy(() => import('@/pages/music/MusicStudioPage').then((m) => ({ default: m.MusicStudioPage })))
+const MusicStudioDetailPage = lazy(() => import('@/pages/music/MusicStudioDetailPage').then((m) => ({ default: m.MusicStudioDetailPage })))
 
 const BooksLayout = lazy(() => import('@/components/books/BooksLayout').then((m) => ({ default: m.BooksLayout })))
 const BooksLibraryPage = lazy(() => import('@/pages/books/BooksLibraryPage').then((m) => ({ default: m.BooksLibraryPage })))
@@ -309,6 +313,8 @@ export default function App() {
       <ThemeProvider>
         <UIContextProvider>
           <BreadcrumbSearchProvider>
+          <SpotlightProvider>
+          <PlayerOverlayProvider>
           <GenerationProvider>
           <PrivacyProvider>
           <PodcastPlaybackProvider>
@@ -357,6 +363,8 @@ export default function App() {
                   <Route path="generate" element={<MusicGeneratePage />} />
                   <Route path="remix" element={<MusicRemixPage />} />
                   <Route path="library" element={<MusicLibraryPage />} />
+                  <Route path="studio" element={<MusicStudioPage />} />
+                  <Route path="studio/:id" element={<MusicStudioDetailPage />} />
                   <Route path="playlist/:id" element={<MusicPlaylistPage />} />
                 </Route>
                 <Route path="/books" element={<BooksLayout />}>
@@ -546,6 +554,8 @@ export default function App() {
           <PrivacyOverlay />
           </PrivacyProvider>
           </GenerationProvider>
+          </PlayerOverlayProvider>
+          </SpotlightProvider>
           </BreadcrumbSearchProvider>
         </UIContextProvider>
         <AppToaster />

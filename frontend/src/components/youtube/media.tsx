@@ -22,7 +22,7 @@ export function VideoThumb({ videoId, title, quality = 'mq', className, override
       src={useOverride ? overrideSrc! : ytImageProxy(thumbUrl(videoId, quality))}
       alt={title}
       referrerPolicy="no-referrer"
-      className={cn('object-cover', className)}
+      className={cn('object-cover bg-muted', className)}
       loading="lazy"
       onError={() => useOverride ? setOverrideFailed(true) : setOk(false)}
     />

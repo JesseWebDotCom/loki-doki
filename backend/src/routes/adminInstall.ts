@@ -14,6 +14,7 @@ import { isKiwixInstalled } from '@/lib/kiwix'
 import { isWakewordCoreInstalled, isWakewordTrainInstalled, isSileroVadInstalled } from '@/lib/download'
 import { isVoiceServerInstalled } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled } from '@/lib/maps/toolchain'
+import { isStemAudioInstalled, isRoformerGuitarInstalled } from '@/lib/stems/pyenv'
 import { isEsrganInstalled, isCodeFormerInstalled, isGFPGANInstalled, isFaceRestoreNodeInstalled, isBiRefNetNodeInstalled } from '@/lib/download'
 import { IMAGE_ROLES, isTesseractInstalled, getInstallComponent, recordInstalled, removeFromLedger } from '@/lib/installRegistry'
 import { isGloballyOffline, isDownloadBlocked } from '@/lib/connectivity'
@@ -53,6 +54,20 @@ adminInstall.get('/', requireAdmin, (c) => {
       description: 'Local SearXNG metasearch — aggregates Google/Brave/Startpage server-side so web search works where direct scraping is blocked. Self-updates weekly. Source: github.com/searxng/searxng (AGPL-3.0).',
       installed: isSearXNGInstalled(),
       approxBytes: 300_000_000,
+    },
+    {
+      id: 'stem-audio',
+      label: 'Music Studio (Demucs + Essentia)',
+      description: 'AI stem separation (Demucs htdemucs) + tempo/key/chord analysis (Essentia) powering the Music Studio. Managed Python venv; runs fully local. Essentia is AGPL-3.0, invoked only as a subprocess.',
+      installed: isStemAudioInstalled(),
+      approxBytes: 2_500_000_000,
+    },
+    {
+      id: 'stem-roformer-guitar',
+      label: 'Music Studio: Enhanced Guitar (RoFormer)',
+      description: 'Optional guitar upgrade — a Mel-Band RoFormer model that isolates guitar far more cleanly than Demucs. Its own venv; the Studio uses Demucs guitar until this is added.',
+      installed: isRoformerGuitarInstalled(),
+      approxBytes: 2_100_000_000,
     },
     {
       id: 'voice-core',

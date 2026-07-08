@@ -69,6 +69,17 @@ export function catalogSearch(q: string, type: 'all' | 'artists' | 'albums' | 's
   return mfetch<{ artists: CatalogArtist[]; albums: CatalogAlbum[]; songs: CatalogSong[]; stations: Station[] }>(
     `/catalog/search?q=${encodeURIComponent(q)}&type=${type}`)
 }
+// Cover Art Archive front image for a release-group MBID (302s to the asset, 404s when none).
+export function caaCoverUrl(releaseGroupMbid: string, size: 250 | 500 = 250): string {
+  return `https://coverartarchive.org/release-group/${releaseGroupMbid}/front-${size}`
+}
+// Song search scoped by an optional band/artist so results aren't buried under covers.
+export async function catalogSearchSongs(title: string, artist?: string): Promise<CatalogSong[]> {
+  const params = new URLSearchParams({ type: 'songs', q: title.trim() })
+  if (artist?.trim()) params.set('artist', artist.trim())
+  const r = await mfetch<{ songs: CatalogSong[] }>(`/catalog/search?${params.toString()}`)
+  return r.songs ?? []
+}
 // Query-autosuggest source for the SmartSearch header dropdown (artists + songs, Deezer-backed).
 // Same shape/contract as youtubeSuggestSource so MusicLayout can drop it into useAppHeader.
 export const musicSuggestSource: SuggestSource = async (query, signal) => {

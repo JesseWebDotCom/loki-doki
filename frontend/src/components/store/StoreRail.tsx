@@ -33,12 +33,16 @@ function RailLink({ to, icon: Icon, label, end, badge }: {
 }
 
 /** Store-specific left rail, rendered alongside the global app sidebar. */
-export function StoreRail({ installedCount }: { installedCount: number }) {
+export function StoreRail({ installedCount, variant = 'sidebar' }: { installedCount: number; variant?: 'sidebar' | 'drawer' }) {
+  const drawer = variant === 'drawer'
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
 
   return (
-    <nav className="sticky top-0 hidden h-fit w-52 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
+    <nav className={cn(
+      'shrink-0 flex-col gap-1 px-3 py-5',
+      drawer ? 'flex h-full w-full overflow-y-auto' : 'sticky top-0 hidden h-fit w-52 self-start border-r border-border/40 lg:flex',
+    )}>
       <AppRailHeader
         title="App Store"
         description="Install apps for your hub."

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Dialog as RadixDialog } from "radix-ui";
 import {
@@ -12,7 +13,7 @@ import {
   Mic,
   type LucideIcon,
 } from "lucide-react";
-import { Dialog, DialogPortal, DialogOverlay, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { categoryVisual } from "@/lib/archiveCategories";
 import { APP_GROUPS } from "@/lib/appCategories";
@@ -91,6 +92,52 @@ const CONTENT_ICON: Record<ContentHit["type"], LucideIcon> = {
 };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
+
+// ── Shared open state ──────────────────────────────────────────────────────────
+//
+// The dialog itself is mounted exactly once (in AppShell) and its open state lives
+// in this context so any surface, the desktop sidebar row, the mobile top bar, the
+// mobile nav sheet, the home hero, can open the same Spotlight without spawning a
+// second dialog (and a second Cmd/Ctrl+K listener, which would toggle both).
+
+interface SpotlightCtxValue {
+  open: boolean;
+  setOpen: (o: boolean | ((prev: boolean) => boolean)) => void;
+}
+const SpotlightCtx = createContext<SpotlightCtxValue | null>(null);
+
+export function SpotlightProvider({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return <SpotlightCtx.Provider value={{ open, setOpen }}>{children}</SpotlightCtx.Provider>;
+}
+
+export function useSpotlight() {
+  const ctx = useContext(SpotlightCtx);
+  const setOpen = ctx?.setOpen;
+  const openSpotlight = useCallback(() => setOpen?.(true), [setOpen]);
+  return { open: ctx?.open ?? false, setOpen: setOpen ?? (() => {}), openSpotlight };
+}
+
+// The sidebar/launcher trigger row (Search + ⌘K hint). Opens the shared dialog.
+export function SpotlightTrigger({ className }: { className?: string }) {
+  const { openSpotlight } = useSpotlight();
+  return (
+    // design-ok(hand-styled-button): sidebar nav row affordance
+    <button
+      onClick={openSpotlight}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer",
+        className,
+      )}
+    >
+      <Search className="size-4 shrink-0" />
+      <span className="flex-1 text-sm select-none">Search</span>
+      <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/25 leading-none">
+        {isMac ? "⌘" : "Ctrl"}&thinsp;K
+      </kbd>
+    </button>
+  );
+}
 
 // ── Result rows ──────────────────────────────────────────────────────────────
 
@@ -217,7 +264,7 @@ function LibraryRow({ item, selected, onSelect, onHover }: {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SpotlightSearch() {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = useSpotlight();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [archives, setArchives] = useState<LibraryItem[]>([]);
@@ -340,18 +387,6 @@ export function SpotlightSearch() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {/* Sidebar nav-row trigger: matches LeftSidebar row styling, not a ui/Button shape. */}
-        {/* design-ok(hand-styled-button): sidebar nav row affordance */}
-        <button className="flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer">
-          <Search className="size-4 shrink-0" />
-          <span className="flex-1 text-sm select-none">Search</span>
-          <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/25 leading-none">
-            {isMac ? "⌘" : "Ctrl"}&thinsp;K
-          </kbd>
-        </button>
-      </DialogTrigger>
-
       <DialogPortal>
         <DialogOverlay />
         <RadixDialog.Content

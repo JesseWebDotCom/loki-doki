@@ -1,7 +1,8 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useMemo, useState } from 'react'
 import { Outlet, useMatch } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { usePublishUIContext } from '@/context/UIContextProvider'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { PodcastRail } from '@/components/podcast/PodcastRail'
 import { NowPlaying } from '@/components/podcast/NowPlaying'
@@ -34,6 +35,10 @@ export function PodcastLayout() {
     openCreate: () => { setEditing(null); setEditorOpen(true) },
     openEdit: show => { setEditing(show); setEditorOpen(true) },
   }
+
+  // Publish the rail for the mobile top bar's drawer (desktop renders it inline at lg+).
+  const rail = useMemo(() => <PodcastRail shows={shows} onCreate={() => { setEditing(null); setEditorOpen(true) }} variant="drawer" />, [shows])
+  useAppHeader({ query: '', setQuery: () => {}, searchable: false, rail })
 
   return (
     <PodcastUICtx.Provider value={ui}>

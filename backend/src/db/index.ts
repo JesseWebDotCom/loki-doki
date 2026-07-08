@@ -587,6 +587,11 @@ export function runMigrations() {
     console.warn('[migrations] vision QAT migration failed:', err instanceof Error ? err.message : err)
   }
 
+  // Music Studio: source-fetch state (added after the table shipped — belt-and-suspenders).
+  addColumn('music_studio_tracks', 'source_status', "TEXT NOT NULL DEFAULT 'ready'")
+  addColumn('music_studio_tracks', 'source_error', 'TEXT')
+  addColumn('music_studio_tracks', 'cover_rel_path', 'TEXT')
+
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
   addColumn('music_stations', 'category', 'TEXT')
   addColumn('music_stations', 'loading_messages', 'TEXT')
@@ -768,6 +773,32 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_music_tracks_user_id ON music_tracks(user_id);
     CREATE INDEX IF NOT EXISTS idx_music_tracks_parent ON music_tracks(parent_track_id);
+
+    CREATE TABLE IF NOT EXISTS music_studio_tracks (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      artist TEXT,
+      source_rel_path TEXT,
+      duration_sec REAL,
+      source_status TEXT NOT NULL DEFAULT 'ready',
+      source_error TEXT,
+      cover_rel_path TEXT,
+      stem_status TEXT NOT NULL DEFAULT 'none',
+      stem_model TEXT,
+      stems_json TEXT,
+      stem_error TEXT,
+      analysis_status TEXT NOT NULL DEFAULT 'none',
+      bpm REAL,
+      key_label TEXT,
+      beats_json TEXT,
+      chords_json TEXT,
+      analysis_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_studio_user ON music_studio_tracks(user_id);
 
     CREATE TABLE IF NOT EXISTS music_resolve (
       key TEXT NOT NULL PRIMARY KEY,

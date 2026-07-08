@@ -183,13 +183,30 @@ export async function searchAlbums(query: string, limit = 16): Promise<CatalogAl
   })
 }
 
-export async function searchSongs(query: string, limit = 20): Promise<CatalogSong[]> {
+// Search recordings. With `artist` set, builds a fielded Lucene query
+// (`recording:(title) AND artist:(band)`) so results are scoped to that band — otherwise a
+// bare title match returns hundreds of covers/versions. `lucene()` strips Lucene operators
+// from each value, so wrapping the cleaned words in `field:( … )` is injection-safe.
+export async function searchSongs(query: string, limit = 20, artist?: string): Promise<CatalogSong[]> {
   const q = query.trim()
-  if (!q) return []
-  return cachedLookup('mb-song-search', `${q}:${limit}`, THIRTY_DAYS_MS, async () => {
+  const a = (artist ?? '').trim()
+  if (!q && !a) return []
+  return cachedLookup('mb-song-search', `${q}|${a}:${limit}`, THIRTY_DAYS_MS, async () => {
     try {
-      const data = await mbFetch(`/recording?query=${encodeURIComponent(lucene(q))}&limit=${limit}`)
-      return (data.recordings ?? []).map(mapRecording).filter((s: CatalogSong) => s.title)
+      let mbQuery: string
+      if (a) {
+        const parts: string[] = []
+        if (q) parts.push(`recording:(${lucene(q)})`)
+        parts.push(`artist:(${lucene(a)})`)
+        mbQuery = parts.join(' AND ')
+      } else {
+        mbQuery = lucene(q)
+      }
+      // Over-fetch, then dedupe by base title + rank so the canonical studio take surfaces
+      // first instead of being buried under live/remix/remaster/karaoke duplicates.
+      const fetchLimit = Math.min(100, Math.max(limit * 2, 40))
+      const data = await mbFetch(`/recording?query=${encodeURIComponent(mbQuery)}&limit=${fetchLimit}`)
+      return rankRecordings((data.recordings ?? []), q.toLowerCase(), !!a, limit)
     } catch (err) {
       logger.debug(`[catalog] searchSongs failed: ${String(err)}`)
       return []
@@ -299,6 +316,72 @@ function mapReleaseGroup(rg: any): CatalogAlbum {
     artistMbid: credit?.[0]?.artist?.id ?? null,
     coverUrl: albumCoverUrl(rg.id),
   }
+}
+
+// ── Smart recording ranking (ported/adapted from the Stadium project) ──────────────
+// MusicBrainz returns one recording row per release, so a hit like "Everlong" comes back
+// dozens of times (album take, live, remaster, karaoke, compilation, video…). We (1) collapse
+// them to one row per song and (2) rank so the canonical studio take wins, rather than
+// returning them raw where the wanted result is buried.
+
+// Base-title key for dedup: drop parenthetical/bracketed and dashed variant suffixes
+// ("(Live)", "[Remastered 2011]", " - Acoustic Version") so every take of a song collapses
+// onto the same key. Also folds punctuation/whitespace/case.
+function baseTitleKey(title: string): string {
+  return (title || '')
+    .toLowerCase()
+    .replace(/\s*[([][^)\]]*[)\]]/g, ' ')                 // (…) […]
+    .replace(/\s*-\s*(live|remix|remaster(ed)?|acoustic|demo|edit|mono|stereo|version|mix|single|instrumental|karaoke|reprise|session|rehearsal|radio\b.*|extended\b.*).*$/i, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+// Only treat a variant word as a penalty when it appears as a labelled suffix — inside
+// ( ) / [ ] or after a dash — so a real title like "Live and Let Die" is NOT penalised.
+const VARIANT_LABEL_RE = /[([\-].*?\b(live|remix|remaster(ed)?|karaoke|instrumental|acoustic|demo|commentary|cover|reprise|edit|version|mix|a[- ]?cappella|backing track|rehearsal|session|sped[- ]?up|slowed|8d|nightcore)\b/i
+
+function recordingScore(q: string, rec: any): number {
+  const title = (rec.title || '').toLowerCase()
+  let s = 0
+  if (title === q) s += 100
+  else if (title.startsWith(q)) s += 55
+  else if (title.includes(q)) s += 40
+
+  const releases: any[] = rec.releases ?? []
+  if (releases.length) s += 12                                   // a real release (studio) beats a stray recording
+  const rg = releases[0]?.['release-group'] ?? {}
+  const primary = String(rg['primary-type'] ?? '').toLowerCase()
+  if (primary === 'album') s += 12
+  else if (primary === 'single') s += 6
+  else if (primary === 'ep') s += 4
+  for (const t of (rg['secondary-types'] ?? []).map((x: string) => String(x).toLowerCase())) {
+    if (t === 'live' || t === 'remix' || t === 'compilation' || t === 'dj-mix' || t === 'demo' || t === 'interview' || t === 'mixtape/street') s -= 12
+  }
+
+  if (VARIANT_LABEL_RE.test(rec.title || '')) s -= 10
+  const disc = String(rec.disambiguation ?? '').toLowerCase()
+  if (disc.includes('cover') || disc.includes('live') || disc.includes('remix') || disc.includes('karaoke') || disc.includes('instrumental')) s -= 8
+  if (rec.video) s -= 10                                         // music videos / live clips
+  if (rec['first-release-date']) s += 3
+  return s
+}
+
+// Dedupe by base title (+ artist when the search wasn't already scoped to one artist),
+// keeping the highest-scoring take, then sort by score and take the top `limit`.
+function rankRecordings(recs: any[], q: string, artistScoped: boolean, limit: number): CatalogSong[] {
+  const groups = new Map<string, { rec: any; score: number }>()
+  for (const rec of recs) {
+    if (!rec?.title) continue
+    const artistKey = artistScoped ? '' : (creditName(rec['artist-credit']) || '').toLowerCase()
+    const key = `${baseTitleKey(rec.title)}|${artistKey}`
+    const score = recordingScore(q, rec)
+    const cur = groups.get(key)
+    if (!cur || score > cur.score) groups.set(key, { rec, score })
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((g) => mapRecording(g.rec))
 }
 
 function mapRecording(rec: any): CatalogSong {

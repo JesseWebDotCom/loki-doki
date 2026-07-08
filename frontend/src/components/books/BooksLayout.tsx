@@ -78,6 +78,33 @@ function OfflineLink() {
   )
 }
 
+// The Books sub-nav. Rendered inline as the desktop rail (lg+) and, via the header
+// `rail` slot, inside the mobile top bar's drawer. `mode` is passed explicitly because
+// the drawer renders outside the BooksModeCtx provider.
+function BooksRail({ variant, mode }: { variant: 'sidebar' | 'drawer'; mode: BooksMode }) {
+  const drawer = variant === 'drawer'
+  return (
+    <nav className={cn(
+      'shrink-0 flex-col gap-1 px-3 py-5',
+      drawer ? 'flex h-full w-full overflow-y-auto' : 'sticky top-0 hidden h-fit w-56 self-start border-r border-border/40 lg:flex',
+    )}>
+      <AppRailHeader title="Books" className="mb-4" />
+      {mode === 'online' && (
+        <>
+          <RailLink to="/books" icon={Compass} label="Book Store" end />
+          <RailLink to="/books/magazines" icon={Newspaper} label="Magazine Store" />
+          <RailLink to="/books/audiobooks" icon={BookAudio} label="Audiobook Store" />
+        </>
+      )}
+      <RailLink to="/books/library" icon={Library} label="My Library" end={mode === 'offline'} />
+      <OfflineLink />
+      <RailLink to="/books/upload" icon={Upload} label="Upload" />
+      <RailLink to="/books/generate" icon={Sparkles} label="Create with AI" />
+      <RailLink to="/books/sources" icon={Settings} label="Sources" />
+    </nav>
+  )
+}
+
 export function BooksLayout() {
   usePublishUIContext({ label: 'Books', description: 'User is browsing the Books app (books, magazines, offline libraries, audiobooks).' })
 
@@ -106,6 +133,7 @@ export function BooksLayout() {
   }, [mode, pathname, navigate])
 
   const rightSlot = useMemo(() => <ModeToggle mode={mode} onChange={setMode} />, [mode])
+  const rail = useMemo(() => <BooksRail variant="drawer" mode={mode} />, [mode])
   useAppHeader({
     query,
     setQuery,
@@ -120,6 +148,7 @@ export function BooksLayout() {
     placeholder: 'Search books…',
     settingsHref: '/books/sources',
     rightSlot,
+    rail,
   })
 
   const a = ACCENT[mode]
@@ -137,21 +166,7 @@ export function BooksLayout() {
   return (
     <BooksModeCtx.Provider value={{ mode, setMode }}>
       <div className="flex min-h-full bg-background" style={accentVars}>
-        <nav className="sticky top-0 hidden h-fit w-56 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
-          <AppRailHeader title="Books" className="mb-4" />
-          {mode === 'online' && (
-            <>
-              <RailLink to="/books" icon={Compass} label="Book Store" end />
-              <RailLink to="/books/magazines" icon={Newspaper} label="Magazine Store" />
-              <RailLink to="/books/audiobooks" icon={BookAudio} label="Audiobook Store" />
-            </>
-          )}
-          <RailLink to="/books/library" icon={Library} label="My Library" end={mode === 'offline'} />
-          <OfflineLink />
-          <RailLink to="/books/upload" icon={Upload} label="Upload" />
-          <RailLink to="/books/generate" icon={Sparkles} label="Create with AI" />
-          <RailLink to="/books/sources" icon={Settings} label="Sources" />
-        </nav>
+        <BooksRail variant="sidebar" mode={mode} />
 
         <div className="min-w-0 flex-1">
           <Outlet />

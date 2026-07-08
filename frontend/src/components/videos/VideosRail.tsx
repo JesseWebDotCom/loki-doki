@@ -61,7 +61,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="mb-1 mt-5 px-3 text-overline text-muted-foreground/60">{children}</p>
 }
 
-export function VideosRail() {
+export function VideosRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'drawer' }) {
+  const drawer = variant === 'drawer'
   const { data: subs = [] } = useQuery({ queryKey: ['yt-subs'], queryFn: getSubscriptions })
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows, staleTime: 5 * 60_000 })
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
@@ -97,7 +98,10 @@ export function VideosRail() {
   }, [subs, followsData, subSort])
 
   return (
-    <nav className="hidden h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto overscroll-none border-r border-border/40 px-3 py-5 lg:flex">
+    <nav className={cn(
+      'h-full min-h-0 shrink-0 flex-col overflow-y-auto overscroll-none px-3 py-5',
+      drawer ? 'flex w-full' : 'hidden w-60 border-r border-border/40 lg:flex',
+    )}>
       <AppRailHeader
         title="Videos"
         className="mb-4"

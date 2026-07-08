@@ -1,5 +1,5 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
-import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, Heart, ListMusic, History, Download, type LucideIcon } from 'lucide-react'
+import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, SlidersHorizontal, Heart, ListMusic, History, Download, type LucideIcon } from 'lucide-react'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { cn } from '@/lib/cn'
@@ -35,11 +35,15 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="mb-1 mt-5 px-3 text-overline text-muted-foreground/60">{children}</p>
 }
 
-export function MusicRail() {
+export function MusicRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'drawer' }) {
   const radio = useRadio()
   const offline = useMusicModeOptional() === 'offline'
+  const drawer = variant === 'drawer'
   return (
-    <nav className="hidden h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto overscroll-none border-r border-border/40 px-3 py-5 lg:flex">
+    <nav className={cn(
+      'h-full min-h-0 shrink-0 flex-col overflow-y-auto overscroll-none px-3 py-5',
+      drawer ? 'flex w-full' : 'hidden w-60 border-r border-border/40 lg:flex',
+    )}>
       <AppRailHeader title="Music" className="mb-4" />
       <RailLink to="/music" icon={Home} label="Home" end />
       <RailLink to="/music/stations" icon={Radio} label="Stations" />
@@ -54,6 +58,7 @@ export function MusicRail() {
         <SectionLabel>Create</SectionLabel>
         <RailLink to="/music/generate" icon={Sparkles} label="Generate" />
         <RailLink to="/music/remix" icon={Shuffle} label="Remix" />
+        <RailLink to="/music/studio" icon={SlidersHorizontal} label="Studio" />
       </>}
 
       <SectionLabel>Your Library</SectionLabel>

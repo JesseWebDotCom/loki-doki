@@ -118,6 +118,7 @@ export function VideosLayout() {
 
   // Publish the breadcrumb search + the Online/Offline toggle (upper-right).
   const rightSlot = useMemo(() => <ModeToggle mode={mode} onChange={setMode} />, [mode])
+  const rail = useMemo(() => <VideosRail variant="drawer" />, [])
   useAppHeader({
     query,
     setQuery,
@@ -140,6 +141,7 @@ export function VideosLayout() {
     settingsHref: '/videos/settings',
     suggest: mode === 'online' ? youtubeSuggestSource : undefined,
     rightSlot,
+    rail,
   })
 
   const ui: YoutubeUI = {

@@ -1953,14 +1953,15 @@ youtubeRoute.get('/history', async (c) => {
 
   // Linked YouTube account: merge the real account history (deduped against local rows)
   // as its own section, so signed-in users see everything they watched anywhere.
-  let accountHistory: Array<{ videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null }> = []
+  let accountHistory: Array<{ videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null; channelThumb: string | null }> = []
   try {
     const token = await getValidAccessToken(user.id)
     if (token) {
       const { fetchWatchHistory } = await import('@/lib/youtube/tvClient')
       const items = await cachedLookup(`yt-account-history`, user.id, 5 * 60_000, () => fetchWatchHistory(token, 60))
       const seen = new Set(history.map(h => h.videoId))
-      accountHistory = items.filter(v => !seen.has(v.videoId))
+      accountHistory = items.filter(v => !seen.has(v.videoId)).map(v => ({ ...v, channelThumb: null }))
+      await enrichChannelThumbs(accountHistory)
     }
   } catch { /* account history is best-effort */ }
 

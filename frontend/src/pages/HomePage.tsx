@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   Activity, Bookmark, BookOpen, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Home, Laugh, LayoutGrid,
   Lightbulb, ListVideo, LockOpen, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
-  Power, RotateCw, ShieldCheck, Star, Sunrise, Tag, Trophy, Tv, Upload, Volume2, X, type LucideIcon,
+  Power, RotateCw, Search, ShieldCheck, Star, Sunrise, Tag, Trophy, Tv, Upload, Volume2, X, type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cardVariants } from "@/components/ui/card";
@@ -38,6 +38,8 @@ import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTe
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useSpotlight } from "@/components/shared/SpotlightSearch";
 import { useYtFeed } from "@/lib/youtube/useData";
 import { fmtAge } from "@/lib/youtube/format";
 import { ytImageProxy } from "@/lib/youtube/api";
@@ -76,7 +78,7 @@ interface GameItem  { title: string }
 
 // ── Compact weather widget (header) ──────────────────────────────────────────
 
-function WeatherWidget({ light }: { light?: boolean }) {
+function WeatherWidget({ light, variant = "corner" }: { light?: boolean; variant?: "corner" | "strip" }) {
   const { snapshot, status } = useWeatherSnapshot();
   const moon = moonPhaseInfo(currentMoonPhase());
   const isDay = snapshot?.isDay ?? true;
@@ -90,9 +92,37 @@ function WeatherWidget({ light }: { light?: boolean }) {
 
   if (status !== "ready" || !snapshot) {
     return (
-      <Link to="/weather" className="flex flex-col items-end">
+      <Link to="/weather" className={cn("flex", variant === "strip" ? "items-center gap-2" : "flex-col items-end")}>
         <span className="text-2xl leading-none">⛅</span>
-        <p className={cn("text-[11px] mt-0.5", textMuted)}>Weather</p>
+        <p className={cn("text-[11px]", variant === "strip" ? "" : "mt-0.5", textMuted)}>Weather</p>
+      </Link>
+    );
+  }
+
+  // Mobile: a full-width horizontal strip so the description reads on its own line
+  // (the corner layout right-hugs it into ~130px).
+  if (variant === "strip") {
+    return (
+      <Link
+        to="/weather"
+        className="flex items-center gap-3 rounded-card border border-border/40 bg-card/60 px-4 py-2.5"
+      >
+        <div className="relative shrink-0">
+          <img src={weatherIconSrc(snapshot.info.icon)} className="size-11" alt="" />
+          {!isDay && (
+            <span className="absolute -top-0.5 -right-1 text-xs leading-none"
+              style={{ filter: "drop-shadow(0 0 4px rgba(147,197,253,0.9))" }}>
+              {moon.emoji}
+            </span>
+          )}
+        </div>
+        <span className={cn("text-[2rem] font-semibold tracking-tight tabular-nums leading-none", light && "text-white drop-shadow")}>
+          {snapshot.temp}°
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className={cn("text-sm font-medium capitalize", textMuted)}>{snapshot.info.desc}</p>
+          <p className={cn("truncate text-xs leading-tight", textFaint)}>{snapshot.location}</p>
+        </div>
       </Link>
     );
   }
@@ -2122,6 +2152,28 @@ function WidgetRow({
 }) {
   const mode = rowMode(row);
   const n = row.cols.length;
+  const isMobile = useIsMobile();
+
+  // On phones a 2-/3-track grid squishes each tile to ~110px and its fixed-width
+  // thumbnails overflow. Stack every widget full-width instead, and render it in
+  // its row/strip mode where supported so it reads as a clean horizontal strip.
+  if (isMobile) {
+    return (
+      <div className="flex flex-col gap-3">
+        {row.cols.map(widget => (
+          <WidgetCard
+            key={widget.toolId}
+            widget={widget}
+            mode={getWidgetMeta(widget.toolId)?.supportsRowMode ? 'row' : 'column'}
+            editMode={editMode}
+            isActive={widget.toolId === activeId}
+            onRemove={() => onRemoveWidget(widget.toolId)}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className={cn(
       "grid gap-3",
@@ -2322,6 +2374,7 @@ export function HomePage() {
 
   const { layout, locked, save } = useHomeLayout();
   const { tools } = useInstalledTools();
+  const { openSpotlight } = useSpotlight();
 
   // Weather background for the header
   const { snapshot: wxSnap, status: wxStatus } = useWeatherSnapshot();
@@ -2407,6 +2460,8 @@ export function HomePage() {
   const activeRows = editMode ? draftRows : layout.canvas;
 
   const showJokes   = layout.header.jokes;
+  // header.weather was defined but never read; wire it so it actually hides weather.
+  const showWeather = layout.header.weather !== false;
   const tickerCfg   = resolveTickerConfig(layout.header);
   const showTicker  = tickerCfg.enabled && tickerCfg.sources.length > 0;
 
@@ -2415,7 +2470,7 @@ export function HomePage() {
 
       {/* ── Welcome + weather + joke ── */}
       <div
-        className="relative flex items-start justify-between gap-6 px-5 pt-8 pb-10 overflow-hidden"
+        className="relative flex flex-col gap-4 px-5 pt-8 pb-10 overflow-hidden sm:flex-row sm:items-start sm:justify-between sm:gap-6"
         style={wxHeroBg ? { background: wxHeroBg } : undefined}
       >
         {wxLoaded && <WeatherHeroBg gradient={wxGradient} isDay={wxIsDay} />}
@@ -2440,10 +2495,28 @@ export function HomePage() {
             )}
           </h1>
           {showJokes && <JokeText light={wxLight} />}
+          {/* Mobile-only search entry (no top bar on home). Opens the shared Spotlight. */}
+          {/* design-ok(hand-styled-button): bespoke search-field affordance, not a ui/Button shape */}
+          <button
+            type="button"
+            onClick={openSpotlight}
+            className="mt-4 flex w-full items-center gap-2 rounded-full border border-border/50 bg-card/70 px-4 py-2.5 text-left text-sm text-muted-foreground shadow-sm sm:hidden"
+          >
+            <Search className="size-4 shrink-0" />
+            Search apps, articles, and libraries…
+          </button>
         </div>
-        <div className="relative z-10 shrink-0 pt-0.5">
-          <WeatherWidget light={wxLight} />
-        </div>
+        {/* Desktop: compact corner widget. Mobile: full-width strip below the greeting. */}
+        {showWeather && (
+          <>
+            <div className="relative z-10 hidden shrink-0 pt-0.5 sm:block">
+              <WeatherWidget light={wxLight} />
+            </div>
+            <div className="relative z-10 sm:hidden">
+              <WeatherWidget light={wxLight} variant="strip" />
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Ticker ── */}

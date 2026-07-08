@@ -59,6 +59,11 @@ interface CachedUrl { url: string; expires: number }
 // googlevideo URLs carry their own `expire` epoch; we re-resolve well before that.
 const TTL_MS = 4 * 60 * 60 * 1000
 const cache = new Map<string, CachedUrl>()
+// Videos InnerTube won't cooperate with (age/region/login-gated) fail resolveStreamPreviewUrl's
+// fast path every time — without this, every hover pays the full ~11s worst case (cold
+// visitorData + player call) again. Short TTL since gating can lift/change.
+const MISS_TTL_MS = 10 * 60 * 1000
+const previewMisses = new Map<string, number>()
 // In-flight resolves keyed the same as the cache, so a prewarm and the real stream
 // request for the same video share ONE yt-dlp run instead of spawning two (which would
 // serialize behind the yt-dlp slot and double the wait).
@@ -212,7 +217,13 @@ export async function resolveStreamPreviewUrl(videoId: string, kind: StreamKind,
   const hit = cache.get(key)
   if (hit && hit.expires > now) return hit.url
   if (hit) cache.delete(key)
+  const missUntil = previewMisses.get(key)
+  if (missUntil !== undefined) {
+    if (missUntil > now) return null
+    previewMisses.delete(key)
+  }
   const url = await fastPathResolve(videoId, kind, quality)
   if (url) cacheUrl(key, url, now)
+  else previewMisses.set(key, now + MISS_TTL_MS)
   return url
 }

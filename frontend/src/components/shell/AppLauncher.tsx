@@ -45,6 +45,20 @@ interface AppLauncherProps {
   onUnpin: (id: string) => void;
 }
 
+interface AppLauncherBodyProps {
+  /** Whether the launcher surface is currently visible (resets search when it becomes active). */
+  active: boolean;
+  /** Called after a navigation so the host (dialog / sheet) can close. */
+  onClose: () => void;
+  pinnedIds: readonly string[];
+  recentIds: readonly string[];
+  onPin: (id: string) => void;
+  onUnpin: (id: string) => void;
+  /** Overrides the grid scroller height (dialog uses a fixed height; the mobile sheet flex-fills). */
+  scrollerClassName?: string;
+  className?: string;
+}
+
 const RECENTS_MAX = 8;
 const NOTEWORTHY_MAX = 6;
 
@@ -158,6 +172,38 @@ function SectionHeading({ label }: { label: string }) {
 const GRID_CLASS = "grid grid-cols-3 gap-x-1 gap-y-2 sm:grid-cols-5 md:grid-cols-7";
 
 export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, onUnpin }: AppLauncherProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPortal>
+        <DialogOverlay />
+        {/* Bespoke content (not ui/DialogContent): flush Spotlight-style chrome
+            without the baked-in corner close button. */}
+        <RadixDialog.Content
+          aria-describedby={undefined}
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col",
+            "overflow-hidden rounded-sheet border border-border bg-popover shadow-2xl",
+            "data-[state=open]:animate-in data-[state=closed]:animate-out",
+            "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+            "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          )}
+        >
+          <RadixDialog.Title className="sr-only">Apps</RadixDialog.Title>
+          <AppLauncherBody
+            active={open}
+            onClose={() => onOpenChange(false)}
+            pinnedIds={pinnedIds}
+            recentIds={recentIds}
+            onPin={onPin}
+            onUnpin={onUnpin}
+          />
+        </RadixDialog.Content>
+      </DialogPortal>
+    </Dialog>
+  );
+}
+
+export function AppLauncherBody({ active, onClose, pinnedIds, recentIds, onPin, onUnpin, scrollerClassName, className }: AppLauncherBodyProps) {
   const navigate = useNavigate();
   const prefetch = useIntentPrefetch();
   const appFeatures = useAppFeatures();
@@ -169,12 +215,12 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
 
   // Fresh search + filter each time the launcher opens.
   useEffect(() => {
-    if (open) {
+    if (active) {
       setQuery("");
       setActiveCat("all");
       setHovered(null);
     }
-  }, [open]);
+  }, [active]);
 
   const q = query.trim().toLowerCase();
   const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
@@ -300,12 +346,12 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
 
   function openPath(href: string) {
     navigate(href);
-    onOpenChange(false);
+    onClose();
   }
 
   function openStoreApp(app: StoreApp) {
     navigate(`/app-store/app/${app.id}`);
-    onOpenChange(false);
+    onClose();
   }
 
   function pinToggle(entry: LauncherEntry) {
@@ -322,23 +368,7 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPortal>
-        <DialogOverlay />
-        {/* Bespoke content (not ui/DialogContent): flush Spotlight-style chrome
-            without the baked-in corner close button. */}
-        <RadixDialog.Content
-          aria-describedby={undefined}
-          className={cn(
-            "fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col",
-            "overflow-hidden rounded-sheet border border-border bg-popover shadow-2xl",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out",
-            "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-            "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-          )}
-        >
-          <RadixDialog.Title className="sr-only">Apps</RadixDialog.Title>
-
+    <div className={cn("flex min-h-0 flex-col", className)}>
           {/* Search, flush header matching SpotlightSearch */}
           <div className="flex shrink-0 items-center gap-3 border-b border-border/50 px-5 py-4">
             <Search className="size-4 shrink-0 text-foreground/40" aria-hidden="true" />
@@ -367,8 +397,9 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
           </ChipRow>
 
           {/* Grid: fixed height (not max-h) so the modal doesn't resize as
-              chip/category filters change how much content is inside. */}
-          <div className="h-[min(65vh,40rem)] overflow-y-auto px-4 pb-6 pt-3">
+              chip/category filters change how much content is inside. The mobile
+              sheet passes a flex-fill class instead. */}
+          <div className={cn("overflow-y-auto px-4 pb-6 pt-3", scrollerClassName ?? "h-[min(65vh,40rem)]")}>
             {showRecents && (
               <section className="mb-4 border-b border-border/40 pb-4">
                 <SectionHeading label="Recents" />
@@ -462,8 +493,6 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
               <ArrowRight className="size-3.5" aria-hidden="true" />
             </button>
           </div>
-        </RadixDialog.Content>
-      </DialogPortal>
-    </Dialog>
+    </div>
   );
 }

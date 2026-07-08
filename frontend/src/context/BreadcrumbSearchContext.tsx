@@ -23,6 +23,14 @@ export interface AppHeaderConfig {
   /** Optional node rendered to the RIGHT of the search input (e.g. a mode toggle). */
   rightSlot?: ReactNode
   /**
+   * Optional app sub-navigation rail (the same node an app renders as its desktop
+   * `lg+` left rail). On mobile the shell has no room for an inline rail, so when a
+   * page publishes one here the mobile top bar shows a chevron on the app title that
+   * opens this node in a left drawer. Desktop ignores it (the app renders its rail
+   * inline). See the "rail drawer" section of the mobile shell.
+   */
+  rail?: ReactNode
+  /**
    * Extra crumbs appended after the page's own crumb (e.g. a panel app's current
    * section/subsection: Admin > System > Connectivity). Omit `onClick` on the
    * last one so it renders as the non-interactive current page, matching the
@@ -74,7 +82,7 @@ export function useAppHeader(config: AppHeaderConfig) {
   const setQuery = useCallback((q: string) => configRef.current.setQuery(q), [])
   const onSubmit = useCallback((q?: string) => configRef.current.onSubmit?.(q), [])
 
-  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs, suggest } = config
+  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, rail, searchable, extraCrumbs, suggest } = config
   const hasSubmit = !!config.onSubmit
 
   useLayoutEffect(() => {
@@ -86,6 +94,7 @@ export function useAppHeader(config: AppHeaderConfig) {
       settingsHref,
       leftSlot,
       rightSlot,
+      rail,
       searchable,
       extraCrumbs,
       suggest,
@@ -93,7 +102,7 @@ export function useAppHeader(config: AppHeaderConfig) {
       onSubmit: hasSubmit ? onSubmit : undefined,
     })
     return () => _set(null)
-  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, extraCrumbs, suggest, hasSubmit, setQuery, onSubmit, _set])
+  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, rail, searchable, extraCrumbs, suggest, hasSubmit, setQuery, onSubmit, _set])
 }
 
 // ── Back-compat aliases ────────────────────────────────────────────────────────
