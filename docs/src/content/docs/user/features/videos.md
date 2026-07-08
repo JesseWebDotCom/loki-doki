@@ -5,7 +5,7 @@ sidebar:
   order: 5
 ---
 
-**One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - and none of the sponsor pitches and scam bait that modern video aims at the people you love. You decide what your family sees, not an algorithm.
+**One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - just a calmer, more honest way for the people you love to watch. You decide what your family sees, not an algorithm.
 
 ## One app, many sources
 
@@ -29,20 +29,20 @@ Videos play right in the app, streamed through your home server. While one plays
 - **Minimize to the mini player** - keep watching in a docked corner player while you browse the rest of the app; it follows you everywhere and can advance through a queue.
 - **Pop out Picture-in-Picture** - float the video over other apps and windows.
 - **Take control of playback** - speed from 0.25× to 2×, a quality picker, a **volume boost** up to 4× for quiet recordings, fullscreen with a zoom-to-fill option, and frame previews when you hover the scrubber.
-- **Skip the junk** - sponsor reads, intros, and self-promo skip automatically (see "Protecting your family from the selling machine" below).
+- **Skip the junk** - sponsor reads, intros, and self-promo skip automatically (see "A safer, calmer watch" below).
 - **Record live streams from the start** - a livestream can be captured as it happens and lands in your Offline library.
 
 Chapters appear on the scrubber, comments and restored like/dislike counts show where the platform has them, cards play a silent preview when you hover them, and an **Up next** column with autoplay (and a cancellable countdown) keeps a session going. The app quietly remembers where you stopped, so every video resumes right where you left off - on any device.
 
-## Protecting your family from the selling machine
+## A safer, calmer watch for your family
 
-Modern video isn't just entertainment - it's a sales funnel aimed at the people least equipped to see it. Kids can't tell a sponsor read from the show. Seniors are the favorite target of "giveaway" scams, miracle-product pitches, and sketchy links in descriptions. And the profiling behind it all exists to figure out exactly which pitch will land on which member of your household. Videos takes that whole layer away:
+Not everyone in a household can tell a pitch from the content. Kids take sponsor reads at face value. Seniors are the favorite target of "giveaway" scams, miracle-product pitches, and look-alike links in descriptions. Videos presents the same content more honestly, so the people you love watch what they came to watch:
 
-- **No profiling to aim with** - everything streams through your own server, so the platforms never build the viewing profile that targeted selling depends on. Nothing gets injected around the player - it's just the video.
-- **Anti-clickbait** - community-voted titles and thumbnails replace manipulative clickbait with a plain description of what the video actually is, so a thumbnail can't bait a kid (or anyone) into something it isn't.
-- **Sponsor reads, subscribe-begging, and self-promo skip themselves** during playback, using community-submitted markers - the pitch inside the video is gone before anyone hears it. You pick which categories to skip.
-- **AI descriptions defuse the description box** - sponsor plugs, product links, promo codes, and giveaway pitches (a classic scam vector) are stripped out, leaving just the real notes - and where a video has no useful description, the AI writes an honest one. "View original" brings the raw text back anytime.
+- **Nothing to fall for** - clickbait titles and thumbnails are replaced with community-voted ones that plainly describe what the video actually is, so nobody gets baited into something it isn't.
+- **Fewer interruptions** - community-submitted markers let sponsor reads, subscribe reminders, and self-promo skip automatically, and you choose exactly which categories to skip (or none at all).
+- **Cleaner descriptions** - AI tidies the description box down to the creator's actual notes, filtering out the promo codes and giveaway links that scammers love to imitate - and where a video has no useful description, the AI writes an honest one. "View original" brings the raw text back anytime.
 - **Smart titles** - where a source gives videos no real titles at all (TikTok), local AI writes one from the video's captions.
+- **No profile of your family** - everything streams through your own server, so no viewing profile is ever built on your kids or grandparents to target them with.
 
 And local AI helps everyone judge what's actually worth their time:
 
