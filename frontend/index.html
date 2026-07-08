@@ -45,9 +45,15 @@
       //
       // 1. "online" event — fires when the interface comes back up; reload only
       //    if the app never mounted, with a 1s pause to let the stack settle.
-      // 2. Periodic heartbeat — starts 5s after the document loads (enough for
-      //    React to mount normally); if root is still empty, keep reloading
-      //    every 5s until the server comes back.
+      // 2. Periodic heartbeat — starts 5s AFTER window "load" (all module
+      //    fetches done); if root is still empty, keep reloading every 5s
+      //    until the server comes back. Anchored to "load", not parse time:
+      //    a cold dev load from a REMOTE device fetches ~500 unbundled
+      //    modules and takes well over 5s — a fixed post-parse timer reloads
+      //    mid-load and loops forever (white page on every non-localhost
+      //    browser).
+      // 3. Stalled-load fallback — if "load" never fires (aborted fetches
+      //    left hanging) and nothing mounted after 60s, reload once.
       (function () {
         function broken() {
           return !document.getElementById("root").firstElementChild;
@@ -55,10 +61,15 @@
         window.addEventListener("online", function () {
           if (broken()) setTimeout(function () { location.reload(); }, 1000);
         });
+        window.addEventListener("load", function () {
+          setTimeout(function () {
+            if (broken()) { location.reload(); return; }
+            setInterval(function () { if (broken()) location.reload(); }, 5000);
+          }, 5000);
+        });
         setTimeout(function () {
-          if (broken()) { location.reload(); return; }
-          setInterval(function () { if (broken()) location.reload(); }, 5000);
-        }, 5000);
+          if (broken() && document.readyState !== "complete") location.reload();
+        }, 60000);
       })();
     </script>
   </body>

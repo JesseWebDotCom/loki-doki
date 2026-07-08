@@ -18,6 +18,7 @@
 // the module degrades to always-owner (current single-tab behaviour).
 
 import { useEffect, useState } from 'react'
+import { uuid } from '@/lib/uuid'
 
 const CHANNEL = 'companion-voice-ownership'
 const HEARTBEAT_MS = 2000
@@ -29,15 +30,7 @@ type Msg =
   | { type: 'heartbeat'; tabId: string; ts: number }
   | { type: 'release'; tabId: string }
 
-function makeTabId(): string {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `tab-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
-  }
-}
-
-const tabId = makeTabId()
+const tabId = uuid()
 
 let channel: BroadcastChannel | null = null
 let started = false

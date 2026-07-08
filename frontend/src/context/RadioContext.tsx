@@ -4,6 +4,7 @@ import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack } fro
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { uuid } from '@/lib/uuid'
 
 /** Persistent AI Radio engine — lives above the router so a station keeps playing
  *  (and stays controllable from the mini-player) as you move around the app. */
@@ -76,7 +77,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     const key = `${state.station?.id ?? ''}|${state.currentTrack?.videoId ?? ''}`
     const justActivated = state.active && !wasActiveRef.current
     const keyChanged = state.active && key !== lastKeyRef.current
-    if (justActivated || keyChanged) sessionIdRef.current = crypto.randomUUID()
+    if (justActivated || keyChanged) sessionIdRef.current = uuid()
     wasActiveRef.current = state.active
     lastKeyRef.current = key
   }, [state.active, state.station?.id, state.currentTrack?.videoId])

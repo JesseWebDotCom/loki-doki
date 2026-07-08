@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { uuid } from '@/lib/uuid'
 
 export interface PodcastChapter { title: string; startSec: number }
 export interface TranscriptTurn { speaker: string; text: string }
@@ -82,7 +83,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   // ── Core transport ───────────────────────────────────────────────────────────
   const playTrackAt = useCallback((newTrack: PodcastTrack, startSec: number) => {
     acquireAudio('podcast')   // stop radio/YouTube — podcasts are a first-class audio source
-    sessionIdRef.current = crypto.randomUUID()
+    sessionIdRef.current = uuid()
     pendingStart.current = startSec
     setTrack(newTrack)
     setPositionSec(startSec)

@@ -6,6 +6,7 @@ import type { Source } from '@/lib/transformCitations'
 import { useUIContext } from '@/context/UIContextProvider'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
 import { toast } from '@/lib/toast'
+import { uuid } from '@/lib/uuid'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { applyPlayDirective, parsePlayDirective, type Directive } from '@/lib/playDirective'
@@ -487,7 +488,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // no characterId) actually talks to the selected companion, with their persona/voice.
     const charId = characterId ?? getActiveCompanionId() ?? undefined
 
-    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text }
+    const userMsg: Message = { id: uuid(), role: 'user', content: text }
     setMessages((prev) => [...prev, userMsg])
     setInput('')
     setIsGenerating(true)
@@ -499,7 +500,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const uiContext = getContextBlock()
     // Placeholder with a temp id; server will confirm the real assistantMessageId via gen event
-    const placeholderId = crypto.randomUUID()
+    const placeholderId = uuid()
     setMessages((prev) => [...prev, { id: placeholderId, role: 'assistant', content: '' }])
 
     const controller = new AbortController()
@@ -738,7 +739,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const text = newText.trim()
     if (!text || isGenerating || !conversationId) return
 
-    const placeholderId = crypto.randomUUID()
+    const placeholderId = uuid()
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === userMessageId)
       if (idx < 0) return prev
