@@ -161,14 +161,28 @@ async function fetchItem(id: string): Promise<(VideoItem & { description?: strin
 // Zero-setup browse surface: TikTok's trending page is scrape-hostile, but profile
 // extraction is reliable, so "browse" is a rotating pull from broadly popular creators.
 // Follows personalize it; this makes the source alive out of the box.
-const STARTER_CREATORS = ['khaby.lame', 'zachking', 'mrbeast', 'gordonramsayofficial', 'natgeo', 'nasa', 'dude.perfect', 'jamieoliver']
+// nasa/dude.perfect were the real accounts' old handles; both have since moved on
+// (@nasa and @dude.perfect now resolve to unrelated/inactive accounts with zero posts,
+// which yt-dlp reports as "does not have any videos posted"), silently starving these
+// rows of a third of their creators. @nasagov and @dudeperfect are the live accounts.
+// A broad pool (each handle verified live) so the popular shelf + "More to explore" grid
+// have real depth — BROWSE_PER_CREATOR videos per creator, interleaved, is the ceiling.
+const STARTER_CREATORS = [
+  'khaby.lame', 'zachking', 'mrbeast', 'gordonramsayofficial', 'natgeo', 'nasagov',
+  'dudeperfect', 'jamieoliver', 'charlidamelio', 'bellapoarch', 'therock', 'willsmith',
+  'redbull', 'spencerx',
+]
 const CREATOR_GROUPS: Record<string, { label: string; creators: string[] }> = {
   popular: { label: 'Popular', creators: STARTER_CREATORS },
-  comedy: { label: 'Comedy', creators: ['khaby.lame', 'zachking', 'brittany_broski'] },
-  food: { label: 'Food', creators: ['gordonramsayofficial', 'jamieoliver', 'cookingwithlynja'] },
-  science: { label: 'Science & Space', creators: ['nasa', 'natgeo', 'hankgreen1'] },
-  sports: { label: 'Sports', creators: ['dude.perfect', 'espn', 'f1'] },
+  comedy: { label: 'Comedy', creators: ['khaby.lame', 'zachking', 'brittany_broski', 'bellapoarch', 'spencerx'] },
+  food: { label: 'Food', creators: ['gordonramsayofficial', 'jamieoliver', 'cookingwithlynja', 'tabithabrown', 'newt'] },
+  science: { label: 'Science & Space', creators: ['nasagov', 'natgeo', 'hankgreen1', 'spacex', 'nasajpl'] },
+  sports: { label: 'Sports', creators: ['dudeperfect', 'espn', 'f1', 'nba', 'nfl'] },
 }
+// How many recent uploads to pull per creator for browse/discovery. Flat-playlist dumps
+// are cheap (no per-video extraction), so this trades almost nothing for a much denser
+// grid: 14 popular creators × 12 = up to 168 items instead of the old 8 × 5 = 40.
+const BROWSE_PER_CREATOR = 12
 
 // LIVE extraction (background yt-dlp priority) — writes the tiktok:browse cache. Runs ONLY
 // off the request path: the feed.ts poller and the on-miss/stale background warmer below.
@@ -379,7 +393,7 @@ export const tiktokProvider: VideoProvider = {
     // Poller passes warm → live extraction to (re)populate the cache. Request paths (home,
     // category chips) read cache-only + stale, so they never block on yt-dlp.
     const feeds = await Promise.all(group.creators.map((h) =>
-      (warm ? extractCreatorRecent(h, 5) : creatorRecentCached(h, 5)).catch(() => [] as VideoItem[])))
+      (warm ? extractCreatorRecent(h, BROWSE_PER_CREATOR) : creatorRecentCached(h, BROWSE_PER_CREATOR)).catch(() => [] as VideoItem[])))
     const items: VideoItem[] = []
     for (let i = 0; feeds.some((f) => i < f.length); i++) {
       for (const feed of feeds) if (feed[i]) items.push(feed[i]!)

@@ -18,6 +18,7 @@ import { browseSource, getVideoSources, putVimeoConfig } from '@/lib/videos/api'
 import { useSourceContinueWatching } from '@/lib/videos/useSourceContinueWatching'
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 import { SourceHomeSections } from '@/components/videos/SourceHomeSections'
+import { SourceExploreGrid } from '@/components/videos/SourceExploreGrid'
 import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 import { SOURCE_META } from '@/lib/videos/sources'
 
@@ -137,14 +138,17 @@ export function VimeoBrowsePage() {
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
       {dashboard ? (
-        <SourceHomeSections
-          source="vimeo"
-          view={view}
-          discovery={vimeo?.discovery ?? []}
-          continueWatching={continueWatching}
-          creators={[]}
-          latestItems={[]}
-        />
+        <div className="space-y-10">
+          <SourceHomeSections
+            source="vimeo"
+            view={view}
+            discovery={vimeo?.discovery ?? []}
+            continueWatching={continueWatching}
+            creators={[]}
+            latestItems={[]}
+          />
+          <SourceExploreGrid source="vimeo" view={view} />
+        </div>
       ) : feedQuery.isLoading ? (
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : feedQuery.isError ? (

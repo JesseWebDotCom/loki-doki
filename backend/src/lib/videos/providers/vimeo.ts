@@ -152,9 +152,11 @@ function relAge(iso?: string): string | null {
   return `${Math.floor(days / 365)}y ago`
 }
 
+// 50/page (Vimeo's API allows up to 100): a denser popular/trending shelf and a meatier
+// first page for the "More to explore" grid before it has to fetch again.
 function pageParams(cursor?: string | null): string {
   const page = cursor ? Math.max(1, parseInt(cursor, 10) || 1) : 1
-  return `page=${page}&per_page=25`
+  return `page=${page}&per_page=50`
 }
 
 function listToPager(data: { data?: VimeoApiVideo[]; paging?: { next?: string | null } }, cursor?: string | null): Pager<VideoItem> {
