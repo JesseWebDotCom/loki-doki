@@ -14,7 +14,7 @@ import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
 import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
 import { ensureSummary, ensureSavedVideoMeta, ensureSmartDescription } from '@/lib/youtube/summarize'
-import { ytDlpBin, ytDlpAuthArgs } from '@/lib/ytdlp'
+import { ytDlpBin, ytDlpAuthArgs, ytDlpYoutubeClientArgs } from '@/lib/ytdlp'
 import { ensureFfmpeg, ffmpegLocation, ffprobeBin } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
 
@@ -135,6 +135,7 @@ export async function runYtMediaJob(
          '--output', outputTemplate, '--no-playlist', url]
       : ['-f', videoFormat, '-S', 'res,vcodec,acodec:m4a', '--merge-output-format', 'mp4',
          '--socket-timeout', '30', '--output', outputTemplate, '--no-playlist', url]
+    args.push(...ytDlpYoutubeClientArgs())  // JS-runtime-free clients — else 403 (see ytdlp.ts)
     if (ffLoc) args.push('--ffmpeg-location', ffLoc)
     args.push(...ytDlpAuthArgs())
 
@@ -245,6 +246,7 @@ export async function runYtExportJob(
        '--socket-timeout', '30',
        '--output', outputTemplate, '--no-playlist', url]
 
+  args.push(...ytDlpYoutubeClientArgs())  // JS-runtime-free clients — else 403 (see ytdlp.ts)
   await ensureFfmpeg()
   const ffLoc = ffmpegLocation()
   if (ffLoc) args.push('--ffmpeg-location', ffLoc)
