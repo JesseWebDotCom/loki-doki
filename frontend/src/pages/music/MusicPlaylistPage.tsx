@@ -10,8 +10,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { proxyImg } from '@/lib/img'
-import { ytImageProxy } from '@/lib/youtube/api'
+import { artUrlForRef } from '@/lib/music/trackRef'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -28,14 +27,14 @@ import {
 const fmtDur = (s: number | null) => !s ? '' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
 const toQueuedTrack = (t: PlaylistTrack): QueuedTrack => ({
   videoId: t.videoId, title: t.title, author: t.artist,
-  thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`),
+  thumbnail: artUrlForRef(t.videoId) ?? '',
 })
 
 function SongThumb({ videoId }: { videoId: string }) {
   return (
     <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
       <ListMusic className="absolute size-4 text-brand/60" />
-      <img src={proxyImg(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)} alt="" loading="lazy"
+      <img src={artUrlForRef(videoId) ?? undefined} alt="" loading="lazy"
         className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
     </div>
   )

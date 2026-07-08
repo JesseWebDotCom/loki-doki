@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Cpu, Plug2, BellRing } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Cpu, Plug2, BellRing, Music2 } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -106,6 +106,16 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines', 'shared'],
     description: 'Shared News categories and their RSS feeds (visible to everyone)',
     subsections: [],
+  },
+  {
+    id: 'music', label: 'Music', icon: Music2,
+    keywords: ['music', 'library', 'collection', 'folder', 'folders', 'scan', 'local', 'flac', 'mp3', 'lossless', 'plex music', 'sources'],
+    description: 'Music sources: local library folders (and Plex music sections)',
+    subsections: [
+      { id: 'sources', label: 'Sources', kind: 'anchor', anchorId: 'sources',
+        keywords: ['folder', 'folders', 'local', 'scan', 'library', 'plex', 'nas', 'path'],
+        description: 'Local music folders and Plex music sections' },
+    ],
   },
   {
     id: 'notifications', label: 'Notifications', icon: BellRing,

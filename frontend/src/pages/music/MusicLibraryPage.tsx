@@ -2,9 +2,9 @@ import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square } from 'lucide-react'
-import { proxyImg } from '@/lib/img'
+import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { artUrlForRef } from '@/lib/music/trackRef'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -28,6 +28,7 @@ import {
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { StationCard } from '@/components/music/StationCard'
 import { SongDownloadButton } from '@/components/music/SongDownloadButton'
+import { CollectionTab } from '@/components/music/CollectionTab'
 import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
 import { AddToPlaylistButton } from '@/components/music/AddToPlaylistButton'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
@@ -50,8 +51,9 @@ function useOfflineAvailable() {
   }
 }
 
-type Tab = 'favorites' | 'playlists' | 'history' | 'radio' | 'offline' | 'created'
+type Tab = 'collection' | 'favorites' | 'playlists' | 'history' | 'radio' | 'offline' | 'created'
 const TABS: AppTab<Tab>[] = [
+  { id: 'collection', label: 'Collection', icon: Library },
   { id: 'favorites', label: 'Favorites', icon: Heart },
   { id: 'playlists', label: 'Playlists', icon: ListMusic },
   { id: 'created', label: 'Created', icon: Sparkles },
@@ -122,12 +124,12 @@ function Empty({ icon: Icon, text }: { icon: typeof Heart; text: string }) {
   )
 }
 
-// Square album thumbnail for a song row - YouTube art with a music-note fallback.
+// Square album thumbnail for a song row - source-aware art with a music-note fallback.
 function SongThumb({ videoId }: { videoId: string }) {
   return (
     <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
       <ListMusic className="absolute size-4 text-brand/60" />
-      <img src={proxyImg(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)} alt="" loading="lazy"
+      <img src={artUrlForRef(videoId) ?? undefined} alt="" loading="lazy"
         className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
     </div>
   )
@@ -546,6 +548,7 @@ export function MusicLibraryPage() {
     <PageContainer width="wide" className="pb-10">
       <PageHeader eyebrow="Music" title="Your Library" />
       <AppTabBar tabs={TABS} value={tab} onChange={setTab} className="mb-4" />
+      {tab === 'collection' && <CollectionTab />}
       {tab === 'favorites' && <FavoritesTab />}
       {tab === 'playlists' && <PlaylistsTab />}
       {tab === 'created' && <CreatedTab />}

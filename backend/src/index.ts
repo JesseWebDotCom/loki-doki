@@ -114,6 +114,8 @@ import { musicCatalog } from '@/routes/musicCatalog'
 import { musicStations } from '@/routes/musicStations'
 import { musicPlaylists } from '@/routes/musicPlaylists'
 import { musicLibrary } from '@/routes/musicLibrary'
+import { musicCollection } from '@/routes/musicCollection'
+import { adminMusicSources } from '@/routes/adminMusicSources'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
 import { shopping } from '@/routes/shopping'
@@ -370,6 +372,10 @@ if (firstBoot) {
   // Plex: mirror the linked user's media watchlist with their Plex account Watchlist every
   // 15 min (two-way, tombstone-aware). No-op until a Plex server+token is configured.
   import('@/lib/plex/sync').then((m) => m.startPlexWatchlistSync()).catch(() => {})
+
+  // Local music library: incremental rescan of configured folders 90s after boot + daily,
+  // so files added outside the app show up without a manual scan. No-op with no folders.
+  import('@/lib/music/localLibrary').then((m) => m.startLocalLibrarySweep()).catch(() => {})
   
   // Bookmarks capture engine: resolve (and if needed download) a headless Chromium ahead of the
   // first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
@@ -578,6 +584,8 @@ app.route('/api/music/catalog', musicCatalog)
 app.route('/api/music/stations', musicStations)
 app.route('/api/music/playlists', musicPlaylists)
 app.route('/api/music/library', musicLibrary)
+app.route('/api/music/collection', musicCollection)
+app.route('/api/admin/music', adminMusicSources)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
 app.route('/api/shopping', shopping)

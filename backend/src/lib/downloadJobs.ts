@@ -32,8 +32,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'studio-source'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'studio-source' | 'music-scan'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
 // one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
@@ -41,7 +41,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'music-scan'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -672,6 +672,14 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runStudioSourceJob(payload, signal, onProgress)
       return
     }
+    case 'music-scan': {
+      const payload = JSON.parse(job.refId) as { folderId: string }
+      const { scanLocalFolder } = await import('@/lib/music/localLibrary')
+      await scanLocalFolder(payload.folderId, (done, total) => {
+        onProgress({ completed: done, total, speedBps: 0, etaSeconds: 0, status: `${done}/${total} files` })
+      }, signal)
+      return
+    }
   }
 }
 
@@ -796,6 +804,32 @@ export async function enqueueMediaEnhance(assetId: string, label = 'Enhance vide
   await db.insert(downloadJobs).values({
     id: randomUUID(), type: 'media-enhance', refId: JSON.stringify({ assetId }), variantKey: vk,
     domain: 'media-enhance', sizeClass: 'small', label: label.slice(0, 120), priority: 65,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Coalesced enqueue of a local-music-library folder scan. One job per folder; a
+ *  finished/failed prior job resets to pending so the admin "Scan" button and the daily
+ *  sweep both re-run it. Compute lane ('music-scan' type): local disk IO + tag parsing —
+ *  a 20k-track first scan must not occupy a network-download slot. */
+export async function enqueueMusicScan(folderId: string, label: string): Promise<void> {
+  const vk = `music-scan:${folderId}`
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'music-scan'), eq(downloadJobs.variantKey, vk))).limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'music-scan', refId: JSON.stringify({ folderId }), variantKey: vk,
+    domain: 'music-local', sizeClass: 'small', label: label.slice(0, 120), priority: 70,
     status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })

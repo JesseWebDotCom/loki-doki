@@ -828,6 +828,69 @@ export const musicRadioRecordings = sqliteTable('music_radio_recordings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userIdx: index('music_radio_recordings_user_idx').on(t.userId) }))
 
+// ─── Local music library ─────────────────────────────────────────────────────────
+// Admin-configured folders (plus one system-managed uploads folder) scanned into an index of
+// playable audio files. A row's id is the stable target of a `local:<id>` track ref (see
+// lib/music/trackRef.ts), so refs survive retags/rescans as long as the file path lives on.
+// Folders are read-only external mounts — deliberately NOT storage_locations rows (those are
+// app-managed write roots with move/delete machinery); only the uploads folder lives under
+// the app's own 'music' content root.
+
+export const musicLocalFolders = sqliteTable('music_local_folders', {
+  id: text('id').primaryKey(),
+  path: text('path').notNull().unique(),   // absolute directory, admin-validated
+  kind: text('kind', { enum: ['admin', 'uploads'] }).notNull().default('admin'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  lastScanAt: integer('last_scan_at', { mode: 'timestamp' }),
+  lastScanStatus: text('last_scan_status', { enum: ['idle', 'scanning', 'ok', 'failed'] }).notNull().default('idle'),
+  lastScanError: text('last_scan_error'),
+  trackCount: integer('track_count').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const musicLocalTracks = sqliteTable('music_local_tracks', {
+  id: text('id').primaryKey(),             // uuid — the stable `local:<id>` ref target
+  folderId: text('folder_id').notNull().references(() => musicLocalFolders.id, { onDelete: 'cascade' }),
+  path: text('path').notNull().unique(),   // absolute file path (scan upsert key)
+  title: text('title').notNull(),          // tag title, else filename stem
+  artist: text('artist'),
+  albumArtist: text('album_artist'),       // album grouping key (falls back to artist)
+  album: text('album'),
+  trackNo: integer('track_no'),
+  discNo: integer('disc_no'),
+  year: integer('year'),
+  genre: text('genre'),
+  durationSec: real('duration_sec'),
+  codec: text('codec'),
+  container: text('container'),
+  bitrate: integer('bitrate'),             // bits/sec as music-metadata reports it
+  sampleRate: integer('sample_rate'),
+  bitDepth: integer('bit_depth'),
+  channels: integer('channels'),
+  // Chrome can't decode ALAC/WMA/APE/DSD — excluded from playback + library matching so
+  // "prefer my library" never swaps a playable YouTube stream for an undecodable file.
+  browserPlayable: integer('browser_playable', { mode: 'boolean' }).notNull().default(true),
+  hasEmbeddedArt: integer('has_embedded_art', { mode: 'boolean' }).notNull().default(false),
+  folderArtPath: text('folder_art_path'),  // cover.jpg/folder.jpg found beside the file
+  mbid: text('mbid'),                      // MUSICBRAINZ_* tags (Picard-tagged libraries)
+  mbAlbumId: text('mb_album_id'),
+  mbArtistId: text('mb_artist_id'),
+  // Parental advisory from tags (ITUNESADVISORY / MP4 rtng): null=unknown, 0=clean,
+  // 1=explicit, 2=cleaned edit. Feeds the content-protection layer (music_track_advisory).
+  advisory: integer('advisory'),
+  // norm() from lib/music/resolve.ts applied at scan time — MUST stay in lockstep with
+  // query-time matching (resolveSource.ts) or library matching silently drifts.
+  normTitle: text('norm_title').notNull(),
+  normArtist: text('norm_artist').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  mtimeMs: integer('mtime_ms').notNull(),  // with sizeBytes: the incremental-rescan skip key
+  scannedAt: integer('scanned_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  normIdx: index('music_local_tracks_norm_idx').on(t.normArtist, t.normTitle),
+  mbidIdx: index('music_local_tracks_mbid_idx').on(t.mbid),
+  albumIdx: index('music_local_tracks_album_idx').on(t.albumArtist, t.album),
+}))
+
 // ─── LoRA System ──────────────────────────────────────────────────────────────
 
 export const imageLoraCategories = sqliteTable('image_lora_categories', {

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Radio, Download } from 'lucide-react'
-import { proxyImg } from '@/lib/img'
+import { artUrlForRef } from '@/lib/music/trackRef'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
@@ -42,7 +42,7 @@ function OfflineHome() {
                 className="flex w-40 shrink-0 flex-col gap-2 rounded-card border border-border/60 bg-card p-2.5 text-left transition hover:border-brand/40">
                 <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
                   <Radio className="absolute size-7 text-brand/60" />
-                  <img src={proxyImg(`https://i.ytimg.com/vi/${h.videoId}/mqdefault.jpg`)} alt="" className="relative size-full object-cover" loading="lazy"
+                  <img src={artUrlForRef(h.videoId) ?? undefined} alt="" className="relative size-full object-cover" loading="lazy"
                     onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
                 </div>
                 <div><p className="truncate text-xs font-semibold">{h.title}</p>{h.artist && <p className="truncate text-[11px] text-muted-foreground">{h.artist}</p>}</div>
@@ -89,7 +89,7 @@ export function MusicHomePage() {
                 className="flex w-40 shrink-0 flex-col gap-2 rounded-card border border-border/60 bg-card p-2.5 text-left transition hover:border-brand/40">
                 <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
                   <Radio className="absolute size-7 text-brand/60" />
-                  <img src={proxyImg(`https://i.ytimg.com/vi/${h.videoId}/mqdefault.jpg`)} alt=""
+                  <img src={artUrlForRef(h.videoId) ?? undefined} alt=""
                     className="relative size-full object-cover" loading="lazy"
                     onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
                 </div>

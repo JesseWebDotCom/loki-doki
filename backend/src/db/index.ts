@@ -967,6 +967,54 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS music_radio_recordings_user_idx ON music_radio_recordings(user_id);
+
+    CREATE TABLE IF NOT EXISTS music_local_folders (
+      id TEXT NOT NULL PRIMARY KEY,
+      path TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL DEFAULT 'admin',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_scan_at INTEGER,
+      last_scan_status TEXT NOT NULL DEFAULT 'idle',
+      last_scan_error TEXT,
+      track_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS music_local_tracks (
+      id TEXT NOT NULL PRIMARY KEY,
+      folder_id TEXT NOT NULL REFERENCES music_local_folders(id) ON DELETE CASCADE,
+      path TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      artist TEXT,
+      album_artist TEXT,
+      album TEXT,
+      track_no INTEGER,
+      disc_no INTEGER,
+      year INTEGER,
+      genre TEXT,
+      duration_sec REAL,
+      codec TEXT,
+      container TEXT,
+      bitrate INTEGER,
+      sample_rate INTEGER,
+      bit_depth INTEGER,
+      channels INTEGER,
+      browser_playable INTEGER NOT NULL DEFAULT 1,
+      has_embedded_art INTEGER NOT NULL DEFAULT 0,
+      folder_art_path TEXT,
+      mbid TEXT,
+      mb_album_id TEXT,
+      mb_artist_id TEXT,
+      advisory INTEGER,
+      norm_title TEXT NOT NULL,
+      norm_artist TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      scanned_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS music_local_tracks_norm_idx ON music_local_tracks(norm_artist, norm_title);
+    CREATE INDEX IF NOT EXISTS music_local_tracks_mbid_idx ON music_local_tracks(mbid);
+    CREATE INDEX IF NOT EXISTS music_local_tracks_album_idx ON music_local_tracks(album_artist, album);
   `)
 
   // Offline music: media type a station was downloaded as (audio | video | both).

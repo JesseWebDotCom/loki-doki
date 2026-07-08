@@ -1,11 +1,13 @@
 import { MonitorPlay } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/cn'
+import { isYouTubeRef } from '@/lib/music/trackRef'
 
 /** "See the real video" - opens a music track's source in our own YouTube app (the in-app watch
- *  page). Every music item maps to a YouTube videoId, so this is just a navigation. */
+ *  page). Renders nothing for owned-library refs (local:/plex:) - there is no video to open. */
 export function OpenInYoutubeButton({ videoId, title, className }: { videoId: string; title?: string; className?: string }) {
   const navigate = useNavigate()
+  if (!isYouTubeRef(videoId)) return null
   return (
     <button type="button" aria-label="Watch the original video" title="Watch the original video on YouTube"
       onClick={e => { e.stopPropagation(); navigate(`/videos/youtube/watch/${videoId}`, { state: { title } }) }}

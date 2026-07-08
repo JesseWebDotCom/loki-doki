@@ -6,9 +6,11 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
 import { saveOffline, removeOffline } from '@/lib/music/catalogApi'
 import { useOfflineSongs } from '@/lib/music/useOffline'
+import { isYouTubeRef } from '@/lib/music/trackRef'
 
 /** Apple-Music-style per-song download control. Idle → cloud-down arrow; downloading → spinner;
- *  ready → green check (tap again to remove). Reads/writes the shared offline-songs cache. */
+ *  ready → green check (tap again to remove). Reads/writes the shared offline-songs cache.
+ *  Renders nothing for owned-library refs - a local file is already "downloaded" by definition. */
 export function SongDownloadButton({ videoId, title, className }: { videoId: string; title: string; className?: string }) {
   const qc = useQueryClient()
   const { data } = useOfflineSongs()
@@ -16,6 +18,7 @@ export function SongDownloadButton({ videoId, title, className }: { videoId: str
   const status = data?.offline.find(t => t.videoId === videoId)?.status
   const ready = status === 'ready'
   const pending = status === 'pending' || status === 'downloading'
+  if (!isYouTubeRef(videoId)) return null
 
   const onClick = async (e: React.MouseEvent) => {
     e.stopPropagation()

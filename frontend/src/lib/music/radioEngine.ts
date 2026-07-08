@@ -1,4 +1,4 @@
-// AI Radio playback engine — runs the whole station experience from a global context so it
+// AI Radio playback engine - runs the whole station experience from a global context so it
 // survives navigation.
 //
 //   deck0 / deck1  — ping-pong song players (full songs, streamed audio-only)
@@ -18,17 +18,23 @@
 //    fades out, the DJ talks over it, then the incoming song swells to full — always music under
 //    the voice. The next song is pre-buffered on the idle deck so the hand-off is instant.
 
-import { search as ytSearch, ytImageProxy, proxyStreamUrl, prewarmStream } from '@/lib/youtube/api'
+import { search as ytSearch, prewarmStream } from '@/lib/youtube/api'
 import { fetchDjSegment, fetchRadioQueue, fetchStationQueue, base64WavToBlob } from '@/lib/music/radio'
-import { getOfflineQueue, offlineAudioUrl, prefetchReady, type OfflineQueue } from '@/lib/music/catalogApi'
+import { getOfflineQueue, offlineAudioUrl, prefetchReady, resolveSong, type OfflineQueue } from '@/lib/music/catalogApi'
+import { isYouTubeRef, streamSrcForRef, artUrlForRef } from '@/lib/music/trackRef'
 import type { DjStation } from '@/lib/music/radioStations'
 
 export interface QueuedTrack {
+  /** Track ref: bare YouTube id, `local:<id>`, or `plex:<machineId>:<ratingKey>`. Kept named
+   *  `videoId` so every queue/history/favorite surface keeps working unchanged. */
   videoId: string
   title: string
   author: string | null
   thumbnail: string
 }
+
+/** Thumbnail for any ref (yt → proxied ytimg; local/plex → library art routes). */
+const thumbForRef = (ref: string): string => artUrlForRef(ref) ?? ''
 
 // Lightweight junk filter for the legacy preset-station path (raw YouTube results that don't pass
 // through the backend station engine). Mirrors backend/src/lib/music/junk.ts — drops sound-effect
@@ -317,7 +323,7 @@ export class RadioEngine {
         this.offlineDj = res.dj
         return res.tracks.map(t => ({
           videoId: t.videoId, title: t.title, author: t.author || null,
-          thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`),
+          thumbnail: thumbForRef(t.videoId),
         }))
       } catch { return [] }
     }
@@ -361,7 +367,8 @@ export class RadioEngine {
     const tracks: QueuedTrack[] = []
     for (const v of raw) {
       if (!v.videoId || seen.has(v.videoId) || excludeIds.has(v.videoId)) continue
-      if (isJunkTrack(v.title, v.author ?? null)) continue
+      // Junk heuristics target raw YouTube search noise - owned-library refs are trusted.
+      if (isYouTubeRef(v.videoId) && isJunkTrack(v.title, v.author ?? null)) continue
       const title = cleanTitle(v.title) || v.title
       const t = normKey(title)
       const songKey = t ? (v.author ? `${normKey(v.author)}~${t}` : t) : ''
@@ -370,7 +377,7 @@ export class RadioEngine {
       if (songKey) seenSongs.add(songKey)
       tracks.push({
         videoId: v.videoId, title, author: v.author ?? null,
-        thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`),
+        thumbnail: thumbForRef(v.videoId),
       })
     }
     if (shuffle) {
@@ -427,10 +434,18 @@ export class RadioEngine {
   // ── Low-level deck control ───────────────────────────────────────────────────
   private cueSrc(deck: number, videoId: string, forceLocal = false) {
     const el = this.deckEl(deck)
-    el.src = (this.offline || forceLocal) ? offlineAudioUrl(videoId) : proxyStreamUrl(videoId, 'audio')
+    // Offline/downloaded playback only exists for YouTube refs - local files stream from
+    // their own route regardless of mode (they ARE local), plex refs stream live.
+    el.src = (this.offline || forceLocal) && isYouTubeRef(videoId)
+      ? offlineAudioUrl(videoId)
+      : streamSrcForRef(videoId)
+    this.deckRefs[deck] = videoId
     el.load()
     this.ramp(this.deckKey(deck), 0, 0)
   }
+  // The ref each deck was last cued with - lets the play-failure path identify a dead
+  // local/plex ref (file deleted, server swapped) and self-heal to YouTube mid-session.
+  private deckRefs: (string | null)[] = [null, null]
   private async playDeck(deck: number, attempt = 0): Promise<void> {
     const el = this.deckEl(deck)
     void this.actx?.resume?.()   // nudge the context to running so the first song is analysed too
@@ -443,6 +458,24 @@ export class RadioEngine {
         await new Promise(r => setTimeout(r, 1500))
         el.load()
         return this.playDeck(deck, attempt + 1)
+      }
+      // Dead owned-library ref (file deleted since scan, Plex server replaced): re-resolve the
+      // song by title/artist to a YouTube stream and swap the queue entry so the session heals.
+      const ref = this.deckRefs[deck]
+      if (ref && !isYouTubeRef(ref) && attempt < 3) {
+        const track = this.state.queue.find(t => t.videoId === ref)
+          ?? (this.state.currentTrack?.videoId === ref ? this.state.currentTrack : null)
+        if (track) {
+          try {
+            const resolved = await resolveSong({ title: track.title, artist: track.author ?? '' })
+            if (resolved?.videoId) {
+              track.videoId = resolved.videoId
+              track.thumbnail = thumbForRef(resolved.videoId)
+              this.cueSrc(deck, resolved.videoId)
+              return this.playDeck(deck, attempt + 1)
+            }
+          } catch { /* fall through to the warn below */ }
+        }
       }
       console.warn('[radio] deck play() rejected', deck, e)
     }
@@ -695,7 +728,9 @@ export class RadioEngine {
       let preparedNext: Promise<PreparedDj> | null = null
       let lyricsFetch: Promise<number | null> | null = null
       if (next) {
-        if (!this.offline) prewarmStream(next.videoId, 'audio')   // prewarm is a network call
+        // Prewarm resolves the upstream googlevideo URL ahead of play - YouTube-only; local
+        // and Plex streams have no resolver latency to hide.
+        if (!this.offline && isYouTubeRef(next.videoId)) prewarmStream(next.videoId, 'audio')
         this.cueSrc(otherDeck, next.videoId)   // pre-buffer so the hand-off is instant
         preparedNext = this.prepareDj({ station, track: cur, next, position: 'transition', sayStation: Math.random() < 0.34 })
         lyricsFetch = fetchFirstRealLyricSec(next)   // parallel — resolves long before the song ends
@@ -745,7 +780,7 @@ export class RadioEngine {
       videoId: track.videoId,
       title: cleanTitle(track.title) || track.title,
       author: track.author ?? null,
-      thumbnail: track.thumbnail || ytImageProxy(`https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg`),
+      thumbnail: track.thumbnail || thumbForRef(track.videoId),
     }
     const station: DjStation = {
       id: `track:${track.videoId}`, label: first.title, emoji: '🎵', color: '#6d28d9', colorDark: '#a78bfa',
@@ -761,7 +796,10 @@ export class RadioEngine {
     // Prefer a locally prefetched file (the video→audio handoff downloads the current song's audio
     // ahead of time) so the cold start is gapless online; fall back to streaming.
     let firstLocal = this.offline
-    if (!firstLocal) { try { firstLocal = (await prefetchReady([first.videoId], 'audio')).includes(first.videoId) } catch { firstLocal = false } }
+    // The prefetch cache only exists for YouTube refs - local/plex refs stream from their own routes.
+    if (!firstLocal && isYouTubeRef(first.videoId)) {
+      try { firstLocal = (await prefetchReady([first.videoId], 'audio')).includes(first.videoId) } catch { firstLocal = false }
+    }
     if (this.stale(runId)) return
     this.cueSrc(0, first.videoId, firstLocal)
     await this.playDeck(0)
@@ -784,10 +822,15 @@ export class RadioEngine {
     let mix: QueuedTrack[] = []
     if (this.offline) { this.set({ queue: [first], queueLoading: false }); await this.playFrom(runId, station, [first]); return }
     try {
-      const res = await fetchStationQueue({ seedVideoId: first.videoId, count: 14 })
+      // A YouTube ref rides the fast YT-Music radio mix off the exact video. Owned-library
+      // refs can't seed that - fall back to a song seed (artist + title), which the station
+      // engine resolves itself.
+      const res = isYouTubeRef(first.videoId)
+        ? await fetchStationQueue({ seedVideoId: first.videoId, count: 14 })
+        : await fetchStationQueue({ seedType: 'song', seedValue: station.seedValue ?? first.title, count: 14 })
       mix = res.tracks
         .filter(t => t.videoId !== first.videoId)
-        .map(v => ({ videoId: v.videoId, title: cleanTitle(v.title) || v.title, author: v.author ?? null, thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`) }))
+        .map(v => ({ videoId: v.videoId, title: cleanTitle(v.title) || v.title, author: v.author ?? null, thumbnail: thumbForRef(v.videoId) }))
     } catch { /* play the single song; loop ends after it */ }
     if (this.stale(runId)) return
     const songs = [first, ...mix]
@@ -821,7 +864,10 @@ export class RadioEngine {
     })
     this.deck = 0
     let firstLocal = this.offline
-    if (!firstLocal) { try { firstLocal = (await prefetchReady([first.videoId], 'audio')).includes(first.videoId) } catch { firstLocal = false } }
+    // The prefetch cache only exists for YouTube refs - local/plex refs stream from their own routes.
+    if (!firstLocal && isYouTubeRef(first.videoId)) {
+      try { firstLocal = (await prefetchReady([first.videoId], 'audio')).includes(first.videoId) } catch { firstLocal = false }
+    }
     if (this.stale(runId)) return
     this.cueSrc(0, first.videoId, firstLocal)
     await this.playDeck(0)

@@ -82,7 +82,10 @@ export function cleanTrackTitle(raw: string, artist?: string): string {
   return t || (raw ?? '')
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+// Shared text normalizer for fuzzy matching. Also used by the local-library scanner
+// (norm_title/norm_artist columns) and resolveSource matching — if this ever changes,
+// stored norms must be recomputed or library matching silently drifts.
+export const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
 const tokens = (s: string) => new Set(norm(s).split(' ').filter(Boolean))
 
 function keyFor(input: ResolveInput): string {
