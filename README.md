@@ -172,7 +172,7 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 <td width="50%" valign="top">
   <img src="assets/icons/videos.svg" width="48" /><br/>
   <b>Videos</b><br/>
-  YouTube, TikTok, Vimeo, Reddit, and your own clips in one private app: follow creators, AI-cleaned titles and summaries, audio mode with a live EQ, mini player and PiP, offline rules that keep the latest videos downloaded, background enhancement, per-source Plex libraries, and one-click video-to-podcast.
+  One place for all your video stuff: YouTube, TikTok, Vimeo, Reddit, and your own clips in a single private app - no ads, anti-clickbait titles, AI descriptions that strip the sponsor spam, and auto-skipped sponsor reads. Follow creators, audio mode with a live EQ, mini player and PiP, offline rules that keep the latest videos downloaded, background enhancement, per-source Plex libraries, and one-click video-to-podcast.
   <br/><br/>
 </td>
 <td width="50%" valign="top">
