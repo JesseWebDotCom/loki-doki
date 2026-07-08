@@ -187,7 +187,7 @@ export async function assetThumbPath(assetId: string): Promise<string | null> {
   await ensureFfmpeg()
   await new Promise<void>((resolve, reject) => {
     const proc = spawn(ffmpegBin(), ['-y', '-loglevel', 'error', '-ss', '1', '-i', src.path, '-vframes', '1', '-vf', 'scale=320:-2', out],
-      { stdio: ['ignore', 'ignore', 'pipe'] })
+      { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
     let err = ''
     proc.stderr?.on('data', (d: Buffer) => { err = (err + d.toString()).slice(-1024) })
     proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(err.trim() || `thumb ffmpeg exited ${code}`))))

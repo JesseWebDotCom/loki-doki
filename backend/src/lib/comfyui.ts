@@ -3,6 +3,7 @@ import { existsSync, writeFileSync, readFileSync, statSync, renameSync } from 'n
 import { execSync, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { dataDir } from '@/lib/download'
+import { spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import type { ComfyUILaunchConfig } from '@/lib/hwfit'
@@ -240,12 +241,7 @@ export function spawnComfyUI(config: ComfyUILaunchConfig): void {
       '--preview-method', 'latent2rgb',
       ...config.extraArgs,
     ]
-    child = spawn(python, args, {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-      env: { ...process.env, ...config.env },
-    })
+    child = spawnDetachedHidden(python, args, { env: { ...process.env, ...config.env } })
   } else {
     // Unix: redirect stdout+stderr to log file via `exec` in a shell.
     // Using exec replaces the shell with Python so child.pid IS the Python PID.

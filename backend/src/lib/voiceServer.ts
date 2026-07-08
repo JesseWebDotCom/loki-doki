@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { dataDir } from '@/lib/download'
 import { ensureNode } from '@/lib/node'
+import { spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 // Manages the Bun voice-server sidecar (Kokoro TTS + Whisper STT). Mirrors the
@@ -176,11 +177,8 @@ export function spawnVoiceServer(): void {
   void ensureNode().then((nodeExe) => {
     if (state.current !== 'starting') return  // cancelled/changed while resolving
     // Node (not Bun): onnxruntime-node's native addon segfaults under Bun.
-    const child = spawn(nodeExe, [VOICE_SCRIPT], {
+    const child = spawnDetachedHidden(nodeExe, [VOICE_SCRIPT], {
       cwd: BACKEND_DIR,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
       env: { ...process.env, VOICE_SERVER_PORT: String(VOICE_PORT), VOICE_CACHE_DIR: voiceModelsDir },
     })
     proc = child

@@ -3,7 +3,7 @@ import { streamSSE } from 'hono/streaming'
 import { existsSync } from 'node:fs'
 import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -30,7 +30,7 @@ import {
   isWakewordCoreInstalled,
   isWakewordTrainInstalled,
 } from '@/lib/download'
-import { killByCommandLine } from '@/lib/platform'
+import { killByCommandLine, spawnDetachedHidden } from '@/lib/platform'
 import { isVoiceServerInstalled, maybeSpawnVoiceServer, getVoiceServerState } from '@/lib/voiceServer'
 import {
   spawnComfyUI,
@@ -337,11 +337,15 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   try { await resolveGpuPlacement() } catch { /* no NVIDIA tooling — stays unpinned */ }
 
   // ── 0. Kill stale project-owned Ollama binary ────────────────────────────────
-  // The extracted CLI binary (data/bin/ollama) lacks the runner binaries that
-  // modern Ollama needs. Kill it so the system Ollama.app takes over cleanly.
-  const staleBin = join(dataDir, OLLAMA_BIN_DEST)
-  if (existsSync(staleBin)) {
-    await killByCommandLine(staleBin)
+  // Only when a system install exists to take over: the CLI-only extracted binary
+  // (data/bin/ollama) lacked the runner binaries modern Ollama needs, so a system
+  // Ollama should win. On machines with no system install the managed copy IS the
+  // intended Ollama — killing it unconditionally took a healthy server down on
+  // every boot, and the respawn raced the reachability checks below into a false
+  // "Ollama unreachable" warning.
+  const managedBin = join(dataDir, OLLAMA_BIN_DEST)
+  if (existsSync(managedBin) && findSystemOllama()) {
+    await killByCommandLine(managedBin)
     // Give the process time to exit before we try to connect
     await new Promise<void>((r) => setTimeout(r, 800))
   }
@@ -364,12 +368,17 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   } catch {
     const systemBin = findSystemOllama()
     if (systemBin) {
-      spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true, env: ollamaServeEnv() }).unref()
+      spawnDetachedHidden(systemBin, ['serve'], { env: ollamaServeEnv() }).unref()
       await waitForOllamaReachable(20_000)
     } else {
-      // No Ollama binary present (never installed, or removed). It's core, so restore it
-      // here — same installer the setup wizard uses — with progress on the boot screen.
-      step(broadcast, { key: 'ollama', label: 'Installing Ollama runtime…', status: 'running' })
+      // No system Ollama. downloadAndStartOllama reuses the managed binary when it
+      // already exists (just respawns it) and only downloads when it's truly absent —
+      // label the step accordingly so a plain restart doesn't read as a reinstall.
+      step(broadcast, {
+        key: 'ollama',
+        label: existsSync(managedBin) ? 'Starting Ollama…' : 'Installing Ollama runtime…',
+        status: 'running',
+      })
       try {
         await downloadAndStartOllama((p) => broadcast('repair', JSON.stringify({ key: 'ollama', ...p })))
         // downloadAndStartOllama only spawns the process — it doesn't wait for the

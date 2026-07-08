@@ -21,7 +21,7 @@ export async function probeMedia(absPath: string): Promise<MediaProbe> {
       '-v', 'error', '-print_format', 'json',
       '-show_entries', 'format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate',
       absPath,
-    ], { stdio: ['ignore', 'pipe', 'pipe'] })
+    ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let out = ''
     let err = ''
     proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })

@@ -1,9 +1,8 @@
 import { join } from 'node:path'
 import { chmodSync, existsSync } from 'node:fs'
-import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { ensureNode } from '@/lib/node'
-import { IS_WIN } from '@/lib/platform'
+import { IS_WIN, spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 // Manages the coding-terminal PTY sidecar (see scripts/coding-pty-sidecar.ts). Mirrors
@@ -101,11 +100,8 @@ export function spawnCodingPtySidecar(): void {
   ensureSpawnHelperExecutable()
   void ensureNode().then((nodeExe) => {
     if (state.current !== 'starting') return
-    const child = spawn(nodeExe, [SIDECAR_SCRIPT], {
+    const child = spawnDetachedHidden(nodeExe, [SIDECAR_SCRIPT], {
       cwd: BACKEND_DIR,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
       env: { ...process.env, CODING_PTY_SIDECAR_PORT: String(CODING_PTY_PORT) },
     })
     proc = child

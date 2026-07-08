@@ -6,7 +6,8 @@
 // it /api/health) for the full duration of an extract — minutes for the ~700 MB
 // Ollama zip on Windows.
 
-import { exec, execFile } from 'node:child_process'
+import { exec, execFile, spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readdir, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -71,6 +72,44 @@ export async function findFileInTree(dir: string, name: string): Promise<string 
     }
   }
   return null
+}
+
+/**
+ * Spawn a detached, windowless sidecar (ollama serve, SearXNG, kiwix, the voice/PTY
+ * sidecars). Works around a Bun bug (verified on 1.3.14, Windows 11): node:child_process
+ * silently drops `windowsHide` as soon as `env` or `cwd` is passed alongside
+ * `detached: true`, so every such sidecar popped a visible terminal window at boot.
+ * Instead of passing those options through, env extras and cwd are applied to this
+ * process for the duration of the (synchronous) spawn call and restored right after —
+ * the child snapshots both at CreateProcess time, and nothing else can interleave on a
+ * single JS thread. Passing a full `{ ...process.env, X }` object is fine: entries that
+ * already match the live env are skipped.
+ */
+export function spawnDetachedHidden(
+  bin: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
+): ChildProcess {
+  const savedEnv: Array<[string, string | undefined]> = []
+  if (opts.env) {
+    for (const [k, v] of Object.entries(opts.env)) {
+      if (process.env[k] === v) continue
+      savedEnv.push([k, process.env[k]])
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+  const savedCwd = opts.cwd ? process.cwd() : null
+  try {
+    if (opts.cwd) process.chdir(opts.cwd)
+    return spawn(bin, args, { detached: true, stdio: 'ignore', windowsHide: true })
+  } finally {
+    if (savedCwd) process.chdir(savedCwd)
+    for (const [k, v] of savedEnv) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
 }
 
 /**

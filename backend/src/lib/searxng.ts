@@ -21,7 +21,7 @@ import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dataDir } from '@/lib/download'
 import { ensurePython } from '@/lib/python'
-import { IS_WIN } from '@/lib/platform'
+import { IS_WIN, spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 
@@ -393,7 +393,7 @@ export function spawnSearXNG(): void {
   let child: ChildProcess
   if (IS_WIN) {
     // No shell redirect; logs uncaptured on Windows (matches comfyui).
-    child = spawn(python, ['-m', 'searx.webapp'], { cwd: SEARXNG_DIR, detached: true, stdio: 'ignore', windowsHide: true, env })
+    child = spawnDetachedHidden(python, ['-m', 'searx.webapp'], { cwd: SEARXNG_DIR, env })
   } else {
     // `exec` so child.pid IS the Python PID; file redirect avoids EPIPE on hot-reload.
     const shellCmd = `exec "$SX_PY" -m searx.webapp >> "$SX_LOG" 2>&1`

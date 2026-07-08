@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { CATALOG } from '@/lib/catalog'
 import type { HfSource, CatalogModel } from '@/lib/catalog'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
-import { IS_WIN, extractZip, killByCommandLine } from '@/lib/platform'
+import { IS_WIN, extractZip, killByCommandLine, spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import { getCachedGpuPlacement, type ComfyUILaunchConfig } from '@/lib/hwfit'
 
@@ -627,13 +627,8 @@ export function spawnSdCpp(modelPath: string, vaePath?: string | null, llmPath?:
   if (llmPath && existsSync(llmPath)) {
     args.push('--llm', llmPath)
   }
-  spawn(binPath, args, {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-    // Required so the binary can find libstable-diffusion.dylib next to it in data/bin/
-    env: { ...process.env, DYLD_LIBRARY_PATH: binDir },
-  }).unref()
+  // DYLD_LIBRARY_PATH so the binary can find libstable-diffusion.dylib next to it in data/bin/
+  spawnDetachedHidden(binPath, args, { env: { ...process.env, DYLD_LIBRARY_PATH: binDir } }).unref()
 }
 
 export async function getImageModelPath(): Promise<string | null> {
@@ -760,7 +755,7 @@ export async function downloadAndStartOllama(
   // installation ships with all required runner binaries (llama-server, etc.)
   const systemBin = findSystemOllama()
   if (systemBin) {
-    spawn(systemBin, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true, env: ollamaServeEnv() }).unref()
+    spawnDetachedHidden(systemBin, ['serve'], { env: ollamaServeEnv() }).unref()
   } else {
     // Fall back to downloading only when no system Ollama exists
     const binPath = join(dataDir, OLLAMA_BIN_DEST)
@@ -806,7 +801,7 @@ export async function downloadAndStartOllama(
         chmodSync(binPath, 0o755)
       }
     }
-    spawn(binPath, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true, env: ollamaServeEnv() }).unref()
+    spawnDetachedHidden(binPath, ['serve'], { env: ollamaServeEnv() }).unref()
   }
 
   // Wait for Ollama to become responsive, emitting indeterminate status each second
@@ -872,7 +867,7 @@ async function restartOllamaServe(): Promise<void> {
   await new Promise<void>((r) => setTimeout(r, 800))
   const bin = findSystemOllama() ?? join(dataDir, OLLAMA_BIN_DEST)
   if (!existsSync(bin)) return
-  spawn(bin, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true, env: ollamaServeEnv() }).unref()
+  spawnDetachedHidden(bin, ['serve'], { env: ollamaServeEnv() }).unref()
   const deadline = Date.now() + 20_000
   while (Date.now() < deadline) {
     await new Promise<void>((r) => setTimeout(r, 1_000))
