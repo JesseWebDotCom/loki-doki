@@ -22,7 +22,10 @@
 
 param(
   [switch]$Dev,
-  [switch]$Uninstall
+  [switch]$Uninstall,
+  # Sustained power ceiling (watts) applied to each settable NVIDIA GPU at launch to tame
+  # the load transients that were browning out the machine. Set to 0 to disable the cap.
+  [int]$GpuPowerCap = 150
 )
 
 $ErrorActionPreference = 'Stop'
@@ -133,6 +136,46 @@ function Ensure-FrontendBuild([string]$Dir) {
   New-Item -ItemType File -Path $stamp -Force | Out-Null
 }
 
+# ── GPU power cap ───────────────────────────────────────────────────────────────
+# Cap each settable NVIDIA GPU's sustained power limit to shrink the millisecond current
+# transient that fires when a large model loads onto the card. On this box those spikes (a
+# desktop-class RTX 3070 pulling ~2x its limit for a few ms) were browning out the laptop's
+# power rail and causing hard, no-log power-offs — Kernel-Power 41 with no WHEA and no
+# bugcheck. A lower ceiling barely dents inference throughput (Ampere is near-flat above
+# ~150 W) while meaningfully reducing the transient. Laptop Max-Q GPUs report an unsettable
+# limit ([N/A]) and are skipped automatically, so this only touches the desktop card.
+# Best-effort: `nvidia-smi -pl` needs an elevated shell to apply — if it can't, we warn and
+# launch anyway rather than block the app. Resets on reboot, so re-applying every launch is
+# what keeps it enforced. Pass -GpuPowerCap 0 to disable.
+function Set-GpuPowerCaps([int]$CapWatts) {
+  if ($CapWatts -le 0) { return }
+  $smi = (Get-Command nvidia-smi -ErrorAction SilentlyContinue).Source
+  if (-not $smi) { $g = Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'; if (Test-Path $g) { $smi = $g } }
+  if (-not $smi) { return }
+  try {
+    $rows = & $smi --query-gpu=index,power.limit,power.min_limit,power.max_limit --format=csv,noheader,nounits
+    foreach ($r in $rows) {
+      $f = $r -split ',' | ForEach-Object { $_.Trim() }
+      if ($f.Count -lt 4) { continue }
+      $idx = [int]$f[0]
+      # power.limit reads [N/A] on cards whose limit is locked (e.g. Max-Q) — skip those.
+      if ($f[1] -match 'N/A') { continue }
+      $min = [double]$f[2]; $max = [double]$f[3]
+      if ($max -le 0) { continue }
+      $target = [int][math]::Max($min, [math]::Min($CapWatts, $max))
+      if ($target -ge $max) { continue }   # nothing to gain if the cap is at/above the card's max
+      & $smi -i $idx -pl $target | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        Write-Host "GPU $idx power limit capped to $target W (transient-brownout mitigation)."
+      } else {
+        Write-Host "Could not cap GPU $idx power (run from an elevated shell to enable it). Launching uncapped." -ForegroundColor Yellow
+      }
+    }
+  } catch {
+    Write-Host "GPU power-cap step skipped: $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+}
+
 # ── Teardown helpers ──────────────────────────────────────────────────────────
 function Stop-Port([int]$Port) {
   try {
@@ -175,21 +218,6 @@ function Stop-Existing {
   Start-Sleep -Seconds 1
 }
 
-# Unload Ollama models on exit so they don't linger in VRAM across sessions.
-# The backend's own SIGTERM handler runs first; this is the fallback for crashes.
-function Invoke-OllamaUnload {
-  $ollama = if ($env:OLLAMA_URL) { $env:OLLAMA_URL.TrimEnd('/') } else { 'http://localhost:11434' }
-  try {
-    $ps = Invoke-RestMethod -Uri "$ollama/api/ps" -TimeoutSec 3
-    foreach ($m in $ps.models) {
-      try {
-        $body = @{ model = $m.name; keep_alive = 0 } | ConvertTo-Json -Compress
-        Invoke-RestMethod -Method Post -Uri "$ollama/api/generate" -Body $body -ContentType 'application/json' -TimeoutSec 5 | Out-Null
-      } catch { }
-    }
-  } catch { }
-}
-
 # ── Uninstall path ────────────────────────────────────────────────────────────
 if ($Uninstall) {
   Ensure-Bun
@@ -218,6 +246,10 @@ try {
   $frontendDir = Join-Path $Root 'frontend'
   Ensure-Deps $backendDir
   Ensure-Deps $frontendDir
+
+  # Apply the GPU power cap BEFORE the backend starts `ollama serve` — the first model
+  # load is the transient we're trying to tame, so the limit must be in place first.
+  Set-GpuPowerCaps $GpuPowerCap
 
   # The `dev` script sets NODE_ENV=development itself; production `start` doesn't, so
   # set it here — the backend serves frontend/dist only when NODE_ENV != development.
@@ -305,10 +337,12 @@ try {
 finally {
   Write-Host ''
   Write-Host 'Shutting down...'
-  # Ask the backend to stop first so its own SIGTERM handler can unload models.
+  # Stop the backend first so its SIGTERM handler can shut sidecars down cleanly.
+  # Ollama models are deliberately LEFT loaded: `ollama serve` (port 11434) is not in
+  # $Ports/$SidecarPatterns, so it survives this teardown, and keeping its models
+  # resident makes the next launch instant instead of paying a full multi-GB re-warm.
   if ($backend  -and -not $backend.HasExited)  { Stop-Process -Id $backend.Id  -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Seconds 2
-  Invoke-OllamaUnload
   if ($frontend -and -not $frontend.HasExited) { Stop-Process -Id $frontend.Id -Force -ErrorAction SilentlyContinue }
   # Sweep any detached sidecars the servers left behind.
   foreach ($p in $Ports) { Stop-Port $p }

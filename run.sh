@@ -111,35 +111,15 @@ stop_existing() {
   sleep 1
 }
 
-# Unload Ollama models on exit so they don't linger in VRAM across sessions.
-# The backend's own SIGTERM handler runs first; this is the fallback for crashes.
+# Ollama models are deliberately LEFT loaded on exit. `ollama serve` outlives this
+# script, so keeping its models resident (they load with keep_alive: -1) makes the next
+# launch instant instead of paying a full multi-GB re-warm. VRAM is reclaimed on uninstall.
 cleanup() {
   echo ""
   echo "Shutting down..."
+  # Stop the backend first so its SIGTERM handler can shut sidecars down cleanly.
   [ -n "$BACKEND_PID" ] && kill -TERM "$BACKEND_PID" 2>/dev/null || true
-  # Wait briefly for the backend to unload models via its own SIGTERM handler
   sleep 2
-  # Fallback: ask Ollama directly to evict any remaining loaded models
-  OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
-  python3 - <<'EOF' 2>/dev/null || true
-import json, os, sys, urllib.request
-url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-try:
-    resp = urllib.request.urlopen(f"{url}/api/ps", timeout=3)
-    for m in json.loads(resp.read()).get("models", []):
-        try:
-            req = urllib.request.Request(
-                f"{url}/api/generate",
-                data=json.dumps({"model": m["name"], "keep_alive": 0}).encode(),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=5)
-        except Exception:
-            pass
-except Exception:
-    pass
-EOF
   [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
   wait 2>/dev/null || true
 }

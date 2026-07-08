@@ -736,6 +736,14 @@ export function ollamaServeEnv(): NodeJS.ProcessEnv {
     env.CUDA_DEVICE_ORDER = 'PCI_BUS_ID'
     env.CUDA_VISIBLE_DEVICES = placement.ollamaVisibleDevices
   }
+  // Force CUDA-only on NVIDIA. Ollama's Vulkan backend (auto-enabled when a Vulkan runtime
+  // is present) is slower than CUDA on NVIDIA AND ignores CUDA_VISIBLE_DEVICES — with it on,
+  // a model silently loads onto whatever GPU Vulkan enumerates first (observed here: the
+  // primary display card) no matter what the pin says. Disabling it is what makes the pin
+  // effective and routes inference through CUDA. An operator-set OLLAMA_VULKAN still wins.
+  if (placement.ollamaDisableVulkan && process.env.OLLAMA_VULKAN === undefined) {
+    env.OLLAMA_VULKAN = '0'
+  }
   return env
 }
 

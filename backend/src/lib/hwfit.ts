@@ -175,9 +175,16 @@ export interface GpuPlacement {
   comfyIndex: number | null
   /** CUDA_VISIBLE_DEVICES value for `ollama serve`, or null to leave Ollama unpinned. */
   ollamaVisibleDevices: string | null
+  /** Force Ollama onto CUDA-only (OLLAMA_VULKAN=0) — true on NVIDIA boxes. Ollama's Vulkan
+   *  backend is (a) slower than CUDA on NVIDIA and (b) does NOT honor CUDA_VISIBLE_DEVICES,
+   *  so with Vulkan on, models silently land on whatever card Vulkan enumerates first
+   *  (observed: the primary display GPU) regardless of the pin. Disabling it makes the pin
+   *  actually work and routes inference through the faster CUDA path. Left false on AMD/Apple,
+   *  where Vulkan/Metal is the intended backend. */
+  ollamaDisableVulkan: boolean
 }
 
-let placementCache: GpuPlacement = { comfyIndex: null, ollamaVisibleDevices: null }
+let placementCache: GpuPlacement = { comfyIndex: null, ollamaVisibleDevices: null, ollamaDisableVulkan: false }
 
 export function getCachedGpuPlacement(): GpuPlacement {
   return placementCache
@@ -186,7 +193,7 @@ export function getCachedGpuPlacement(): GpuPlacement {
 export async function resolveGpuPlacement(hw?: HardwareInfo): Promise<GpuPlacement> {
   const h = hw ?? await detectHardware()
   if (h.gpuVendor !== 'nvidia' || h.cudaDevices.length === 0) {
-    placementCache = { comfyIndex: null, ollamaVisibleDevices: null }
+    placementCache = { comfyIndex: null, ollamaVisibleDevices: null, ollamaDisableVulkan: false }
     return placementCache
   }
   const overrideRaw = await getSetting('comfyui_gpu_index')
@@ -204,8 +211,23 @@ export async function resolveGpuPlacement(hw?: HardwareInfo): Promise<GpuPlaceme
       const othersVram = others.reduce((s, d) => s + d.vramBytes, 0)
       if (othersVram >= comfy.vramBytes) ollamaVisible = others.map((d) => d.index).join(',')
     }
+    // Explicit Ollama pin (admin setting) — wins over the spread-by-default / segregated
+    // policy. Confines `ollama serve` to ONE card via CUDA_VISIBLE_DEVICES. Use it to keep
+    // the always-on, latency-critical LLM OFF a busy primary/display GPU and on a fast, free
+    // card: the default scheduler gravitates to card 0, which on laptops/desktops is usually
+    // the display adapter (already loaded with the compositor + browser), starving and slowing
+    // model loads. ollamaServeEnv() sets CUDA_DEVICE_ORDER=PCI_BUS_ID alongside this, so the
+    // index matches nvidia-smi's ordering. NOTE: a single card must fit the whole resident LLM
+    // stack (chat + router + embeds) or Ollama spills to CPU — pair this with a right-sized model.
+    const ollamaOverrideRaw = await getSetting('ollama_gpu_index')
+    const ollamaOverrideIdx = ollamaOverrideRaw !== null ? parseInt(ollamaOverrideRaw, 10) : NaN
+    if (!isNaN(ollamaOverrideIdx) && h.cudaDevices.some((d) => d.index === ollamaOverrideIdx)) {
+      ollamaVisible = String(ollamaOverrideIdx)
+    }
   }
-  placementCache = { comfyIndex: comfy.index, ollamaVisibleDevices: ollamaVisible }
+  // NVIDIA + CUDA present → always prefer CUDA over Vulkan for Ollama (faster, and the
+  // prerequisite for CUDA_VISIBLE_DEVICES pinning to work at all).
+  placementCache = { comfyIndex: comfy.index, ollamaVisibleDevices: ollamaVisible, ollamaDisableVulkan: true }
   return placementCache
 }
 

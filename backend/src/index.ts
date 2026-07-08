@@ -385,25 +385,13 @@ if (firstBoot) {
   void loadRemoteEngine()
 }
 
-// Unload Ollama models on shutdown so they don't linger in VRAM between sessions.
-async function unloadOllamaModels() {
-  const base = (process.env.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/$/, '')
-  try {
-    const res = await fetch(`${base}/api/ps`, { signal: AbortSignal.timeout(3_000) })
-    const { models } = await res.json() as { models: { name: string }[] }
-    await Promise.allSettled(
-      models.map(m =>
-        fetch(`${base}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: m.name, keep_alive: 0 }),
-          signal: AbortSignal.timeout(5_000),
-        })
-      )
-    )
-    logger.info('[shutdown] Ollama models unloaded')
-  } catch { /* best-effort */ }
-}
+// Ollama models are deliberately LEFT resident on shutdown (they load with
+// keep_alive: -1). Unloading them here made every app relaunch pay a full multi-GB
+// re-warm — measured at ~60-70s to /api/system/ready — even though `ollama serve`
+// outlives the backend (the launcher leaves it running across restarts), so the warm
+// models are still in VRAM on the next boot. Keeping them resident makes a relaunch
+// effectively instant. VRAM is reclaimed on a real exit (uninstall unloads explicitly)
+// or by Ollama's own idle eviction if keep_alive is ever relaxed.
 
 // Kill the spawned sidecars on shutdown so they don't outlive the backend and hold
 // their ports (which would make the next boot's spawn fail with "port in use"). Each
@@ -421,7 +409,8 @@ async function stopSidecars() {
 }
 
 async function shutdown() {
-  await Promise.allSettled([unloadOllamaModels(), stopSidecars()])
+  // Note: Ollama models are intentionally NOT unloaded here — see comment above.
+  await stopSidecars()
   process.exit(0)
 }
 
