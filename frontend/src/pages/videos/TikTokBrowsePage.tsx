@@ -16,6 +16,7 @@ import { useSourceContinueWatching } from '@/lib/videos/useSourceContinueWatchin
 import { SOURCE_META } from '@/lib/videos/sources'
 import { HubVideoCollection } from '@/components/videos/HubVideoCollection'
 import { SourceHomeSections } from '@/components/videos/SourceHomeSections'
+import { SourceExploreGrid } from '@/components/videos/SourceExploreGrid'
 import { SourceDisabledCard } from '@/components/videos/SourceDisabledCard'
 
 // TikTok has no browsable trending here (scrape-only, flaky), so this page defaults to
@@ -123,15 +124,18 @@ export function TikTokBrowsePage() {
       </div>
 
       {dashboard ? (
-        <SourceHomeSections
-          source="tiktok"
-          view={view}
-          discovery={tiktokSource?.discovery ?? []}
-          continueWatching={continueWatching}
-          creators={creatorEntries}
-          latestItems={items}
-          latestLoading={enabled && creators.length > 0 && feedLoading}
-        />
+        <div className="space-y-10">
+          <SourceHomeSections
+            source="tiktok"
+            view={view}
+            discovery={tiktokSource?.discovery ?? []}
+            continueWatching={continueWatching}
+            creators={creatorEntries}
+            latestItems={items}
+            latestLoading={enabled && creators.length > 0 && feedLoading}
+          />
+          <SourceExploreGrid source="tiktok" view={view} />
+        </div>
       ) : category ? (
         categoryQuery.isLoading ? (
           <SkeletonCards count={12} className="xl:grid-cols-4" />

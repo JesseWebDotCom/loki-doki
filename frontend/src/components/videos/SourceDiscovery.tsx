@@ -14,6 +14,11 @@ import { searchToItem } from '@/lib/youtube/types'
 // way YouTube's Home doesn't say "Popular on YouTube" either).
 const FEED_LABEL: Record<'popular' | 'trending', string> = { popular: '🔥 Popular', trending: '📈 Trending' }
 
+// A discovery shelf is a preview row, not the whole feed — it shows the first slice and the
+// "More to explore" grid below (SourceExploreGrid) continues past this offset, so the two
+// never repeat the same cards. Both sides share this constant.
+export const SHELF_PREVIEW_COUNT = 16
+
 /** Round-robin interleave: a[0], b[0], c[0], a[1], b[1]… so every source is represented
  *  evenly near the top even when one has far more items than another. */
 function interleave(lists: HubVideoItem[][]): HubVideoItem[] {
@@ -40,7 +45,7 @@ function DiscoveryShelf({ source, feed, view }: { source: VideoSource; feed: 'po
   return (
     <HubMediaShelf
       title={FEED_LABEL[feed]}
-      items={items}
+      items={items.slice(0, SHELF_PREVIEW_COUNT)}
       view={view}
       showSource={false}
     />
