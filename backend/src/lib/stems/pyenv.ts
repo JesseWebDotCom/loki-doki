@@ -31,15 +31,18 @@ export const STEM_VENV = join(dataDir, 'stem-audio-venv')
 // not-installed, so boot reconcile upgrades them in place (v1 → v2 swapped plain
 // essentia for essentia-tensorflow, which adds the ML classifier runtime).
 const MARKER = join(STEM_VENV, '.stem-audio-ready')
-// v3 pre-downloads the MMS_FA lyric-alignment model (torch+torchaudio were already present
-// for Demucs, so no new pip — just the model weights). Bumping to v3 makes boot reconcile
-// re-run install on existing Studio setups to fetch that model in place.
-const MARKER_VERSION = 'v3:mms-fa-align'
+const MARKER_VERSION = 'v2:essentia-tensorflow'
+// Markers this build considers a healthy stem-audio install. The lyric-alignment MODEL is
+// intentionally NOT gated on this marker — it downloads lazily inside the first align job (its
+// own background progress), so adding it never invalidates the 2.5 GB Demucs+Essentia install
+// or triggers the "restore missing components" prompt. 'v3:mms-fa-align' is an older build that
+// bundled the model into this marker; accept it too so those installs don't re-prompt.
+const ACCEPTED_MARKERS = ['v2:essentia-tensorflow', 'v3:mms-fa-align']
 
-// torch.hub cache for the MMS forced-alignment model (torchaudio.pipelines.MMS_FA). Kept
-// under data/ (not ~/.cache) so it's contained + pre-downloadable through the installer.
-// Only the alignment path sets TORCH_HOME; Demucs keeps its default cache untouched.
+// torch.hub cache for the MMS forced-alignment model (torchaudio.pipelines.MMS_FA). Kept under
+// data/ (not ~/.cache) so it's contained. The align job pre-checks + lazily downloads it.
 export const TORCH_HOME = join(dataDir, 'torch')
+export const ALIGN_MODEL_PATH = join(TORCH_HOME, 'hub', 'checkpoints', 'model.pt')
 
 // ── Music-intelligence models (discogs-effnet backbone + classifier heads) ─────────
 // ~27 MB total from essentia.upf.edu. The backbone yields a 1280-d embedding per patch;
@@ -110,8 +113,27 @@ export function stemVenvPython(): string {
 export function isStemAudioInstalled(): boolean {
   if (!existsSync(venvBin('python')) || !existsSync(MARKER)) return false
   // Pre-v2 markers hold a bare timestamp — treat as not-installed so boot reconcile
-  // upgrades the venv (essentia → essentia-tensorflow) without user action.
-  try { return readFileSync(MARKER, 'utf8').startsWith(MARKER_VERSION) } catch { return false }
+  // upgrades the venv (essentia → essentia-tensorflow) without user action. Any accepted
+  // marker (v2, or the older v3 that also bundled the align model) counts as installed.
+  try { const m = readFileSync(MARKER, 'utf8'); return ACCEPTED_MARKERS.some((v) => m.startsWith(v)) } catch { return false }
+}
+
+/** Whether the MMS forced-alignment model weights are on disk. Independent of the stem-audio
+ *  marker so it never affects the Studio-runtime install/restore prompts. */
+export function isLyricAlignModelReady(): boolean {
+  return existsSync(ALIGN_MODEL_PATH)
+}
+
+/** Lazily fetch the MMS_FA lyric-alignment model (~1.2 GB) into TORCH_HOME via the stem venv.
+ *  Called by the align job on first use — no boot-repair prompt, no admin gate. Idempotent
+ *  (torch.hub skips a cached model). Requires the stem-audio venv (torch/torchaudio) to exist. */
+export async function ensureLyricAlignModel(onStatus: StatusFn = () => {}, signal?: AbortSignal): Promise<void> {
+  if (isLyricAlignModelReady()) return
+  if (!existsSync(venvBin('python'))) throw new Error('stem-audio runtime not installed')
+  onStatus('Downloading lyric-alignment model…')
+  mkdirSync(TORCH_HOME, { recursive: true })
+  await run(venvBin('python'), ['-c', 'import torchaudio; torchaudio.pipelines.MMS_FA.get_model(); torchaudio.pipelines.MMS_FA.get_aligner()'],
+    { signal, onStatus, timeoutMs: 30 * 60_000, env: { ...process.env, TORCH_HOME } })
 }
 
 // ── install / repair (dispatched from installRegistry) ──────────────────────────
@@ -200,12 +222,8 @@ export async function installStemAudio(onStatus: StatusFn = () => {}, signal?: A
     await downloadUrl(m.url, intelModelPath(m.file), () => {}, signal, { minBytes: 1_000 })
   }
 
-  // Lyric-alignment model (torchaudio MMS_FA, ~1 GB) so the first "align lyrics" run doesn't
-  // stall on a model fetch. Downloads through torch.hub into TORCH_HOME (kept under data/).
-  onStatus('Downloading lyric-alignment model (MMS_FA)…')
-  mkdirSync(TORCH_HOME, { recursive: true })
-  await run(venvBin('python'), ['-c', 'import torchaudio; torchaudio.pipelines.MMS_FA.get_model(); torchaudio.pipelines.MMS_FA.get_aligner()'],
-    { signal, onStatus, timeoutMs: 30 * 60_000, env: { ...process.env, TORCH_HOME } })
+  // NOTE: the lyric-alignment model is NOT downloaded here — it's fetched lazily by the first
+  // align job (ensureLyricAlignModel), so it never bloats this install or trips the restore prompt.
 
   try { mkdirSync(dirname(MARKER), { recursive: true }); writeFileSync(MARKER, `${MARKER_VERSION} ${new Date().toISOString()}`) } catch { /* non-fatal */ }
   onStatus('Stem audio runtime installed.')

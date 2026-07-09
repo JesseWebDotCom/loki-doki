@@ -34,6 +34,9 @@ interface RadioCtx extends RadioState {
   setDsp: (next: DspSettings) => void
   crossfadeMs: number
   setCrossfadeMs: (ms: number) => void
+  /** How many seconds a lyric line highlights BEFORE it's sung (read-ahead). Per-device pref. */
+  lyricLeadSec: number
+  setLyricLeadSec: (sec: number) => void
 }
 
 const Ctx = createContext<RadioCtx | null>(null)
@@ -62,6 +65,21 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       return Number.isFinite(v) && v >= 0 ? Math.min(v, 12000) : 1300
     } catch { return 1300 }
   })
+  // Lyric read-ahead: how early (seconds) a line highlights before it's sung. Per-device, like
+  // the visualizer/crossfade prefs. Default 1.0 (see DEFAULT_LYRIC_LEAD_SEC in nowPlayingParts).
+  const [lyricLeadSec, setLyricLeadState] = useState(() => {
+    try {
+      const raw = localStorage.getItem('music.lyricLeadSec')
+      if (raw == null) return 0
+      const v = Number(raw)
+      return Number.isFinite(v) && v >= 0 ? Math.min(v, 3) : 0
+    } catch { return 0 }
+  })
+  const setLyricLeadSec = (sec: number) => {
+    const v = Math.max(0, Math.min(3, sec))
+    setLyricLeadState(v)
+    try { localStorage.setItem('music.lyricLeadSec', String(v)) } catch { /* quota */ }
+  }
 
   const engineRef = useRef<RadioEngine | null>(null)
   // Lazily (re)create: StrictMode's cleanup destroys the engine, but destroy() is
@@ -189,9 +207,11 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     setDsp,
     crossfadeMs,
     setCrossfadeMs,
+    lyricLeadSec,
+    setLyricLeadSec,
     visualizerEnabled,
     toggleVisualizer,
-  }), [state, e, visualizerEnabled, dsp, crossfadeMs])
+  }), [state, e, visualizerEnabled, dsp, crossfadeMs, lyricLeadSec])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

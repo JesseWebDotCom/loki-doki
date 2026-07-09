@@ -1,10 +1,11 @@
 import { useCallback } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Bot, MonitorPlay, ShieldCheck } from "lucide-react";
+import { Bot, MonitorPlay, ShieldCheck, Music4 } from "lucide-react";
 import { AppSettingsShell, type AppSettingsSection } from "@/components/shared/AppSettingsShell";
 import { CompanionAbilitiesCard } from "@/components/shared/CompanionAbilitiesCard";
 import { ToolConfigFields } from "@/components/shared/ToolConfigFields";
 import { PlexConnectCard } from "@/components/media/PlexConnectCard";
+import { MusicLyricsSettings } from "@/components/music/MusicLyricsSettings";
 import { APP_GROUPS } from "@/lib/appCategories";
 
 // Apps whose global config (API keys, etc.) used to only live on the generic
@@ -20,6 +21,14 @@ const ADMIN_CONFIG_TOOL_ID: Record<string, string> = {
 // Plex link because that's what its watchlist + watched-progress sync run through (Movies
 // has the same card on its own bespoke settings page).
 const EXTRA_SECTIONS: Record<string, AppSettingsSection[]> = {
+  music: [
+    {
+      id: "lyrics",
+      label: "Lyrics",
+      icon: Music4,
+      content: <MusicLyricsSettings />,
+    },
+  ],
   shows: [
     {
       id: "plex",

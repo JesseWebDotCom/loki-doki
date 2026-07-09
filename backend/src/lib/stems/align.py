@@ -109,7 +109,11 @@ def main():
     # seconds-per-emission-frame = (samples / frames) / sample_rate
     ratio = (samples / num_frames) / sample_rate
 
-    # Per-word start time (seconds), indexed by global word position.
+    # Per-word start time (seconds), indexed by global word position. NOTE: the MMS aligner's
+    # per-token `score` is NOT usable to reject bad anchors on sung vocals — measured scores are
+    # uniformly tiny (median ~0.08) and don't separate good alignments from bad, so any threshold
+    # either nulls almost everything or catches nothing. We trust the measured onsets directly; a
+    # rare misplaced line is preferable to interpolating the whole song between a few points.
     word_start = [None] * total_words
     for gi, spans in enumerate(token_spans):
         if gi < total_words and spans:

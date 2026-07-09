@@ -14,7 +14,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { musicStudioTracks } from '@/db/schema'
 import { resolveUserPath } from '@/lib/storage/paths'
-import { stemVenvPython, ALIGN_SCRIPT, TORCH_HOME, isStemAudioInstalled } from './pyenv'
+import { stemVenvPython, ALIGN_SCRIPT, TORCH_HOME, isStemAudioInstalled, ensureLyricAlignModel } from './pyenv'
 import { plainLyricsForAlign } from '@/routes/musicInfo'
 import type { DownloadProgress } from '@/lib/download'
 import { logger } from '@/lib/logger'
@@ -87,6 +87,11 @@ export async function runAlignJob(
     tmp = await mkdtemp(join(tmpdir(), 'lyricalign-'))
     const textFile = join(tmp, 'lyrics.txt')
     await writeFile(textFile, lyrics, 'utf8')
+
+    // First align on this machine pulls the ~1.2 GB MMS model (quietly, here — not via a boot
+    // prompt). Cached thereafter.
+    onProgress?.({ completed: 10, total: 100, speedBps: 0, etaSeconds: 0, note: 'Preparing alignment model…' })
+    await ensureLyricAlignModel((s) => onProgress?.({ completed: 12, total: 100, speedBps: 0, etaSeconds: 0, note: s }), signal)
 
     onProgress?.({ completed: 20, total: 100, speedBps: 0, etaSeconds: 0, note: 'Aligning lyrics to vocals…' })
     const m = await runAlign(stemVenvPython(), vocals, textFile, signal)

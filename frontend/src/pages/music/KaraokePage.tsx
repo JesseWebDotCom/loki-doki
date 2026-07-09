@@ -323,12 +323,6 @@ export function KaraokePage() {
                   <div className="truncate text-xl font-bold">{current.title}</div>
                   <div className="truncate text-sm text-white/60">{current.artist}{current.singer ? ` · 🎤 ${current.singer}` : ''}</div>
                 </div>
-                {curTrack?.bpm ? (
-                  <div className="shrink-0 rounded-xl bg-white/5 px-3 py-1.5 text-center">
-                    <div className="text-lg font-bold tabular-nums" style={{ color: palette.vibrant }}>{Math.round(curTrack.bpm * (tempoPct / 100))}</div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-white/40">BPM{tempoPct !== 100 ? ` · ${tempoPct}%` : ''}</div>
-                  </div>
-                ) : null}
               </div>
               <KaraokeLyrics lines={lyricLines} position={pos} offsetSec={offsetSec} accent={palette.vibrant} className="flex-1" />
             </>

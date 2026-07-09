@@ -4,6 +4,7 @@ import { ExternalLink, Info, Music2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, type LyricLine } from '@/lib/music/catalogApi'
+import { useRadio } from '@/context/RadioContext'
 
 // Shared building blocks for the Now Playing surfaces (the app-wide player overlay and any
 // deep-link page). Extracted from the old NowPlayingPage so lyrics/about/links never diverge.
@@ -19,20 +20,30 @@ export function SectionLabel({ icon: Icon, color, children }: { icon: typeof Mus
   )
 }
 
-// The line whose timestamp has most recently passed. No look-ahead fudge (a line should light up
-// when it's actually reached, not before), and once advanced the index never retreats on its own -
-// only a real seek (a >0.75s backward jump in position) is allowed to move it backward. Without
-// that guard, a `position` reading that jitters by a few ms right at a line boundary (frame timing,
-// GC pauses) flips the index back and forth, which reads as "an old row lighting up".
+// Default seconds a line lights up BEFORE its vocal onset. Forced alignment gives the exact moment
+// a word starts, but reading/singing along wants the line to arrive early so you're ready on the
+// beat — highlighting exactly on the onset reads as "a beat late". User-tunable in Music settings
+// (Music → Settings → Lyrics); this is the fallback default (0 = highlight on the word).
+export const DEFAULT_LYRIC_LEAD_SEC = 0
+
+// Count-in ("get ready — this line is coming up NOW"). During an instrumental gap before a line we
+// fill a bar over the last COUNTIN_SEC so the singer sees the cue approach; only shown when the gap
+// is long enough that a heads-up actually helps (rapid back-to-back lines don't need one).
+const COUNTIN_SEC = 3.2
+const COUNTIN_MIN_GAP = 2.0
+
+// The line whose (lead-adjusted) timestamp has most recently passed. Once advanced the index never
+// retreats on its own — only a real seek (a >0.75s backward jump in position) moves it backward.
+// Without that guard, a `position` reading that jitters by a few ms right at a line boundary (frame
+// timing, GC pauses) flips the index back and forth, which reads as "an old row lighting up".
 //
-// `offsetSec` shifts LRCLIB's timestamps to this track's actual audio (see getLyricsOffsetSec) -
-// LRCLIB lines are timed to whatever recording it matched, which may be a different edit/
-// re-recording than what's actually playing. A line is "reached" once `line.sec + offsetSec &lt;=
-// position`, i.e. once `line.sec &lt;= position - offsetSec`.
-function useActiveLyricIndex(synced: LyricLine[] | null, position: number, offsetSec = 0): number {
+// `offsetSec` shifts LRCLIB's timestamps to this track's actual audio - LRCLIB lines are timed to
+// whatever recording it matched, which may be a different edit than what's playing. Forced-aligned
+// lines pass offsetSec 0. A line is "reached" once `line.sec - LEAD <= position - offsetSec`.
+function useActiveLyricIndex(synced: LyricLine[] | null, position: number, offsetSec = 0, leadSec = DEFAULT_LYRIC_LEAD_SEC): number {
   const lastIdxRef = useRef(-1)
   const lastPosRef = useRef(0)
-  const adjPosition = position - offsetSec
+  const adjPosition = position - offsetSec + leadSec
   return useMemo(() => {
     if (!synced || !synced.length) { lastIdxRef.current = -1; lastPosRef.current = adjPosition; return -1 }
     let idx = -1
@@ -42,6 +53,29 @@ function useActiveLyricIndex(synced: LyricLine[] | null, position: number, offse
     if (jumpedBack || idx > lastIdxRef.current) lastIdxRef.current = idx
     return lastIdxRef.current
   }, [synced, adjPosition])
+}
+
+// Fill fraction (0→1) for the count-in cue toward the next line, or null when no cue should show.
+// Based on the RAW lyric-time position (no lead) so the bar completes exactly at the vocal onset.
+function nextLineCue(synced: LyricLine[] | null, tLyric: number, activeIdx: number): number | null {
+  if (!synced?.length) return null
+  const upIdx = activeIdx < 0 ? 0 : activeIdx + 1
+  const up = synced[upIdx]
+  if (!up) return null
+  const prevSec = upIdx > 0 ? (synced[upIdx - 1]?.sec ?? 0) : 0
+  const gap = up.sec - prevSec
+  const remaining = up.sec - tLyric
+  if (gap < COUNTIN_MIN_GAP || remaining <= 0 || remaining > COUNTIN_SEC) return null
+  return 1 - remaining / COUNTIN_SEC
+}
+
+// Thin progress bar that fills as the next lyric approaches and completes on its onset.
+function CountInBar({ fill, className }: { fill: number | null; className?: string }) {
+  return (
+    <div className={cn('h-1 overflow-hidden rounded-full bg-foreground/10 transition-opacity duration-300', fill == null ? 'opacity-0' : 'opacity-100', className)}>
+      <div className="h-full rounded-full bg-brand transition-[width] duration-100 ease-linear" style={{ width: `${Math.round((fill ?? 0) * 100)}%` }} />
+    </div>
+  )
 }
 
 // Synced (or plain) lyrics that auto-scroll the active line, driven by a caller-supplied playback
@@ -61,9 +95,11 @@ export function LyricsPanel({ artist, title, position, duration, onSeek, offsetS
   })
   const synced = haveAligned ? alignedLines! : (data?.synced ?? null)
   const effOffset = haveAligned ? 0 : offsetSec
+  const { lyricLeadSec } = useRadio()
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLParagraphElement>(null)
-  const activeIdx = useActiveLyricIndex(synced, position, effOffset)
+  const activeIdx = useActiveLyricIndex(synced, position, effOffset, lyricLeadSec)
+  const cue = nextLineCue(synced, position - effOffset, activeIdx)
 
   // Scroll ONLY the lyrics box (not the page) to keep the active line centered.
   useEffect(() => {
@@ -83,16 +119,22 @@ export function LyricsPanel({ artist, title, position, duration, onSeek, offsetS
   if (!haveAligned && data?.restricted) return empty('Lyrics are hidden by your family’s content settings.')
   if (synced?.length) {
     return (
-      <div ref={containerRef} className="h-full space-y-1.5 overflow-y-auto px-5 py-6">
-        {synced.map((l, i) => (
-          <p key={i} ref={i === activeIdx ? activeRef : undefined}
-            onClick={onSeek ? () => onSeek(l.sec + effOffset) : undefined}
-            className={cn('text-lg font-semibold leading-snug transition-all duration-150',
-              onSeek && 'cursor-pointer hover:text-foreground',
-              i === activeIdx ? 'scale-[1.02] text-foreground' : i < activeIdx ? 'text-muted-foreground/40' : 'text-muted-foreground/70')}>
-            {l.text || '♪'}
-          </p>
-        ))}
+      <div className="relative h-full">
+        <div ref={containerRef} className="h-full space-y-1.5 overflow-y-auto px-5 py-6">
+          {synced.map((l, i) => (
+            <p key={i} ref={i === activeIdx ? activeRef : undefined}
+              onClick={onSeek ? () => onSeek(l.sec + effOffset) : undefined}
+              className={cn('text-lg font-semibold leading-snug transition-all duration-150',
+                onSeek && 'cursor-pointer hover:text-foreground',
+                i === activeIdx ? 'scale-[1.02] text-foreground' : i < activeIdx ? 'text-muted-foreground/40' : 'text-muted-foreground/70')}>
+              {l.text || '♪'}
+            </p>
+          ))}
+        </div>
+        {/* Count-in bar pinned at the bottom: fills as the next line's cue approaches. */}
+        <div className="pointer-events-none absolute inset-x-5 bottom-3">
+          <CountInBar fill={cue} />
+        </div>
       </div>
     )
   }
@@ -114,8 +156,11 @@ export function LyricsTicker({ artist, title, position, duration, onOpen, classN
     queryKey: ['music-lyrics', artist, title, duration], queryFn: () => getLyrics(artist, title, duration),
     enabled: !!title && !haveAligned, staleTime: Infinity,
   })
+  const { lyricLeadSec } = useRadio()
+  const effOffset = haveAligned ? 0 : offsetSec
   const synced = haveAligned ? alignedLines! : (data?.synced ?? null)
-  const activeIdx = useActiveLyricIndex(synced, position, haveAligned ? 0 : offsetSec)
+  const activeIdx = useActiveLyricIndex(synced, position, effOffset, lyricLeadSec)
+  const cue = nextLineCue(synced, position - effOffset, activeIdx)
   if (!synced?.length) return null
 
   // Before the first line's timestamp, activeIdx is -1 (nothing sung yet) - preview the song's
@@ -131,6 +176,8 @@ export function LyricsTicker({ artist, title, position, duration, onOpen, classN
           {l ? (l.text || '♪') : ' '}
         </p>
       ))}
+      {/* Count-in: fills toward the next line during an instrumental gap so you know when to come in. */}
+      <CountInBar fill={cue} className="mt-1" />
     </button>
   )
 }

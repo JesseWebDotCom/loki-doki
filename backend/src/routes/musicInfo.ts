@@ -386,6 +386,20 @@ function lyricHitMatches(reqArtist: string, reqTitle: string, hit: { trackName?:
   return artistOk && titleOk
 }
 
+// Popular songs often have a dozen+ LRCLIB uploads (reissues, compilations, region variants)
+// with near-identical `duration` but meaningfully different line timing (different intro edit,
+// re-recording, etc). Prefer whichever candidate's duration is closest to the track we're
+// actually playing - it's not foolproof (two versions can share a duration to the second) but
+// it's strictly better than taking the first fuzzy text match in whatever order LRCLIB returns.
+function sortByDurationCloseness<T extends { duration?: number | null }>(items: T[], target?: number): T[] {
+  if (!target) return items
+  return [...items].sort((a, b) => {
+    const da = typeof a.duration === 'number' ? Math.abs(a.duration - target) : Number.MAX_SAFE_INTEGER
+    const db = typeof b.duration === 'number' ? Math.abs(b.duration - target) : Number.MAX_SAFE_INTEGER
+    return da - db
+  })
+}
+
 // Parse an LRC string ("[mm:ss.xx] words") into timestamped lines, dropping blank/timing-only ones.
 function parseLrc(lrc: string): LyricLine[] {
   const out: LyricLine[] = []
@@ -431,15 +445,29 @@ async function fetchLrclib(artist: string, title: string, duration?: number): Pr
       // nothing beats showing wrong lyrics.
       const instDurations = matches.filter(x => x.instrumental && typeof x.duration === 'number').map(x => x.duration as number)
       const trustworthy = (x: { duration?: number | null }) => !instDurations.some(d => Math.abs(d - (x.duration ?? -1e9)) <= 3)
-      const synced = matches.find(x => x.syncedLyrics && trustworthy(x))
+      const ranked = sortByDurationCloseness(matches, duration)
+      const synced = ranked.find(x => x.syncedLyrics && trustworthy(x))
       if (synced?.syncedLyrics) return { synced: parseLrc(synced.syncedLyrics), plain: synced.plainLyrics ?? null, source: 'lrclib' }
-      const plain = matches.find(x => x.plainLyrics && trustworthy(x))
+      const plain = ranked.find(x => x.plainLyrics && trustworthy(x))
       if (plain?.plainLyrics) return { synced: null, plain: plain.plainLyrics, source: 'lrclib' }
       // A genuine match exists but it's instrumental (or its only "lyrics" were untrusted) → show nothing, on purpose.
       if (matches.some(x => x.instrumental)) return { synced: null, plain: null, source: 'instrumental' }
     }
   } catch { /* give up */ }
   return { synced: null, plain: null, source: 'none' }
+}
+
+// Plain lyric TEXT for a track (one line per line), for the Studio forced-alignment job.
+// Reuses the SAME cached lookup the /lyrics endpoint uses (identical namespace+key), so it's
+// warm whenever the player has already shown lyrics. Returns null when LRCLIB has nothing.
+export async function plainLyricsForAlign(artist: string, title: string, duration?: number): Promise<string | null> {
+  const r = await cachedLookup<LyricsResult>(
+    'lrclib', `${artist}|${title}|${duration ?? ''}`, THIRTY_DAYS_MS,
+    () => fetchLrclib(artist, title, duration),
+  )
+  if (r.plain?.trim()) return r.plain
+  if (r.synced?.length) { const t = r.synced.map(l => l.text).filter(Boolean).join('\n'); return t.trim() ? t : null }
+  return null
 }
 
 // GET /api/music/info/policy — the caller's music content-protection policy. The frontend
