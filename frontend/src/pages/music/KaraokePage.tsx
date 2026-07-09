@@ -242,16 +242,30 @@ export function KaraokePage() {
               </div>
               <KaraokeSuggestions onAdd={addSong} />
             </div>
-          ) : preparing ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-              <Spinner size="lg" className="text-white/70" />
-              <p className="text-2xl font-semibold">Preparing “{current.title}”…</p>
-              <p className="text-sm text-white/50">
-                {curTrack?.sourceStatus === 'fetching' ? 'Fetching the track…' : 'Removing the vocals (this takes a moment the first time)…'}
-                {curTrack?.stemProgress?.pct ? ` ${curTrack.stemProgress.pct}%` : ''}
-              </p>
-            </div>
-          ) : current.prep === 'failed' ? (
+          ) : preparing ? (() => {
+            // Report the actual pipeline stage (fetch → separate → align) with its own progress,
+            // instead of flip-flopping between two generic lines.
+            const stage = (() => {
+              if (!curTrack || curTrack.sourceStatus === 'fetching') return { label: 'Finding and downloading the track', pct: curTrack?.sourceProgress?.pct ?? null }
+              if (curTrack.stemStatus === 'pending') return { label: 'Queued to remove the vocals', pct: null }
+              if (curTrack.stemStatus === 'separating') return { label: 'Removing the vocals with AI', pct: curTrack.stemProgress?.pct ?? null }
+              if (curTrack.lyricsAlignStatus === 'pending' || curTrack.lyricsAlignStatus === 'aligning') return { label: 'Syncing the lyrics to the vocals', pct: null }
+              return { label: 'Getting things ready', pct: null }
+            })()
+            return (
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+                <Spinner size="lg" className="text-white/70" />
+                <p className="text-2xl font-semibold">Preparing “{current.title}”</p>
+                <p className="text-sm text-white/60">{stage.label}{stage.pct != null ? `… ${stage.pct}%` : '…'}</p>
+                {stage.pct != null && (
+                  <div className="h-1.5 w-64 max-w-full overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${stage.pct}%`, background: palette.vibrant }} />
+                  </div>
+                )}
+                <p className="mt-2 max-w-sm text-xs text-white/35">The first time a song is prepared takes a minute or two. Add more songs now - they’ll prepare in the background so the party keeps moving.</p>
+              </div>
+            )
+          })() : current.prep === 'failed' ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
               <p className="text-xl font-semibold text-white/70">Couldn’t prepare this song</p>
               <button onClick={advance} className="rounded-full bg-white/15 px-4 py-2 text-sm hover:bg-white/25">Skip to next</button>
