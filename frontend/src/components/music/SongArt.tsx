@@ -21,7 +21,8 @@ async function fetchSongArt(artist: string, title: string): Promise<string | nul
 }
 
 export function useSongArt(trackRef: string | null | undefined, title?: string | null, artist?: string | null): string | null {
-  const yt = !!trackRef && isYouTubeRef(trackRef)
+  // No ref at all (catalog/chart entries known only by artist+title) → pure iTunes lookup.
+  const yt = !trackRef || isYouTubeRef(trackRef)
   const { data } = useQuery({
     queryKey: ['song-art', artist ?? '', title ?? ''],
     queryFn: () => fetchSongArt(artist!, title!),
@@ -29,14 +30,14 @@ export function useSongArt(trackRef: string | null | undefined, title?: string |
     staleTime: Infinity,
     gcTime: 24 * 60 * 60 * 1000,
   })
-  if (!trackRef) return null
+  if (!trackRef) return data ? proxyImg(data) : null
   if (!yt) return artUrlForRef(trackRef)
   return data ? proxyImg(data) : artUrlForRef(trackRef)
 }
 
-/** Square song tile. `iconSize` tunes the fallback glyph for tiny rows vs hero tiles. */
+/** Square song tile. Pass trackRef=null for catalog/chart entries known only by artist+title. */
 export function SongArt({ trackRef, title, artist, className, rounded = 'rounded-card' }: {
-  trackRef: string
+  trackRef: string | null
   title?: string | null
   artist?: string | null
   className?: string

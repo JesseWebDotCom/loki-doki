@@ -98,6 +98,10 @@ export function getAlbum(mbid: string) {
 }
 // Fallback cover art (iTunes) for albums with no Cover Art Archive image — called lazily only after
 // the CAA image fails to load. Returns null when iTunes has nothing either.
+export function getGenreLanding(genre: string) {
+  return mfetch<{ tracks: Array<{ title: string; artist: string }>; artists: string[] }>(
+    `/catalog/genre?g=${encodeURIComponent(genre)}`)
+}
 export function getAlbumCoverFallback(artist: string, album: string) {
   return mfetch<{ coverUrl: string | null }>(
     `/catalog/cover?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`)

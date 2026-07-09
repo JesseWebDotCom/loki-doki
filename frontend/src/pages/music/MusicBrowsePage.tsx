@@ -13,9 +13,10 @@ import { StationCard } from '@/components/music/StationCard'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicMode } from '@/components/music/MusicLayout'
 import { SongTile } from '@/components/music/SongTile'
+import { SongArt } from '@/components/music/SongArt'
 import { stationGradient } from '@/lib/music/stationColors'
 import { toast } from 'sonner'
-import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
+import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, getGenreLanding, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
 
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
@@ -137,6 +138,81 @@ const GENRE_TILES: Array<{ name: string; accent: string }> = [
   { name: 'Reggae', accent: 'emerald' }, { name: 'Soul', accent: 'violet' },
 ]
 
+// A real genre landing: the live genre chart (top songs + the artists behind them) plus
+// our stations that match the genre - NOT a text search for the genre word in titles.
+function GenreView({ genre, onArtist }: { genre: string; onArtist: (name: string) => void }) {
+  const radio = useRadio()
+  const { data, isLoading } = useQuery({
+    queryKey: ['music-genre', genre], queryFn: () => getGenreLanding(genre), staleTime: 60 * 60 * 1000,
+  })
+  const { data: buckets } = useQuery({ queryKey: ['music-stations'], queryFn: listStations })
+  const needle = genre.toLowerCase()
+  const stations = [...(buckets?.builtin ?? []), ...(buckets?.mine ?? []), ...(buckets?.shared ?? [])]
+    .filter(s => `${s.name} ${s.description ?? ''} ${s.category ?? ''}`.toLowerCase().includes(needle))
+    .slice(0, 8)
+  const [busyIdx, setBusyIdx] = useState<number | null>(null)
+  const play = async (t: { title: string; artist: string }, i: number) => {
+    setBusyIdx(i)
+    try {
+      const r = await resolveSong({ title: t.title, artist: t.artist })
+      if (r) radio.playTrack({ videoId: r.videoId, title: r.title, author: r.artist })
+      else toast.error('Could not find that song')
+    } finally { setBusyIdx(null) }
+  }
+
+  return (
+    <>
+      {(data?.artists.length ?? 0) > 0 && (
+        <section className="mt-2">
+          <SectionHeader title={`${genre} artists`} />
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+            {data!.artists.map(name => (
+              // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
+              <button key={name} onClick={() => onArtist(name)} className="group flex w-32 shrink-0 flex-col items-center gap-2 p-2 text-center">
+                <ArtistAvatar name={name} className="size-24 rounded-full shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
+                <p className="w-full truncate text-sm font-medium">{name}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {stations.length > 0 && (
+        <section className="mt-6">
+          <SectionHeader title={`${genre} stations`} />
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {stations.map(s => <StationCard key={s.id} station={s} />)}
+          </div>
+        </section>
+      )}
+
+      <section className="mt-6">
+        <SectionHeader title={`Top ${genre} songs`} />
+        {isLoading && <p className="mt-3 text-sm text-muted-foreground">Loading the chart…</p>}
+        {!isLoading && !(data?.tracks.length ?? 0) && (
+          <p className="mt-3 text-sm text-muted-foreground">No chart available for this genre right now.</p>
+        )}
+        <div className="mt-3 grid gap-1 lg:grid-cols-2">
+          {(data?.tracks ?? []).map((t, i) => (
+            <button key={`${t.artist}-${t.title}`} onClick={() => void play(t, i)}
+              className="group flex items-center gap-3 rounded-card px-2 py-1.5 text-left transition hover:bg-white/[0.06]">
+              <span className="w-6 shrink-0 text-right text-sm tabular-nums text-muted-foreground/60">{i + 1}</span>
+              <SongArt trackRef={null} title={t.title} artist={t.artist} className="size-11" rounded="rounded-control" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{t.title}</p>
+                <p className="truncate text-xs text-muted-foreground">{t.artist}</p>
+              </div>
+              {busyIdx === i ? <Spinner size="sm" className="mr-1" /> : (
+                <Play className="mr-1 size-4 shrink-0 fill-current opacity-0 transition group-hover:opacity-100" />
+              )}
+            </button>
+          ))}
+        </div>
+      </section>
+    </>
+  )
+}
+
 // The Apple-Music-style Browse landing: big gradient genre tiles + living shelves
 // (recently played + featured stations) instead of a dead wall under the search box.
 function BrowseIdle({ onGenre }: { onGenre: (g: string) => void }) {
@@ -218,11 +294,20 @@ export function MusicBrowsePage() {
 
   if (mode === 'offline') return <OfflineBrowse q={q} />
 
+  const genre = params.get('genre')?.trim() ?? ''
+  if (!q && genre) return (
+    <PageContainer width="wide" className="pb-10">
+      <PageHeader plain title={genre} subtitle={`The best of ${genre}, right now.`} />
+      {SearchBar}
+      <GenreView genre={genre} onArtist={search} />
+    </PageContainer>
+  )
+
   if (!q) return (
     <PageContainer width="wide" className="pb-10">
       <PageHeader plain title="Browse" subtitle="Search the catalog for any artist, album, or song." />
       {SearchBar}
-      <BrowseIdle onGenre={search} />
+      <BrowseIdle onGenre={g => navigate(`/music/browse?genre=${encodeURIComponent(g)}`)} />
     </PageContainer>
   )
 

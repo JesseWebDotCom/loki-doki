@@ -9,6 +9,7 @@ import {
   getArtist, getArtistAlbums, getAlbum, itunesAlbumCover,
 } from '@/lib/music/catalog'
 import { resolveTrack } from '@/lib/music/resolve'
+import { deezerChartTracks } from '@/lib/music/deezer'
 import { getMusicSuggestions } from '@/lib/music/suggest'
 import { searchStations } from '@/routes/musicStations'
 import type { AppEnv } from '@/types'
@@ -64,6 +65,26 @@ musicCatalog.get('/cover', async (c) => {
   if (!album) return c.json({ coverUrl: null })
   const coverUrl = await itunesAlbumCover(artist, album)
   return c.json({ coverUrl })
+})
+
+// GET /api/music/catalog/genre?g=Metal — a GENRE landing (top songs + top artists from the
+// live Deezer genre chart), for Browse's genre tiles. This is real genre browsing, not a
+// text search for the genre word in titles.
+musicCatalog.get('/genre', async (c) => {
+  const g = c.req.query('g')?.trim() ?? ''
+  if (!g) return c.json({ error: 'g required' }, 400)
+  const tracks = (await deezerChartTracks(g, 40)).slice(0, 30)
+  const seen = new Set<string>()
+  const artists: string[] = []
+  for (const t of tracks) {
+    const k = t.artist.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    artists.push(t.artist)
+    if (artists.length >= 10) break
+  }
+  // Charts move slowly - an hour of browser cache keeps tile clicks instant.
+  return c.json({ tracks, artists }, 200, { 'Cache-Control': 'private, max-age=3600' })
 })
 
 // GET /api/music/catalog/resolve?mbid=&title=&artist=&duration= — identity → playable videoId
