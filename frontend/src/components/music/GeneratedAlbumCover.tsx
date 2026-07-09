@@ -20,14 +20,13 @@ function hashInt(s: string): number {
   return Math.abs(h)
 }
 
-// System font stacks that evoke different record-sleeve moods (no web fonts - CSP/offline).
+// System font stacks that read like record sleeves: bold condensed/black sans only.
+// (Serif and monospace variants looked like book covers and terminal output - cut.)
 const FONTS = [
-  `'Arial Narrow','Helvetica Neue',sans-serif`,
-  `Georgia,'Times New Roman',serif`,
   `Impact,'Haettenschweiler','Arial Black',sans-serif`,
-  `'Courier New',monospace`,
-  `'Trebuchet MS','Segoe UI',sans-serif`,
-  `'Palatino Linotype','Book Antiqua',serif`,
+  `'Arial Narrow','Avenir Next Condensed','Helvetica Neue',sans-serif`,
+  `'Helvetica Neue','Arial Black',Arial,sans-serif`,
+  `'Avenir Next Condensed','Arial Narrow',Impact,sans-serif`,
 ]
 
 const fs = (cqw: number) => `clamp(0.5rem, ${cqw}cqw, 2.2rem)`
@@ -58,9 +57,9 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
   const stampStyle = hashInt(`${seed}#s`) % 4
   const upper = hashInt(`${seed}#u`) % 4 !== 0 // mostly uppercase, occasionally title-case
   const albumFs = fs(albumCqw(albumName.length || 1))
-  // Mix in the band LOGO (when we have one) on ~40% of covers, each with a different background
-  // pattern so no two logo covers look alike.
-  const logoMode = !!logo && hashInt(`${seed}#lg`) % 5 < 2
+  // Dedicated centered-logo cover on ~40% of covers - and ALWAYS when there's no band
+  // photo (the logo is the strongest identity we have; never waste it on text-only art).
+  const logoMode = !!logo && (!photo || hashInt(`${seed}#lg`) % 5 < 2)
   const logoBg = hashInt(`${seed}#bp`) % 6
 
   const text = {
@@ -83,9 +82,9 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
     const vy = corner[0] === 't' ? { top: '7%' } : { bottom: '7%' }
     const vx = corner[1] === 'r' ? { right: '7%' } : { left: '7%' }
     if (stampStyle === 0) // outlined box, tilted
-      return <span className="absolute" style={{ ...vy, ...vx, transform: 'rotate(6deg)', border: `0.6cqw solid ${p.fg}`, color: p.fg, fontFamily: FONTS[2], fontWeight: 800, letterSpacing: '0.12em', padding: '0.4cqw 1.8cqw', fontSize: '5.5cqw', lineHeight: 1, textShadow: shadow }}>LIVE</span>
+      return <span className="absolute" style={{ ...vy, ...vx, transform: 'rotate(6deg)', border: `0.6cqw solid ${p.fg}`, color: p.fg, fontFamily: FONTS[0], fontWeight: 800, letterSpacing: '0.12em', padding: '0.4cqw 1.8cqw', fontSize: '5.5cqw', lineHeight: 1, textShadow: shadow }}>LIVE</span>
     if (stampStyle === 1) // solid pill
-      return <span className="absolute" style={{ ...vy, ...vx, background: p.accent, color: p.c1, fontFamily: FONTS[4], fontWeight: 800, letterSpacing: '0.14em', padding: '0.9cqw 2.4cqw', borderRadius: '999px', fontSize: '5cqw', lineHeight: 1 }}>LIVE</span>
+      return <span className="absolute" style={{ ...vy, ...vx, background: p.accent, color: p.c1, fontFamily: FONTS[2], fontWeight: 800, letterSpacing: '0.14em', padding: '0.9cqw 2.4cqw', borderRadius: '999px', fontSize: '5cqw', lineHeight: 1 }}>LIVE</span>
     if (stampStyle === 2) // round seal
       return <span className="absolute grid place-items-center" style={{ ...vy, ...vx, width: '20cqw', height: '20cqw', borderRadius: '999px', border: `0.7cqw solid ${p.fg}`, color: p.fg, fontFamily: FONTS[0], fontWeight: 800, letterSpacing: '0.08em', fontSize: '4.6cqw', textShadow: shadow }}>LIVE</span>
     // corner ribbon banner (diagonal across the corner)
@@ -93,12 +92,22 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
       tr: { top: '9%', right: '-24%', rotate: '45deg' }, tl: { top: '9%', left: '-24%', rotate: '-45deg' },
       br: { bottom: '9%', right: '-24%', rotate: '-45deg' }, bl: { bottom: '9%', left: '-24%', rotate: '45deg' },
     }[corner]
-    return <span className="absolute grid place-items-center" style={{ top: (ribbon as any).top, bottom: (ribbon as any).bottom, left: (ribbon as any).left, right: (ribbon as any).right, width: '62%', transform: `rotate(${ribbon.rotate})`, background: p.accent, color: p.c1, fontFamily: FONTS[4], fontWeight: 800, letterSpacing: '0.18em', padding: '1.2cqw 0', fontSize: '4.6cqw', boxShadow: '0 1cqw 3cqw rgba(0,0,0,0.35)' }}>LIVE</span>
+    return <span className="absolute grid place-items-center" style={{ top: (ribbon as any).top, bottom: (ribbon as any).bottom, left: (ribbon as any).left, right: (ribbon as any).right, width: '62%', transform: `rotate(${ribbon.rotate})`, background: p.accent, color: p.c1, fontFamily: FONTS[2], fontWeight: 800, letterSpacing: '0.18em', padding: '1.2cqw 0', fontSize: '4.6cqw', boxShadow: '0 1cqw 3cqw rgba(0,0,0,0.35)' }}>LIVE</span>
   }
 
-  // Band name: fit one line across `widthPct`; only wrap if that would be smaller than a readable
-  // floor (then it wraps at the floor size rather than shrinking to nothing).
+  // Band header: the band's LOGO wordmark whenever we have one (forced white so it reads
+  // on the dark treatments, like a printed sleeve) - text as the fallback. The logo is
+  // what makes a fake cover look official; text is the consolation prize, not the default.
   const Band = ({ widthPct = 86, weight = 900, max = 17, align = 'left' as const }: { widthPct?: number; weight?: number; max?: number; align?: 'left' | 'center' }) => {
+    if (logo) {
+      return (
+        <span className={cn('flex w-full', align === 'center' ? 'justify-center' : 'justify-start')}>
+          <img src={proxyImg(logo)} alt={bandName} loading="lazy"
+            style={{ maxWidth: `${widthPct}%`, maxHeight: '18cqw', objectFit: 'contain', filter: 'brightness(0) invert(1) drop-shadow(0 1cqw 2.5cqw rgba(0,0,0,0.6))' }}
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+        </span>
+      )
+    }
     if (!bandName) return null
     const fit = fitOneLine(bandName.length, widthPct)
     const oneLine = fit >= 6
@@ -141,7 +150,7 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
         {/* LIVE as a small centered tag in the free band BELOW the logo (never over it). */}
         {live && (
           <span className="absolute left-1/2 -translate-x-1/2" style={{
-            bottom: albumName ? '19%' : '9%', background: p.accent, color: p.c1, fontFamily: FONTS[4],
+            bottom: albumName ? '19%' : '9%', background: p.accent, color: p.c1, fontFamily: FONTS[2],
             fontWeight: 800, letterSpacing: '0.16em', padding: '0.8cqw 2.4cqw', borderRadius: '999px', fontSize: '4.4cqw', lineHeight: 1,
           }}>LIVE</span>
         )}
@@ -240,7 +249,7 @@ export function GeneratedAlbumCover({ band, album, photo, logo, className }: {
       {template === 7 && (<>
         <Photo pos="center" />
         <div className="absolute inset-0" style={{ background: `linear-gradient(to top, ${p.c1}f0 4%, ${p.c1}59 44%, ${p.c1}26 100%)` }} />
-        <span className="absolute inset-0 flex items-center justify-center" aria-hidden style={{ fontFamily: FONTS[2], color: p.fg, opacity: 0.16, fontSize: '90cqw', fontWeight: 900, lineHeight: 1 }}>
+        <span className="absolute inset-0 flex items-center justify-center" aria-hidden style={{ fontFamily: FONTS[0], color: p.fg, opacity: 0.16, fontSize: '90cqw', fontWeight: 900, lineHeight: 1 }}>
           {(bandName || albumName || '?').charAt(0).toUpperCase()}
         </span>
         <div className="absolute inset-x-0 bottom-0 flex flex-col" style={{ padding: '7%', gap: '1.5%' }}>
