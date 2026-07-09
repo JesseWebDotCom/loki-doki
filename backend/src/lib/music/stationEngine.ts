@@ -122,6 +122,59 @@ async function searchQueriesFor(seed: StationSeed): Promise<string[]> {
   return rawQueriesFor(seed)
 }
 
+const FIT_SCHEMA = {
+  type: 'object',
+  properties: { drop: { type: 'array', items: { type: 'integer' } } },
+  required: ['drop'],
+} as const
+
+/** LLM fit pass: drop candidates that clearly don't belong on this station. The catalog
+ *  sources are honest about being SONGS but sloppy about CONCEPT - Deezer's "hair metal"
+ *  playlists happily include Careless Whisper - and only a judgment call can catch that.
+ *  Fast model, fail-open (any error keeps the list), and never guts the queue: if the
+ *  model rejects most of the list, trust the sources over the judge. */
+const FIT_BATCH = 10   // small batches keep the fast (3B) judge sharp; long lists dilute it
+
+async function llmFitFilter(seed: StationSeed, tracks: ResolvedTrack[], opts?: { fast?: boolean }): Promise<ResolvedTrack[]> {
+  if (tracks.length < 5) return tracks
+  try {
+    // Music knowledge is the whole job here (does the 3B model KNOW Wes Montgomery is
+    // jazz?). Full builds run in the background, so they get the main model's broader
+    // knowledge; only the latency-critical fast tune-in path uses the small judge.
+    const model = opts?.fast ? await getFastModel() : await getModel()
+    const sys = 'You are a strict radio-station music director. Given a station concept and a numbered ' +
+      'candidate list, reply with JSON {"drop":[numbers]} for songs that do not fit the station\'s ' +
+      'genre, era, or theme. Judge well-known songs by what they ACTUALLY are: famous pop, soul, ' +
+      'soft-rock, reggae, disco, or schlager songs never belong on a rock/metal station no matter ' +
+      'what playlist they came from. Keep genre-adjacent picks; keep songs you do not recognize. JSON only.'
+
+    const judgeBatch = async (batch: ResolvedTrack[]): Promise<ResolvedTrack[]> => {
+      const list = batch.map((t, i) => `${i}. ${t.artist || '?'} — ${t.title}`).join('\n')
+      const user = `Station: "${seed.name ?? ''}" — ${seed.aiPrompt}\n\nCandidates:\n${list}`
+      const chat = await ollamaChat(model, [{ role: 'system', content: sys }, { role: 'user', content: user }], [], { temperature: 0.1, num_predict: 200 }, FIT_SCHEMA)
+      const parsed = JSON.parse(chat.message?.content?.trim() || '{}') as { drop?: number[] }
+      const drop = new Set((parsed.drop ?? []).filter(n => Number.isInteger(n) && n >= 0 && n < batch.length))
+      return batch.filter((_, i) => !drop.has(i))
+    }
+
+    const batches: ResolvedTrack[][] = []
+    for (let i = 0; i < tracks.length; i += FIT_BATCH) batches.push(tracks.slice(i, i + FIT_BATCH))
+    const kept = (await Promise.all(batches.map(b => judgeBatch(b).catch(() => b)))).flat()
+
+    // Over-zealous judge guard: a sloppy source playlist can legitimately be >half misfits
+    // (verified live: Deezer "hair metal" playlists full of 80s pop ballads), so only
+    // distrust the judge when it guts the list to near-nothing.
+    if (kept.length < Math.max(3, Math.ceil(tracks.length / 4))) return tracks
+    if (kept.length < tracks.length) {
+      logger.debug(`[stationEngine] fit filter dropped ${tracks.length - kept.length}/${tracks.length} for "${seed.name}"`)
+    }
+    return kept
+  } catch (err) {
+    logger.debug(`[stationEngine] fit filter failed (kept all): ${String(err)}`)
+    return tracks
+  }
+}
+
 // "What's hot right now" stations should be seeded from a LIVE chart, since the LLM (and even a
 // curated playlist) lags the real-time charts. Detect that intent from the station name/prompt.
 const CHART_INTENT_RE =
@@ -279,7 +332,10 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   // the same "one search, then play" that makes a normal YouTube video start instantly; the
   // background full build handles curation/quality for the rest of the queue.
   if (fast) {
-    const yt = dropJunk(await ytmusicMix(seed, want, exclude, queries))
+    // Fetch a small surplus so the fit pass below has room to drop misfits and still
+    // hand back a full fast queue - the FIRST song is the one a bad fit hurts most.
+    let yt = dropJunk(await ytmusicMix(seed, want + 3, exclude, queries))
+    if (!isChartStation(seed)) yt = await llmFitFilter(seed, dedupe(yt), { fast: true })
     return { tracks: dedupe(yt).slice(0, want), source: yt.length ? 'ytmusic' : 'empty' }
   }
 
@@ -328,6 +384,13 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
     } catch (err) {
       logger.debug(`[stationEngine] backfill failed: ${String(err)}`)
     }
+  }
+
+  // Fit pass: the catalog tiers guarantee real songs but not concept fit (Deezer's "hair
+  // metal" playlists include 80s pop ballads). One fast-model judgment call cleans that up.
+  // Chart stations skip it - charts are charts.
+  if (!isChartStation(seed)) {
+    resolved = await llmFitFilter(seed, dedupe(resolved))
   }
 
   // Cap repeats per artist (≤3) only when we have comfortable surplus, so variety improves without
