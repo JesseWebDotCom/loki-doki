@@ -192,7 +192,11 @@ export async function searchArtists(query: string, limit = 12): Promise<CatalogA
   return cachedLookup('mb-artist-search', `${q}:${limit}`, THIRTY_DAYS_MS, async () => {
     try {
       const data = await mbFetch(`/artist?query=${encodeURIComponent(lucene(q))}&limit=${limit}`)
-      return (data.artists ?? []).map((a: any): CatalogArtist => ({
+      return (data.artists ?? [])
+        // MusicBrainz's compilation placeholder matches nearly every genre-word query and
+        // is never what a browser wants - pure noise in the Artists rail.
+        .filter((a: any) => a.id !== '89ad4ac3-39f7-470e-963a-56509c546377' && a.name?.toLowerCase() !== 'various artists')
+        .map((a: any): CatalogArtist => ({
         mbid: a.id,
         name: a.name,
         disambiguation: a.disambiguation || null,

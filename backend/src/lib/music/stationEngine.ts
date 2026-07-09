@@ -161,10 +161,9 @@ async function llmFitFilter(seed: StationSeed, tracks: ResolvedTrack[], opts?: {
     for (let i = 0; i < tracks.length; i += FIT_BATCH) batches.push(tracks.slice(i, i + FIT_BATCH))
     const kept = (await Promise.all(batches.map(b => judgeBatch(b).catch(() => b)))).flat()
 
-    // Over-zealous judge guard: a sloppy source playlist can legitimately be >half misfits
-    // (verified live: Deezer "hair metal" playlists full of 80s pop ballads), so only
-    // distrust the judge when it guts the list to near-nothing.
-    if (kept.length < Math.max(3, Math.ceil(tracks.length / 4))) return tracks
+    // No keep-at-least-N guard here: a heavy drop is a SIGNAL, not a judge error. The
+    // caller reads it as "the catalog sources missed this concept" and falls back to the
+    // LLM tracklist (verified live: 'classic horror themes' gets Hamilton from Deezer).
     if (kept.length < tracks.length) {
       logger.debug(`[stationEngine] fit filter dropped ${tracks.length - kept.length}/${tracks.length} for "${seed.name}"`)
     }
@@ -334,9 +333,15 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   if (fast) {
     // Fetch a small surplus so the fit pass below has room to drop misfits and still
     // hand back a full fast queue - the FIRST song is the one a bad fit hurts most.
-    let yt = dropJunk(await ytmusicMix(seed, want + 3, exclude, queries))
-    if (!isChartStation(seed)) yt = await llmFitFilter(seed, dedupe(yt), { fast: true })
-    return { tracks: dedupe(yt).slice(0, want), source: yt.length ? 'ytmusic' : 'empty' }
+    const yt = dropJunk(await ytmusicMix(seed, want + 3, exclude, queries))
+    let picked = yt
+    if (!isChartStation(seed)) {
+      const judged = await llmFitFilter(seed, dedupe(yt), { fast: true })
+      // A judge that rejects everything can't stall the tune-in - play the sources' best
+      // and let the full background build (with its LLM fallback) correct the queue.
+      picked = judged.length ? judged : yt
+    }
+    return { tracks: dedupe(picked).slice(0, want), source: picked.length ? 'ytmusic' : 'empty' }
   }
 
   // Tier 0: live chart for "what's hot now" stations (today's hits, viral, trending, this-year…).
@@ -362,14 +367,29 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
     if (yt.length) { resolved = dedupe([...resolved, ...yt]); source = source === 'empty' ? 'ytmusic' : 'mixed' }
   }
 
-  // Tier 3: LLM-proposed tracklist as a last resort if both catalog sources were thin. Skipped in
-  // fast mode — a slow LLM round-trip defeats the point of getting the first track playing quickly.
-  if (!fast && resolved.length < Math.min(want, 8)) {
+  // Fit pass over the catalog candidates. A heavy drop is the tell that the sources
+  // missed the CONCEPT (themed/soundtrack stations: 'classic horror themes' pulls
+  // Hamilton numbers from Deezer) - that flips the LLM tracklist from last resort to
+  // lead source below.
+  let sourcesUnreliable = false
+  if (!isChartStation(seed) && resolved.length) {
+    const before = dedupe(resolved)
+    const judged = await llmFitFilter(seed, before)
+    sourcesUnreliable = judged.length < Math.max(3, Math.ceil(before.length / 2))
+    resolved = judged
+  }
+
+  // LLM tracklist: last resort when the catalog tiers came up thin - and the LEAD source
+  // when the fit judge rejected most of what they returned. The model actually KNOWS what
+  // belongs on a themed station (Halloween theme, Tubular Bells); the resolver's confidence
+  // floor guards against hallucinated picks.
+  if (!fast && (sourcesUnreliable || resolved.length < Math.min(want, 8))) {
     const proposed = await llmTracklist(seed, want)
     if (proposed.length) {
       const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
       const more = dropJunk(await resolveTracks(proposed.map(t => ({ title: t.title, artist: t.artist })), 8)).filter(t => !already.has(t.videoId))
-      if (more.length) { resolved = dedupe([...resolved, ...more]); source = source === 'empty' ? 'llm' : 'mixed' }
+      // Concept-fit LLM picks LEAD; surviving catalog tracks fill in behind them.
+      if (more.length) { resolved = dedupe([...more, ...resolved]); source = source === 'empty' ? 'llm' : 'mixed' }
     }
   }
 
@@ -386,12 +406,8 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
     }
   }
 
-  // Fit pass: the catalog tiers guarantee real songs but not concept fit (Deezer's "hair
-  // metal" playlists include 80s pop ballads). One fast-model judgment call cleans that up.
-  // Chart stations skip it - charts are charts.
-  if (!isChartStation(seed)) {
-    resolved = await llmFitFilter(seed, dedupe(resolved))
-  }
+  // (The fit pass already ran above, before the LLM tier - LLM picks and the radio
+  // backfill riding off them are concept-fit by construction.)
 
   // Cap repeats per artist (≤3) only when we have comfortable surplus, so variety improves without
   // starving a thin niche queue.
