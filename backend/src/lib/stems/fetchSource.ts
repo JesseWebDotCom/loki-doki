@@ -33,6 +33,8 @@ export interface StudioSourceJobPayload {
   title: string
   artist?: string | null
   durationSec?: number | null
+  /** Karaoke chain: separate into these stems as soon as the source is ready. */
+  thenSeparate?: '2-stem' | '4-stem' | '6-stem'
 }
 
 /** Transcode any audio file to 44.1k stereo 16-bit WAV (the Studio source format). */
@@ -145,6 +147,7 @@ export async function runStudioSourceJob(
     const wantAnalysis = isStemAudioInstalled()
     await db.update(musicStudioTracks).set({
       sourceRelPath: rel, sourceStatus: 'ready', sourceError: null,
+      sourceVideoId: videoId,
       coverRelPath: coverRel ?? row.coverRelPath ?? null,
       durationSec: payload.durationSec ?? row.durationSec ?? null,
       analysisStatus: wantAnalysis ? 'pending' : 'none',
@@ -153,6 +156,13 @@ export async function runStudioSourceJob(
     onProgress?.({ completed: 100, total: 100, speedBps: 0, etaSeconds: 0, note: 'Ready' })
 
     if (wantAnalysis) await enqueueAudioAnalyze(studioTrackId, `Analyse ${row.title}`)
+    // Karaoke auto-chain: the moment the source lands, kick the 2-stem (vocals/instrumental)
+    // split so the song is ready to sing without a second user action.
+    if (payload.thenSeparate && wantAnalysis) {
+      const { enqueueStemSeparation } = await import('@/lib/downloadJobs')
+      await db.update(musicStudioTracks).set({ stemStatus: 'pending', stemError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, studioTrackId))
+      await enqueueStemSeparation(studioTrackId, { model: payload.thenSeparate }, `Karaoke stems: ${row.title}`)
+    }
     logger.info(`[studio-source] ${studioTrackId}: source ready (${videoId})`)
   } catch (err) {
     await db.update(musicStudioTracks).set({ sourceStatus: 'failed', sourceError: String(err), updatedAt: new Date() }).where(eq(musicStudioTracks.id, studioTrackId))

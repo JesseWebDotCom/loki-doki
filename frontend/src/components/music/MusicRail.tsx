@@ -1,5 +1,5 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
-import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, SlidersHorizontal, Heart, ListMusic, History, Download, CalendarRange, type LucideIcon } from 'lucide-react'
+import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, SlidersHorizontal, Heart, ListMusic, History, Download, CalendarRange, Mic2, type LucideIcon } from 'lucide-react'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { cn } from '@/lib/cn'
@@ -59,6 +59,7 @@ export function MusicRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'draw
         <RailLink to="/music/generate" icon={Sparkles} label="Generate" />
         <RailLink to="/music/remix" icon={Shuffle} label="Remix" />
         <RailLink to="/music/studio" icon={SlidersHorizontal} label="Studio" />
+        <RailLink to="/music/karaoke" icon={Mic2} label="Karaoke" />
       </>}
 
       <SectionLabel>Your Library</SectionLabel>

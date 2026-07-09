@@ -31,7 +31,15 @@ export const STEM_VENV = join(dataDir, 'stem-audio-venv')
 // not-installed, so boot reconcile upgrades them in place (v1 → v2 swapped plain
 // essentia for essentia-tensorflow, which adds the ML classifier runtime).
 const MARKER = join(STEM_VENV, '.stem-audio-ready')
-const MARKER_VERSION = 'v2:essentia-tensorflow'
+// v3 pre-downloads the MMS_FA lyric-alignment model (torch+torchaudio were already present
+// for Demucs, so no new pip — just the model weights). Bumping to v3 makes boot reconcile
+// re-run install on existing Studio setups to fetch that model in place.
+const MARKER_VERSION = 'v3:mms-fa-align'
+
+// torch.hub cache for the MMS forced-alignment model (torchaudio.pipelines.MMS_FA). Kept
+// under data/ (not ~/.cache) so it's contained + pre-downloadable through the installer.
+// Only the alignment path sets TORCH_HOME; Demucs keeps its default cache untouched.
+export const TORCH_HOME = join(dataDir, 'torch')
 
 // ── Music-intelligence models (discogs-effnet backbone + classifier heads) ─────────
 // ~27 MB total from essentia.upf.edu. The backbone yields a 1280-d embedding per patch;
@@ -88,6 +96,7 @@ export function isRoformerGuitarInstalled(): boolean {
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const ANALYZE_SCRIPT = join(HERE, 'analyze.py')
 export const LIBRARY_ANALYZE_SCRIPT = join(HERE, 'library_analyze.py')
+export const ALIGN_SCRIPT = join(HERE, 'align.py')
 
 function venvBin(name: string): string {
   return IS_WIN ? join(STEM_VENV, 'Scripts', `${name}.exe`) : join(STEM_VENV, 'bin', name)
@@ -111,9 +120,9 @@ type StatusFn = (msg: string) => void
 
 /** Spawn a child, streaming its last stdout/stderr line as coarse status; rejects on
  *  non-zero exit or abort. Mirrors the run() helper in lib/searxng.ts. */
-function run(cmd: string, args: string[], opts: { signal?: AbortSignal; onStatus?: StatusFn; timeoutMs?: number } = {}): Promise<void> {
+function run(cmd: string, args: string[], opts: { signal?: AbortSignal; onStatus?: StatusFn; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const child = spawn(cmd, args, { env: opts.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     const onAbort = () => { try { child.kill('SIGTERM') } catch { /* dead */ } }
     opts.signal?.addEventListener('abort', onAbort, { once: true })
     const timer = opts.timeoutMs ? setTimeout(() => { try { child.kill('SIGKILL') } catch { /* dead */ } }, opts.timeoutMs) : null
@@ -190,6 +199,13 @@ export async function installStemAudio(onStatus: StatusFn = () => {}, signal?: A
     onStatus(`Downloading ${m.file}…`)
     await downloadUrl(m.url, intelModelPath(m.file), () => {}, signal, { minBytes: 1_000 })
   }
+
+  // Lyric-alignment model (torchaudio MMS_FA, ~1 GB) so the first "align lyrics" run doesn't
+  // stall on a model fetch. Downloads through torch.hub into TORCH_HOME (kept under data/).
+  onStatus('Downloading lyric-alignment model (MMS_FA)…')
+  mkdirSync(TORCH_HOME, { recursive: true })
+  await run(venvBin('python'), ['-c', 'import torchaudio; torchaudio.pipelines.MMS_FA.get_model(); torchaudio.pipelines.MMS_FA.get_aligner()'],
+    { signal, onStatus, timeoutMs: 30 * 60_000, env: { ...process.env, TORCH_HOME } })
 
   try { mkdirSync(dirname(MARKER), { recursive: true }); writeFileSync(MARKER, `${MARKER_VERSION} ${new Date().toISOString()}`) } catch { /* non-fatal */ }
   onStatus('Stem audio runtime installed.')

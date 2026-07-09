@@ -44,6 +44,38 @@ function computePeaks(buffer: AudioBuffer): number[] {
   return peaks
 }
 
+// First moment the vocals stem clearly rises out of silence (50ms RMS windows, ~-18dB below the
+// stem's own peak, sustained 150ms so a stray click/pop can't trigger it). Used to auto-align
+// externally-sourced lyric timestamps - which are timed to whatever recording LRCLIB happened to
+// match, not necessarily THIS edit/re-recording - to this track's actual audio. Null if nothing
+// rises clearly above the noise floor (e.g. a near-silent or corrupt stem).
+function detectOnsetSec(buffer: AudioBuffer): number | null {
+  const ch = buffer.getChannelData(0)
+  const sr = buffer.sampleRate
+  const windowSize = Math.max(1, Math.round(sr * 0.05))
+  const windows = Math.floor(ch.length / windowSize)
+  if (windows < 4) return null
+  const rms = new Array<number>(windows)
+  let peak = 0
+  for (let w = 0; w < windows; w++) {
+    let sum = 0
+    const start = w * windowSize
+    for (let i = 0; i < windowSize; i++) { const v = ch[start + i] ?? 0; sum += v * v }
+    const r = Math.sqrt(sum / windowSize)
+    rms[w] = r
+    if (r > peak) peak = r
+  }
+  if (peak <= 0) return null
+  const threshold = peak * 0.12
+  const sustain = 3
+  for (let w = 0; w < windows - sustain; w++) {
+    let ok = true
+    for (let k = 0; k < sustain; k++) { if (rms[w + k] < threshold) { ok = false; break } }
+    if (ok) return (w * windowSize) / sr
+  }
+  return null
+}
+
 export class StemEngine {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
@@ -58,6 +90,7 @@ export class StemEngine {
   private pausedPosition = 0
   private disposed = false
   private stRegistered = false   // SoundTouch worklet module registered on this ctx
+  private vocalOnsetSec: number | null | undefined = undefined   // memoized; undefined = not computed yet
 
   private listeners = new Set<Listener>()
   onChange(fn: Listener): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn) }
@@ -73,6 +106,14 @@ export class StemEngine {
   isDisposed(): boolean { return this.disposed }
   /** True once the SoundTouch worklet is available (independent pitch/tempo). */
   hasTimeStretch(): boolean { return this.stRegistered }
+
+  /** Best-effort vocal onset (seconds), or null if there's no separated vocals stem loaded. */
+  getVocalOnsetSec(): number | null {
+    if (this.vocalOnsetSec !== undefined) return this.vocalOnsetSec
+    const vocals = this.stems.find((s) => s.name === 'vocals')
+    this.vocalOnsetSec = vocals ? detectOnsetSec(vocals.buffer) : null
+    return this.vocalOnsetSec
+  }
 
   getMixPeaks(): number[] {
     if (this.stems.length === 0) return []
@@ -118,6 +159,7 @@ export class StemEngine {
     if (this.disposed) return
     this.stop()
     this.disposeStems()
+    this.vocalOnsetSec = undefined
 
     const results = await Promise.all(tracks.map(async (t) => {
       try {

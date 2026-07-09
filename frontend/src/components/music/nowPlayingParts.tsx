@@ -24,34 +24,46 @@ export function SectionLabel({ icon: Icon, color, children }: { icon: typeof Mus
 // only a real seek (a >0.75s backward jump in position) is allowed to move it backward. Without
 // that guard, a `position` reading that jitters by a few ms right at a line boundary (frame timing,
 // GC pauses) flips the index back and forth, which reads as "an old row lighting up".
-function useActiveLyricIndex(synced: LyricLine[] | null, position: number): number {
+//
+// `offsetSec` shifts LRCLIB's timestamps to this track's actual audio (see getLyricsOffsetSec) -
+// LRCLIB lines are timed to whatever recording it matched, which may be a different edit/
+// re-recording than what's actually playing. A line is "reached" once `line.sec + offsetSec &lt;=
+// position`, i.e. once `line.sec &lt;= position - offsetSec`.
+function useActiveLyricIndex(synced: LyricLine[] | null, position: number, offsetSec = 0): number {
   const lastIdxRef = useRef(-1)
   const lastPosRef = useRef(0)
+  const adjPosition = position - offsetSec
   return useMemo(() => {
-    if (!synced || !synced.length) { lastIdxRef.current = -1; lastPosRef.current = position; return -1 }
+    if (!synced || !synced.length) { lastIdxRef.current = -1; lastPosRef.current = adjPosition; return -1 }
     let idx = -1
-    for (let i = 0; i < synced.length; i++) { if (synced[i]!.sec <= position) idx = i; else break }
-    const jumpedBack = position < lastPosRef.current - 0.75
-    lastPosRef.current = position
+    for (let i = 0; i < synced.length; i++) { if (synced[i]!.sec <= adjPosition) idx = i; else break }
+    const jumpedBack = adjPosition < lastPosRef.current - 0.75
+    lastPosRef.current = adjPosition
     if (jumpedBack || idx > lastIdxRef.current) lastIdxRef.current = idx
     return lastIdxRef.current
-  }, [synced, position])
+  }, [synced, adjPosition])
 }
 
 // Synced (or plain) lyrics that auto-scroll the active line, driven by a caller-supplied playback
 // position (radio.positionSec on Now Playing, StemEngine.getPosition() in Music Studio). Kept
 // presentational/prop-driven so it works with any playback source.
-export function LyricsPanel({ artist, title, position, duration, onSeek }: {
-  artist: string; title: string; position: number; duration?: number; onSeek?: (sec: number) => void
+//
+// `alignedLines`: pre-aligned [{sec, text}] timed to THIS exact recording (Music Studio's forced
+// alignment against the vocals stem). When present, these are used verbatim — no LRCLIB fetch, no
+// offset guessing — because the timing is already correct for the audio being played.
+export function LyricsPanel({ artist, title, position, duration, onSeek, offsetSec = 0, alignedLines }: {
+  artist: string; title: string; position: number; duration?: number; onSeek?: (sec: number) => void; offsetSec?: number; alignedLines?: LyricLine[]
 }) {
+  const haveAligned = !!alignedLines?.length
   const { data, isLoading } = useQuery({
     queryKey: ['music-lyrics', artist, title, duration], queryFn: () => getLyrics(artist, title, duration),
-    enabled: !!title, staleTime: Infinity,
+    enabled: !!title && !haveAligned, staleTime: Infinity,
   })
-  const synced = data?.synced ?? null
+  const synced = haveAligned ? alignedLines! : (data?.synced ?? null)
+  const effOffset = haveAligned ? 0 : offsetSec
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLParagraphElement>(null)
-  const activeIdx = useActiveLyricIndex(synced, position)
+  const activeIdx = useActiveLyricIndex(synced, position, effOffset)
 
   // Scroll ONLY the lyrics box (not the page) to keep the active line centered.
   useEffect(() => {
@@ -67,14 +79,14 @@ export function LyricsPanel({ artist, title, position, duration, onSeek }: {
     </div>
   )
 
-  if (isLoading) return empty('Looking for lyrics…')
-  if (data?.restricted) return empty('Lyrics are hidden by your family’s content settings.')
+  if (!haveAligned && isLoading) return empty('Looking for lyrics…')
+  if (!haveAligned && data?.restricted) return empty('Lyrics are hidden by your family’s content settings.')
   if (synced?.length) {
     return (
       <div ref={containerRef} className="h-full space-y-1.5 overflow-y-auto px-5 py-6">
         {synced.map((l, i) => (
           <p key={i} ref={i === activeIdx ? activeRef : undefined}
-            onClick={onSeek ? () => onSeek(l.sec) : undefined}
+            onClick={onSeek ? () => onSeek(l.sec + effOffset) : undefined}
             className={cn('text-lg font-semibold leading-snug transition-all duration-150',
               onSeek && 'cursor-pointer hover:text-foreground',
               i === activeIdx ? 'scale-[1.02] text-foreground' : i < activeIdx ? 'text-muted-foreground/40' : 'text-muted-foreground/70')}>
@@ -94,15 +106,16 @@ export function LyricsPanel({ artist, title, position, duration, onSeek }: {
 // Compact 3-line karaoke ticker (previous / active / next) for tight header real estate -
 // e.g. Music Studio's now-playing card. Click to open the full LyricsPanel. Shares the
 // music-lyrics query cache with LyricsPanel, so opening the full view is instant.
-export function LyricsTicker({ artist, title, position, duration, onOpen, className }: {
-  artist: string; title: string; position: number; duration?: number; onOpen: () => void; className?: string
+export function LyricsTicker({ artist, title, position, duration, onOpen, className, offsetSec = 0, alignedLines }: {
+  artist: string; title: string; position: number; duration?: number; onOpen: () => void; className?: string; offsetSec?: number; alignedLines?: LyricLine[]
 }) {
+  const haveAligned = !!alignedLines?.length
   const { data } = useQuery({
     queryKey: ['music-lyrics', artist, title, duration], queryFn: () => getLyrics(artist, title, duration),
-    enabled: !!title, staleTime: Infinity,
+    enabled: !!title && !haveAligned, staleTime: Infinity,
   })
-  const synced = data?.synced ?? null
-  const activeIdx = useActiveLyricIndex(synced, position)
+  const synced = haveAligned ? alignedLines! : (data?.synced ?? null)
+  const activeIdx = useActiveLyricIndex(synced, position, haveAligned ? 0 : offsetSec)
   if (!synced?.length) return null
 
   // Before the first line's timestamp, activeIdx is -1 (nothing sung yet) - preview the song's
@@ -111,9 +124,9 @@ export function LyricsTicker({ artist, title, position, duration, onOpen, classN
   const activeRow = activeIdx < 0 ? -1 : 1
   return (
     <button type="button" onClick={onOpen}
-      className={cn('flex w-full flex-col justify-center gap-0.5 rounded-control bg-muted/50 px-3 py-1.5 text-left transition-colors hover:bg-muted', className)}>
+      className={cn('flex w-full flex-col justify-center gap-1 rounded-card bg-muted/50 px-4 py-2.5 text-left transition-colors hover:bg-muted', className)}>
       {rows.map((l, i) => (
-        <p key={i} className={cn('truncate text-xs leading-snug',
+        <p key={i} className={cn('truncate text-sm leading-snug',
           i === activeRow ? 'font-semibold text-foreground' : 'text-muted-foreground/60')}>
           {l ? (l.text || '♪') : ' '}
         </p>

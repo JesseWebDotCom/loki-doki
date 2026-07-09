@@ -2,7 +2,7 @@
 // Orchestrates the StemEngine (playback/mixer) and Metronome, polls the backend while
 // analysis/separation jobs run, and renders the mixer, chord row, metronome, and
 // key/speed controls. Mirrors the reference Moises screens.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Play, Pause, Sparkles, RefreshCw, SkipBack } from 'lucide-react'
@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { WaveSeekBar } from '@/components/music/studio/WaveSeekBar'
 import { toast } from '@/lib/toast'
+import { getLyrics } from '@/lib/music/catalogApi'
 import { getStudioTrack, generateStems, reanalyzeStudioTrack, type StemModel, type CustomStem } from '@/lib/music/studioApi'
 import { StemEngine } from '@/lib/music/stemEngine'
 import { Metronome, type Subdivision } from '@/lib/music/metronome'
@@ -66,6 +67,7 @@ export function MusicStudioDetailPage() {
   const [subdivision, setSubdivision] = useState<Subdivision>(1)
   const [loadedMode, setLoadedMode] = useState<'stems' | 'preview' | null>(null)
   const [lyricsOpen, setLyricsOpen] = useState(false)
+  const [vocalsOnsetSec, setVocalsOnsetSec] = useState<number | null>(null)
 
   const { data } = useQuery({
     queryKey: ['studio-track', id],
@@ -74,11 +76,35 @@ export function MusicStudioDetailPage() {
       const t = q.state.data?.track
       const busy = t && (t.sourceStatus === 'fetching'
         || t.analysisStatus === 'pending' || t.analysisStatus === 'analyzing'
-        || t.stemStatus === 'pending' || t.stemStatus === 'separating')
+        || t.stemStatus === 'pending' || t.stemStatus === 'separating'
+        || t.lyricsAlignStatus === 'pending' || t.lyricsAlignStatus === 'aligning')
       return busy ? 3000 : false
     },
   })
   const track = data?.track
+
+  // Same query LyricsPanel/LyricsTicker make internally (identical key -> shared cache, no extra
+  // fetch) so we can compare LRCLIB's first line against the measured vocal onset below.
+  const lyricsArtist = track?.artist ?? ''
+  const lyricsTitle = track?.title ?? ''
+  const lyricsDuration = track?.durationSec ?? undefined
+  const { data: lyricsData } = useQuery({
+    queryKey: ['music-lyrics', lyricsArtist, lyricsTitle, lyricsDuration],
+    queryFn: () => getLyrics(lyricsArtist, lyricsTitle, lyricsDuration),
+    enabled: !!lyricsTitle, staleTime: Infinity,
+  })
+
+  // LRCLIB times lines to whatever recording it matched, which may be a different edit/
+  // re-recording than this track's actual audio - shift the whole timeline so the first sung
+  // line lines up with the vocal stem's measured onset. Skip if the gap is implausible (bad
+  // onset detection, or the matched lyrics are for an unrelated recording entirely).
+  const offsetSec = useMemo(() => {
+    if (vocalsOnsetSec == null) return 0
+    const firstReal = lyricsData?.synced?.find((l) => l.text.trim())
+    if (!firstReal) return 0
+    const delta = vocalsOnsetSec - firstReal.sec
+    return delta >= -5 && delta <= 60 ? delta : 0
+  }, [vocalsOnsetSec, lyricsData])
 
   // Subscribe to engine changes (mixer state) + drive a position ticker while playing.
   useEffect(() => {
@@ -104,13 +130,19 @@ export function MusicStudioDetailPage() {
       const key = 'stems|' + track.stems.map((s) => s.url).join('|')
       if (loadedKeyRef.current === key) return
       loadedKeyRef.current = key
-      void engine.load(track.stems).then(() => setLoadedMode('stems')).catch(() => toast.error('Could not load stems'))
+      void engine.load(track.stems)
+        .then(() => { setLoadedMode('stems'); setVocalsOnsetSec(engine.getVocalOnsetSec()) })
+        .catch(() => toast.error('Could not load stems'))
     } else if (track.sourceStatus === 'ready') {
       const url = `/api/music/studio/${track.id}/source`
       const key = 'preview|' + url
       if (loadedKeyRef.current === key) return
       loadedKeyRef.current = key
-      void engine.load([{ name: 'original', url }]).then(() => setLoadedMode('preview')).catch(() => toast.error('Could not load audio'))
+      // No separated vocals in preview mode (single mixed "original" stem) - nothing to
+      // calibrate lyrics against yet, so make sure a stale onset from a prior track is cleared.
+      void engine.load([{ name: 'original', url }])
+        .then(() => { setLoadedMode('preview'); setVocalsOnsetSec(null) })
+        .catch(() => toast.error('Could not load audio'))
     }
   }, [track, engine])
 
@@ -154,6 +186,10 @@ export function MusicStudioDetailPage() {
 
   const seekTo = (t: number) => { engine.seek(t); setPos(t) }
 
+  // Prefer lyrics forced-aligned to THIS track's vocals (correct for the actual recording).
+  // Until that's ready, fall back to raw LRCLIB + the measured onset offset.
+  const alignedLines = track.lyricsAlignStatus === 'ready' && track.lyrics.length ? track.lyrics : undefined
+
   return (
     <PageContainer width="wide">
       <div className="space-y-3 py-3">
@@ -165,7 +201,8 @@ export function MusicStudioDetailPage() {
           </Card>
         )}
 
-        {/* ── Sleek now-playing header: cover · title · integrated transport · controls ── */}
+        {/* ── Sleek now-playing header: cover · title left; lyrics preview right; transport +
+             chords + tempo/key/metronome controls along the bottom, under the waveform ── */}
         <Card className="overflow-hidden">
           <div className="flex items-start gap-3 p-3 sm:p-4">
             <Button asChild variant="ghost" size="icon-sm" aria-label="Back to Studio" className="-ml-1 shrink-0 text-muted-foreground">
@@ -175,40 +212,12 @@ export function MusicStudioDetailPage() {
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-lg font-semibold leading-tight text-foreground">{track.title}</h2>
               {track.artist && <p className="truncate text-sm text-muted-foreground">{track.artist}</p>}
-              {track.sourceStatus === 'ready' && (
-                <div className="mt-2 flex items-center gap-2">
-                  <Button variant="ghost" size="icon-sm" onClick={() => seekTo(0)} disabled={stems.length === 0} aria-label="Restart" className="text-muted-foreground"><SkipBack className="size-4" /></Button>
-                  <Button size="icon" onClick={() => engine.toggle()} disabled={stems.length === 0} aria-label={engine.isPlaying() ? 'Pause' : 'Play'} className="size-10 rounded-full shadow-md shadow-brand/25">
-                    {engine.isPlaying() ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
-                  </Button>
-                  <span className="text-xs tabular-nums text-muted-foreground">{fmt(displayPos)} / {fmt(duration)}</span>
-                </div>
-              )}
             </div>
-            <div className="flex shrink-0 flex-col items-end gap-1.5">
-              {track.sourceStatus === 'ready' && (
-                <LyricsTicker artist={track.artist ?? ''} title={track.title} position={displayPos}
-                  duration={track.durationSec ?? undefined} onOpen={() => setLyricsOpen(true)} className="w-48 sm:w-64" />
-              )}
-              <div className="flex flex-wrap items-center justify-end gap-1.5">
-                {track.sourceStatus === 'ready' && (
-                  <StudioControls
-                    bpm={track.bpm}
-                    tempoRatio={engine.getTempoRatio()} onTempoRatio={(r) => engine.setTempoRatio(r)}
-                    semitones={engine.getSemitones()} onSemitones={(n) => engine.setSemitones(n)}
-                    keyLabel={track.keyLabel}
-                    onReset={() => { engine.setTempoRatio(1); engine.setSemitones(0) }}
-                    metroOn={metroOn} onMetroToggle={(on) => { setMetroOn(on); on ? metro.enable() : metro.disable() }}
-                    metroVol={metroVol} onMetroVol={(v) => { setMetroVol(v); metro.setVolume(v) }}
-                    metroPan={metroPan} onMetroPan={(p) => { setMetroPan(p); metro.setPan(p) }}
-                    subdivision={subdivision} onSubdivision={(s) => { setSubdivision(s); metro.setSubdivision(s) }}
-                  />
-                )}
-                <Button variant="ghost" size="icon-sm" onClick={onReanalyze} disabled={analyzing} aria-label="Re-detect tempo, key & chords" className="text-muted-foreground">
-                  {analyzing ? <Spinner /> : <RefreshCw className="size-3.5" />}
-                </Button>
-              </div>
-            </div>
+            {track.sourceStatus === 'ready' && (
+              <LyricsTicker artist={track.artist ?? ''} title={track.title} position={displayPos}
+                duration={track.durationSec ?? undefined} onOpen={() => setLyricsOpen(true)} offsetSec={offsetSec}
+                alignedLines={alignedLines} className="w-56 shrink-0 sm:w-96" />
+            )}
           </div>
 
           {track.sourceStatus !== 'ready' ? (
@@ -229,7 +238,37 @@ export function MusicStudioDetailPage() {
                 <EqVisualizer active={engine.isPlaying()} getAnalyser={() => engine.getAnalyser()} className="absolute inset-0" opacity={0.5} fade />
               </div>
               <WaveSeekBar peaks={mixPeaks} position={displayPos} total={duration} onSeek={seekTo} onScrubStateChange={setScrubbing} />
-              {track.chords.length > 0 && <ChordTimeline chords={track.chords} position={displayPos} onSeek={seekTo} />}
+
+              <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button variant="ghost" size="icon-sm" onClick={() => seekTo(0)} disabled={stems.length === 0} aria-label="Restart" className="text-muted-foreground"><SkipBack className="size-4" /></Button>
+                  <Button size="icon" onClick={() => engine.toggle()} disabled={stems.length === 0} aria-label={engine.isPlaying() ? 'Pause' : 'Play'} className="size-10 rounded-full shadow-md shadow-brand/25">
+                    {engine.isPlaying() ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
+                  </Button>
+                  <span className="text-xs tabular-nums text-muted-foreground">{fmt(displayPos)} / {fmt(duration)}</span>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  {track.chords.length > 0 && <ChordTimeline chords={track.chords} position={displayPos} onSeek={seekTo} />}
+                </div>
+
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                  <StudioControls
+                    bpm={track.bpm}
+                    tempoRatio={engine.getTempoRatio()} onTempoRatio={(r) => engine.setTempoRatio(r)}
+                    semitones={engine.getSemitones()} onSemitones={(n) => engine.setSemitones(n)}
+                    keyLabel={track.keyLabel}
+                    onReset={() => { engine.setTempoRatio(1); engine.setSemitones(0) }}
+                    metroOn={metroOn} onMetroToggle={(on) => { setMetroOn(on); on ? metro.enable() : metro.disable() }}
+                    metroVol={metroVol} onMetroVol={(v) => { setMetroVol(v); metro.setVolume(v) }}
+                    metroPan={metroPan} onMetroPan={(p) => { setMetroPan(p); metro.setPan(p) }}
+                    subdivision={subdivision} onSubdivision={(s) => { setSubdivision(s); metro.setSubdivision(s) }}
+                  />
+                  <Button variant="ghost" size="icon-sm" onClick={onReanalyze} disabled={analyzing} aria-label="Re-detect tempo, key & chords" className="text-muted-foreground">
+                    {analyzing ? <Spinner /> : <RefreshCw className="size-3.5" />}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </Card>
@@ -289,7 +328,7 @@ export function MusicStudioDetailPage() {
           <div className="relative min-h-0 flex-1">
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-sidebar to-transparent" />
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-sidebar to-transparent" />
-            <LyricsPanel artist={track.artist ?? ''} title={track.title} position={displayPos} duration={track.durationSec ?? undefined} onSeek={seekTo} />
+            <LyricsPanel artist={track.artist ?? ''} title={track.title} position={displayPos} duration={track.durationSec ?? undefined} onSeek={seekTo} offsetSec={offsetSec} alignedLines={alignedLines} />
           </div>
         </SheetContent>
       </Sheet>

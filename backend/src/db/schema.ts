@@ -615,6 +615,12 @@ export const musicStudioTracks = sqliteTable('music_studio_tracks', {
   title: text('title').notNull(),
   artist: text('artist'),
   sourceRelPath: text('source_rel_path'),   // relative; music/studio/<id>/source.<ext>
+  // The YouTube-ref the source was fetched from, when known. Lets Karaoke reuse an existing
+  // stem-separated track for the same song instead of re-running a multi-minute Demucs job.
+  sourceVideoId: text('source_video_id'),
+  // Karaoke-prepared tracks are created behind the /music/karaoke flow; hidden from the Studio
+  // library list so a party queue doesn't clutter it.
+  origin: text('origin', { enum: ['studio', 'karaoke'] }).notNull().default('studio'),
   durationSec: real('duration_sec'),
   // Source acquisition: 'ready' the moment an upload lands; 'fetching' while a studio-source
   // job pulls a track picked from the Music app (resolve → saved blob or yt-dlp extract).
@@ -635,6 +641,12 @@ export const musicStudioTracks = sqliteTable('music_studio_tracks', {
   beatsJson: text('beats_json'),             // JSON [{time, downbeat}]
   chordsJson: text('chords_json'),           // JSON [{startTime, endTime, label}]
   analysisError: text('analysis_error'),
+  // Lyric forced-alignment lifecycle. LRCLIB's synced timing is for whatever recording it
+  // matched, which is often a different edit than this audio; the align job re-times the
+  // lines to the vocals stem so highlighting is accurate. Auto-runs after stems complete.
+  lyricsAlignStatus: text('lyrics_align_status', { enum: ['none', 'pending', 'aligning', 'ready', 'failed'] }).notNull().default('none'),
+  lyricsJson: text('lyrics_json'),           // JSON [{sec, text}] — aligned to THIS track's audio
+  lyricsAlignError: text('lyrics_align_error'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })

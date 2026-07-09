@@ -591,6 +591,14 @@ export function runMigrations() {
   addColumn('music_studio_tracks', 'source_status', "TEXT NOT NULL DEFAULT 'ready'")
   addColumn('music_studio_tracks', 'source_error', 'TEXT')
   addColumn('music_studio_tracks', 'cover_rel_path', 'TEXT')
+  // Karaoke reuse: the source videoId (dedup stem separation) + origin tag (hide karaoke
+  // tracks from the Studio library list).
+  addColumn('music_studio_tracks', 'source_video_id', 'TEXT')
+  addColumn('music_studio_tracks', 'origin', "TEXT NOT NULL DEFAULT 'studio'")
+  // Lyric forced-alignment: re-times LRCLIB lines to this track's actual vocals stem.
+  addColumn('music_studio_tracks', 'lyrics_align_status', "TEXT NOT NULL DEFAULT 'none'")
+  addColumn('music_studio_tracks', 'lyrics_json', 'TEXT')
+  addColumn('music_studio_tracks', 'lyrics_align_error', 'TEXT')
 
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
   addColumn('music_stations', 'category', 'TEXT')

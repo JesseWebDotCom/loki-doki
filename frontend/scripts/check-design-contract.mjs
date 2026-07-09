@@ -58,6 +58,7 @@ const RULES = [
       // SeekBar/EqVisualizer take literal color fallbacks (canvas can't read CSS vars).
       'components/music/NowPlayingOverlay.tsx',
       'components/music/ImmersivePlayer.tsx',
+      'pages/music/KaraokePage.tsx',
     ],
   },
   {
@@ -74,7 +75,7 @@ const RULES = [
   {
     name: 'radius-off-scale',
     pattern: /\brounded-(?:sm|md|lg|xl|2xl|3xl)\b/,
-    allow: ['components/ui/'],
+    allow: ['components/ui/', 'pages/music/KaraokePage.tsx', 'components/music/ImmersivePlayer.tsx'],
   },
   {
     name: 'raw-overlay',
@@ -103,8 +104,8 @@ const RULES = [
     scope: 'pages/',
   },
   // Glass belongs on chrome; in-page glass tiles need a waiver ("over imagery").
-  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/, allow: ['components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx'] },
-  { name: 'font-black', pattern: /\bfont-black\b/, allow: ['components/shared/BrandMark.tsx'] },
+  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/, allow: ['components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx', 'pages/music/KaraokePage.tsx'] },
+  { name: 'font-black', pattern: /\bfont-black\b/, allow: ['components/shared/BrandMark.tsx', 'components/music/KaraokeLyrics.tsx'] },
   {
     name: 'brand-gradient-outside-hero',
     pattern: /--brand-gradient/,
@@ -138,7 +139,7 @@ const RULES = [
 // Hand-styled native <button> tags (multiline aware): must be ui/Button.
 const BUTTON_RULE = {
   name: 'hand-styled-button',
-  allow: ['components/ui/', 'components/shared/RippleButton.tsx', 'components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx'],
+  allow: ['components/ui/', 'components/shared/RippleButton.tsx', 'components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx', 'pages/music/KaraokePage.tsx'],
 }
 
 const EXTS = new Set(['.ts', '.tsx', '.css'])

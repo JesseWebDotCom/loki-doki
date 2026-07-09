@@ -10,7 +10,9 @@ export interface StudioStem { name: string; url: string }
 export type AnalysisStatus = 'none' | 'pending' | 'analyzing' | 'ready' | 'failed'
 export type StemStatus = 'none' | 'pending' | 'separating' | 'ready' | 'failed'
 export type SourceStatus = 'ready' | 'fetching' | 'failed'
+export type LyricsAlignStatus = 'none' | 'pending' | 'aligning' | 'ready' | 'failed'
 export type StemModel = '2-stem' | '4-stem' | '6-stem'
+export interface StudioLyricLine { sec: number; text: string }
 
 export interface StudioTrack {
   id: string
@@ -30,6 +32,10 @@ export interface StudioTrack {
   stemError: string | null
   stems: StudioStem[]
   coverUrl: string | null
+  // Lyrics re-timed to this track's own vocals via forced alignment. When status is 'ready',
+  // `lyrics` holds the corrected [{sec, text}] and the UI uses it instead of raw LRCLIB.
+  lyricsAlignStatus: LyricsAlignStatus
+  lyrics: StudioLyricLine[]
   createdAt: number
   updatedAt: number
   // Live percent for the in-flight job (only present on the single-track GET).
@@ -70,6 +76,12 @@ export async function reanalyzeStudioTrack(id: string): Promise<void> {
   if (!r.ok) throw new Error('analyze')
 }
 
+/** Re-run lyric forced-alignment (needs a vocals stem). Normally auto-runs after separation. */
+export async function alignStudioLyrics(id: string): Promise<void> {
+  const r = await fetch(`/api/music/studio/${id}/align`, { ...opts, method: 'POST' })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? 'align')
+}
+
 export type CustomStem = 'vocals' | 'drums' | 'bass' | 'guitar' | 'piano' | 'other'
 
 export async function generateStems(id: string, req: { model?: StemModel; stems?: CustomStem[]; enhancedGuitar?: boolean }): Promise<void> {
@@ -80,4 +92,13 @@ export async function generateStems(id: string, req: { model?: StemModel; stems?
 export async function deleteStudioTrack(id: string): Promise<void> {
   const r = await fetch(`/api/music/studio/${id}`, { ...opts, method: 'DELETE' })
   if (!r.ok) throw new Error('delete')
+}
+
+/** Karaoke: find-or-create a stem-separated (vocals + instrumental) track for a song and
+ *  return its studio-track id. Reuses an existing separation for the same videoId. Poll it
+ *  with getStudioTrack(id) until stemStatus === 'ready', then play the stems. */
+export async function prepareKaraoke(song: { videoId: string; title: string; artist?: string | null; durationSec?: number | null }): Promise<string> {
+  const r = await fetch('/api/music/karaoke/prepare', { ...opts, method: 'POST', headers: J, body: JSON.stringify(song) })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? 'prepare')
+  return (await r.json() as { id: string }).id
 }

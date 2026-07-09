@@ -19,7 +19,7 @@ import { extractEmbeddedCover, fetchBestCover } from '@/lib/stems/cover'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { ensureFfmpeg } from '@/lib/ffmpeg'
-import { enqueueAudioAnalyze, enqueueStemSeparation, enqueueStudioSource } from '@/lib/downloadJobs'
+import { enqueueAudioAnalyze, enqueueStemSeparation, enqueueStudioSource, enqueueLyricAlign } from '@/lib/downloadJobs'
 import { isStemAudioInstalled, isRoformerGuitarInstalled } from '@/lib/stems/pyenv'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
@@ -70,6 +70,10 @@ function trackDto(row: typeof musicStudioTracks.$inferSelect) {
     stemError: row.stemError,
     stems: stems.map((name) => ({ name, url: `/api/music/studio/${row.id}/stem/${name}` })),
     coverUrl: row.coverRelPath ? `/api/music/studio/${row.id}/cover` : null,
+    // Lyrics re-timed to this track's own vocals (forced alignment). When ready, the client
+    // uses these instead of raw LRCLIB timing. `lyrics` is [{sec, text}] or [] when not ready.
+    lyricsAlignStatus: row.lyricsAlignStatus,
+    lyrics: row.lyricsJson ? (JSON.parse(row.lyricsJson) as Array<{ sec: number; text: string }>) : [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -164,11 +168,61 @@ musicStudio.post('/from-catalog', async (c) => {
   return c.json({ id })
 })
 
+// ── Karaoke prepare (find-or-create a 2-stem instrumental+vocals pair) ────────────
+// The karaoke page calls this for each queued song. It reuses an existing stem-separated
+// track for the same videoId (dedup — a full Demucs run is minutes) instead of making a new
+// one every time, and kicks the source-fetch + 2-stem separation when there isn't one yet.
+// Returns a track id the client then polls via GET /:id and plays via GET /:id/stem/:name.
+musicStudio.post('/karaoke/prepare', async (c) => {
+  const user = c.get('user')
+  if (!isStemAudioInstalled()) return c.json({ error: 'The stem-audio runtime is not installed yet.' }, 409)
+  type Body = { videoId?: string; title?: string; artist?: string; durationSec?: number }
+  const body = await c.req.json<Body>().catch(() => ({} as Body))
+  const videoId = (body.videoId ?? '').trim()
+  const title = (body.title ?? '').trim().slice(0, 160)
+  if (!videoId || !title) return c.json({ error: 'videoId and title required' }, 400)
+  const artist = (body.artist ?? '').trim().slice(0, 160) || null
+
+  // Reuse this user's existing karaoke track for the same song when its source hasn't failed.
+  const [existing] = await db.select().from(musicStudioTracks)
+    .where(and(eq(musicStudioTracks.userId, user.id), eq(musicStudioTracks.sourceVideoId, videoId)))
+    .orderBy(desc(musicStudioTracks.createdAt)).limit(1)
+  if (existing && existing.sourceStatus !== 'failed') {
+    // Source is (being) fetched. Make sure a 2-stem separation is on its way.
+    if (existing.stemStatus === 'none' || existing.stemStatus === 'failed') {
+      if (existing.sourceStatus === 'ready') {
+        await db.update(musicStudioTracks).set({ stemStatus: 'pending', stemError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, existing.id))
+        await enqueueStemSeparation(existing.id, { model: '2-stem' }, `Karaoke stems: ${existing.title}`)
+      }
+    }
+    return c.json({ id: existing.id, reused: true })
+  }
+
+  const id = crypto.randomUUID()
+  const now = new Date()
+  await db.insert(musicStudioTracks).values({
+    id, userId: user.id, title, artist, sourceRelPath: null, sourceVideoId: videoId, origin: 'karaoke',
+    durationSec: body.durationSec ?? null,
+    sourceStatus: 'fetching', sourceError: null,
+    stemStatus: 'none', stemModel: null, stemsJson: null, stemError: null,
+    analysisStatus: 'none', bpm: null, keyLabel: null, beatsJson: null, chordsJson: null, analysisError: null,
+    createdAt: now, updatedAt: now,
+  })
+  // Fetch the source, then (chained by the client's poll → it will already be 'pending')
+  // separate. We pre-arm stems to 'pending' so the client shows "preparing" immediately;
+  // the separation is enqueued by the source job's completion via the karaoke auto-chain below.
+  await enqueueStudioSource({
+    studioTrackId: id, videoId, mbid: null, albumMbid: null, albumTitle: null,
+    title, artist, durationSec: body.durationSec ?? null, thenSeparate: '2-stem',
+  }, `Karaoke: ${title}`)
+  return c.json({ id, reused: false })
+})
+
 // ── List / get ──────────────────────────────────────────────────────────────────
 musicStudio.get('/', async (c) => {
   const user = c.get('user')
   const rows = await db.select().from(musicStudioTracks)
-    .where(eq(musicStudioTracks.userId, user.id))
+    .where(and(eq(musicStudioTracks.userId, user.id), eq(musicStudioTracks.origin, 'studio')))
     .orderBy(desc(musicStudioTracks.createdAt))
   return c.json({ installed: isStemAudioInstalled(), tracks: rows.map(trackDto) })
 })
@@ -202,6 +256,19 @@ async function jobProgress(type: string, vkPrefix: string): Promise<{ pct: numbe
 musicStudio.get('/:id', async (c) => {
   const { row, err } = await ownedTrack(c)
   if (err) return err
+
+  // Retro-fit: a track separated before lyric alignment existed sits at status 'none' with a
+  // vocals stem. Kick off alignment the first time it's opened so ALL separated tracks get
+  // corrected timing, not just newly-stemmed ones. 'failed'/'ready' means already attempted.
+  if (row!.lyricsAlignStatus === 'none' && row!.stemStatus === 'ready' && isStemAudioInstalled()) {
+    const stems: string[] = row!.stemsJson ? (JSON.parse(row!.stemsJson) as string[]) : []
+    if (stems.includes('vocals')) {
+      await db.update(musicStudioTracks).set({ lyricsAlignStatus: 'pending', lyricsAlignError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, row!.id))
+      await enqueueLyricAlign(row!.id, `Align lyrics: ${row!.title}`)
+      row!.lyricsAlignStatus = 'pending'
+    }
+  }
+
   const dto = trackDto(row!)
   const stemProgress = (row!.stemStatus === 'separating' || row!.stemStatus === 'pending')
     ? await jobProgress('stem-separate', `stem-separate:${row!.id}:`) : null
@@ -234,6 +301,20 @@ musicStudio.post('/:id/stems', async (c) => {
   await db.update(musicStudioTracks).set({ stemStatus: 'pending', stemModel: label, stemError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, row!.id))
   await enqueueStemSeparation(row!.id, opts, `Stems: ${row!.title}`)
   return c.json({ ok: true, ...opts })
+})
+
+// ── Align lyrics ───────────────────────────────────────────────────────────────
+// Re-time LRCLIB lyrics to this track's vocals stem. Normally auto-runs after separation;
+// this endpoint re-runs it (e.g. for tracks separated before the feature existed, or a retry).
+musicStudio.post('/:id/align', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  if (!isStemAudioInstalled()) return c.json({ error: 'runtime not installed' }, 409)
+  const stems: string[] = row!.stemsJson ? (JSON.parse(row!.stemsJson) as string[]) : []
+  if (row!.stemStatus !== 'ready' || !stems.includes('vocals')) return c.json({ error: 'needs a vocals stem first' }, 409)
+  await db.update(musicStudioTracks).set({ lyricsAlignStatus: 'pending', lyricsAlignError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, row!.id))
+  await enqueueLyricAlign(row!.id, `Align lyrics: ${row!.title}`)
+  return c.json({ ok: true })
 })
 
 // Range-aware file streamer shared by the source + stem endpoints. Returns a 206 for a

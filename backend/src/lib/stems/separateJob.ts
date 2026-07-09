@@ -150,6 +150,14 @@ export async function runSeparateJob(
     }).where(eq(musicStudioTracks.id, studioTrackId))
     onProgress?.({ completed: 100, total: 100, speedBps: 0, etaSeconds: 0, note: 'Stems ready' })
     logger.info(`[separate] ${studioTrackId}: ${ready.join(', ')} ready (${modelLabel}${useRoformer ? ' +roformer-guitar' : ''})`)
+
+    // Now that there's an isolated vocals stem, re-time the lyrics to THIS recording's audio
+    // (LRCLIB timing is for whichever recording it matched). Best-effort, own compute job.
+    if (ready.includes('vocals')) {
+      await db.update(musicStudioTracks).set({ lyricsAlignStatus: 'pending', lyricsAlignError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, studioTrackId))
+      const { enqueueLyricAlign } = await import('@/lib/downloadJobs')
+      await enqueueLyricAlign(studioTrackId, `Align lyrics: ${row.title}`)
+    }
   } catch (err) {
     await db.update(musicStudioTracks)
       .set({ stemStatus: 'failed', stemError: String(err), updatedAt: new Date() })
