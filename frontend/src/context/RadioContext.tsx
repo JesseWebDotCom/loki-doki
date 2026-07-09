@@ -16,6 +16,10 @@ interface RadioCtx extends RadioState {
   stop: () => void
   skip: () => void
   seek: (sec: number) => void
+  /** Jump by ±seconds (skip a podcast ad, rewind a chorus). */
+  seekBy: (delta: number) => void
+  /** Repeat the current track (from RadioState.repeatOne). */
+  setRepeatOne: (on: boolean) => void
   getAnalyser: () => AnalyserNode | null
   togglePause: () => void
   setVolume: (v: number) => void
@@ -173,6 +177,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     stop: () => e.stop(),
     skip: () => e.skip(),
     seek: (sec) => e.seek(sec),
+    seekBy: (delta) => e.seekBy(delta),
+    setRepeatOne: (on) => e.setRepeatOne(on),
     getAnalyser: () => e.getAnalyser(),
     togglePause: () => e.togglePause(),
     setVolume: (v) => e.setVolume(v),

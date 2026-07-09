@@ -1,4 +1,4 @@
-import { Pause, Play, SkipForward, X, Mic, AudioLines, MonitorPlay, Maximize2 } from 'lucide-react'
+import { Pause, Play, SkipForward, X, Mic, AudioLines, MonitorPlay, Maximize2, RotateCcw, RotateCw, Repeat1 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
@@ -144,16 +144,34 @@ export function RadioMiniBar() {
                 <Maximize2 className="size-4" />
               </button>
               {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
+              <button onClick={() => radio.seekBy(-15)} disabled={phase !== 'playing'}
+                className="hidden size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-30 sm:grid"
+                aria-label="Back 15 seconds" title="Back 15s">
+                <RotateCcw className="size-4" />
+              </button>
+              {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.togglePause}
                 className="grid size-9 place-items-center rounded-full bg-foreground text-background hover:opacity-90"
                 aria-label={paused ? 'Resume' : 'Pause'}>
                 {paused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
               </button>
               {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
+              <button onClick={() => radio.seekBy(30)} disabled={phase !== 'playing'}
+                className="hidden size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-30 sm:grid"
+                aria-label="Forward 30 seconds" title="Skip ahead 30s (e.g. past an ad)">
+                <RotateCw className="size-4" />
+              </button>
+              {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.skip} disabled={phase !== 'playing' || skipping}
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-30"
                 aria-label="Skip">
                 {skipping ? <Spinner className="text-current" /> : <SkipForward className="size-4" />}
+              </button>
+              {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
+              <button onClick={() => radio.setRepeatOne(!radio.repeatOne)}
+                className={cn('hidden size-8 place-items-center rounded-full hover:text-foreground sm:grid', radio.repeatOne ? 'text-brand' : 'text-muted-foreground')}
+                aria-label="Repeat one" title={radio.repeatOne ? 'Repeat on' : 'Repeat off'}>
+                <Repeat1 className="size-4" />
               </button>
               {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.stop}

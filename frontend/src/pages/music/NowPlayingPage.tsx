@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, Music2, SkipForward, SkipBack, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Heart, Music2, SkipForward, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2, SlidersHorizontal, Sparkles, RotateCcw, RotateCw, Repeat1 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { proxyImg } from '@/lib/img'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -326,14 +326,23 @@ export function NowPlayingPage() {
           <TrackTechBadge trackRef={cur.videoId} className="mt-1" />
 
           {/* Transport */}
-          <div className="mt-4 flex items-center gap-8">
-            <button onClick={() => radio.seek(0)} aria-label="Restart song"
-              className="text-white/70 transition hover:text-white active:scale-95">
-              <SkipBack className="size-8 fill-current" />
+          <div className="mt-4 flex items-center gap-6">
+            <button onClick={() => radio.setRepeatOne(!radio.repeatOne)} aria-label="Repeat one"
+              title={radio.repeatOne ? 'Repeat on' : 'Repeat off'}
+              className={cn('transition hover:text-white active:scale-95', radio.repeatOne ? 'text-white' : 'text-white/50')}>
+              <Repeat1 className="size-6" />
+            </button>
+            <button onClick={() => radio.seekBy(-15)} disabled={!canSeek} aria-label="Back 15 seconds" title="Back 15s"
+              className="relative flex items-center text-white/70 transition hover:text-white active:scale-95 disabled:opacity-40">
+              <RotateCcw className="size-8" /><span className="absolute inset-0 grid place-items-center text-[10px] font-bold">15</span>
             </button>
             <button onClick={() => radio.togglePause()} aria-label="Play/pause"
               className="flex size-16 items-center justify-center text-white transition hover:scale-105 active:scale-95">
               {radio.paused ? <Play className="size-14 translate-x-0.5 fill-current" /> : <Pause className="size-14 fill-current" />}
+            </button>
+            <button onClick={() => radio.seekBy(30)} disabled={!canSeek} aria-label="Forward 30 seconds" title="Skip ahead 30s (e.g. past an ad)"
+              className="relative flex items-center text-white/70 transition hover:text-white active:scale-95 disabled:opacity-40">
+              <RotateCw className="size-8" /><span className="absolute inset-0 grid place-items-center text-[10px] font-bold">30</span>
             </button>
             <button onClick={() => radio.skip()} disabled={radio.skipping} aria-label="Skip"
               className="text-white/70 transition hover:text-white active:scale-95 disabled:opacity-50">

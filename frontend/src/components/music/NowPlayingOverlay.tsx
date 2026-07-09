@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   ChevronDown, Heart, Download, MonitorPlay, Play, Pause, SkipForward, AudioLines,
-  Mic, Moon, Volume2, VolumeX, ListMusic, Music2, Disc3, Sparkles,
+  Mic, Moon, Volume2, VolumeX, ListMusic, Music2, Disc3, Sparkles, RotateCcw, RotateCw, Repeat1,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
@@ -184,13 +184,26 @@ export function NowPlayingOverlay() {
         </div>
 
         {/* Transport */}
-        <div className="mt-3 flex items-center justify-center gap-5">
+        <div className="mt-3 flex items-center justify-center gap-4">
           <button onClick={favorite} aria-label="Favorite" className="grid size-10 place-items-center rounded-full text-white/80 hover:bg-white/10 hover:text-white">
             <Heart className="size-5" />
+          </button>
+          <button onClick={() => radio.setRepeatOne(!radio.repeatOne)} aria-label="Repeat one"
+            title={radio.repeatOne ? 'Repeat on' : 'Repeat off'}
+            className={cn('grid size-10 place-items-center rounded-full hover:bg-white/10', radio.repeatOne ? 'text-white' : 'text-white/50')}>
+            <Repeat1 className="size-5" />
+          </button>
+          <button onClick={() => radio.seekBy(-15)} disabled={!canSeek} aria-label="Back 15 seconds" title="Back 15s"
+            className="relative grid size-10 place-items-center rounded-full text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-40">
+            <RotateCcw className="size-6" /><span className="absolute text-[9px] font-bold">15</span>
           </button>
           <button onClick={() => radio.togglePause()} aria-label={radio.paused ? 'Resume' : 'Pause'}
             className="grid size-16 place-items-center rounded-full bg-white text-black shadow-xl transition hover:scale-105 active:scale-95">
             {radio.paused ? <Play className="ml-0.5 size-7 fill-current" /> : <Pause className="size-7 fill-current" />}
+          </button>
+          <button onClick={() => radio.seekBy(30)} disabled={!canSeek} aria-label="Forward 30 seconds" title="Skip ahead 30s (e.g. past an ad)"
+            className="relative grid size-10 place-items-center rounded-full text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-40">
+            <RotateCw className="size-6" /><span className="absolute text-[9px] font-bold">30</span>
           </button>
           <button onClick={() => radio.skip()} disabled={radio.skipping} aria-label="Skip"
             className="grid size-10 place-items-center rounded-full text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-40">

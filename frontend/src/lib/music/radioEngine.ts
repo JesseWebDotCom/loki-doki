@@ -79,6 +79,7 @@ export interface RadioState {
   positionSec: number   // playback position of the current song (drives synced lyrics)
   durationSec: number   // current song length, when known
   sleepAtMs: number | null  // epoch ms at which the sleep timer stops playback (null = off)
+  repeatOne: boolean        // replay the current track instead of advancing
 }
 
 export const initialRadioState: RadioState = {
@@ -86,6 +87,7 @@ export const initialRadioState: RadioState = {
   currentTrack: null, nextTrack: null, djText: null, djSpeaking: false,
   phase: 'idle', paused: false, volume: 1, muted: false, loading: false,
   queueLoading: false, skipping: false, positionSec: 0, durationSec: 0, sleepAtMs: null,
+  repeatOne: typeof localStorage !== 'undefined' && localStorage.getItem('music.repeatOne') === '1',
 }
 
 interface PreparedDj { text: string | null; blobUrl: string | null }
@@ -741,6 +743,16 @@ export class RadioEngine {
       const reason = await this.waitTail(runId, this.deck)
       if (this.stale(runId)) return
 
+      // Repeat-one: replay the current song from the top instead of advancing (a manual skip
+      // still moves on). Restart the deck in place; skip if the element errored.
+      if (this.repeatOne && reason !== 'skip') {
+        const el = this.deckEl(this.deck)
+        if (!el.error) {
+          try { el.currentTime = 0; await el.play() } catch { /* fall through to advance */ }
+          if (!el.paused && !this.stale(runId)) { this.ramp(this.deckKey(this.deck), 1, 0); this.set({ phase: 'playing' }); i--; continue }
+        }
+      }
+
       if (next) {
         this.set({ phase: 'transition' })
         // Manual skip → fast crossfade, no DJ (the listener wants the next song NOW). Drop the
@@ -901,6 +913,21 @@ export class RadioEngine {
   setCrossfadeMs(ms: number) {
     this.crossfadeMs = Math.max(0, Math.min(12000, Math.round(ms)))
     try { localStorage.setItem('music.crossfadeMs', String(this.crossfadeMs)) } catch { /* quota */ }
+  }
+
+  // Repeat-one: when on, the current song replays from the top instead of advancing to the
+  // next queue entry (a manual skip still moves on). Persisted per device.
+  private repeatOne = typeof localStorage !== 'undefined' && localStorage.getItem('music.repeatOne') === '1'
+  getRepeatOne(): boolean { return this.repeatOne }
+  setRepeatOne(on: boolean) {
+    this.repeatOne = on
+    try { localStorage.setItem('music.repeatOne', on ? '1' : '0') } catch { /* quota */ }
+    this.set({ repeatOne: on })
+  }
+
+  /** Jump forward/back by `delta` seconds, clamped to the track (e.g. skip a podcast ad). */
+  seekBy(delta: number) {
+    this.seek(this.state.positionSec + delta)
   }
 
   // Persisted, station-independent DJ preference. Once the user picks a mode it sticks across
