@@ -33,3 +33,8 @@ backend/src/**/*.js
 
 # Local audit scratch
 .audit-tmp/
+
+# Dev server logs
+backend/dev-server.log
+frontend/dev-vite.log
+*.log
