@@ -179,6 +179,73 @@ export async function deezerChartTracks(seedText: string, limit = 30, timeout = 
   return chartTracksById(chartIdFor(seedText), limit, timeout)
 }
 
+// ── Editorial genre radios ─────────────────────────────────────────────────────────
+// Deezer's professionally maintained genre stations ("Rock Classics", "Hard Rock",
+// "The '70s", "Motown", "Old School Hip Hop"…). Two properties make them the ideal
+// grounding for our genre/decade stations: the pool is human-curated canon (no stock
+// jam tracks, no fit guesses), and every /radio/{id}/tracks call returns a DIFFERENT
+// randomized slice — so repeat tune-ins get variety for free.
+
+let radioDirCache: { at: number; radios: { id: number; title: string; genre: string }[] } | null = null
+
+async function radioDirectory(timeout: number): Promise<{ id: number; title: string; genre: string }[]> {
+  if (radioDirCache && Date.now() - radioDirCache.at < 7 * 24 * 3600_000) return radioDirCache.radios
+  const data = await dz<{ data?: any[] }>('/radio/genres', timeout)
+  const radios: { id: number; title: string; genre: string }[] = []
+  for (const g of data?.data ?? []) {
+    for (const r of g?.radios ?? []) {
+      if (r?.id && r?.title) radios.push({ id: r.id, title: String(r.title).trim(), genre: String(g.title ?? '').trim() })
+    }
+  }
+  if (radios.length) radioDirCache = { at: Date.now(), radios }
+  return radios
+}
+
+// Normalise a token for matching: lowercase (done by caller), strip surrounding apostrophes
+// so Deezer's "The '80s" tokenises to "80s", and drop a trailing plural 's'. Decade forms
+// collapse to a canonical NNs ("80s", "1980s"→"80s") so "80s"/"eighties"/"'80s" all agree.
+function radioTok(raw: string): string {
+  let t = raw.replace(/^['’]+|['’]+$/g, '')
+  const decade = t.match(/^(?:19|20)?(\d0)s?$/)
+  if (decade) return `${decade[1]}s`
+  return t.replace(/s$/, '')
+}
+// Weighted token overlap between a station's text and a radio's title+genre. Filler words
+// ("classic", "hits", "the"…) count half so "Classic Horror Themes" can't land on "Rock
+// Classics" off the word 'classic' alone — a real genre/decade word must also match.
+const WEAK_RADIO_TOKENS = new Set(['classic', 'the', 'hit', 'best', 'top', 'music', 'radio', 'school', 'old', 'theme', 'movie', 'film', 'score', 'soundtrack', 'song'])
+function radioScore(seedToks: Set<string>, radio: { title: string; genre: string }): number {
+  let score = 0
+  for (const raw of `${radio.title} ${radio.genre}`.toLowerCase().split(/[^a-z0-9'’]+/)) {
+    const t = radioTok(raw)
+    if (!t || t.length < 2) continue
+    if (seedToks.has(t)) score += WEAK_RADIO_TOKENS.has(t) ? 0.5 : 1
+  }
+  return score
+}
+
+/** Tracks from the Deezer editorial radios best matching a station's text — up to two radios,
+ *  interleaved. Empty when no radio genuinely matches (niche/themed stations). */
+export async function deezerRadioTracks(seedText: string, limit = 30, timeout = 9000): Promise<DeezerTrack[]> {
+  const seedToks = new Set(
+    seedText.toLowerCase().split(/[^a-z0-9'’]+/).map(radioTok).filter((t) => t.length >= 2),
+  )
+  const radios = await radioDirectory(timeout)
+  const ranked = radios
+    .map((r) => ({ r, score: radioScore(seedToks, r) }))
+    .filter((x) => x.score >= 1)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+  if (!ranked.length) return []
+  const lists = await Promise.all(ranked.map(async ({ r }) => {
+    const data = await dz<{ data?: any[] }>(`/radio/${r.id}/tracks?limit=${Math.min(limit * 2, 40)}`, timeout)
+    return (data?.data ?? [])
+      .filter((t) => t?.title && t?.artist?.name)
+      .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string, explicit: typeof t.explicit_lyrics === 'boolean' ? t.explicit_lyrics : null }))
+  }))
+  return roundRobin(lists.filter((l) => l.length), limit)
+}
+
 // Interleave several lists so no single playlist dominates, deduping by normalized artist+title.
 function roundRobin(lists: DeezerTrack[][], limit: number): DeezerTrack[] {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')

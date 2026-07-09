@@ -11,7 +11,14 @@
 
 // Unambiguous non-song phrasing, checked against "title + artist".
 const JUNK_PHRASE =
-  /\b(type ?beat|sound ?effects?|sound ?fx|sfx|foley|backing track|karaoke|made famous by|in the style of|originally performed|as made popular by|as made famous|tribute to|greatest hits band|theme players|theme song library|song library|music band|cover band|lullaby (?:version|renditions?)|rockabye|white noise|brown noise|pink noise|nature sounds?|rain sounds?|ocean sounds?|forest sounds?|sleep sounds?|asmr|full album|mega ?mix|continuous mix|non[- ]?stop mix|dj mix|mixtape mix|chart hits|best selling|top \d{2,}|\d+\s*hours?\b|\d+\s*min(?:ute)?s? (?:mix|of)|ringtone|no copyright|copyright[- ]free|royalty[- ]free|\bncs\b|\bbgm\b|\bplaylist\b)\b/i
+  /\b(type ?beat|sound ?effects?|sound ?fx|sfx|foley|backing track|jam track|practice track|play[- ]?along|drumless|guitar backing|karaoke|made famous by|in the style of|originally performed|as made popular by|as made famous|tribute to|greatest hits band|theme players|theme song library|song library|music band|cover band|lullaby (?:version|renditions?)|rockabye|white noise|brown noise|pink noise|nature sounds?|rain sounds?|ocean sounds?|forest sounds?|sleep sounds?|asmr|full album|mega ?mix|continuous mix|non[- ]?stop mix|dj mix|mixtape mix|chart hits|best selling|top \d{2,}|\d+\s*hours?\b|\d+\s*min(?:ute)?s? (?:mix|of)|ringtone|no copyright|copyright[- ]free|royalty[- ]free|\bncs\b|\bbgm\b|\bplaylist\b)\b/i
+
+// Stock jam/backing uploads name the musical key instead of a song ("Blues Rock Classic Jam
+// track in A", "Slow Groove Jam in E minor"). Only fires when a stock-tell word precedes the
+// "in <key>" tail, so real titles that merely contain "in a" ("Lost in a Dream") and classical
+// pieces ("Toccata and Fugue in D minor") survive.
+const JUNK_KEY_SUFFIX =
+  /\b(?:jam|groove|backing|practice|shuffle)\b.*\bin [a-g](?: ?(?:#|b|sharp|flat))? ?(?:minor|major|min|maj|m)?\s*$/i
 
 // Words that, on their own, describe a vibe/genre rather than name an artist. When EVERY token of
 // the artist name is one of these (and there are at least two), the "artist" is a compilation/lofi
@@ -40,6 +47,7 @@ export function isJunkTrack(title: string, artist: string): boolean {
   const a = artist ?? ''
   if (!t.trim()) return true
   if (JUNK_PHRASE.test(`${t} ${a}`)) return true
+  if (JUNK_KEY_SUFFIX.test(t)) return true
   if (isGenericName(a)) return true   // compilation/lofi "artist"
   if (isGenericName(t)) return true   // vibe-label "song" (e.g. "Lofi & Chill", "Party Hits")
   return false

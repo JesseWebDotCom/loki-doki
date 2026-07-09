@@ -14,7 +14,7 @@ import { ollamaChat } from '@/llm/ollama'
 import { getModel, getFastModel } from '@/lib/models'
 import { ytmusicRadio, ytmusicSearch } from '@/lib/youtube/ytmusic'
 import { resolveTrack, resolveTracks, cleanTrackTitle, type ResolvedTrack } from '@/lib/music/resolve'
-import { deezerPlaylistTracks, deezerChartTracks, type DeezerTrack } from '@/lib/music/deezer'
+import { deezerPlaylistTracks, deezerChartTracks, deezerRadioTracks, type DeezerTrack } from '@/lib/music/deezer'
 import { isJunkTrack, dropJunk } from '@/lib/music/junk'
 import { preferLibrary } from '@/lib/music/resolveSource'
 import { upsertAdvisory } from '@/lib/music/advisory'
@@ -221,6 +221,17 @@ async function deezerMix(queries: string[], want: number, exclude: Set<string>):
   return dropJunk(resolved).filter(t => !exclude.has(t.videoId))
 }
 
+// Editorial genre-radio grounding: canon tracks from Deezer's professionally curated genre
+// stations, resolved to YouTube. Each call returns a fresh randomized slice, so repeat
+// tune-ins vary without any exclude bookkeeping on our side.
+async function deezerRadioMix(seed: StationSeed, want: number, exclude: Set<string>): Promise<ResolvedTrack[]> {
+  const candidates = (await deezerRadioTracks(`${seed.name ?? ''} ${seed.aiPrompt}`, want * 2)).slice(0, want + 6)
+  if (!candidates.length) return []
+  const resolved = await resolveTracks(candidates.map(t => ({ title: t.title, artist: t.artist })), 8)
+  bankDeezerAdvisories(candidates, resolved)
+  return dropJunk(resolved).filter(t => !exclude.has(t.videoId))
+}
+
 const TRACKLIST_SCHEMA = {
   type: 'object',
   properties: {
@@ -387,7 +398,18 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
     } catch { /* intel not installed */ }
   }
 
-  // Tier 1: Deezer curated.
+  // Tier 1: Deezer editorial genre radios — human-curated genre/decade canon ("Rock
+  // Classics", "The '70s", "Motown"). The cleanest grounding for genre/decade stations
+  // (no stock jam tracks, no fit guesses) AND self-varying: each call returns a fresh
+  // randomized slice, so repeat tune-ins differ. Empty for niche/themed stations, which
+  // fall through to the curated-playlist and YT tiers below.
+  if (resolved.length < want) {
+    const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
+    const radio = await deezerRadioMix(seed, want - resolved.length, already)
+    if (radio.length) resolved = dedupe([...resolved, ...radio])
+  }
+
+  // Tier 2: Deezer curated playlists (search-driven) — covers concepts the editorial radios don't.
   if (resolved.length < want) {
     const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
     const dz = await deezerMix(queries, want - resolved.length, already)
@@ -395,7 +417,7 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   }
   if (resolved.length) source = 'mixed'
 
-  // Tier 2: YouTube Music search (junk-filtered) to fill remaining slots / cover niche concepts.
+  // Tier 3: YouTube Music search (junk-filtered) to fill remaining slots / cover niche concepts.
   if (resolved.length < want) {
     const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
     const yt = await ytmusicMix(seed, want - resolved.length, already, queries)
