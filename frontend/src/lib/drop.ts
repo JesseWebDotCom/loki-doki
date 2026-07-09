@@ -2,6 +2,8 @@
 // per-device identity (persisted in localStorage) that both the receiver hook and the
 // Drop page share, plus thin fetch wrappers over /api/drop.
 
+import { uuid } from '@/lib/uuid'
+
 const opts: RequestInit = { credentials: 'include' }
 
 export interface DropPreview {
@@ -28,7 +30,7 @@ export function getDeviceId(): string {
   let id = ''
   try { id = localStorage.getItem(ID_KEY) || '' } catch { /* private mode */ }
   if (!id) {
-    id = (crypto.randomUUID?.() || `${Date.now()}-${Math.round(Math.random() * 1e9)}`)
+    id = uuid()
     try { localStorage.setItem(ID_KEY, id) } catch { /* ignore */ }
   }
   return id

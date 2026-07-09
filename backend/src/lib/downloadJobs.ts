@@ -27,7 +27,8 @@ import { downloadArchive, syncKiwixWithArchives } from '@/lib/archives'
 import { getKiwixState } from '@/lib/kiwix'
 import { buildRegion } from '@/lib/maps/build'
 import { getInstallComponent, recordInstalled, IMAGE_ROLES } from '@/lib/installRegistry'
-import { setAppSetting } from '@/lib/settings'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { bootFollowedUncleanShutdown, osBootTimeMs } from '@/lib/dirtyBoot'
 import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
@@ -224,6 +225,12 @@ const lastProgressAt = new Map<string, number>()
 const stalledJobs = new Set<string>()
 let tickScheduled = false
 let intervalStarted = false
+// Compute lane hold-off (ms epoch): after a boot that followed a hard power-off, heavy
+// compute jobs (ffmpeg re-encodes, map builds) wait out a cooldown instead of resuming
+// immediately, because resuming them right at boot re-triggered the power-off that took
+// the machine down (see maybeHoldComputeLaneAfterCrashBoot below). Network downloads are
+// unaffected; they are not the load that browns the machine out.
+let computeLaneHeldUntil = 0
 
 function kickScheduler() { void tick() }
 
@@ -301,6 +308,8 @@ async function tick(): Promise<void> {
         if (running.has(j.id)) return false
         if (!prereqMet(j)) return false
         if (COMPUTE_LANE_TYPES.has(j.type)) {
+          // Crash-boot cooldown: see computeLaneHeldUntil above.
+          if (Date.now() < computeLaneHeldUntil) return false
           // Compute lane: one job at a time PER DOMAIN, independent of network download
           // slots. Map's PBF download shares its lane (Geofabrik is its own host); plex-cut
           // gets its own 'plex-cut' domain so a video re-encode and a map build can run
@@ -1162,6 +1171,42 @@ async function pruneTerminalJobs(): Promise<void> {
   await db.delete(downloadJobs).where(and(...conditions))
 }
 
+// How long the compute lane waits after a boot that followed a hard power-off. Long
+// enough for the operator to notice and intervene, short enough that a queued
+// re-encode is only delayed, never lost (the jobs stay pending and start on the next
+// tick after the hold expires).
+const CRASH_BOOT_COMPUTE_HOLD_MS = 30 * 60_000
+// One hold per OS boot: a normal backend restart later in the same session must not
+// re-trigger it. Stores the boot time (rounded to 5 min, os.uptime() jitters a little).
+const CRASH_BOOT_ACK_KEY = 'jobs.crash_boot_hold_ack'
+
+/** If this OS boot followed an unclean shutdown (hard power-off), hold the compute
+ *  lane for a cooldown and tell the admins. The previous behavior (requeueing the
+ *  interrupted ffmpeg re-encode seconds after boot) re-triggered the power-off and
+ *  crash-looped the whole machine (three hard power-offs in one night, 2026-07-08). */
+async function maybeHoldComputeLaneAfterCrashBoot(): Promise<void> {
+  try {
+    if (!(await bootFollowedUncleanShutdown())) return
+    const bootStamp = String(Math.round(osBootTimeMs() / 300_000))
+    if ((await getAppSetting(CRASH_BOOT_ACK_KEY)) === bootStamp) return
+    await setAppSetting(CRASH_BOOT_ACK_KEY, bootStamp)
+    computeLaneHeldUntil = Date.now() + CRASH_BOOT_COMPUTE_HOLD_MS
+    const resumeAt = new Date(computeLaneHeldUntil)
+    const hhmm = `${String(resumeAt.getHours()).padStart(2, '0')}:${String(resumeAt.getMinutes()).padStart(2, '0')}`
+    logger.warn(`[jobs] this boot followed an unclean shutdown: compute lane (re-encodes, map builds) held until ${hhmm}`)
+    void emitNotification({
+      type: 'system',
+      title: 'Heavy background jobs paused after unexpected shutdown',
+      body: `The machine lost power unexpectedly during the previous session. Heavy background jobs (video re-encodes, map builds) are paused until ${hhmm} to keep this boot stable; they resume automatically. Regular downloads are unaffected.`,
+      dedupeKey: `crash-boot-hold:${bootStamp}`,
+    })
+    // The 5s scheduler interval picks the lane back up after the hold expires; no
+    // extra timer needed.
+  } catch (e) {
+    logger.warn(`[jobs] crash-boot check failed (compute lane not held): ${e}`)
+  }
+}
+
 /** On boot, requeue anything that was mid-flight when the process stopped. */
 export async function resumeDownloadJobs(): Promise<void> {
   // Kill any orphaned map-build Java processes from the previous server instance.
@@ -1175,6 +1220,7 @@ export async function resumeDownloadJobs(): Promise<void> {
 
   await db.update(downloadJobs).set({ status: 'pending', updatedAt: new Date() }).where(eq(downloadJobs.status, 'running'))
   try { await pruneTerminalJobs() } catch (e) { logger.warn(`[jobs] terminal-row prune failed: ${e}`) }
+  await maybeHoldComputeLaneAfterCrashBoot()
   startDownloadScheduler()
 }
 

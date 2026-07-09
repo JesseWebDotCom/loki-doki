@@ -8,7 +8,7 @@ import type { ChildProcess } from 'node:child_process'
 const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
 import { dataDir, downloadUrl } from '@/lib/download'
-import { IS_WIN, extractZip, findFileInTree } from '@/lib/platform'
+import { IS_WIN, extractZip, findFileInTree, spawnDetachedHidden } from '@/lib/platform'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 
@@ -386,12 +386,7 @@ export function spawnKiwix(zimPaths: string[]): void {
     return
   }
 
-  const child = spawn('bun', [ZIM_SERVER_SCRIPT, ...validZims], {
-    cwd: BACKEND_DIR,
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  })
+  const child = spawnDetachedHidden('bun', [ZIM_SERVER_SCRIPT, ...validZims], { cwd: BACKEND_DIR })
   kiwixProc = child
   watchProc(child)
   child.unref()
@@ -411,12 +406,7 @@ async function spawnKiwixServe(validZims: string[]): Promise<void> {
   }
   winBookNames = parseLibrary(KIWIX_LIBRARY_XML)
 
-  const child = spawn(KIWIX_SERVE_BIN, ['--port', String(KIWIX_PORT), '--address', '127.0.0.1', '--library', KIWIX_LIBRARY_XML], {
-    cwd: BACKEND_DIR,
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  })
+  const child = spawnDetachedHidden(KIWIX_SERVE_BIN, ['--port', String(KIWIX_PORT), '--address', '127.0.0.1', '--library', KIWIX_LIBRARY_XML], { cwd: BACKEND_DIR })
   kiwixProc = child
   watchProc(child)
   child.unref()

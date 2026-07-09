@@ -311,6 +311,19 @@ export async function getYtDlpStatus(): Promise<YtDlpStatus> {
   return { binary: resolvedBin, managed: resolvedBin === MANAGED_PATH, version: version ?? null, checkedAt: checkedAt ?? null }
 }
 
+// YouTube's default `web` player now runs a JS challenge (n-sig / PO-token) that needs an
+// external JS runtime (Deno) — with none present, yt-dlp 403s the actual media download
+// ("No supported JavaScript runtime could be found ... HTTP Error 403"). The android_vr
+// client returns pre-signed progressive URLs with no JS step, and the web_safari/web
+// clients cover anything it misses. This works on a fresh machine with zero provisioning
+// (pure args, nothing to install or repair), which is why we prefer it over shipping a
+// runtime. Centralized here so stream + download + export share ONE client list and can't
+// drift apart as YouTube breaks individual clients over time.
+export const YT_PLAYER_CLIENTS = 'android_vr,web_safari,web'
+export function ytDlpYoutubeClientArgs(): string[] {
+  return ['--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`]
+}
+
 // Admin-uploaded cookies.txt (Netscape format), used for downloads/exports/transcripts
 // that hit an age-gated or members-only video. Deliberately NOT applied to stream.ts's
 // live-playback resolve fallback — that path runs on every household member's normal

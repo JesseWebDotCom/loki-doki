@@ -72,9 +72,12 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
     : item.source === 'tiktok' ? `https://www.tiktok.com/player/v1/${encodeURIComponent(item.id)}?autoplay=1&loop=1&controls=0&music_info=0&description=0&rel=0`
     : null
   const [previewing, setPreviewing] = useState(false)
+  // Hold the iframe transparent until it finishes loading; an iframe paints an opaque white
+  // background while its embed boots, which would otherwise flash over the thumbnail.
+  const [previewReady, setPreviewReady] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startPreview = () => { if (previewUrl) hoverTimer.current = setTimeout(() => setPreviewing(true), 450) }
-  const stopPreview = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); setPreviewing(false) }
+  const stopPreview = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); setPreviewing(false); setPreviewReady(false) }
 
   return (
     <Link
@@ -118,8 +121,11 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
         )}
         {previewUrl && previewing && (
           // pointer-events-none so a click still falls through to the card's watch link.
+          // Fades in on load so the thumbnail shows through instead of a white flash.
           <iframe src={previewUrl} title="" allow="autoplay" loading="lazy"
-            className="pointer-events-none absolute inset-0 size-full border-0" />
+            onLoad={() => setPreviewReady(true)}
+            className={cn('pointer-events-none absolute inset-0 size-full border-0 transition-opacity duration-200',
+              previewReady ? 'opacity-100' : 'opacity-0')} />
         )}
         {ghosted && <OnlineOnlyBadge />}
         {showSource && (

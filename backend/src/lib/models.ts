@@ -144,34 +144,45 @@ async function _doWarmup(): Promise<void> {
 
   const routerModel = await getRouterModel()
 
-  // Load LLM + embed models + router LLM in parallel so first Tier 2 call never cold-loads.
+  // Warm the CHAT model FIRST and let THIS promise resolve as soon as it's resident.
+  // The boot sequence awaits getWarmupPromise() to flip /api/system/ready, so gating
+  // that on the chat model alone — not on every auxiliary model — lets a returning
+  // user reach a usable app the moment they can chat. Loading the chat model on its
+  // own also avoids the VRAM/PCIe contention of pulling 3-4 models into the GPU at
+  // once (the old parallel warmup), which was a big chunk of the cold-start time.
   // num_ctx matches the chat default (8192) — a mismatched warmup context would
   // itself force a runner re-init on the first real turn.
-  const [, , routerEmbedOk] = await Promise.allSettled([
-    ollamaChat(model, warmupMessages, [], {
-      temperature: 0, num_predict: 1, num_ctx: 8192,
-    })
-      .then(() => logger.info(`[warmup] ${model} ready`))
-      .catch(() => {}),
-    ollamaEmbed(EMBED_MODEL, 'warmup')
-      .then(() => logger.info(`[warmup] ${EMBED_MODEL} ready`))
-      .catch(() => {}),
-    ollamaEmbed(ROUTER_EMBED_MODEL, 'warmup')
-      .then(() => { logger.info(`[warmup] ${ROUTER_EMBED_MODEL} ready`); return true })
-      .catch(() => false),
-    routerModel && routerModel !== model
-      ? ollamaChat(routerModel, [{ role: 'user' as const, content: 'hi' }], [], {
-          temperature: 0, num_predict: 1,
-        })
-          .then(() => logger.info(`[warmup] ${routerModel} (router) ready`))
-          .catch(() => {})
-      : Promise.resolve(),
-  ])
+  await ollamaChat(model, warmupMessages, [], {
+    temperature: 0, num_predict: 1, num_ctx: 8192,
+  })
+    .then(() => logger.info(`[warmup] ${model} ready`))
+    .catch(() => {})
 
-  // Router indexing uses all-minilm — only init after it's warm
-  if (routerEmbedOk.status === 'fulfilled' && routerEmbedOk.value) {
-    initRouter().then(() => logger.info('[warmup] router indexed')).catch(() => {})
-  } else {
-    logger.info('[warmup] router skipped — all-minilm not available')
-  }
+  // Everything else (embeddings, router LLM, semantic-router index) warms in the
+  // BACKGROUND — not awaited, so it never holds boot/ready. First use of any of these
+  // still hits a warm model in the common case; worst case it cold-loads on first call.
+  void (async () => {
+    const [, routerEmbedOk] = await Promise.allSettled([
+      ollamaEmbed(EMBED_MODEL, 'warmup')
+        .then(() => logger.info(`[warmup] ${EMBED_MODEL} ready`))
+        .catch(() => {}),
+      ollamaEmbed(ROUTER_EMBED_MODEL, 'warmup')
+        .then(() => { logger.info(`[warmup] ${ROUTER_EMBED_MODEL} ready`); return true })
+        .catch(() => false),
+      routerModel && routerModel !== model
+        ? ollamaChat(routerModel, [{ role: 'user' as const, content: 'hi' }], [], {
+            temperature: 0, num_predict: 1,
+          })
+            .then(() => logger.info(`[warmup] ${routerModel} (router) ready`))
+            .catch(() => {})
+        : Promise.resolve(),
+    ])
+
+    // Router indexing uses all-minilm — only init after it's warm
+    if (routerEmbedOk.status === 'fulfilled' && routerEmbedOk.value) {
+      initRouter().then(() => logger.info('[warmup] router indexed')).catch(() => {})
+    } else {
+      logger.info('[warmup] router skipped — all-minilm not available')
+    }
+  })()
 }

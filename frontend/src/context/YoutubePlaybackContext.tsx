@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import { acquireAudio, registerMediaStop } from '@/lib/mediaCoordinator'
+import { uuid } from '@/lib/uuid'
 
 /** A video handed off to the docked mini-player when you navigate away mid-watch. */
 export interface YtMiniTrack {
@@ -83,7 +84,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const next = useCallback(() => {
     setIndex(i => {
       if (i + 1 >= queue.length) return i
-      sessionIdRef.current = crypto.randomUUID()
+      sessionIdRef.current = uuid()
       setStartSec(0); setPositionSec(0)
       return i + 1
     })
@@ -92,7 +93,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const prev = useCallback(() => {
     setIndex(i => {
       if (i <= 0) return i
-      sessionIdRef.current = crypto.randomUUID()
+      sessionIdRef.current = uuid()
       setStartSec(0); setPositionSec(0)
       return i - 1
     })
@@ -106,7 +107,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
 
   const dock = useCallback((q: YtMiniTrack[], i: number, start: number) => {
     acquireAudio('youtube')
-    sessionIdRef.current = crypto.randomUUID()
+    sessionIdRef.current = uuid()
     setQueue(q)
     setIndex(Math.max(0, Math.min(i, q.length - 1)))
     setStartSec(start)
@@ -115,7 +116,7 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
 
   const playExpanded = useCallback((t: YtMiniTrack) => {
     acquireAudio('youtube')
-    sessionIdRef.current = crypto.randomUUID()
+    sessionIdRef.current = uuid()
     setQueue([t])
     setIndex(0)
     setStartSec(0)

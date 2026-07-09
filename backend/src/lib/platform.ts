@@ -6,7 +6,8 @@
 // it /api/health) for the full duration of an extract — minutes for the ~700 MB
 // Ollama zip on Windows.
 
-import { exec, execFile } from 'node:child_process'
+import { exec, execFile, spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readdir, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -71,6 +72,53 @@ export async function findFileInTree(dir: string, name: string): Promise<string 
     }
   }
   return null
+}
+
+/**
+ * Spawn a long-lived, windowless sidecar (ollama serve, SearXNG, kiwix, the voice/PTY
+ * sidecars). Two Windows pitfalls, both verified live on Bun 1.3.14 / Windows 11:
+ *
+ * 1. Bun's node:child_process silently drops `windowsHide` as soon as `env` or `cwd`
+ *    is passed in the options, so every such sidecar popped a visible terminal window.
+ *    Workaround: env extras and cwd are applied to this process for the duration of
+ *    the (synchronous) spawn call and restored right after — the child snapshots both
+ *    at CreateProcess time, and nothing can interleave on a single JS thread. Passing
+ *    a full `{ ...process.env, X }` object is fine: entries already matching the live
+ *    env are skipped.
+ *
+ * 2. `detached: true` must NOT be used on Windows even with windowsHide: the child
+ *    ends up console-less instead of hidden-console, so any console-app grandchild
+ *    (SearXNG's venv launcher re-execs the real python; ollama spawns llama-server on
+ *    every model load) allocates a fresh VISIBLE console window. Non-detached +
+ *    windowsHide gives the child its own hidden console that all descendants inherit,
+ *    and that console is independent of ours — the sidecar still survives Ctrl+C,
+ *    terminal close, and backend exit, which is everything `detached` bought us.
+ */
+export function spawnDetachedHidden(
+  bin: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
+): ChildProcess {
+  const savedEnv: Array<[string, string | undefined]> = []
+  if (opts.env) {
+    for (const [k, v] of Object.entries(opts.env)) {
+      if (process.env[k] === v) continue
+      savedEnv.push([k, process.env[k]])
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+  const savedCwd = opts.cwd ? process.cwd() : null
+  try {
+    if (opts.cwd) process.chdir(opts.cwd)
+    return spawn(bin, args, { detached: !IS_WIN, stdio: 'ignore', windowsHide: true })
+  } finally {
+    if (savedCwd) process.chdir(savedCwd)
+    for (const [k, v] of savedEnv) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
 }
 
 /**

@@ -8,7 +8,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { logger } from '@/lib/logger'
-import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
+import { ytDlpBin, withYtDlpSlot, YT_PLAYER_CLIENTS } from '@/lib/ytdlp'
 import { innertubePlayerStreams, type ItStreams } from '@/lib/youtube/innertube'
 
 const execFileAsync = promisify(execFile)
@@ -174,7 +174,7 @@ async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: St
         // client is wasteful — ANDROID_VR returns pre-signed progressive URLs (no n-sig /
         // player-JS step) and the web clients cover anything it misses.
         '--force-ipv4',
-        '--extractor-args', 'youtube:player_client=android_vr,web_safari,web',
+        '--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`,
         `https://www.youtube.com/watch?v=${videoId}`,
       ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }))
 

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ReactNode } from 'react'
 import { LiveRadioEngine, initialLiveRadioState, type LiveRadioState, type LiveStationRef, type LiveRecordingRef } from '@/lib/music/liveRadioEngine'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { uuid } from '@/lib/uuid'
 
 /** Persistent live-internet-radio engine — lives above the router so a station keeps playing
  *  (and stays controllable from the mini-player) as you move around the app. Sibling of
@@ -45,7 +46,7 @@ export function LiveRadioProvider({ children }: { children: ReactNode }) {
     const key = `${state.station?.id ?? ''}|${state.recording?.id ?? ''}`
     const justActivated = state.active && !wasActiveRef.current
     const keyChanged = state.active && key !== lastKeyRef.current
-    if (justActivated || keyChanged) sessionIdRef.current = crypto.randomUUID()
+    if (justActivated || keyChanged) sessionIdRef.current = uuid()
     wasActiveRef.current = state.active
     lastKeyRef.current = key
   }, [state.active, state.station?.id, state.recording?.id])

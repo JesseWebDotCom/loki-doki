@@ -15,7 +15,7 @@
 
 import { spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
-import { ensureFfmpeg, ensureNvencFfmpeg, ffprobeBin } from '@/lib/ffmpeg'
+import { ensureFfmpeg, ensureNvencFfmpeg, ffprobeBin, ENCODE_THREADS, deprioritizeEncode } from '@/lib/ffmpeg'
 import { resolveVideoEncoder, CPU_ENCODER, type VideoEncoder } from '@/lib/media/encoder'
 import { logger } from '@/lib/logger'
 
@@ -81,15 +81,21 @@ export async function cutVideo(inputPath: string, outputPath: string, keepRanges
   filterParts.push(`${concatInputs}concat=n=${keepRanges.length}:v=1:a=1[outv][outa]`)
 
   const runCut = (enc: VideoEncoder) => new Promise<void>((resolve, reject) => {
+    // Thread caps + below-normal priority: this is the longest ffmpeg job in the app,
+    // and unbounded it pins every core at turbo for the whole re-encode (see
+    // deprioritizeEncode in lib/ffmpeg.ts for why that must not happen on this box).
     const args = [
-      '-y', '-i', inputPath,
+      '-y', '-threads', ENCODE_THREADS, '-i', inputPath,
+      '-filter_complex_threads', ENCODE_THREADS,
       '-filter_complex', filterParts.join(';'),
       '-map', '[outv]', '-map', '[outa]',
       '-c:v', enc.codec, ...enc.args,
       '-c:a', 'aac', '-b:a', '160k',
+      '-threads', ENCODE_THREADS,
       outputPath,
     ]
     const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    deprioritizeEncode(child.pid)
     let err = ''
     child.stderr.on('data', (d) => { err += d.toString(); if (err.length > 64_000) err = err.slice(-32_000) })
     const onAbort = () => child.kill('SIGKILL')

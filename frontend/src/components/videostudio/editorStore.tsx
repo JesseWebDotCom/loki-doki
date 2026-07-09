@@ -4,6 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
 import { toast } from '@/lib/toast'
+import { uuid } from '@/lib/uuid'
 import { saveStudioProject } from '@/lib/videos/studioApi'
 import { locate, type StudioEdl, type StudioVideoClip } from '@/components/videostudio/edl'
 
@@ -119,7 +120,7 @@ export function StudioEditorProvider({ projectId, initial, children }: {
     appendClip: (assetId, durationSec) => edit((edl) => ({
       ...edl,
       video: [...edl.video, {
-        id: crypto.randomUUID(), assetId,
+        id: uuid(), assetId,
         in: 0, out: Math.max(0.5, durationSec ?? 10), speed: 1, muted: false,
       }],
     })),
@@ -153,7 +154,7 @@ export function StudioEditorProvider({ projectId, initial, children }: {
         // No split when the playhead sits at (or within 100ms of) a clip edge.
         if (loc.sourceSec <= c.in + 0.1 || loc.sourceSec >= c.out - 0.1) return edl
         const left: StudioVideoClip = { ...c, out: loc.sourceSec }
-        const right: StudioVideoClip = { ...c, id: crypto.randomUUID(), in: loc.sourceSec }
+        const right: StudioVideoClip = { ...c, id: uuid(), in: loc.sourceSec }
         const video = [...edl.video]
         video.splice(loc.index, 1, left, right)
         return { ...edl, video }

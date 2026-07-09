@@ -9,7 +9,7 @@
 
 import { spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
-import { ensureFfmpeg, ffprobeBin } from '@/lib/ffmpeg'
+import { ensureFfmpeg, ffprobeBin, ENCODE_THREADS, deprioritizeEncode } from '@/lib/ffmpeg'
 import { resolveVideoEncoder, CPU_ENCODER, type VideoEncoder } from './encoder'
 import { logger } from '@/lib/logger'
 
@@ -43,17 +43,23 @@ async function probeDurationSec(inputPath: string): Promise<number> {
 
 async function runEncode(inputPath: string, outputPath: string, enc: VideoEncoder, signal?: AbortSignal, durationSec = 0, onProgress?: EnhanceProgress): Promise<void> {
   const bin = await ensureFfmpeg()
+  // Thread caps + below-normal priority: same rationale as cutVideo (see
+  // deprioritizeEncode in lib/ffmpeg.ts), a full-length re-encode must not pin
+  // every core at turbo on this box.
   const args = [
     '-y', '-nostats', '-progress', 'pipe:1',   // machine-readable progress on stdout
-    '-i', inputPath,
+    '-threads', ENCODE_THREADS, '-i', inputPath,
+    '-filter_threads', ENCODE_THREADS,
     '-vf', enhanceFilterChain(),
     '-c:v', enc.codec, ...enc.args,
     '-c:a', 'copy',   // only the video is touched
+    '-threads', ENCODE_THREADS,
     outputPath,
   ]
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    deprioritizeEncode(child.pid)
     let err = ''
     child.stderr?.on('data', (d) => { err += d.toString(); if (err.length > 64_000) err = err.slice(-32_000) })
 

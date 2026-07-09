@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, rm, chmod, copyFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { execFile } from 'node:child_process'
+import { setPriority, constants as osConstants } from 'node:os'
 import { promisify } from 'node:util'
 import { dataDir, downloadUrl } from '@/lib/download'
 import { IS_WIN, extractArchive, findFileInTree } from '@/lib/platform'
@@ -144,4 +145,22 @@ export function ensureNvencFfmpeg(): Promise<string> {
   // Let a later attempt retry if the managed fetch failed and we still lack NVENC.
   nvencPromise.then((bin) => ffmpegHasEncoder(bin, 'h264_nvenc')).then((ok) => { if (!ok) nvencPromise = null }).catch(() => { nvencPromise = null })
   return nvencPromise
+}
+
+// ── Encode-job load throttling ────────────────────────────────────────────────
+// An unbounded ffmpeg re-encode (software decode + filter graph) pins every core at
+// turbo for the length of the job. On this hardware that sustained peak is what arms
+// the laptop's hybrid AC+battery power path and has hard power-offed the machine
+// (Kernel-Power 41, no WHEA; see gpu-power-guard.ps1). Heavy re-encode jobs
+// (plex-cut, media-enhance) bound their parallelism and drop process priority so
+// they finish a little slower instead of taking the box down.
+
+/** Thread cap for heavy re-encode ffmpeg jobs (decode, filter graph, CPU encoder). */
+export const ENCODE_THREADS = '4'
+
+/** Drop a spawned encode process to below-normal priority, best-effort (a runtime
+ *  without os.setPriority support just leaves it at normal). */
+export function deprioritizeEncode(pid: number | undefined): void {
+  if (!pid) return
+  try { setPriority(pid, osConstants.priority.PRIORITY_BELOW_NORMAL) } catch { /* best-effort */ }
 }

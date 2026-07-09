@@ -13,6 +13,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
+import { uuid } from '@/lib/uuid'
 import { speak } from '@/lib/voice/voicePlaybackStore'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
 import { startRinging, type RingHandle } from '@/lib/time/tones'
@@ -279,7 +280,7 @@ export function TimeAlarmProvider({ children }: { children: React.ReactNode }) {
   const startTimerImpl = useCallback((input: { label: string; tone: string; announce: boolean; durationSec: number; toneName?: string | null }) => {
     // Optimistic local run so the countdown starts instantly; replaced by the
     // server row (authoritative id/endsAt) once the POST resolves.
-    const tempId = crypto.randomUUID()
+    const tempId = uuid()
     const optimistic: TimerRun = {
       id: tempId, label: input.label, tone: input.tone, toneName: input.toneName ?? null,
       announce: input.announce, durationSec: input.durationSec,
