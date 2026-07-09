@@ -7,11 +7,12 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { StationCard } from '@/components/music/StationCard'
 import { StationArt } from '@/components/music/StationArt'
-import { SongArt } from '@/components/music/SongArt'
+import { BlendedHeroBackdrop } from '@/components/music/BlendedHero'
+import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
-import { listStations, getHistory, stationToDj, type Station } from '@/lib/music/catalogApi'
+import { listStations, getHistory, previewStationQueue, stationToDj, type Station } from '@/lib/music/catalogApi'
 
 // A song tile the way modern players draw them: square album art with the title overlaid
 // on a bottom gradient, no card chrome, gentle hover lift.
@@ -30,21 +31,36 @@ function SongTile({ trackRef, title, artist, onClick }: { trackRef: string; titl
   )
 }
 
-// The page's focal point: a full-width billboard for the day's featured station -
-// big banner art, name + description, one obvious Play. Rotates daily.
+// The page's focal point: a full-width billboard for the day's featured station.
+// A real album cover from the station's queue anchors the right edge and DISSOLVES into
+// the station's accent color (mask fade + tint) - the Apple-Music editorial pattern -
+// with the banner art as the fallback when no cover resolves yet. Rotates daily.
 function StationBillboard({ stations }: { stations: Station[] }) {
   const radio = useRadio()
   const navigate = useNavigate()
-  if (!stations.length) return null
   const day = Math.floor(Date.now() / 86_400_000)
-  const station = stations[day % stations.length]!
+  const station = stations.length ? stations[day % stations.length]! : null
+  const dj = station ? stationToDj(station) : null
+
+  // A taste of what the station actually plays - its first preview track's album art.
+  const { data: preview } = useQuery({
+    queryKey: ['music-station-preview', station?.id, 4],
+    queryFn: () => previewStationQueue(station!.id, 4),
+    enabled: !!station?.id,
+    staleTime: 24 * 60 * 60 * 1000,
+  })
+  const lead = preview?.tracks?.[0] ?? null
+  const coverArt = useSongArt(lead?.videoId, lead?.title, lead?.artist)
+
+  if (!station || !dj) return null
   const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
+
   return (
     <button onClick={() => navigate(`/music/station/${station.id}`)}
       className="group relative mb-8 block w-full overflow-hidden rounded-sheet text-left shadow-xl">
       <div className="relative aspect-[21/8] w-full overflow-hidden sm:aspect-[21/6]">
-        <StationArt station={station} />
-        <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/80 via-black/35 to-transparent" />
+        <BlendedHeroBackdrop art={coverArt} color={dj.color} colorDark={dj.colorDark}
+          fallback={<StationArt station={station} />} />
       </div>
       <div className="absolute inset-y-0 left-0 flex max-w-xl flex-col justify-center gap-2 p-6 sm:p-9">
         <span className="text-[11px] font-semibold uppercase tracking-widest text-white/60">Station of the day</span>

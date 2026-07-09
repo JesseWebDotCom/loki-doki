@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { StationArt } from '@/components/music/StationArt'
+import { BlendedHeroBackdrop } from '@/components/music/BlendedHero'
+import { useSongArt } from '@/components/music/SongArt'
 import { SongDownloadButton } from '@/components/music/SongDownloadButton'
 import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
 import { SaveOfflineDialog } from '@/components/music/SaveOfflineDialog'
@@ -38,6 +40,9 @@ export function MusicStationPage() {
   const { data: preview, isLoading: previewLoading } = useQuery({
     queryKey: ['music-station-preview', id], queryFn: () => previewStationQueue(id, 12), enabled: !!id, staleTime: 5 * 60_000,
   })
+  // Hero artwork: the first preview track's real album cover, blended into the accent.
+  const leadTrack = preview?.tracks?.[0] ?? null
+  const heroArt = useSongArt(leadTrack?.videoId, leadTrack?.title, leadTrack?.artist)
   // Live offline-save progress - polls while a snapshot is downloading/rendering.
   const { data: offline } = useQuery({
     queryKey: ['music-offline-status', id], queryFn: () => getOfflineStatus(id), enabled: !!id,
@@ -108,10 +113,11 @@ export function MusicStationPage() {
 
   return (
     <div>
-      {/* Hero */}
+      {/* Hero - the station's lead track cover dissolving into its accent color. */}
       <div className="relative overflow-hidden">
-        <StationArt station={s} className="absolute inset-0" showName={false} />
-        <div className="relative bg-gradient-to-t from-background via-background/60 to-transparent px-5 pb-5 pt-24">
+        <BlendedHeroBackdrop art={heroArt} color={stationToDj(s).color} colorDark={stationToDj(s).colorDark}
+          fallback={<StationArt station={s} className="absolute inset-0" showName={false} />} />
+        <div className="relative bg-gradient-to-t from-black/70 via-transparent to-transparent px-5 pb-5 pt-24">
           <p className="text-overline text-white/70">Station</p>
           <div className="mt-1 text-display text-white drop-shadow sm:text-display-lg">{s.name}</div>
           {s.description && !s.description.startsWith('source:') && (
