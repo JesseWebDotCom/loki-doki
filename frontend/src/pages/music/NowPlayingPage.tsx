@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, Music2, SkipForward, SkipBack, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2, SlidersHorizontal } from 'lucide-react'
+import { Heart, Music2, SkipForward, SkipBack, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { proxyImg } from '@/lib/img'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -158,7 +158,7 @@ export function NowPlayingPage() {
   const navigate = useNavigate()
   const cat = useCatalogNav()
   const queryClient = useQueryClient()
-  const { openPlayer } = usePlayerOverlay()
+  const { openPlayer, openImmersive } = usePlayerOverlay()
 
   // Warm the NEXT track's page content (image, lyrics, Wikipedia, smart links) into the
   // react-query cache *while the current song is still playing* - these all use staleTime:Infinity,
@@ -382,6 +382,9 @@ export function NowPlayingPage() {
                 {radio.sleepAtMs && <DropdownMenuItem onClick={() => radio.setSleep(null)}>Turn off timer</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
+            <button onClick={() => openImmersive()} aria-label="Immersive visuals" title="Immersive visuals" className={utilBtn}>
+              <Sparkles className="size-4" />
+            </button>
             <button onClick={() => openPlayer()} aria-label="Fullscreen player" title="Fullscreen player" className={utilBtn}>
               <Maximize2 className="size-4" />
             </button>

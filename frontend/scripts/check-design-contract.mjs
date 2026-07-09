@@ -57,6 +57,7 @@ const RULES = [
       'pages/maps/',
       // SeekBar/EqVisualizer take literal color fallbacks (canvas can't read CSS vars).
       'components/music/NowPlayingOverlay.tsx',
+      'components/music/ImmersivePlayer.tsx',
     ],
   },
   {
@@ -86,6 +87,7 @@ const RULES = [
       'components/shared/PinPad.tsx',
       'components/display/',
       'components/media/PlexPlayer.tsx',
+      'components/music/ImmersivePlayer.tsx',
       'pages/DisplayPage.tsx',
     ],
   },
@@ -101,7 +103,7 @@ const RULES = [
     scope: 'pages/',
   },
   // Glass belongs on chrome; in-page glass tiles need a waiver ("over imagery").
-  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/, allow: ['components/music/NowPlayingOverlay.tsx'] },
+  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/, allow: ['components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx'] },
   { name: 'font-black', pattern: /\bfont-black\b/, allow: ['components/shared/BrandMark.tsx'] },
   {
     name: 'brand-gradient-outside-hero',
@@ -128,6 +130,7 @@ const RULES = [
       'components/shared/PrivacyOverlay.tsx',
       'components/youtube/YoutubeMiniBar.tsx',
       'components/podcast/PodcastPlayerBar.tsx',
+      'components/music/ImmersivePlayer.tsx',
     ],
   },
 ]
@@ -135,7 +138,7 @@ const RULES = [
 // Hand-styled native <button> tags (multiline aware): must be ui/Button.
 const BUTTON_RULE = {
   name: 'hand-styled-button',
-  allow: ['components/ui/', 'components/shared/RippleButton.tsx', 'components/music/NowPlayingOverlay.tsx'],
+  allow: ['components/ui/', 'components/shared/RippleButton.tsx', 'components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx'],
 }
 
 const EXTS = new Set(['.ts', '.tsx', '.css'])

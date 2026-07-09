@@ -28,6 +28,7 @@ import { QueueBanner } from "./QueueBanner";
 import { PodcastPlayerBar } from "@/components/podcast/PodcastPlayerBar";
 import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
 import { NowPlayingOverlay } from "@/components/music/NowPlayingOverlay";
+import { ImmersivePlayerMount } from "@/components/music/ImmersivePlayer";
 import { ArtifactPane } from "@/components/canvas/ArtifactPane";
 import { useArtifactState } from "@/lib/canvas/artifactStore";
 import { useChatContext } from "@/context/ChatContext";
@@ -380,6 +381,7 @@ export function AppShell() {
 
         {/* App-wide full-page music player, raised from the mini bar / rail / deep link */}
         <NowPlayingOverlay />
+        <ImmersivePlayerMount />
 
         {/* Bottom dock: mobile only (Home + companion pill + Menu) */}
         <MobileDock />

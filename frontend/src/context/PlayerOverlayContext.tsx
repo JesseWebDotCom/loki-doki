@@ -15,6 +15,11 @@ interface PlayerOverlayValue {
   open: boolean;
   openPlayer: () => void;
   closePlayer: () => void;
+  // Immersive visualizer mode (Plexamp-style fullscreen visuals) - an independent top layer
+  // that any surface can raise; it enters real browser fullscreen for the lean-back/TV feel.
+  immersive: boolean;
+  openImmersive: () => void;
+  closeImmersive: () => void;
 }
 
 const Ctx = createContext<PlayerOverlayValue | null>(null);
@@ -38,6 +43,7 @@ function exitFs() {
 
 export function PlayerOverlayProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [immersive, setImmersive] = useState(false);
   // Tracks whether we actually reached fullscreen for this session, so the change→false handler
   // only auto-closes after a real fullscreen exit (not on the brief pre-activation frame, and not
   // on platforms where requestFullscreen silently no-ops).
@@ -48,9 +54,10 @@ export function PlayerOverlayProvider({ children }: { children: ReactNode }) {
       if (fsElement()) {
         enteredRef.current = true;
       } else if (enteredRef.current) {
-        // Left fullscreen (Esc key or programmatic) → close the player.
+        // Left fullscreen (Esc key or programmatic) → close whichever fullscreen layer is up.
         enteredRef.current = false;
         setOpen(false);
+        setImmersive(false);
       }
     };
     document.addEventListener("fullscreenchange", onChange);
@@ -73,12 +80,26 @@ export function PlayerOverlayProvider({ children }: { children: ReactNode }) {
     exitFs();
   }, []);
 
-  const value = useMemo(() => ({ open, openPlayer, closePlayer }), [open, openPlayer, closePlayer]);
+  const openImmersive = useCallback(() => {
+    enteredRef.current = false;
+    setImmersive(true);
+    requestFs();
+  }, []);
+  const closeImmersive = useCallback(() => {
+    enteredRef.current = false;
+    setImmersive(false);
+    exitFs();
+  }, []);
+
+  const value = useMemo(
+    () => ({ open, openPlayer, closePlayer, immersive, openImmersive, closeImmersive }),
+    [open, openPlayer, closePlayer, immersive, openImmersive, closeImmersive],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function usePlayerOverlay(): PlayerOverlayValue {
   const ctx = useContext(Ctx);
-  if (!ctx) return { open: false, openPlayer: () => {}, closePlayer: () => {} };
+  if (!ctx) return { open: false, openPlayer: () => {}, closePlayer: () => {}, immersive: false, openImmersive: () => {}, closeImmersive: () => {} };
   return ctx;
 }

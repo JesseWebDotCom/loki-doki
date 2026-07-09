@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   ChevronDown, Heart, Download, MonitorPlay, Play, Pause, SkipForward, AudioLines,
-  Mic, Moon, Volume2, VolumeX, ListMusic, Music2, Disc3,
+  Mic, Moon, Volume2, VolumeX, ListMusic, Music2, Disc3, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
@@ -16,6 +16,7 @@ import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { StarRating } from '@/components/music/StarRating'
 import { useTitleMask } from '@/lib/music/policy'
 import { SongArt, useSongArt } from '@/components/music/SongArt'
+import { useAlbumPalette } from '@/lib/music/albumColors'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { Spinner } from '@/components/ui/spinner'
@@ -31,7 +32,7 @@ type Tab = 'lyrics' | 'up-next' | 'about'
 // mini-player bar (or the rail / a deep link) and dismissed by dragging down or the chevron;
 // the audio keeps playing underneath either way.
 export function NowPlayingOverlay() {
-  const { open, closePlayer } = usePlayerOverlay()
+  const { open, closePlayer, openImmersive } = usePlayerOverlay()
   const radio = useRadio()
   const navigate = useNavigate()
   const cat = useCatalogNav()
@@ -53,8 +54,10 @@ export function NowPlayingOverlay() {
   }, [closePlayer])
 
   const curForArt = radio.currentTrack ?? radio.queue[radio.index] ?? null
-  // Unconditional hook (before the early return): real square album art for cover + backdrop.
+  // Unconditional hooks (before the early return): real square album art for cover + backdrop,
+  // and its extracted palette for the UltraBlur wash.
   const overlayArt = useSongArt(curForArt?.videoId, curForArt?.title, curForArt?.author)
+  const palette = useAlbumPalette(overlayArt ?? (curForArt?.thumbnail ? proxyImg(curForArt.thumbnail) : null))
 
   if (!open) return null
 
@@ -89,18 +92,19 @@ export function NowPlayingOverlay() {
       className="fixed inset-0 z-[100] flex flex-col text-white"
       style={{ transform: dragY ? `translateY(${dragY}px)` : undefined, transition: dragY ? 'none' : 'transform 0.25s ease' }}
     >
-      {/* Backdrop: blurred cover art + station-accent gradient wash */}
+      {/* Backdrop: UltraBlur - the cover's own dominant colours give each song its persona,
+          under the station-accent wash so the chrome stays readable. */}
       <div className="absolute inset-0 -z-10 bg-black">
         {(overlayArt || cur?.thumbnail) && (
-          <img src={overlayArt ?? proxyImg(cur!.thumbnail)} alt="" className="absolute inset-0 size-full scale-125 object-cover opacity-40 blur-2xl" />
+          <img src={overlayArt ?? proxyImg(cur!.thumbnail)} alt="" className="absolute inset-0 size-full scale-125 object-cover opacity-50 blur-3xl saturate-150" />
         )}
-        <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${c1}55, ${c2}cc 55%, rgba(10,10,12,0.96))` }} />
+        <div className="absolute inset-0" style={{ background: `radial-gradient(120% 90% at 50% 0%, ${palette.vibrant}22, transparent 55%), linear-gradient(160deg, ${c1}40, ${c2}bb 55%, rgba(10,10,12,0.96))` }} />
       </div>
 
       {/* Ambient EQ across the very bottom */}
       {radio.visualizerEnabled && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-40">
-          <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={c1} colorDark={c2} opacity={0.3} fade />
+          <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={palette.vibrant} colorDark={c2} opacity={0.35} fade />
         </div>
       )}
 
@@ -209,6 +213,10 @@ export function NowPlayingOverlay() {
           <button onClick={radio.toggleVisualizer} aria-label="Toggle visualizer" title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}
             className={cn('shrink-0 hover:text-white', radio.visualizerEnabled ? 'text-white/80' : 'text-white/35')}>
             <AudioLines className="size-4" />
+          </button>
+          <button onClick={openImmersive} aria-label="Immersive visuals" title="Immersive visuals"
+            className="shrink-0 text-white/70 hover:text-white">
+            <Sparkles className="size-4" />
           </button>
           <button onClick={() => navigate(radio.station?.stationId ? `/music/watch/${radio.station.stationId}` : '/music/watch/current')}
             aria-label="Watch video" title="Switch to video" className="shrink-0 text-white/70 hover:text-white">
