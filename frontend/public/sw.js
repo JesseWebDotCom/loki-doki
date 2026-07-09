@@ -8,7 +8,12 @@
 // CACHE_VERSION bump = every prior cache is dropped on activate. Bump this whenever the
 // caching strategy itself changes (not on every app deploy — content stays fresh via
 // stale-while-revalidate's background refetch).
-const CACHE_VERSION = "v1";
+// v2: the app shell (index.html / navigations) is now NETWORK-FIRST, not stale-while-
+// revalidate. The old strategy served the cached index.html — which references the PREVIOUS
+// build's hashed JS/CSS — so new deploys never took effect until several reloads (and a
+// mid-deploy broken bundle could get stuck in cache). Content-hashed assets stay cache-first
+// (their filenames change when content changes, so a cache hit is always correct).
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `lokidoki-${CACHE_VERSION}`;
 
 // API GETs worth serving stale-while-revalidate — small, frequently-polled, and useful
@@ -28,8 +33,8 @@ self.addEventListener("activate", (event) => {
 function isCacheableAsset(url) {
   if (url.origin !== self.location.origin) return false;
   if (url.pathname.startsWith("/api/")) return CACHEABLE_API_PATHS.some((p) => url.pathname.startsWith(p));
-  // Vite-built JS/CSS/font/image assets, plus the app shell itself.
-  return /\.(js|css|woff2?|ttf|png|jpg|jpeg|svg|webp)$/.test(url.pathname) || url.pathname === "/";
+  // Vite-built, content-hashed JS/CSS/font/image assets (immutable — filename changes with content).
+  return /\.(js|css|woff2?|ttf|png|jpg|jpeg|svg|webp)$/.test(url.pathname);
 }
 
 self.addEventListener("fetch", (event) => {
@@ -37,19 +42,33 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return; // never cache mutations
 
   const url = new URL(req.url);
-  const isNavigation = req.mode === "navigate";
-  if (!isNavigation && !isCacheableAsset(url)) return; // let everything else hit the network normally
 
-  event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(isNavigation ? "/" : req);
-      const network = fetch(req)
+  // App shell: NETWORK-FIRST. Always try the live index.html so a new deploy's hashed chunk
+  // references load immediately; fall back to the cached shell only when offline.
+  if (req.mode === "navigate") {
+    event.respondWith(
+      fetch(req)
         .then((res) => {
-          if (res.ok) cache.put(isNavigation ? "/" : req, res.clone());
+          if (res.ok) caches.open(CACHE_NAME).then((c) => c.put("/", res.clone()));
           return res;
         })
-        .catch(() => cached); // offline — fall back to whatever's cached
-      return cached ?? network;
+        .catch(() => caches.open(CACHE_NAME).then((c) => c.match("/")).then((r) => r || Response.error()))
+    );
+    return;
+  }
+
+  if (!isCacheableAsset(url)) return; // everything else hits the network normally
+
+  const isApi = url.pathname.startsWith("/api/");
+  event.respondWith(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(req);
+      // Hashed assets are immutable → cache-first (fast). API GETs → stale-while-revalidate.
+      if (cached && !isApi) return cached;
+      const network = fetch(req)
+        .then((res) => { if (res.ok) cache.put(req, res.clone()); return res; })
+        .catch(() => cached);
+      return isApi ? (cached ?? network) : network;
     })
   );
 });
