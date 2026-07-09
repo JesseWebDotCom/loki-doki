@@ -1,7 +1,6 @@
 // Icon-only discography filter, shared by the artist page and Browse search results.
-// MusicBrainz catalogs every club bootleg and demo tape; the toggle set decides which
 // release kinds show. Live/demos/mixtapes/remixes are hidden by DEFAULT; studio albums
-// always show; only soundtracks are on by default among the extras.
+// always show; every extra category is off by default: plain Albums, EPs, and Singles.
 
 import { ListFilter } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -21,7 +20,7 @@ export const ALBUM_FILTER_CATS: AlbumFilterCat[] = [
   { key: 'live', label: 'Live recordings', match: ['live'], defaultOn: false },
   { key: 'demo', label: 'Demos', match: ['demo'], defaultOn: false },
   { key: 'compilation', label: 'Compilations', match: ['compilation'], defaultOn: false },
-  { key: 'soundtrack', label: 'Soundtracks', match: ['soundtrack'], defaultOn: true },
+  { key: 'soundtrack', label: 'Soundtracks', match: ['soundtrack'], defaultOn: false },
   { key: 'remix', label: 'Remixes & DJ mixes', match: ['remix', 'dj-mix'], defaultOn: false },
   { key: 'mixtape', label: 'Mixtapes & field recordings', match: ['mixtape/street', 'field recording'], defaultOn: false },
 ]
