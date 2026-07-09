@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Radio, ExternalLink } from 'lucide-react'
+import { Radio, ExternalLink, Eye, EyeOff } from 'lucide-react'
 import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +26,7 @@ export function MusicArtistPage() {
     enabled: !!artistName, staleTime: Infinity,
   })
   const [logoBroken, setLogoBroken] = useState(false)
+  const [showAll, setShowAll] = useState(false)
 
   if (isLoading) return <div className="px-5 pt-6 text-sm text-muted-foreground">Loading…</div>
   if (!data) return <div className="px-5 pt-6 text-sm text-muted-foreground">Artist not found.</div>
@@ -35,7 +36,14 @@ export function MusicArtistPage() {
   const bioUrl = info?.url ?? artist.wikipediaUrl
   const showLogo = !!info?.logo && !logoBroken
 
-  const albumsByType = (t: string) => albums.filter(a => (a.primaryType ?? 'Album') === t)
+  // Live tapes, demos, and mixtapes bury the real discography (MB catalogs every club
+  // bootleg). Hidden by default; the toggle by the section header reveals everything.
+  const CLUTTER_TYPES = ['live', 'demo', 'mixtape/street', 'field recording', 'dj-mix']
+  const isClutter = (a: CatalogAlbum) => (a.secondaryTypes ?? []).some(t => CLUTTER_TYPES.includes(t.toLowerCase()))
+  const hiddenCount = albums.filter(isClutter).length
+  const visible = showAll ? albums : albums.filter(a => !isClutter(a))
+
+  const albumsByType = (t: string) => visible.filter(a => (a.primaryType ?? 'Album') === t)
   const groups: Array<[string, CatalogAlbum[]]> = [['Album', albumsByType('Album')], ['EP', albumsByType('EP')], ['Single', albumsByType('Single')]]
 
   return (
@@ -88,6 +96,14 @@ export function MusicArtistPage() {
             <SectionHeader title="About" />
             <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{bio}</p>
           </section>
+        )}
+        {hiddenCount > 0 && (
+          <div className="mb-3 flex justify-end">
+            <Button variant="secondary" size="sm" onClick={() => setShowAll(v => !v)}>
+              {showAll ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              {showAll ? `Hide live tapes & demos (${hiddenCount})` : `Show live tapes & demos (${hiddenCount})`}
+            </Button>
+          </div>
         )}
         {groups.filter(([, list]) => list.length > 0).map(([label, list]) => (
           <section key={label} className="mb-6">
