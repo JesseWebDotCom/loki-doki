@@ -62,7 +62,7 @@ export function AlbumCover({ coverUrl, artist, album, artistImage, artistLogo, c
  *  resolve images via Wikidata → Wikimedia Commons that a bare-name Wikipedia lookup would miss. */
 export function ArtistAvatar({ name, mbid, className }: { name: string; mbid?: string; className?: string }) {
   const { data } = useQuery({
-    queryKey: ['music-artist-img', mbid ?? name], queryFn: () => getArtistInfo(name, mbid),
+    queryKey: ['music-artist-img-v2', mbid ?? name], queryFn: () => getArtistInfo(name, mbid),
     enabled: !!name, staleTime: Infinity,
   })
   const img = data?.found ? data.image : null

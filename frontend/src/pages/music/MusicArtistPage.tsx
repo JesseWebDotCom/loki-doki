@@ -21,7 +21,7 @@ export function MusicArtistPage() {
   // resolved artist name/mbid, so it waits for the artist load.
   const artistName = data?.artist.name ?? ''
   const { data: info } = useQuery({
-    queryKey: ['music-artist-img', mbid || artistName],
+    queryKey: ['music-artist-img-v2', mbid || artistName],
     queryFn: () => getArtistInfo(artistName, mbid || undefined),
     enabled: !!artistName, staleTime: Infinity,
   })
