@@ -9,14 +9,20 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { CatalogAlbum } from '@/lib/music/catalogApi'
 
+type FilterableAlbum = Pick<CatalogAlbum, 'secondaryTypes' | 'primaryType'>
+
 export interface AlbumFilterCat {
   key: string
   label: string
-  match: string[]        // MB secondary types (lowercased) this category covers
+  /** MB secondary types (lowercased) this category covers. */
+  match?: string[]
+  /** Or match on the primary type (Singles are a primary type, not a secondary one). */
+  primary?: string
   defaultOn: boolean
 }
 
 export const ALBUM_FILTER_CATS: AlbumFilterCat[] = [
+  { key: 'single', label: 'Singles', primary: 'Single', defaultOn: false },
   { key: 'live', label: 'Live recordings', match: ['live'], defaultOn: false },
   { key: 'demo', label: 'Demos', match: ['demo'], defaultOn: false },
   { key: 'compilation', label: 'Compilations', match: ['compilation'], defaultOn: false },
@@ -30,28 +36,28 @@ export type AlbumFilters = Record<string, boolean>
 export const defaultAlbumFilters = (): AlbumFilters =>
   Object.fromEntries(ALBUM_FILTER_CATS.map(c => [c.key, c.defaultOn]))
 
-/** An album passes when every category it belongs to is switched on (studio = no
- *  categories = always passes). */
-export function albumPassesFilters(a: Pick<CatalogAlbum, 'secondaryTypes'>, filters: AlbumFilters): boolean {
-  const types = (a.secondaryTypes ?? []).map(t => t.toLowerCase())
-  if (!types.length) return true
+const inCat = (a: FilterableAlbum, cat: AlbumFilterCat): boolean => {
+  if (cat.primary) return (a.primaryType ?? 'Album') === cat.primary
+  return (a.secondaryTypes ?? []).some(t => cat.match!.includes(t.toLowerCase()))
+}
+
+/** An album passes when every category it belongs to is switched on (a plain studio
+ *  album or EP belongs to none, so it always passes). */
+export function albumPassesFilters(a: FilterableAlbum, filters: AlbumFilters): boolean {
   for (const cat of ALBUM_FILTER_CATS) {
-    if (types.some(t => cat.match.includes(t)) && !filters[cat.key]) return false
+    if (inCat(a, cat) && !filters[cat.key]) return false
   }
   return true
 }
 
 export function AlbumFilterButton({ albums, filters, onChange }: {
-  albums: Array<Pick<CatalogAlbum, 'secondaryTypes'>>
+  albums: FilterableAlbum[]
   filters: AlbumFilters
   onChange: (next: AlbumFilters) => void
 }) {
   // Only offer categories that exist in this list, with counts.
   const cats = ALBUM_FILTER_CATS
-    .map(cat => ({
-      ...cat,
-      count: albums.filter(a => (a.secondaryTypes ?? []).some(t => cat.match.includes(t.toLowerCase()))).length,
-    }))
+    .map(cat => ({ ...cat, count: albums.filter(a => inCat(a, cat)).length }))
     .filter(c => c.count > 0)
   if (!cats.length) return null
   const hidingSome = cats.some(c => !filters[c.key])
