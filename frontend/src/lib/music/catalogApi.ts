@@ -109,6 +109,10 @@ export function getGenreLanding(genre: string) {
 export function getArtistId(name: string) {
   return mfetch<{ mbid: string | null }>(`/catalog/artist-id?name=${encodeURIComponent(name)}`)
 }
+/** Album title + artist → THE release-group MBID (Deezer search results have no MBID). */
+export function getAlbumId(title: string, artist: string) {
+  return mfetch<{ mbid: string | null }>(`/catalog/album-id?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`)
+}
 // Batch owned-copy lookup: which of these songs does the family's library (local/Plex)
 // already have? Powers the "Yours" badges - a hit means playback uses the owned copy.
 export function matchOwned(tracks: Array<{ title: string; artist: string; mbid?: string | null; durationSec?: number | null }>) {

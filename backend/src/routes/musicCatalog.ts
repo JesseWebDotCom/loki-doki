@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import {
   searchArtists, searchAlbums, searchSongs,
-  getArtist, getArtistAlbums, getAlbum, itunesAlbumCover, itunesSongArt, pickArtistMbid,
+  getArtist, getArtistAlbums, getAlbum, itunesAlbumCover, itunesSongArt, pickArtistMbid, albumMbidFor,
 } from '@/lib/music/catalog'
 import { resolvePlayable, findOwned } from '@/lib/music/resolveSource'
 import { deezerChartTracks, deezerArtistPicture } from '@/lib/music/deezer'
@@ -100,6 +100,16 @@ musicCatalog.get('/artist-id', async (c) => {
   const name = c.req.query('name')?.trim() ?? ''
   if (!name) return c.json({ error: 'name required' }, 400)
   const mbid = await pickArtistMbid(name)
+  return c.json({ mbid }, 200, { 'Cache-Control': 'private, max-age=86400' })
+})
+
+// GET /api/music/catalog/album-id?title=&artist= — album name → THE release-group MBID, so a
+// Deezer search result (which has no MBID) can open the real album page. Resolved lazily on click.
+musicCatalog.get('/album-id', async (c) => {
+  const title = c.req.query('title')?.trim() ?? ''
+  const artist = c.req.query('artist')?.trim() ?? ''
+  if (!title) return c.json({ error: 'title required' }, 400)
+  const mbid = await albumMbidFor(title, artist)
   return c.json({ mbid }, 200, { 'Cache-Control': 'private, max-age=86400' })
 })
 

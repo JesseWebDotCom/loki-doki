@@ -18,7 +18,7 @@ import { SongArt } from '@/components/music/SongArt'
 import { stationGradient } from '@/lib/music/stationColors'
 import { proxyImg } from '@/lib/img'
 import { toast } from 'sonner'
-import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, getGenreLanding, getArtistId, matchOwned, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
+import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, getGenreLanding, getArtistId, getAlbumId, matchOwned, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
 
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
@@ -190,6 +190,29 @@ function ArtistRedirect({ name }: { name: string }) {
   return (
     <PageContainer width="wide" className="flex items-center gap-3 pt-16 text-muted-foreground">
       <Spinner /> <span className="text-sm">Opening {name}…</span>
+    </PageContainer>
+  )
+}
+
+/** /music/browse?album=<title>&aartist=<artist>: resolve a Deezer album (no MBID) to THE
+ *  release-group and replace with the real album page; falls back to a text search. */
+function AlbumRedirect({ title, artist }: { title: string; artist: string }) {
+  const navigate = useNavigate()
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const { mbid } = await getAlbumId(title, artist)
+        if (cancelled) return
+        if (mbid) { navigate(`/music/album/${mbid}`, { replace: true }); return }
+      } catch { /* fall through to search */ }
+      if (!cancelled) navigate(`/music/browse?q=${encodeURIComponent(title)}`, { replace: true })
+    })()
+    return () => { cancelled = true }
+  }, [title, artist, navigate])
+  return (
+    <PageContainer width="wide" className="flex items-center gap-3 pt-16 text-muted-foreground">
+      <Spinner /> <span className="text-sm">Opening {title}…</span>
     </PageContainer>
   )
 }
@@ -380,6 +403,9 @@ export function MusicBrowsePage() {
   const artistName = params.get('artist')?.trim() ?? ''
   if (artistName) return <ArtistRedirect name={artistName} />
 
+  const albumTitle = params.get('album')?.trim() ?? ''
+  if (albumTitle) return <AlbumRedirect title={albumTitle} artist={params.get('aartist')?.trim() ?? ''} />
+
   const genre = params.get('genre')?.trim() ?? ''
   if (!q && genre) return (
     <PageContainer width="wide" className="pb-10">
@@ -419,7 +445,8 @@ export function MusicBrowsePage() {
             <SectionHeader title="Albums" count={visibleAlbums.length}
               action={<AlbumFilterButton albums={data!.albums} filters={albumFilters} onChange={setAlbumFilters} />} />
             <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-              {visibleAlbums.map(al => <AlbumCard key={al.mbid} al={al} onClick={() => navigate(`/music/album/${al.mbid}`)} />)}
+              {visibleAlbums.map((al, i) => <AlbumCard key={al.mbid || `${al.title}-${i}`} al={al}
+                onClick={() => navigate(al.mbid ? `/music/album/${al.mbid}` : `/music/browse?album=${encodeURIComponent(al.title)}&aartist=${encodeURIComponent(al.artistName)}`)} />)}
             </div>
           </section>
         )

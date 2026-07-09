@@ -303,6 +303,20 @@ export async function deezerSearchTracks(query: string, artist: string | undefin
   }))
 }
 
+export interface DeezerAlbumHit { title: string; artistName: string; cover: string | null; recordType: string | null; explicit: boolean | null }
+export async function deezerSearchAlbums(query: string, limit: number): Promise<DeezerAlbumHit[]> {
+  const data = await dz<{ data?: any[] }>(`/search/album?q=${encodeURIComponent(query)}&limit=${Math.min(limit, 50)}`)
+  return (data?.data ?? [])
+    .filter((a) => a?.title && a?.artist?.name)
+    .map((a) => ({
+      title: a.title as string,
+      artistName: a.artist.name as string,
+      cover: a.cover_medium ?? a.cover_big ?? a.cover ?? null,
+      recordType: typeof a.record_type === 'string' ? a.record_type : null,
+      explicit: typeof a.explicit_lyrics === 'boolean' ? a.explicit_lyrics : null,
+    }))
+}
+
 export interface DeezerArtistHit { name: string; picture: string | null; nbFan: number }
 export async function deezerSearchArtists(query: string, limit: number): Promise<DeezerArtistHit[]> {
   const data = await dz<{ data?: any[] }>(`/search/artist?q=${encodeURIComponent(query)}&limit=${Math.min(limit, 50)}`)

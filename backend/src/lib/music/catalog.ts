@@ -9,7 +9,7 @@
 // never hit the live API twice for the same thing.
 
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
-import { deezerSearchTracks, deezerSearchArtists } from '@/lib/music/deezer'
+import { deezerSearchTracks, deezerSearchArtists, deezerSearchAlbums } from '@/lib/music/deezer'
 import { logger } from '@/lib/logger'
 
 const MB_BASE = 'https://musicbrainz.org/ws/2'
@@ -226,9 +226,34 @@ export async function searchArtists(query: string, limit = 12): Promise<CatalogA
   })
 }
 
+// Deezer-first (fast, keyless). Results carry NO release-group MBID (mbid=''); the album page
+// resolves it lazily on click via albumMbidFor / the ?album= redirect. Deezer's record_type
+// maps to primaryType (Album/EP/Single) so the discography filter's default (Albums+EPs) still
+// works; it has no live/compilation/soundtrack tagging (secondaryTypes stays empty), which is a
+// minor filtering trade for the ~10x speed-up. MusicBrainz is the fallback only.
 export async function searchAlbums(query: string, limit = 16): Promise<CatalogAlbum[]> {
   const q = query.trim()
   if (!q) return []
+  try {
+    const hits = await deezerSearchAlbums(q, limit)
+    if (hits.length) {
+      const primaryFor = (rt: string | null): string => rt === 'single' ? 'Single' : rt === 'ep' ? 'EP' : 'Album'
+      const seen = new Set<string>()
+      const out: CatalogAlbum[] = []
+      for (const a of hits) {
+        const key = `${a.artistName.toLowerCase()}~${a.title.toLowerCase()}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push({
+          mbid: '', title: a.title, primaryType: primaryFor(a.recordType), secondaryTypes: [],
+          firstReleaseDate: null, year: null, artistName: a.artistName, artistMbid: null, coverUrl: a.cover,
+        })
+      }
+      return out
+    }
+  } catch (err) {
+    logger.debug(`[catalog] deezer searchAlbums failed, falling back to MB: ${String(err)}`)
+  }
   return cachedLookup('mb-album-search', `${q}:${limit}`, THIRTY_DAYS_MS, async () => {
     try {
       const data = await mbFetch(`/release-group?query=${encodeURIComponent(lucene(q))}&limit=${limit}`)
@@ -236,6 +261,29 @@ export async function searchAlbums(query: string, limit = 16): Promise<CatalogAl
     } catch (err) {
       logger.debug(`[catalog] searchAlbums failed: ${String(err)}`)
       return []
+    }
+  })
+}
+
+// Lazy resolve an album (title + artist) to THE MusicBrainz release-group MBID, for opening the
+// album page from a Deezer search result. Cached; MB-throttled but only on click, never on type.
+export async function albumMbidFor(title: string, artist: string): Promise<string | null> {
+  const t = title.trim(); const a = artist.trim()
+  if (!t) return null
+  return cachedLookup('mb-album-id', `${a}~${t}`.toLowerCase(), THIRTY_DAYS_MS, async () => {
+    try {
+      const parts = [`releasegroup:(${lucene(t)})`]
+      if (a) parts.push(`artist:(${lucene(a)})`)
+      const data = await mbFetch(`/release-group?query=${encodeURIComponent(parts.join(' AND '))}&limit=5`)
+      const groups = data['release-groups'] ?? []
+      // Prefer an exact-ish title match, else the top hit.
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const want = norm(t)
+      const pick = groups.find((g: any) => norm(g.title ?? '') === want) ?? groups[0]
+      return pick?.id ?? null
+    } catch (err) {
+      logger.debug(`[catalog] albumMbidFor failed: ${String(err)}`)
+      return null
     }
   })
 }
