@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { cn } from '@/lib/cn'
+import { useRadio } from '@/context/RadioContext'
 import type { LyricLine } from '@/lib/music/catalogApi'
 
 // Big-screen karaoke lyric renderer. The active line fills left-to-right (the classic
@@ -18,9 +19,12 @@ interface Props {
 
 const GAP_FOR_PIPS = 5   // seconds of instrumental before the count-in dots appear
 const PIP_COUNT = 4
+const UNSUNG = 'rgba(255,255,255,0.34)'
 
 export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, className }: Props) {
-  const t = position - offsetSec
+  // Read-ahead so lines arrive a touch before they're sung (user-tunable in Music settings).
+  const { lyricLeadSec } = useRadio()
+  const t = position - offsetSec + lyricLeadSec
   const synced = lines && lines.length > 0 ? lines : null
 
   const view = useMemo(() => {
@@ -62,11 +66,12 @@ export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, classNam
   }
 
   const { cur, next, prev, nextNext, fill, showPips, pipsLit } = view!
+  const note = next ? '♪' : ' '
 
   return (
     <div className={cn('flex flex-col items-center justify-center gap-6 px-8 text-center', className)}>
       {/* Previous line (fading up) */}
-      <p className="max-w-5xl truncate text-2xl font-semibold text-white/25 md:text-3xl">{prev?.text || ' '}</p>
+      <p className="max-w-5xl truncate text-2xl font-semibold text-white/25 md:text-3xl">{prev?.text || ' '}</p>
 
       {/* Active line with the wipe fill, or the count-in pips during an instrumental gap */}
       {showPips ? (
@@ -77,22 +82,22 @@ export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, classNam
           ))}
         </div>
       ) : (
-        <div className="relative max-w-6xl">
-          {/* Base (unsung) text */}
-          <p className="text-4xl font-black leading-tight tracking-tight text-white/35 md:text-6xl">{cur?.text || (next ? '♪' : ' ')}</p>
-          {/* Sung overlay, clipped to the fill fraction */}
-          {cur && (
-            <p className="absolute inset-0 overflow-hidden whitespace-nowrap text-4xl font-black leading-tight tracking-tight md:text-6xl"
-              style={{ width: `${fill * 100}%`, color: accent, textShadow: `0 0 30px ${accent}66` }}>
-              {cur.text}
-            </p>
-          )}
-        </div>
+        // The wipe is a hard-stop gradient clipped to the text itself (background-clip: text),
+        // so it fills left→right AND wraps correctly on multi-line lines. The old approach laid a
+        // single-line coloured copy over the wrapping base text, which drifted out of alignment.
+        <p className="max-w-6xl text-4xl font-black leading-tight tracking-tight md:text-6xl"
+          style={cur ? {
+            backgroundImage: `linear-gradient(to right, ${accent} ${fill * 100}%, ${UNSUNG} ${fill * 100}%)`,
+            WebkitBackgroundClip: 'text', backgroundClip: 'text',
+            WebkitTextFillColor: 'transparent', color: 'transparent',
+          } : { color: UNSUNG }}>
+          {cur?.text || note}
+        </p>
       )}
 
       {/* Upcoming lines */}
-      <p className="max-w-5xl truncate text-2xl font-semibold text-white/60 md:text-3xl">{next?.text || ' '}</p>
-      <p className="max-w-4xl truncate text-xl font-medium text-white/30 md:text-2xl">{nextNext?.text || ' '}</p>
+      <p className="max-w-5xl truncate text-2xl font-semibold text-white/60 md:text-3xl">{next?.text || ' '}</p>
+      <p className="max-w-4xl truncate text-xl font-medium text-white/30 md:text-2xl">{nextNext?.text || ' '}</p>
     </div>
   )
 }

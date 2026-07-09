@@ -30,12 +30,13 @@ interface QueueItem {
 const VOCAL_KEY = 'music.karaokeVocalGuide'
 const uid = () => Math.random().toString(36).slice(2, 9)
 
-// Vocal-guide presets (fraction of the vocal stem mixed back in). Off = pure karaoke;
-// Guide = a quiet lead to follow (masks Demucs artifacts + helps shy/young singers); Full = original.
-const GUIDE_PRESETS: { label: string; v: number }[] = [
-  { label: 'Off', v: 0 },
-  { label: 'Guide', v: 0.18 },
-  { label: 'Full', v: 1 },
+// Vocal-guide presets: how much of the ORIGINAL singer is mixed back in. Off = pure karaoke
+// (you sing every word); Guide = a quiet original vocal to follow (helps when you don't know
+// it cold, and masks separation artifacts); Full = the original at full volume (sing along).
+const GUIDE_PRESETS: { label: string; v: number; hint: string }[] = [
+  { label: 'Off', v: 0, hint: 'No original vocals - you sing everything (true karaoke)' },
+  { label: 'Guide', v: 0.18, hint: 'A quiet original vocal to follow along with' },
+  { label: 'Full', v: 1, hint: 'Original vocals at full volume - sing along' },
 ]
 
 export function KaraokePage() {
@@ -383,18 +384,19 @@ export function KaraokePage() {
             <button onClick={advance} disabled={upNext.length === 0} title="Next singer" className="grid size-10 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-30"><SkipForward className="size-5" /></button>
           </div>
 
-          {/* Vocal guide */}
+          {/* Vocal guide: how much of the original singer to mix back in (off = pure karaoke) */}
           <div className="flex items-center gap-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-white/50">Vocal guide</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-white/50"
+              title="How much of the original singer you hear. Off = sing it all yourself; Guide = a quiet lead to follow; Full = sing along to the original.">Vocal guide</span>
             <div className="flex overflow-hidden rounded-full bg-white/10">
               {GUIDE_PRESETS.map((p) => (
-                <button key={p.label} onClick={() => setGuide(p.v)}
+                <button key={p.label} onClick={() => setGuide(p.v)} title={p.hint}
                   className={cn('px-3 py-1.5 text-xs font-medium transition', Math.abs(vocalGuide - p.v) < 0.02 ? 'text-black' : 'text-white/60 hover:text-white')}
                   style={Math.abs(vocalGuide - p.v) < 0.02 ? { background: palette.vibrant } : undefined}>{p.label}</button>
               ))}
             </div>
             <input type="range" min={0} max={1} step={0.02} value={vocalGuide} onChange={(e) => setGuide(Number(e.target.value))}
-              aria-label="Vocal guide level" className="h-1 w-24 cursor-pointer" style={{ accentColor: palette.vibrant }} />
+              aria-label="Vocal guide level" title="Fine-tune how loud the original vocal is" className="h-1 w-24 cursor-pointer" style={{ accentColor: palette.vibrant }} />
           </div>
 
           {/* Tempo (pitch-preserved; slow a fast rap down to keep up) */}
