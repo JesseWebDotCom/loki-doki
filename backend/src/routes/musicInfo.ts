@@ -110,10 +110,20 @@ async function wikipediaSearchSummary(name: string): Promise<WikiSummary | null>
   }
 }
 
+// Confirm a Wikipedia page is actually about THIS musical act — not a same-named topic
+// (the classic trap: the band "Europe" → the article on the continent, map image and all).
+// Same posture as looksLikeSong below: trust Wikipedia's own short description / opening
+// sentence to say it's music.
+function looksLikeArtist(info: Pick<WikiSummary, 'description' | 'extract'>): boolean {
+  const music = /\b(band|musician|singer|rapper|songwriter|composer|conductor|dj|disc jockey|music(al)? (?:group|duo|trio|project|artist|producer)|record producer|guitarist|vocalist|drummer|bassist|pianist|violinist|cellist|boy band|girl group|orchestra|ensemble|choir)\b/i
+  return music.test(info.description ?? '') || music.test((info.extract ?? '').slice(0, 400))
+}
+
 // Resolve an artist photo + short bio, layering the cheapest reliable source first:
-//   1. Direct Wikipedia summary by name (instant for exact-title artists like "Metallica").
+//   1. Direct Wikipedia summary by name (instant for exact-title artists like "Metallica"),
+//      accepted only when the page verifiably describes a musical act.
 //   2. MusicBrainz cross-references → Wikidata P18 → Wikimedia Commons (handles the hard cases).
-//   3. Music-biased Wikipedia search as a last resort.
+//   3. Music-biased Wikipedia search as a last resort (same verification).
 async function resolveArtistInfo(name: string, mbid: string | null): Promise<(WikiSummary & { found: true; logo: string | null }) | { found: false }> {
   let image: string | null = null
   let extract = ''
@@ -121,10 +131,19 @@ async function resolveArtistInfo(name: string, mbid: string | null): Promise<(Wi
   let title = name
   let logo: string | null = null
 
-  // 1. Fast path: the article title equals the artist name.
+  // 1. Fast path: the article title equals the artist name - and the article is about music.
+  // Generic-name acts ("Europe", "Turnstile") fail the check and get Wikipedia's standard
+  // disambiguated titles tried next - "Europe (band)" resolves directly.
   if (name) {
     const direct = await wikipediaSummary(name)
-    if (direct) { image = direct.image; extract = direct.extract; url = direct.url; title = direct.title }
+    if (direct && looksLikeArtist(direct)) {
+      image = direct.image; extract = direct.extract; url = direct.url; title = direct.title
+    } else {
+      for (const suffix of ['band', 'musician', 'singer', 'rapper']) {
+        const s = await wikipediaSummary(`${name} (${suffix})`)
+        if (s && looksLikeArtist(s)) { image = s.image; extract = s.extract; url = s.url; title = s.title; break }
+      }
+    }
   }
 
   // 2. Authoritative path via MusicBrainz → Wikidata → Commons (cached MB lookup).
@@ -145,10 +164,13 @@ async function resolveArtistInfo(name: string, mbid: string | null): Promise<(Wi
     } catch { /* fall through */ }
   }
 
-  // 3. Last resort: music-biased full-text search.
+  // 3. Last resort: music-biased full-text search - verified, AND the hit's title must
+  // actually contain the artist's name (the search can rank a different musician first).
   if (!image && !extract && name) {
     const s = await wikipediaSearchSummary(name)
-    if (s) { image = s.image; extract = s.extract; url = s.url; title = s.title }
+    if (s && looksLikeArtist(s) && s.title.toLowerCase().includes(name.toLowerCase())) {
+      image = s.image; extract = s.extract; url = s.url; title = s.title
+    }
   }
 
   // Band logo (Wikidata P154) — independent of the photo/bio above, so we get it even when the fast
