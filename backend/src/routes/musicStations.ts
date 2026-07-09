@@ -11,6 +11,7 @@ import { requireAuth } from '@/middleware/auth'
 import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib/music/stationEngine'
 import { itunesSongArt } from '@/lib/music/catalog'
 import { enqueueVideoSave } from '@/lib/youtube/automation'
+import { AUDIO_FORMATS, type AudioFormat } from '@/lib/youtube/assets'
 import { getEffectiveCap, getUserPreference } from '@/lib/youtube/quality'
 import { generateDjSegment, lookupFacts } from '@/routes/musicRadio'
 import { generateTuningMessages, FALLBACK_TUNING_MESSAGES } from '@/lib/music/tuningMessages'
@@ -787,11 +788,13 @@ async function generateDjContext(user: { id: string }, station: StationRow, trac
 musicStations_route.post('/:id/snapshot', async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const body = await c.req.json<{ count?: number; media?: OfflineMedia; maxHeight?: number }>().catch(() => ({} as { count?: number; media?: OfflineMedia; maxHeight?: number }))
+  const body = await c.req.json<{ count?: number; media?: OfflineMedia; maxHeight?: number; audioFormat?: string }>().catch(() => ({} as { count?: number; media?: OfflineMedia; maxHeight?: number; audioFormat?: string }))
   const count = Math.min(Math.max(body.count ?? 20, 1), 100)
   const media: OfflineMedia = body.media === 'video' || body.media === 'both' ? body.media : 'audio'
   const wantAudio = media === 'audio' || media === 'both'
   const wantVideo = media === 'video' || media === 'both'
+  // Audio quality for the snapshot's songs (same options as single-song downloads).
+  const audioFormat: AudioFormat = (AUDIO_FORMATS as readonly string[]).includes(body.audioFormat ?? '') ? body.audioFormat as AudioFormat : 'm4a'
   // Resolve the video resolution under the shared YouTube quality governance (admin cap wins).
   let videoHeight: number | null = null
   if (wantVideo) {
@@ -836,7 +839,7 @@ musicStations_route.post('/:id/snapshot', async (c) => {
   let queued = 0
   for (const t of tracks) {
     try {
-      if (wantAudio) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'audio', maxHeight: null, firstName: user.firstName, audioFormat: 'm4a', origin: 'music' })
+      if (wantAudio) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'audio', maxHeight: null, firstName: user.firstName, audioFormat, origin: 'music' })
       if (wantVideo) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'video', maxHeight: videoHeight, firstName: user.firstName, origin: 'music' })
       queued++
     } catch { /* skip individual failures */ }

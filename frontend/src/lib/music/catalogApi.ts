@@ -265,14 +265,31 @@ export function getAlbumSmartLinks(artist: string, album: string) {
 // ── Offline (audio saved for offline play) ──────────────────────────────────────────
 export interface OfflineTrack { videoId: string; title: string; status: 'pending' | 'downloading' | 'ready' | 'failed'; sizeBytes: number | null }
 export function listOffline() { return mfetch<{ offline: OfflineTrack[]; fileBase: string; stationVideoIds: string[] }>('/library/offline') }
-export function saveOffline(t: { videoId: string; title: string }) {
+
+/** Download audio quality. Each choice is a distinct shared asset server-side, so a household
+ *  can hold the same song at two qualities without conflict. Sticky per device. */
+export type AudioQuality = 'm4a' | 'mp3:320' | 'mp3:192' | 'opus:128'
+export const AUDIO_QUALITIES: { id: AudioQuality; label: string; hint: string }[] = [
+  { id: 'm4a', label: 'Original (M4A)', hint: 'Best quality, as delivered' },
+  { id: 'mp3:320', label: 'MP3 320', hint: 'Plays anywhere' },
+  { id: 'mp3:192', label: 'MP3 192', hint: 'Smaller files' },
+  { id: 'opus:128', label: 'Opus 128', hint: 'Smallest, still sounds great' },
+]
+const QUALITY_KEY = 'music.downloadAudioQuality'
+export function getDownloadAudioQuality(): AudioQuality {
+  const raw = localStorage.getItem(QUALITY_KEY)
+  return AUDIO_QUALITIES.some(q => q.id === raw) ? raw as AudioQuality : 'm4a'
+}
+export function setDownloadAudioQuality(q: AudioQuality) { localStorage.setItem(QUALITY_KEY, q) }
+
+export function saveOffline(t: { videoId: string; title: string; audioFormat?: AudioQuality }) {
   return mfetch<{ status: string; id: string }>('/library/offline', { method: 'POST', body: body(t) })
 }
 export function removeOffline(videoId: string) {
   return mfetch<{ ok: true }>(`/library/offline/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
 }
 export type OfflineMedia = 'audio' | 'video' | 'both'
-export function snapshotStation(id: string, opts?: number | { count?: number; media?: OfflineMedia; maxHeight?: number }) {
+export function snapshotStation(id: string, opts?: number | { count?: number; media?: OfflineMedia; maxHeight?: number; audioFormat?: AudioQuality }) {
   const payload = typeof opts === 'number' ? { count: opts } : (opts ?? {})
   return mfetch<{ offlineStationId: string; queued: number; total: number }>(`/stations/${id}/snapshot`, { method: 'POST', body: body(payload) })
 }

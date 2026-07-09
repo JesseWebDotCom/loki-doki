@@ -8,7 +8,7 @@ import { db } from '@/db'
 import { musicFavorites, musicHistory, ytDownloads, musicOfflineStationTracks } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { enqueueVideoSave, enqueuePrefetch } from '@/lib/youtube/automation'
-import { releaseAssetsIfOrphaned } from '@/lib/youtube/assets'
+import { releaseAssetsIfOrphaned, AUDIO_FORMATS, type AudioFormat } from '@/lib/youtube/assets'
 import { resolveUserPath } from '@/lib/storage/paths'
 import { looksLikeVideo } from '@/lib/music/junk'
 import type { AppEnv } from '@/types'
@@ -85,11 +85,14 @@ musicLibrary.post('/history/progress', async (c) => {
 // A "song" offline = the resolved YouTube videoId saved as audio.
 musicLibrary.post('/offline', async (c) => {
   const user = c.get('user')
-  const body = await c.req.json<{ videoId?: string; title?: string }>().catch(() => ({} as { videoId?: string; title?: string }))
+  const body = await c.req.json<{ videoId?: string; title?: string; audioFormat?: string }>().catch(() => ({} as { videoId?: string; title?: string; audioFormat?: string }))
   if (!body.videoId || !body.title) return c.json({ error: 'videoId and title required' }, 400)
+  // Quality choice from the client (Original M4A / MP3 320 / MP3 192 / Opus 128) - each
+  // quality is a distinct shared asset, validated by assetFormat.
+  const audioFormat = (AUDIO_FORMATS as readonly string[]).includes(body.audioFormat ?? '') ? body.audioFormat as AudioFormat : 'm4a'
   const r = await enqueueVideoSave({
     userId: user.id, videoId: body.videoId, title: body.title, kind: 'audio',
-    maxHeight: null, firstName: user.firstName, audioFormat: 'm4a', origin: 'music',
+    maxHeight: null, firstName: user.firstName, audioFormat, origin: 'music',
   })
   return c.json(r)
 })

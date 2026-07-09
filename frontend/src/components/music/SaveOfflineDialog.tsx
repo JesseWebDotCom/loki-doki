@@ -6,7 +6,11 @@ import { Spinner } from '@/components/ui/spinner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
-import { snapshotStation, removeOfflineStation, getVideoSaveQuality, type OfflineMedia } from '@/lib/music/catalogApi'
+import {
+  snapshotStation, removeOfflineStation, getVideoSaveQuality,
+  AUDIO_QUALITIES, getDownloadAudioQuality, setDownloadAudioQuality,
+  type OfflineMedia, type AudioQuality,
+} from '@/lib/music/catalogApi'
 
 const MEDIA: { id: OfflineMedia; label: string; icon: LucideIcon; hint: string }[] = [
   { id: 'audio', label: 'Audio', icon: Headphones, hint: 'Listen - smallest, includes the AI DJ' },
@@ -36,8 +40,10 @@ export function SaveOfflineDialog({ open, onOpenChange, stationId, saved, onChan
   const [media, setMedia] = useState<OfflineMedia>('audio')
   const [count, setCount] = useState(20)
   const [height, setHeight] = useState<number | null>(null)
+  const [audioQuality, setAudioQuality] = useState<AudioQuality>(() => getDownloadAudioQuality())
   const [busy, setBusy] = useState(false)
   const wantsVideo = media === 'video' || media === 'both'
+  const wantsAudio = media === 'audio' || media === 'both'
 
   const { data: quality } = useQuery({ queryKey: ['video-save-quality'], queryFn: getVideoSaveQuality, enabled: open && wantsVideo })
   useEffect(() => { if (quality && height == null) setHeight(quality.pref ?? quality.effective) }, [quality, height])
@@ -46,7 +52,12 @@ export function SaveOfflineDialog({ open, onOpenChange, stationId, saved, onChan
   const save = async () => {
     setBusy(true)
     try {
-      await snapshotStation(stationId, { count, media, maxHeight: wantsVideo ? (height ?? undefined) : undefined })
+      if (wantsAudio) setDownloadAudioQuality(audioQuality)
+      await snapshotStation(stationId, {
+        count, media,
+        maxHeight: wantsVideo ? (height ?? undefined) : undefined,
+        audioFormat: wantsAudio ? audioQuality : undefined,
+      })
       toast.success('Saving station offline…')
       onChanged(); onOpenChange(false)
     } catch { toast.error('Could not save offline') }
@@ -81,6 +92,17 @@ export function SaveOfflineDialog({ open, onOpenChange, stationId, saved, onChan
           <Field label="How many songs">
             <div className="flex gap-2">{COUNTS.map(n => <Chip key={n} active={count === n} onClick={() => setCount(n)}>{n}</Chip>)}</div>
           </Field>
+
+          {wantsAudio && (
+            <Field label="Audio quality">
+              <div className="flex flex-wrap gap-2">
+                {AUDIO_QUALITIES.map(q => (
+                  <Chip key={q.id} active={audioQuality === q.id} onClick={() => setAudioQuality(q.id)}>{q.label}</Chip>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">{AUDIO_QUALITIES.find(q => q.id === audioQuality)?.hint}</p>
+            </Field>
+          )}
 
           {wantsVideo && (
             <Field label="Video quality">

@@ -100,7 +100,16 @@ export async function runYtMediaJob(
   const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, assetId)).limit(1)
   if (!asset) return   // asset was deleted (all refs released) before the job ran
   const { sourceId: videoId, kind } = asset
-  const audioFormat = asset.format === 'mp3' ? 'mp3' : 'm4a'
+  // Format string → yt-dlp extraction codec + quality. 'm4a' keeps the original stream
+  // ('0' = best); the tiered formats transcode through yt-dlp's own ffmpeg step.
+  const [audioFormat, audioQuality] = ((): [string, string] => {
+    switch (asset.format) {
+      case 'mp3': case 'mp3:320': return ['mp3', '320K']
+      case 'mp3:192': return ['mp3', '192K']
+      case 'opus:128': return ['opus', '128K']
+      default: return ['m4a', '0']
+    }
+  })()
 
   // No live refs left → nothing to download; let GC reclaim the orphan asset.
   const [anyRef] = await db.select({ id: ytDownloads.id }).from(ytDownloads).where(eq(ytDownloads.assetId, assetId)).limit(1)
@@ -131,7 +140,7 @@ export async function runYtMediaJob(
     // caps H.264 at 1080p, so 4K/1440p already come as VP9/AV1 regardless.)
     const videoFormat = `bestvideo[height<=${target}]+bestaudio/best[height<=${target}]/best`
     const args: string[] = kind === 'audio'
-      ? ['-x', '--audio-format', audioFormat, '--audio-quality', '0', '--socket-timeout', '30',
+      ? ['-x', '--audio-format', audioFormat, '--audio-quality', audioQuality, '--socket-timeout', '30',
          '--output', outputTemplate, '--no-playlist', url]
       : ['-f', videoFormat, '-S', 'res,vcodec,acodec:m4a', '--merge-output-format', 'mp4',
          '--socket-timeout', '30', '--output', outputTemplate, '--no-playlist', url]
@@ -169,7 +178,7 @@ export async function runYtMediaJob(
     const ext = kind === 'audio' ? audioFormat : 'mp4'
     const absPath = join(tmpDir, `${stem}.${ext}`)
     const actualHeight = kind === 'video' ? (await probeHeight(absPath)) : null
-    const mime = kind === 'audio' ? (audioFormat === 'mp3' ? 'audio/mpeg' : 'audio/mp4') : 'video/mp4'
+    const mime = kind === 'audio' ? (audioFormat === 'mp3' ? 'audio/mpeg' : audioFormat === 'opus' ? 'audio/ogg' : 'audio/mp4') : 'video/mp4'
 
     // Hash + move into the blob store OUTSIDE the lock (slow), then swap + fan out INSIDE it.
     const storageLocationId = await getContentTypeStorageLocationId('youtube')

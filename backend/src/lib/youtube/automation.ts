@@ -64,7 +64,7 @@ export interface EnqueueSaveOpts {
   kind: 'audio' | 'video'
   maxHeight: number | null
   firstName: string
-  audioFormat?: 'm4a' | 'mp3'
+  audioFormat?: AudioFormat
   /** True when written by auto-save — marks the row for keep-N pruning eligibility. */
   auto?: boolean
   /** Which app the save came from. Music saves are hidden from the YouTube Saved tab. Default 'youtube'. */

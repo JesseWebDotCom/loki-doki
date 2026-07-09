@@ -37,7 +37,7 @@ import {
   isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
 } from '@/lib/youtube/automation'
 import { resolveUserPath } from '@/lib/storage/paths'
-import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets } from '@/lib/youtube/assets'
+import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets, AUDIO_FORMATS, type AudioFormat } from '@/lib/youtube/assets'
 import { startLiveRecording, getLiveStatus, stopLiveRecording } from '@/lib/youtube/live'
 import { getYoutubeSuggestions } from '@/lib/youtube/suggest'
 import { getAccountRow, getLinkFlow, getValidAccessToken, startAccountLink, cancelLinkFlow, unlinkAccount } from '@/lib/youtube/account'
@@ -598,7 +598,7 @@ youtubeRoute.post('/downloads/cancel', async (c) => {
 // (admin global/per-user cap ∧ user preference). Audio is fetched at best quality.
 async function handleSave(c: Context<AppEnv>) {
   const user = c.get('user')
-  const { videoId, kind = 'audio', title = '', maxHeight: reqHeight, audioFormat } = await c.req.json<{ videoId: string; kind?: 'audio' | 'video'; title?: string; maxHeight?: number; audioFormat?: 'm4a' | 'mp3' }>()
+  const { videoId, kind = 'audio', title = '', maxHeight: reqHeight, audioFormat } = await c.req.json<{ videoId: string; kind?: 'audio' | 'video'; title?: string; maxHeight?: number; audioFormat?: string }>()
   if (!videoId) return c.json({ error: 'videoId required' }, 400)
   // Reject anything that isn't a real id before it reaches yt-dlp's -o template / the stored
   // relPath (a `..`-bearing videoId would otherwise shape on-disk paths).
@@ -613,7 +613,8 @@ async function handleSave(c: Context<AppEnv>) {
     : Math.min(reqHeight ?? (await getUserPreference(user.id)) ?? cap, cap)
 
   // Upsert the download row + enqueue the durable yt-media job (shared with auto-save).
-  const { status, id } = await enqueueVideoSave({ userId: user.id, videoId, title, kind, maxHeight, firstName, audioFormat })
+  const fmt = (AUDIO_FORMATS as readonly string[]).includes(audioFormat ?? '') ? audioFormat as AudioFormat : undefined
+  const { status, id } = await enqueueVideoSave({ userId: user.id, videoId, title, kind, maxHeight, firstName, audioFormat: fmt })
   return c.json({ ok: true, status, id })
 }
 

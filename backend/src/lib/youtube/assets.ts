@@ -14,13 +14,18 @@ import { mediaAssets, ytDownloads, downloadJobs } from '@/db/schema'
 import { withLock, markBlobLive, blobAbsPath } from '@/lib/content/store'
 
 export type Kind = 'audio' | 'video'
-export type AudioFormat = 'm4a' | 'mp3'
+/** Audio download qualities. 'm4a' = original stream (best); the rest are ffmpeg
+ *  transcodes via yt-dlp. Legacy 'mp3' rows mean best-quality mp3 (≙ mp3:320). */
+export type AudioFormat = 'm4a' | 'mp3' | 'mp3:320' | 'mp3:192' | 'opus:128'
+export const AUDIO_FORMATS: readonly AudioFormat[] = ['m4a', 'mp3', 'mp3:320', 'mp3:192', 'opus:128']
 
 const SOURCE = 'youtube'
 
-/** Container that is part of an asset's identity (m4a vs mp3 are distinct bytes). */
+/** Container+quality that is part of an asset's identity (two users, two qualities =
+ *  two distinct assets - never transcode-in-place; refcount/GC untouched). */
 export function assetFormat(kind: Kind, audioFormat?: AudioFormat): string {
-  return kind === 'audio' ? (audioFormat === 'mp3' ? 'mp3' : 'm4a') : 'mp4'
+  if (kind !== 'audio') return 'mp4'
+  return audioFormat && (AUDIO_FORMATS as readonly string[]).includes(audioFormat) ? audioFormat : 'm4a'
 }
 
 export function assetLockKey(sourceId: string, kind: Kind, format: string): string {
@@ -205,7 +210,9 @@ export async function resolveRefBlob(
   if (ref.status !== 'ready' || !ref.assetId) return null
   const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, ref.assetId)).limit(1)
   if (!asset || asset.status !== 'ready' || !asset.blobHash) return null
-  const mime = asset.format === 'mp3' ? 'audio/mpeg' : asset.kind === 'audio' ? 'audio/mp4' : 'video/mp4'
+  const mime = asset.format.startsWith('mp3') ? 'audio/mpeg'
+    : asset.format.startsWith('opus') ? 'audio/ogg'
+    : asset.kind === 'audio' ? 'audio/mp4' : 'video/mp4'
   return { hash: asset.blobHash, absPath: await blobAbsPath(asset.blobHash), mime }
 }
 
