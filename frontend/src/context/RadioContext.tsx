@@ -4,6 +4,7 @@ import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack } fro
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { loadDsp, saveDsp, type DspSettings } from '@/lib/music/dsp'
 import { uuid } from '@/lib/uuid'
 
 /** Persistent AI Radio engine — lives above the router so a station keeps playing
@@ -24,6 +25,11 @@ interface RadioCtx extends RadioState {
   /** Whether the audio-reactive EQ visualizer is shown (user preference, persisted). */
   visualizerEnabled: boolean
   toggleVisualizer: () => void
+  /** DSP: EQ / crossfeed / loudness settings (persisted per device) + crossfade length. */
+  dsp: DspSettings
+  setDsp: (next: DspSettings) => void
+  crossfadeMs: number
+  setCrossfadeMs: (ms: number) => void
 }
 
 const Ctx = createContext<RadioCtx | null>(null)
@@ -40,10 +46,27 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem('music.visualizerEnabled', next ? '1' : '0') } catch { /* quota */ }
     return next
   })
+  // DSP settings (EQ/crossfeed/loudness) - loaded once, saved + applied on change.
+  const [dsp, setDspState] = useState<DspSettings>(loadDsp)
+  const setDsp = (next: DspSettings) => { setDspState(next); saveDsp(next) }
+  // Mirrors the engine's persisted value (same localStorage key) for the settings UI.
+  const [crossfadeMs, setCrossfadeState] = useState(() => {
+    try {
+      const raw = localStorage.getItem('music.crossfadeMs')
+      if (raw == null) return 1300
+      const v = Number(raw)
+      return Number.isFinite(v) && v >= 0 ? Math.min(v, 12000) : 1300
+    } catch { return 1300 }
+  })
+
   const engineRef = useRef<RadioEngine | null>(null)
   // Lazily (re)create: StrictMode's cleanup destroys the engine, but destroy() is
   // revivable — the next start() rebuilds the audio graph — so we keep the instance.
   if (!engineRef.current) engineRef.current = new RadioEngine(setState)
+  const setCrossfadeMs = (ms: number) => {
+    engineRef.current?.setCrossfadeMs(ms)
+    setCrossfadeState(engineRef.current?.getCrossfadeMs() ?? ms)
+  }
 
   useEffect(() => {
     const unregister = registerMediaStop('radio', () => engineRef.current?.stop())
@@ -136,9 +159,13 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     toggleMute: () => e.toggleMute(),
     setSleep: (m) => e.setSleep(m),
     setDjMode: (m) => e.setDjMode(m),
+    dsp,
+    setDsp,
+    crossfadeMs,
+    setCrossfadeMs,
     visualizerEnabled,
     toggleVisualizer,
-  }), [state, e, visualizerEnabled])
+  }), [state, e, visualizerEnabled, dsp, crossfadeMs])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

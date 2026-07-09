@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, Music2, SkipForward, SkipBack, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2 } from 'lucide-react'
+import { Heart, Music2, SkipForward, SkipBack, Pause, Play, Download, Moon, Mic, Disc3, ListMusic, AudioLines, MonitorPlay, Maximize2, SlidersHorizontal } from 'lucide-react'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { proxyImg } from '@/lib/img'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -22,6 +22,7 @@ import { useTitleMask } from '@/lib/music/policy'
 import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
+import { EqPanel } from '@/components/music/EqPanel'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, '0')}`
@@ -182,6 +183,7 @@ export function NowPlayingPage() {
   // loading messages stop the moment the DJ kicks in, rather than lingering over the intro.
   const cur = radio.currentTrack ?? radio.queue[radio.index] ?? null
   const mask = useTitleMask()
+  const [eqOpen, setEqOpen] = useState(false)
   // Real square album art (iTunes-resolved, cached) for the hero + backdrop; the 16:9
   // video thumbnail stays as the instant fallback. Unconditional hook - runs before returns.
   const heroArt = useSongArt(cur?.videoId, cur?.title, cur?.author)
@@ -352,6 +354,10 @@ export function NowPlayingPage() {
               title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}>
               <AudioLines className="size-4" />
             </button>
+            <button onClick={() => setEqOpen(true)} className={cn(utilBtn, radio.dsp.eqOn && 'text-white')}
+              aria-label="Sound settings" title="Equalizer & sound settings">
+              <SlidersHorizontal className="size-4" />
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className={cn(utilBtn, (radio.station?.djMode ?? 'full') === 'silent' && 'text-white/30')}
@@ -385,6 +391,7 @@ export function NowPlayingPage() {
 
       <AboutStrip artist={artist} title={cur.title} color={c1} />
       <SmartLinksRow artist={artist} title={cur.title} color={c1} />
+      <EqPanel open={eqOpen} onOpenChange={setEqOpen} />
 
       {/* No tabs - lyrics and what's up next are both always visible (60 / 40). */}
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[3fr_2fr]">

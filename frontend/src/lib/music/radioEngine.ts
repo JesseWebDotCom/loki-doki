@@ -22,6 +22,9 @@ import { search as ytSearch, prewarmStream } from '@/lib/youtube/api'
 import { fetchDjSegment, fetchRadioQueue, fetchStationQueue, base64WavToBlob } from '@/lib/music/radio'
 import { getOfflineQueue, offlineAudioUrl, prefetchReady, resolveSong, type OfflineQueue } from '@/lib/music/catalogApi'
 import { isYouTubeRef, streamSrcForRef, artUrlForRef } from '@/lib/music/trackRef'
+import { ensureMediaGraph, getSharedAnalyser, setLoudnessTrimDb } from '@/lib/mediaAudioGraph'
+import { applyStoredDsp } from '@/lib/music/dsp'
+import { getAudioFacts } from '@/lib/music/metaApi'
 import type { DjStation } from '@/lib/music/radioStations'
 
 export interface QueuedTrack {
@@ -88,9 +91,8 @@ export const initialRadioState: RadioState = {
 interface PreparedDj { text: string | null; blobUrl: string | null }
 
 // Levels (relative, 0..1) / timings.
-const TAIL = 3          // seconds before a song's end at which we start the transition
+const DEFAULT_FADE = 1300  // default crossfade ramp length (ms)
 const INTRO_BED = 0.22  // level a song plays at while it's the backing bed (DJ talks over it)
-const FADE = 1300       // generic ramp length (ms)
 // First real lyric this close to the start means the DJ speaks FIRST, then the song begins clean.
 const IMMEDIATE_LYRICS_THRESHOLD = 4   // seconds
 
@@ -180,18 +182,16 @@ export class RadioEngine {
   private skipResolve: (() => void) | null = null
   private resumeEls: HTMLMediaElement[] = []
 
-  // Real-audio analysis. Each deck is routed through Web Audio once — source → destination
-  // (audio) + source → analyser (read tap) — and that graph lives for the engine's lifetime
-  // (createMediaElementSource may only be called once per element, even across contexts, so we
-  // never tear it down). The element's own .volume crossfade still applies to the node, so mixing
-  // is unaffected. The old "this silences the stream" fear was stale: it only happened with
-  // cross-origin/redirected googlevideo URLs. The decks now play same-origin proxied bytes
-  // (/api/youtube/stream), which are not CORS-tainted, so the node carries real samples. The
-  // context is created + resumed inside the start()/playTrack() click gesture, and we tap eagerly
-  // there (before any deck plays) so both the station and the play-a-song paths light up.
-  private actx: AudioContext | null = null
-  private analyser: AnalyserNode | null = null
-  private tapped = new WeakSet<HTMLMediaElement>()
+  // Real-audio analysis + DSP. Each deck is routed through the app-wide media graph
+  // (lib/mediaAudioGraph) once - source → loudness trim → EQ → crossfeed → gain →
+  // destination, with per-element and shared (mix bus) analysers - and that graph lives
+  // for the engine's lifetime (createMediaElementSource may only be called once per
+  // element, even across contexts, so it's never torn down). The element's own .volume
+  // crossfade still applies to the node, so mixing is unaffected and the DSP chain is
+  // never load-bearing. Same-origin proxied bytes (/api/youtube/stream) keep the nodes
+  // un-tainted. Graphs are built inside the start()/playTrack() click gesture, eagerly
+  // (before any deck plays), so both the station and play-a-song paths light up.
+  private dspWired = false
 
   private state: RadioState = { ...initialRadioState }
 
@@ -244,41 +244,23 @@ export class RadioEngine {
   }
   private lastPosSec = -1
 
-  /** Lazily build the shared AudioContext + AnalyserNode. Call from a user gesture (start)
-   *  so the context isn't born suspended. */
+  /** Route every deck through the app-wide DSP graph. Call from a user gesture (start /
+   *  playTrack) so the shared AudioContext isn't born suspended. Idempotent. */
   private ensureAnalyser() {
-    if (this.analyser || !this.built) return
+    if (this.dspWired || !this.built) return
     try {
-      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      if (!Ctor) return
-      this.actx = new Ctor()
-      this.analyser = this.actx.createAnalyser()
-      this.analyser.fftSize = 512          // 256 bins → finer frequency resolution
-      this.analyser.smoothingTimeConstant = 0.55  // less internal smoothing → transients (kick/snare/hat) read
-      this.analyser.minDecibels = -85      // widen the dB window so loud music isn't bunched at the
-      this.analyser.maxDecibels = -12      // ceiling — gives real dynamic range / contrast between bands
-      void this.actx.resume?.()            // we're inside the start()/playTrack() click gesture
-      // Wire every deck up now, before anything plays — so the immediate-song path (playTrack)
-      // is tapped just like the DJ-intro-first path (start). Sources persist for the lifetime.
-      ;(['d0', 'd1', 'dj'] as ChKey[]).forEach(k => this.tap(this.ch[k].el))
-    } catch { this.actx = null; this.analyser = null }
+      // Wire every deck now, before anything plays - so the immediate-song path (playTrack)
+      // is graphed just like the DJ-intro-first path (start). Sources persist for the lifetime.
+      ensureMediaGraph(this.ch.d0.el, { kind: 'music' })
+      ensureMediaGraph(this.ch.d1.el, { kind: 'music' })
+      ensureMediaGraph(this.ch.dj.el, { kind: 'voice' })   // DJ speech: no loudness trim
+      applyStoredDsp()                                      // stored EQ/crossfeed/loudness kick in
+      this.dspWired = true
+    } catch { /* Web Audio unavailable - playback works, just un-EQ'd */ }
   }
 
-  /** Route an element through Web Audio: source → destination (audio) + source → analyser (tap).
-   *  Idempotent per element (createMediaElementSource throws on a second call). Connecting to
-   *  destination keeps it audible the moment the (gesture-resumed) context starts running. */
-  private tap(el: HTMLMediaElement) {
-    if (!this.analyser || !this.actx || this.tapped.has(el)) return
-    try {
-      const src = this.actx.createMediaElementSource(el)
-      src.connect(this.actx.destination) // keep it audible
-      src.connect(this.analyser)          // parallel read tap
-      this.tapped.add(el)
-    } catch { /* already sourced or unsupported */ }
-  }
-
-  /** The live AnalyserNode for real-time frequency data, or null if analysis isn't available. */
-  getAnalyser(): AnalyserNode | null { return this.analyser }
+  /** The mix-bus AnalyserNode for real-time frequency data, or null when unavailable. */
+  getAnalyser(): AnalyserNode | null { return getSharedAnalyser() }
 
   private deckKey(i: number): ChKey { return i === 0 ? 'd0' : 'd1' }
   private deckEl(i: number) { return this.ch[this.deckKey(i)].el }
@@ -442,14 +424,34 @@ export class RadioEngine {
     this.deckRefs[deck] = videoId
     el.load()
     this.ramp(this.deckKey(deck), 0, 0)
+    this.applyLoudnessTrim(deck, videoId)
   }
+
+  // Loudness normalization: aim the track at -14 LUFS using the server's scan, capped by
+  // true-peak headroom (never boost into clipping) and clamped to a musical -12..+6 dB.
+  // Fire-and-forget - a cue never waits on the lookup; unscanned tracks play at 0 dB (the
+  // scan queues server-side on the 404, so coverage converges with listening).
+  private applyLoudnessTrim(deck: number, ref: string) {
+    const el = this.deckEl(deck)
+    setLoudnessTrimDb(el, 0)   // reset instantly so the previous track's trim never leaks
+    void getAudioFacts(ref).then(facts => {
+      if (this.deckRefs[deck] !== ref) return          // deck was re-cued while we looked up
+      if (!facts || facts.lufs == null) return
+      let trim = Math.max(-12, Math.min(6, -14 - facts.lufs))
+      if (facts.truePeakDb != null) trim = Math.min(trim, -1 - facts.truePeakDb)  // -1 dBTP headroom
+      setLoudnessTrimDb(el, Math.max(-12, trim))
+    }).catch(() => { /* facts are optional */ })
+  }
+
   // The ref each deck was last cued with - lets the play-failure path identify a dead
   // local/plex ref (file deleted, server swapped) and self-heal to YouTube mid-session.
   private deckRefs: (string | null)[] = [null, null]
   private async playDeck(deck: number, attempt = 0): Promise<void> {
     const el = this.deckEl(deck)
-    void this.actx?.resume?.()   // nudge the context to running so the first song is analysed too
-    try { await el.play(); this.tap(el) }
+    // Re-ensure inside this (gesture-adjacent) play: builds the graph if start() couldn't,
+    // and nudges the shared context out of 'suspended'.
+    try { ensureMediaGraph(el, { kind: 'music' }) } catch { /* optional */ }
+    try { await el.play() }
     catch (e) {
       // A 502 from a transient resolve failure surfaces as a load/format error. Reload (which
       // re-requests the stream → re-resolves on the backend) and retry a couple of times.
@@ -493,7 +495,7 @@ export class RadioEngine {
     await new Promise<void>(res => {
       const fin = () => { el.onended = null; el.onerror = null; res() }
       el.onended = fin; el.onerror = fin
-      el.play().then(() => this.tap(el)).catch(fin)
+      el.play().then(() => { try { ensureMediaGraph(el, { kind: 'voice' }) } catch { /* optional */ } }).catch(fin)
     })
     URL.revokeObjectURL(dj.blobUrl)
   }
@@ -505,7 +507,7 @@ export class RadioEngine {
     this.ramp(this.deckKey(deck), INTRO_BED, 700)   // duck to bed level (audible backing)
     await this.speak(dj)
     if (this.stale(runId)) return
-    this.ramp(this.deckKey(deck), 1, FADE)
+    this.ramp(this.deckKey(deck), 1, this.fadeMs())
     this.set({ djSpeaking: false, djText: null })
   }
 
@@ -525,7 +527,7 @@ export class RadioEngine {
         if (this.stale(runId)) return finish('skip')
         if (el.error) return finish('end')
         const d = el.duration
-        if (isFinite(d) && d > 0 && el.currentTime >= d - TAIL) return finish('tail')
+        if (isFinite(d) && d > 0 && el.currentTime >= d - this.tailSec()) return finish('tail')
         if (!el.paused) {
           if (el.currentTime === lastT) { if (++stuck > 48) return finish('end') } // ~12s stalled
           else { stuck = 0; lastT = el.currentTime }
@@ -616,11 +618,11 @@ export class RadioEngine {
     // If we know when the first vocal line hits, hold the bed until just before it so the swell
     // lands right as the song kicks in vocally. Skip the wait if the DJ already ran past that point.
     if (firstRealLyricSec !== null) {
-      const remaining = firstRealLyricSec - el.currentTime - FADE / 1000
+      const remaining = firstRealLyricSec - el.currentTime - this.fadeMs() / 1000
       if (remaining > 0.2) await new Promise(r => setTimeout(r, remaining * 1000))
       if (this.stale(runId)) return
     }
-    this.ramp(this.deckKey(toDeck), 1, FADE)
+    this.ramp(this.deckKey(toDeck), 1, this.fadeMs())
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
@@ -692,11 +694,11 @@ export class RadioEngine {
         // Timed swell: hold the bed until just before the first real lyric so the full-volume
         // moment lands with the vocal. If the DJ already ran past that point, swell immediately.
         if (firstRealLyricSec !== null) {
-          const remaining = firstRealLyricSec - deck0El.currentTime - FADE / 1000
+          const remaining = firstRealLyricSec - deck0El.currentTime - this.fadeMs() / 1000
           if (remaining > 0.2) await new Promise(r => setTimeout(r, remaining * 1000))
           if (this.stale(runId)) return
         }
-        this.ramp(this.deckKey(0), 1, FADE)
+        this.ramp(this.deckKey(0), 1, this.fadeMs())
       }
       this.set({ djSpeaking: false, djText: null })
     } else {
@@ -881,6 +883,24 @@ export class RadioEngine {
     // beat to cue + crossfade). Cleared when the next song takes over.
     if (this.state.phase === 'playing' && this.skipResolve) this.set({ skipping: true })
     this.skipResolve?.()
+  }
+
+  // Adjustable crossfade (persisted like djMode). fadeMs drives every song-to-song ramp;
+  // the transition kicks off tailSec before a song ends so the fade completes in time.
+  private crossfadeMs: number = (() => {
+    try {
+      const raw = localStorage.getItem('music.crossfadeMs')
+      if (raw == null) return DEFAULT_FADE
+      const v = Number(raw)
+      return Number.isFinite(v) && v >= 0 ? Math.min(v, 12000) : DEFAULT_FADE
+    } catch { return DEFAULT_FADE }
+  })()
+  private fadeMs(): number { return Math.max(250, this.crossfadeMs) }
+  private tailSec(): number { return Math.max(2, this.crossfadeMs / 1000 + 1.5) }
+  getCrossfadeMs(): number { return this.crossfadeMs }
+  setCrossfadeMs(ms: number) {
+    this.crossfadeMs = Math.max(0, Math.min(12000, Math.round(ms)))
+    try { localStorage.setItem('music.crossfadeMs', String(this.crossfadeMs)) } catch { /* quota */ }
   }
 
   // Persisted, station-independent DJ preference. Once the user picks a mode it sticks across
