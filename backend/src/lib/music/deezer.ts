@@ -282,6 +282,35 @@ export async function deezerArtistPicture(name: string): Promise<string | null> 
   return hit?.picture_big ?? hit?.picture_medium ?? null
 }
 
+// ── Fast keyless search (replaces MusicBrainz on the interactive search path) ────────
+// Deezer's search is unthrottled and ~100-300ms, vs MusicBrainz's 1 req/sec ceiling. Used
+// for the catalog result set; MusicBrainz is demoted to lazy on-select MBID resolution.
+
+export interface DeezerSong {
+  title: string; durationSec: number | null; artistName: string; albumTitle: string | null; cover: string | null; explicit: boolean | null
+}
+export async function deezerSearchTracks(query: string, artist: string | undefined, limit: number): Promise<DeezerSong[]> {
+  const q = artist ? `artist:"${artist.replace(/"/g, '')}" track:"${query.replace(/"/g, '')}"` : query
+  const data = await dz<{ data?: any[] }>(`/search/track?q=${encodeURIComponent(q)}&limit=${Math.min(limit, 50)}`)
+  const rows = (data?.data ?? []).filter((t) => t?.title && t?.artist?.name)
+  return rows.map((t) => ({
+    title: cleanDeezerTitle(t.title as string, t.artist.name as string),
+    durationSec: typeof t.duration === 'number' ? t.duration : null,
+    artistName: t.artist.name as string,
+    albumTitle: t.album?.title ?? null,
+    cover: t.album?.cover_medium ?? t.album?.cover ?? null,
+    explicit: typeof t.explicit_lyrics === 'boolean' ? t.explicit_lyrics : null,
+  }))
+}
+
+export interface DeezerArtistHit { name: string; picture: string | null; nbFan: number }
+export async function deezerSearchArtists(query: string, limit: number): Promise<DeezerArtistHit[]> {
+  const data = await dz<{ data?: any[] }>(`/search/artist?q=${encodeURIComponent(query)}&limit=${Math.min(limit, 50)}`)
+  return (data?.data ?? [])
+    .filter((a) => a?.name)
+    .map((a) => ({ name: a.name as string, picture: a.picture_medium ?? a.picture ?? null, nbFan: typeof a.nb_fan === 'number' ? a.nb_fan : 0 }))
+}
+
 /** Album cover for a specific recording (artist + title) from Deezer's track search. */
 export async function deezerTrackCover(artist: string, title: string): Promise<string | null> {
   const q = `artist:"${artist}" track:"${title}"`

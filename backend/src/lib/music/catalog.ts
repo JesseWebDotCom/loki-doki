@@ -9,6 +9,7 @@
 // never hit the live API twice for the same thing.
 
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
+import { deezerSearchTracks, deezerSearchArtists } from '@/lib/music/deezer'
 import { logger } from '@/lib/logger'
 
 const MB_BASE = 'https://musicbrainz.org/ws/2'
@@ -188,9 +189,22 @@ export async function itunesSongArt(artist: string, title: string): Promise<stri
 
 // ── Search ───────────────────────────────────────────────────────────────────────
 
+// Deezer-first (fast, keyless) for the interactive result set; results carry NO MBID
+// (mbid=''), so artist navigation resolves the MBID lazily on click via getArtistId /
+// the ?artist= redirect. Falls back to MusicBrainz only if Deezer comes up empty.
 export async function searchArtists(query: string, limit = 12): Promise<CatalogArtist[]> {
   const q = query.trim()
   if (!q) return []
+  try {
+    const hits = await deezerSearchArtists(q, limit)
+    if (hits.length) {
+      return hits
+        .filter((a) => a.name.toLowerCase() !== 'various artists')
+        .map((a): CatalogArtist => ({ mbid: '', name: a.name, disambiguation: null, type: null, country: null }))
+    }
+  } catch (err) {
+    logger.debug(`[catalog] deezer searchArtists failed, falling back to MB: ${String(err)}`)
+  }
   return cachedLookup('mb-artist-search', `${q}:${limit}`, THIRTY_DAYS_MS, async () => {
     try {
       const data = await mbFetch(`/artist?query=${encodeURIComponent(lucene(q))}&limit=${limit}`)
@@ -234,6 +248,26 @@ export async function searchSongs(query: string, limit = 20, artist?: string): P
   const q = query.trim()
   const a = (artist ?? '').trim()
   if (!q && !a) return []
+  // Deezer-first: fast, keyless, and its top track for a query is almost always the canonical
+  // studio take (no live/remix/karaoke burial). Results carry no MBID; the player resolves by
+  // title+artist. Deduped by base title + artist. MusicBrainz is the fallback only.
+  try {
+    const rows = await deezerSearchTracks(q || a, a || undefined, Math.max(limit * 2, 30))
+    if (rows.length) {
+      const seen = new Set<string>()
+      const out: CatalogSong[] = []
+      for (const r of rows) {
+        const key = `${r.artistName.toLowerCase()}~${r.title.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').trim()}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push({ mbid: '', title: r.title, durationSec: r.durationSec, artistName: r.artistName, artistMbid: null, albumTitle: r.albumTitle, albumMbid: null })
+        if (out.length >= limit) break
+      }
+      return out
+    }
+  } catch (err) {
+    logger.debug(`[catalog] deezer searchSongs failed, falling back to MB: ${String(err)}`)
+  }
   return cachedLookup('mb-song-search', `${q}|${a}:${limit}`, THIRTY_DAYS_MS, async () => {
     try {
       let mbQuery: string

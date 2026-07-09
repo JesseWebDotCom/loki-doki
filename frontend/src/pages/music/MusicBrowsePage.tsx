@@ -134,7 +134,9 @@ function OfflineBrowse({ q }: { q: string }) {
  *  (batched /catalog/match lookup - the badge means it will PLAY the owned copy). */
 function SongResults({ songs, onPlay }: { songs: CatalogSong[]; onPlay: (s: CatalogSong) => void }) {
   const { data: owned } = useQuery({
-    queryKey: ['music-owned', songs.map(s => s.mbid).join(',')],
+    // Deezer results have no MBID, so key the owned-lookup on artist~title (else every search
+    // would collide on the same all-empty-mbid cache key).
+    queryKey: ['music-owned', songs.map(s => `${s.artistName}~${s.title}`).join(',')],
     queryFn: () => matchOwned(songs.map(s => ({ title: s.title, artist: s.artistName, mbid: s.mbid, durationSec: s.durationSec }))),
     staleTime: 5 * 60 * 1000,
   })
@@ -144,7 +146,7 @@ function SongResults({ songs, onPlay }: { songs: CatalogSong[]; onPlay: (s: Cata
       {songs.map((s, i) => {
         const own = ownedIdx.get(i)
         return (
-          <div key={s.mbid} className="group flex w-full items-center gap-2 px-3 py-2.5 transition hover:bg-accent/40">
+          <div key={s.mbid || `${s.artistName}-${s.title}-${i}`} className="group flex w-full items-center gap-2 px-3 py-2.5 transition hover:bg-accent/40">
             <button onClick={() => onPlay(s)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
               <Music2 className="size-4 shrink-0 text-muted-foreground group-hover:hidden" />
               <Play className="hidden size-4 shrink-0 fill-current text-brand group-hover:block" />
@@ -404,7 +406,8 @@ export function MusicBrowsePage() {
       {(data?.artists.length ?? 0) > 0 && (
         <section className="mt-2"><SectionHeader title="Artists" />
           <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-            {data!.artists.map(a => <ArtistChip key={a.mbid} a={a} onClick={() => navigate(`/music/artist/${a.mbid}`)} />)}
+            {data!.artists.map((a, i) => <ArtistChip key={a.mbid || `${a.name}-${i}`} a={a}
+              onClick={() => navigate(a.mbid ? `/music/artist/${a.mbid}` : `/music/browse?artist=${encodeURIComponent(a.name)}`)} />)}
           </div>
         </section>
       )}

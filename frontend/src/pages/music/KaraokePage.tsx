@@ -394,8 +394,8 @@ function AddSongPopover({ onAdd, onSeedNowPlaying, accent }: { onAdd: (s: QueueI
     enabled: q.trim().length >= 2,
   })
 
-  const pick = async (s: { title: string; artistName: string; mbid: string; durationSec: number | null }) => {
-    setResolving(s.mbid)
+  const pick = async (s: { title: string; artistName: string; mbid: string; durationSec: number | null }, rowKey: string) => {
+    setResolving(rowKey)
     try {
       const r = await resolveSong({ mbid: s.mbid, title: s.title, artist: s.artistName, durationSec: s.durationSec })
       if (!r?.videoId) { toast.error('No playable source for that song'); return }
@@ -428,16 +428,19 @@ function AddSongPopover({ onAdd, onSeedNowPlaying, accent }: { onAdd: (s: QueueI
               className="w-full bg-transparent text-sm outline-none placeholder:text-white/30" />
           </div>
           <div className="mt-2 max-h-72 overflow-y-auto">
-            {(data ?? []).map((s) => (
-              <button key={s.mbid} onClick={() => pick(s)} disabled={resolving === s.mbid}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{s.title}</div>
-                  <div className="truncate text-xs text-white/50">{s.artistName}</div>
-                </div>
-                {resolving === s.mbid ? <Spinner className="size-4 text-white/40" /> : <Plus className="size-4 text-white/40" />}
-              </button>
-            ))}
+            {(data ?? []).map((s, i) => {
+              const rowKey = s.mbid || `${s.artistName}-${s.title}-${i}`
+              return (
+                <button key={rowKey} onClick={() => pick(s, rowKey)} disabled={resolving === rowKey}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{s.title}</div>
+                    <div className="truncate text-xs text-white/50">{s.artistName}</div>
+                  </div>
+                  {resolving === rowKey ? <Spinner className="size-4 text-white/40" /> : <Plus className="size-4 text-white/40" />}
+                </button>
+              )
+            })}
             {q.trim().length >= 2 && !isFetching && (data ?? []).length === 0 && (
               <p className="py-4 text-center text-sm text-white/40">No songs found</p>
             )}
