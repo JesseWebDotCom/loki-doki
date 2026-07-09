@@ -207,13 +207,16 @@ function glyphFor(name: string, category: string | null): Glyph {
  * gradient scrim so the name stays legible.
  * showName=false for hero contexts where an h1 already carries the name.
  */
-export function StationArt({ station, className, showName = true, vivid = false, coverUrl }: {
+export function StationArt({ station, className, showName = true, vivid = false, coverUrl, subtitle }: {
   station: Pick<Station, 'name' | 'accent' | 'category' | 'iconUrl'>
   className?: string
   showName?: boolean
   vivid?: boolean   // bolder watermark (used on the controller where tiles read at a distance)
   /** Real album art (the station's "cover song") - fills like iconUrl; posters still win. */
   coverUrl?: string | null
+  /** One-line support text under the wordmark (description / "by <owner>") - keeps card
+   *  captions INSIDE the art so every station tile is exactly the same size. */
+  subtitle?: string | null
 }) {
   const Icon = glyphFor(station.name, station.category)
   const photo = station.iconUrl ?? coverUrl ?? null
@@ -243,13 +246,16 @@ export function StationArt({ station, className, showName = true, vivid = false,
       {/* Bottom scrim - always present for legibility */}
       <div className="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
-      {/* Name wordmark */}
+      {/* Name wordmark (+ optional one-line support text) */}
       {showName && (
         <div className="absolute bottom-0 left-0 right-0 p-4 pr-12">
           {/* design-ok(font-black): generated cover-art wordmark, part of the station art itself */}
           <p className="line-clamp-2 text-base font-black leading-tight tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]">
             {station.name}
           </p>
+          {subtitle && (
+            <p className="mt-0.5 truncate text-xs text-white/65 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">{subtitle}</p>
+          )}
         </div>
       )}
 

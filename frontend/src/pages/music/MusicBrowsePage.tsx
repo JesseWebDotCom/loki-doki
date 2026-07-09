@@ -20,9 +20,10 @@ import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffli
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
     // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
-    <button onClick={onClick} className="flex w-32 shrink-0 flex-col items-center gap-2 rounded-card p-2 text-center transition hover:bg-accent/50">
-      <ArtistAvatar name={a.name} mbid={a.mbid} className="size-24 rounded-full" />
-      <div><p className="truncate text-sm font-medium">{a.name}</p>{a.disambiguation && <p className="truncate text-[11px] text-muted-foreground">{a.disambiguation}</p>}</div>
+    <button onClick={onClick} className="group flex w-36 shrink-0 flex-col items-center gap-2.5 p-2 text-center">
+      <ArtistAvatar name={a.name} mbid={a.mbid}
+        className="size-28 rounded-full shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
+      <p className="w-full truncate text-sm font-medium">{a.name}</p>
     </button>
   )
 }
@@ -151,7 +152,7 @@ function BrowseIdle({ onGenre }: { onGenre: (g: string) => void }) {
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {GENRE_TILES.map(g => (
           <button key={g.name} onClick={() => onGenre(g.name)}
-            className="group relative aspect-[8/5] overflow-hidden rounded-card text-left shadow-md transition duration-200 hover:scale-[1.03] hover:shadow-xl"
+            className="group relative aspect-[16/9] overflow-hidden rounded-card text-left shadow-md transition duration-200 hover:scale-[1.03] hover:shadow-xl"
             style={{ background: stationGradient(g.accent) }}>
             <Music2 aria-hidden className="pointer-events-none absolute -bottom-3 -right-2 size-16 rotate-12 text-white/15" />
             {/* design-ok(font-black): genre tile wordmark, part of the tile art itself */}

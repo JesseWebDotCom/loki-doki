@@ -1,4 +1,4 @@
-import { Play, Users, ArrowDownToLine } from 'lucide-react'
+import { Play, ArrowDownToLine } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { cn } from '@/lib/cn'
@@ -24,10 +24,21 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
   const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
   const open = () => (onOpen ? onOpen(station) : navigate(`/music/station/${station.id}`))
 
+  // Caption lives INSIDE the art (StationArt subtitle) so every card is exactly the same
+  // height - description for most stations, attribution for family-shared ones.
+  const subtitle = station.ownerName
+    ? `by ${station.ownerName}`
+    : (station.description && !station.description.startsWith('source:') ? station.description : null)
+
   return (
     <Card variant="interactive" className="group relative overflow-hidden" onClick={open}>
       <div className="relative aspect-[16/9] w-full overflow-hidden">
-        <StationArt station={station} coverUrl={coverUrl} />
+        <StationArt station={station} coverUrl={coverUrl} subtitle={subtitle} />
+        {playing && (
+          <span className="absolute left-2 top-2 z-10">
+            <StatusDot status="error" pulse />
+          </span>
+        )}
         {/* Offline indicator: a subtle check once downloaded, a spinner while it's still saving.
             Top-right so it never collides with the station glyph at top-left. */}
         {offStatus && (
@@ -50,19 +61,6 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
           <Play className="size-5 translate-x-px fill-current" />
         </button>
       </div>
-      {(station.description || station.ownerName || playing) && (
-        <div className="px-3 py-2">
-          {playing && <StatusDot status="error" pulse className="mb-1" />}
-          {station.description && !station.description.startsWith('source:') && (
-            <p className="line-clamp-2 text-xs text-muted-foreground">{station.description}</p>
-          )}
-          {station.ownerName && (
-            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
-              <Users className="size-3" /> by {station.ownerName}
-            </p>
-          )}
-        </div>
-      )}
     </Card>
   )
 }
