@@ -400,7 +400,7 @@ export function NowPlayingPage() {
           <Card className="relative h-[58vh]">
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 rounded-t-card bg-gradient-to-b from-card to-transparent" />
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 rounded-b-card bg-gradient-to-t from-card to-transparent" />
-            <LyricsPanel artist={artist} title={cur.title} />
+            <LyricsPanel artist={artist} title={cur.title} position={radio.positionSec} duration={radio.durationSec} />
             {djPending && (
               <div className="absolute inset-0 z-20 rounded-card bg-card animate-in fade-in">
                 <TuningLyrics stationId={radio.station?.stationId} color={c1} />

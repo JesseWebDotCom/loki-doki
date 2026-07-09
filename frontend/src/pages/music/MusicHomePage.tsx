@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { StationCard } from '@/components/music/StationCard'
+import { Button } from '@/components/ui/button'
 import { StationArt } from '@/components/music/StationArt'
 import { BlendedHeroBackdrop } from '@/components/music/BlendedHero'
 import { useSongArt } from '@/components/music/SongArt'
@@ -13,7 +14,7 @@ import { SongTile } from '@/components/music/SongTile'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
-import { listStations, getHistory, stationToDj, type Station } from '@/lib/music/catalogApi'
+import { listStations, getHistory, getRails, stationToDj, type Station, type Rail } from '@/lib/music/catalogApi'
 
 // (SongTile moved to components/music/SongTile - shared with Browse.)
 
@@ -112,13 +113,42 @@ function OfflineHome() {
   )
 }
 
+// A personalized shelf: horizontal song tiles + a Play-all that queues the whole rail
+// (no DJ interruption for a personal mix - playPlaylist handles that).
+function MadeForYouRail({ rail }: { rail: Rail }) {
+  const radio = useRadio()
+  const playAll = () => radio.playPlaylist(
+    rail.tracks.map(t => ({ videoId: t.videoId, title: t.title, author: t.artist || null, thumbnail: '' })),
+    0, { name: rail.title },
+  )
+  return (
+    <section className="mt-6">
+      <SectionHeader title={rail.title} count={rail.tracks.length}
+        action={
+          <Button variant="secondary" size="sm" onClick={playAll}>
+            <Play className="size-4 fill-current" /> Play
+          </Button>
+        } />
+      <p className="-mt-1 mb-2 text-xs text-muted-foreground">{rail.subtitle}</p>
+      <div className="flex gap-4 overflow-x-auto pb-3 pt-1 no-scrollbar">
+        {rail.tracks.slice(0, 16).map(t => (
+          <SongTile key={t.videoId} trackRef={t.videoId} title={t.title} artist={t.artist} size="w-40"
+            onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist })} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function MusicHomePage() {
   const radio = useRadio()
   const offline = useMusicModeOptional() === 'offline'
   const { data: buckets } = useQuery({ queryKey: ['music-stations'], queryFn: listStations, enabled: !offline })
   const { data: hist } = useQuery({ queryKey: ['music-history'], queryFn: () => getHistory(12), enabled: !offline })
+  const { data: railsData } = useQuery({ queryKey: ['music-rails'], queryFn: getRails, enabled: !offline, staleTime: 30 * 60 * 1000 })
 
   const recent = hist?.history ?? []
+  const rails = railsData?.rails ?? []
 
   if (offline) return <OfflineHome />
 
@@ -139,6 +169,8 @@ export function MusicHomePage() {
           </div>
         </section>
       )}
+
+      {rails.map(rail => <MadeForYouRail key={rail.key} rail={rail} />)}
 
       <section className="mt-6">
         <SectionHeader title="Featured stations" to="/music/stations" />

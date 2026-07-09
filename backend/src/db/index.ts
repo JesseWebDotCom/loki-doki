@@ -8,7 +8,7 @@ import * as schema from './schema'
 const dbPath = process.env.DATABASE_URL ?? resolve(import.meta.dir, '../../../data/app.db')
 mkdirSync(dirname(dbPath), { recursive: true })
 
-const sqlite = new Database(dbPath, { create: true })
+export const sqlite = new Database(dbPath, { create: true })
 sqlite.exec('PRAGMA journal_mode = WAL;')
 sqlite.exec('PRAGMA foreign_keys = ON;')
 // Wait up to 5s for a lock instead of failing instantly with SQLITE_BUSY (WAL still
@@ -1088,6 +1088,10 @@ export function runMigrations() {
   // Station "cover song" ({videoId,title,artist} of the last built queue's lead track) —
   // resolves to real album art on station cards.
   addColumn('music_stations', 'cover_track_json', 'TEXT')
+  // History fidelity for stats/rails/Replay: track length (position_sec already records how
+  // far the listener got - the progress beacon keeps it fresh on skip/end/unload).
+  addColumn('music_history', 'duration_sec', 'REAL')
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_music_history_user_played ON music_history(user_id, played_at);`)
 
   // Content-addressable blob store + media assets (app-wide dedup of offlined media).
   sqlite.exec(`

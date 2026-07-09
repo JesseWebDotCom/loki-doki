@@ -116,6 +116,7 @@ import { musicPlaylists } from '@/routes/musicPlaylists'
 import { musicLibrary } from '@/routes/musicLibrary'
 import { musicCollection } from '@/routes/musicCollection'
 import { musicMeta } from '@/routes/musicMeta'
+import { musicRails } from '@/routes/musicRails'
 import { adminMusicSources } from '@/routes/adminMusicSources'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
@@ -576,6 +577,7 @@ app.route('/api/music/playlists', musicPlaylists)
 app.route('/api/music/library', musicLibrary)
 app.route('/api/music/collection', musicCollection)
 app.route('/api/music/meta', musicMeta)
+app.route('/api/music/rails', musicRails)
 app.route('/api/admin/music', adminMusicSources)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)

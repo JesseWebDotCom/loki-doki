@@ -248,7 +248,7 @@ export function NowPlayingOverlay() {
 
           <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
             {tab === 'lyrics' && (
-              cur ? <LyricsPanel artist={artist} title={cur.title} />
+              cur ? <LyricsPanel artist={artist} title={cur.title} position={radio.positionSec} duration={radio.durationSec} />
                   : <div className="flex h-full items-center justify-center text-white/60"><Music2 className="mr-2 size-5 opacity-40" /> Tuning in…</div>
             )}
 

@@ -730,7 +730,8 @@ export const musicHistory = sqliteTable('music_history', {
   title: text('title').notNull(),
   artist: text('artist'),
   stationId: text('station_id'),      // the station/playlist context, when played from one
-  positionSec: real('position_sec').notNull().default(0),
+  positionSec: real('position_sec').notNull().default(0),   // how far they got (progress beacon)
+  durationSec: real('duration_sec'),                        // track length, when known
   playedAt: integer('played_at', { mode: 'timestamp' }).notNull(),
 })
 

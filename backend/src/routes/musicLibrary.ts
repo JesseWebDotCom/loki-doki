@@ -52,13 +52,31 @@ musicLibrary.delete('/favorites/:kind/:refId', async (c) => {
 // ── History ─────────────────────────────────────────────────────────────────────
 musicLibrary.post('/history', async (c) => {
   const user = c.get('user')
-  const body = await c.req.json<{ videoId?: string; title?: string; artist?: string; mbid?: string; stationId?: string; positionSec?: number }>().catch(() => ({} as { videoId?: string; title?: string; artist?: string; mbid?: string; stationId?: string; positionSec?: number }))
+  const body = await c.req.json<{ videoId?: string; title?: string; artist?: string; mbid?: string; stationId?: string; positionSec?: number; durationSec?: number }>().catch(() => ({} as Record<string, never>))
   if (!body.videoId || !body.title) return c.json({ error: 'videoId and title required' }, 400)
+  const id = crypto.randomUUID()
   await db.insert(musicHistory).values({
-    id: crypto.randomUUID(), userId: user.id, videoId: body.videoId, title: body.title,
+    id, userId: user.id, videoId: body.videoId, title: body.title,
     artist: body.artist || null, mbid: body.mbid || null, stationId: body.stationId || null,
-    positionSec: body.positionSec ?? 0, playedAt: new Date(),
+    positionSec: body.positionSec ?? 0,
+    durationSec: typeof body.durationSec === 'number' && body.durationSec > 0 ? body.durationSec : null,
+    playedAt: new Date(),
   })
+  return c.json({ ok: true, id })
+})
+
+// Progress beacon: how far the listener actually got (fired on track change / skip /
+// unload via sendBeacon). Powers real listening-minutes in stats and Replay.
+musicLibrary.post('/history/progress', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json<{ id?: string; positionSec?: number; durationSec?: number }>().catch(() => ({} as Record<string, never>))
+  if (!body.id || typeof body.positionSec !== 'number') return c.json({ error: 'id and positionSec required' }, 400)
+  await db.update(musicHistory)
+    .set({
+      positionSec: Math.max(0, body.positionSec),
+      ...(typeof body.durationSec === 'number' && body.durationSec > 0 ? { durationSec: body.durationSec } : {}),
+    })
+    .where(and(eq(musicHistory.id, body.id), eq(musicHistory.userId, user.id)))
   return c.json({ ok: true })
 })
 

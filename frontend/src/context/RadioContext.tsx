@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ReactNode } from 'react'
 import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack } from '@/lib/music/radioEngine'
 import type { DjStation } from '@/lib/music/radioStations'
-import { recordHistory } from '@/lib/music/catalogApi'
+import { recordHistory, reportHistoryProgress } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
 import { loadDsp, saveDsp, type DspSettings } from '@/lib/music/dsp'
 import { uuid } from '@/lib/uuid'
@@ -79,14 +79,34 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Log each newly-playing song to history (powers Continue Listening + recently played).
+  // The row id comes back so the progress beacon can report how far the listener actually
+  // got - fired when the track changes and on page unload (real minutes for stats/Replay).
   const lastLogged = useRef<string | null>(null)
+  const historyRow = useRef<{ id: string; pos: number; dur: number } | null>(null)
+  useEffect(() => {
+    const row = historyRow.current
+    if (row && state.positionSec > 0) { row.pos = state.positionSec; row.dur = state.durationSec }
+  }, [state.positionSec, state.durationSec])
   useEffect(() => {
     const t = state.currentTrack
     if (t && t.videoId !== lastLogged.current) {
       lastLogged.current = t.videoId
-      void recordHistory({ videoId: t.videoId, title: t.title, artist: t.author ?? undefined, stationId: state.station?.id }).catch(() => {})
+      const prev = historyRow.current
+      if (prev && prev.pos > 0) reportHistoryProgress(prev.id, prev.pos, prev.dur || undefined)
+      historyRow.current = null
+      void recordHistory({ videoId: t.videoId, title: t.title, artist: t.author ?? undefined, stationId: state.station?.id })
+        .then(r => { if (r?.id) historyRow.current = { id: r.id, pos: 0, dur: 0 } })
+        .catch(() => {})
     }
   }, [state.currentTrack, state.station])
+  useEffect(() => {
+    const flush = () => {
+      const row = historyRow.current
+      if (row && row.pos > 0) reportHistoryProgress(row.id, row.pos, row.dur || undefined)
+    }
+    window.addEventListener('pagehide', flush)
+    return () => window.removeEventListener('pagehide', flush)
+  }, [])
 
   // Id for the current play session (see PodcastPlaybackContext for the full rationale) —
   // freshly minted whenever radio goes active→playing for a NEW station/track combo, i.e.

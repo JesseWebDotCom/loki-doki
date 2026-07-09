@@ -186,10 +186,38 @@ export function addFavorite(f: { kind: Favorite['kind']; refId: string; title?: 
 export function removeFavorite(kind: Favorite['kind'], refId: string) {
   return mfetch<{ ok: true }>(`/library/favorites/${kind}/${encodeURIComponent(refId)}`, { method: 'DELETE' })
 }
-export function recordHistory(h: { videoId: string; title: string; artist?: string; mbid?: string; stationId?: string; positionSec?: number }) {
-  return mfetch<{ ok: true }>('/library/history', { method: 'POST', body: body(h) })
+export function recordHistory(h: { videoId: string; title: string; artist?: string; mbid?: string; stationId?: string; positionSec?: number; durationSec?: number }) {
+  return mfetch<{ ok: true; id: string }>('/library/history', { method: 'POST', body: body(h) })
+}
+/** Progress beacon: how far the listener got. keepalive/sendBeacon-safe (fired on track
+ *  change and page unload), so it uses raw fetch instead of mfetch. */
+export function reportHistoryProgress(id: string, positionSec: number, durationSec?: number): void {
+  const payload = JSON.stringify({ id, positionSec, durationSec })
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/music/library/history/progress', new Blob([payload], { type: 'application/json' }))
+      return
+    }
+  } catch { /* fall through */ }
+  void fetch('/api/music/library/history/progress', {
+    method: 'POST', credentials: 'include', keepalive: true,
+    headers: { 'Content-Type': 'application/json' }, body: payload,
+  }).catch(() => {})
 }
 export function getHistory(limit = 40) { return mfetch<{ history: HistoryItem[] }>(`/library/history?limit=${limit}`) }
+
+// ── Made For You rails + Replay ─────────────────────────────────────────────────────
+export interface Rail { key: string; title: string; subtitle: string; tracks: Array<{ videoId: string; title: string; artist: string }> }
+export function getRails() { return mfetch<{ rails: Rail[] }>('/rails') }
+export interface Replay {
+  year: number; totalPlays: number; totalMinutes: number
+  topSongs: Array<{ videoId: string; title: string; artist: string; plays: number }>
+  topArtists: Array<{ artist: string; plays: number }>
+  topStations: Array<{ stationId: string; plays: number }>
+  clock: number[]
+  firstPlay: { title: string; artist: string; atMs: number } | null
+}
+export function getReplay(year?: number) { return mfetch<Replay>(`/rails/replay${year ? `?year=${year}` : ''}`) }
 
 // ── Lyrics + song/artist info (Now-Playing panel) ───────────────────────────────────
 export interface LyricLine { sec: number; text: string }

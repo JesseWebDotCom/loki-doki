@@ -21,6 +21,7 @@ import { ChordTimeline } from '@/components/music/studio/ChordTimeline'
 import { StudioControls } from '@/components/music/studio/StudioControls'
 import { StemOptionsSheet } from '@/components/music/studio/StemOptionsSheet'
 import { StudioCover } from '@/components/music/studio/StudioCover'
+import { LyricsPanel } from '@/components/music/nowPlayingParts'
 
 function fmt(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -267,6 +268,18 @@ export function MusicStudioDetailPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* ── Lyrics, synced to playback position ── */}
+          <Card>
+            <CardHeader className="p-3 pb-1">
+              <CardTitle className="text-sm text-muted-foreground">Lyrics</CardTitle>
+            </CardHeader>
+            <CardContent className="relative h-72 overflow-hidden p-0">
+              <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 rounded-t-card bg-gradient-to-b from-card to-transparent" />
+              <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 rounded-b-card bg-gradient-to-t from-card to-transparent" />
+              <LyricsPanel artist={track.artist ?? ''} title={track.title} position={displayPos} duration={track.durationSec ?? undefined} onSeek={seekTo} />
+            </CardContent>
+          </Card>
         </>)}
       </div>
 

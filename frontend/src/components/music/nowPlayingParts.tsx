@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, Info, Music2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
-import { useRadio } from '@/context/RadioContext'
 import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks } from '@/lib/music/catalogApi'
 
 // Shared building blocks for the Now Playing surfaces (the app-wide player overlay and any
@@ -20,11 +19,14 @@ export function SectionLabel({ icon: Icon, color, children }: { icon: typeof Mus
   )
 }
 
-// Synced (or plain) lyrics that auto-scroll the active line, driven by radio.positionSec.
-export function LyricsPanel({ artist, title }: { artist: string; title: string }) {
-  const radio = useRadio()
+// Synced (or plain) lyrics that auto-scroll the active line, driven by a caller-supplied playback
+// position (radio.positionSec on Now Playing, StemEngine.getPosition() in Music Studio). Kept
+// presentational/prop-driven so it works with any playback source.
+export function LyricsPanel({ artist, title, position, duration, onSeek }: {
+  artist: string; title: string; position: number; duration?: number; onSeek?: (sec: number) => void
+}) {
   const { data, isLoading } = useQuery({
-    queryKey: ['music-lyrics', artist, title], queryFn: () => getLyrics(artist, title),
+    queryKey: ['music-lyrics', artist, title, duration], queryFn: () => getLyrics(artist, title, duration),
     enabled: !!title, staleTime: Infinity,
   })
   const synced = data?.synced ?? null
@@ -34,9 +36,9 @@ export function LyricsPanel({ artist, title }: { artist: string; title: string }
   const activeIdx = useMemo(() => {
     if (!synced) return -1
     let idx = -1
-    for (let i = 0; i < synced.length; i++) { if (synced[i]!.sec <= radio.positionSec + 0.3) idx = i; else break }
+    for (let i = 0; i < synced.length; i++) { if (synced[i]!.sec <= position + 0.3) idx = i; else break }
     return idx
-  }, [synced, radio.positionSec])
+  }, [synced, position])
 
   // Scroll ONLY the lyrics box (not the page) to keep the active line centered.
   useEffect(() => {
@@ -59,7 +61,9 @@ export function LyricsPanel({ artist, title }: { artist: string; title: string }
       <div ref={containerRef} className="h-full space-y-1.5 overflow-y-auto px-5 py-6">
         {synced.map((l, i) => (
           <p key={i} ref={i === activeIdx ? activeRef : undefined}
+            onClick={onSeek ? () => onSeek(l.sec) : undefined}
             className={cn('text-lg font-semibold leading-snug transition-all duration-300',
+              onSeek && 'cursor-pointer hover:text-foreground',
               i === activeIdx ? 'scale-[1.02] text-foreground' : i < activeIdx ? 'text-muted-foreground/40' : 'text-muted-foreground/70')}>
             {l.text || '♪'}
           </p>
