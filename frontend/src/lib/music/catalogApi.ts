@@ -114,7 +114,7 @@ export function matchOwned(tracks: Array<{ title: string; artist: string; mbid?:
 }
 export function getAlbumCoverFallback(artist: string, album: string) {
   return mfetch<{ coverUrl: string | null }>(
-    `/catalog/cover?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`)
+    `/catalog/cover?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}&v=2`)
 }
 export async function resolveSong(s: { mbid?: string | null; title: string; artist: string; durationSec?: number | null }) {
   const params = new URLSearchParams({ title: s.title, artist: s.artist })

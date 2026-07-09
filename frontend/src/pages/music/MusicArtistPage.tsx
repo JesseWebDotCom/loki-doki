@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Radio, ExternalLink, Eye, EyeOff } from 'lucide-react'
+import { Radio, ExternalLink } from 'lucide-react'
 import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
+import { AlbumFilterButton, albumPassesFilters, defaultAlbumFilters, type AlbumFilters } from '@/components/music/AlbumFilterButton'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { SectionHeader } from '@/components/shared/SectionHeader'
@@ -26,7 +27,9 @@ export function MusicArtistPage() {
     enabled: !!artistName, staleTime: Infinity,
   })
   const [logoBroken, setLogoBroken] = useState(false)
-  const [showAll, setShowAll] = useState(false)
+  // Live tapes, demos, and mixtapes bury the real discography (MB catalogs every club
+  // bootleg) - hidden by default; the filter button by the section header adjusts.
+  const [filters, setFilters] = useState<AlbumFilters>(defaultAlbumFilters)
 
   if (isLoading) return <div className="px-5 pt-6 text-sm text-muted-foreground">Loading…</div>
   if (!data) return <div className="px-5 pt-6 text-sm text-muted-foreground">Artist not found.</div>
@@ -36,13 +39,7 @@ export function MusicArtistPage() {
   const bioUrl = info?.url ?? artist.wikipediaUrl
   const showLogo = !!info?.logo && !logoBroken
 
-  // Live tapes, demos, and mixtapes bury the real discography (MB catalogs every club
-  // bootleg). Hidden by default; the toggle by the section header reveals everything.
-  const CLUTTER_TYPES = ['live', 'demo', 'mixtape/street', 'field recording', 'dj-mix']
-  const isClutter = (a: CatalogAlbum) => (a.secondaryTypes ?? []).some(t => CLUTTER_TYPES.includes(t.toLowerCase()))
-  const hiddenCount = albums.filter(isClutter).length
-  const visible = showAll ? albums : albums.filter(a => !isClutter(a))
-
+  const visible = albums.filter(a => albumPassesFilters(a, filters))
   const albumsByType = (t: string) => visible.filter(a => (a.primaryType ?? 'Album') === t)
   const groups: Array<[string, CatalogAlbum[]]> = [['Album', albumsByType('Album')], ['EP', albumsByType('EP')], ['Single', albumsByType('Single')]]
 
@@ -102,12 +99,7 @@ export function MusicArtistPage() {
             <SectionHeader
               title={label === 'Album' ? 'Albums' : `${label}s`}
               count={list.length}
-              action={gi === 0 && hiddenCount > 0 ? (
-                <Button variant="secondary" size="sm" onClick={() => setShowAll(v => !v)}>
-                  {showAll ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  {showAll ? `Hide live tapes & demos (${hiddenCount})` : `Show live tapes & demos (${hiddenCount})`}
-                </Button>
-              ) : undefined}
+              action={gi === 0 ? <AlbumFilterButton albums={albums} filters={filters} onChange={setFilters} /> : undefined}
             />
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {list.map(al => (

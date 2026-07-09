@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
 import { StationCard } from '@/components/music/StationCard'
+import { AlbumFilterButton, albumPassesFilters, defaultAlbumFilters, type AlbumFilters } from '@/components/music/AlbumFilterButton'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicMode } from '@/components/music/MusicLayout'
 import { SongTile } from '@/components/music/SongTile'
@@ -335,6 +336,7 @@ export function MusicBrowsePage() {
   const [params] = useSearchParams()
   const q = params.get('q')?.trim() ?? ''
   const [term, setTerm] = useState(q)
+  const [albumFilters, setAlbumFilters] = useState<AlbumFilters>(defaultAlbumFilters)
   useEffect(() => { setTerm(q) }, [q])
   const { data, isLoading } = useQuery({
     queryKey: ['music-search', q], queryFn: () => catalogSearch(q), enabled: mode === 'online' && q.length > 0,
@@ -392,13 +394,18 @@ export function MusicBrowsePage() {
         </section>
       )}
 
-      {(data?.albums.length ?? 0) > 0 && (
-        <section className="mt-6"><SectionHeader title="Albums" />
-          <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-            {data!.albums.map(al => <AlbumCard key={al.mbid} al={al} onClick={() => navigate(`/music/album/${al.mbid}`)} />)}
-          </div>
-        </section>
-      )}
+      {(data?.albums.length ?? 0) > 0 && (() => {
+        const visibleAlbums = data!.albums.filter(a => albumPassesFilters(a, albumFilters))
+        return (
+          <section className="mt-6">
+            <SectionHeader title="Albums" count={visibleAlbums.length}
+              action={<AlbumFilterButton albums={data!.albums} filters={albumFilters} onChange={setAlbumFilters} />} />
+            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+              {visibleAlbums.map(al => <AlbumCard key={al.mbid} al={al} onClick={() => navigate(`/music/album/${al.mbid}`)} />)}
+            </div>
+          </section>
+        )
+      })()}
 
       {(data?.stations.length ?? 0) > 0 && (
         <section className="mt-6"><SectionHeader title="Stations" />

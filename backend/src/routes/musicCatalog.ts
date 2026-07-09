@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import {
   searchArtists, searchAlbums, searchSongs,
-  getArtist, getArtistAlbums, getAlbum, itunesAlbumCover, pickArtistMbid,
+  getArtist, getArtistAlbums, getAlbum, itunesAlbumCover, itunesSongArt, pickArtistMbid,
 } from '@/lib/music/catalog'
 import { resolvePlayable, findOwned } from '@/lib/music/resolveSource'
 import { deezerChartTracks, deezerArtistPicture } from '@/lib/music/deezer'
@@ -57,14 +57,16 @@ musicCatalog.get('/album/:mbid', async (c) => {
   return c.json({ album, songs })
 })
 
-// GET /api/music/catalog/cover?artist=&album= — fallback cover art (iTunes) for albums the Cover
-// Art Archive has no image for. The client calls this only after the CAA image fails to load.
+// GET /api/music/catalog/cover?artist=&album= — PRIMARY album art (iTunes; CAA is the
+// slow fallback client-side). Singles rarely exist as iTunes ALBUMS ("Chop Suey!" is a
+// song, not an album), so the song lookup fills in - it returns the parent album's
+// artwork, the same thing streaming services show for singles without dedicated art.
 musicCatalog.get('/cover', async (c) => {
   const artist = c.req.query('artist')?.trim() ?? ''
   const album = c.req.query('album')?.trim() ?? ''
   if (!album) return c.json({ coverUrl: null })
-  const coverUrl = await itunesAlbumCover(artist, album)
-  return c.json({ coverUrl })
+  const coverUrl = (await itunesAlbumCover(artist, album)) ?? (await itunesSongArt(artist, album))
+  return c.json({ coverUrl }, 200, { 'Cache-Control': 'private, max-age=604800' })
 })
 
 // GET /api/music/catalog/genre?g=Metal — a GENRE landing (top songs + top artists from the
