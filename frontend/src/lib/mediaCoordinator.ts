@@ -37,6 +37,13 @@ export function registerTransport(kind: MediaSource, t: Transport): () => void {
   return () => { if (transports[kind] === t) delete transports[kind] }
 }
 
+/** True once an engine has claimed audio in this tab. Deliberately sticky (engines
+ *  don't report their own stop): used to keep the remote-control SSE stream alive in a
+ *  hidden tab that has been playing, so a device remote can still drive it. */
+export function hasActiveMedia(): boolean {
+  return active !== null
+}
+
 /** Route a remote transport command to the active engine. */
 export function dispatchTransport(action: string, position?: number): void {
   const t = active ? transports[active] : null

@@ -27,7 +27,12 @@ const DOWN_INTERVAL_MS     = 4_000
 // Generous: the probe shares the browser's per-host connection budget with every SSE
 // stream and poller in the app, and can sit queued for seconds while a download runs.
 const PROBE_TIMEOUT_MS     = 8_000
-const ALIVE_GRACE_MS       = 12_000  // recent real traffic suppresses a starved probe
+// Recent real traffic suppresses a starved probe. Must exceed the 30s SSE heartbeat
+// cadence (browser-session + drop streams ping every 30s and reportAlive on each one),
+// otherwise a probe starved by those very streams still declares the server down in
+// the quiet gap between pings. Costs ~15s extra latency on detecting a REAL outage
+// (the last pre-outage ping stays "recent" for this long), which is the right trade.
+const ALIVE_GRACE_MS       = 40_000
 // A refused/errored connection means the backend is really gone (hard); a timeout
 // usually just means the probe was starved or the backend was busy (soft). Demand more
 // evidence for the soft signal before alarming the whole app.
