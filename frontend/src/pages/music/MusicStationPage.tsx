@@ -40,9 +40,12 @@ export function MusicStationPage() {
   const { data: preview, isLoading: previewLoading } = useQuery({
     queryKey: ['music-station-preview', id], queryFn: () => previewStationQueue(id, 12), enabled: !!id, staleTime: 5 * 60_000,
   })
-  // Hero artwork: the first preview track's real album cover, blended into the accent.
-  const leadTrack = preview?.tracks?.[0] ?? null
-  const heroArt = useSongArt(leadTrack?.videoId, leadTrack?.title, leadTrack?.artist)
+  // Hero artwork = the SAME cover song the station's card shows (one source of truth, so
+  // the tile you clicked and the hero it opens into always match). The fresh preview's
+  // lead only fills in for stations never built before.
+  const previewLead = preview?.tracks?.[0] ?? null
+  const coverSong = data?.station?.coverTrack ?? (previewLead ? { videoId: previewLead.videoId, title: previewLead.title, artist: previewLead.artist ?? null } : null)
+  const heroArt = useSongArt(coverSong?.videoId, coverSong?.title, coverSong?.artist)
   // Live offline-save progress - polls while a snapshot is downloading/rendering.
   const { data: offline } = useQuery({
     queryKey: ['music-offline-status', id], queryFn: () => getOfflineStatus(id), enabled: !!id,

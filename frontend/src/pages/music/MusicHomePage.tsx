@@ -12,7 +12,7 @@ import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
-import { listStations, getHistory, previewStationQueue, stationToDj, type Station } from '@/lib/music/catalogApi'
+import { listStations, getHistory, stationToDj, type Station } from '@/lib/music/catalogApi'
 
 // A song tile the way modern players draw them: square album art with the title overlaid
 // on a bottom gradient, no card chrome, gentle hover lift.
@@ -42,15 +42,9 @@ function StationBillboard({ stations }: { stations: Station[] }) {
   const station = stations.length ? stations[day % stations.length]! : null
   const dj = station ? stationToDj(station) : null
 
-  // A taste of what the station actually plays - its first preview track's album art.
-  const { data: preview } = useQuery({
-    queryKey: ['music-station-preview', station?.id, 4],
-    queryFn: () => previewStationQueue(station!.id, 4),
-    enabled: !!station?.id,
-    staleTime: 24 * 60 * 60 * 1000,
-  })
-  const lead = preview?.tracks?.[0] ?? null
-  const coverArt = useSongArt(lead?.videoId, lead?.title, lead?.artist)
+  // The station's stamped cover song - the SAME art its card shows (one source of truth),
+  // and zero extra requests: it rides along on the stations list we already have.
+  const coverArt = useSongArt(station?.coverTrack?.videoId, station?.coverTrack?.title, station?.coverTrack?.artist)
 
   if (!station || !dj) return null
   const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }

@@ -9,6 +9,7 @@ import { db } from '@/db'
 import { musicStations, musicOfflineStations, musicOfflineStationTracks, musicDjCache, ytDownloads, users } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib/music/stationEngine'
+import { itunesSongArt } from '@/lib/music/catalog'
 import { enqueueVideoSave } from '@/lib/youtube/automation'
 import { getEffectiveCap, getUserPreference } from '@/lib/youtube/quality'
 import { generateDjSegment, lookupFacts } from '@/routes/musicRadio'
@@ -660,18 +661,36 @@ musicStations_route.post('/queue', async (c) => {
 
   const result = await buildStationQueue(seed, { fast: body.fast === true })
 
-  // Stamp the station's "cover song" (lead track of this build) so cards can show real
-  // album art matching the detail hero. Fire-and-forget — never delays the tune-in.
-  const lead = result.tracks?.[0]
-  if (body.stationId && lead?.videoId && lead.title) {
-    void db.update(musicStations)
-      .set({ coverTrackJson: JSON.stringify({ videoId: lead.videoId, title: lead.title, artist: lead.artist ?? null }) })
-      .where(eq(musicStations.id, body.stationId))
-      .catch(() => { /* cosmetic metadata — losing a stamp is fine */ })
-  }
+  // Stamp the station's "cover song" so cards + hero show real album art. Fire-and-forget.
+  if (body.stationId) void stampStationCoverIfEmpty(body.stationId, result.tracks ?? [])
 
   return c.json(result)
 })
+
+/** Stamp a station's cover song ONCE (only while unset — station art must be stable, not
+ *  churn with every tune-in, or the card you clicked stops matching the hero it opens).
+ *  Prefers the first queue track whose album art actually resolves (iTunes, cached), so
+ *  covers are never blurry video-thumbnail fallbacks; plain lead track as last resort. */
+export async function stampStationCoverIfEmpty(
+  stationId: string,
+  tracks: Array<{ videoId: string; title: string; artist?: string | null }>,
+): Promise<void> {
+  try {
+    if (!tracks.length) return
+    const [row] = await db.select({ coverTrackJson: musicStations.coverTrackJson })
+      .from(musicStations).where(eq(musicStations.id, stationId)).limit(1)
+    if (!row || row.coverTrackJson) return
+    let pick = tracks[0]!
+    for (const t of tracks.slice(0, 5)) {
+      if (!t.videoId || !t.title || !t.artist) continue
+      if (await itunesSongArt(t.artist, t.title)) { pick = t; break }
+    }
+    if (!pick.videoId || !pick.title) return
+    await db.update(musicStations)
+      .set({ coverTrackJson: JSON.stringify({ videoId: pick.videoId, title: pick.title, artist: pick.artist ?? null }) })
+      .where(eq(musicStations.id, stationId))
+  } catch { /* cosmetic metadata — losing a stamp is fine */ }
+}
 
 // ── Offline stations ───────────────────────────────────────────────────────────────
 // Saving a station offline freezes its generative queue into a fixed tracklist, downloads each
