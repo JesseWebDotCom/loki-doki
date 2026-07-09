@@ -621,6 +621,9 @@ export const musicStudioTracks = sqliteTable('music_studio_tracks', {
   // Karaoke-prepared tracks are created behind the /music/karaoke flow; hidden from the Studio
   // library list so a party queue doesn't clutter it.
   origin: text('origin', { enum: ['studio', 'karaoke'] }).notNull().default('studio'),
+  // Last time this track was prepared/re-sung. Karaoke reuses a cached stem separation for the
+  // same song (no re-Demucs); a TTL sweep deletes karaoke tracks unused for a while to reclaim disk.
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
   durationSec: real('duration_sec'),
   // Source acquisition: 'ready' the moment an upload lands; 'fetching' while a studio-source
   // job pulls a track picked from the Music app (resolve → saved blob or yt-dlp extract).

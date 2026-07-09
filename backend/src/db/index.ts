@@ -595,6 +595,7 @@ export function runMigrations() {
   // tracks from the Studio library list).
   addColumn('music_studio_tracks', 'source_video_id', 'TEXT')
   addColumn('music_studio_tracks', 'origin', "TEXT NOT NULL DEFAULT 'studio'")
+  addColumn('music_studio_tracks', 'last_used_at', 'INTEGER')
   // Lyric forced-alignment: re-times LRCLIB lines to this track's actual vocals stem.
   addColumn('music_studio_tracks', 'lyrics_align_status', "TEXT NOT NULL DEFAULT 'none'")
   addColumn('music_studio_tracks', 'lyrics_json', 'TEXT')

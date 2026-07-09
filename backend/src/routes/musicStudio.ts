@@ -10,7 +10,7 @@
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { musicStudioTracks, users, downloadJobs } from '@/db/schema'
-import { eq, and, desc, like } from 'drizzle-orm'
+import { eq, and, ne, desc, like, inArray, sql } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import { userPath, resolveUserPath, toRelativePath } from '@/lib/storage/paths'
 import { createReadStream, statSync } from 'node:fs'
@@ -219,25 +219,31 @@ musicStudio.post('/karaoke/prepare', async (c) => {
   if (!videoId || !title) return c.json({ error: 'videoId and title required' }, 400)
   const artist = (body.artist ?? '').trim().slice(0, 160) || null
 
-  // Reuse this user's existing karaoke track for the same song when its source hasn't failed.
+  // Reuse a cached karaoke separation for the SAME song (dedup by title+artist, not the resolved
+  // ref - a song can resolve to a Plex ref one time and a YouTube id the next, so keying on the
+  // ref missed the cache). Skip failed rows; touch last_used_at so the TTL sweep keeps it alive.
+  const now = new Date()
   const [existing] = await db.select().from(musicStudioTracks)
-    .where(and(eq(musicStudioTracks.userId, user.id), eq(musicStudioTracks.sourceVideoId, videoId)))
+    .where(and(
+      eq(musicStudioTracks.userId, user.id),
+      eq(musicStudioTracks.origin, 'karaoke'),
+      ne(musicStudioTracks.sourceStatus, 'failed'),
+      sql`lower(${musicStudioTracks.title}) = ${title.toLowerCase()}`,
+      sql`lower(coalesce(${musicStudioTracks.artist}, '')) = ${(artist ?? '').toLowerCase()}`,
+    ))
     .orderBy(desc(musicStudioTracks.createdAt)).limit(1)
-  if (existing && existing.sourceStatus !== 'failed') {
-    // Source is (being) fetched. Make sure a 2-stem separation is on its way.
-    if (existing.stemStatus === 'none' || existing.stemStatus === 'failed') {
-      if (existing.sourceStatus === 'ready') {
-        await db.update(musicStudioTracks).set({ stemStatus: 'pending', stemError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, existing.id))
-        await enqueueStemSeparation(existing.id, { model: '2-stem' }, `Karaoke stems: ${existing.title}`)
-      }
+  if (existing) {
+    await db.update(musicStudioTracks).set({ lastUsedAt: now, updatedAt: now }).where(eq(musicStudioTracks.id, existing.id))
+    if (existing.sourceStatus === 'ready' && (existing.stemStatus === 'none' || existing.stemStatus === 'failed')) {
+      await db.update(musicStudioTracks).set({ stemStatus: 'pending', stemError: null }).where(eq(musicStudioTracks.id, existing.id))
+      await enqueueStemSeparation(existing.id, { model: '2-stem' }, `Karaoke stems: ${existing.title}`)
     }
     return c.json({ id: existing.id, reused: true })
   }
 
   const id = crypto.randomUUID()
-  const now = new Date()
   await db.insert(musicStudioTracks).values({
-    id, userId: user.id, title, artist, sourceRelPath: null, sourceVideoId: videoId, origin: 'karaoke',
+    id, userId: user.id, title, artist, sourceRelPath: null, sourceVideoId: videoId, origin: 'karaoke', lastUsedAt: now,
     durationSec: body.durationSec ?? null,
     sourceStatus: 'fetching', sourceError: null,
     stemStatus: 'none', stemModel: null, stemsJson: null, stemError: null,
@@ -293,15 +299,27 @@ musicStudio.get('/:id', async (c) => {
   const { row, err } = await ownedTrack(c)
   if (err) return err
 
-  // Retro-fit: a track separated before lyric alignment existed sits at status 'none' with a
-  // vocals stem. Kick off alignment the first time it's opened so ALL separated tracks get
-  // corrected timing, not just newly-stemmed ones. 'failed'/'ready' means already attempted.
-  if (row!.lyricsAlignStatus === 'none' && row!.stemStatus === 'ready' && isStemAudioInstalled()) {
+  // Retro-fit + self-heal: kick off alignment when a track with a vocals stem has never been
+  // aligned ('none'), OR is stuck 'pending'/'aligning' with no live job (its job died — e.g. a
+  // crash or a code reload mid-run). We do NOT auto-retry a terminal 'failed'/'ready' (those were
+  // genuinely attempted; the user can re-run via POST /:id/align). Keeps ALL separated tracks
+  // converging to corrected timing without ever looping on a truly-unfixable song.
+  if (row!.stemStatus === 'ready' && isStemAudioInstalled()) {
     const stems: string[] = row!.stemsJson ? (JSON.parse(row!.stemsJson) as string[]) : []
     if (stems.includes('vocals')) {
-      await db.update(musicStudioTracks).set({ lyricsAlignStatus: 'pending', lyricsAlignError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, row!.id))
-      await enqueueLyricAlign(row!.id, `Align lyrics: ${row!.title}`)
-      row!.lyricsAlignStatus = 'pending'
+      const st = row!.lyricsAlignStatus
+      let shouldAlign = st === 'none'
+      if (!shouldAlign && (st === 'pending' || st === 'aligning')) {
+        const [live] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+          .where(and(eq(downloadJobs.type, 'lyric-align'), like(downloadJobs.variantKey, `lyric-align:${row!.id}%`),
+            inArray(downloadJobs.status, ['pending', 'running']))).limit(1)
+        shouldAlign = !live   // status says busy but no job is actually queued/running → died
+      }
+      if (shouldAlign) {
+        await db.update(musicStudioTracks).set({ lyricsAlignStatus: 'pending', lyricsAlignError: null, updatedAt: new Date() }).where(eq(musicStudioTracks.id, row!.id))
+        await enqueueLyricAlign(row!.id, `Align lyrics: ${row!.title}`)
+        row!.lyricsAlignStatus = 'pending'
+      }
     }
   }
 

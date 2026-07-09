@@ -378,6 +378,9 @@ if (firstBoot) {
   // Local music library: incremental rescan of configured folders 90s after boot + daily,
   // so files added outside the app show up without a manual scan. No-op with no folders.
   import('@/lib/music/localLibrary').then((m) => m.startLocalLibrarySweep()).catch(() => {})
+
+  // Karaoke stem cache: delete prepared karaoke tracks unused for 30 days (boot + daily).
+  import('@/lib/stems/karaokeCache').then((m) => m.startKaraokeCacheSweep()).catch(() => {})
   
   // Bookmarks capture engine: resolve (and if needed download) a headless Chromium ahead of the
   // first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
