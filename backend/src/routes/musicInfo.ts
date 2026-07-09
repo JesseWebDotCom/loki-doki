@@ -340,9 +340,14 @@ musicInfo.get('/song', async (c) => {
       if (info?.extract) return c.json({ found: true, ...info })
     }
     // Bare title is ambiguous ("Columns" → architectural columns), so only accept it when the page
-    // is clearly about a song / the artist is named in the blurb.
+    // is clearly about a song / the artist is named in the blurb. And for COVERS the bare article
+    // describes the original (Quiet Riot's "Cum On Feel the Noize" → Slade's article), so when we
+    // know who's playing, require the summary to actually name them — a song article that only
+    // credits someone else is the wrong recording's story.
     const info = await wikipediaSummary(title)
-    if (info?.extract && looksLikeSong(info, artist)) return c.json({ found: true, ...info })
+    const namesArtist = !artist
+      || tokenOverlap(artist, info?.extract ?? '') >= Math.ceil(lyricTokens(artist).size / 2)
+    if (info?.extract && looksLikeSong(info, artist) && namesArtist) return c.json({ found: true, ...info })
     return c.json({ found: false })
   } catch {
     return c.json({ found: false })

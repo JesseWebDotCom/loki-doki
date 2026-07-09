@@ -173,7 +173,7 @@ export function NowPlayingPage() {
     const warm = (key: unknown[], fn: () => Promise<unknown>) =>
       void queryClient.prefetchQuery({ queryKey: key, queryFn: fn, staleTime: Infinity })
     warm(['music-lyrics', artist, title], () => getLyrics(artist, title))
-    if (title) warm(['music-song-info', artist, title], () => getSongInfo(artist, title))
+    if (title) warm(['music-song-info-v2', artist, title], () => getSongInfo(artist, title))
     if (artist) warm(['music-artist-info-v3', artist], () => getArtistInfo(artist))
     if (artist && title) warm(['music-smart-links', artist, title], () => getSongSmartLinks(artist, title))
     if (next.thumbnail) { const img = new Image(); img.src = proxyImg(next.thumbnail) }   // warm the hero artwork
