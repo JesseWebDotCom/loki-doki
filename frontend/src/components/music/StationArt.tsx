@@ -207,24 +207,28 @@ function glyphFor(name: string, category: string | null): Glyph {
  * gradient scrim so the name stays legible.
  * showName=false for hero contexts where an h1 already carries the name.
  */
-export function StationArt({ station, className, showName = true, vivid = false }: {
+export function StationArt({ station, className, showName = true, vivid = false, coverUrl }: {
   station: Pick<Station, 'name' | 'accent' | 'category' | 'iconUrl'>
   className?: string
   showName?: boolean
   vivid?: boolean   // bolder watermark (used on the controller where tiles read at a distance)
+  /** Real album art (the station's "cover song") - fills like iconUrl; posters still win. */
+  coverUrl?: string | null
 }) {
   const Icon = glyphFor(station.name, station.category)
+  const photo = station.iconUrl ?? coverUrl ?? null
 
   return (
     <div
       className={cn('relative size-full overflow-hidden', className)}
       style={{ background: stationGradient(station.accent) }}
     >
-      {/* Photo fill - real art only (movie/show/YT poster). SVG placeholders are excluded
-          by the backend serializer so iconUrl is null for those stations. */}
-      {station.iconUrl && (
+      {/* Photo fill - real art only (movie/show/YT poster, or the station's cover-song album
+          art). SVG placeholders are excluded by the backend serializer so iconUrl is null
+          for those stations. */}
+      {photo && (
         <img
-          src={station.iconUrl}
+          src={photo}
           alt=""
           className="absolute inset-0 size-full object-cover"
           onError={e => { e.currentTarget.style.display = 'none' }}
@@ -232,7 +236,7 @@ export function StationArt({ station, className, showName = true, vivid = false 
       )}
 
       {/* Large watermark icon - oversized, anchored bottom-right, bleeds off card edges */}
-      {!station.iconUrl && (
+      {!photo && (
         <Icon className={cn('pointer-events-none absolute -bottom-[14%] -right-[8%] h-[130%] w-auto', vivid ? 'text-white/30' : 'text-white/[0.13]')} />
       )}
 

@@ -1072,6 +1072,9 @@ export function runMigrations() {
 
   // Offline music: media type a station was downloaded as (audio | video | both).
   addColumn('music_offline_stations', 'media', "TEXT NOT NULL DEFAULT 'audio'")
+  // Station "cover song" ({videoId,title,artist} of the last built queue's lead track) —
+  // resolves to real album art on station cards.
+  addColumn('music_stations', 'cover_track_json', 'TEXT')
 
   // Content-addressable blob store + media assets (app-wide dedup of offlined media).
   sqlite.exec(`

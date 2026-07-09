@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { StationArt } from '@/components/music/StationArt'
+import { useSongArt } from '@/components/music/SongArt'
 import { useOfflineStationMap } from '@/lib/music/useOffline'
 import { stationToDj, type Station } from '@/lib/music/catalogApi'
 
@@ -17,13 +18,16 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
   const navigate = useNavigate()
   const offStatus = useOfflineStationMap().get(station.id)
   const playing = radio.active && radio.station?.id === station.id
+  // Real album art from the station's "cover song" (last built queue's lead track) - keeps
+  // the card visually consistent with the blended-cover detail hero it opens into.
+  const coverUrl = useSongArt(station.coverTrack?.videoId, station.coverTrack?.title, station.coverTrack?.artist)
   const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
   const open = () => (onOpen ? onOpen(station) : navigate(`/music/station/${station.id}`))
 
   return (
     <Card variant="interactive" className="group relative overflow-hidden" onClick={open}>
       <div className="relative aspect-[16/9] w-full overflow-hidden">
-        <StationArt station={station} />
+        <StationArt station={station} coverUrl={coverUrl} />
         {/* Offline indicator: a subtle check once downloaded, a spinner while it's still saving.
             Top-right so it never collides with the station glyph at top-left. */}
         {offStatus && (

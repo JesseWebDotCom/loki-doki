@@ -32,6 +32,8 @@ export interface Station {
   seedType: SeedType; seedValue: string | null; djMode: DjMode; visibility: Visibility
   accent: string | null; category: string | null; isBuiltin: boolean; owned: boolean; ownerName: string | null
   iconUrl: string | null; bannerUrl: string | null
+  /** Lead track of the last built queue - cards resolve it to real album art. */
+  coverTrack: { videoId: string; title: string; artist: string | null } | null
 }
 export interface StationBuckets { builtin: Station[]; mine: Station[]; shared: Station[]; categories: string[] }
 

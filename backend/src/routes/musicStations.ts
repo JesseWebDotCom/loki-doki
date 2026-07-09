@@ -53,7 +53,16 @@ function serialize(row: StationRow, currentUserId: string, ownerName?: string | 
     // that the component now renders natively. SVG paths end in '.svg'.
     iconUrl: (row.iconPath && !row.iconPath.endsWith('.svg')) ? `/api/music/stations/${row.id}/art/icon` : null,
     bannerUrl: (row.bannerPath && !row.bannerPath.endsWith('.svg')) ? `/api/music/stations/${row.id}/art/banner` : null,
+    coverTrack: parseCoverTrack(row.coverTrackJson),
   }
+}
+
+function parseCoverTrack(json: string | null): { videoId: string; title: string; artist: string | null } | null {
+  if (!json) return null
+  try {
+    const p = JSON.parse(json) as { videoId?: string; title?: string; artist?: string | null }
+    return p.videoId && p.title ? { videoId: p.videoId, title: p.title, artist: p.artist ?? null } : null
+  } catch { return null }
 }
 
 // Name/description/category/seed search over the stations a user can see (built-ins +
@@ -650,6 +659,17 @@ musicStations_route.post('/queue', async (c) => {
   }
 
   const result = await buildStationQueue(seed, { fast: body.fast === true })
+
+  // Stamp the station's "cover song" (lead track of this build) so cards can show real
+  // album art matching the detail hero. Fire-and-forget — never delays the tune-in.
+  const lead = result.tracks?.[0]
+  if (body.stationId && lead?.videoId && lead.title) {
+    void db.update(musicStations)
+      .set({ coverTrackJson: JSON.stringify({ videoId: lead.videoId, title: lead.title, artist: lead.artist ?? null }) })
+      .where(eq(musicStations.id, body.stationId))
+      .catch(() => { /* cosmetic metadata — losing a stamp is fine */ })
+  }
+
   return c.json(result)
 })
 

@@ -672,6 +672,10 @@ export const musicStations = sqliteTable('music_stations', {
   accent: text('accent'),             // color slug for tinting when art is absent
   category: text('category'),         // browse grouping for built-ins (Genres, Moods, Movies…)
   loadingMessages: text('loading_messages'), // JSON string[] of playful "tuning in" lines (LLM-written, per station)
+  // Lead track of the last built queue ({videoId,title,artist}) — the station's "cover song".
+  // Stamped on every tune-in/preview; cards resolve it to real album art so the grid matches
+  // the detail hero's blended-cover look. Null until the station's first build.
+  coverTrackJson: text('cover_track_json'),
   djMode: text('dj_mode', { enum: ['full', 'minimal', 'silent'] }).notNull().default('full'),
   visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
