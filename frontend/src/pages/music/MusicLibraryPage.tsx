@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { artUrlForRef } from '@/lib/music/trackRef'
+import { SongArt } from '@/components/music/SongArt'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -125,15 +125,9 @@ function Empty({ icon: Icon, text }: { icon: typeof Heart; text: string }) {
   )
 }
 
-// Square album thumbnail for a song row - source-aware art with a music-note fallback.
-function SongThumb({ videoId }: { videoId: string }) {
-  return (
-    <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
-      <ListMusic className="absolute size-4 text-brand/60" />
-      <img src={artUrlForRef(videoId) ?? undefined} alt="" loading="lazy"
-        className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
-    </div>
-  )
+// Square album thumbnail for a song row - real album art with a music-note fallback.
+function SongThumb({ videoId, title, artist }: { videoId: string; title?: string | null; artist?: string | null }) {
+  return <SongArt trackRef={videoId} title={title} artist={artist} className="size-10" rounded="rounded-control" />
 }
 
 function FavoritesTab() {
@@ -149,7 +143,7 @@ function FavoritesTab() {
         <div key={f.id} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
           <button onClick={() => f.kind === 'song' && radio.playTrack({ videoId: f.refId, title: f.title ?? '', author: f.artist })}
             className="flex min-w-0 flex-1 items-center gap-3 text-left">
-            {f.kind === 'song' ? <SongThumb videoId={f.refId} /> : <Heart className="size-4 shrink-0 fill-current text-brand" />}
+            {f.kind === 'song' ? <SongThumb videoId={f.refId} title={f.title} artist={f.artist} /> : <Heart className="size-4 shrink-0 fill-current text-brand" />}
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{f.title ?? f.refId}</p>{f.artist && <p className="truncate text-xs text-muted-foreground">{f.artist}</p>}</div>
           </button>
           {f.kind === 'song' && (
@@ -220,7 +214,7 @@ function HistoryTab() {
         <div key={h.id} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
           <button onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })}
             className="flex min-w-0 flex-1 items-center gap-3 text-left">
-            <SongThumb videoId={h.videoId} />
+            <SongThumb videoId={h.videoId} title={h.title} artist={h.artist} />
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{h.title}</p>{h.artist && <p className="truncate text-xs text-muted-foreground">{h.artist}</p>}</div>
           </button>
           <AddToPlaylistButton song={{ videoId: h.videoId, title: h.title, artist: h.artist ?? undefined }} />
@@ -361,7 +355,7 @@ function OfflineTab() {
                 {t.status === 'ready' ? (
                   <button onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title })} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                     <div className="relative shrink-0">
-                      <SongThumb videoId={t.videoId} />
+                      <SongThumb videoId={t.videoId} title={t.title} />
                       <span className="absolute inset-0 grid place-items-center rounded-control bg-black/45 opacity-0 transition group-hover:opacity-100">
                         <Play className="size-4 fill-white text-white" />
                       </span>
@@ -582,19 +576,20 @@ function LibraryContinueShelf() {
   const recent = (data?.history ?? []).slice(0, 12)
   if (!recent.length) return null
   return (
-    <section className="mt-7 max-w-4xl">
+    <section className="mt-8">
       <SectionHeader title="Jump back in" />
-      <div className="mt-3 flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+      <div className="mt-3 flex gap-4 overflow-x-auto pb-3 pt-1 no-scrollbar">
         {recent.map(h => (
           <button key={h.id} onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })}
-            className="w-36 shrink-0 text-left">
-            <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-card bg-gradient-to-br from-brand/30 to-brand/10 shadow-sm transition hover:shadow-md">
-              <ListMusic className="absolute size-7 text-brand/50" />
-              <img src={artUrlForRef(h.videoId) ?? undefined} alt="" loading="lazy"
-                className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
+            className="group w-40 shrink-0 text-left">
+            <div className="relative overflow-hidden rounded-card shadow-md transition duration-200 group-hover:scale-[1.03] group-hover:shadow-xl">
+              <SongArt trackRef={h.videoId} title={h.title} artist={h.artist} className="aspect-square w-full" />
+              <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 p-2.5">
+                <p className="truncate text-[13px] font-semibold text-white">{h.title}</p>
+                {h.artist && <p className="truncate text-[11px] text-white/60">{h.artist}</p>}
+              </div>
             </div>
-            <p className="mt-1.5 truncate text-xs font-semibold">{h.title}</p>
-            {h.artist && <p className="truncate text-[11px] text-muted-foreground">{h.artist}</p>}
           </button>
         ))}
       </div>

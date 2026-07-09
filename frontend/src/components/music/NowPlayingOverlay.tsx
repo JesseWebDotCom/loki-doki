@@ -14,6 +14,7 @@ import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useCatalogNav } from '@/lib/music/catalogNav'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { StarRating } from '@/components/music/StarRating'
+import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { Spinner } from '@/components/ui/spinner'
@@ -50,9 +51,13 @@ export function NowPlayingOverlay() {
     setDragY(y => { if (y > 120) closePlayer(); return 0 })
   }, [closePlayer])
 
+  const curForArt = radio.currentTrack ?? radio.queue[radio.index] ?? null
+  // Unconditional hook (before the early return): real square album art for cover + backdrop.
+  const overlayArt = useSongArt(curForArt?.videoId, curForArt?.title, curForArt?.author)
+
   if (!open) return null
 
-  const cur = radio.currentTrack ?? radio.queue[radio.index] ?? null
+  const cur = curForArt
   // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - canvas/gradient literals
   const c1 = radio.station?.color ?? '#a192ff'
   const c2 = radio.station?.colorDark ?? '#643fd1'
@@ -84,8 +89,8 @@ export function NowPlayingOverlay() {
     >
       {/* Backdrop: blurred cover art + station-accent gradient wash */}
       <div className="absolute inset-0 -z-10 bg-black">
-        {cur?.thumbnail && (
-          <img src={proxyImg(cur.thumbnail)} alt="" className="absolute inset-0 size-full scale-125 object-cover opacity-40 blur-2xl" />
+        {(overlayArt || cur?.thumbnail) && (
+          <img src={overlayArt ?? proxyImg(cur!.thumbnail)} alt="" className="absolute inset-0 size-full scale-125 object-cover opacity-40 blur-2xl" />
         )}
         <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${c1}55, ${c2}cc 55%, rgba(10,10,12,0.96))` }} />
       </div>
@@ -134,8 +139,8 @@ export function NowPlayingOverlay() {
           <div className="relative aspect-square w-full max-w-[min(70vw,340px)] overflow-hidden rounded-sheet shadow-2xl ring-1 ring-white/15"
             style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
             <Disc3 className={cn('absolute left-1/2 top-1/2 size-16 -translate-x-1/2 -translate-y-1/2 text-white/30', !radio.paused && 'motion-safe:animate-[spin_8s_linear_infinite]')} />
-            {cur?.thumbnail && (
-              <img src={proxyImg(cur.thumbnail)} alt="" className="relative size-full object-cover"
+            {(overlayArt || cur?.thumbnail) && (
+              <img src={overlayArt ?? proxyImg(cur!.thumbnail)} alt="" className="relative size-full object-cover"
                 onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
             )}
             {radio.djSpeaking && (
@@ -264,8 +269,7 @@ export function NowPlayingOverlay() {
                 {upNext.map((t, i) => (
                   <div key={t.videoId + i} className="flex items-center gap-3 rounded-control px-2 py-1.5">
                     <span className="w-4 shrink-0 text-center text-xs tabular-nums text-white/40">{i + 1}</span>
-                    <img src={proxyImg(t.thumbnail)} alt="" className="size-10 shrink-0 rounded-control object-cover ring-1 ring-white/15"
-                      onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
+                    <SongArt trackRef={t.videoId} title={t.title} artist={t.author} className="size-10" rounded="rounded-control" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-white">{t.title}</p>
                       {t.author && <p className="truncate text-xs text-white/60">{t.author}</p>}

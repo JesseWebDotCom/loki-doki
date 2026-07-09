@@ -4,6 +4,7 @@ import { useRadio } from '@/context/RadioContext'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useCatalogNav } from '@/lib/music/catalogNav'
 import { proxyImg } from '@/lib/img'
+import { useSongArt } from '@/components/music/SongArt'
 import { cn } from '@/lib/cn'
 import { fmtClock } from '@/lib/youtube/format'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
@@ -23,6 +24,8 @@ export function RadioMiniBar() {
   const { openPlayer } = usePlayerOverlay()
   const cat = useCatalogNav()
   const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec, skipping } = radio
+  // Real square album art when it resolves; the video thumbnail stays as the instant fallback.
+  const miniArt = useSongArt(currentTrack?.videoId, currentTrack?.title, currentTrack?.author)
   // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors
   const accent = station?.color ?? '#a855f7'
   // Songs are finite + seekable; only while a track is actually playing (not during DJ talk).
@@ -60,8 +63,8 @@ export function RadioMiniBar() {
             className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control text-2xl leading-none"
             style={{ background: station ? `linear-gradient(135deg, ${station.color}, ${station.colorDark})` : undefined }}
             aria-label="Open AI Radio">
-            {currentTrack?.thumbnail && (
-              <img src={proxyImg(currentTrack.thumbnail)} alt="" className="absolute inset-0 size-full object-cover" />
+            {(miniArt || currentTrack?.thumbnail) && (
+              <img src={miniArt ?? proxyImg(currentTrack!.thumbnail)} alt="" className="absolute inset-0 size-full object-cover" />
             )}
             {!currentTrack?.thumbnail && <span className="relative">{station?.emoji ?? '📻'}</span>}
             {/* DJ talking - small corner badge so the song art stays visible underneath. */}

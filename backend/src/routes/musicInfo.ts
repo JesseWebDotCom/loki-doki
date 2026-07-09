@@ -5,7 +5,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
-import { getArtist } from '@/lib/music/catalog'
+import { getArtist, itunesSongArt } from '@/lib/music/catalog'
 import { getSongSmartLinks, getAlbumSmartLinks } from '@/lib/music/smartLinks'
 import type { AppEnv } from '@/types'
 
@@ -181,6 +181,18 @@ function looksLikeSong(info: { description?: string; extract?: string }, artist:
 // GET /api/music/info/artist?q=ARTIST&mbid=MBID — artist photo + bio.
 // The optional mbid unlocks the MusicBrainz → Wikidata → Wikimedia Commons path, which finds
 // images the bare-name Wikipedia lookup misses (disambiguation pages, non-matching titles).
+// GET /api/music/info/art?artist=X&title=Y — square album art for a song (iTunes, cached,
+// artist-verified). The player/shelf art path for YouTube-sourced tracks whose 16:9 video
+// thumbnails read as cheap in square tiles. 404 = no confident art; caller keeps its fallback.
+musicInfo.get('/art', async (c) => {
+  const artist = c.req.query('artist')?.trim() ?? ''
+  const title = c.req.query('title')?.trim() ?? ''
+  if (!artist || !title) return c.json({ error: 'artist and title required' }, 400)
+  const url = await itunesSongArt(artist, title)
+  if (!url) return c.json({ error: 'no art' }, 404)
+  return c.json({ url })
+})
+
 musicInfo.get('/artist', async (c) => {
   const q = c.req.query('q')?.trim() ?? ''
   const mbid = c.req.query('mbid')?.trim() || null

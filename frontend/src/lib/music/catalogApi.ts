@@ -1,4 +1,4 @@
-// Frontend client for the music sub-app — catalog (MusicBrainz), AI stations, playlists, and
+// Frontend client for the music sub-app - catalog (MusicBrainz), AI stations, playlists, and
 // library (favorites + history). Thin typed wrappers over the /api/music/* routes. (Track
 // storage for Generate/Remix lives in ./api.)
 

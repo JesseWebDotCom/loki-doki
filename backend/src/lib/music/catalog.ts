@@ -147,6 +147,43 @@ export async function itunesAlbumCover(artist: string, album: string): Promise<s
   })
 }
 
+/** Square album art for a SONG (artist + title) via the keyless iTunes Search API — the
+ *  player/shelf art path for YouTube-sourced tracks, whose video thumbnails are 16:9 and
+ *  often letterboxed (they read as cheap in square tiles). Artist-verified like
+ *  itunesAlbumCover; misses cached hard so a coverless song isn't re-searched. */
+export async function itunesSongArt(artist: string, title: string): Promise<string | null> {
+  const a = artist.trim()
+  const t = title.trim()
+  if (!a || !t) return null
+  return cachedLookup('itunes-song-art', `${a}~${t}`, THIRTY_DAYS_MS, async () => {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const want = norm(a)
+    const artistMatches = (name: string) => {
+      const r = norm(name)
+      return !!r && (r === want || (r.length >= 5 && want.includes(r)) || (want.length >= 5 && r.includes(want)))
+    }
+    try {
+      const term = encodeURIComponent(`${a} ${t}`.trim())
+      const res = await fetch(`https://itunes.apple.com/search?term=${term}&entity=song&media=music&limit=8`, {
+        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000),
+      })
+      if (!res.ok) return null
+      const data = await res.json() as { results?: Array<{ artworkUrl100?: string; artistName?: string; trackName?: string }> }
+      const qKey = norm(t)
+      const hit = (data.results ?? []).find(r => {
+        if (!r.artworkUrl100 || !artistMatches(r.artistName ?? '')) return false
+        const rt = norm(r.trackName ?? '')
+        return !!rt && !!qKey && (rt.includes(qKey) || qKey.includes(rt))
+      })
+      if (hit?.artworkUrl100) return hit.artworkUrl100.replace(/\/\d+x\d+bb\.(jpg|png)$/, '/600x600bb.$1')
+      return null
+    } catch (err) {
+      logger.debug(`[catalog] itunesSongArt failed: ${String(err)}`)
+      return null
+    }
+  })
+}
+
 // ── Search ───────────────────────────────────────────────────────────────────────
 
 export async function searchArtists(query: string, limit = 12): Promise<CatalogArtist[]> {

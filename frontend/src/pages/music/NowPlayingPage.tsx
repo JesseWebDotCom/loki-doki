@@ -18,6 +18,7 @@ import { useCatalogNav } from '@/lib/music/catalogNav'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { SectionLabel, LyricsPanel, AboutStrip, SmartLinksRow } from '@/components/music/nowPlayingParts'
 import { StarRating } from '@/components/music/StarRating'
+import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { isYouTubeRef } from '@/lib/music/trackRef'
@@ -179,6 +180,9 @@ export function NowPlayingPage() {
   // (currentTrack only gets set after the intro finishes). Fall back to that cued track so the
   // loading messages stop the moment the DJ kicks in, rather than lingering over the intro.
   const cur = radio.currentTrack ?? radio.queue[radio.index] ?? null
+  // Real square album art (iTunes-resolved, cached) for the hero + backdrop; the 16:9
+  // video thumbnail stays as the instant fallback. Unconditional hook - runs before returns.
+  const heroArt = useSongArt(cur?.videoId, cur?.title, cur?.author)
 
   // Prefetch the current song's VIDEO (480p) so switching to Watch is instant + same-spot. Only
   // for real stations (where the Watch button is shown), not one-off/instant track sessions.
@@ -245,7 +249,7 @@ export function NowPlayingPage() {
   return (
     <PageContainer width="full" className="pt-6 pb-8">
       {/* Player hero - full-bleed blurred artwork over a forced-dark surface. */}
-      <HeroShell backdropUrl={cur.thumbnail ? proxyImg(cur.thumbnail) : null} c1={c1}>
+      <HeroShell backdropUrl={heroArt ?? (cur.thumbnail ? proxyImg(cur.thumbnail) : null)} c1={c1}>
         {radio.visualizerEnabled && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3">
             <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={c1} colorDark={c2} opacity={0.25} fade />
@@ -272,11 +276,11 @@ export function NowPlayingPage() {
             )}
           </div>
 
-          {/* Artwork */}
+          {/* Artwork - real square album art when it resolves, video thumbnail until then. */}
           <div className="relative size-52 shrink-0 overflow-hidden rounded-card shadow-2xl ring-1 ring-white/15 md:size-64"
             style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
             <Disc3 className={cn('absolute left-1/2 top-1/2 size-12 -translate-x-1/2 -translate-y-1/2 text-white/40', !radio.paused && 'motion-safe:animate-[spin_6s_linear_infinite]')} />
-            <img src={proxyImg(cur.thumbnail)} alt="" className="relative size-full object-cover"
+            <img src={heroArt ?? proxyImg(cur.thumbnail)} alt="" className="relative size-full object-cover"
               onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
           </div>
 
@@ -407,8 +411,7 @@ export function NowPlayingPage() {
             {upNext.map((t, i) => (
               <div key={t.videoId + i} className="group flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-foreground/[0.04]">
                 <span className="w-4 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground/50">{i + 1}</span>
-                <img src={proxyImg(t.thumbnail)} alt="" className="size-10 shrink-0 rounded-control object-cover ring-1 ring-border/50"
-                  onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
+                <SongArt trackRef={t.videoId} title={t.title} artist={t.author} className="size-10" rounded="rounded-control" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{t.title}</p>
                   {t.author && <p className="truncate text-xs text-muted-foreground">{t.author}</p>}
