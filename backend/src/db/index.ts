@@ -1092,6 +1092,11 @@ export function runMigrations() {
   // far the listener got - the progress beacon keeps it fresh on skip/end/unload).
   addColumn('music_history', 'duration_sec', 'REAL')
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_music_history_user_played ON music_history(user_id, played_at);`)
+  // Playlist kinds: manual (default) | magic (AI vibe recipe in rules_json) | smart
+  // (rules re-evaluated on read, no persisted track rows).
+  addColumn('music_playlists', 'kind', "TEXT NOT NULL DEFAULT 'manual'")
+  addColumn('music_playlists', 'rules_json', 'TEXT')
+  addColumn('music_playlists', 'generated_at', 'INTEGER')
 
   // Content-addressable blob store + media assets (app-wide dedup of offlined media).
   sqlite.exec(`

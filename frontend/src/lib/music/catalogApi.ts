@@ -37,8 +37,11 @@ export interface Station {
 }
 export interface StationBuckets { builtin: Station[]; mine: Station[]; shared: Station[]; categories: string[] }
 
+export interface SmartRule { field: 'artist' | 'title' | 'plays' | 'lastPlayed' | 'favorite' | 'rating'; op: string; value?: string | number }
+export interface SmartRules { match: 'all' | 'any'; limit?: number; sort?: 'plays' | 'recent' | 'rating' | 'title'; rules: SmartRule[] }
 export interface Playlist {
   id: string; name: string; description: string | null; visibility: Visibility
+  kind: 'manual' | 'magic' | 'smart'; rules: SmartRules | null
   owned: boolean; ownerName: string | null; trackCount: number; coverUrl: string | null
 }
 export interface PlaylistTrack {
@@ -155,6 +158,21 @@ export function listPlaylists() { return mfetch<{ mine: Playlist[]; shared: Play
 export function getPlaylist(id: string) { return mfetch<{ playlist: Playlist; tracks: PlaylistTrack[] }>(`/playlists/${id}`) }
 export function createPlaylist(b: { name: string; description?: string; visibility?: Visibility }) {
   return mfetch<{ playlist: Playlist }>('/playlists', { method: 'POST', body: body(b) })
+}
+export function createMagicPlaylist(b: { vibe: string; chips?: string[]; arc?: string; count?: number; name?: string }) {
+  return mfetch<{ playlist: Playlist }>('/playlists/magic', { method: 'POST', body: body(b) })
+}
+export function regenerateMagicPlaylist(id: string) {
+  return mfetch<{ ok: true; trackCount: number }>(`/playlists/${id}/regenerate`, { method: 'POST' })
+}
+export function createSmartPlaylist(b: { name: string; rules: SmartRules }) {
+  return mfetch<{ playlist: Playlist }>('/playlists/smart', { method: 'POST', body: body(b) })
+}
+export function updateSmartRules(id: string, rules: SmartRules) {
+  return mfetch<{ ok: true; count: number }>(`/playlists/${id}/rules`, { method: 'PUT', body: body({ rules }) })
+}
+export function previewSmartRules(rules: SmartRules) {
+  return mfetch<{ count: number }>('/playlists/smart/preview', { method: 'POST', body: body({ rules }) })
 }
 export function updatePlaylist(id: string, b: Partial<Pick<Playlist, 'name' | 'description' | 'visibility'>>) {
   return mfetch<{ playlist: Playlist }>(`/playlists/${id}`, { method: 'PATCH', body: body(b) })

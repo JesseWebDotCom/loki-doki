@@ -238,7 +238,7 @@ const TRACKLIST_SCHEMA = {
 
 // Ask the model for a concrete tracklist that fits the station's prompt. Returns real-sounding
 // {artist,title} pairs; resolution is what ultimately validates them.
-async function llmTracklist(seed: StationSeed, want: number): Promise<Array<{ artist: string; title: string }>> {
+export async function llmTracklist(seed: StationSeed, want: number): Promise<Array<{ artist: string; title: string }>> {
   const model = await getModel()
   const exclude = seed.excludeVideoIds?.length
     ? ' Vary your picks from any obvious greatest-hits ordering so repeat listens feel fresh.'

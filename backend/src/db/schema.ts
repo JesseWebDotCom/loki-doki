@@ -692,6 +692,11 @@ export const musicPlaylists = sqliteTable('music_playlists', {
   description: text('description'),
   coverPath: text('cover_path'),
   visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
+  // manual = hand-built; magic = AI vibe-generated (recipe in rulesJson for Regenerate);
+  // smart = rule-based, re-evaluated on read (no persisted track rows).
+  kind: text('kind', { enum: ['manual', 'magic', 'smart'] }).notNull().default('manual'),
+  rulesJson: text('rules_json'),
+  generatedAt: integer('generated_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })

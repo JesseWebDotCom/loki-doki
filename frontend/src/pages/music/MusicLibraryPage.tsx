@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight } from 'lucide-react'
+import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight, Wand2, Filter } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { SongArt } from '@/components/music/SongArt'
 import { Input } from '@/components/ui/input'
@@ -32,6 +32,7 @@ import { SongDownloadButton } from '@/components/music/SongDownloadButton'
 import { CollectionTab } from '@/components/music/CollectionTab'
 import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
 import { AddToPlaylistButton } from '@/components/music/AddToPlaylistButton'
+import { MagicVibeDialog, SmartPlaylistDialog } from '@/components/music/PlaylistCreators'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import {
   getFavorites, getHistory, listPlaylists, createPlaylist,
@@ -164,6 +165,8 @@ function PlaylistsTab() {
   const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['music-playlists'], queryFn: listPlaylists })
   const [creating, setCreating] = useState(false)
+  const [magicOpen, setMagicOpen] = useState(false)
+  const [smartOpen, setSmartOpen] = useState(false)
   const [name, setName] = useState('')
   const create = async () => {
     const n = name.trim()
@@ -174,7 +177,13 @@ function PlaylistsTab() {
   const all = [...(data?.mine ?? []), ...(data?.shared ?? [])]
   return (
     <div>
-      <div className="mb-3"><Button size="sm" onClick={() => { setName(''); setCreating(true) }}><Plus className="size-4" /> New playlist</Button></div>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => { setName(''); setCreating(true) }}><Plus className="size-4" /> New playlist</Button>
+        <Button size="sm" variant="secondary" onClick={() => setMagicOpen(true)}><Wand2 className="size-4" /> Magic mix</Button>
+        <Button size="sm" variant="secondary" onClick={() => setSmartOpen(true)}><Filter className="size-4" /> Smart playlist</Button>
+      </div>
+      <MagicVibeDialog open={magicOpen} onOpenChange={v => { setMagicOpen(v); if (!v) void qc.invalidateQueries({ queryKey: ['music-playlists'] }) }} />
+      <SmartPlaylistDialog open={smartOpen} onOpenChange={v => { setSmartOpen(v); if (!v) void qc.invalidateQueries({ queryKey: ['music-playlists'] }) }} />
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>New playlist</DialogTitle></DialogHeader>
@@ -190,9 +199,16 @@ function PlaylistsTab() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {all.map(p => (
             <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/music/playlist/${p.id}`)}>
-              <div className="mb-2 flex aspect-square items-center justify-center rounded-control bg-gradient-to-br from-brand/30 to-brand/10"><ListMusic className="size-8 text-brand" /></div>
+              <div className="relative mb-2 flex aspect-square items-center justify-center rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
+                {p.kind === 'magic' ? <Wand2 className="size-8 text-brand" /> : p.kind === 'smart' ? <Filter className="size-8 text-brand" /> : <ListMusic className="size-8 text-brand" />}
+                {p.kind !== 'manual' && (
+                  <span className="absolute right-1.5 top-1.5 rounded-full bg-brand/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                    {p.kind === 'magic' ? 'Magic' : 'Smart'}
+                  </span>
+                )}
+              </div>
               <p className="truncate text-sm font-semibold">{p.name}</p>
-              <p className="text-xs text-muted-foreground">{p.trackCount} track{p.trackCount === 1 ? '' : 's'}{p.ownerName ? ` · by ${p.ownerName}` : ''}</p>
+              <p className="text-xs text-muted-foreground">{p.kind === 'smart' ? 'Live rules' : `${p.trackCount} track${p.trackCount === 1 ? '' : 's'}`}{p.ownerName ? ` · by ${p.ownerName}` : ''}</p>
             </Card>
           ))}
         </div>

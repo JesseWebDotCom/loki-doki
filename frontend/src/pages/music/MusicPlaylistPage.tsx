@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  ArrowLeft, ListMusic, Play, Trash2, Pencil, Check, X, Share2, Copy, GripVertical,
+  ArrowLeft, ListMusic, Play, Trash2, Pencil, Check, X, Share2, Copy, GripVertical, Wand2,
 } from 'lucide-react'
 import {
   DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent,
@@ -20,7 +20,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useRadio } from '@/context/RadioContext'
 import type { QueuedTrack } from '@/lib/music/radioEngine'
 import {
-  getPlaylist, updatePlaylist, deletePlaylist, removePlaylistTrack, reorderPlaylist,
+  getPlaylist, updatePlaylist, deletePlaylist, removePlaylistTrack, reorderPlaylist, regenerateMagicPlaylist,
   sharePlaylist, clonePlaylist, type PlaylistTrack,
 } from '@/lib/music/catalogApi'
 
@@ -99,6 +99,7 @@ export function MusicPlaylistPage() {
   const [name, setName] = useState('')
   const [confirmDel, setConfirmDel] = useState(false)
   const [cloning, setCloning] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const playlist = data?.playlist
@@ -202,6 +203,19 @@ export function MusicPlaylistPage() {
             )}
             {editable ? (
               <>
+                {playlist.kind === 'magic' && (
+                  <Button variant="secondary" size="sm" disabled={regenerating} onClick={async () => {
+                    setRegenerating(true)
+                    try {
+                      await regenerateMagicPlaylist(playlist.id)
+                      await qc.invalidateQueries({ queryKey: ['music-playlist', playlist.id] })
+                      toast.success('Fresh mix, same vibe')
+                    } catch { toast.error('Could not regenerate') }
+                    finally { setRegenerating(false) }
+                  }}>
+                    {regenerating ? <Spinner className="text-current" /> : <Wand2 className="size-4" />} Regenerate
+                  </Button>
+                )}
                 <label className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Switch checked={playlist.visibility === 'shared'} onCheckedChange={toggleShare} />
                   <Share2 className="size-4" /> Share with family

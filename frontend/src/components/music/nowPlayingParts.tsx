@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, Info, Music2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
-import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks } from '@/lib/music/catalogApi'
+import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, type LyricLine } from '@/lib/music/catalogApi'
 
 // Shared building blocks for the Now Playing surfaces (the app-wide player overlay and any
 // deep-link page). Extracted from the old NowPlayingPage so lyrics/about/links never diverge.
@@ -19,6 +19,25 @@ export function SectionLabel({ icon: Icon, color, children }: { icon: typeof Mus
   )
 }
 
+// The line whose timestamp has most recently passed. No look-ahead fudge (a line should light up
+// when it's actually reached, not before), and once advanced the index never retreats on its own -
+// only a real seek (a >0.75s backward jump in position) is allowed to move it backward. Without
+// that guard, a `position` reading that jitters by a few ms right at a line boundary (frame timing,
+// GC pauses) flips the index back and forth, which reads as "an old row lighting up".
+function useActiveLyricIndex(synced: LyricLine[] | null, position: number): number {
+  const lastIdxRef = useRef(-1)
+  const lastPosRef = useRef(0)
+  return useMemo(() => {
+    if (!synced || !synced.length) { lastIdxRef.current = -1; lastPosRef.current = position; return -1 }
+    let idx = -1
+    for (let i = 0; i < synced.length; i++) { if (synced[i]!.sec <= position) idx = i; else break }
+    const jumpedBack = position < lastPosRef.current - 0.75
+    lastPosRef.current = position
+    if (jumpedBack || idx > lastIdxRef.current) lastIdxRef.current = idx
+    return lastIdxRef.current
+  }, [synced, position])
+}
+
 // Synced (or plain) lyrics that auto-scroll the active line, driven by a caller-supplied playback
 // position (radio.positionSec on Now Playing, StemEngine.getPosition() in Music Studio). Kept
 // presentational/prop-driven so it works with any playback source.
@@ -32,13 +51,7 @@ export function LyricsPanel({ artist, title, position, duration, onSeek }: {
   const synced = data?.synced ?? null
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLParagraphElement>(null)
-
-  const activeIdx = useMemo(() => {
-    if (!synced) return -1
-    let idx = -1
-    for (let i = 0; i < synced.length; i++) { if (synced[i]!.sec <= position + 0.3) idx = i; else break }
-    return idx
-  }, [synced, position])
+  const activeIdx = useActiveLyricIndex(synced, position)
 
   // Scroll ONLY the lyrics box (not the page) to keep the active line centered.
   useEffect(() => {
@@ -62,7 +75,7 @@ export function LyricsPanel({ artist, title, position, duration, onSeek }: {
         {synced.map((l, i) => (
           <p key={i} ref={i === activeIdx ? activeRef : undefined}
             onClick={onSeek ? () => onSeek(l.sec) : undefined}
-            className={cn('text-lg font-semibold leading-snug transition-all duration-300',
+            className={cn('text-lg font-semibold leading-snug transition-all duration-150',
               onSeek && 'cursor-pointer hover:text-foreground',
               i === activeIdx ? 'scale-[1.02] text-foreground' : i < activeIdx ? 'text-muted-foreground/40' : 'text-muted-foreground/70')}>
             {l.text || '♪'}
@@ -76,6 +89,34 @@ export function LyricsPanel({ artist, title, position, duration, onSeek }: {
   }
   if (data?.source === 'instrumental') return empty('Instrumental, no lyrics.')
   return empty('No lyrics found for this track.')
+}
+
+// Compact 3-line karaoke ticker (previous / active / next) for tight header real estate -
+// e.g. Music Studio's now-playing card. Click to open the full LyricsPanel. Shares the
+// music-lyrics query cache with LyricsPanel, so opening the full view is instant.
+export function LyricsTicker({ artist, title, position, duration, onOpen, className }: {
+  artist: string; title: string; position: number; duration?: number; onOpen: () => void; className?: string
+}) {
+  const { data } = useQuery({
+    queryKey: ['music-lyrics', artist, title, duration], queryFn: () => getLyrics(artist, title, duration),
+    enabled: !!title, staleTime: Infinity,
+  })
+  const synced = data?.synced ?? null
+  const activeIdx = useActiveLyricIndex(synced, position)
+  if (!synced?.length) return null
+
+  const rows = [synced[activeIdx - 1], synced[activeIdx], synced[activeIdx + 1]]
+  return (
+    <button type="button" onClick={onOpen}
+      className={cn('flex w-full flex-col justify-center gap-0.5 rounded-control bg-muted/50 px-3 py-1.5 text-left transition-colors hover:bg-muted', className)}>
+      {rows.map((l, i) => (
+        <p key={i} className={cn('truncate text-xs leading-snug',
+          i === 1 ? 'font-semibold text-foreground' : 'text-muted-foreground/60')}>
+          {l ? (l.text || '♪') : ' '}
+        </p>
+      ))}
+    </button>
+  )
 }
 
 // One concise paragraph of fun facts about the song (preferred) or the artist, with a link to

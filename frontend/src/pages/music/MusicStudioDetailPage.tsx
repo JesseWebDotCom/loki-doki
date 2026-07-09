@@ -10,6 +10,7 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { WaveSeekBar } from '@/components/music/studio/WaveSeekBar'
 import { toast } from '@/lib/toast'
@@ -21,7 +22,7 @@ import { ChordTimeline } from '@/components/music/studio/ChordTimeline'
 import { StudioControls } from '@/components/music/studio/StudioControls'
 import { StemOptionsSheet } from '@/components/music/studio/StemOptionsSheet'
 import { StudioCover } from '@/components/music/studio/StudioCover'
-import { LyricsPanel } from '@/components/music/nowPlayingParts'
+import { LyricsPanel, LyricsTicker } from '@/components/music/nowPlayingParts'
 
 function fmt(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -64,6 +65,7 @@ export function MusicStudioDetailPage() {
   const [metroPan, setMetroPan] = useState(0)
   const [subdivision, setSubdivision] = useState<Subdivision>(1)
   const [loadedMode, setLoadedMode] = useState<'stems' | 'preview' | null>(null)
+  const [lyricsOpen, setLyricsOpen] = useState(false)
 
   const { data } = useQuery({
     queryKey: ['studio-track', id],
@@ -183,23 +185,29 @@ export function MusicStudioDetailPage() {
                 </div>
               )}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
               {track.sourceStatus === 'ready' && (
-                <StudioControls
-                  bpm={track.bpm}
-                  tempoRatio={engine.getTempoRatio()} onTempoRatio={(r) => engine.setTempoRatio(r)}
-                  semitones={engine.getSemitones()} onSemitones={(n) => engine.setSemitones(n)}
-                  keyLabel={track.keyLabel}
-                  onReset={() => { engine.setTempoRatio(1); engine.setSemitones(0) }}
-                  metroOn={metroOn} onMetroToggle={(on) => { setMetroOn(on); on ? metro.enable() : metro.disable() }}
-                  metroVol={metroVol} onMetroVol={(v) => { setMetroVol(v); metro.setVolume(v) }}
-                  metroPan={metroPan} onMetroPan={(p) => { setMetroPan(p); metro.setPan(p) }}
-                  subdivision={subdivision} onSubdivision={(s) => { setSubdivision(s); metro.setSubdivision(s) }}
-                />
+                <LyricsTicker artist={track.artist ?? ''} title={track.title} position={displayPos}
+                  duration={track.durationSec ?? undefined} onOpen={() => setLyricsOpen(true)} className="w-48 sm:w-64" />
               )}
-              <Button variant="ghost" size="icon-sm" onClick={onReanalyze} disabled={analyzing} aria-label="Re-detect tempo, key & chords" className="text-muted-foreground">
-                {analyzing ? <Spinner /> : <RefreshCw className="size-3.5" />}
-              </Button>
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                {track.sourceStatus === 'ready' && (
+                  <StudioControls
+                    bpm={track.bpm}
+                    tempoRatio={engine.getTempoRatio()} onTempoRatio={(r) => engine.setTempoRatio(r)}
+                    semitones={engine.getSemitones()} onSemitones={(n) => engine.setSemitones(n)}
+                    keyLabel={track.keyLabel}
+                    onReset={() => { engine.setTempoRatio(1); engine.setSemitones(0) }}
+                    metroOn={metroOn} onMetroToggle={(on) => { setMetroOn(on); on ? metro.enable() : metro.disable() }}
+                    metroVol={metroVol} onMetroVol={(v) => { setMetroVol(v); metro.setVolume(v) }}
+                    metroPan={metroPan} onMetroPan={(p) => { setMetroPan(p); metro.setPan(p) }}
+                    subdivision={subdivision} onSubdivision={(s) => { setSubdivision(s); metro.setSubdivision(s) }}
+                  />
+                )}
+                <Button variant="ghost" size="icon-sm" onClick={onReanalyze} disabled={analyzing} aria-label="Re-detect tempo, key & chords" className="text-muted-foreground">
+                  {analyzing ? <Spinner /> : <RefreshCw className="size-3.5" />}
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -268,22 +276,23 @@ export function MusicStudioDetailPage() {
               </CardContent>
             </Card>
           )}
-
-          {/* ── Lyrics, synced to playback position ── */}
-          <Card>
-            <CardHeader className="p-3 pb-1">
-              <CardTitle className="text-sm text-muted-foreground">Lyrics</CardTitle>
-            </CardHeader>
-            <CardContent className="relative h-72 overflow-hidden p-0">
-              <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 rounded-t-card bg-gradient-to-b from-card to-transparent" />
-              <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 rounded-b-card bg-gradient-to-t from-card to-transparent" />
-              <LyricsPanel artist={track.artist ?? ''} title={track.title} position={displayPos} duration={track.durationSec ?? undefined} onSeek={seekTo} />
-            </CardContent>
-          </Card>
         </>)}
       </div>
 
       <StemOptionsSheet open={optionsOpen} onOpenChange={setOptionsOpen} onGenerate={onGenerate} guitarEnhanced={data?.guitarEnhanced} />
+
+      <Sheet open={lyricsOpen} onOpenChange={setLyricsOpen}>
+        <SheetContent side="bottom" className="mx-auto flex h-[80vh] max-w-2xl flex-col rounded-t-sheet border-border/50">
+          <SheetHeader className="pb-0">
+            <SheetTitle>Lyrics</SheetTitle>
+          </SheetHeader>
+          <div className="relative min-h-0 flex-1">
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-sidebar to-transparent" />
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-sidebar to-transparent" />
+            <LyricsPanel artist={track.artist ?? ''} title={track.title} position={displayPos} duration={track.durationSec ?? undefined} onSeek={seekTo} />
+          </div>
+        </SheetContent>
+      </Sheet>
     </PageContainer>
   )
 }
