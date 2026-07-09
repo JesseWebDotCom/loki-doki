@@ -9,6 +9,8 @@ interface SectionHeaderProps {
   lead?: React.ReactNode;
   /** Item count rendered after the title. */
   count?: number;
+  /** Optional right-aligned control (filter toggle, etc.). Ignored when `to` is set. */
+  action?: React.ReactNode;
   className?: string;
 }
 
@@ -16,7 +18,7 @@ interface SectionHeaderProps {
  * The one section heading. Spacing contract between sections: `mt-10 mb-4`
  * (apply on the wrapper via className).
  */
-export function SectionHeader({ title, to, lead, count, className }: SectionHeaderProps) {
+export function SectionHeader({ title, to, lead, count, action, className }: SectionHeaderProps) {
   const inner = (
     <>
       {lead}
@@ -36,14 +38,14 @@ export function SectionHeader({ title, to, lead, count, className }: SectionHead
       ) : (
         <h2 className="flex items-center gap-2 text-section">{inner}</h2>
       )}
-      {to && (
+      {to ? (
         <Link
           to={to}
           className="flex items-center gap-0.5 text-sm font-medium text-brand transition-colors hover:text-brand-hover"
         >
           See all <ChevronRight className="size-3.5" />
         </Link>
-      )}
+      ) : action}
     </div>
   );
 }

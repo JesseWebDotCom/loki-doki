@@ -97,17 +97,18 @@ export function MusicArtistPage() {
             <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{bio}</p>
           </section>
         )}
-        {hiddenCount > 0 && (
-          <div className="mb-3 flex justify-end">
-            <Button variant="secondary" size="sm" onClick={() => setShowAll(v => !v)}>
-              {showAll ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              {showAll ? `Hide live tapes & demos (${hiddenCount})` : `Show live tapes & demos (${hiddenCount})`}
-            </Button>
-          </div>
-        )}
-        {groups.filter(([, list]) => list.length > 0).map(([label, list]) => (
+        {groups.filter(([, list]) => list.length > 0).map(([label, list], gi) => (
           <section key={label} className="mb-6">
-            <SectionHeader title={label === 'Album' ? 'Albums' : `${label}s`} count={list.length} />
+            <SectionHeader
+              title={label === 'Album' ? 'Albums' : `${label}s`}
+              count={list.length}
+              action={gi === 0 && hiddenCount > 0 ? (
+                <Button variant="secondary" size="sm" onClick={() => setShowAll(v => !v)}>
+                  {showAll ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  {showAll ? `Hide live tapes & demos (${hiddenCount})` : `Show live tapes & demos (${hiddenCount})`}
+                </Button>
+              ) : undefined}
+            />
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {list.map(al => (
                 <button key={al.mbid} onClick={() => navigate(`/music/album/${al.mbid}`)} className="flex flex-col gap-2 rounded-card p-2 text-left transition hover:bg-accent/50">
