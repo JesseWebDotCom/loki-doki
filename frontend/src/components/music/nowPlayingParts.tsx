@@ -78,7 +78,7 @@ export function LyricsPanel({ artist, title }: { artist: string; title: string }
 // the full source.
 export function AboutStrip({ artist, title, color }: { artist: string; title: string; color: string }) {
   const { data: song } = useQuery({ queryKey: ['music-song-info', artist, title], queryFn: () => getSongInfo(artist, title), enabled: !!title, staleTime: Infinity })
-  const { data: art } = useQuery({ queryKey: ['music-artist-info-v2', artist], queryFn: () => getArtistInfo(artist), enabled: !!artist, staleTime: Infinity })
+  const { data: art } = useQuery({ queryKey: ['music-artist-info-v3', artist], queryFn: () => getArtistInfo(artist), enabled: !!artist, staleTime: Infinity })
 
   const pick = song?.found && song.extract
     ? { extract: song.extract, url: song.url, label: 'About this song' }

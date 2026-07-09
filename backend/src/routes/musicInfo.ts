@@ -8,6 +8,7 @@ import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { getArtist, searchArtists, itunesSongArt } from '@/lib/music/catalog'
 import { getSongSmartLinks, getAlbumSmartLinks } from '@/lib/music/smartLinks'
 import { musicPolicyFor, itunesSongAdvisory, lyricsHidden, OPEN_POLICY } from '@/lib/music/advisory'
+import { deezerArtistPicture } from '@/lib/music/deezer'
 import type { AppEnv } from '@/types'
 
 export const musicInfo = new Hono<AppEnv>()
@@ -136,7 +137,16 @@ async function resolveArtistInfo(name: string, mbid: string | null): Promise<(Wi
   let title = name
   let logo: string | null = null
 
-  // 0. Recover the MusicBrainz identity when the caller only has a name (genre charts,
+  // 0a. PHOTO from Deezer's CDN first: fast, unthrottled, near-complete coverage.
+  // Wikimedia Commons rate-limits bursts (verified live: one artist page's worth of
+  // tiles got the whole IP 429'd and every photo vanished for the session), so the
+  // Commons/Wikipedia chain below is the fallback for photos - and stays the source
+  // of the bio, links, and band logo, which Deezer doesn't have.
+  if (name) {
+    try { image = await deezerArtistPicture(name) } catch { /* chain below */ }
+  }
+
+  // 0b. Recover the MusicBrainz identity when the caller only has a name (genre charts,
   // chart artists). Only trust exact name matches - a fuzzy hit would swap artists. Keep
   // ALL exact matches: several acts can share the exact name ("Skid Row" is both the US
   // and an Irish band) and only some carry images.
@@ -148,34 +158,35 @@ async function resolveArtistInfo(name: string, mbid: string | null): Promise<(Wi
     } catch { /* name-only fallbacks below */ }
   }
 
-  // 1. Authoritative path: MB image relation → Wikidata P18 → MB-linked Wikipedia article.
-  // Tries each exact-name candidate until one yields a photo.
+  // 1. MB path: image relation → Wikidata P18 → MB-linked Wikipedia article. Fills the
+  // photo when Deezer missed, and the bio/link either way.
   for (const candidate of mbidCandidates) {
-    if (image) break
+    if (image && extract) break
     try {
       const a = await getArtist(candidate)
       if (!a) continue
-      if (a.imageUrl) image = a.imageUrl
+      if (!image && a.imageUrl) image = a.imageUrl
       if (!image && a.wikidataId) image = await wikidataImage(a.wikidataId)
       const wt = titleFromWikipediaUrl(a.wikipediaUrl)
-      if ((!image || !extract) && wt) {
+      if (!extract && wt) {
         const s = await wikipediaSummary(wt)
         if (s) {
           if (!image) image = s.image
-          if (!extract || image) { extract = s.extract; url = s.url; title = s.title }
+          extract = s.extract; url = s.url; title = s.title
         }
       }
-      if (image) { mbid = candidate }
+      if (image && !mbid) { mbid = candidate }
     } catch { /* try the next candidate */ }
   }
 
   // 2. Wikipedia by name - and the article must be about music. Generic-name acts get the
   // standard disambiguated titles tried next - "Europe (band)" resolves directly.
-  if (!image && name) {
+  if ((!image || !extract) && name) {
     const direct = await wikipediaSummary(name)
     if (direct && looksLikeArtist(direct)) {
-      image = direct.image; extract = extract || direct.extract; url = url ?? direct.url; title = direct.title
-    } else {
+      if (!image) image = direct.image
+      extract = extract || direct.extract; url = url ?? direct.url; title = direct.title
+    } else if (!image) {
       for (const suffix of ['band', 'musician', 'singer', 'rapper']) {
         const s = await wikipediaSummary(`${name} (${suffix})`)
         if (s && looksLikeArtist(s)) { image = s.image; extract = extract || s.extract; url = url ?? s.url; title = s.title; break }
@@ -243,7 +254,7 @@ musicInfo.get('/artist', async (c) => {
   if (!q && !mbid) return c.json({ error: 'q required' }, 400)
   try {
     const info = await cachedLookup(
-      'artist-info', `${mbid ?? ''}|${q}`, THIRTY_DAYS_MS,
+      'artist-info-v3', `${mbid ?? ''}|${q}`, THIRTY_DAYS_MS,
       () => resolveArtistInfo(q, mbid),
     )
     return c.json(info)

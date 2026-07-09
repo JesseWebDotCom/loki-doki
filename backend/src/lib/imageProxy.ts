@@ -73,10 +73,16 @@ export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buff
     // a plain fetch(..., { redirect: 'follow' }) would silently follow it.
     const res = await safeFetch(
       rawUrl,
-      { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'image/*' } },
+      { headers: { 'User-Agent': 'LokiDoki/3.0 (self-hosted home hub; https://github.com/lokidoki)', Accept: 'image/*' } },
       { timeoutMs: FETCH_TIMEOUT_MS },
     )
-    if (!res.ok) { await markMissing(); return null }
+    if (!res.ok) {
+      // Only PERMANENT misses go in the negative cache. Transient failures (429 rate
+      // limits - Wikimedia throttles bursts - plus 5xx) must retry on the next request;
+      // negative-caching a 429 for 7 days made every artist photo vanish for a week.
+      if (res.status === 404 || res.status === 410 || res.status === 403) await markMissing()
+      return null
+    }
     const contentType = (res.headers.get('content-type') ?? 'image/jpeg').split(';')[0]!.trim()
     if (!contentType.startsWith('image/')) { await markMissing(); return null }
     const buf = await res.arrayBuffer()
