@@ -179,8 +179,8 @@ export function MusicWatchStationPage() {
   if (!isCurrent && !station) return <div className="px-5 pt-10 text-sm text-muted-foreground">Loading…</div>
   const headerName = station?.name ?? radio.station?.label ?? 'Now Playing'
   // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - interpolated with alpha suffixes below
-  const c1 = station ? stationToDj(station).color : (radio.station?.color ?? '#a192ff')
-  const c2 = station ? stationToDj(station).colorDark : (radio.station?.colorDark ?? '#643fd1') // design-ok(hex-in-tsx): station accent fallback (brand hue)
+  const c1 = station ? stationToDj(station).color : (radio.station?.color ?? '#fb923c')
+  const c2 = station ? stationToDj(station).colorDark : (radio.station?.colorDark ?? '#f97316') // design-ok(hex-in-tsx): station accent fallback (brand hue)
   const emoji = station ? stationToDj(station).emoji : (radio.station?.emoji ?? '📺')
 
   return (

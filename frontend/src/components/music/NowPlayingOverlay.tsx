@@ -59,8 +59,8 @@ export function NowPlayingOverlay() {
 
   const cur = curForArt
   // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - canvas/gradient literals
-  const c1 = radio.station?.color ?? '#a192ff'
-  const c2 = radio.station?.colorDark ?? '#643fd1'
+  const c1 = radio.station?.color ?? '#fb923c'
+  const c2 = radio.station?.colorDark ?? '#f97316'
   const emoji = radio.station?.emoji ?? '📻'
   const artist = cur?.author ?? ''
   const canSeek = radio.phase === 'playing' && !radio.djSpeaking && radio.durationSec > 0

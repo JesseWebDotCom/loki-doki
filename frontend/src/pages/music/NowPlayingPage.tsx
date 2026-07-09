@@ -214,8 +214,8 @@ export function NowPlayingPage() {
   }
 
   // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - interpolated with alpha suffixes below
-  const c1 = radio.station?.color ?? '#a192ff'
-  const c2 = radio.station?.colorDark ?? '#643fd1' // design-ok(hex-in-tsx): station accent fallback (brand hue)
+  const c1 = radio.station?.color ?? '#fb923c'
+  const c2 = radio.station?.colorDark ?? '#f97316' // design-ok(hex-in-tsx): station accent fallback (brand hue)
   const emoji = radio.station?.emoji ?? '📻'
   const label = radio.station?.label ?? 'Radio'
 

@@ -27,7 +27,7 @@ export function RadioMiniBar() {
   // Real square album art when it resolves; the video thumbnail stays as the instant fallback.
   const miniArt = useSongArt(currentTrack?.videoId, currentTrack?.title, currentTrack?.author)
   // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors
-  const accent = station?.color ?? '#a855f7'
+  const accent = station?.color ?? '#fb923c'
   // Songs are finite + seekable; only while a track is actually playing (not during DJ talk).
   const canSeek = phase === 'playing' && !djSpeaking && durationSec > 0
 
@@ -50,8 +50,8 @@ export function RadioMiniBar() {
               active={!paused && (phase === 'playing' || djSpeaking)}
               getAnalyser={radio.getAnalyser}
               // design-ok(hex-in-tsx): canvas visualizer tint fallbacks (canvas cannot read CSS vars)
-              color={station?.color ?? '#a855f7'}
-              colorDark={station?.colorDark ?? '#6d28d9'} // design-ok(hex-in-tsx): canvas visualizer tint fallback
+              color={station?.color ?? '#fb923c'}
+              colorDark={station?.colorDark ?? '#f97316'} // design-ok(hex-in-tsx): canvas visualizer tint fallback
               opacity={0.2}
               fade
             />

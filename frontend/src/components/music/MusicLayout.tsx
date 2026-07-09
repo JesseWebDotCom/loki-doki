@@ -18,23 +18,30 @@ export function useMusicMode() {
  *  cards/pages ghost offline-only content without every caller threading it. */
 export function useMusicModeOptional(): MusicMode { return useContext(MusicModeCtx)?.mode ?? 'online' }
 
-// Online = brand identity, Offline = warning (amber) - so you always know which side you're on.
-// The accent feeds CSS variables the whole Music app can consume via `bg-[var(--music-accent)]` etc.
+// The Music app carries its OWN identity color - the orange of its app tile (mirrored
+// from the appCategories registry entry) - not the app-wide violet. Online = that
+// orange; Offline = warning amber, kept for the "you're on the offline side" signal.
+// design-ok(hex-in-tsx): the app-tile identity hues, mirrored from appCategories.ts
+const MUSIC_ORANGE = '#fb923c'
+const MUSIC_ORANGE_DEEP = '#f97316' // design-ok(hex-in-tsx): app-tile identity hue
 const ACCENT: Record<MusicMode, { base: string; hover: string; fg: string; contrast: string }> = {
-  online: { base: 'var(--brand)', hover: 'var(--brand-hover)', fg: 'var(--brand)', contrast: 'var(--brand-foreground)' },
+  online: { base: MUSIC_ORANGE_DEEP, hover: MUSIC_ORANGE, fg: MUSIC_ORANGE, contrast: '#1b0f04' },
   offline: { base: 'var(--warning)', hover: 'var(--warning)', fg: 'var(--warning)', contrast: 'var(--warning-foreground)' },
 }
 const MODE_KEY = 'music.mode'
 
-/** Segmented Online/Offline control - lives in the breadcrumb's right slot, mirroring YouTube. */
+/** Segmented Online/Offline control - lives in the breadcrumb's right slot, mirroring YouTube.
+ *  Rendered OUTSIDE the music subtree (in the shared header), so the Music orange is applied
+ *  explicitly rather than via the subtree's --brand override. */
 function ModeToggle({ mode, onChange }: { mode: MusicMode; onChange: (m: MusicMode) => void }) {
   return (
     <div className="flex h-8 shrink-0 items-center rounded-full border border-border bg-background p-0.5 text-xs font-semibold">
       {(['online', 'offline'] as MusicMode[]).map(m => (
         <button key={m} type="button" onClick={() => onChange(m)}
+          style={mode === m && m === 'online' ? { background: MUSIC_ORANGE_DEEP, color: 'white' } : undefined}
           className={cn('rounded-full px-2.5 py-1 capitalize transition-colors',
             mode === m
-              ? (m === 'online' ? 'bg-brand text-brand-foreground' : 'bg-warning text-warning-foreground')
+              ? (m === 'online' ? '' : 'bg-warning text-warning-foreground')
               : 'text-muted-foreground hover:text-foreground')}>
           {m}
         </button>
@@ -89,7 +96,12 @@ export function MusicLayout() {
     '--music-accent-fg': a.fg,
     '--music-accent-contrast': a.contrast,
     '--music-accent-soft': `color-mix(in oklab, ${a.fg} 15%, transparent)`,
-    // A faint accent wash over the near-black base so Online (brand) and Offline (warning)
+    // Rebrand the whole subtree: every text-brand/bg-brand/ring inside Music resolves to
+    // the app's orange (inline vars beat the [data-theme=dark] stylesheet definitions).
+    '--brand': a.fg,
+    '--brand-hover': a.hover,
+    '--brand-foreground': a.contrast,
+    // A faint accent wash over the near-black base so Online (orange) and Offline (amber)
     // still read at a glance without lifting the black.
     backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 4%, transparent)`}, ${`color-mix(in oklab, ${a.base} 4%, transparent)`})`,
   } as CSSProperties
