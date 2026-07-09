@@ -90,7 +90,7 @@ function OfflineBrowse({ q }: { q: string }) {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow={q ? 'Offline · Search' : 'Music · Offline'}
+      <PageHeader plain
         title={q ? `“${q}”` : 'Browse offline'} subtitle={q ? undefined : 'Everything you’ve saved for offline play.'} />
       {SearchBar}
 
@@ -172,7 +172,7 @@ export function MusicBrowsePage() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Search" title={`“${q}”`} />
+      <PageHeader plain title={`“${q}”`} />
       {SearchBar}
       {isLoading && <p className="text-sm text-muted-foreground">Searching…</p>}
 

@@ -102,7 +102,7 @@ export function MusicGeneratePage() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music" title="Generate" subtitle="Original music, rendered offline. Pick a style and get 6 takes." />
+      <PageHeader plain title="Generate" subtitle="Original music, rendered offline. Pick a style and get 6 takes." />
       <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
         <div className="space-y-4">
           <Field label="Style">
@@ -207,10 +207,10 @@ export function MusicRemixPage() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music" title="Remix" subtitle="Restyle a MIDI in a new genre. Your melody stays, the groove gets rebuilt." />
+      <PageHeader plain title="Remix" subtitle="Restyle a MIDI in a new genre. Your melody stays, the groove gets rebuilt." />
       <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
         <div className="space-y-4">
-          <button type="button" onClick={() => fileRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-border/60 py-6 text-muted-foreground hover:bg-muted/40">
+          <button type="button" onClick={() => fileRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-2 rounded-card bg-white/[0.04] py-6 text-muted-foreground ring-1 ring-inset ring-white/10 transition hover:bg-white/[0.07] hover:text-foreground">
             {analyzing ? <Spinner size="lg" className="text-current" /> : <Upload className="size-6" />}
             <span className="text-sm">{parsed ? 'Choose a different .mid' : 'Drop a .mid file to remix'}</span>
           </button>
@@ -256,7 +256,7 @@ export function MusicRemixPage() {
         </div>
         <div className="space-y-4">
           {!parsed ? (
-            <div className="flex flex-col items-center gap-3 rounded-card border border-dashed border-border/50 bg-muted/10 p-10 text-center">
+            <div className="flex flex-col items-center gap-3 rounded-card bg-white/[0.03] p-10 ring-1 ring-inset ring-white/[0.06] text-center">
               <div className="flex size-10 items-center justify-center rounded-control bg-brand/10"><Shuffle className="size-5 text-brand" /></div>
               <div><p className="font-semibold">Restyle any MIDI in a new genre</p><p className="text-xs text-muted-foreground">Drop a .mid on the left. Your melody stays, everything else gets rebuilt.</p></div>
             </div>

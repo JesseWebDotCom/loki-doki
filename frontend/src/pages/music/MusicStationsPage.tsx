@@ -27,7 +27,7 @@ function OfflineStations() {
   const stations = data?.stations ?? []
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music · Offline" title="Stations"
+      <PageHeader plain title="Stations"
         subtitle="The stations you've saved for offline play." />
       {stations.length === 0 ? (
         <div className="mt-10 flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">

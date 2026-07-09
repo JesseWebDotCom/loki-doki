@@ -232,7 +232,7 @@ export function MusicLiveRadioPage() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music" title="Live Radio"
+      <PageHeader plain title="Live Radio"
         subtitle="Real stations, streaming live from around the world."
         actions={<Button onClick={() => setAddOpen(true)}><Link2 className="size-4" /> Add by URL</Button>} />
 

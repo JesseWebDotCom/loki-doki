@@ -91,7 +91,7 @@ function OfflineHome() {
 
   return (
     <PageContainer width="wide" className="pb-10">
-      <PageHeader eyebrow="Music · Offline" title="Listen offline"
+      <PageHeader plain title="Listen offline"
         subtitle="Your downloaded stations and songs, no internet needed." />
 
       {recent.length > 0 && (

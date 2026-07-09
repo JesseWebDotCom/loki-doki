@@ -101,6 +101,7 @@ export function MusicLayout() {
     '--brand': a.fg,
     '--brand-hover': a.hover,
     '--brand-foreground': a.contrast,
+    '--ring': a.fg,   // focus rings follow the identity too (inputs, buttons)
     // A faint accent wash over the near-black base so Online (orange) and Offline (amber)
     // still read at a glance without lifting the black.
     backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 4%, transparent)`}, ${`color-mix(in oklab, ${a.base} 4%, transparent)`})`,

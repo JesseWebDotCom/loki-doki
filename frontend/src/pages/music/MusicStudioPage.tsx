@@ -89,6 +89,7 @@ export function MusicStudioPage() {
   return (
     <PageContainer width="wide">
       <PageHeader
+        plain
         title="Studio"
         subtitle="Split any song into stems and practise with a metronome, chords, and key changer."
         actions={
