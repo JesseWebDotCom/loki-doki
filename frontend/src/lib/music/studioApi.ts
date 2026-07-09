@@ -98,7 +98,7 @@ export async function deleteStudioTrack(id: string): Promise<void> {
  *  return its studio-track id. Reuses an existing separation for the same videoId. Poll it
  *  with getStudioTrack(id) until stemStatus === 'ready', then play the stems. */
 export async function prepareKaraoke(song: { videoId: string; title: string; artist?: string | null; durationSec?: number | null }): Promise<string> {
-  const r = await fetch('/api/music/karaoke/prepare', { ...opts, method: 'POST', headers: J, body: JSON.stringify(song) })
+  const r = await fetch('/api/music/studio/karaoke/prepare', { ...opts, method: 'POST', headers: J, body: JSON.stringify(song) })
   if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? 'prepare')
   return (await r.json() as { id: string }).id
 }
@@ -106,7 +106,7 @@ export async function prepareKaraoke(song: { videoId: string; title: string; art
 export interface KaraokeSuggestion { title: string; artist: string; cover: string | null }
 /** Curated popular karaoke standards (with cover art) for the suggestions row. */
 export async function getKaraokeSuggestions(): Promise<KaraokeSuggestion[]> {
-  const r = await fetch('/api/music/karaoke/suggestions', opts)
+  const r = await fetch('/api/music/studio/karaoke/suggestions', opts)
   if (!r.ok) return []
   return (await r.json() as { suggestions: KaraokeSuggestion[] }).suggestions
 }

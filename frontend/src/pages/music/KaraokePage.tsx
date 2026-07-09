@@ -102,7 +102,11 @@ export function KaraokePage() {
     if (prep !== current.prep) setQueue((q) => q.map((x) => x.key === current.key ? { ...x, prep } : x))
   }, [curTrack, current])
 
-  // Load stems into the engine once ready and start singing.
+  // Load stems into the engine once ready. Auto-play only AFTER the user has started once —
+  // the browser blocks the AudioContext from starting outside a user gesture, so the very
+  // first song waits for the big Play button (which resumes the context); later songs
+  // auto-advance because the context is already running.
+  const startedRef = useRef(false)
   useEffect(() => {
     if (!curTrack || curTrack.stemStatus !== 'ready' || curTrack.stems.length === 0) return
     const key = 'k|' + curTrack.stems.map((s) => s.url).join('|')
@@ -113,7 +117,7 @@ export function KaraokePage() {
         setVocalOnset(engine.getVocalOnsetSec())
         engine.setStemVolume('vocals', vocalGuide)
         engine.setSemitones(semitones)
-        void engine.play()
+        if (startedRef.current) void engine.play()
       })
       .catch(() => toast.error('Could not load the karaoke track'))
   }, [curTrack, engine, vocalGuide, semitones])
@@ -170,7 +174,9 @@ export function KaraokePage() {
   advanceRef.current = advance
   const setGuide = (v: number) => { setVocalGuide(v); localStorage.setItem(VOCAL_KEY, String(v)); engine.setStemVolume('vocals', v) }
   const setKey = (n: number) => { const s = Math.max(-6, Math.min(6, n)); setSemitones(s); engine.setSemitones(s) }
-  const restart = () => { engine.seek(0); void engine.play() }
+  // The Play button is the user gesture that unlocks the AudioContext (browsers block autoplay).
+  const togglePlay = () => { startedRef.current = true; engine.toggle() }
+  const restart = () => { startedRef.current = true; engine.seek(0); void engine.play() }
 
   const addSong = useCallback((s: QueueItem) => setQueue((q) => [...q, s]), [])
   const removeAt = (key: string) => setQueue((q) => q.filter((x) => x.key !== key))
@@ -300,7 +306,7 @@ export function KaraokePage() {
           {/* Transport */}
           <div className="flex items-center gap-3">
             <button onClick={restart} disabled={!current || current.prep !== 'ready'} title="Restart" className="grid size-10 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-30"><RotateCcw className="size-5" /></button>
-            <button onClick={() => engine.toggle()} disabled={!current || current.prep !== 'ready'}
+            <button onClick={togglePlay} disabled={!current || current.prep !== 'ready'}
               className="grid size-14 place-items-center rounded-full bg-white text-black shadow-xl transition hover:scale-105 disabled:opacity-40" title={playing ? 'Pause' : 'Play'}>
               {playing ? <Pause className="size-6" /> : <Play className="size-6 translate-x-0.5" />}
             </button>
