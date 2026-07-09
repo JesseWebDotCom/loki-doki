@@ -19,9 +19,11 @@ interface QueueItem {
   title: string
   artist: string
   durationSec: number | null
+  cover?: string | null
   singer?: string
   studioId?: string
-  prep: 'idle' | 'preparing' | 'ready' | 'failed'
+  // resolving = finding a playable source (before we have a videoId); idle = ready to prepare.
+  prep: 'resolving' | 'idle' | 'preparing' | 'ready' | 'failed'
 }
 
 const VOCAL_KEY = 'music.karaokeVocalGuide'
@@ -80,7 +82,7 @@ export function KaraokePage() {
   const ensurePrepared = useCallback(async (idx: number) => {
     setQueue((q) => {
       const it = q[idx]
-      if (!it || it.prep !== 'idle') return q
+      if (!it || it.prep !== 'idle' || !it.videoId) return q
       const next = [...q]; next[idx] = { ...it, prep: 'preparing' }
       // Fire the prepare outside setState.
       void prepareKaraoke({ videoId: it.videoId, title: it.title, artist: it.artist, durationSec: it.durationSec })
@@ -184,6 +186,19 @@ export function KaraokePage() {
   const addSong = useCallback((s: QueueItem) => setQueue((q) => [...q, s]), [])
   const removeAt = (key: string) => setQueue((q) => q.filter((x) => x.key !== key))
 
+  // Add a picked catalog song to the queue INSTANTLY (prep 'resolving'), then resolve it to a
+  // playable ref in the background - so the song shows up the moment you tap it instead of after
+  // a multi-second resolve. Once resolved, prep flips to 'idle' and ensurePrepared kicks in.
+  const pickSong = useCallback((c: { title: string; artist: string; mbid?: string; durationSec?: number | null; cover?: string | null }) => {
+    const key = uid()
+    setQueue((q) => [...q, { key, videoId: '', title: c.title, artist: c.artist, durationSec: c.durationSec ?? null, cover: c.cover ?? null, prep: 'resolving' }])
+    void resolveSong({ mbid: c.mbid ?? null, title: c.title, artist: c.artist, durationSec: c.durationSec ?? null })
+      .then((r) => setQueue((q) => q.map((x) => x.key === key
+        ? (r?.videoId ? { ...x, videoId: r.videoId, durationSec: r.durationSec ?? x.durationSec, prep: 'idle' as const } : { ...x, prep: 'failed' as const })
+        : x)))
+      .catch(() => setQueue((q) => q.map((x) => x.key === key ? { ...x, prep: 'failed' as const } : x)))
+  }, [])
+
   // Seed from the currently-playing radio track, if any.
   const seedFromNowPlaying = () => {
     const t = radio.currentTrack
@@ -224,7 +239,7 @@ export function KaraokePage() {
       <div className="flex items-center justify-between gap-3 px-6 py-4">
         <div className="flex items-center gap-2 text-lg font-bold"><Mic2 className="size-5" style={{ color: palette.vibrant }} /> Karaoke</div>
         <div className="flex items-center gap-2">
-          <AddSongPopover onAdd={addSong} onSeedNowPlaying={seedFromNowPlaying} accent={palette.vibrant} />
+          <AddSongPopover onPick={pickSong} onSeedNowPlaying={seedFromNowPlaying} accent={palette.vibrant} />
           <button onClick={enterFullscreen} title="Fullscreen" className="grid size-9 place-items-center rounded-full bg-white/10 hover:bg-white/20"><Maximize2 className="size-4" /></button>
         </div>
       </div>
@@ -240,12 +255,13 @@ export function KaraokePage() {
                 <p className="text-2xl font-semibold text-white/50">Add songs to start the show</p>
                 <p className="max-w-md text-sm text-white/30">Vocals are removed with AI so you can sing lead. Lyrics scroll big; the queue keeps the party moving.</p>
               </div>
-              <KaraokeSuggestions onAdd={addSong} />
+              <KaraokeSuggestions onPick={pickSong} />
             </div>
           ) : preparing ? (() => {
             // Report the actual pipeline stage (fetch → separate → align) with its own progress,
             // instead of flip-flopping between two generic lines.
             const stage = (() => {
+              if (current.prep === 'resolving') return { label: 'Finding the song', pct: null }
               if (!curTrack || curTrack.sourceStatus === 'fetching') return { label: 'Finding and downloading the track', pct: curTrack?.sourceProgress?.pct ?? null }
               if (curTrack.stemStatus === 'pending') return { label: 'Queued to remove the vocals', pct: null }
               if (curTrack.stemStatus === 'separating') return { label: 'Removing the vocals with AI', pct: curTrack.stemProgress?.pct ?? null }
@@ -303,13 +319,15 @@ export function KaraokePage() {
             {upNext.map((it) => (
               <div key={it.key} className="group flex items-center gap-2 rounded-xl bg-white/5 p-2">
                 <GripVertical className="size-4 shrink-0 text-white/20" />
-                <img src={proxyImgAuto(`https://i.ytimg.com/vi/${it.videoId}/mqdefault.jpg`)} alt="" className="size-9 shrink-0 rounded-md object-cover" />
+                <img src={it.videoId ? proxyImgAuto(`https://i.ytimg.com/vi/${it.videoId}/mqdefault.jpg`) : proxyImgAuto(it.cover ?? '')}
+                  alt="" className="size-9 shrink-0 rounded-md bg-white/5 object-cover" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{it.title}</div>
                   <div className="truncate text-xs text-white/50">{it.artist}</div>
                 </div>
                 {it.prep === 'ready' && <span className="shrink-0 text-[10px] font-semibold uppercase" style={{ color: palette.vibrant }}>Ready</span>}
-                {it.prep === 'preparing' && <Spinner className="size-3.5 shrink-0 text-white/40" />}
+                {it.prep === 'failed' && <span className="shrink-0 text-[10px] font-semibold uppercase text-white/40">Failed</span>}
+                {(it.prep === 'resolving' || it.prep === 'preparing') && <Spinner className="size-3.5 shrink-0 text-white/40" />}
                 <button onClick={() => removeAt(it.key)} className="shrink-0 text-white/30 opacity-0 transition group-hover:opacity-100 hover:text-white"><X className="size-4" /></button>
               </div>
             ))}
@@ -376,74 +394,51 @@ export function KaraokePage() {
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, '0')}`
 
-// Curated popular-karaoke row shown on the empty stage. Clicking a card resolves + queues it.
-function KaraokeSuggestions({ onAdd }: { onAdd: (s: QueueItem) => void }) {
+// Curated popular-karaoke row shown on the empty stage. Clicking a card queues it instantly.
+function KaraokeSuggestions({ onPick }: { onPick: (c: { title: string; artist: string; cover?: string | null }) => void }) {
   const { data } = useQuery({ queryKey: ['karaoke-suggestions'], queryFn: getKaraokeSuggestions, staleTime: Infinity })
-  const [busy, setBusy] = useState<string | null>(null)
   if (!data?.length) return null
-
-  const pick = async (s: { title: string; artist: string }) => {
-    const k = `${s.artist}~${s.title}`
-    setBusy(k)
-    try {
-      const r = await resolveSong({ title: s.title, artist: s.artist })
-      if (!r?.videoId) { toast.error('No playable source for that song'); return }
-      onAdd({ key: uid(), videoId: r.videoId, title: s.title, artist: s.artist, durationSec: r.durationSec ?? null, prep: 'idle' })
-      toast.success(`Added “${s.title}”`)
-    } catch { toast.error('Could not add that song') }
-    finally { setBusy(null) }
-  }
 
   return (
     <div className="w-full max-w-4xl">
       <div className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Popular karaoke tracks</div>
       <div className="flex gap-3 overflow-x-auto pb-2">
-        {data.map((s) => {
-          const k = `${s.artist}~${s.title}`
-          return (
-            <button key={k} onClick={() => pick(s)} disabled={busy === k}
-              className="group relative w-28 shrink-0 text-left disabled:opacity-60">
-              <div className="relative aspect-square w-28 overflow-hidden rounded-xl bg-white/5">
-                {s.cover
-                  ? <img src={proxyImgAuto(s.cover)} alt="" className="size-full object-cover transition group-hover:scale-105" />
-                  : <div className="grid size-full place-items-center"><Music2 className="size-8 text-white/20" /></div>}
-                <div className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition group-hover:opacity-100">
-                  {busy === k ? <Spinner className="text-white" /> : <Plus className="size-7 text-white" />}
-                </div>
+        {data.map((s) => (
+          <button key={`${s.artist}~${s.title}`} onClick={() => onPick(s)}
+            className="group relative w-28 shrink-0 text-left">
+            <div className="relative aspect-square w-28 overflow-hidden rounded-xl bg-white/5">
+              {s.cover
+                ? <img src={proxyImgAuto(s.cover)} alt="" className="size-full object-cover transition group-hover:scale-105" />
+                : <div className="grid size-full place-items-center"><Music2 className="size-8 text-white/20" /></div>}
+              <div className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                <Plus className="size-7 text-white" />
               </div>
-              <div className="mt-1.5 truncate text-xs font-medium text-white/90">{s.title}</div>
-              <div className="truncate text-[11px] text-white/50">{s.artist}</div>
-            </button>
-          )
-        })}
+            </div>
+            <div className="mt-1.5 truncate text-xs font-medium text-white/90">{s.title}</div>
+            <div className="truncate text-[11px] text-white/50">{s.artist}</div>
+          </button>
+        ))}
       </div>
     </div>
   )
 }
 
-// Search-and-add popover: songs resolve to a YouTube ref before queueing. An optional artist
-// field scopes the search (like the Studio picker) so covers don't bury the real recording.
-function AddSongPopover({ onAdd, onSeedNowPlaying, accent }: { onAdd: (s: QueueItem) => void; onSeedNowPlaying: () => void; accent: string }) {
+// Search-and-add popover: picking a song queues it INSTANTLY (resolve happens in the queue).
+// An optional artist field scopes the search (like the Studio picker) so covers don't bury the
+// real recording.
+function AddSongPopover({ onPick, onSeedNowPlaying, accent }: { onPick: (c: { title: string; artist: string; mbid?: string; durationSec?: number | null }) => void; onSeedNowPlaying: () => void; accent: string }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [artist, setArtist] = useState('')
-  const [resolving, setResolving] = useState<string | null>(null)
   const { data, isFetching } = useQuery({
     queryKey: ['karaoke-search', q, artist],
     queryFn: () => catalogSearchSongs(q, artist || undefined),
     enabled: q.trim().length >= 2,
   })
 
-  const pick = async (s: { title: string; artistName: string; mbid: string; durationSec: number | null }, rowKey: string) => {
-    setResolving(rowKey)
-    try {
-      const r = await resolveSong({ mbid: s.mbid, title: s.title, artist: s.artistName, durationSec: s.durationSec })
-      if (!r?.videoId) { toast.error('No playable source for that song'); return }
-      onAdd({ key: uid(), videoId: r.videoId, title: s.title, artist: s.artistName, durationSec: s.durationSec, prep: 'idle' })
-      toast.success('Added to the queue')
-      setQ('')
-    } catch { toast.error('Could not add that song') }
-    finally { setResolving(null) }
+  const pick = (s: { title: string; artistName: string; mbid: string; durationSec: number | null }) => {
+    onPick({ title: s.title, artist: s.artistName, mbid: s.mbid || undefined, durationSec: s.durationSec })
+    setQ(''); setOpen(false)
   }
 
   return (
@@ -468,19 +463,16 @@ function AddSongPopover({ onAdd, onSeedNowPlaying, accent }: { onAdd: (s: QueueI
               className="w-full bg-transparent text-sm outline-none placeholder:text-white/30" />
           </div>
           <div className="mt-2 max-h-72 overflow-y-auto">
-            {(data ?? []).map((s, i) => {
-              const rowKey = s.mbid || `${s.artistName}-${s.title}-${i}`
-              return (
-                <button key={rowKey} onClick={() => pick(s, rowKey)} disabled={resolving === rowKey}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{s.title}</div>
-                    <div className="truncate text-xs text-white/50">{s.artistName}</div>
-                  </div>
-                  {resolving === rowKey ? <Spinner className="size-4 text-white/40" /> : <Plus className="size-4 text-white/40" />}
-                </button>
-              )
-            })}
+            {(data ?? []).map((s, i) => (
+              <button key={s.mbid || `${s.artistName}-${s.title}-${i}`} onClick={() => pick(s)}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white/10">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{s.title}</div>
+                  <div className="truncate text-xs text-white/50">{s.artistName}</div>
+                </div>
+                <Plus className="size-4 text-white/40" />
+              </button>
+            ))}
             {q.trim().length >= 2 && !isFetching && (data ?? []).length === 0 && (
               <p className="py-4 text-center text-sm text-white/40">No songs found</p>
             )}
