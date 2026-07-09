@@ -424,9 +424,10 @@ musicCollection.get('/local/art/:id', async (c) => {
   }).from(musicLocalTracks).where(eq(musicLocalTracks.id, id)).limit(1)
   if (!row) return c.json({ error: 'Not found' }, 404)
 
+  const ART_CACHE = 'public, max-age=604800'  // album art is effectively immutable per track id
   if (row.folderArtPath) {
     const ext = extname(row.folderArtPath).toLowerCase()
-    return serveFileRange(c, row.folderArtPath, ext === '.png' ? 'image/png' : 'image/jpeg')
+    return serveFileRange(c, row.folderArtPath, ext === '.png' ? 'image/png' : 'image/jpeg', ART_CACHE)
   }
   if (!row.hasEmbeddedArt) return c.json({ error: 'No art' }, 404)
 
@@ -434,7 +435,7 @@ musicCollection.get('/local/art/:id', async (c) => {
   const cachePath = await resolveContentTypePath('music', 'local-art', `${id}.img`)
   try {
     await fs.access(cachePath)
-    return serveFileRange(c, cachePath, 'image/jpeg')
+    return serveFileRange(c, cachePath, 'image/jpeg', ART_CACHE)
   } catch { /* not cached yet */ }
   try {
     const meta = await parseFile(row.path)

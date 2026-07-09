@@ -189,8 +189,11 @@ musicInfo.get('/art', async (c) => {
   const title = c.req.query('title')?.trim() ?? ''
   if (!artist || !title) return c.json({ error: 'artist and title required' }, 400)
   const url = await itunesSongArt(artist, title)
-  if (!url) return c.json({ error: 'no art' }, 404)
-  return c.json({ url })
+  // Browser-cacheable either way (misses too): tiles resolve with zero round trips on
+  // repeat visits - the actual bytes are separately cached by the /api/img proxy.
+  const headers = { 'Cache-Control': 'private, max-age=604800' }
+  if (!url) return c.json({ error: 'no art' }, 404, headers)
+  return c.json({ url }, 200, headers)
 })
 
 musicInfo.get('/artist', async (c) => {

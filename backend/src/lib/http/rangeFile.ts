@@ -6,8 +6,10 @@ import { createReadStream, statSync } from 'node:fs'
 import type { Context } from 'hono'
 
 /** Serve a local file with HTTP Range support (seekable <audio>/<video>). Returns 404 when
- *  the file is missing, 416 for an unsatisfiable range, 206 for partials, 200 otherwise. */
-export function serveFileRange(c: Context, absPath: string, contentType: string): Response {
+ *  the file is missing, 416 for an unsatisfiable range, 206 for partials, 200 otherwise.
+ *  `cacheControl` defaults to no-cache (media whose bytes can change per request context);
+ *  pass a long max-age for immutable-ish assets like extracted album art. */
+export function serveFileRange(c: Context, absPath: string, contentType: string, cacheControl = 'no-cache'): Response {
   let stat: ReturnType<typeof statSync>
   try {
     stat = statSync(absPath)
@@ -30,7 +32,7 @@ export function serveFileRange(c: Context, absPath: string, contentType: string)
         'Content-Length': String(end - start + 1),
         'Content-Range': `bytes ${start}-${end}/${stat.size}`,
         'Accept-Ranges': 'bytes',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': cacheControl,
       },
     })
   }
@@ -40,7 +42,7 @@ export function serveFileRange(c: Context, absPath: string, contentType: string)
       'Content-Type': contentType,
       'Content-Length': String(stat.size),
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': cacheControl,
     },
   })
 }
