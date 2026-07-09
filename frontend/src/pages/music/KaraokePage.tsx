@@ -44,6 +44,7 @@ export function KaraokePage() {
     return Number.isFinite(raw) ? raw : 0.18
   })
   const [semitones, setSemitones] = useState(0)
+  const [tempoPct, setTempoPct] = useState(100)   // 100 = original; lower = slower (pitch preserved)
   const [pos, setPos] = useState(0)
   const [, force] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -102,7 +103,7 @@ export function KaraokePage() {
     if (prep !== current.prep) setQueue((q) => q.map((x) => x.key === current.key ? { ...x, prep } : x))
   }, [curTrack, current])
 
-  // Load stems into the engine once ready. Auto-play only AFTER the user has started once —
+  // Load stems into the engine once ready. Auto-play only AFTER the user has started once -
   // the browser blocks the AudioContext from starting outside a user gesture, so the very
   // first song waits for the big Play button (which resumes the context); later songs
   // auto-advance because the context is already running.
@@ -117,10 +118,11 @@ export function KaraokePage() {
         setVocalOnset(engine.getVocalOnsetSec())
         engine.setStemVolume('vocals', vocalGuide)
         engine.setSemitones(semitones)
+        engine.setTempoRatio(tempoPct / 100)
         if (startedRef.current) void engine.play()
       })
       .catch(() => toast.error('Could not load the karaoke track'))
-  }, [curTrack, engine, vocalGuide, semitones])
+  }, [curTrack, engine, vocalGuide, semitones, tempoPct])
 
   // Position ticker + auto-advance at end of song. `advance` is held in a ref so the long-
   // lived rAF always calls the latest version (avoids a stale queue-length closure).
@@ -168,12 +170,13 @@ export function KaraokePage() {
 
   const advance = useCallback(() => {
     loadedKeyRef.current = ''
-    setPos(0); setVocalOnset(null); setSemitones(0)
+    setPos(0); setVocalOnset(null); setSemitones(0); setTempoPct(100)
     setCurrentIdx((i) => i + 1)
   }, [])
   advanceRef.current = advance
   const setGuide = (v: number) => { setVocalGuide(v); localStorage.setItem(VOCAL_KEY, String(v)); engine.setStemVolume('vocals', v) }
   const setKey = (n: number) => { const s = Math.max(-6, Math.min(6, n)); setSemitones(s); engine.setSemitones(s) }
+  const setTempo = (pct: number) => { const p = Math.max(60, Math.min(120, Math.round(pct / 5) * 5)); setTempoPct(p); engine.setTempoRatio(p / 100) }
   // The Play button is the user gesture that unlocks the AudioContext (browsers block autoplay).
   const togglePlay = () => { startedRef.current = true; engine.toggle() }
   const restart = () => { startedRef.current = true; engine.seek(0); void engine.play() }
@@ -255,12 +258,20 @@ export function KaraokePage() {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-3 px-2">
-                {artUrl && <img src={artUrl} alt="" className="size-12 rounded-lg object-cover" />}
-                <div className="min-w-0">
-                  <div className="truncate text-lg font-bold">{current.title}</div>
+              <div className="flex items-center gap-4 px-2">
+                {artUrl
+                  ? <img src={artUrl} alt="" className="size-16 rounded-xl object-cover shadow-lg ring-1 ring-white/10" />
+                  : <div className="grid size-16 place-items-center rounded-xl bg-white/5"><Music2 className="size-7 text-white/30" /></div>}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xl font-bold">{current.title}</div>
                   <div className="truncate text-sm text-white/60">{current.artist}{current.singer ? ` · 🎤 ${current.singer}` : ''}</div>
                 </div>
+                {curTrack?.bpm ? (
+                  <div className="shrink-0 rounded-xl bg-white/5 px-3 py-1.5 text-center">
+                    <div className="text-lg font-bold tabular-nums" style={{ color: palette.vibrant }}>{Math.round(curTrack.bpm * (tempoPct / 100))}</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-white/40">BPM{tempoPct !== 100 ? ` · ${tempoPct}%` : ''}</div>
+                  </div>
+                ) : null}
               </div>
               <KaraokeLyrics lines={lyricLines} position={pos} offsetSec={offsetSec} accent={palette.vibrant} className="flex-1" />
             </>
@@ -278,6 +289,7 @@ export function KaraokePage() {
             {upNext.map((it) => (
               <div key={it.key} className="group flex items-center gap-2 rounded-xl bg-white/5 p-2">
                 <GripVertical className="size-4 shrink-0 text-white/20" />
+                <img src={proxyImgAuto(`https://i.ytimg.com/vi/${it.videoId}/mqdefault.jpg`)} alt="" className="size-9 shrink-0 rounded-md object-cover" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{it.title}</div>
                   <div className="truncate text-xs text-white/50">{it.artist}</div>
@@ -325,6 +337,14 @@ export function KaraokePage() {
             </div>
             <input type="range" min={0} max={1} step={0.02} value={vocalGuide} onChange={(e) => setGuide(Number(e.target.value))}
               aria-label="Vocal guide level" className="h-1 w-24 cursor-pointer" style={{ accentColor: palette.vibrant }} />
+          </div>
+
+          {/* Tempo (pitch-preserved; slow a fast rap down to keep up) */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-white/50">Tempo</span>
+            <button onClick={() => setTempo(tempoPct - 5)} className="grid size-8 place-items-center rounded-full bg-white/10 text-lg hover:bg-white/20">−</button>
+            <span className="w-12 text-center text-sm tabular-nums">{tempoPct}%</span>
+            <button onClick={() => setTempo(tempoPct + 5)} className="grid size-8 place-items-center rounded-full bg-white/10 text-lg hover:bg-white/20">+</button>
           </div>
 
           {/* Key transpose */}
