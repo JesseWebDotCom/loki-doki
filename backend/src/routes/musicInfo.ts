@@ -235,7 +235,9 @@ function looksLikeSong(info: { description?: string; extract?: string }, artist:
 // images the bare-name Wikipedia lookup misses (disambiguation pages, non-matching titles).
 // GET /api/music/info/art?artist=X&title=Y — square album art for a song (iTunes, cached,
 // artist-verified). The player/shelf art path for YouTube-sourced tracks whose 16:9 video
-// thumbnails read as cheap in square tiles. 404 = no confident art; caller keeps its fallback.
+// thumbnails read as cheap in square tiles. A miss is 200 {url:null}, NOT 404 - "no art"
+// is an expected answer (the caller keeps its fallback), and 404s paint the browser
+// console red on every art-less tile.
 musicInfo.get('/art', async (c) => {
   const artist = c.req.query('artist')?.trim() ?? ''
   const title = c.req.query('title')?.trim() ?? ''
@@ -243,9 +245,7 @@ musicInfo.get('/art', async (c) => {
   const url = await itunesSongArt(artist, title)
   // Browser-cacheable either way (misses too): tiles resolve with zero round trips on
   // repeat visits - the actual bytes are separately cached by the /api/img proxy.
-  const headers = { 'Cache-Control': 'private, max-age=604800' }
-  if (!url) return c.json({ error: 'no art' }, 404, headers)
-  return c.json({ url }, 200, headers)
+  return c.json({ url: url ?? null }, 200, { 'Cache-Control': 'private, max-age=604800' })
 })
 
 musicInfo.get('/artist', async (c) => {
@@ -459,7 +459,8 @@ musicInfo.get('/lyrics', async (c) => {
   if (user) {
     const policy = await musicPolicyFor(user.id)
     if (policy.lyrics === 'hide-explicit') {
-      const advisory = await itunesSongAdvisory(artist, title)
+      // A transient lookup failure reads as "unknown" - fail CLOSED on the lyrics surface.
+      const advisory = await itunesSongAdvisory(artist, title).catch(() => null)
       if (lyricsHidden(policy, advisory)) return c.json({ synced: null, plain: null, source: 'none', restricted: true })
     }
   }

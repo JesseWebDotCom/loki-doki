@@ -61,31 +61,30 @@ export async function itunesSongAdvisory(artist: string, title: string): Promise
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
     const wantArtist = norm(a)
     const wantTitle = norm(t)
-    try {
-      const term = encodeURIComponent(`${a} ${t}`.trim())
-      const res = await fetch(`https://itunes.apple.com/search?term=${term}&entity=song&media=music&limit=8&explicit=Yes`, {        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000),
-      })
-      if (!res.ok) return null
-      const data = await res.json() as { results?: Array<{ artistName?: string; trackName?: string; trackExplicitness?: string }> }
-      const hits = (data.results ?? []).filter(r => {
-        const ra = norm(r.artistName ?? ''); const rt = norm(r.trackName ?? '')
-        const artistOk = !!ra && (ra === wantArtist || ra.includes(wantArtist) || wantArtist.includes(ra))
-        const titleOk = !!rt && (rt === wantTitle || rt.startsWith(wantTitle))
-        return artistOk && titleOk
-      })
-      if (!hits.length) return null
-      // Protective reading: 'cleaned' means an explicit ORIGINAL exists, and a streamed
-      // resolution of this identity is almost certainly that original - so both
-      // 'explicit' and 'cleaned' verdicts mark the SONG as explicit. (The value 2 stays
-      // reserved for local files whose own tags say the file is the clean edit.)
-      if (hits.some(h => h.trackExplicitness === 'explicit' || h.trackExplicitness === 'cleaned')) return 1
-      if (hits.some(h => h.trackExplicitness === 'notExplicit')) return 0
-      return null
-    } catch (err) {
-      logger.debug(`[advisory] itunes lookup failed: ${String(err)}`)
-      return null
-    }
+    // Transient failures THROW (uncached); only a real searched-and-unknown caches null.
+    const term = encodeURIComponent(`${a} ${t}`.trim())
+    const res = await fetch(`https://itunes.apple.com/search?term=${term}&entity=song&media=music&limit=8&explicit=Yes`, {
+      headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000),
+    })
+    if (!res.ok) throw new Error(`itunes advisory search ${res.status}`)
+    const data = await res.json() as { results?: Array<{ artistName?: string; trackName?: string; trackExplicitness?: string }> }
+    const hits = (data.results ?? []).filter(r => {
+      const ra = norm(r.artistName ?? ''); const rt = norm(r.trackName ?? '')
+      const artistOk = !!ra && (ra === wantArtist || ra.includes(wantArtist) || wantArtist.includes(ra))
+      const titleOk = !!rt && (rt === wantTitle || rt.startsWith(wantTitle))
+      return artistOk && titleOk
+    })
+    if (!hits.length) return null
+    // Protective reading: 'cleaned' means an explicit ORIGINAL exists, and a streamed
+    // resolution of this identity is almost certainly that original - so both
+    // 'explicit' and 'cleaned' verdicts mark the SONG as explicit. (The value 2 stays
+    // reserved for local files whose own tags say the file is the clean edit.)
+    if (hits.some(h => h.trackExplicitness === 'explicit' || h.trackExplicitness === 'cleaned')) return 1
+    if (hits.some(h => h.trackExplicitness === 'notExplicit')) return 0
+    return null
   })
+  // NOTE: throws on transient failures (so nothing caches) - callers decide their posture:
+  // ensureAdvisories skips the upsert (retries next queue build), lyrics fails closed.
 }
 
 // Background fill for unknown refs: bounded, deduped, fire-and-forget. Queue tune-ins
@@ -103,7 +102,8 @@ export function ensureAdvisories(tracks: Array<{ videoId: string; title: string;
           // Store even null verdicts: "checked, still unknown" stops re-lookups (the
           // 30-day iTunes cache would absorb them anyway, but the row makes policy fast).
           await upsertAdvisory(t.videoId, verdict, 'itunes', { title: t.title, artist: t.artist })
-        } finally {
+        } catch { /* transient - no row stored, retried on a future queue build */ }
+        finally {
           inFlight.delete(t.videoId)
         }
       }

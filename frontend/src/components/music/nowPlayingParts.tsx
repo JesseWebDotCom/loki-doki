@@ -105,13 +105,16 @@ export function LyricsTicker({ artist, title, position, duration, onOpen, classN
   const activeIdx = useActiveLyricIndex(synced, position)
   if (!synced?.length) return null
 
-  const rows = [synced[activeIdx - 1], synced[activeIdx], synced[activeIdx + 1]]
+  // Before the first line's timestamp, activeIdx is -1 (nothing sung yet) - preview the song's
+  // opening lines instead of centering on a nonexistent "active" line.
+  const rows = activeIdx < 0 ? [synced[0], synced[1], synced[2]] : [synced[activeIdx - 1], synced[activeIdx], synced[activeIdx + 1]]
+  const activeRow = activeIdx < 0 ? -1 : 1
   return (
     <button type="button" onClick={onOpen}
       className={cn('flex w-full flex-col justify-center gap-0.5 rounded-control bg-muted/50 px-3 py-1.5 text-left transition-colors hover:bg-muted', className)}>
       {rows.map((l, i) => (
         <p key={i} className={cn('truncate text-xs leading-snug',
-          i === 1 ? 'font-semibold text-foreground' : 'text-muted-foreground/60')}>
+          i === activeRow ? 'font-semibold text-foreground' : 'text-muted-foreground/60')}>
           {l ? (l.text || '♪') : ' '}
         </p>
       ))}

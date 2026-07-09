@@ -47,9 +47,10 @@ musicMeta.get('/waveform/:ref', async (c) => {
     return c.json({ peaks: Array.from(new Uint8Array(row.peaks)) })
   }
   // Not scanned (or scanned without peaks): lazily queue — if the audio is on disk the
-  // waveform shows up on the next play of this track.
+  // waveform shows up on the next play of this track. A miss is 200 {peaks:null}, not
+  // 404: "no waveform yet" is an expected answer, and 404s spam the browser console.
   if (!row) queueAudioScan(ref)
-  return c.json({ error: 'not scanned' }, 404)
+  return c.json({ peaks: null })
 })
 
 // ── Star ratings ────────────────────────────────────────────────────────────────────

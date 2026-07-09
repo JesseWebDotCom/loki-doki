@@ -11,7 +11,7 @@ import { artUrlForRef, isYouTubeRef } from '@/lib/music/trackRef'
 
 async function fetchSongArt(artist: string, title: string): Promise<string | null> {
   try {
-    const r = await fetch(`/api/music/info/art?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`, { credentials: 'include' })
+    const r = await fetch(`/api/music/info/art?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}&v=2`, { credentials: 'include' })
     if (!r.ok) return null
     const body = await r.json() as { url?: string }
     return body.url ?? null
