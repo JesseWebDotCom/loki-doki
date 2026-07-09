@@ -14,6 +14,7 @@ import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useCatalogNav } from '@/lib/music/catalogNav'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { StarRating } from '@/components/music/StarRating'
+import { useTitleMask } from '@/lib/music/policy'
 import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
@@ -58,6 +59,7 @@ export function NowPlayingOverlay() {
   if (!open) return null
 
   const cur = curForArt
+  const mask = useTitleMask()
   // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - canvas/gradient literals
   const c1 = radio.station?.color ?? '#fb923c'
   const c2 = radio.station?.colorDark ?? '#f97316'
@@ -155,7 +157,7 @@ export function NowPlayingOverlay() {
         <div className="mt-5 min-w-0 text-center">
           <button onClick={() => cur && cat.openSong(cur.title, artist)} disabled={!cur || cat.pending === 'song'}
             className="block w-full truncate text-xl font-bold transition hover:text-white/80 disabled:opacity-70"
-            title="View album details">{cur?.title ?? 'AI Radio'}</button>
+            title="View album details">{mask(cur?.title ?? 'AI Radio')}</button>
           {artist && (
             <button onClick={() => cat.openArtist(artist)} disabled={cat.pending === 'artist'}
               className="mt-1 block w-full truncate text-sm text-white/70 transition hover:text-white hover:underline disabled:opacity-60"
@@ -271,7 +273,7 @@ export function NowPlayingOverlay() {
                     <span className="w-4 shrink-0 text-center text-xs tabular-nums text-white/40">{i + 1}</span>
                     <SongArt trackRef={t.videoId} title={t.title} artist={t.author} className="size-10" rounded="rounded-control" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-white">{t.title}</p>
+                      <p className="truncate text-sm font-medium text-white">{mask(t.title)}</p>
                       {t.author && <p className="truncate text-xs text-white/60">{t.author}</p>}
                     </div>
                   </div>

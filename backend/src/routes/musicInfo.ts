@@ -7,6 +7,7 @@ import { requireAuth } from '@/middleware/auth'
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { getArtist, searchArtists, itunesSongArt } from '@/lib/music/catalog'
 import { getSongSmartLinks, getAlbumSmartLinks } from '@/lib/music/smartLinks'
+import { musicPolicyFor, itunesSongAdvisory, lyricsHidden, OPEN_POLICY } from '@/lib/music/advisory'
 import type { AppEnv } from '@/types'
 
 export const musicInfo = new Hono<AppEnv>()
@@ -425,11 +426,33 @@ async function fetchLrclib(artist: string, title: string, duration?: number): Pr
   return { synced: null, plain: null, source: 'none' }
 }
 
+// GET /api/music/info/policy — the caller's music content-protection policy. The frontend
+// uses maskTitles (censor titles in player surfaces) and explicit (whether to bother
+// rendering 🅴 badges); enforcement itself is server-side.
+musicInfo.get('/policy', async (c) => {
+  const user = c.get('user')
+  const policy = user ? await musicPolicyFor(user.id) : OPEN_POLICY
+  return c.json(policy, 200, { 'Cache-Control': 'private, max-age=300' })
+})
+
 // GET /api/music/info/lyrics?artist=X&title=Y&duration=Z — synced (or plain) lyrics from LRCLIB.
+// Content protections: profiles that hide explicit lyrics get {restricted:true} for
+// explicit songs - and for unknowns too (fail-closed on the LYRICS surface only; the
+// song itself still plays under a lenient profile).
 musicInfo.get('/lyrics', async (c) => {
   const artist = c.req.query('artist')?.trim() ?? ''
   const title = c.req.query('title')?.trim()
   if (!title) return c.json({ synced: null, plain: null, source: 'none' })
+
+  const user = c.get('user')
+  if (user) {
+    const policy = await musicPolicyFor(user.id)
+    if (policy.lyrics === 'hide-explicit') {
+      const advisory = await itunesSongAdvisory(artist, title)
+      if (lyricsHidden(policy, advisory)) return c.json({ synced: null, plain: null, source: 'none', restricted: true })
+    }
+  }
+
   const durationRaw = c.req.query('duration')
   const duration = durationRaw ? parseInt(durationRaw, 10) : undefined
   const result = await cachedLookup<LyricsResult>(

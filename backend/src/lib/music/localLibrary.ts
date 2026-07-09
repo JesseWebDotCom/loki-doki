@@ -13,7 +13,8 @@ import { parseFile, type IAudioMetadata } from 'music-metadata'
 import { db } from '@/db'
 import { musicLocalFolders, musicLocalTracks } from '@/db/schema'
 import { norm } from '@/lib/music/resolve'
-import { registerAudioSource } from '@/lib/music/trackRef'
+import { registerAudioSource, localRef } from '@/lib/music/trackRef'
+import { upsertAdvisory } from '@/lib/music/advisory'
 import { resolveContentTypePath } from '@/lib/storage/contentRoots'
 import { logger } from '@/lib/logger'
 
@@ -219,12 +220,19 @@ export async function scanLocalFolder(
         continue // unchanged — the whole point of the incremental scan
       }
       const row = await parseTrackFile(file)
+      let trackId: string
       if (prior) {
         await db.update(musicLocalTracks).set(row).where(eq(musicLocalTracks.id, prior.id))
+        trackId = prior.id
         updated++
       } else {
-        await db.insert(musicLocalTracks).values({ id: randomUUID(), folderId, ...row })
+        trackId = randomUUID()
+        await db.insert(musicLocalTracks).values({ id: trackId, folderId, ...row })
         added++
+      }
+      // Native tag advisory (ITUNESADVISORY/rtng) feeds the content-protection layer.
+      if (typeof row.advisory === 'number') {
+        void upsertAdvisory(localRef(trackId), row.advisory, 'tag', { title: row.title, artist: row.artist })
       }
       done++
       if (done % 20 === 0 || done === files.length) onProgress(done, files.length)

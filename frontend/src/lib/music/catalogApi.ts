@@ -99,8 +99,12 @@ export function getAlbum(mbid: string) {
 // Fallback cover art (iTunes) for albums with no Cover Art Archive image — called lazily only after
 // the CAA image fails to load. Returns null when iTunes has nothing either.
 export function getGenreLanding(genre: string) {
-  return mfetch<{ tracks: Array<{ title: string; artist: string }>; artists: string[] }>(
+  return mfetch<{ tracks: Array<{ title: string; artist: string }>; artists: Array<{ name: string; picture: string | null }> }>(
     `/catalog/genre?g=${encodeURIComponent(genre)}`)
+}
+/** Bare artist name → THE MusicBrainz artist id (server-picked among same-named acts). */
+export function getArtistId(name: string) {
+  return mfetch<{ mbid: string | null }>(`/catalog/artist-id?name=${encodeURIComponent(name)}`)
 }
 // Batch owned-copy lookup: which of these songs does the family's library (local/Plex)
 // already have? Powers the "Yours" badges - a hit means playback uses the owned copy.
@@ -192,7 +196,7 @@ export interface LyricLine { sec: number; text: string }
 export function getLyrics(artist: string, title: string, duration?: number) {
   const p = new URLSearchParams({ artist, title })
   if (duration) p.set('duration', String(duration))
-  return mfetch<{ synced: LyricLine[] | null; plain: string | null; source: string }>(`/info/lyrics?${p}`)
+  return mfetch<{ synced: LyricLine[] | null; plain: string | null; source: string; restricted?: boolean }>(`/info/lyrics?${p}`)
 }
 export interface WikiInfo { found: boolean; title?: string; extract?: string; image?: string | null; url?: string | null; logo?: string | null }
 export function getSongInfo(artist: string, title: string) {

@@ -15,8 +15,9 @@ import { useMusicMode } from '@/components/music/MusicLayout'
 import { SongTile } from '@/components/music/SongTile'
 import { SongArt } from '@/components/music/SongArt'
 import { stationGradient } from '@/lib/music/stationColors'
+import { proxyImg } from '@/lib/img'
 import { toast } from 'sonner'
-import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, getGenreLanding, matchOwned, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
+import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, getGenreLanding, getArtistId, matchOwned, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
 
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
@@ -175,6 +176,39 @@ const GENRE_TILES: Array<{ name: string; accent: string }> = [
   { name: 'Reggae', accent: 'emerald' }, { name: 'Soul', accent: 'violet' },
 ]
 
+// A genre-chart artist chip: Deezer CDN photo (instant, near-complete coverage) with the
+// ArtistAvatar lookup as fallback. Clicking resolves the name to THE MusicBrainz artist
+// and opens the real artist page - a text search only when no identity can be found.
+function GenreArtistChip({ name, picture, onFallback }: { name: string; picture: string | null; onFallback: (name: string) => void }) {
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+  const open = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const { mbid } = await getArtistId(name)
+      if (mbid) navigate(`/music/artist/${mbid}`)
+      else onFallback(name)
+    } catch { onFallback(name) }
+    finally { setBusy(false) }
+  }
+  return (
+    // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
+    <button onClick={() => void open()} className="group flex w-32 shrink-0 flex-col items-center gap-2 p-2 text-center">
+      <div className="relative">
+        {picture ? (
+          <img src={proxyImg(picture)} alt="" loading="lazy"
+            className="size-24 rounded-full object-cover shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
+        ) : (
+          <ArtistAvatar name={name} className="size-24 rounded-full shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
+        )}
+        {busy && <span className="absolute inset-0 grid place-items-center rounded-full bg-black/40"><Spinner size="sm" /></span>}
+      </div>
+      <p className="w-full truncate text-sm font-medium">{name}</p>
+    </button>
+  )
+}
+
 // A real genre landing: the live genre chart (top songs + the artists behind them) plus
 // our stations that match the genre - NOT a text search for the genre word in titles.
 function GenreView({ genre, onArtist }: { genre: string; onArtist: (name: string) => void }) {
@@ -203,12 +237,8 @@ function GenreView({ genre, onArtist }: { genre: string; onArtist: (name: string
         <section className="mt-2">
           <SectionHeader title={`${genre} artists`} />
           <div className="mt-3 flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-            {data!.artists.map(name => (
-              // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
-              <button key={name} onClick={() => onArtist(name)} className="group flex w-32 shrink-0 flex-col items-center gap-2 p-2 text-center">
-                <ArtistAvatar name={name} className="size-24 rounded-full shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
-                <p className="w-full truncate text-sm font-medium">{name}</p>
-              </button>
+            {data!.artists.map(a => (
+              <GenreArtistChip key={a.name} name={a.name} picture={a.picture} onFallback={onArtist} />
             ))}
           </div>
         </section>

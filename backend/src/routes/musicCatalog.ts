@@ -6,10 +6,10 @@ import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import {
   searchArtists, searchAlbums, searchSongs,
-  getArtist, getArtistAlbums, getAlbum, itunesAlbumCover,
+  getArtist, getArtistAlbums, getAlbum, itunesAlbumCover, pickArtistMbid,
 } from '@/lib/music/catalog'
 import { resolvePlayable, findOwned } from '@/lib/music/resolveSource'
-import { deezerChartTracks } from '@/lib/music/deezer'
+import { deezerChartTracks, deezerArtistPicture } from '@/lib/music/deezer'
 import { getMusicSuggestions } from '@/lib/music/suggest'
 import { searchStations } from '@/routes/musicStations'
 import type { AppEnv } from '@/types'
@@ -69,22 +69,36 @@ musicCatalog.get('/cover', async (c) => {
 
 // GET /api/music/catalog/genre?g=Metal — a GENRE landing (top songs + top artists from the
 // live Deezer genre chart), for Browse's genre tiles. This is real genre browsing, not a
-// text search for the genre word in titles.
+// text search for the genre word in titles. Artist photos ride along from Deezer's CDN
+// (fast, near-complete) so the chip row fills instantly.
 musicCatalog.get('/genre', async (c) => {
   const g = c.req.query('g')?.trim() ?? ''
   if (!g) return c.json({ error: 'g required' }, 400)
   const tracks = (await deezerChartTracks(g, 40)).slice(0, 30)
   const seen = new Set<string>()
-  const artists: string[] = []
+  const names: string[] = []
   for (const t of tracks) {
     const k = t.artist.toLowerCase()
     if (seen.has(k)) continue
     seen.add(k)
-    artists.push(t.artist)
-    if (artists.length >= 10) break
+    names.push(t.artist)
+    if (names.length >= 10) break
   }
+  const artists = await Promise.all(names.map(async (name) => ({
+    name,
+    picture: await deezerArtistPicture(name).catch(() => null),
+  })))
   // Charts move slowly - an hour of browser cache keeps tile clicks instant.
   return c.json({ tracks, artists }, 200, { 'Cache-Control': 'private, max-age=3600' })
+})
+
+// GET /api/music/catalog/artist-id?name=Skid%20Row — bare name → THE MusicBrainz artist,
+// so chart/genre chips can open the real artist page instead of a text search.
+musicCatalog.get('/artist-id', async (c) => {
+  const name = c.req.query('name')?.trim() ?? ''
+  if (!name) return c.json({ error: 'name required' }, 400)
+  const mbid = await pickArtistMbid(name)
+  return c.json({ mbid }, 200, { 'Cache-Control': 'private, max-age=86400' })
 })
 
 // GET /api/music/catalog/resolve?mbid=&title=&artist=&duration= — identity → playable ref.

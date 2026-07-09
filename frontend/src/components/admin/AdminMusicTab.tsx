@@ -58,6 +58,75 @@ function scanStatusLabel(f: MusicFolder): { text: string; tone: 'muted' | 'succe
   return { text: 'Not scanned yet', tone: 'muted' }
 }
 
+interface MusicPolicyDto { explicit: 'block' | 'allow'; unknown: 'block' | 'allow'; lyrics: 'hide-explicit' | 'show'; maskTitles: boolean }
+interface ProtectionProfile { slug: string; name: string; policy: MusicPolicyDto; customized: boolean }
+
+/** Per-profile music protections: what each content profile can hear and see. Defaults
+ *  derive from the profile's profanity dial; any change here pins an explicit policy. */
+function ProtectionsPanel() {
+  const [profiles, setProfiles] = useState<ProtectionProfile[]>([])
+  const [advisory, setAdvisory] = useState<{ total: number; explicit: number; clean: number; unknown: number } | null>(null)
+
+  const loadProtections = useCallback(async () => {
+    try {
+      const res = await api<{ profiles: ProtectionProfile[]; advisory: typeof advisory }>('/protections')
+      setProfiles(res.profiles ?? [])
+      setAdvisory(res.advisory ?? null)
+    } catch { /* panel stays empty; sources card already surfaces connectivity problems */ }
+  }, [])
+  useEffect(() => { void loadProtections() }, [loadProtections])
+
+  async function save(slug: string, policy: MusicPolicyDto) {
+    setProfiles(ps => ps.map(p => (p.slug === slug ? { ...p, policy, customized: true } : p)))  // optimistic
+    try {
+      await api('/protections', { method: 'PUT', body: JSON.stringify({ slug, policy }) })
+      toast.success('Protection updated')
+    } catch {
+      toast.error('Could not save the protection')
+      void loadProtections()
+    }
+  }
+
+  if (!profiles.length) return null
+  return (
+    <div id="protections" className="rounded-card border border-border bg-card p-4">
+      <div className="mb-1 text-sm font-medium">Protections</div>
+      <p className="mb-3 text-xs text-muted-foreground">
+        What each content profile can hear and see. Explicit songs are dropped from stations and
+        search plays; songs nobody has rated yet follow the Unknown setting. Verdicts come from
+        the song catalogs and local file tags{advisory && advisory.total > 0 ? <> · {advisory.total.toLocaleString()} songs checked ({advisory.explicit.toLocaleString()} explicit)</> : null}.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {profiles.map(p => (
+          <div key={p.slug} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-control px-2 py-1.5 hover:bg-accent/30">
+            <span className="min-w-28 flex-1 truncate text-sm">{p.name}</span>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Switch size="sm" checked={p.policy.explicit === 'block'}
+                onCheckedChange={v => save(p.slug, { ...p.policy, explicit: v === true ? 'block' : 'allow' })} />
+              Block explicit
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Strict: also block songs with no explicitness verdict yet">
+              <Switch size="sm" checked={p.policy.unknown === 'block'}
+                onCheckedChange={v => save(p.slug, { ...p.policy, unknown: v === true ? 'block' : 'allow' })} />
+              Strict unknowns
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Switch size="sm" checked={p.policy.lyrics === 'hide-explicit'}
+                onCheckedChange={v => save(p.slug, { ...p.policy, lyrics: v === true ? 'hide-explicit' : 'show' })} />
+              Hide lyrics
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Censor profanity in song titles">
+              <Switch size="sm" checked={p.policy.maskTitles}
+                onCheckedChange={v => save(p.slug, { ...p.policy, maskTitles: v === true })} />
+              Mask titles
+            </label>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function AdminMusicTab() {
   const [folders, setFolders] = useState<MusicFolder[]>([])
   const [plex, setPlex] = useState<PlexMusicState | null>(null)
@@ -316,6 +385,9 @@ export function AdminMusicTab() {
           )}
         </div>
       )}
+
+      {/* Content protections */}
+      {!loading && !loadError && <ProtectionsPanel />}
 
       {/* Resolution preference */}
       {!loading && !loadError && (

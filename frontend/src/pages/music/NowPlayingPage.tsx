@@ -18,6 +18,7 @@ import { useCatalogNav } from '@/lib/music/catalogNav'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { SectionLabel, LyricsPanel, AboutStrip, SmartLinksRow } from '@/components/music/nowPlayingParts'
 import { StarRating } from '@/components/music/StarRating'
+import { useTitleMask } from '@/lib/music/policy'
 import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
@@ -180,6 +181,7 @@ export function NowPlayingPage() {
   // (currentTrack only gets set after the intro finishes). Fall back to that cued track so the
   // loading messages stop the moment the DJ kicks in, rather than lingering over the intro.
   const cur = radio.currentTrack ?? radio.queue[radio.index] ?? null
+  const mask = useTitleMask()
   // Real square album art (iTunes-resolved, cached) for the hero + backdrop; the 16:9
   // video thumbnail stays as the instant fallback. Unconditional hook - runs before returns.
   const heroArt = useSongArt(cur?.videoId, cur?.title, cur?.author)
@@ -287,7 +289,7 @@ export function NowPlayingPage() {
           {/* Title / artist - big, centered, clickable through to catalog pages. */}
           <button onClick={() => cat.openSong(cur.title, artist)} disabled={cat.pending === 'song'}
             className="mt-6 max-w-2xl truncate text-center text-2xl font-bold tracking-tight text-white transition hover:text-white/80 disabled:opacity-60 md:text-3xl"
-            title="View album details">{cur.title}</button>
+            title="View album details">{mask(cur.title)}</button>
           {artist && (
             <button onClick={() => cat.openArtist(artist)} disabled={cat.pending === 'artist'}
               className="mt-1 max-w-xl truncate text-center text-base text-white/60 transition hover:text-white disabled:opacity-60"
@@ -413,7 +415,7 @@ export function NowPlayingPage() {
                 <span className="w-4 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground/50">{i + 1}</span>
                 <SongArt trackRef={t.videoId} title={t.title} artist={t.author} className="size-10" rounded="rounded-control" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{t.title}</p>
+                  <p className="truncate text-sm font-medium">{mask(t.title)}</p>
                   {t.author && <p className="truncate text-xs text-muted-foreground">{t.author}</p>}
                 </div>
               </div>

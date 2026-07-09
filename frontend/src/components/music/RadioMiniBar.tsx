@@ -11,6 +11,7 @@ import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { SeekBar } from '@/components/shared/SeekBar'
 import { Spinner } from '@/components/ui/spinner'
 import { StatusDot } from '@/components/shared/StatusDot'
+import { useTitleMask } from '@/lib/music/policy'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 
 /**
@@ -33,7 +34,8 @@ export function RadioMiniBar() {
 
   // Show the (current) song even while the DJ talks - the art/title update in sync with the DJ's
   // voice; the mic state is conveyed by the subtitle + a small badge on the art, not by masking it.
-  const title = currentTrack?.title ?? station?.label ?? 'AI Radio'
+  const mask = useTitleMask()
+  const title = mask(currentTrack?.title ?? station?.label ?? 'AI Radio')
   const subtitle = djSpeaking ? 'On the mic…' : (currentTrack?.author ?? station?.genre ?? 'Live')
   // The subtitle is a clickable artist link only when it actually shows the track's artist.
   const artistLink = !djSpeaking && !!currentTrack?.author

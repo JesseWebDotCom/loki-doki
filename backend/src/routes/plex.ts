@@ -23,6 +23,7 @@ import { db } from '@/db'
 import { musicPlexTracks } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { spawn } from 'node:child_process'
+import { Readable } from 'node:stream'
 import { ensureFfmpeg } from '@/lib/ffmpeg'
 import { plexItemsToPosters } from '@/lib/plex/resolve'
 import { createPlexPin, checkPlexPin, discoverPlexServers } from '@/lib/plex/auth'
@@ -192,7 +193,9 @@ plexRoute.get('/music/stream/:ratingKey', async (c) => {
     const child = spawn(ff, ['-hide_banner', '-loglevel', 'error', '-i', srcUrl, '-vn', '-c:a', 'libmp3lame', '-b:a', '320k', '-f', 'mp3', 'pipe:1'],
       { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     c.req.raw.signal.addEventListener('abort', () => { try { child.kill('SIGKILL') } catch { /* already gone */ } })
-    return new Response(child.stdout as unknown as ReadableStream, {
+    // Node Readable → web stream: Bun's Response won't read a Node stream directly
+    // (verified live: the response body came back 0 bytes).
+    return new Response(Readable.toWeb(child.stdout!) as unknown as ReadableStream, {
       headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'private, max-age=0' },
     })
   }

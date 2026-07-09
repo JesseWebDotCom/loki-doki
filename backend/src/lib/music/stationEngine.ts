@@ -14,9 +14,10 @@ import { ollamaChat } from '@/llm/ollama'
 import { getModel, getFastModel } from '@/lib/models'
 import { ytmusicRadio, ytmusicSearch } from '@/lib/youtube/ytmusic'
 import { resolveTrack, resolveTracks, cleanTrackTitle, type ResolvedTrack } from '@/lib/music/resolve'
-import { deezerPlaylistTracks, deezerChartTracks } from '@/lib/music/deezer'
+import { deezerPlaylistTracks, deezerChartTracks, type DeezerTrack } from '@/lib/music/deezer'
 import { isJunkTrack, dropJunk } from '@/lib/music/junk'
 import { preferLibrary } from '@/lib/music/resolveSource'
+import { upsertAdvisory } from '@/lib/music/advisory'
 import { logger } from '@/lib/logger'
 
 export type StationSeedType = 'prompt' | 'genre' | 'artist' | 'song'
@@ -183,12 +184,26 @@ function isChartStation(seed: StationSeed): boolean {
   return CHART_INTENT_RE.test(`${seed.name ?? ''} ${seed.aiPrompt}`)
 }
 
+// Deezer knows which songs are explicit - bank that verdict against the resolved
+// YouTube ref (correlated by normalized identity) so the content-protection layer
+// gets advisory data for free with every station build. Fire-and-forget.
+function bankDeezerAdvisories(candidates: DeezerTrack[], resolved: ResolvedTrack[]): void {
+  const key = (t: { title: string; artist: string }) => `${t.artist}|${t.title}`.toLowerCase().replace(/[^a-z0-9|]/g, '')
+  const byKey = new Map(candidates.filter(c => typeof c.explicit === 'boolean').map(c => [key(c), c.explicit as boolean]))
+  for (const r of resolved) {
+    const explicit = byKey.get(key(r))
+    if (explicit === undefined) continue
+    void upsertAdvisory(r.videoId, explicit ? 1 : 0, 'deezer', { title: r.title, artist: r.artist })
+  }
+}
+
 /** Live Deezer chart (genre-targeted when the prompt names a genre) resolved to YouTube and
  *  junk-filtered — the freshest source for chart-type stations. */
 async function chartMix(seed: StationSeed, want: number, exclude: Set<string>): Promise<ResolvedTrack[]> {
   const chart = (await deezerChartTracks(`${seed.name ?? ''} ${seed.aiPrompt}`, want * 2)).slice(0, want + 6)
   if (!chart.length) return []
   const resolved = await resolveTracks(chart.map(t => ({ title: t.title, artist: t.artist })), 8)
+  bankDeezerAdvisories(chart, resolved)
   return dropJunk(resolved).filter(t => !exclude.has(t.videoId))
 }
 
@@ -202,6 +217,7 @@ async function deezerMix(queries: string[], want: number, exclude: Set<string>):
   const candidates = (await deezerPlaylistTracks(queries, want * 2)).slice(0, want + 6)
   if (!candidates.length) return []
   const resolved = await resolveTracks(candidates.map(t => ({ title: t.title, artist: t.artist })), 8)
+  bankDeezerAdvisories(candidates, resolved)
   return dropJunk(resolved).filter(t => !exclude.has(t.videoId))
 }
 

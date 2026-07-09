@@ -967,6 +967,18 @@ export const musicRatings = sqliteTable('music_ratings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userRefUnique: unique().on(t.userId, t.ref) }))
 
+// Parental-advisory state per track ref, feeding the per-profile music protections.
+// explicit: null=unknown, 0=clean, 1=explicit, 2=clean edit of an explicit song.
+// source precedence when writing: manual > tag > deezer/itunes (see lib/music/advisory).
+export const musicTrackAdvisory = sqliteTable('music_track_advisory', {
+  ref: text('ref').primaryKey(),
+  explicit: integer('explicit'),
+  source: text('source').notNull(),       // 'tag' | 'deezer' | 'itunes' | 'manual'
+  title: text('title'),                   // denormalized identity for admin review lists
+  artist: text('artist'),
+  checkedAt: integer('checked_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── LoRA System ──────────────────────────────────────────────────────────────
 
 export const imageLoraCategories = sqliteTable('image_lora_categories', {
@@ -1200,6 +1212,9 @@ export const contentProfiles = sqliteTable('content_profiles', {
   name: text('name').notNull(),
   description: text('description'),
   dials: text('dials').notNull(),               // JSON Record<DialKey, level>
+  // Music protections: JSON {explicit, unknown, lyrics, maskTitles}; null = defaults
+  // derived from the profanity dial (lib/music/advisory.ts).
+  musicJson: text('music_json'),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),

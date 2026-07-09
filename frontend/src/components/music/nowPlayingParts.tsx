@@ -53,6 +53,7 @@ export function LyricsPanel({ artist, title }: { artist: string; title: string }
   )
 
   if (isLoading) return empty('Looking for lyrics…')
+  if (data?.restricted) return empty('Lyrics are hidden by your family’s content settings.')
   if (synced?.length) {
     return (
       <div ref={containerRef} className="h-full space-y-1.5 overflow-y-auto px-5 py-6">

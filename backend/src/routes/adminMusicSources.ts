@@ -8,12 +8,13 @@ import { basename, isAbsolute, resolve as resolvePath } from 'node:path'
 import { Hono } from 'hono'
 import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs, musicLocalFolders, musicLocalTracks, musicPlexTracks, toolGlobalConfig } from '@/db/schema'
+import { contentProfiles, downloadJobs, musicLocalFolders, musicLocalTracks, musicPlexTracks, musicTrackAdvisory, toolGlobalConfig } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
 import { enqueueMusicScan, enqueuePlexMusicSync } from '@/lib/downloadJobs'
 import { getPlexConnection } from '@/lib/plex'
 import { getSelectedSectionKeys, musicSections, setSelectedSectionKeys } from '@/lib/plex/music'
 import { preferLibraryEnabled } from '@/lib/music/resolveSource'
+import { parseMusicPolicy } from '@/lib/music/advisory'
 import { crossPlatformPathHint } from '@/lib/storage/accessCheck'
 import { logger } from '@/lib/logger'
 
@@ -99,6 +100,43 @@ adminMusicSources.get('/sources', async (c) => {
     plex,
     settings: { preferLibrary: await preferLibraryEnabled() },
   })
+})
+
+// ── GET /protections — per-profile music policies + advisory coverage ──────────────
+adminMusicSources.get('/protections', async (c) => {
+  const profiles = await db.select({
+    slug: contentProfiles.slug, name: contentProfiles.name,
+    musicJson: contentProfiles.musicJson, dials: contentProfiles.dials,
+    sortOrder: contentProfiles.sortOrder,
+  }).from(contentProfiles).orderBy(asc(contentProfiles.sortOrder))
+  const [stats] = await db.select({
+    total: sql<number>`COUNT(*)`,
+    explicit: sql<number>`SUM(CASE WHEN explicit = 1 THEN 1 ELSE 0 END)`,
+    clean: sql<number>`SUM(CASE WHEN explicit IN (0, 2) THEN 1 ELSE 0 END)`,
+    unknown: sql<number>`SUM(CASE WHEN explicit IS NULL THEN 1 ELSE 0 END)`,
+  }).from(musicTrackAdvisory)
+  return c.json({
+    profiles: profiles.map((p) => ({
+      slug: p.slug, name: p.name,
+      policy: parseMusicPolicy(p.musicJson, p.dials),
+      customized: !!p.musicJson,
+    })),
+    advisory: { total: stats?.total ?? 0, explicit: stats?.explicit ?? 0, clean: stats?.clean ?? 0, unknown: stats?.unknown ?? 0 },
+  })
+})
+
+// ── PUT /protections — set one profile's music policy ──────────────────────────────
+adminMusicSources.put('/protections', async (c) => {
+  const { slug, policy } = await c.req.json<{ slug?: string; policy?: Record<string, unknown> }>()
+  if (!slug || !policy) return c.json({ error: 'slug and policy required' }, 400)
+  const [row] = await db.select({ dials: contentProfiles.dials }).from(contentProfiles)
+    .where(eq(contentProfiles.slug, slug)).limit(1)
+  if (!row) return c.json({ error: 'profile not found' }, 404)
+  const normalized = parseMusicPolicy(JSON.stringify(policy), row.dials)
+  await db.update(contentProfiles)
+    .set({ musicJson: JSON.stringify(normalized), updatedAt: new Date() })
+    .where(eq(contentProfiles.slug, slug))
+  return c.json({ ok: true, policy: normalized })
 })
 
 // ── PUT /settings — resolution preferences ──────────────────────────────────────────

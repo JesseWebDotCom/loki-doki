@@ -15,7 +15,7 @@ import { logger } from '@/lib/logger'
 
 const BASE = 'https://api.deezer.com'
 
-export interface DeezerTrack { title: string; artist: string }
+export interface DeezerTrack { title: string; artist: string; explicit?: boolean | null }
 
 async function dz<T = any>(path: string, timeout = 9000): Promise<T | null> {
   try {
@@ -122,7 +122,7 @@ export async function deezerPlaylistTracks(queries: string[], limit = 30, timeou
     const full = await dz<{ tracks?: { data?: any[] } }>(`/playlist/${p.id}`, timeout)
     const tracks = (full?.tracks?.data ?? [])
       .filter((t) => t?.title && t?.artist?.name)
-      .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string }))
+      .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string, explicit: typeof t.explicit_lyrics === 'boolean' ? t.explicit_lyrics : null }))
     if (tracks.length) lists.push(shuffle(tracks))
   }
   return roundRobin(lists, limit)
@@ -161,7 +161,7 @@ async function chartTracksById(id: number, limit: number, timeout: number): Prom
   const data = await dz<{ data?: any[] }>(`/chart/${id}/tracks?limit=${Math.min(limit, 100)}`, timeout)
   return (data?.data ?? [])
     .filter((t) => t?.title && t?.artist?.name)
-    .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string }))
+    .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string, explicit: typeof t.explicit_lyrics === 'boolean' ? t.explicit_lyrics : null }))
 }
 
 /** The overall Deezer chart (top tracks across all genres) — for general "today's hits" stations. */
@@ -198,4 +198,19 @@ function roundRobin(lists: DeezerTrack[][], limit: number): DeezerTrack[] {
     }
   }
   return out
+}
+
+/** Artist photo from Deezer's CDN - fast, keyless, and near-complete coverage for any
+ *  artist that charts. The genre-landing chips use this as their PRIMARY art (the
+ *  MusicBrainz/Wikimedia path is authoritative but rate-limited to ~1 lookup/sec, which
+ *  left half a chip row empty on first view). Exact-ish name match only. */
+export async function deezerArtistPicture(name: string): Promise<string | null> {
+  const n = name.trim()
+  if (!n) return null
+  const data = await dz<{ data?: Array<{ name?: string; picture_medium?: string; picture_big?: string }> }>(
+    `/search/artist?q=${encodeURIComponent(n)}&limit=5`)
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const want = norm(n)
+  const hit = (data?.data ?? []).find((a) => norm(a.name ?? '') === want)
+  return hit?.picture_big ?? hit?.picture_medium ?? null
 }

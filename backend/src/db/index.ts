@@ -1068,7 +1068,20 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_music_ratings_user_ref ON music_ratings(user_id, ref);
+
+    CREATE TABLE IF NOT EXISTS music_track_advisory (
+      ref TEXT NOT NULL PRIMARY KEY,
+      explicit INTEGER,
+      source TEXT NOT NULL,
+      title TEXT,
+      artist TEXT,
+      checked_at INTEGER NOT NULL
+    );
   `)
+
+  // Per-profile music protections ({explicit, unknown, lyrics, maskTitles} JSON; null =
+  // defaults derived from the profile's profanity dial).
+  addColumn('content_profiles', 'music_json', 'TEXT')
 
   // Offline music: media type a station was downloaded as (audio | video | both).
   addColumn('music_offline_stations', 'media', "TEXT NOT NULL DEFAULT 'audio'")
