@@ -39,7 +39,18 @@ if ('serviceWorker' in navigator) {
   if (import.meta.env.DEV) {
     navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()))
   } else {
-    navigator.serviceWorker.register('/sw.js')
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      // Self-heal: when a new SW takes control (a fresh deploy), reload ONCE so the page
+      // runs the new build's chunks instead of the ones the old SW had cached. Without this,
+      // a deploy needed several manual reloads and a stale/broken bundle could get stuck.
+      reg.update().catch(() => {})
+      let reloaded = false
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return
+        reloaded = true
+        window.location.reload()
+      })
+    }).catch(() => {})
   }
 }
 
