@@ -68,9 +68,10 @@ export function KaraokePage() {
     refetchInterval: (q) => {
       const t = (q.state.data as { track: StudioTrack } | undefined)?.track
       if (!t) return 2000
-      // Keep polling until stems finish AND lyric alignment (which runs after stems) settles,
-      // so the karaoke view swaps to the forced-aligned lines the moment they're ready.
-      const stemsBusy = t.stemStatus !== 'ready' && t.stemStatus !== 'failed'
+      // Stop polling once the source failed (nothing more will happen) or stems finished AND
+      // lyric alignment settled (so the view can swap to the forced-aligned lines).
+      if (t.sourceStatus === 'failed' || t.stemStatus === 'failed') return false
+      const stemsBusy = t.stemStatus !== 'ready'
       const alignBusy = t.lyricsAlignStatus === 'pending' || t.lyricsAlignStatus === 'aligning'
       return stemsBusy || alignBusy ? 2000 : false
     },
@@ -101,7 +102,9 @@ export function KaraokePage() {
   // Reflect the polled stem-ready state back onto the queue item.
   useEffect(() => {
     if (!current?.studioId || !curTrack) return
-    const prep = curTrack.stemStatus === 'ready' ? 'ready' : curTrack.stemStatus === 'failed' ? 'failed' : 'preparing'
+    const prep = curTrack.stemStatus === 'ready' ? 'ready'
+      : (curTrack.stemStatus === 'failed' || curTrack.sourceStatus === 'failed') ? 'failed'
+      : 'preparing'
     if (prep !== current.prep) setQueue((q) => q.map((x) => x.key === current.key ? { ...x, prep } : x))
   }, [curTrack, current])
 
@@ -282,9 +285,12 @@ export function KaraokePage() {
               </div>
             )
           })() : current.prep === 'failed' ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-              <p className="text-xl font-semibold text-white/70">Couldn’t prepare this song</p>
-              <button onClick={advance} className="rounded-full bg-white/15 px-4 py-2 text-sm hover:bg-white/25">Skip to next</button>
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+              <p className="text-xl font-semibold text-white/70">Couldn’t prepare “{current.title}”</p>
+              <p className="max-w-sm text-sm text-white/40">
+                {curTrack?.sourceError ? 'Could not get this song’s audio.' : curTrack?.stemError ? 'Vocal removal failed for this track.' : 'We couldn’t find a playable source.'}
+              </p>
+              <button onClick={advance} className="mt-1 rounded-full bg-white/15 px-4 py-2 text-sm hover:bg-white/25">Skip to next</button>
             </div>
           ) : (
             <>

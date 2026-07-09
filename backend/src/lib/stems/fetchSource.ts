@@ -16,6 +16,7 @@ import { ensureFfmpeg, ffmpegLocation } from '@/lib/ffmpeg'
 import { ytDlpBin, ytDlpAuthArgs } from '@/lib/ytdlp'
 import { resolveRefBlob } from '@/lib/youtube/assets'
 import { resolveTrack } from '@/lib/music/resolve'
+import { resolveAudioFile, isYouTubeRef } from '@/lib/music/trackRef'
 import { fetchBestCover } from './cover'
 import { isStemAudioInstalled } from './pyenv'
 import { enqueueAudioAnalyze } from '@/lib/downloadJobs'
@@ -108,8 +109,27 @@ export async function runStudioSourceJob(
     await mkdir(dirname(sourceWav), { recursive: true })
     const ff = await ensureFfmpeg()
 
-    // 2. Reuse a saved-offline copy if the user already has one (no re-download).
     let done = false
+
+    // 1b. Owned-library ref (`local:` / `plex:`): the caller resolved to a copy the household
+    // owns (Karaoke with "prefer library" on). yt-dlp can't fetch those. Use the actual owned
+    // file when it's reachable (higher quality); otherwise fall back to a YouTube source resolved
+    // from the title/artist so karaoke still works when Plex is offline / the file is missing.
+    if (!isYouTubeRef(videoId)) {
+      const ownedPath = await resolveAudioFile(videoId).catch(() => null)
+      if (ownedPath) {
+        onProgress?.({ completed: 40, total: 100, speedBps: 0, etaSeconds: 0, note: 'Using your library copy…' })
+        await ffmpegFileToWav(ff, ownedPath, sourceWav, signal)
+        done = true
+      } else {
+        onProgress?.({ completed: 10, total: 100, speedBps: 0, etaSeconds: 0, note: 'Finding audio…' })
+        const resolved = await resolveTrack({ mbid: payload.mbid, title: payload.title, artist: payload.artist ?? '', durationSec: payload.durationSec ?? null })
+        if (!resolved?.videoId) throw new Error('could not find a playable source for this song')
+        videoId = resolved.videoId
+      }
+    }
+
+    // 2. Reuse a saved-offline copy if the user already has one (no re-download).
     const [saved] = await db.select({ assetId: ytDownloads.assetId, status: ytDownloads.status, relPath: ytDownloads.relPath })
       .from(ytDownloads)
       .where(and(eq(ytDownloads.userId, row.userId), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, 'audio'), eq(ytDownloads.status, 'ready')))
