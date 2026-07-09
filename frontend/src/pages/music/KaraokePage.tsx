@@ -9,6 +9,7 @@ import { StemEngine } from '@/lib/music/stemEngine'
 import { prepareKaraoke, getStudioTrack, getKaraokeSuggestions, type StudioTrack } from '@/lib/music/studioApi'
 import { catalogSearchSongs, resolveSong, getLyrics } from '@/lib/music/catalogApi'
 import { drainKaraokeSeeds, subscribeKaraoke } from '@/lib/music/karaokeQueue'
+import { isYouTubeRef } from '@/lib/music/trackRef'
 import { useAlbumPalette } from '@/lib/music/albumColors'
 import { KaraokeLyrics } from '@/components/music/KaraokeLyrics'
 import { Spinner } from '@/components/ui/spinner'
@@ -152,6 +153,16 @@ export function KaraokePage() {
 
   useEffect(() => () => { engineRef.current?.dispose() }, [])
 
+  // Safari refuses to start an AudioContext first created outside a user gesture (our load
+  // effect). Unlock it on the first pointer/key interaction anywhere on the page so playback
+  // works when the singer hits Play.
+  useEffect(() => {
+    const unlock = () => engine.unlock()
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock) }
+  }, [engine])
+
   // Lyrics: prefer the track's OWN forced-aligned lines (timed to this exact audio, zero
   // offset) once ready; otherwise fall back to raw LRCLIB shifted by the measured vocal onset.
   const aligned = curTrack?.lyricsAlignStatus === 'ready' && curTrack.lyrics.length > 0 ? curTrack.lyrics : null
@@ -170,7 +181,16 @@ export function KaraokePage() {
     return d >= -5 && d <= 60 ? d : 0
   }, [aligned, vocalOnset, lyricsData])
 
-  const artUrl = current?.videoId ? proxyImgAuto(`https://i.ytimg.com/vi/${current.videoId}/mqdefault.jpg`) : ''
+  // Cover: the studio track's own art first (works for any source incl. owned Plex/local),
+  // then the suggestion cover, then a YouTube thumbnail only for real YouTube refs (a plex:/
+  // local: ref would make a broken i.ytimg URL - that was the "no images" bug).
+  const artUrl = curTrack?.coverUrl
+    ? curTrack.coverUrl
+    : current?.cover
+      ? proxyImgAuto(current.cover)
+      : current?.videoId && isYouTubeRef(current.videoId)
+        ? proxyImgAuto(`https://i.ytimg.com/vi/${current.videoId}/mqdefault.jpg`)
+        : ''
   const palette = useAlbumPalette(artUrl || null)
 
   const advance = useCallback(() => {
@@ -183,8 +203,8 @@ export function KaraokePage() {
   const setKey = (n: number) => { const s = Math.max(-6, Math.min(6, n)); setSemitones(s); engine.setSemitones(s) }
   const setTempo = (pct: number) => { const p = Math.max(60, Math.min(120, Math.round(pct / 5) * 5)); setTempoPct(p); engine.setTempoRatio(p / 100) }
   // The Play button is the user gesture that unlocks the AudioContext (browsers block autoplay).
-  const togglePlay = () => { startedRef.current = true; engine.toggle() }
-  const restart = () => { startedRef.current = true; engine.seek(0); void engine.play() }
+  const togglePlay = () => { startedRef.current = true; engine.unlock(); engine.toggle() }
+  const restart = () => { startedRef.current = true; engine.unlock(); engine.seek(0); void engine.play() }
 
   const addSong = useCallback((s: QueueItem) => setQueue((q) => [...q, s]), [])
   const removeAt = (key: string) => setQueue((q) => q.filter((x) => x.key !== key))
@@ -325,7 +345,7 @@ export function KaraokePage() {
             {upNext.map((it) => (
               <div key={it.key} className="group flex items-center gap-2 rounded-xl bg-white/5 p-2">
                 <GripVertical className="size-4 shrink-0 text-white/20" />
-                <img src={it.videoId ? proxyImgAuto(`https://i.ytimg.com/vi/${it.videoId}/mqdefault.jpg`) : proxyImgAuto(it.cover ?? '')}
+                <img src={it.cover ? proxyImgAuto(it.cover) : (it.videoId && isYouTubeRef(it.videoId) ? proxyImgAuto(`https://i.ytimg.com/vi/${it.videoId}/mqdefault.jpg`) : '')}
                   alt="" className="size-9 shrink-0 rounded-md bg-white/5 object-cover" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{it.title}</div>

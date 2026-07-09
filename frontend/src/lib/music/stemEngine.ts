@@ -129,6 +129,15 @@ export class StemEngine {
     return Math.max(0, Math.min(this.duration, (this.ctx.currentTime - this.startAtCtxTime) * this.rate))
   }
 
+  /** Create + resume the AudioContext from within a user gesture. Safari refuses to ever start
+   *  a context that was first created outside a gesture (e.g. in a load effect), so callers
+   *  should invoke this from the first click/tap on the page. Safe to call repeatedly. */
+  unlock(): void {
+    if (this.disposed) return
+    const ctx = this.ensureCtx()
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
+  }
+
   private ensureCtx(): AudioContext {
     if (this.ctx) return this.ctx
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
