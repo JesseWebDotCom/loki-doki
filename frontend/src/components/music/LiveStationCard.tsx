@@ -4,7 +4,6 @@ import { Spinner } from '@/components/ui/spinner'
 import { useLiveRadio } from '@/context/LiveRadioContext'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
-import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { LiveSearchStation } from '@/lib/music/liveRadioApi'
 
@@ -42,8 +41,9 @@ export function LiveStationCard({ s, onAdd, adding, added }: {
   const meta = [s.codec, s.bitrate ? `${s.bitrate} kbps` : null, s.votes ? `${s.votes} votes` : null].filter(Boolean).join(' · ')
 
   return (
-    <Card className="flex items-center gap-3 p-3">
-      <LiveStationFavicon favicon={s.favicon} className="size-12" />
+    // design-ok(glass-on-plain-bg): elevated tile on the Music app's true-black surface
+    <div className="flex items-center gap-3 rounded-card bg-white/[0.04] p-3 ring-1 ring-inset ring-white/[0.06] transition hover:bg-white/[0.07]">
+      <LiveStationFavicon favicon={s.favicon} className="size-14 rounded-card" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">{s.name}</p>
         <p className="truncate text-xs text-muted-foreground">{stationTagLine(s.tags, s.country) || s.language}</p>
@@ -68,6 +68,6 @@ export function LiveStationCard({ s, onAdd, adding, added }: {
           {adding ? <Spinner className="text-current" /> : added ? <Check className="size-4 text-success" /> : <Plus className="size-4" />}
         </button>
       </div>
-    </Card>
+    </div>
   )
 }

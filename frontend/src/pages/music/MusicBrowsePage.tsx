@@ -12,8 +12,10 @@ import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
 import { StationCard } from '@/components/music/StationCard'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicMode } from '@/components/music/MusicLayout'
+import { SongTile } from '@/components/music/SongTile'
+import { stationGradient } from '@/lib/music/stationColors'
 import { toast } from 'sonner'
-import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
+import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
 
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
@@ -61,7 +63,7 @@ function SongDownloadSearchButton({ song }: { song: CatalogSong }) {
   )
 }
 
-const GENRES = ['Pop', 'Rock', 'Hip-Hop', 'Jazz', 'Electronic', 'Country', 'R&B', 'Metal', 'Classical', 'Indie', 'Reggae', 'Soul']
+
 
 /** Offline browse: no catalog (that's a network call) - just substring-filter the stations and
  *  songs you've downloaded. Mirrors the YouTube offline-search pattern (SearchResults.tsx). */
@@ -124,6 +126,64 @@ function OfflineBrowse({ q }: { q: string }) {
   )
 }
 
+// Genre → gradient accent, mirroring the station-art palette so Browse feels native.
+const GENRE_TILES: Array<{ name: string; accent: string }> = [
+  { name: 'Pop', accent: 'fuchsia' }, { name: 'Rock', accent: 'rose' },
+  { name: 'Hip-Hop', accent: 'violet' }, { name: 'Jazz', accent: 'amber' },
+  { name: 'Electronic', accent: 'cyan' }, { name: 'Country', accent: 'amber' },
+  { name: 'R&B', accent: 'rose' }, { name: 'Metal', accent: 'slate' },
+  { name: 'Classical', accent: 'blue' }, { name: 'Indie', accent: 'emerald' },
+  { name: 'Reggae', accent: 'emerald' }, { name: 'Soul', accent: 'violet' },
+]
+
+// The Apple-Music-style Browse landing: big gradient genre tiles + living shelves
+// (recently played + featured stations) instead of a dead wall under the search box.
+function BrowseIdle({ onGenre }: { onGenre: (g: string) => void }) {
+  const radio = useRadio()
+  const { data: buckets } = useQuery({ queryKey: ['music-stations'], queryFn: listStations })
+  const { data: hist } = useQuery({ queryKey: ['music-history'], queryFn: () => getHistory(10) })
+  const recent = hist?.history ?? []
+  const featured = (buckets?.builtin ?? []).slice(8, 16) // a different slice than Listen's grid
+
+  return (
+    <>
+      <SectionHeader title="Browse by genre" />
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+        {GENRE_TILES.map(g => (
+          <button key={g.name} onClick={() => onGenre(g.name)}
+            className="group relative aspect-[8/5] overflow-hidden rounded-card text-left shadow-md transition duration-200 hover:scale-[1.03] hover:shadow-xl"
+            style={{ background: stationGradient(g.accent) }}>
+            <Music2 aria-hidden className="pointer-events-none absolute -bottom-3 -right-2 size-16 rotate-12 text-white/15" />
+            {/* design-ok(font-black): genre tile wordmark, part of the tile art itself */}
+            <span className="absolute bottom-2.5 left-3 text-lg font-black tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.35)]">{g.name}</span>
+          </button>
+        ))}
+      </div>
+
+      {recent.length > 0 && (
+        <section className="mt-8">
+          <SectionHeader title="Jump back in" />
+          <div className="mt-3 flex gap-4 overflow-x-auto pb-3 pt-1 no-scrollbar">
+            {recent.map(h => (
+              <SongTile key={h.id} trackRef={h.videoId} title={h.title} artist={h.artist} size="w-40"
+                onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {featured.length > 0 && (
+        <section className="mt-8">
+          <SectionHeader title="Stations to explore" to="/music/stations" />
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {featured.map(s => <StationCard key={s.id} station={s} />)}
+          </div>
+        </section>
+      )}
+    </>
+  )
+}
+
 export function MusicBrowsePage() {
   const navigate = useNavigate()
   const radio = useRadio()
@@ -161,12 +221,7 @@ export function MusicBrowsePage() {
     <PageContainer width="wide" className="pb-10">
       <PageHeader plain title="Browse" subtitle="Search the catalog for any artist, album, or song." />
       {SearchBar}
-      <p className="mb-2 text-overline text-muted-foreground/60">Browse by genre</p>
-      <div className="flex flex-wrap gap-2">
-        {GENRES.map(g => (
-          <button key={g} onClick={() => search(g)} className="rounded-full bg-foreground/8 px-4 py-2 text-sm font-medium transition hover:bg-foreground/15">{g}</button>
-        ))}
-      </div>
+      <BrowseIdle onGenre={search} />
     </PageContainer>
   )
 

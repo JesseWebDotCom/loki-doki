@@ -8,28 +8,14 @@ import { SectionHeader } from '@/components/shared/SectionHeader'
 import { StationCard } from '@/components/music/StationCard'
 import { StationArt } from '@/components/music/StationArt'
 import { BlendedHeroBackdrop } from '@/components/music/BlendedHero'
-import { SongArt, useSongArt } from '@/components/music/SongArt'
+import { useSongArt } from '@/components/music/SongArt'
+import { SongTile } from '@/components/music/SongTile'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import { listStations, getHistory, stationToDj, type Station } from '@/lib/music/catalogApi'
 
-// A song tile the way modern players draw them: square album art with the title overlaid
-// on a bottom gradient, no card chrome, gentle hover lift.
-function SongTile({ trackRef, title, artist, onClick }: { trackRef: string; title: string; artist: string | null; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="group w-44 shrink-0 text-left">
-      <div className="relative overflow-hidden rounded-card shadow-md transition duration-200 group-hover:scale-[1.03] group-hover:shadow-xl">
-        <SongArt trackRef={trackRef} title={title} artist={artist} className="aspect-square w-full" rounded="rounded-card" />
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 p-2.5">
-          <p className="truncate text-[13px] font-semibold text-white">{title}</p>
-          {artist && <p className="truncate text-[11px] text-white/60">{artist}</p>}
-        </div>
-      </div>
-    </button>
-  )
-}
+// (SongTile moved to components/music/SongTile - shared with Browse.)
 
 // The page's focal point: a full-width billboard for the day's featured station.
 // A real album cover from the station's queue anchors the right edge and DISSOLVES into

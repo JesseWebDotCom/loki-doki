@@ -12,7 +12,6 @@ import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { LiveStationCard, LiveStationFavicon, stationTagLine } from '@/components/music/LiveStationCard'
@@ -68,8 +67,9 @@ function SavedStationCard({ st, rec, now }: { st: LiveLibraryStation; rec: LiveR
   }
 
   return (
-    <Card className="flex items-center gap-3 p-3">
-      <LiveStationFavicon favicon={st.favicon} className="size-12" />
+    // design-ok(glass-on-plain-bg): elevated tile on the Music app's true-black surface
+    <div className="flex items-center gap-3 rounded-card bg-white/[0.04] p-3 ring-1 ring-inset ring-white/[0.06] transition hover:bg-white/[0.07]">
+      <LiveStationFavicon favicon={st.favicon} className="size-14 rounded-card" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">{st.name}</p>
         <p className="truncate text-xs text-muted-foreground">{stationTagLine(st.tags, st.country) || (st.source === 'manual' ? 'Custom stream' : st.language ?? '')}</p>
@@ -125,7 +125,7 @@ function SavedStationCard({ st, rec, now }: { st: LiveLibraryStation; rec: LiveR
       <ConfirmDialog open={confirmStop} onOpenChange={setConfirmStop} title="Stop and keep recording?"
         description="The recording ends now and everything captured so far is saved."
         confirmLabel="Stop and keep" onConfirm={() => void stopRec()} />
-    </Card>
+    </div>
   )
 }
 
