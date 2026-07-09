@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   ChevronDown, Heart, Download, MonitorPlay, Play, Pause, SkipForward, AudioLines,
-  Mic, Moon, Volume2, VolumeX, ListMusic, Music2, Disc3, Sparkles, RotateCcw, RotateCw, Repeat1,
+  Mic, Mic2, Moon, Volume2, VolumeX, ListMusic, Music2, Disc3, Sparkles, RotateCcw, RotateCw, Repeat1,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
@@ -24,6 +24,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel } from './nowPlayingParts'
 import { addFavorite, saveOffline } from '@/lib/music/catalogApi'
+import { isYouTubeRef } from '@/lib/music/trackRef'
+import { queueForKaraoke } from '@/lib/music/karaokeQueue'
 
 type Tab = 'lyrics' | 'up-next' | 'about'
 
@@ -235,6 +237,12 @@ export function NowPlayingOverlay() {
             aria-label="Watch video" title="Switch to video" className="shrink-0 text-white/70 hover:text-white">
             <MonitorPlay className="size-4" />
           </button>
+          {cur && isYouTubeRef(cur.videoId) && (
+            <button onClick={() => { queueForKaraoke({ videoId: cur.videoId, title: cur.title, artist, durationSec: radio.durationSec || null }); closePlayer(); navigate('/music/karaoke') }}
+              aria-label="Sing in karaoke" title="Karaoke this song" className="shrink-0 text-white/70 hover:text-white">
+              <Mic2 className="size-4" />
+            </button>
+          )}
           <button onClick={download} aria-label="Save offline" className="shrink-0 text-white/70 hover:text-white">
             <Download className="size-4" />
           </button>

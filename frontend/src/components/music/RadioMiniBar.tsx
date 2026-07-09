@@ -1,4 +1,4 @@
-import { Pause, Play, SkipForward, X, Mic, AudioLines, MonitorPlay, Maximize2, RotateCcw, RotateCw, Repeat1 } from 'lucide-react'
+import { Pause, Play, SkipForward, X, Mic, Mic2, AudioLines, MonitorPlay, Maximize2, RotateCcw, RotateCw, Repeat1 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
@@ -6,6 +6,8 @@ import { useCatalogNav } from '@/lib/music/catalogNav'
 import { proxyImg } from '@/lib/img'
 import { useSongArt } from '@/components/music/SongArt'
 import { cn } from '@/lib/cn'
+import { isYouTubeRef } from '@/lib/music/trackRef'
+import { queueForKaraoke } from '@/lib/music/karaokeQueue'
 import { fmtClock } from '@/lib/youtube/format'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { SeekBar } from '@/components/shared/SeekBar'
@@ -138,6 +140,13 @@ export function RadioMiniBar() {
                 aria-label="Watch video" title="Switch to video">
                 <MonitorPlay className="size-4" />
               </button>
+              {currentTrack && isYouTubeRef(currentTrack.videoId) && (
+                <button onClick={() => { queueForKaraoke({ videoId: currentTrack.videoId, title: currentTrack.title, artist: currentTrack.author ?? '', durationSec: durationSec || null }); navigate('/music/karaoke') }}
+                  className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
+                  aria-label="Sing in karaoke" title="Karaoke this song">
+                  <Mic2 className="size-4" />
+                </button>
+              )}
               <button onClick={() => openPlayer()}
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
                 aria-label="Fullscreen player" title="Fullscreen">

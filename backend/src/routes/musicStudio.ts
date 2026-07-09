@@ -137,6 +137,42 @@ musicStudio.post('/upload', async (c) => {
   return c.json({ id })
 })
 
+// ── Karaoke suggestions (popular sing-along standards) ───────────────────────────
+// A curated set of karaoke anthems — the songs everyone knows the words to, which is a far
+// better "popular karaoke" list than a current-hits chart. Enriched with Deezer cover art
+// and cached in-process for a day (the list is static).
+const KARAOKE_PICKS: { title: string; artist: string }[] = [
+  { title: "Don't Stop Believin'", artist: 'Journey' },
+  { title: 'Bohemian Rhapsody', artist: 'Queen' },
+  { title: 'Sweet Caroline', artist: 'Neil Diamond' },
+  { title: "Livin' On A Prayer", artist: 'Bon Jovi' },
+  { title: 'I Wanna Dance with Somebody', artist: 'Whitney Houston' },
+  { title: 'Mr. Brightside', artist: 'The Killers' },
+  { title: 'Wonderwall', artist: 'Oasis' },
+  { title: 'Africa', artist: 'Toto' },
+  { title: 'Dancing Queen', artist: 'ABBA' },
+  { title: 'Total Eclipse of the Heart', artist: 'Bonnie Tyler' },
+  { title: 'Take On Me', artist: 'a-ha' },
+  { title: "Sweet Child O' Mine", artist: "Guns N' Roses" },
+  { title: 'I Will Survive', artist: 'Gloria Gaynor' },
+  { title: 'Shallow', artist: 'Lady Gaga' },
+  { title: 'Piano Man', artist: 'Billy Joel' },
+  { title: 'Killing Me Softly With His Song', artist: 'Fugees' },
+]
+let karaokeSuggestCache: { at: number; items: Array<{ title: string; artist: string; cover: string | null }> } | null = null
+musicStudio.get('/karaoke/suggestions', async (c) => {
+  if (karaokeSuggestCache && Date.now() - karaokeSuggestCache.at < 24 * 3600_000) {
+    return c.json({ suggestions: karaokeSuggestCache.items })
+  }
+  const { deezerTrackCover } = await import('@/lib/music/deezer')
+  const items = await Promise.all(KARAOKE_PICKS.map(async (p) => ({
+    title: p.title, artist: p.artist,
+    cover: await deezerTrackCover(p.artist, p.title).catch(() => null),
+  })))
+  karaokeSuggestCache = { at: Date.now(), items }
+  return c.json({ suggestions: items })
+})
+
 // ── Add a song picked from the Music app ────────────────────────────────────────
 // Body: { mbid?, videoId?, title, artist?, durationSec? } from a catalog search result.
 // Creates the track immediately (sourceStatus 'fetching') and enqueues a studio-source job

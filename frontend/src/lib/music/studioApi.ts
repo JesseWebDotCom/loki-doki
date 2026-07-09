@@ -102,3 +102,11 @@ export async function prepareKaraoke(song: { videoId: string; title: string; art
   if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? 'prepare')
   return (await r.json() as { id: string }).id
 }
+
+export interface KaraokeSuggestion { title: string; artist: string; cover: string | null }
+/** Curated popular karaoke standards (with cover art) for the suggestions row. */
+export async function getKaraokeSuggestions(): Promise<KaraokeSuggestion[]> {
+  const r = await fetch('/api/music/karaoke/suggestions', opts)
+  if (!r.ok) return []
+  return (await r.json() as { suggestions: KaraokeSuggestion[] }).suggestions
+}

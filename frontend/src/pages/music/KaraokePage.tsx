@@ -6,8 +6,9 @@ import { cn } from '@/lib/cn'
 import { proxyImgAuto } from '@/lib/img'
 import { useRadio } from '@/context/RadioContext'
 import { StemEngine } from '@/lib/music/stemEngine'
-import { prepareKaraoke, getStudioTrack, type StudioTrack } from '@/lib/music/studioApi'
+import { prepareKaraoke, getStudioTrack, getKaraokeSuggestions, type StudioTrack } from '@/lib/music/studioApi'
 import { catalogSearchSongs, resolveSong, getLyrics } from '@/lib/music/catalogApi'
+import { drainKaraokeSeeds, subscribeKaraoke } from '@/lib/music/karaokeQueue'
 import { useAlbumPalette } from '@/lib/music/albumColors'
 import { KaraokeLyrics } from '@/components/music/KaraokeLyrics'
 import { Spinner } from '@/components/ui/spinner'
@@ -171,7 +172,7 @@ export function KaraokePage() {
   const setKey = (n: number) => { const s = Math.max(-6, Math.min(6, n)); setSemitones(s); engine.setSemitones(s) }
   const restart = () => { engine.seek(0); void engine.play() }
 
-  const addSong = (s: QueueItem) => setQueue((q) => [...q, s])
+  const addSong = useCallback((s: QueueItem) => setQueue((q) => [...q, s]), [])
   const removeAt = (key: string) => setQueue((q) => q.filter((x) => x.key !== key))
 
   // Seed from the currently-playing radio track, if any.
@@ -181,6 +182,17 @@ export function KaraokePage() {
     addSong({ key: uid(), videoId: t.videoId, title: t.title, artist: t.author ?? '', durationSec: radio.durationSec || null, prep: 'idle' })
     toast.success('Added to the karaoke queue')
   }
+
+  // Drain songs sent here from elsewhere in the app (mini player, Now Playing "Sing" button),
+  // on mount and whenever another one arrives while this page is open.
+  useEffect(() => {
+    const pull = () => {
+      const seeds = drainKaraokeSeeds()
+      if (seeds.length) setQueue((q) => [...q, ...seeds.map((s) => ({ key: uid(), ...s, prep: 'idle' as const }))])
+    }
+    pull()
+    return subscribeKaraoke(pull)
+  }, [])
 
   const enterFullscreen = () => { rootRef.current?.requestFullscreen?.().catch(() => {}) }
 
@@ -213,10 +225,13 @@ export function KaraokePage() {
         {/* Lyrics focal area */}
         <div className="relative flex min-w-0 flex-1 flex-col rounded-3xl bg-black/20 p-4">
           {!current ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-              <Mic2 className="size-16 text-white/20" />
-              <p className="text-2xl font-semibold text-white/50">Add songs to start the show</p>
-              <p className="text-sm text-white/30">Vocals are removed with AI so you can sing lead. Lyrics scroll big; the queue keeps the party moving.</p>
+            <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center">
+              <div className="flex flex-col items-center gap-3">
+                <Mic2 className="size-14 text-white/20" />
+                <p className="text-2xl font-semibold text-white/50">Add songs to start the show</p>
+                <p className="max-w-md text-sm text-white/30">Vocals are removed with AI so you can sing lead. Lyrics scroll big; the queue keeps the party moving.</p>
+              </div>
+              <KaraokeSuggestions onAdd={addSong} />
             </div>
           ) : preparing ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
@@ -321,14 +336,61 @@ export function KaraokePage() {
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, '0')}`
 
-// Search-and-add popover: songs resolve to a YouTube ref before queueing.
+// Curated popular-karaoke row shown on the empty stage. Clicking a card resolves + queues it.
+function KaraokeSuggestions({ onAdd }: { onAdd: (s: QueueItem) => void }) {
+  const { data } = useQuery({ queryKey: ['karaoke-suggestions'], queryFn: getKaraokeSuggestions, staleTime: Infinity })
+  const [busy, setBusy] = useState<string | null>(null)
+  if (!data?.length) return null
+
+  const pick = async (s: { title: string; artist: string }) => {
+    const k = `${s.artist}~${s.title}`
+    setBusy(k)
+    try {
+      const r = await resolveSong({ title: s.title, artist: s.artist })
+      if (!r?.videoId) { toast.error('No playable source for that song'); return }
+      onAdd({ key: uid(), videoId: r.videoId, title: s.title, artist: s.artist, durationSec: r.durationSec ?? null, prep: 'idle' })
+      toast.success(`Added “${s.title}”`)
+    } catch { toast.error('Could not add that song') }
+    finally { setBusy(null) }
+  }
+
+  return (
+    <div className="w-full max-w-4xl">
+      <div className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Popular karaoke tracks</div>
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {data.map((s) => {
+          const k = `${s.artist}~${s.title}`
+          return (
+            <button key={k} onClick={() => pick(s)} disabled={busy === k}
+              className="group relative w-28 shrink-0 text-left disabled:opacity-60">
+              <div className="relative aspect-square w-28 overflow-hidden rounded-xl bg-white/5">
+                {s.cover
+                  ? <img src={proxyImgAuto(s.cover)} alt="" className="size-full object-cover transition group-hover:scale-105" />
+                  : <div className="grid size-full place-items-center"><Music2 className="size-8 text-white/20" /></div>}
+                <div className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                  {busy === k ? <Spinner className="text-white" /> : <Plus className="size-7 text-white" />}
+                </div>
+              </div>
+              <div className="mt-1.5 truncate text-xs font-medium text-white/90">{s.title}</div>
+              <div className="truncate text-[11px] text-white/50">{s.artist}</div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Search-and-add popover: songs resolve to a YouTube ref before queueing. An optional artist
+// field scopes the search (like the Studio picker) so covers don't bury the real recording.
 function AddSongPopover({ onAdd, onSeedNowPlaying, accent }: { onAdd: (s: QueueItem) => void; onSeedNowPlaying: () => void; accent: string }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
+  const [artist, setArtist] = useState('')
   const [resolving, setResolving] = useState<string | null>(null)
   const { data, isFetching } = useQuery({
-    queryKey: ['karaoke-search', q],
-    queryFn: () => catalogSearchSongs(q),
+    queryKey: ['karaoke-search', q, artist],
+    queryFn: () => catalogSearchSongs(q, artist || undefined),
     enabled: q.trim().length >= 2,
   })
 
@@ -359,6 +421,11 @@ function AddSongPopover({ onAdd, onSeedNowPlaying, accent }: { onAdd: (s: QueueI
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a song…"
               className="w-full bg-transparent text-sm outline-none placeholder:text-white/30" />
             {isFetching && <Spinner className="size-3.5 text-white/40" />}
+          </div>
+          <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+            <Mic2 className="size-4 text-white/40" />
+            <input value={artist} onChange={(e) => setArtist(e.target.value)} placeholder="Artist / band (optional)"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-white/30" />
           </div>
           <div className="mt-2 max-h-72 overflow-y-auto">
             {(data ?? []).map((s) => (

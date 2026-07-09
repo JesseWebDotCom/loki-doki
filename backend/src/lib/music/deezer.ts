@@ -281,3 +281,12 @@ export async function deezerArtistPicture(name: string): Promise<string | null> 
   const hit = (data?.data ?? []).find((a) => norm(a.name ?? '') === want)
   return hit?.picture_big ?? hit?.picture_medium ?? null
 }
+
+/** Album cover for a specific recording (artist + title) from Deezer's track search. */
+export async function deezerTrackCover(artist: string, title: string): Promise<string | null> {
+  const q = `artist:"${artist}" track:"${title}"`
+  const data = await dz<{ data?: Array<{ album?: { cover_medium?: string; cover_big?: string } }> }>(
+    `/search/track?q=${encodeURIComponent(q)}&limit=1`)
+  const a = data?.data?.[0]?.album
+  return a?.cover_big ?? a?.cover_medium ?? null
+}
