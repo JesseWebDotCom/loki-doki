@@ -229,3 +229,54 @@ adminMusicSources.delete('/local-folders/:id', async (c) => {
   logger.info(`[music-sources] removed library folder ${row.path}`)
   return c.json({ ok: true })
 })
+
+// ── Music intelligence (Admin → Music → Intelligence) ────────────────────────────
+// Coverage card + backfill for the ML sound-profile pipeline (library_analyze.py).
+// Analysis normally converges on its own via the completeAsset hook; backfill sweeps
+// everything already on disk (downloads, prefetch cache, local library) in one shot.
+
+adminMusicSources.get('/intel', async (c) => {
+  const { isStemAudioInstalled, isMusicIntelReady, INTEL_MODEL_VERSION } = await import('@/lib/stems/pyenv')
+  const { musicTrackFeatures, ytDownloads } = await import('@/db/schema')
+  const rows = await db.select({ status: musicTrackFeatures.status, modelVersion: musicTrackFeatures.modelVersion })
+    .from(musicTrackFeatures)
+  const ready = rows.filter(r => r.status === 'ready' && r.modelVersion === INTEL_MODEL_VERSION).length
+  const stale = rows.filter(r => r.status === 'ready' && r.modelVersion !== INTEL_MODEL_VERSION).length
+  const failed = rows.filter(r => r.status === 'failed').length
+  const [ytCount] = await db.select({ n: sql<number>`count(distinct ${ytDownloads.videoId})` })
+    .from(ytDownloads).where(sql`${ytDownloads.kind} = 'audio' AND ${ytDownloads.status} = 'ready'`)
+  const [localCount] = await db.select({ n: sql<number>`count(*)` }).from(musicLocalTracks)
+  const [pendingJobs] = await db.select({ n: sql<number>`count(*)` }).from(downloadJobs)
+    .where(sql`${downloadJobs.type} = 'music-analyze' AND ${downloadJobs.status} IN ('pending','running')`)
+  return c.json({
+    runtimeInstalled: isStemAudioInstalled(),
+    intelReady: isMusicIntelReady(),
+    modelVersion: INTEL_MODEL_VERSION,
+    ready, stale, failed,
+    pendingJobs: pendingJobs?.n ?? 0,
+    eligible: (ytCount?.n ?? 0) + (localCount?.n ?? 0),
+  })
+})
+
+adminMusicSources.post('/intel/backfill', async (c) => {
+  const { isMusicIntelReady, INTEL_MODEL_VERSION } = await import('@/lib/stems/pyenv')
+  if (!isMusicIntelReady()) return c.json({ error: 'Music intelligence runtime is not installed yet.' }, 409)
+  const { musicTrackFeatures, ytDownloads } = await import('@/db/schema')
+  const { enqueueMusicAnalyze } = await import('@/lib/downloadJobs')
+
+  const have = new Set(
+    (await db.select({ ref: musicTrackFeatures.ref, status: musicTrackFeatures.status, modelVersion: musicTrackFeatures.modelVersion }).from(musicTrackFeatures))
+      .filter(r => r.status === 'ready' && r.modelVersion === INTEL_MODEL_VERSION).map(r => r.ref),
+  )
+  const candidates: { ref: string; title?: string; artist?: string; source: string }[] = []
+  const yt = await db.selectDistinct({ videoId: ytDownloads.videoId, title: ytDownloads.title })
+    .from(ytDownloads).where(sql`${ytDownloads.kind} = 'audio' AND ${ytDownloads.status} = 'ready'`)
+  for (const r of yt) candidates.push({ ref: r.videoId, title: r.title ?? undefined, source: 'youtube' })
+  const locals = await db.select({ id: musicLocalTracks.id, title: musicLocalTracks.title, artist: musicLocalTracks.artist }).from(musicLocalTracks)
+  for (const r of locals) candidates.push({ ref: `local:${r.id}`, title: r.title ?? undefined, artist: r.artist ?? undefined, source: 'local' })
+
+  const todo = candidates.filter(t => !have.has(t.ref)).slice(0, 1000)
+  for (const t of todo) await enqueueMusicAnalyze(t)
+  logger.info(`[music-intel] backfill queued ${todo.length} tracks`)
+  return c.json({ queued: todo.length, alreadyAnalyzed: have.size })
+})

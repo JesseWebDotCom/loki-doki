@@ -1058,6 +1058,27 @@ export function runMigrations() {
       scanned_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS music_track_features (
+      ref TEXT NOT NULL PRIMARY KEY,
+      source TEXT,
+      title TEXT,
+      artist TEXT,
+      duration_sec REAL,
+      bpm REAL,
+      key_label TEXT,
+      energy REAL,
+      valence REAL,
+      danceability REAL,
+      aggressiveness REAL,
+      acousticness REAL,
+      tags_json TEXT,
+      embedding BLOB,
+      model_version TEXT,
+      status TEXT NOT NULL,
+      error TEXT,
+      analyzed_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS music_ratings (
       id TEXT NOT NULL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

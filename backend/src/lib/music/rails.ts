@@ -118,6 +118,28 @@ async function computeRails(userId: string): Promise<Rail[]> {
     }
   }
 
+  // Discovery: sound-nearest unplayed tracks to the centroid of this listener's top-40
+  // (music-intelligence embeddings). Omitted entirely until enough of their taste is
+  // analyzed — a rail built from a 3-track centroid would just be noise.
+  try {
+    const { centroidOf, nearestToVector, featureCount } = await import('@/lib/music/similarity')
+    if (await featureCount() >= 50) {
+      const top = topTracks(userId, now - 180 * DAY, now + DAY, 40)
+      const played = new Set(top.map(r => r.video_id))
+      const centroid = await centroidOf(top.map(r => r.video_id), 8)
+      if (centroid) {
+        const near = await nearestToVector(centroid, 48, { maxPerArtist: 2, excludeRefs: [...played] })
+        const playedRecently = recentPlayCounts(userId, now - 90 * DAY)
+        const discovery = near
+          .filter(n => (n.title || n.artist) && (playedRecently.get(n.ref) ?? 0) === 0)
+          .map(n => ({ videoId: n.ref, title: n.title ?? '', artist: n.artist ?? '' }))
+        if (discovery.length >= MIN_RAIL) {
+          rails.push({ key: 'discovery', title: 'Discovery', subtitle: 'Sounds like you, songs you haven’t played', tracks: discovery.slice(0, 24) })
+        }
+      }
+    }
+  } catch { /* intel not installed */ }
+
   // Content protections apply to rails like everywhere else.
   for (const rail of rails) {
     rail.tracks = await filterTracksForUser(userId, rail.tracks)

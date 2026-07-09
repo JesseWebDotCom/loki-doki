@@ -140,3 +140,11 @@ Planetiler                      Apache 2.0           https://github.com/onthegom
 GraphHopper                     Apache 2.0           https://github.com/graphhopper/graphhopper
 go-pmtiles                      BSD 3-Clause         https://github.com/protomaps/go-pmtiles
 Eclipse Temurin JRE             GPL 2.0 + CPE        https://adoptium.net/
+Demucs (htdemucs)               MIT License          https://github.com/facebookresearch/demucs
+Essentia / essentia-tensorflow  AGPL 3.0 (subprocess only, never linked into app code)
+                                                     https://essentia.upf.edu/
+MTG Essentia classifier models  CC BY-NC-SA 4.0      https://essentia.upf.edu/models.html
+  (discogs-effnet backbone; genre_discogs400, mtg_jamendo_moodtheme, danceability,
+   mood_{aggressive,happy,sad,relaxed,acoustic}, approachability, engagement heads)
+  © Music Technology Group, Universitat Pompeu Fabra
+  https://creativecommons.org/licenses/by-nc-sa/4.0/

@@ -960,6 +960,32 @@ export const musicTrackAudio = sqliteTable('music_track_audio', {
   scannedAt: integer('scanned_at', { mode: 'timestamp' }).notNull(),
 })
 
+// music_track_features: ML music intelligence per track ref — a 1280-d discogs-effnet
+// sound embedding (Float32Array LE blob, ~5KB) plus mood/genre scalars and tags from
+// the MTG classifier heads. Gated on the stem-audio component (library_analyze.py);
+// deliberately separate from music_track_audio so loudness never depends on the ML
+// install. status 'failed' rows keep the error for the admin coverage card.
+export const musicTrackFeatures = sqliteTable('music_track_features', {
+  ref: text('ref').primaryKey(),          // unified track ref (trackRef.ts)
+  source: text('source'),                 // youtube | local | plex (display/debug)
+  title: text('title'),
+  artist: text('artist'),
+  durationSec: real('duration_sec'),
+  bpm: real('bpm'),
+  keyLabel: text('key_label'),
+  energy: real('energy'),                 // all scalars 0..1 (formulas in library_analyze.py)
+  valence: real('valence'),
+  danceability: real('danceability'),
+  aggressiveness: real('aggressiveness'),
+  acousticness: real('acousticness'),
+  tagsJson: text('tags_json'),            // ["hard rock", ..., "mood/energetic", ...]
+  embedding: blob('embedding', { mode: 'buffer' }), // Float32Array(1280) LE bytes
+  modelVersion: text('model_version'),    // INTEL_MODEL_VERSION at analysis time
+  status: text('status').notNull(),       // ready | failed
+  error: text('error'),
+  analyzedAt: integer('analyzed_at', { mode: 'timestamp' }).notNull(),
+})
+
 // Star ratings (1-5) per user per track ref. Denormalized title/artist follow the
 // music_favorites posture (a ref alone has no row to join for display). Feeds Smart
 // Rules + rail weighting later.

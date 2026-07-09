@@ -1,12 +1,12 @@
 // Smart playlists: a rule set evaluated over the user's music universe on every read -
 // "my 5-star songs", "AC/DC I haven't played in a month", etc. No persisted track rows;
-// the playlist IS the query. Fields are limited to what the universe actually knows
-// (genre/year arrive with workstream D's analysis features).
+// the playlist IS the query. The genre field matches the music-intelligence classifier
+// tags (music_track_features) - tracks without an analyzed sound profile never match it.
 
 import { getUserUniverse, type UniverseTrack } from '@/lib/music/libraryUniverse'
 
 export interface SmartRule {
-  field: 'artist' | 'title' | 'plays' | 'lastPlayed' | 'favorite' | 'rating'
+  field: 'artist' | 'title' | 'plays' | 'lastPlayed' | 'favorite' | 'rating' | 'genre'
   op: 'is' | 'contains' | 'gt' | 'lt' | 'gte' | 'before' | 'after' | 'isTrue'
   value?: string | number
 }
@@ -20,7 +20,7 @@ export interface SmartRules {
 
 const DAY_MS = 86_400_000
 
-function ruleMatches(t: UniverseTrack, r: SmartRule): boolean {
+function ruleMatches(t: UniverseTrack, r: SmartRule, tagsByRef: Map<string, string[]>): boolean {
   switch (r.field) {
     case 'artist': {
       const v = String(r.value ?? '').toLowerCase()
@@ -42,6 +42,15 @@ function ruleMatches(t: UniverseTrack, r: SmartRule): boolean {
       const cutoff = Date.now() - days * DAY_MS
       if (r.op === 'before') return t.lastPlayedMs == null || t.lastPlayedMs < cutoff
       return t.lastPlayedMs != null && t.lastPlayedMs >= cutoff
+    }
+    case 'genre': {
+      const v = String(r.value ?? '').toLowerCase().trim()
+      if (!v) return true
+      const tags = tagsByRef.get(t.videoId)
+      if (!tags?.length) return false
+      return r.op === 'is'
+        ? tags.some(tag => tag.replace(/^mood\//, '') === v)
+        : tags.some(tag => tag.includes(v))
     }
     case 'favorite':
       return t.favorite
@@ -71,12 +80,21 @@ export function parseSmartRules(json: string | null): SmartRules | null {
   }
 }
 
-export function evaluateSmartPlaylist(userId: string, rules: SmartRules): UniverseTrack[] {
+export async function evaluateSmartPlaylist(userId: string, rules: SmartRules): Promise<UniverseTrack[]> {
   const universe = getUserUniverse(userId)
+  // Classifier tags for the genre field - the in-memory similarity cache makes this a
+  // map build, not a query. Loaded only when a rule actually needs it.
+  let tagsByRef = new Map<string, string[]>()
+  if (rules.rules.some(r => r.field === 'genre')) {
+    try {
+      const { allFeatureTags } = await import('@/lib/music/similarity')
+      tagsByRef = await allFeatureTags()
+    } catch { /* intel not installed - genre rules match nothing */ }
+  }
   const out = universe.filter(t =>
     rules.match === 'any'
-      ? rules.rules.some(r => ruleMatches(t, r))
-      : rules.rules.every(r => ruleMatches(t, r)),
+      ? rules.rules.some(r => ruleMatches(t, r, tagsByRef))
+      : rules.rules.every(r => ruleMatches(t, r, tagsByRef)),
   )
   const sorters: Record<string, (a: UniverseTrack, b: UniverseTrack) => number> = {
     plays: (a, b) => b.playCount - a.playCount,

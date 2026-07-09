@@ -148,7 +148,7 @@ musicPlaylists_route.post('/smart', async (c) => {
     kind: 'smart', rulesJson: JSON.stringify(rules), createdAt: now, updatedAt: now,
   })
   const [row] = await db.select().from(musicPlaylists).where(eq(musicPlaylists.id, id))
-  const count = evaluateSmartPlaylist(user.id, rules).length
+  const count = (await evaluateSmartPlaylist(user.id, rules)).length
   return c.json({ playlist: serialize(row!, user.id, null, count) })
 })
 
@@ -163,7 +163,7 @@ musicPlaylists_route.put('/:id/rules', async (c) => {
   const rules = parseSmartRules(JSON.stringify(body.rules ?? null))
   if (!rules || !rules.rules.length) return c.json({ error: 'at least one rule required' }, 400)
   await db.update(musicPlaylists).set({ rulesJson: JSON.stringify(rules), updatedAt: new Date() }).where(eq(musicPlaylists.id, id))
-  return c.json({ ok: true, count: evaluateSmartPlaylist(user.id, rules).length })
+  return c.json({ ok: true, count: (await evaluateSmartPlaylist(user.id, rules)).length })
 })
 
 // Live preview: how many universe tracks match a rule set right now.
@@ -172,7 +172,7 @@ musicPlaylists_route.post('/smart/preview', async (c) => {
   const body = await c.req.json<{ rules?: unknown }>().catch(() => ({} as Record<string, never>))
   const rules = parseSmartRules(JSON.stringify(body.rules ?? null))
   if (!rules) return c.json({ count: 0 })
-  return c.json({ count: evaluateSmartPlaylist(user.id, rules).length })
+  return c.json({ count: (await evaluateSmartPlaylist(user.id, rules)).length })
 })
 
 // ── Get one + tracks ──────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ musicPlaylists_route.get('/:id', async (c) => {
   // read (a fresh play, rating, or favorite changes the answer) - no persisted rows.
   if (row.p.kind === 'smart') {
     const rules = parseSmartRules(row.p.rulesJson)
-    const hits = rules ? evaluateSmartPlaylist(row.p.userId, rules) : []
+    const hits = rules ? await evaluateSmartPlaylist(row.p.userId, rules) : []
     const tracks = hits.map((t, i) => ({
       id: `smart-${i}`, playlistId: id, videoId: t.videoId, title: t.title,
       artist: t.artist || null, mbid: null, durationSec: null, position: i, addedAt: new Date(),

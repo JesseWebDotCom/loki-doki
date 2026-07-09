@@ -112,6 +112,7 @@ export function MagicVibeDialog({ open, onOpenChange }: { open: boolean; onOpenC
 const FIELDS = [
   { key: 'artist', label: 'Artist', ops: [['contains', 'contains'], ['is', 'is']], input: 'text' },
   { key: 'title', label: 'Title', ops: [['contains', 'contains'], ['is', 'is']], input: 'text' },
+  { key: 'genre', label: 'Genre / mood', ops: [['contains', 'contains'], ['is', 'is']], input: 'text' },
   { key: 'plays', label: 'Play count', ops: [['gte', 'at least'], ['lt', 'under']], input: 'number' },
   { key: 'lastPlayed', label: 'Last played', ops: [['before', 'over N days ago'], ['after', 'within N days']], input: 'number' },
   { key: 'favorite', label: 'Favorited', ops: [['isTrue', 'is true']], input: 'none' },

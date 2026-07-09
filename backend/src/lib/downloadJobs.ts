@@ -33,7 +33,7 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'studio-source' | 'music-scan' | 'music-plex-sync'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'studio-source' | 'music-scan' | 'music-plex-sync' | 'music-analyze'
 export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
@@ -42,7 +42,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'music-scan'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'music-scan', 'music-analyze'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -696,6 +696,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       }, signal)
       return
     }
+    case 'music-analyze': {
+      const payload = JSON.parse(job.refId) as { ref: string; title?: string; artist?: string; source?: string }
+      const { runLibraryAnalyzeJob } = await import('@/lib/stems/libraryAnalyzeJob')
+      await runLibraryAnalyzeJob(payload, signal, onProgress)
+      return
+    }
   }
 }
 
@@ -830,6 +836,31 @@ export async function enqueueMediaEnhance(assetId: string, label = 'Enhance vide
  *  finished/failed prior job resets to pending so the admin "Scan" button and the daily
  *  sweep both re-run it. Compute lane ('music-scan' type): local disk IO + tag parsing —
  *  a 20k-track first scan must not occupy a network-download slot. */
+/** Coalesced enqueue of a music-intelligence analysis (library_analyze.py) for one track
+ *  ref. Low priority compute-lane work: it should never delay user downloads or Studio
+ *  jobs. Re-arms completed/failed rows so a model-version bump can force re-analysis. */
+export async function enqueueMusicAnalyze(opts: { ref: string; title?: string; artist?: string; source?: string }): Promise<void> {
+  const vk = `music-analyze:${opts.ref}`
+  const now = new Date()
+  const [existing] = await db.select({ id: downloadJobs.id, status: downloadJobs.status }).from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'music-analyze'), eq(downloadJobs.variantKey, vk))).limit(1)
+  if (existing) {
+    if (existing.status === 'pending' || existing.status === 'running') return
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, progress: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+    kickScheduler()
+    return
+  }
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'music-analyze', refId: JSON.stringify(opts), variantKey: vk,
+    domain: 'music-intel', sizeClass: 'small', label: `Analyze: ${(opts.title || opts.ref).slice(0, 100)}`, priority: 20,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
 export async function enqueueMusicScan(folderId: string, label: string): Promise<void> {
   const vk = `music-scan:${folderId}`
   const now = new Date()

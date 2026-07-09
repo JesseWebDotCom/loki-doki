@@ -37,7 +37,7 @@ export interface Station {
 }
 export interface StationBuckets { builtin: Station[]; mine: Station[]; shared: Station[]; categories: string[] }
 
-export interface SmartRule { field: 'artist' | 'title' | 'plays' | 'lastPlayed' | 'favorite' | 'rating'; op: string; value?: string | number }
+export interface SmartRule { field: 'artist' | 'title' | 'genre' | 'plays' | 'lastPlayed' | 'favorite' | 'rating'; op: string; value?: string | number }
 export interface SmartRules { match: 'all' | 'any'; limit?: number; sort?: 'plays' | 'recent' | 'rating' | 'title'; rules: SmartRule[] }
 export interface Playlist {
   id: string; name: string; description: string | null; visibility: Visibility

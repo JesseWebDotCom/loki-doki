@@ -127,6 +127,77 @@ function ProtectionsPanel() {
   )
 }
 
+interface IntelStatus {
+  runtimeInstalled: boolean
+  intelReady: boolean
+  modelVersion: string
+  ready: number
+  stale: number
+  failed: number
+  pendingJobs: number
+  eligible: number
+}
+
+/** Coverage card for the ML sound-profile pipeline. Analysis converges on its own as the
+ *  family plays and saves music; Backfill sweeps everything already on disk in one shot. */
+function IntelligencePanel() {
+  const [status, setStatus] = useState<IntelStatus | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
+
+  const loadIntel = useCallback(async () => {
+    try { setStatus(await api<IntelStatus>('/intel')) } catch { /* card hides */ }
+  }, [])
+  useEffect(() => {
+    loadIntel()
+    const t = setInterval(loadIntel, 15_000)
+    return () => clearInterval(t)
+  }, [loadIntel])
+
+  async function handleBackfill() {
+    setBackfilling(true)
+    try {
+      const r = await api<{ queued: number }>('/intel/backfill', { method: 'POST' })
+      toast.success(r.queued ? `Queued ${r.queued} tracks for analysis` : 'Everything is already analyzed')
+      loadIntel()
+    } catch { toast.error('Could not start the backfill') }
+    finally { setBackfilling(false) }
+  }
+
+  if (!status) return null
+  return (
+    <div id="intelligence" className="rounded-card border border-border bg-card p-4">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="text-sm font-medium">Music intelligence</div>
+        {status.intelReady && (
+          <Button variant="ghost" size="sm" onClick={handleBackfill} disabled={backfilling || status.pendingJobs > 0}>
+            {backfilling || status.pendingJobs > 0 ? <Spinner className="size-4" /> : <RefreshCw className="size-4" />}
+            {status.pendingJobs > 0 ? `Analyzing ${status.pendingJobs}…` : 'Analyze library'}
+          </Button>
+        )}
+      </div>
+      {!status.intelReady ? (
+        <p className="text-xs text-muted-foreground">
+          The sound-analysis runtime installs with the Music Studio component. Once present, every song the family
+          plays gets a sound profile that powers Discovery, sound-alike stations, and genre smart playlists.
+        </p>
+      ) : (
+        <>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Songs get a sound profile (genre, mood, sound fingerprint) as the family plays and saves music.
+            Profiles power the Discovery rail, sound-alike stations, and genre smart playlists.
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground">
+            <span><span className="font-medium text-success">{status.ready.toLocaleString()}</span> analyzed</span>
+            <span><span className="font-medium text-foreground">{status.eligible.toLocaleString()}</span> on disk</span>
+            {status.stale > 0 && <span><span className="font-medium text-foreground">{status.stale.toLocaleString()}</span> need re-analysis</span>}
+            {status.failed > 0 && <span><span className="font-medium text-destructive">{status.failed.toLocaleString()}</span> failed</span>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function AdminMusicTab() {
   const [folders, setFolders] = useState<MusicFolder[]>([])
   const [plex, setPlex] = useState<PlexMusicState | null>(null)
@@ -404,6 +475,9 @@ export function AdminMusicTab() {
           </label>
         </div>
       )}
+
+      {/* Music intelligence coverage */}
+      {!loading && !loadError && <IntelligencePanel />}
 
       <ConfirmDialog
         open={deleteTarget !== null}

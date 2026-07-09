@@ -173,6 +173,16 @@ export async function completeAsset(
   // in-process queue — coverage converges on everything the household actually plays.
   if (asset.kind === 'audio' && asset.sourceType === 'youtube') {
     void import('@/lib/music/audioScan').then((m) => m.queueAudioScan(asset.sourceId)).catch(() => {})
+    // Same convergence trick for the ML sound profile (embedding + mood/genre tags) when
+    // the music-intelligence runtime is installed. Coalesced low-priority compute job.
+    void (async () => {
+      const { isMusicIntelReady } = await import('@/lib/stems/pyenv')
+      if (!isMusicIntelReady()) return
+      const { hasFreshFeatures } = await import('@/lib/stems/libraryAnalyzeJob')
+      if (await hasFreshFeatures(asset.sourceId)) return
+      const { enqueueMusicAnalyze } = await import('@/lib/downloadJobs')
+      await enqueueMusicAnalyze({ ref: asset.sourceId, source: 'youtube' })
+    })().catch(() => {})
   }
 
   // Chase a higher tier only when we actually improved this round (prevents looping when the

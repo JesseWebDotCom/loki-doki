@@ -315,14 +315,17 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
     if (tracks.length) return { tracks: await preferLibrary(dedupe(tracks).slice(0, want)), source: 'ytmusic' }
   }
 
-  // Artist / song seed → resolve the seed, then ride YouTube Music's curated radio mix.
+  // Artist / song seed → resolve the seed, then ride YouTube Music's curated radio mix,
+  // interleaved with sound-nearest library tracks when the ML sound engine knows the seed.
   if ((seed.seedType === 'artist' || seed.seedType === 'song') && seed.seedValue) {
     const seedTrack = await resolveTrack(seed.seedType === 'song'
       ? { title: seed.seedValue, artist: '' }
       : { title: '', artist: seed.seedValue })
     if (seedTrack) {
       const mix = await ytmusicRadio(seedTrack.videoId)
-      const tracks = [seedTrack, ...dropJunk(fromYtmusic(mix, new Set([...exclude, seedTrack.videoId])))]
+      const candidates = await interleaveSoundalikes(seedTrack.videoId,
+        dropJunk(fromYtmusic(mix, new Set([...exclude, seedTrack.videoId]))), exclude)
+      const tracks = [seedTrack, ...candidates]
       if (tracks.length >= 4) return { tracks: await preferLibrary(dedupe(tracks).slice(0, want)), source: 'ytmusic' }
     }
     // Otherwise fall through to the LLM path below.
@@ -367,6 +370,21 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   if (isChartStation(seed)) {
     const chart = dedupe(await chartMix(seed, Math.ceil(want / 2) + 2, exclude))
     if (chart.length) { resolved = chart; source = 'mixed' }
+  }
+
+  // Tier 0.5: owned-library sound tier — analyzed library tracks whose classifier tags
+  // (hard rock, mood/energetic…) appear in the station's own name/prompt. Capped to a
+  // third of the queue so it seasons the station with music the household owns without
+  // drowning out discovery. Cold start (no analyzed tracks) contributes 0.
+  if (resolved.length < want) {
+    try {
+      const { libraryTracksForText } = await import('@/lib/music/similarity')
+      const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
+      const lib = (await libraryTracksForText(`${seed.name ?? ''} ${seed.aiPrompt}`, Math.ceil(want / 3)))
+        .filter(t => !already.has(t.ref) && (t.title || t.artist))
+        .map(t => ({ videoId: t.ref, title: t.title ?? '', artist: t.artist ?? '', durationSec: null, score: 1 }))
+      if (lib.length) resolved = dedupe([...resolved, ...lib])
+    } catch { /* intel not installed */ }
   }
 
   // Tier 1: Deezer curated.
@@ -430,6 +448,30 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   // starving a thin niche queue.
   const finalTracks = resolved.length > want + 3 ? capPerArtist(dedupe(resolved), 3) : dedupe(resolved)
   return { tracks: await preferLibrary(finalTracks.slice(0, want)), source }
+}
+
+/** Music-intelligence tier for song/artist seeds: interleave the catalog mix ~50/50 with
+ *  sound-nearest tracks from the household's analyzed library (discogs-effnet embeddings).
+ *  Gated on a meaningful search space (≥50 analyzed tracks) so a cold start contributes 0
+ *  and the behavior is exactly the catalog mix. Library refs (local:/plex:/yt) ride the
+ *  queue's videoId ref carrier; they're owned tracks, so no junk filter needed. */
+async function interleaveSoundalikes(seedRef: string, mix: ResolvedTrack[], exclude: Set<string>): Promise<ResolvedTrack[]> {
+  try {
+    const { featureCount, nearestByRef } = await import('@/lib/music/similarity')
+    if (await featureCount() < 50) return mix
+    const near = await nearestByRef(seedRef, Math.max(4, Math.ceil(mix.length / 2)), { maxPerArtist: 2 })
+    const extras: ResolvedTrack[] = near
+      .filter(n => !exclude.has(n.ref) && (n.title || n.artist))
+      .map(n => ({ videoId: n.ref, title: n.title ?? '', artist: n.artist ?? '', durationSec: null, score: n.similarity }))
+    if (!extras.length) return mix
+    const out: ResolvedTrack[] = []
+    const max = Math.max(mix.length, extras.length)
+    for (let i = 0; i < max; i++) {
+      if (i < mix.length) out.push(mix[i]!)
+      if (i < extras.length) out.push(extras[i]!)
+    }
+    return out
+  } catch { return mix }
 }
 
 // Identity key for "the same song" regardless of which upload it is. The same recording often
