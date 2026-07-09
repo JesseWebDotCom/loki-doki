@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { SuggestSource } from '@/lib/smartSearch/types'
+import type { SuggestSource, Suggestion } from '@/lib/smartSearch/types'
 
 export interface AppHeaderConfig {
   query: string
@@ -12,6 +12,9 @@ export interface AppHeaderConfig {
   searchable?: boolean
   /** Opt into the autosuggest dropdown (SmartSearchInput) instead of a plain input. */
   suggest?: SuggestSource
+  /** Entity-aware suggestion pick: return true when handled (e.g. navigated straight to
+   *  an artist page) to skip the default text-search onSubmit. */
+  onPickSuggestion?: (s: Suggestion) => boolean
   placeholder?: string
   loading?: boolean
   /** Opens in a new tab — shown as an external link icon. */
@@ -81,9 +84,11 @@ export function useAppHeader(config: AppHeaderConfig) {
 
   const setQuery = useCallback((q: string) => configRef.current.setQuery(q), [])
   const onSubmit = useCallback((q?: string) => configRef.current.onSubmit?.(q), [])
+  const onPickSuggestion = useCallback((s: Suggestion) => configRef.current.onPickSuggestion?.(s) ?? false, [])
 
   const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, rail, searchable, extraCrumbs, suggest } = config
   const hasSubmit = !!config.onSubmit
+  const hasPick = !!config.onPickSuggestion
 
   useLayoutEffect(() => {
     _set({
@@ -100,9 +105,10 @@ export function useAppHeader(config: AppHeaderConfig) {
       suggest,
       setQuery,
       onSubmit: hasSubmit ? onSubmit : undefined,
+      onPickSuggestion: hasPick ? onPickSuggestion : undefined,
     })
     return () => _set(null)
-  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, rail, searchable, extraCrumbs, suggest, hasSubmit, setQuery, onSubmit, _set])
+  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, rail, searchable, extraCrumbs, suggest, hasSubmit, hasPick, setQuery, onSubmit, onPickSuggestion, _set])
 }
 
 // ── Back-compat aliases ────────────────────────────────────────────────────────

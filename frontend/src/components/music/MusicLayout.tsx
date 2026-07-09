@@ -80,6 +80,15 @@ export function MusicLayout() {
     query,
     setQuery,
     onSubmit: () => { const t = query.trim(); if (t) navigate(`/music/browse?q=${encodeURIComponent(t)}`) },
+    // Picking a suggestion opens the ENTITY, not a text search: artists route through
+    // Browse's ?artist= resolver (instant nav + spinner while the mbid resolves), songs
+    // search as "artist title" so the right recording tops the results.
+    onPickSuggestion: (s) => {
+      if (mode !== 'online') return false
+      if (s.sublabel === 'Artist') { navigate(`/music/browse?artist=${encodeURIComponent(s.label)}`); return true }
+      if (s.sublabel) { navigate(`/music/browse?q=${encodeURIComponent(`${s.sublabel} ${s.label}`)}`); return true }
+      return false
+    },
     placeholder: mode === 'online' ? 'Search artists, albums, songs, stations…' : 'Search your offline stations…',
     // Live artist/song autosuggest as you type (Deezer-backed) - online only; offline has no network
     // and only searches locally-saved stations. Mirrors YouTube's suggest wiring.

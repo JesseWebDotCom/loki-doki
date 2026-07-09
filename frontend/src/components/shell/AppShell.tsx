@@ -299,6 +299,7 @@ export function AppShell() {
                           value={breadcrumbSearch.query}
                           onChange={breadcrumbSearch.setQuery}
                           onSubmit={(picked) => breadcrumbSearch.onSubmit?.(picked)}
+                          onPick={breadcrumbSearch.onPickSuggestion}
                           suggest={breadcrumbSearch.suggest}
                           placeholder={breadcrumbSearch.placeholder ?? 'Search...'}
                           className="h-8 pl-8 text-sm"

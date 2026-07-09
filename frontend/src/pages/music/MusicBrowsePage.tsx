@@ -167,6 +167,31 @@ function SongResults({ songs, onPlay }: { songs: CatalogSong[]; onPlay: (s: Cata
   )
 }
 
+/** /music/browse?artist=<name>: instant landing that resolves the name to THE MusicBrainz
+ *  artist and replaces itself with the real artist page - a text search only when no
+ *  identity exists. Suggestion picks and name-only chips route here so "clicking an
+ *  artist" never dead-ends on a keyword search. */
+function ArtistRedirect({ name }: { name: string }) {
+  const navigate = useNavigate()
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const { mbid } = await getArtistId(name)
+        if (cancelled) return
+        if (mbid) { navigate(`/music/artist/${mbid}`, { replace: true }); return }
+      } catch { /* fall through to search */ }
+      if (!cancelled) navigate(`/music/browse?q=${encodeURIComponent(name)}`, { replace: true })
+    })()
+    return () => { cancelled = true }
+  }, [name, navigate])
+  return (
+    <PageContainer width="wide" className="flex items-center gap-3 pt-16 text-muted-foreground">
+      <Spinner /> <span className="text-sm">Opening {name}…</span>
+    </PageContainer>
+  )
+}
+
 // Genre → gradient accent, mirroring the station-art palette so Browse feels native.
 const GENRE_TILES: Array<{ name: string; accent: string }> = [
   { name: 'Pop', accent: 'fuchsia' }, { name: 'Rock', accent: 'rose' },
@@ -178,33 +203,20 @@ const GENRE_TILES: Array<{ name: string; accent: string }> = [
 ]
 
 // A genre-chart artist chip: Deezer CDN photo (instant, near-complete coverage) with the
-// ArtistAvatar lookup as fallback. Clicking resolves the name to THE MusicBrainz artist
-// and opens the real artist page - a text search only when no identity can be found.
-function GenreArtistChip({ name, picture, onFallback }: { name: string; picture: string | null; onFallback: (name: string) => void }) {
+// ArtistAvatar lookup as fallback. Clicking routes through Browse's ?artist= resolver -
+// the one canonical "name → artist page" path (text search only when no identity exists).
+function GenreArtistChip({ name, picture }: { name: string; picture: string | null }) {
   const navigate = useNavigate()
-  const [busy, setBusy] = useState(false)
-  const open = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const { mbid } = await getArtistId(name)
-      if (mbid) navigate(`/music/artist/${mbid}`)
-      else onFallback(name)
-    } catch { onFallback(name) }
-    finally { setBusy(false) }
-  }
   return (
     // design-ok(hand-styled-button): borderless artwork-forward rail tile, not a chrome control
-    <button onClick={() => void open()} className="group flex w-32 shrink-0 flex-col items-center gap-2 p-2 text-center">
-      <div className="relative">
-        {picture ? (
-          <img src={proxyImg(picture)} alt="" loading="lazy"
-            className="size-24 rounded-full object-cover shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
-        ) : (
-          <ArtistAvatar name={name} className="size-24 rounded-full shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
-        )}
-        {busy && <span className="absolute inset-0 grid place-items-center rounded-full bg-black/40"><Spinner size="sm" /></span>}
-      </div>
+    <button onClick={() => navigate(`/music/browse?artist=${encodeURIComponent(name)}`)}
+      className="group flex w-32 shrink-0 flex-col items-center gap-2 p-2 text-center">
+      {picture ? (
+        <img src={proxyImg(picture)} alt="" loading="lazy"
+          className="size-24 rounded-full object-cover shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
+      ) : (
+        <ArtistAvatar name={name} className="size-24 rounded-full shadow-md ring-1 ring-white/10 transition duration-200 group-hover:scale-[1.04] group-hover:ring-white/25" />
+      )}
       <p className="w-full truncate text-sm font-medium">{name}</p>
     </button>
   )
@@ -212,7 +224,7 @@ function GenreArtistChip({ name, picture, onFallback }: { name: string; picture:
 
 // A real genre landing: the live genre chart (top songs + the artists behind them) plus
 // our stations that match the genre - NOT a text search for the genre word in titles.
-function GenreView({ genre, onArtist }: { genre: string; onArtist: (name: string) => void }) {
+function GenreView({ genre }: { genre: string }) {
   const radio = useRadio()
   const { data, isLoading } = useQuery({
     queryKey: ['music-genre', genre], queryFn: () => getGenreLanding(genre), staleTime: 60 * 60 * 1000,
@@ -239,7 +251,7 @@ function GenreView({ genre, onArtist }: { genre: string; onArtist: (name: string
           <SectionHeader title={`${genre} artists`} />
           <div className="mt-3 flex gap-2 overflow-x-auto pb-2 no-scrollbar">
             {data!.artists.map(a => (
-              <GenreArtistChip key={a.name} name={a.name} picture={a.picture} onFallback={onArtist} />
+              <GenreArtistChip key={a.name} name={a.name} picture={a.picture} />
             ))}
           </div>
         </section>
@@ -363,12 +375,15 @@ export function MusicBrowsePage() {
 
   if (mode === 'offline') return <OfflineBrowse q={q} />
 
+  const artistName = params.get('artist')?.trim() ?? ''
+  if (artistName) return <ArtistRedirect name={artistName} />
+
   const genre = params.get('genre')?.trim() ?? ''
   if (!q && genre) return (
     <PageContainer width="wide" className="pb-10">
       <PageHeader plain title={genre} subtitle={`The best of ${genre}, right now.`} />
       {SearchBar}
-      <GenreView genre={genre} onArtist={search} />
+      <GenreView genre={genre} />
     </PageContainer>
   )
 

@@ -302,12 +302,24 @@ export async function getArtist(mbid: string): Promise<CatalogArtistDetail | nul
 /** Pick THE MusicBrainz artist for a bare name (genre-chart chips → real artist pages).
  *  Exact-name matches only; when several acts share the name ("Skid Row" US vs Irish),
  *  prefer the one with a curated photo - the famous act, in practice. Cached 30 days. */
+/** Name equality across catalog spelling quirks: MusicBrainz writes "Guns N’ Roses"
+ *  (typographic apostrophe), Deezer writes "Guns N' Roses" - fold apostrophe variants,
+ *  diacritics, case, and whitespace before comparing. */
+export function sameArtistName(a: string, b: string): boolean {
+  const fold = (s: string) => s
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[‘’ʼ`´]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim().toLowerCase()
+  return fold(a) === fold(b)
+}
+
 export async function pickArtistMbid(name: string): Promise<string | null> {
   const n = name.trim()
   if (!n) return null
-  return cachedLookup('mb-artist-pick', n.toLowerCase(), THIRTY_DAYS_MS, async () => {
+  return cachedLookup('mb-artist-pick-v2', n.toLowerCase(), THIRTY_DAYS_MS, async () => {
     const hits = await searchArtists(n, 5)
-    const exacts = hits.filter(h => h.name.toLowerCase() === n.toLowerCase())
+    const exacts = hits.filter(h => sameArtistName(h.name, n))
     if (!exacts.length) return null
     if (exacts.length === 1) return exacts[0]!.mbid
     for (const e of exacts.slice(0, 2)) {

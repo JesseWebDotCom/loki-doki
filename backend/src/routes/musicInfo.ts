@@ -5,7 +5,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
-import { getArtist, searchArtists, itunesSongArt } from '@/lib/music/catalog'
+import { getArtist, searchArtists, itunesSongArt, sameArtistName } from '@/lib/music/catalog'
 import { getSongSmartLinks, getAlbumSmartLinks } from '@/lib/music/smartLinks'
 import { musicPolicyFor, itunesSongAdvisory, lyricsHidden, OPEN_POLICY } from '@/lib/music/advisory'
 import { deezerArtistPicture } from '@/lib/music/deezer'
@@ -154,7 +154,7 @@ async function resolveArtistInfo(name: string, mbid: string | null): Promise<(Wi
   if (!mbid && name) {
     try {
       const hits = await searchArtists(name, 5)
-      mbidCandidates = hits.filter(h => h.name.toLowerCase() === name.toLowerCase()).map(h => h.mbid).slice(0, 2)
+      mbidCandidates = hits.filter(h => sameArtistName(h.name, name)).map(h => h.mbid).slice(0, 2)
     } catch { /* name-only fallbacks below */ }
   }
 
