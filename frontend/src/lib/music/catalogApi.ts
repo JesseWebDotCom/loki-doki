@@ -102,6 +102,12 @@ export function getGenreLanding(genre: string) {
   return mfetch<{ tracks: Array<{ title: string; artist: string }>; artists: string[] }>(
     `/catalog/genre?g=${encodeURIComponent(genre)}`)
 }
+// Batch owned-copy lookup: which of these songs does the family's library (local/Plex)
+// already have? Powers the "Yours" badges - a hit means playback uses the owned copy.
+export function matchOwned(tracks: Array<{ title: string; artist: string; mbid?: string | null; durationSec?: number | null }>) {
+  return mfetch<{ matches: Array<{ index: number; ref: string; source: 'local' | 'plex'; codec: string | null }> }>(
+    '/catalog/match', { method: 'POST', body: JSON.stringify({ tracks }) })
+}
 export function getAlbumCoverFallback(artist: string, album: string) {
   return mfetch<{ coverUrl: string | null }>(
     `/catalog/cover?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`)

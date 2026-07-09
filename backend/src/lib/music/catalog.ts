@@ -51,6 +51,8 @@ export interface CatalogArtistDetail extends CatalogArtist {
   wikipediaUrl: string | null
   wikidataId: string | null
   officialUrl: string | null
+  /** Direct Wikimedia Commons photo from the MB "image" relation (curated per-artist). */
+  imageUrl: string | null
   tags: string[]
 }
 
@@ -264,6 +266,15 @@ export async function getArtist(mbid: string): Promise<CatalogArtistDetail | nul
       const a = await mbFetch(`/artist/${mbid}?inc=url-rels+tags`)
       const rels: any[] = a.relations ?? []
       const findRel = (type: string) => rels.find(r => r.type === type)?.url?.resource ?? null
+      // MusicBrainz editors curate a direct "image" relation to Wikimedia Commons for many
+      // artists - the authoritative photo, no Wikipedia title guessing. Convert the File:
+      // page URL into a directly loadable Special:FilePath thumbnail.
+      const imageRel = rels.find(r => r.type === 'image' && typeof r.url?.resource === 'string' && r.url.resource.includes('commons.wikimedia.org'))?.url?.resource as string | undefined
+      let imageUrl: string | null = null
+      if (imageRel) {
+        const file = imageRel.split('/File:').pop()
+        if (file && file !== imageRel) imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(decodeURIComponent(file))}?width=400`
+      }
       const tags = (a.tags ?? [])
         .filter((t: any) => (t.count ?? 0) > 0)
         .sort((x: any, y: any) => (y.count ?? 0) - (x.count ?? 0))
@@ -278,6 +289,7 @@ export async function getArtist(mbid: string): Promise<CatalogArtistDetail | nul
         wikipediaUrl: findRel('wikipedia'),
         wikidataId: (findRel('wikidata') as string | null)?.split('/').pop() ?? null,
         officialUrl: findRel('official homepage'),
+        imageUrl,
         tags,
       }
     } catch (err) {

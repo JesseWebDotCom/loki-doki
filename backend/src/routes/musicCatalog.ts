@@ -8,7 +8,7 @@ import {
   searchArtists, searchAlbums, searchSongs,
   getArtist, getArtistAlbums, getAlbum, itunesAlbumCover,
 } from '@/lib/music/catalog'
-import { resolveTrack } from '@/lib/music/resolve'
+import { resolvePlayable, findOwned } from '@/lib/music/resolveSource'
 import { deezerChartTracks } from '@/lib/music/deezer'
 import { getMusicSuggestions } from '@/lib/music/suggest'
 import { searchStations } from '@/routes/musicStations'
@@ -87,18 +87,47 @@ musicCatalog.get('/genre', async (c) => {
   return c.json({ tracks, artists }, 200, { 'Cache-Control': 'private, max-age=3600' })
 })
 
-// GET /api/music/catalog/resolve?mbid=&title=&artist=&duration= — identity → playable videoId
+// GET /api/music/catalog/resolve?mbid=&title=&artist=&duration= — identity → playable ref.
+// Library-first: owning the song means playing YOUR copy (local file or Plex track)
+// instead of a YouTube stream. `videoId` keeps its name but carries the unified ref -
+// the frontend queue and streaming paths already speak refs.
 musicCatalog.get('/resolve', async (c) => {
   const title = c.req.query('title')?.trim()
   const artist = c.req.query('artist')?.trim() ?? ''
   if (!title) return c.json({ error: 'title required' }, 400)
   const durationRaw = c.req.query('duration')
-  const resolved = await resolveTrack({
+  const playable = await resolvePlayable({
     mbid: c.req.query('mbid')?.trim() || null,
     title,
     artist,
     durationSec: durationRaw ? parseInt(durationRaw, 10) : null,
   })
-  if (!resolved) return c.json({ resolved: null })
-  return c.json({ resolved })
+  if (!playable) return c.json({ resolved: null })
+  return c.json({
+    resolved: {
+      videoId: playable.ref,
+      title: playable.title,
+      artist: playable.artist,
+      durationSec: playable.durationSec,
+      score: 1,
+      source: playable.source,
+      codec: playable.codec,
+      bitrate: playable.bitrate,
+    },
+  })
+})
+
+// POST /api/music/catalog/match — batch owned-copy lookup for browse rows: which of
+// these songs does the user's library already have? Powers the "owned" badges.
+musicCatalog.post('/match', async (c) => {
+  const body = await c.req.json().catch(() => null) as { tracks?: Array<{ title?: string; artist?: string; mbid?: string | null; durationSec?: number | null }> } | null
+  const tracks = (body?.tracks ?? []).slice(0, 60)
+  const matches: Array<{ index: number; ref: string; source: string; codec: string | null }> = []
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i]!
+    if (!t.title) continue
+    const owned = await findOwned({ title: t.title, artist: t.artist ?? '', mbid: t.mbid ?? null, durationSec: t.durationSec ?? null })
+    if (owned) matches.push({ index: i, ref: owned.ref, source: owned.source, codec: owned.codec })
+  }
+  return c.json({ matches })
 })

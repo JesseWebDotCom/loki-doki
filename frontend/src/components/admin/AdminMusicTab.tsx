@@ -68,13 +68,26 @@ export function AdminMusicTab() {
   const [addError, setAddError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MusicFolder | null>(null)
   const [sectionSaving, setSectionSaving] = useState(false)
+  const [preferLibrary, setPreferLibrary] = useState(true)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  async function togglePreferLibrary(on: boolean) {
+    setPreferLibrary(on)  // optimistic
+    try {
+      await api('/settings', { method: 'PUT', body: JSON.stringify({ preferLibrary: on }) })
+      toast.success(on ? 'Your library plays first when you own the song' : 'Streaming plays even for songs you own')
+    } catch {
+      setPreferLibrary(!on)
+      toast.error('Could not save the preference')
+    }
+  }
 
   const load = useCallback(async () => {
     try {
-      const res = await api<{ local: { folders: MusicFolder[] }; plex: PlexMusicState }>('/sources')
+      const res = await api<{ local: { folders: MusicFolder[] }; plex: PlexMusicState; settings?: { preferLibrary: boolean } }>('/sources')
       setFolders(res.local?.folders ?? [])
       setPlex(res.plex ?? null)
+      setPreferLibrary(res.settings?.preferLibrary ?? true)
       setLoadError(null)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load music sources')
@@ -301,6 +314,22 @@ export function AdminMusicTab() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Resolution preference */}
+      {!loading && !loadError && (
+        <div className="rounded-card border border-border bg-card p-4">
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <Switch size="sm" checked={preferLibrary} onCheckedChange={(v) => togglePreferLibrary(v === true)} />
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Prefer my library</div>
+              <p className="text-xs text-muted-foreground">
+                When the family owns a song (local file or Plex), stations, search, and playlists play that copy
+                at its original quality instead of streaming it.
+              </p>
+            </div>
+          </label>
         </div>
       )}
 

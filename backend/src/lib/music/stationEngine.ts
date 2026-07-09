@@ -16,6 +16,7 @@ import { ytmusicRadio, ytmusicSearch } from '@/lib/youtube/ytmusic'
 import { resolveTrack, resolveTracks, cleanTrackTitle, type ResolvedTrack } from '@/lib/music/resolve'
 import { deezerPlaylistTracks, deezerChartTracks } from '@/lib/music/deezer'
 import { isJunkTrack, dropJunk } from '@/lib/music/junk'
+import { preferLibrary } from '@/lib/music/resolveSource'
 import { logger } from '@/lib/logger'
 
 export type StationSeedType = 'prompt' | 'genre' | 'artist' | 'song'
@@ -295,7 +296,7 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   if (seed.seedVideoId) {
     const mix = await ytmusicRadio(seed.seedVideoId)
     const tracks = dropJunk(fromYtmusic(mix, exclude))
-    if (tracks.length) return { tracks: dedupe(tracks).slice(0, want), source: 'ytmusic' }
+    if (tracks.length) return { tracks: await preferLibrary(dedupe(tracks).slice(0, want)), source: 'ytmusic' }
   }
 
   // Artist / song seed → resolve the seed, then ride YouTube Music's curated radio mix.
@@ -306,7 +307,7 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
     if (seedTrack) {
       const mix = await ytmusicRadio(seedTrack.videoId)
       const tracks = [seedTrack, ...dropJunk(fromYtmusic(mix, new Set([...exclude, seedTrack.videoId])))]
-      if (tracks.length >= 4) return { tracks: dedupe(tracks).slice(0, want), source: 'ytmusic' }
+      if (tracks.length >= 4) return { tracks: await preferLibrary(dedupe(tracks).slice(0, want)), source: 'ytmusic' }
     }
     // Otherwise fall through to the LLM path below.
   }
@@ -341,7 +342,7 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
       // and let the full background build (with its LLM fallback) correct the queue.
       picked = judged.length ? judged : yt
     }
-    return { tracks: dedupe(picked).slice(0, want), source: picked.length ? 'ytmusic' : 'empty' }
+    return { tracks: await preferLibrary(dedupe(picked).slice(0, want)), source: picked.length ? 'ytmusic' : 'empty' }
   }
 
   // Tier 0: live chart for "what's hot now" stations (today's hits, viral, trending, this-year…).
@@ -412,7 +413,7 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   // Cap repeats per artist (≤3) only when we have comfortable surplus, so variety improves without
   // starving a thin niche queue.
   const finalTracks = resolved.length > want + 3 ? capPerArtist(dedupe(resolved), 3) : dedupe(resolved)
-  return { tracks: finalTracks.slice(0, want), source }
+  return { tracks: await preferLibrary(finalTracks.slice(0, want)), source }
 }
 
 // Identity key for "the same song" regardless of which upload it is. The same recording often

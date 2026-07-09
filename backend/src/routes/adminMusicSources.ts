@@ -3,15 +3,17 @@
 // first scan in one step; no separate on/off switch.
 
 import { promises as fs } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { basename, isAbsolute, resolve as resolvePath } from 'node:path'
 import { Hono } from 'hono'
 import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs, musicLocalFolders, musicLocalTracks, musicPlexTracks } from '@/db/schema'
+import { downloadJobs, musicLocalFolders, musicLocalTracks, musicPlexTracks, toolGlobalConfig } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
 import { enqueueMusicScan, enqueuePlexMusicSync } from '@/lib/downloadJobs'
 import { getPlexConnection } from '@/lib/plex'
 import { getSelectedSectionKeys, musicSections, setSelectedSectionKeys } from '@/lib/plex/music'
+import { preferLibraryEnabled } from '@/lib/music/resolveSource'
 import { crossPlatformPathHint } from '@/lib/storage/accessCheck'
 import { logger } from '@/lib/logger'
 
@@ -95,7 +97,22 @@ adminMusicSources.get('/sources', async (c) => {
   return c.json({
     local: { folders: await Promise.all(folders.map(folderDto)) },
     plex,
+    settings: { preferLibrary: await preferLibraryEnabled() },
   })
+})
+
+// ── PUT /settings — resolution preferences ──────────────────────────────────────────
+adminMusicSources.put('/settings', async (c) => {
+  const { preferLibrary } = await c.req.json<{ preferLibrary?: boolean }>()
+  if (typeof preferLibrary !== 'boolean') return c.json({ error: 'preferLibrary must be boolean' }, 400)
+  const now = new Date()
+  await db.insert(toolGlobalConfig)
+    .values({ id: randomUUID(), toolId: 'music', key: 'prefer_library', value: JSON.stringify(preferLibrary), updatedAt: now })
+    .onConflictDoUpdate({
+      target: [toolGlobalConfig.toolId, toolGlobalConfig.key],
+      set: { value: JSON.stringify(preferLibrary), updatedAt: now },
+    })
+  return c.json({ ok: true, preferLibrary })
 })
 
 // ── PUT /plex-sections — select which music sections feed the Collection ───────────

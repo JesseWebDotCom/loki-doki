@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Music2, Play, Search, ArrowDownToLine } from 'lucide-react'
+import { Music2, Play, Search, ArrowDownToLine, HardDrive } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Spinner } from '@/components/ui/spinner'
@@ -16,7 +16,7 @@ import { SongTile } from '@/components/music/SongTile'
 import { SongArt } from '@/components/music/SongArt'
 import { stationGradient } from '@/lib/music/stationColors'
 import { toast } from 'sonner'
-import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, getGenreLanding, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
+import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, listStations, getHistory, getGenreLanding, matchOwned, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
 
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
@@ -125,6 +125,43 @@ function OfflineBrowse({ q }: { q: string }) {
         <p className="mt-4 text-sm text-muted-foreground">{q ? `Nothing offline matches “${q}”.` : 'No offline content yet. Save a station to play it without internet.'}</p>
       )}
     </PageContainer>
+  )
+}
+
+/** Search-result song rows, with an "In your library" badge on songs the family owns
+ *  (batched /catalog/match lookup - the badge means it will PLAY the owned copy). */
+function SongResults({ songs, onPlay }: { songs: CatalogSong[]; onPlay: (s: CatalogSong) => void }) {
+  const { data: owned } = useQuery({
+    queryKey: ['music-owned', songs.map(s => s.mbid).join(',')],
+    queryFn: () => matchOwned(songs.map(s => ({ title: s.title, artist: s.artistName, mbid: s.mbid, durationSec: s.durationSec }))),
+    staleTime: 5 * 60 * 1000,
+  })
+  const ownedIdx = new Map((owned?.matches ?? []).map(m => [m.index, m]))
+  return (
+    <div className="divide-y divide-border/50 rounded-card border border-border/60">
+      {songs.map((s, i) => {
+        const own = ownedIdx.get(i)
+        return (
+          <div key={s.mbid} className="group flex w-full items-center gap-2 px-3 py-2.5 transition hover:bg-accent/40">
+            <button onClick={() => onPlay(s)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+              <Music2 className="size-4 shrink-0 text-muted-foreground group-hover:hidden" />
+              <Play className="hidden size-4 shrink-0 fill-current text-brand group-hover:block" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{s.title}</p>
+                <p className="truncate text-xs text-muted-foreground">{s.artistName}{s.albumTitle ? ` · ${s.albumTitle}` : ''}</p>
+              </div>
+            </button>
+            {own && (
+              <span title={`Plays your ${own.source === 'plex' ? 'Plex' : 'local'} copy${own.codec ? ` (${own.codec.toUpperCase()})` : ''}`}
+                className="flex shrink-0 items-center gap-1 rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                <HardDrive className="size-3" /> Yours
+              </span>
+            )}
+            <SongDownloadSearchButton song={s} />
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -347,18 +384,7 @@ export function MusicBrowsePage() {
 
       {(data?.songs.length ?? 0) > 0 && (
         <section className="mt-6 mb-4"><SectionHeader title="Songs" />
-          <div className="divide-y divide-border/50 rounded-card border border-border/60">
-            {data!.songs.map(s => (
-              <div key={s.mbid} className="group flex w-full items-center gap-2 px-3 py-2.5 transition hover:bg-accent/40">
-                <button onClick={() => playSong(s)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                  <Music2 className="size-4 shrink-0 text-muted-foreground group-hover:hidden" />
-                  <Play className="hidden size-4 shrink-0 fill-current text-brand group-hover:block" />
-                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{s.title}</p><p className="truncate text-xs text-muted-foreground">{s.artistName}{s.albumTitle ? ` · ${s.albumTitle}` : ''}</p></div>
-                </button>
-                <SongDownloadSearchButton song={s} />
-              </div>
-            ))}
-          </div>
+          <SongResults songs={data!.songs} onPlay={playSong} />
         </section>
       )}
 

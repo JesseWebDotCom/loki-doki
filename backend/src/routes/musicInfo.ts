@@ -5,7 +5,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
-import { getArtist, itunesSongArt } from '@/lib/music/catalog'
+import { getArtist, searchArtists, itunesSongArt } from '@/lib/music/catalog'
 import { getSongSmartLinks, getAlbumSmartLinks } from '@/lib/music/smartLinks'
 import type { AppEnv } from '@/types'
 
@@ -119,11 +119,15 @@ function looksLikeArtist(info: Pick<WikiSummary, 'description' | 'extract'>): bo
   return music.test(info.description ?? '') || music.test((info.extract ?? '').slice(0, 400))
 }
 
-// Resolve an artist photo + short bio, layering the cheapest reliable source first:
-//   1. Direct Wikipedia summary by name (instant for exact-title artists like "Metallica"),
+// Resolve an artist photo + short bio. MusicBrainz identity leads (its editors already
+// disambiguated "Europe" the band from Europe the continent), Wikipedia guessing is the
+// fallback:
+//   0. No mbid? Find one - MB's ranked artist search on the exact name.
+//   1. MB "image" relation → direct Wikimedia Commons photo (curated, authoritative),
+//      then Wikidata P18, then the MB-linked Wikipedia article for photo + bio.
+//   2. Direct Wikipedia summary by name (+ standard "(band)"/"(musician)" titles),
 //      accepted only when the page verifiably describes a musical act.
-//   2. MusicBrainz cross-references → Wikidata P18 → Wikimedia Commons (handles the hard cases).
-//   3. Music-biased Wikipedia search as a last resort (same verification).
+//   3. Music-biased Wikipedia search as a last resort (same verification + name match).
 async function resolveArtistInfo(name: string, mbid: string | null): Promise<(WikiSummary & { found: true; logo: string | null }) | { found: false }> {
   let image: string | null = null
   let extract = ''
@@ -131,37 +135,51 @@ async function resolveArtistInfo(name: string, mbid: string | null): Promise<(Wi
   let title = name
   let logo: string | null = null
 
-  // 1. Fast path: the article title equals the artist name - and the article is about music.
-  // Generic-name acts ("Europe", "Turnstile") fail the check and get Wikipedia's standard
-  // disambiguated titles tried next - "Europe (band)" resolves directly.
-  if (name) {
+  // 0. Recover the MusicBrainz identity when the caller only has a name (genre charts,
+  // chart artists). Only trust exact name matches - a fuzzy hit would swap artists. Keep
+  // ALL exact matches: several acts can share the exact name ("Skid Row" is both the US
+  // and an Irish band) and only some carry images.
+  let mbidCandidates: string[] = mbid ? [mbid] : []
+  if (!mbid && name) {
+    try {
+      const hits = await searchArtists(name, 5)
+      mbidCandidates = hits.filter(h => h.name.toLowerCase() === name.toLowerCase()).map(h => h.mbid).slice(0, 2)
+    } catch { /* name-only fallbacks below */ }
+  }
+
+  // 1. Authoritative path: MB image relation → Wikidata P18 → MB-linked Wikipedia article.
+  // Tries each exact-name candidate until one yields a photo.
+  for (const candidate of mbidCandidates) {
+    if (image) break
+    try {
+      const a = await getArtist(candidate)
+      if (!a) continue
+      if (a.imageUrl) image = a.imageUrl
+      if (!image && a.wikidataId) image = await wikidataImage(a.wikidataId)
+      const wt = titleFromWikipediaUrl(a.wikipediaUrl)
+      if ((!image || !extract) && wt) {
+        const s = await wikipediaSummary(wt)
+        if (s) {
+          if (!image) image = s.image
+          if (!extract || image) { extract = s.extract; url = s.url; title = s.title }
+        }
+      }
+      if (image) { mbid = candidate }
+    } catch { /* try the next candidate */ }
+  }
+
+  // 2. Wikipedia by name - and the article must be about music. Generic-name acts get the
+  // standard disambiguated titles tried next - "Europe (band)" resolves directly.
+  if (!image && name) {
     const direct = await wikipediaSummary(name)
     if (direct && looksLikeArtist(direct)) {
-      image = direct.image; extract = direct.extract; url = direct.url; title = direct.title
+      image = direct.image; extract = extract || direct.extract; url = url ?? direct.url; title = direct.title
     } else {
       for (const suffix of ['band', 'musician', 'singer', 'rapper']) {
         const s = await wikipediaSummary(`${name} (${suffix})`)
-        if (s && looksLikeArtist(s)) { image = s.image; extract = s.extract; url = s.url; title = s.title; break }
+        if (s && looksLikeArtist(s)) { image = s.image; extract = extract || s.extract; url = url ?? s.url; title = s.title; break }
       }
     }
-  }
-
-  // 2. Authoritative path via MusicBrainz → Wikidata → Commons (cached MB lookup).
-  if ((!image || !extract) && mbid) {
-    try {
-      const a = await getArtist(mbid)
-      if (a) {
-        if (!image && a.wikidataId) image = await wikidataImage(a.wikidataId)
-        const wt = titleFromWikipediaUrl(a.wikipediaUrl)
-        if ((!image || !extract) && wt) {
-          const s = await wikipediaSummary(wt)
-          if (s) {
-            if (!image) image = s.image
-            if (!extract) { extract = s.extract; url = s.url; title = s.title }
-          }
-        }
-      }
-    } catch { /* fall through */ }
   }
 
   // 3. Last resort: music-biased full-text search - verified, AND the hit's title must
