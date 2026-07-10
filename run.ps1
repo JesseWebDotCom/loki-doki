@@ -204,6 +204,21 @@ function Stop-ByCommandLine([string]$Pattern) {
   } catch { }
 }
 
+# Wait for a port to actually clear (not just the owning PID to report exited —
+# a killed process's listen socket can linger briefly, and `bun run` wrappers spawn
+# grandchildren that hold it). Starting into a still-bound port crashes the backend
+# immediately with "Is port 3000 in use?" — used both before the FIRST start and
+# before supervise-loop restarts.
+function Wait-PortFree([int]$Port, [int]$TimeoutSeconds = 10) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    if (-not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)) { return $true }
+    Stop-Port $Port
+    Start-Sleep -Milliseconds 300
+  }
+  return -not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+}
+
 # Completely stop any previous instance before starting. Killing the dev servers
 # (or their ports) is NOT enough: the backend spawns detached sidecars (ComfyUI,
 # voice server, kiwix, GraphHopper, the Wyoming pod gateway) that outlive it and
@@ -212,6 +227,39 @@ function Stop-ByCommandLine([string]$Pattern) {
 # "$Root" / specific signatures so unrelated work on the machine is never touched.
 function Stop-Existing {
   Write-Host 'Stopping any previous instance (servers + sidecars)...'
+  # A previous launcher's supervise loop fights this launch: it sees its backend die,
+  # restarts it into the port we're about to take, then its cleanup sweep kills OUR
+  # freshly-started servers on the way out (observed as an instant backend exit right
+  # after "running at :3000" with "Is port 3000 in use?"). Stop the previous launcher
+  # console first — hard kill, so its finally-block sweep never runs. Primary signal is
+  # the PID file the last launch recorded; deterministic and immune to command-line
+  # false positives.
+  try {
+    $pidFile = Join-Path $Root 'data\launcher.pid'
+    if (Test-Path $pidFile) {
+      $prev = [int](Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+      if ($prev -and $prev -ne $PID) {
+        $p = Get-Process -Id $prev -ErrorAction SilentlyContinue
+        if ($p -and ($p.ProcessName -eq 'powershell' -or $p.ProcessName -eq 'pwsh')) {
+          Stop-Process -Id $prev -Force -ErrorAction SilentlyContinue
+        }
+      }
+    }
+  } catch { }
+  # Fallback for launchers that predate the PID file: only real `-File ...run.ps1`
+  # invocations, and NEVER `-Command` shells — a -Command wrapper that merely mentions
+  # run.ps1 (e.g. tooling that starts this launcher, or a monitoring one-liner) must
+  # survive; matching on the bare filename killed exactly such a shell once.
+  try {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+      Where-Object {
+        ($_.Name -eq 'powershell.exe' -or $_.Name -eq 'pwsh.exe') -and
+        $_.ProcessId -ne $PID -and
+        $_.CommandLine -notlike '*-Command*' -and
+        ($_.CommandLine -like '*-File*run.ps1*' -or $_.CommandLine -like '*-File*run-dev.ps1*')
+      } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  } catch { }
   foreach ($p in $Ports) { Stop-Port $p }
   foreach ($sig in $SidecarPatterns) { Stop-ByCommandLine $sig }
   Start-Sleep -Seconds 1
@@ -241,6 +289,13 @@ $frontend = $null
 try {
   Stop-Existing
 
+  # Record this launcher's PID so the NEXT launch can displace it deterministically
+  # (see the launcher-fight note in Stop-Existing).
+  try {
+    New-Item -ItemType Directory -Force (Join-Path $Root 'data') | Out-Null
+    Set-Content -Path (Join-Path $Root 'data\launcher.pid') -Value $PID -Encoding ascii
+  } catch { }
+
   $backendDir  = Join-Path $Root 'backend'
   $frontendDir = Join-Path $Root 'frontend'
   Ensure-Deps $backendDir
@@ -254,7 +309,14 @@ try {
   # set it here — the backend serves frontend/dist only when NODE_ENV != development.
   $env:NODE_ENV = if ($Dev) { 'development' } else { 'production' }
 
+  # The Stop-Existing sweep kills owners, but a killed listener's port can lag a
+  # moment — starting into a still-bound 3000 crashes the backend instantly with
+  # "Is port 3000 in use?" (observed when a previous launcher's supervisor raced
+  # this launch). Confirm it's actually free before the first start.
+  if (-not (Wait-PortFree 3000)) { throw 'Port 3000 would not clear — is another app using it?' }
+
   if ($Dev) {
+    if (-not (Wait-PortFree 5173)) { throw 'Port 5173 would not clear — is another app using it?' }
     Write-Host 'Starting backend (dev, hot reload)...'
     $backend = Start-Process -FilePath 'bun' -ArgumentList 'run', 'dev' `
       -WorkingDirectory $backendDir -NoNewWindow -PassThru
@@ -297,21 +359,6 @@ try {
     if ($restartLog[$name].Count -ge 5) { return $false }
     $restartLog[$name] += $now
     return $true
-  }
-
-  # Wait for a port to actually clear (not just the wrapper PID to report exited —
-  # `bun run dev` spawns a grandchild for the real `--hot` listener, which can outlive
-  # the wrapper briefly). Restarting into a still-bound port crashes immediately with
-  # EADDRINUSE, and that crash-loops through the whole restart budget in seconds while
-  # every attempt re-runs the full boot sequence (previously observed: exactly this).
-  function Wait-PortFree([int]$Port, [int]$TimeoutSeconds = 10) {
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-      if (-not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)) { return $true }
-      Stop-Port $Port
-      Start-Sleep -Milliseconds 300
-    }
-    return -not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
   }
 
   $backendArgs = if ($Dev) { @('run', 'dev') } else { @('run', 'start') }
