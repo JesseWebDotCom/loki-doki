@@ -895,9 +895,14 @@ async function buildAndEnqueueJob(params: {
   let positive = ''
   let negative = ''
   let resolvedLoras: SelectedLora[] = []
-  // SVD-XT is trained at 1024×576; default to that for image-to-video.
-  let width  = Math.min(2048, Math.max(256, params.width  ?? 1024))
-  let height = Math.min(2048, Math.max(256, params.height ?? (isI2V ? 576 : 1024)))
+  // SVD-XT is trained at 1024×576; default to that for image-to-video (do NOT shrink
+  // it — SVD degrades badly off its training resolution). Text-to-video (AnimateDiff)
+  // defaults to 768²: compute scales with pixels × frames, so 768² is ~1.8x faster
+  // than 1024² and drafts are what most clips are — upscale keepers with the video
+  // enhance tools (Real-CUGAN / RIFE).
+  const isVideo = pipeline === 'video'
+  let width  = Math.min(2048, Math.max(256, params.width  ?? (isVideo ? 768 : 1024)))
+  let height = Math.min(2048, Math.max(256, params.height ?? (isVideo ? 768 : isI2V ? 576 : 1024)))
 
   if (!noCheckpoint && !isI2V) {
     const routerModel = await getRouterModel()

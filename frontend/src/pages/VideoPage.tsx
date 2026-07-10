@@ -186,6 +186,9 @@ export function VideoPage() {
 
   const [frames, setFrames] = useState(14)
   const [fps, setFps] = useState(8)
+  // t2v render size. Draft 768² is ~1.8x faster than 1024² (pixels × frames); good
+  // clips can be upscaled afterward from the Enhance tools (AI upscale / interpolate).
+  const [size, setSize] = useState<768 | 1024>(768)
 
   const [imageBase64, setImageBase64] = useState<string | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -307,7 +310,7 @@ export function VideoPage() {
         if (!prompt.trim()) return
         const loraIdList = Array.from(selectedLoras)
         const genIsAdult = loras.filter(l => loraIdList.includes(l.id)).some(l => l.isAdult)
-        await generate({ prompt: prompt.trim(), videoMode: true, frames, fps, loraIds: loraIdList }, genIsAdult)
+        await generate({ prompt: prompt.trim(), videoMode: true, frames, fps, width: size, height: size, loraIds: loraIdList }, genIsAdult)
       } else {
         if (!imageBase64) return
         await generate({ prompt: '', i2vMode: true, imageBase64, frames, fps, motionBucketId: motion })
@@ -541,6 +544,19 @@ export function VideoPage() {
             {/* Output settings */}
             <div className="space-y-2">
               <label className="text-xs font-semibold">Output settings</label>
+              {mode === 't2v' && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">Size</span>
+                  <div className="flex rounded-control border border-border overflow-hidden">
+                    {([768, 1024] as const).map(s => (
+                      <button key={s} onClick={() => setSize(s)} disabled={generating}
+                        className={`px-3 py-1 text-xs transition-colors ${size === s ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                        {s === 768 ? 'Draft 768' : 'Full 1024'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <NumberStepper label="Frames" value={frames} min={8} max={mode === 'i2v' ? 25 : 24} onChange={setFrames} disabled={generating} />
               <NumberStepper label="FPS" value={fps} min={4} max={24} onChange={setFps} disabled={generating} />
               {mode === 'i2v' && (
