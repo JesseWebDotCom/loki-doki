@@ -37,7 +37,11 @@ const MARKER_VERSION = 'v2:essentia-tensorflow'
 // own background progress), so adding it never invalidates the 2.5 GB Demucs+Essentia install
 // or triggers the "restore missing components" prompt. 'v3:mms-fa-align' is an older build that
 // bundled the model into this marker; accept it too so those installs don't re-prompt.
-const ACCEPTED_MARKERS = ['v2:essentia-tensorflow', 'v3:mms-fa-align']
+// 'v2-win:demucs-only' marks Windows installs: essentia/essentia-tensorflow publish no
+// Windows wheels at all, so Windows gets Demucs (separation) without the analysis runtime —
+// analysis features gate on isEssentiaAvailable() below.
+const WIN_MARKER_VERSION = 'v2-win:demucs-only'
+const ACCEPTED_MARKERS = ['v2:essentia-tensorflow', 'v3:mms-fa-align', WIN_MARKER_VERSION]
 
 // torch.hub cache for the MMS forced-alignment model (torchaudio.pipelines.MMS_FA). Kept under
 // data/ (not ~/.cache) so it's contained. The align job pre-checks + lazily downloads it.
@@ -70,7 +74,16 @@ export function intelModelPath(file: string): string { return join(MUSIC_INTEL_D
 /** Music-intelligence gate: v2 runtime + every classifier model on disk. Feature tiers
  *  (similar-sounding stations, Discovery rail, mood seeds) contribute 0 when false. */
 export function isMusicIntelReady(): boolean {
-  return isStemAudioInstalled() && MUSIC_INTEL_MODELS.every(m => existsSync(intelModelPath(m.file)))
+  return isEssentiaAvailable() && MUSIC_INTEL_MODELS.every(m => existsSync(intelModelPath(m.file)))
+}
+
+/** Whether the Essentia analysis runtime (tempo/beats/key/chords + the TF classifiers) is
+ *  usable. Always false on Windows installs: essentia has no Windows wheels, so the venv
+ *  is Demucs-only there (WIN_MARKER_VERSION). Analysis jobs must gate on THIS, not on
+ *  isStemAudioInstalled() — spawning analyze.py without essentia just exits 1. */
+export function isEssentiaAvailable(): boolean {
+  if (!isStemAudioInstalled()) return false
+  try { return !readFileSync(MARKER, 'utf8').startsWith('v2-win:') } catch { return false }
 }
 
 // RoFormer guitar model (becruily) — a better guitar stem than Demucs. Kept in its OWN venv
@@ -191,23 +204,32 @@ export async function installStemAudio(onStatus: StatusFn = () => {}, signal?: A
   onStatus('Upgrading pip…')
   await run(venvBin('python'), ['-m', 'pip', 'install', '--upgrade', 'pip', 'wheel'], { signal, onStatus })
 
-  // Plain `essentia` (v1 installs) and `essentia-tensorflow` ship the SAME import name —
-  // installing one over the other leaves a mixed site-packages. Remove the plain build
-  // first (no-op on fresh venvs), then install the tensorflow variant.
-  onStatus('Removing plain Essentia (superseded by essentia-tensorflow)…')
-  await run(venvBin('python'), ['-m', 'pip', 'uninstall', '-y', 'essentia'], { signal, onStatus }).catch(() => { /* not installed */ })
+  if (IS_WIN) {
+    // essentia / essentia-tensorflow publish no Windows wheels — a combined install fails
+    // the WHOLE runtime with "No matching distribution found for essentia-tensorflow",
+    // taking Demucs (which works fine on Windows) down with it. Windows installs are
+    // separation-only; analysis + music-intel features gate on isEssentiaAvailable().
+    onStatus('Installing Demucs (this can take several minutes — analysis runtime is macOS/Linux-only)…')
+    await run(venvBin('python'), ['-m', 'pip', 'install', 'demucs', 'lameenc', 'soundfile'], { signal, onStatus, timeoutMs: 30 * 60_000 })
+  } else {
+    // Plain `essentia` (v1 installs) and `essentia-tensorflow` ship the SAME import name —
+    // installing one over the other leaves a mixed site-packages. Remove the plain build
+    // first (no-op on fresh venvs), then install the tensorflow variant.
+    onStatus('Removing plain Essentia (superseded by essentia-tensorflow)…')
+    await run(venvBin('python'), ['-m', 'pip', 'uninstall', '-y', 'essentia'], { signal, onStatus }).catch(() => { /* not installed */ })
 
-  // Demucs pulls torch + torchaudio; lameenc gives it MP3 output; essentia-tensorflow does
-  // the tempo/key/chord analysis PLUS the ML classifiers (genre/mood embeddings) behind
-  // the music-intelligence features. One install so pip resolves numpy across all of them.
-  // (~10 min the first time — torch wheels dominate.)
-  onStatus('Installing Demucs + Essentia-TensorFlow (this can take several minutes)…')
-  await run(venvBin('python'), ['-m', 'pip', 'install', 'demucs', 'lameenc', 'soundfile', 'essentia-tensorflow'], { signal, onStatus, timeoutMs: 30 * 60_000 })
+    // Demucs pulls torch + torchaudio; lameenc gives it MP3 output; essentia-tensorflow does
+    // the tempo/key/chord analysis PLUS the ML classifiers (genre/mood embeddings) behind
+    // the music-intelligence features. One install so pip resolves numpy across all of them.
+    // (~10 min the first time — torch wheels dominate.)
+    onStatus('Installing Demucs + Essentia-TensorFlow (this can take several minutes)…')
+    await run(venvBin('python'), ['-m', 'pip', 'install', 'demucs', 'lameenc', 'soundfile', 'essentia-tensorflow'], { signal, onStatus, timeoutMs: 30 * 60_000 })
 
-  // The classifier import is the functional probe for the swap: it fails if pip resolved
-  // a broken numpy/TF combination, and failing HERE keeps the old marker (retry next boot).
-  onStatus('Verifying the analysis runtime…')
-  await run(venvBin('python'), ['-c', 'from essentia.standard import TensorflowPredictEffnetDiscogs, RhythmExtractor2013'], { signal, onStatus, timeoutMs: 5 * 60_000 })
+    // The classifier import is the functional probe for the swap: it fails if pip resolved
+    // a broken numpy/TF combination, and failing HERE keeps the old marker (retry next boot).
+    onStatus('Verifying the analysis runtime…')
+    await run(venvBin('python'), ['-c', 'from essentia.standard import TensorflowPredictEffnetDiscogs, RhythmExtractor2013'], { signal, onStatus, timeoutMs: 5 * 60_000 })
+  }
 
   // Pre-fetch the default 4-stem model so the first "Generate AI Stems" isn't a silent
   // ~80 MB download. htdemucs_6s downloads lazily on first 6-stem use.
@@ -215,17 +237,21 @@ export async function installStemAudio(onStatus: StatusFn = () => {}, signal?: A
   await run(venvBin('python'), ['-c', "from demucs.pretrained import get_model; get_model('htdemucs')"], { signal, onStatus, timeoutMs: 15 * 60_000 })
 
   // Music-intelligence classifier models (~27 MB). Skips files already on disk.
-  mkdirSync(MUSIC_INTEL_DIR, { recursive: true })
-  for (const m of MUSIC_INTEL_MODELS) {
-    if (existsSync(intelModelPath(m.file))) continue
-    onStatus(`Downloading ${m.file}…`)
-    await downloadUrl(m.url, intelModelPath(m.file), () => {}, signal, { minBytes: 1_000 })
+  // Skipped entirely on Windows: the .pb models only run through essentia's
+  // TensorflowPredict, which isn't installable there.
+  if (!IS_WIN) {
+    mkdirSync(MUSIC_INTEL_DIR, { recursive: true })
+    for (const m of MUSIC_INTEL_MODELS) {
+      if (existsSync(intelModelPath(m.file))) continue
+      onStatus(`Downloading ${m.file}…`)
+      await downloadUrl(m.url, intelModelPath(m.file), () => {}, signal, { minBytes: 1_000 })
+    }
   }
 
   // NOTE: the lyric-alignment model is NOT downloaded here — it's fetched lazily by the first
   // align job (ensureLyricAlignModel), so it never bloats this install or trips the restore prompt.
 
-  try { mkdirSync(dirname(MARKER), { recursive: true }); writeFileSync(MARKER, `${MARKER_VERSION} ${new Date().toISOString()}`) } catch { /* non-fatal */ }
+  try { mkdirSync(dirname(MARKER), { recursive: true }); writeFileSync(MARKER, `${IS_WIN ? WIN_MARKER_VERSION : MARKER_VERSION} ${new Date().toISOString()}`) } catch { /* non-fatal */ }
   onStatus('Stem audio runtime installed.')
   logger.info('[stem-audio] runtime installed')
 }

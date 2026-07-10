@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { musicStudioTracks } from '@/db/schema'
 import { resolveUserPath } from '@/lib/storage/paths'
-import { stemVenvPython, ANALYZE_SCRIPT, isStemAudioInstalled } from './pyenv'
+import { stemVenvPython, ANALYZE_SCRIPT, isStemAudioInstalled, isEssentiaAvailable } from './pyenv'
 import type { DownloadProgress } from '@/lib/download'
 import { logger } from '@/lib/logger'
 
@@ -53,6 +53,16 @@ export async function runAnalyzeJob(
   if (!row) { logger.info(`[analyze] studio track ${studioTrackId} gone — skipping`); return }
   if (!row.sourceRelPath) { logger.info(`[analyze] studio track ${studioTrackId} has no source — skipping`); return }
   if (!isStemAudioInstalled()) throw new Error('stem-audio runtime not installed')
+  if (!isEssentiaAvailable()) {
+    // Windows installs are Demucs-only (essentia has no Windows wheels) — spawning
+    // analyze.py would just exit 1 on import. Park the track at 'none' (not 'failed':
+    // this is a platform gap, not an error worth surfacing per-track) and move on.
+    logger.info(`[analyze] Essentia unavailable on this platform — skipping analysis for ${studioTrackId}`)
+    await db.update(musicStudioTracks)
+      .set({ analysisStatus: 'none', updatedAt: new Date() })
+      .where(eq(musicStudioTracks.id, studioTrackId))
+    return
+  }
 
   await db.update(musicStudioTracks)
     .set({ analysisStatus: 'analyzing', analysisError: null, updatedAt: new Date() })

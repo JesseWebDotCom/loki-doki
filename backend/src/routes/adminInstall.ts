@@ -59,7 +59,7 @@ adminInstall.get('/', requireAdmin, (c) => {
     {
       id: 'stem-audio',
       label: 'Music Studio (Demucs + Essentia)',
-      description: 'AI stem separation (Demucs htdemucs) + tempo/key/chord analysis (Essentia) powering the Music Studio. Managed Python venv; runs fully local. Essentia is AGPL-3.0, invoked only as a subprocess.',
+      description: 'AI stem separation (Demucs htdemucs) + tempo/key/chord analysis (Essentia) powering the Music Studio. Managed Python venv; runs fully local. Essentia is AGPL-3.0, invoked only as a subprocess. On Windows: stem separation only (Essentia publishes no Windows builds).',
       installed: isStemAudioInstalled(),
       approxBytes: 2_500_000_000,
     },
