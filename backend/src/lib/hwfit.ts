@@ -261,7 +261,17 @@ export function getComfyUILaunchConfig(hw: HardwareInfo, gpuIndexOverride?: numb
       : selectComfyUIDevice(hw.cudaDevices)
     return {
       dtype: 'fp8',
-      extraArgs: ['--gpu-only', '--use-xformers'],
+      // xformers is auto-enabled when installed on ComfyUI ≥0.27 (the `--use-xformers`
+      // flag was removed; only `--disable-xformers` remains). Passing the old flag made
+      // main.py exit on an argparse error before binding 8188, so image gen never warmed.
+      //
+      // No `--gpu-only`: that flag pins EVERY model in the workflow (checkpoint, VAE,
+      // upscaler) in VRAM simultaneously and disables ComfyUI's between-node offloading.
+      // A hi-res-fix workflow overflows an 8 GB card that way, and the CUDA driver then
+      // silently spills to system RAM — observed on the eGPU RTX 3070 as a job stuck at
+      // 100% util / ~64 W for minutes, unresponsive even to /interrupt. Default smart
+      // memory management keeps only the active node's models resident.
+      extraArgs: [],
       // CUDA_DEVICE_ORDER matters: our indexes come from nvidia-smi (PCI bus order),
       // but CUDA's default enumeration is fastest-first — without pinning the order,
       // a CUDA_VISIBLE_DEVICES mask can silently target the WRONG card on mixed-GPU

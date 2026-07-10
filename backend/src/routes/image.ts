@@ -558,6 +558,9 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
           settled = true
           clearTimeout(stallTimer)
           if (queuePoll) clearTimeout(queuePoll)
+          // Tell ComfyUI too — closing our WS/fetch alone leaves the prompt executing
+          // on the GPU until it finishes (see cancelComfyPrompt).
+          if (prompt_id) void cancelComfyPrompt(prompt_id)
           ws.close()
           reject(new DOMException('Aborted', 'AbortError'))
         }
@@ -759,6 +762,7 @@ async function buildAndEnqueueJob(params: {
   rawMessage?: string
   style?: ImageStyle
   fast?: boolean
+  hires?: boolean       // opt-in 2× ESRGAN finalize pass (see hiresUpscale below)
   // Pipeline
   pipeline?: Pipeline
   refId?: string        // face_id: UUID from /reference-face
@@ -866,7 +870,12 @@ async function buildAndEnqueueJob(params: {
   // Also skipped for SVG output: the flat, low-detail look traces into clean vector paths;
   // a 2× photorealistic refine would only add detail that bloats the traced SVG.
   const esrganAvailable = isEsrganInstalled()
-  const hiresUpscale    = !noCheckpoint && !isEnhance && !isDistilled && !fast && esrganAvailable
+  // Opt-in (params.hires) since 2026-07: the 2× finalize (ESRGAN + refine sampler) takes
+  // longer than the base generation itself and overflows shared-VRAM setups, and most
+  // drafts get discarded anyway. The fast path is: generate at base size, then run the
+  // standalone Upscale/Enhance pipelines on the keepers.
+  const hiresUpscale    = (params.hires ?? false)
+                          && !noCheckpoint && !isEnhance && !isDistilled && !fast && esrganAvailable
                           && !hw.isAppleSilicon && !vectorize
   const esrganModel     = pipeline === 'upscale' ? '4x_NMKD-Siax_200k.pth'
                         : hiresUpscale            ? '4x_NMKD-Siax_200k.pth'
@@ -1354,6 +1363,7 @@ image.post('/generate', requireAuth, async (c) => {
     loraIds?: string[]
     loraWeights?: Record<string, number>
     fast?: boolean
+    hires?: boolean
     refId?: string
     bgRemoveOnly?: boolean
     imageBase64?: string
@@ -1459,6 +1469,7 @@ image.post('/generate', requireAuth, async (c) => {
     loraIds: body.loraIds,
     loraWeights: body.loraWeights,
     fast: body.fast,
+    hires: body.hires,
     pipeline,
     refId: body.refId,
     imageBase64: body.imageBase64,
@@ -1485,6 +1496,38 @@ image.post('/generate', requireAuth, async (c) => {
     await genQueue.subscribeAndTail(stream, job, 0)
   })
 })
+
+// Best-effort cancellation inside ComfyUI itself. genQueue.cancel() only aborts the
+// backend's WS/fetch — the prompt keeps executing (and holding VRAM) until it finishes.
+// Observed: a cancelled hi-res job pinned the eGPU at 100% for minutes after the cancel
+// endpoint returned ok. Pending prompts are deleted from ComfyUI's queue; the running
+// one gets /interrupt (only when it IS ours — /interrupt is global, so firing it blind
+// would kill someone else's queued generation).
+async function cancelComfyPrompt(promptId: string): Promise<void> {
+  const base = comfyUrl()
+  try {
+    type QueueEntry = [number, string, ...unknown[]]
+    const r = await fetch(`${base}/queue`, { signal: AbortSignal.timeout(3_000) })
+    const q = r.ok ? await r.json() as { queue_running: QueueEntry[]; queue_pending: QueueEntry[] } : undefined
+    // If the queue read failed, assume ours is the running prompt: a stuck interrupt
+    // beats a GPU grinding a dead job.
+    const running = q ? q.queue_running.some(e => e[1] === promptId) : true
+    const pending = q ? q.queue_pending.some(e => e[1] === promptId) : false
+    if (pending) {
+      await fetch(`${base}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delete: [promptId] }),
+        signal: AbortSignal.timeout(3_000),
+      })
+    }
+    if (running) {
+      await fetch(`${base}/interrupt`, { method: 'POST', signal: AbortSignal.timeout(3_000) })
+    }
+  } catch (e) {
+    logger.warn(`[comfy] cancel propagation failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
 
 image.post('/artifacts/:id/cancel', requireAuth, async (c) => {
   const user = c.get('user')

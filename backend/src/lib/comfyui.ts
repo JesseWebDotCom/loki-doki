@@ -30,7 +30,9 @@ function ensureExtraModelPaths(): void {
 // restarted automatically so the new args take effect without manual action.
 // v7: CUDA_DEVICE_ORDER=PCI_BUS_ID + placement-aware GPU selection (idle second
 // card preferred; biggest card reserved for the LLM on multi-GPU machines).
-const LAUNCH_VERSION  = 7
+// v8: dropped --gpu-only on NVIDIA — it disabled between-node offloading and made
+// hi-res-fix workflows overflow 8 GB cards into system-RAM thrash (unkillable jobs).
+const LAUNCH_VERSION  = 8
 const LAUNCH_VER_FILE = join(dataDir, 'comfyui.launch_ver')
 
 const PID_FILE      = join(dataDir, 'comfyui.pid')

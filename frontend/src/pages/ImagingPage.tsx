@@ -608,6 +608,7 @@ export function ImagingPage() {
   const [steps, setSteps] = useState(20)
   const [guidance, setGuidance] = useState(3.5)
   const [seed, setSeed] = useState(-1)
+  const [hiresFix, setHiresFix] = useState(false)
   const [outputFormat, setOutputFormat] = useState<'png' | 'svg'>('png')
   const [svgFlatBias, setSvgFlatBias] = useState(true)
   const [svgColors, setSvgColors] = useState(6)   // vtracer color_precision (1-8)
@@ -1155,6 +1156,7 @@ export function ImagingPage() {
       seed: seed >= 0 ? seed : undefined,
       loraIds: loraIdList,
       loraWeights,
+      hires: outputFormat !== 'svg' && hiresFix ? true : undefined,
       outputFormat: outputFormat === 'svg' ? ('svg' as const) : undefined,
       flatBias: outputFormat === 'svg' ? svgFlatBias : undefined,
       svgOptions: outputFormat === 'svg' ? { colorPrecision: svgColors, filterSpeckle: svgDetail } : undefined,
@@ -1166,7 +1168,7 @@ export function ImagingPage() {
     } finally {
       setPending(false)
     }
-  }, [prompt, negativePrompt, aspectPreset, steps, guidance, seed, selectedLoras, loras, autoMode, outputFormat, svgFlatBias, svgColors, svgDetail, gen.status, generate, reset])
+  }, [prompt, negativePrompt, aspectPreset, steps, guidance, seed, hiresFix, selectedLoras, loras, autoMode, outputFormat, svgFlatBias, svgColors, svgDetail, gen.status, generate, reset])
 
   const handleCancel = useCallback(() => {
     if (gen.imageId) cancel(gen.imageId)
@@ -1526,6 +1528,12 @@ export function ImagingPage() {
                           <input type="range" min={0} max={10} step={0.5} value={guidance} onChange={e => { const v = parseFloat(e.target.value); setGuidance(Number.isNaN(v) ? 3.5 : v) }} disabled={gen.status === 'generating'} className="w-full accent-primary" />
                         </div>
                       </div>
+                      {outputFormat !== 'svg' && (
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                          <input type="checkbox" checked={hiresFix} onChange={e => setHiresFix(e.target.checked)} disabled={gen.status === 'generating'} className="accent-primary" />
+                          Finalize at 2× <span className="text-[10px] opacity-70">(sharper + larger but much slower — or keep this off and upscale your favorites with the Upscale tool)</span>
+                        </label>
+                      )}
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Negative prompt</Label>
                         <Textarea placeholder="Things to avoid in the image…" value={negativePrompt} onChange={e => setNegativePrompt(e.target.value)} disabled={gen.status === 'generating'} className="min-h-[52px] resize-none text-xs rounded-control" />

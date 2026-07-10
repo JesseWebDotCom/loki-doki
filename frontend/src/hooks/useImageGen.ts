@@ -11,6 +11,7 @@ export interface GenerateParams {
   seed?: number
   loraIds?: string[]
   loraWeights?: Record<string, number>
+  hires?: boolean            // opt-in 2× finalize pass (ESRGAN + refine) — off = base size, much faster
   // Video
   videoMode?: boolean        // text-to-video (AnimateDiff)
   i2vMode?: boolean          // image-to-video (SVD)
