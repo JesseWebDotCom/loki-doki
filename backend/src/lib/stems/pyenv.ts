@@ -37,10 +37,13 @@ const MARKER_VERSION = 'v2:essentia-tensorflow'
 // own background progress), so adding it never invalidates the 2.5 GB Demucs+Essentia install
 // or triggers the "restore missing components" prompt. 'v3:mms-fa-align' is an older build that
 // bundled the model into this marker; accept it too so those installs don't re-prompt.
-// 'v2-win:demucs-only' marks Windows installs: essentia/essentia-tensorflow publish no
-// Windows wheels at all, so Windows gets Demucs (separation) without the analysis runtime —
-// analysis features gate on isEssentiaAvailable() below.
-const WIN_MARKER_VERSION = 'v2-win:demucs-only'
+// 'v3-win:demucs-librosa' marks Windows installs: essentia/essentia-tensorflow publish no
+// Windows wheels at all, so Windows gets Demucs (separation) + librosa (the analyze
+// fallback — tempo/key/chords via analyze_librosa.py). The short-lived 'v2-win:demucs-only'
+// marker (no librosa) is deliberately NOT accepted so those installs self-upgrade via
+// boot reconcile. The essentia-only ML classifiers (genre/mood) stay macOS/Linux gated
+// on isEssentiaAvailable().
+const WIN_MARKER_VERSION = 'v3-win:demucs-librosa'
 const ACCEPTED_MARKERS = ['v2:essentia-tensorflow', 'v3:mms-fa-align', WIN_MARKER_VERSION]
 
 // torch.hub cache for the MMS forced-alignment model (torchaudio.pipelines.MMS_FA). Kept under
@@ -77,13 +80,24 @@ export function isMusicIntelReady(): boolean {
   return isEssentiaAvailable() && MUSIC_INTEL_MODELS.every(m => existsSync(intelModelPath(m.file)))
 }
 
-/** Whether the Essentia analysis runtime (tempo/beats/key/chords + the TF classifiers) is
- *  usable. Always false on Windows installs: essentia has no Windows wheels, so the venv
- *  is Demucs-only there (WIN_MARKER_VERSION). Analysis jobs must gate on THIS, not on
- *  isStemAudioInstalled() — spawning analyze.py without essentia just exits 1. */
+/** Whether the Essentia runtime is usable. Always false on Windows installs (essentia
+ *  has no Windows wheels; the venv marker carries a '-win:' version there). Gates the
+ *  essentia-only capabilities: the ML classifiers behind music intelligence, and the
+ *  choice of analyze.py over the librosa fallback. */
 export function isEssentiaAvailable(): boolean {
   if (!isStemAudioInstalled()) return false
-  try { return !readFileSync(MARKER, 'utf8').startsWith('v2-win:') } catch { return false }
+  try { return !readFileSync(MARKER, 'utf8').includes('-win:') } catch { return false }
+}
+
+/** Whether tempo/key/chord analysis is possible at all: essentia (macOS/Linux) or the
+ *  librosa fallback (v3-win installs). Analysis jobs gate on THIS — spawning either
+ *  analyze script against a venv that lacks its library just exits 1. */
+export function isAnalysisAvailable(): boolean {
+  if (!isStemAudioInstalled()) return false
+  try {
+    const m = readFileSync(MARKER, 'utf8')
+    return !m.includes('-win:') || m.startsWith('v3-win:')
+  } catch { return false }
 }
 
 // RoFormer guitar model (becruily) — a better guitar stem than Demucs. Kept in its OWN venv
@@ -111,6 +125,8 @@ export function isRoformerGuitarInstalled(): boolean {
 // resolves them whether the backend runs from src/ (bun --hot) or a bundled dir.
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const ANALYZE_SCRIPT = join(HERE, 'analyze.py')
+// Windows fallback (librosa) — same JSON contract; picked by analyzeJob when essentia is absent.
+export const ANALYZE_LIBROSA_SCRIPT = join(HERE, 'analyze_librosa.py')
 export const LIBRARY_ANALYZE_SCRIPT = join(HERE, 'library_analyze.py')
 export const ALIGN_SCRIPT = join(HERE, 'align.py')
 
@@ -207,10 +223,16 @@ export async function installStemAudio(onStatus: StatusFn = () => {}, signal?: A
   if (IS_WIN) {
     // essentia / essentia-tensorflow publish no Windows wheels — a combined install fails
     // the WHOLE runtime with "No matching distribution found for essentia-tensorflow",
-    // taking Demucs (which works fine on Windows) down with it. Windows installs are
-    // separation-only; analysis + music-intel features gate on isEssentiaAvailable().
-    onStatus('Installing Demucs (this can take several minutes — analysis runtime is macOS/Linux-only)…')
-    await run(venvBin('python'), ['-m', 'pip', 'install', 'demucs', 'lameenc', 'soundfile'], { signal, onStatus, timeoutMs: 30 * 60_000 })
+    // taking Demucs (which works fine on Windows) down with it. Windows gets Demucs +
+    // librosa: separation works identically, and tempo/key/chord analysis runs through
+    // analyze_librosa.py. Only the essentia ML classifiers (genre/mood) stay unavailable.
+    onStatus('Installing Demucs + librosa (this can take several minutes)…')
+    await run(venvBin('python'), ['-m', 'pip', 'install', 'demucs', 'lameenc', 'soundfile', 'librosa'], { signal, onStatus, timeoutMs: 30 * 60_000 })
+
+    // Functional probe: librosa pulls the numba/llvmlite stack, which is the part that
+    // can resolve to a broken combination — failing HERE keeps the marker unwritten.
+    onStatus('Verifying the analysis fallback…')
+    await run(venvBin('python'), ['-c', 'import librosa'], { signal, onStatus, timeoutMs: 5 * 60_000 })
   } else {
     // Plain `essentia` (v1 installs) and `essentia-tensorflow` ship the SAME import name —
     // installing one over the other leaves a mixed site-packages. Remove the plain build

@@ -5,13 +5,21 @@
 // intact; the mixer still works without analysis (just no metronome/chords/key).
 
 import { spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { join } from 'node:path'
+import { mkdir, rm } from 'node:fs/promises'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { musicStudioTracks } from '@/db/schema'
 import { resolveUserPath } from '@/lib/storage/paths'
-import { stemVenvPython, ANALYZE_SCRIPT, isStemAudioInstalled, isEssentiaAvailable } from './pyenv'
+import { stemVenvPython, ANALYZE_SCRIPT, ANALYZE_LIBROSA_SCRIPT, isStemAudioInstalled, isEssentiaAvailable, isAnalysisAvailable } from './pyenv'
+import { dataDir } from '@/lib/download'
+import { ensureFfmpeg } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
 import { logger } from '@/lib/logger'
+
+const execFileAsync = promisify(execFile)
 
 export interface AudioAnalyzeJobPayload { studioTrackId: string }
 
@@ -23,10 +31,10 @@ interface Manifest {
   chords?: Array<{ startTime: number; endTime: number; label: string }>
 }
 
-/** Run analyze.py against `input`, returning parsed JSON. Rejects on non-zero exit. */
-function runAnalyze(python: string, input: string, signal?: AbortSignal): Promise<Manifest> {
+/** Run the analyze script against `input`, returning parsed JSON. Rejects on non-zero exit. */
+function runAnalyze(python: string, script: string, input: string, signal?: AbortSignal): Promise<Manifest> {
   return new Promise((resolve, reject) => {
-    const child = spawn(python, [ANALYZE_SCRIPT, input], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const child = spawn(python, [script, input], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let out = '', err = ''
     child.stdout?.on('data', (d: Buffer) => { out += d.toString() })
     child.stderr?.on('data', (d: Buffer) => { err += d.toString(); if (err.length > 16_000) err = err.slice(-8_000) })
@@ -53,11 +61,11 @@ export async function runAnalyzeJob(
   if (!row) { logger.info(`[analyze] studio track ${studioTrackId} gone — skipping`); return }
   if (!row.sourceRelPath) { logger.info(`[analyze] studio track ${studioTrackId} has no source — skipping`); return }
   if (!isStemAudioInstalled()) throw new Error('stem-audio runtime not installed')
-  if (!isEssentiaAvailable()) {
-    // Windows installs are Demucs-only (essentia has no Windows wheels) — spawning
-    // analyze.py would just exit 1 on import. Park the track at 'none' (not 'failed':
-    // this is a platform gap, not an error worth surfacing per-track) and move on.
-    logger.info(`[analyze] Essentia unavailable on this platform — skipping analysis for ${studioTrackId}`)
+  if (!isAnalysisAvailable()) {
+    // Pre-v3 Windows installs (Demucs-only, no librosa yet) — boot reconcile upgrades
+    // them in place. Park the track at 'none' (not 'failed': a platform/version gap,
+    // not an error worth surfacing per-track) and move on.
+    logger.info(`[analyze] no analysis runtime in this venv — skipping analysis for ${studioTrackId}`)
     await db.update(musicStudioTracks)
       .set({ analysisStatus: 'none', updatedAt: new Date() })
       .where(eq(musicStudioTracks.id, studioTrackId))
@@ -69,9 +77,24 @@ export async function runAnalyzeJob(
     .where(eq(musicStudioTracks.id, studioTrackId))
   onProgress?.({ completed: 5, total: 100, speedBps: 0, etaSeconds: 0, note: 'Analysing…' })
 
+  // essentia's MonoLoader decodes any container itself; the librosa fallback only
+  // reliably reads what libsndfile covers (no m4a/aac), so feed it a mono 44.1 kHz
+  // WAV transcode instead. The app's own ffmpeg does the conversion.
+  const useEssentia = isEssentiaAvailable()
+  let tempWav: string | null = null
+
   try {
-    const input = await resolveUserPath(row.sourceRelPath)
-    const m = await runAnalyze(stemVenvPython(), input, signal)
+    let input = await resolveUserPath(row.sourceRelPath)
+    if (!useEssentia) {
+      const ffmpeg = await ensureFfmpeg()
+      const tmpDir = join(dataDir, 'tmp')
+      await mkdir(tmpDir, { recursive: true })
+      tempWav = join(tmpDir, `analyze-${studioTrackId}.wav`)
+      await execFileAsync(ffmpeg, ['-y', '-i', input, '-vn', '-ac', '1', '-ar', '44100', '-f', 'wav', tempWav],
+        { timeout: 5 * 60_000, windowsHide: true })
+      input = tempWav
+    }
+    const m = await runAnalyze(stemVenvPython(), useEssentia ? ANALYZE_SCRIPT : ANALYZE_LIBROSA_SCRIPT, input, signal)
     await db.update(musicStudioTracks).set({
       analysisStatus: 'ready',
       analysisError: null,
@@ -89,5 +112,7 @@ export async function runAnalyzeJob(
       .set({ analysisStatus: 'failed', analysisError: String(err), updatedAt: new Date() })
       .where(eq(musicStudioTracks.id, studioTrackId))
     throw err
+  } finally {
+    if (tempWav) await rm(tempWav, { force: true }).catch(() => {})
   }
 }
