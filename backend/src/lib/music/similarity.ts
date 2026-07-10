@@ -158,3 +158,59 @@ export async function allFeatureTags(): Promise<Map<string, string[]>> {
   const rows = await load()
   return new Map(rows.map(r => [r.ref, r.tags]))
 }
+
+/** Substring search over the analyzed library (title/artist) — the picker vocabulary for
+ *  features that need BOTH endpoints analyzed (Sonic Adventure). */
+export async function searchFeatures(q: string, k = 12): Promise<FeatureRow[]> {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return []
+  const rows = await load()
+  const scored = rows
+    .map(r => {
+      const title = (r.title ?? '').toLowerCase()
+      const artist = (r.artist ?? '').toLowerCase()
+      const hit = title.includes(needle) || artist.includes(needle)
+      if (!hit) return null
+      // Prefix matches read as "better" hits than mid-string ones.
+      const score = (title.startsWith(needle) ? 2 : 0) + (artist.startsWith(needle) ? 1 : 0)
+      return { r, score }
+    })
+    .filter((s): s is { r: FeatureRow; score: number } => !!s)
+    .sort((a, b) => b.score - a.score)
+  return scored.slice(0, k).map(s => s.r)
+}
+
+/** Plexamp's Sonic Adventure: a path of analyzed tracks that gradually transitions from
+ *  `fromRef`'s sound to `toRef`'s. Interpolates between the two embeddings on the unit
+ *  sphere and picks the sound-nearest unused track at each waypoint, nudging for artist
+ *  variety. Returns the full path INCLUDING both endpoints, or null when either endpoint
+ *  hasn't been analyzed. */
+export async function sonicAdventurePath(fromRef: string, toRef: string, steps = 12): Promise<FeatureRow[] | null> {
+  const a = await getFeatureRow(fromRef)
+  const b = await getFeatureRow(toRef)
+  if (!a || !b) return null
+  const used = new Set([fromRef, toRef])
+  const path: FeatureRow[] = [a]
+  const dim = a.embedding.length
+  for (let i = 1; i <= steps; i++) {
+    const t = i / (steps + 1)
+    // Lerp + renormalise ≈ slerp for these angles, and it's dimension-cheap.
+    const v = new Float32Array(dim)
+    let norm = 0
+    for (let j = 0; j < dim; j++) {
+      v[j] = a.embedding[j]! * (1 - t) + b.embedding[j]! * t
+      norm += v[j]! * v[j]!
+    }
+    norm = Math.sqrt(norm)
+    if (!norm) continue
+    for (let j = 0; j < dim; j++) v[j]! /= norm
+    const candidates = await nearestToVector(v, 6, { excludeRefs: [...used] })
+    if (!candidates.length) continue
+    const prevArtist = (path[path.length - 1]!.artist ?? '').toLowerCase()
+    const pick = candidates.find(c => (c.artist ?? '').toLowerCase() !== prevArtist) ?? candidates[0]!
+    used.add(pick.ref)
+    path.push(pick)
+  }
+  path.push(b)
+  return path
+}

@@ -407,6 +407,27 @@ export function personalStationDj(kind: PersonalStationKind): DjStation {
   }
 }
 
+// ── Sonic Adventure (Plexamp): a path of analyzed tracks from one song to another ──
+export interface AdventureTrack { ref: string; title: string | null; artist: string | null }
+export async function adventureStatus(): Promise<{ analyzed: number }> {
+  return mfetch<{ analyzed: number }>('/stations/adventure/status')
+}
+export async function adventureSearch(q: string): Promise<AdventureTrack[]> {
+  const r = await mfetch<{ results: AdventureTrack[] }>(`/stations/adventure/search?q=${encodeURIComponent(q)}`)
+  return r.results
+}
+export function adventureStationDj(from: AdventureTrack, to: AdventureTrack): DjStation {
+  return {
+    id: `adventure:${from.ref}:${to.ref}`,
+    label: `${from.title ?? 'Start'} → ${to.title ?? 'Destination'}`,
+    // design-ok(hex-in-tsx): station identity colours, same contract as DJ_STATIONS presets
+    emoji: '🧭', color: '#f43f5e', colorDark: '#be123c',
+    adventure: { from: from.ref, to: to.ref },
+    // A finite curated path - the DJ talking over it would break the arc.
+    djMode: 'silent',
+  }
+}
+
 /** An ephemeral "instant station" seeded by an artist, song, genre, or freeform prompt
  *  (Apple-Music style). artist/song ride YouTube Music's radio mix; genre/prompt drive the
  *  AI station engine off the text. */

@@ -23,6 +23,7 @@ import { join } from 'node:path'
 import { resolveUserPath, getDataRoot } from '@/lib/storage/paths'
 import { getOrFetchMediaImage } from '@/lib/titles/imageProxy'
 import { filterTracksForUser } from '@/lib/music/advisory'
+import { featureCount, searchFeatures, sonicAdventurePath } from '@/lib/music/similarity'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -713,10 +714,38 @@ const PERSONAL_STATION_NAMES: Record<PersonalStationKind, string> = {
   library: 'Library Radio', 'deep-cuts': 'Deep Cuts', 'time-travel': 'Time Travel Radio',
 }
 
+// ── Sonic Adventure (Plexamp) ─────────────────────────────────────────────────────
+// A finite path of analyzed tracks that gradually transitions from one song's sound to
+// another's. Both endpoints must be in the analyzed library (music_track_features), so
+// the picker searches that library and /status reports coverage for the gate copy.
+musicStations_route.get('/adventure/status', async (c) => {
+  return c.json({ analyzed: await featureCount() })
+})
+
+musicStations_route.get('/adventure/search', async (c) => {
+  const q = c.req.query('q') ?? ''
+  const rows = await searchFeatures(q, 12)
+  return c.json({ results: rows.map(r => ({ ref: r.ref, title: r.title, artist: r.artist })) })
+})
+
 // ── Build a queue from a seed (no persistence required) ──────────────────────────
 musicStations_route.post('/queue', async (c) => {
-  type QueueBody = Partial<StationSeed> & { stationId?: string; fast?: boolean; personal?: PersonalStationKind }
+  type QueueBody = Partial<StationSeed> & {
+    stationId?: string; fast?: boolean; personal?: PersonalStationKind
+    adventure?: { from: string; to: string }
+  }
   const body = await c.req.json<QueueBody>().catch(() => ({} as QueueBody))
+
+  // Sonic Adventure: the path is cheap to compute and finite, so both the fast and the
+  // full build return the whole thing (the engine's head-dedup keeps the order stable).
+  if (body.adventure?.from && body.adventure?.to) {
+    const path = await sonicAdventurePath(body.adventure.from, body.adventure.to, 12)
+    if (!path) return c.json({ error: 'Both songs need sonic analysis first' }, 400)
+    const listener = c.get('user')
+    let tracks = path.map(t => ({ videoId: t.ref, title: t.title ?? t.ref, artist: t.artist ?? '' }))
+    if (listener) tracks = await filterTracksForUser(listener.id, tracks)
+    return c.json({ tracks, source: 'sonic-adventure' })
+  }
 
   // Personal stations: seeded by the listener's own history/favorites, no prompt needed.
   if (body.personal === 'library' || body.personal === 'deep-cuts' || body.personal === 'time-travel') {

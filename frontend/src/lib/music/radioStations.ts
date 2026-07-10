@@ -23,6 +23,8 @@ export interface DjStation {
   seedValue?: string
   /** Plexamp-style personal station: queue built from the listener's history/favorites. */
   personal?: 'library' | 'deep-cuts' | 'time-travel'
+  /** Sonic Adventure: a finite path of analyzed tracks from one song's sound to another's. */
+  adventure?: { from: string; to: string }
   djMode?: 'full' | 'minimal' | 'silent'
   // "source:movie:Title" | "source:show:{id}:Title" — written at creation time so Now Playing
   // can show a back-link without an extra network round-trip.

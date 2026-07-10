@@ -314,12 +314,13 @@ export class RadioEngine {
 
     // AI station → station engine (saved id, prompt, artist/song seed, or a personal
     // history-driven station). The engine already orders the queue, so we don't shuffle.
-    const isAi = !!(st.stationId || st.aiPrompt || st.seedValue || st.personal)
+    const isAi = !!(st.stationId || st.aiPrompt || st.seedValue || st.personal || st.adventure)
     if (isAi) {
       try {
         const res = await fetchStationQueue({
           stationId: st.stationId, aiPrompt: st.aiPrompt, seedType: st.seedType,
-          seedValue: st.seedValue, personal: st.personal, name: st.label, count: fast ? 3 : 12,
+          seedValue: st.seedValue, personal: st.personal, adventure: st.adventure,
+          name: st.label, count: fast ? 3 : 12,
           fast, excludeVideoIds: opts?.exclude,
         })
         raw = res.tracks

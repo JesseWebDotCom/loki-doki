@@ -9,6 +9,7 @@ import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { Button } from '@/components/ui/button'
 import { StationCard } from '@/components/music/StationCard'
 import { StationEditorDialog } from '@/components/music/StationEditorDialog'
+import { SonicAdventureDialog } from '@/components/music/SonicAdventureDialog'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicMode } from '@/components/music/MusicLayout'
 import { listStations, listOfflineStations, instantStationDj, personalStationDj, PERSONAL_STATIONS, type Station } from '@/lib/music/catalogApi'
@@ -48,6 +49,7 @@ export function MusicStationsPage() {
   const [params, setParams] = useSearchParams()
   const { data: buckets } = useQuery({ queryKey: ['music-stations'], queryFn: listStations, enabled: mode === 'online' })
   const [editorOpen, setEditorOpen] = useState(false)
+  const [adventureOpen, setAdventureOpen] = useState(false)
   const [cat, setCat] = useState<string>('All')
 
   // Deep-link from the companion / search: ?instant=<query>&seedType=<artist|song|genre> starts
@@ -85,7 +87,19 @@ export function MusicStationsPage() {
       {/* Personal stations (Plexamp): seeded by YOUR history + favorites, not a prompt. */}
       <section className="mt-2 mb-6">
         <SectionHeader title="Made for you" />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <button type="button" onClick={() => setAdventureOpen(true)}
+            className="flex items-center gap-3 rounded-card border border-border/60 bg-card p-4 text-left transition hover:bg-foreground/[0.04]">
+            {/* design-ok(hex-in-tsx): station identity gradient, same contract as the personal cards */}
+            <span className="grid size-11 shrink-0 place-items-center rounded-control text-xl"
+              style={{ background: 'linear-gradient(135deg, #f43f5e, #be123c)' }}>
+              🧭
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">Sonic Adventure</span>
+              <span className="block truncate text-xs text-muted-foreground">Chart a course from one song to another</span>
+            </span>
+          </button>
           {PERSONAL_STATIONS.map(p => (
             <button key={p.kind} type="button"
               onClick={() => { radio.start(personalStationDj(p.kind)); navigate('/music/now-playing') }}
@@ -125,6 +139,7 @@ export function MusicStationsPage() {
       )}
 
       <StationEditorDialog open={editorOpen} onOpenChange={setEditorOpen} station={null} />
+      <SonicAdventureDialog open={adventureOpen} onOpenChange={setAdventureOpen} />
     </PageContainer>
   )
 }

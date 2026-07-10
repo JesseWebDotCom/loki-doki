@@ -64,6 +64,8 @@ export async function fetchStationQueue(body: {
   seedVideoId?: string
   /** Plexamp-style personal station seeded by the listener's history/favorites. */
   personal?: 'library' | 'deep-cuts' | 'time-travel'
+  /** Sonic Adventure endpoints (both must be analyzed library tracks). */
+  adventure?: { from: string; to: string }
   name?: string
   count?: number
   excludeVideoIds?: string[]

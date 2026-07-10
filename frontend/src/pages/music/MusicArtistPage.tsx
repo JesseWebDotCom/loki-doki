@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Radio, ExternalLink } from 'lucide-react'
+import { Radio, ExternalLink, Disc3, Hourglass } from 'lucide-react'
 import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
 import { AlbumFilterButton, albumPassesFilters, defaultAlbumFilters, type AlbumFilters } from '@/components/music/AlbumFilterButton'
 import { Button } from '@/components/ui/button'
@@ -81,6 +81,27 @@ export function MusicArtistPage() {
         </div>
         <div className="relative mt-4 flex flex-wrap gap-2">
           <Button onClick={() => { radio.start(instantStationDj({ type: 'artist', value: artist.name })); navigate('/music/now-playing') }}><Radio className="size-4" /> Start station</Button>
+          {/* Plexamp-style artist pivots: the same personal-station recipes, scoped to this artist. */}
+          <Button variant="secondary" title={`Album tracks and B-sides by ${artist.name} - no hits`}
+            onClick={() => {
+              radio.start(instantStationDj({
+                type: 'prompt', label: `${artist.name}: Deep Cuts`,
+                value: `Lesser-known album tracks, B-sides and deep cuts by ${artist.name} only - strictly no hit singles or radio staples`,
+              }))
+              navigate('/music/now-playing')
+            }}>
+            <Disc3 className="size-4" /> Deep cuts
+          </Button>
+          <Button variant="secondary" title={`${artist.name}'s catalog in order, oldest first`}
+            onClick={() => {
+              radio.start(instantStationDj({
+                type: 'prompt', label: `${artist.name}: Time Travel`,
+                value: `A chronological journey through ${artist.name}'s catalog: start with their oldest recordings and progress steadily to their newest`,
+              }))
+              navigate('/music/now-playing')
+            }}>
+            <Hourglass className="size-4" /> Time travel
+          </Button>
           {bioUrl && (
             <Button variant="secondary" asChild><a href={bioUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> Wikipedia</a></Button>
           )}
