@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ExternalLink, Search, Settings, type LucideIcon } from "lucide-react";
+import { ChevronDown, ChevronLeft, ExternalLink, Search, Settings, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { AppIconTile } from "@/components/shared/AppIconTile";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,21 @@ export function MobileTopBar({
   return (
     <div className="md:hidden shrink-0 glass-chrome border-b border-border/50">
       <div className="flex h-12 items-center gap-2 px-3">
+        {/* Back: installed PWAs have no browser chrome, so this is the only history
+            affordance on a phone (Mobile Design Contract). idx is React Router's
+            position in the session history; 0 means there is nothing to go back to.
+            pathname is read above, so a navigation re-renders and re-reads it. */}
+        {(window.history.state?.idx ?? 0) > 0 && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="-ml-1 size-10 shrink-0"
+            aria-label="Back"
+            onClick={() => navigate(-1)}
+          >
+            <ChevronLeft className="size-5" />
+          </Button>
+        )}
         {/* App identity, opens the rail drawer for layout apps, else reloads the app */}
         <button
           type="button"
@@ -73,7 +88,7 @@ export function MobileTopBar({
         {config?.leftSlot}
         {config?.rightSlot}
 
-        <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label="Search" onClick={openSpotlight}>
+        <Button variant="ghost" size="icon" className="size-10 shrink-0" aria-label="Search" onClick={openSpotlight}>
           <Search className="size-4" />
         </Button>
 
@@ -81,7 +96,7 @@ export function MobileTopBar({
           <Button
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="size-10 shrink-0"
             aria-label="Settings"
             onClick={() => navigate(config.settingsHref!)}
           >
@@ -90,7 +105,7 @@ export function MobileTopBar({
         )}
         {config?.externalHref && (
           <a href={config.externalHref} target="_blank" rel="noopener noreferrer" aria-label="Open website">
-            <Button variant="ghost" size="icon" className="size-9 shrink-0" asChild>
+            <Button variant="ghost" size="icon" className="size-10 shrink-0" asChild>
               <span>
                 <ExternalLink className="size-4" />
               </span>

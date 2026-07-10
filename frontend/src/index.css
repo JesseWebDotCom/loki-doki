@@ -5,6 +5,15 @@
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
 
 /* ── Character avatar rig (ported from v2) ────────────────────────────────── */
 @keyframes breathing {
@@ -442,7 +451,17 @@
 
 @layer base {
   * { border-color: var(--color-border); }
-  html { font-family: var(--font-sans); font-optical-sizing: auto; scroll-behavior: smooth; overscroll-behavior: none; }
+  html {
+    font-family: var(--font-sans);
+    font-optical-sizing: auto;
+    scroll-behavior: smooth;
+    overscroll-behavior: none;
+    /* Mobile Design Contract (agents.md): no double-tap zoom (pinch still works),
+       no iOS landscape font inflation. Focus-zoom is prevented by 16px inputs,
+       NOT by maximum-scale, so pinch-to-zoom stays available for accessibility. */
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);

@@ -615,6 +615,78 @@ the patterns that recur most.
 
 ---
 
+## Mobile Design Contract
+
+The app is installed as a full-screen PWA on iPhones (`black-translucent` status bar +
+`viewport-fit=cover`), which means the web page renders under the clock/battery status bar and
+the home indicator. The quality bar for phone layouts is the Netflix / Apple Music / YouTube
+iOS apps: compact chrome, one content column, dense rails with a peek of the next card, and
+nothing ever colliding with the system bars. Every rule here exists because we shipped the
+opposite at least once.
+
+### Safe areas: the shell owns them, pages never do
+
+- `AppShell`'s right column has `pt-safe`; `MobileDock` has `pb-safe`; `SheetContent` pads its
+  fixed sides. Utilities (`pt-safe`/`pb-safe`/`pl-safe`/`pr-safe`) are defined in `index.css`
+  and are all 0 on desktop. A normal page component must NEVER think about the notch.
+- The exception that must opt in: any `fixed` full-screen surface escapes the shell column and
+  pads itself (`NowPlayingOverlay`, `ImmersivePlayer`, `PrivacyOverlay`, kiosk/display pages).
+  If you build a new fixed overlay, add `pt-safe`/`pb-safe` to it or its own chrome.
+- Anything pinned to the bottom of the viewport needs `pb-safe` (checker rule
+  `fixed-bottom-no-pb-safe`). Anything floating above the dock offsets past it
+  (`bottom-[76px]` like the composer sheet) instead of stacking a second bottom bar.
+
+### No accidental zoom, ever
+
+- iOS Safari zooms the page when a focused input's computed font-size is under 16px. `ui/Input`
+  and `ui/Textarea` are `text-base md:text-sm` for exactly this reason. Never use a raw
+  `<input>`/`<textarea>` in app code (checker: `raw-input-element`) and never override a shared
+  input back down with `text-sm`/`text-xs` without a `md:` guard (checker: `mobile-input-zoom`).
+- `html` has `touch-action: manipulation` (kills double-tap-to-zoom; pinch still works) and
+  `-webkit-text-size-adjust: 100%`. Do NOT "fix" zoom with `maximum-scale=1` /
+  `user-scalable=no` in the viewport meta: it breaks pinch-zoom accessibility on Android and
+  iOS ignores it anyway.
+
+### Navigation: back always exists, rails are always reachable
+
+- `MobileTopBar` shows a back chevron whenever router history can go back. It is the ONLY back
+  affordance in the installed PWA, so never build a phone flow that traps the user (e.g. a
+  full-screen overlay whose only exit is a hover control).
+- A layout app (own left rail on desktop) MUST publish that rail through
+  `useAppHeader({ rail })` so phones get it as the title-chevron drawer. If a screen is only
+  reachable from a desktop rail, it does not exist on phones.
+- Known gap to avoid making worse: inline rails render at `lg:` (1024px) but the mobile
+  top bar/dock only exist below `md:` (768px), so 768-1024 tablets currently have neither.
+  Don't add rail-only functionality without checking that band.
+
+### Density: a phone is a 393px canvas
+
+Reference behavior (Netflix/Apple Music): compact 44-48px top chrome, at most ONE horizontally
+scrolling filter-chip row beneath it, then content.
+
+- One primary column, `PageContainer` gutters (`px-4` on phones). No side-by-side panes.
+- Horizontal rails show a peek of the next card: poster cards `w-36`-`w-44`, 16:9 video cards
+  `w-64`-`w-72`. A full-viewport-width card is reserved for the single hero/billboard at the
+  top of a page; a feed of them (one enormous card per row) is the #1 "designed on desktop"
+  tell.
+- Type scale on phones: page title <= `text-2xl`, section headers `text-lg`, card titles
+  `text-sm`/`text-base`, metadata `text-xs text-muted-foreground`. Body copy stays 16px.
+- Tap targets: >= 44px (`size-11`) for dock/floating controls, >= 40px (`size-10`) inside the
+  48px top bar, and `gap-2` minimum between adjacent targets. Nothing interactive under 36px.
+- Chips/filters: one row, `overflow-x-auto` with `overscroll-x-contain`, never wrapped to a
+  second row; secondary switchers (view toggles, providers) go in the top bar slots or a sheet.
+
+### Verifying phone layouts
+
+Chrome DevTools at iPhone size is necessary but not sufficient: desktop Chromium reports
+`env(safe-area-inset-*)` as 0, so a status-bar collision is invisible there. When touching the
+shell, sheets, players, or any fixed chrome, screenshot at 393x852 with a simulated 59px status
+bar / 34px home-indicator overlay and confirm nothing sits under either band (Playwright
+snippet in `frontend/scripts/`, or ask the agent to reproduce it). Then run
+`bun run check:design-contract` for the mechanical rules above.
+
+---
+
 ## Code Conventions
 
 - All styling via Tailwind utility classes - no CSS modules, no inline `style` props (except when a value is truly dynamic and can't be expressed as a class).

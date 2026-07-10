@@ -54,10 +54,12 @@ function SheetContent({
         className={cn(
           "fixed z-50 flex flex-col bg-sidebar text-sidebar-foreground shadow-xl transition ease-in-out",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-200 data-[state=open]:duration-200",
-          side === "left" && "inset-y-0 left-0 h-full w-3/4 max-w-sm border-r data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-          side === "right" && "inset-y-0 right-0 h-full w-3/4 max-w-sm border-l data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-          side === "top" && "inset-x-0 top-0 border-b data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-          side === "bottom" && "inset-x-0 bottom-0 border-t data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          // Sheets are fixed overlays, so they escape the shell's safe-area padding and
+          // must clear the status bar / home indicator themselves (Mobile Design Contract).
+          side === "left" && "inset-y-0 left-0 h-full w-3/4 max-w-sm border-r pt-safe pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          side === "right" && "inset-y-0 right-0 h-full w-3/4 max-w-sm border-l pt-safe pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          side === "top" && "inset-x-0 top-0 border-b pt-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          side === "bottom" && "inset-x-0 bottom-0 border-t pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
           className,
         )}
         {...props}

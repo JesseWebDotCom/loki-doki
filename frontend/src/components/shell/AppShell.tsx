@@ -149,7 +149,10 @@ export function AppShell() {
 
       {/* Right column: inset by the Canvas pane's width on desktop when it's open,
           but only on the Chat app, which is the only place the pane renders. */}
-      <div className={`relative z-10 flex flex-1 min-w-0 flex-col transition-[padding] duration-200 ${canvasOpen && isChat ? "md:pr-[32rem] lg:pr-[40rem]" : ""}`}>
+      {/* pt-safe: the shell owns the top safe area (status bar / notch) so pages never
+          render under it; the inset is 0 on desktop (see agents.md > Mobile Design
+          Contract). Fixed full-screen overlays escape this and pad themselves. */}
+      <div className={`relative z-10 flex flex-1 min-w-0 flex-col pt-safe transition-[padding] duration-200 ${canvasOpen && isChat ? "md:pr-[32rem] lg:pr-[40rem]" : ""}`}>
 
         {/* Queue position banner — shown when waiting for a generation slot */}
         <QueueBanner />

@@ -120,6 +120,30 @@ const RULES = [
       'pages/HomePage.tsx',
     ],
   },
+  // ── Mobile Design Contract (agents.md) ──────────────────────────────────
+  // Raw text-entry elements bypass ui/Input & ui/Textarea, which carry the
+  // 16px-on-mobile font that prevents iOS focus-zoom. Non-keyboard input types
+  // (range/checkbox/radio/file/color/hidden) are exempt: no keyboard, no zoom.
+  {
+    name: 'raw-input-element',
+    pattern: /<(?:textarea[\s>]|input(?![^>\n]*type=["'](?:range|checkbox|radio|file|color|hidden)))/,
+    ext: ['.tsx'],
+    allow: ['components/ui/'],
+  },
+  // Overriding a shared input back below 16px on phone widths re-triggers the
+  // iOS focus-zoom the base component exists to prevent. Use `md:text-sm`.
+  {
+    name: 'mobile-input-zoom',
+    pattern: /<(?:Input|Textarea)\b[^>]*\btext-(?:xs|sm)\b/,
+    ext: ['.tsx'],
+  },
+  // Chrome pinned to the bottom of the viewport sits under the iPhone home
+  // indicator unless it pads with pb-safe.
+  {
+    name: 'fixed-bottom-no-pb-safe',
+    pattern: /^(?!.*pb-safe).*\bfixed\b[^\n]*\bbottom-0\b/,
+    ext: ['.tsx'],
+  },
   {
     name: 'backdrop-blur-outside-chrome',
     pattern: /\bbackdrop-blur/,
