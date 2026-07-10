@@ -8,6 +8,7 @@ import { setAppSetting } from '@/lib/settings'
 import { invalidateRouterModelCache } from '@/lib/models'
 import { pullOllama, dataDir, isWeatherIconsInstalled } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR } from '@/lib/comfyui'
+import { isGpuTuningApplied } from '@/lib/gpuTuning'
 import { isSearXNGInstalled } from '@/lib/searxng'
 import { isESPHomeInstalled } from '@/lib/esphome'
 import { isKiwixInstalled } from '@/lib/kiwix'
@@ -124,6 +125,13 @@ adminInstall.get('/', requireAdmin, (c) => {
       description: 'Python venv + ComfyUI server',
       installed: comfyInstalled,
       approxBytes: 0,
+    },
+    {
+      id: 'nvidia-gpu-tuning',
+      label: 'NVIDIA Driver Tuning (VRAM overflow guard)',
+      description: 'Sets the driver\'s CUDA sysmem-fallback policy to "prefer none" for python.exe (via NVIDIA Profile Inspector), so image/video generations fail fast on VRAM over-commit instead of silently crawling through system RAM. Applies to every python.exe on this machine. Windows + NVIDIA only; re-apply after driver upgrades.',
+      installed: isGpuTuningApplied(),
+      approxBytes: 450_000,
     },
     {
       id: 'comfyui-nodes',

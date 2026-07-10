@@ -187,6 +187,8 @@ setup.get('/catalog', requireAuth, async (c) => {
       totalRamGb: hw.totalRamGb,
       isAppleSilicon: hw.isAppleSilicon,
       platform: hw.platform,
+      gpuVendor: hw.gpuVendor,
+      cudaDeviceCount: hw.cudaDevices.length,
     },
     recommendedTier: tier,
     tiers: TIERS,
@@ -252,6 +254,17 @@ setup.post('/download', requireAuth, async (c) => {
     // so on Windows the package is limited to the CLI + model. Enqueuing tmux there would
     // fail permanently and stall the wizard's completion gate, so gate it by platform.
     if (process.platform !== 'win32' && !componentIds.includes('tmux')) componentIds.push('tmux')
+  }
+
+  // Image models on a Windows+NVIDIA box imply the driver-tuning profile (CUDA sysmem
+  // fallback = prefer none for python.exe): without it, VRAM over-commits during
+  // generation silently spill to system RAM and crawl. Gated on actual hardware so a
+  // repair never throws on machines it doesn't apply to (same spirit as the tmux gate).
+  if (process.platform === 'win32'
+      && selected.some((m) => IMAGE_ROLES.has(m.role))
+      && !componentIds.includes('nvidia-gpu-tuning')) {
+    const gpuHw = await detectHardware()
+    if (gpuHw.gpuVendor === 'nvidia' && gpuHw.cudaDevices.length > 0) componentIds.push('nvidia-gpu-tuning')
   }
 
   // Essentials block boot: chat LLM + embeddings + router (Ollama always installs first).

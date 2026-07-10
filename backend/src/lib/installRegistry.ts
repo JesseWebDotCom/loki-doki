@@ -44,6 +44,7 @@ import {
   type DownloadProgress,
 } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI, venvPython } from '@/lib/comfyui'
+import { isGpuTuningApplied, installGpuTuning } from '@/lib/gpuTuning'
 import { isVtracerInstalled, ensureVtracer } from '@/lib/vtracer'
 import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG, searxngVenvPython } from '@/lib/searxng'
 import { isStemAudioInstalled, installStemAudio, stemVenvPython, isRoformerGuitarInstalled, installRoformerGuitar, roformerVenvPython } from '@/lib/stems/pyenv'
@@ -329,6 +330,17 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     needsPackageManager: true,
     isInstalled: isTesseractInstalled,
     repair: (onP) => installTesseract(onP),
+  },
+  {
+    // Windows+NVIDIA only (repair throws elsewhere): imports a driver profile that
+    // sets CUDA sysmem fallback to "prefer none" for python.exe, so VRAM over-commits
+    // in ComfyUI fail fast instead of silently spilling to system RAM (minutes-long
+    // 100%-util crawls, worst over Thunderbolt eGPUs). See lib/gpuTuning.ts.
+    id: 'nvidia-gpu-tuning', group: 'image', label: 'NVIDIA Driver Tuning (VRAM overflow guard)',
+    approxBytes: 450_000,
+    needsElevation: true,   // the profile-inspector exe manifests requireAdministrator (UAC)
+    isInstalled: isGpuTuningApplied,
+    repair: (onP, sig) => installGpuTuning(statusAdapter(onP), sig),
   },
   {
     id: 'comfyui-base', group: 'image', label: 'ComfyUI Runtime',

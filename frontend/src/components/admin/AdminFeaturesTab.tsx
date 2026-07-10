@@ -147,7 +147,7 @@ interface CatalogEntry {
 interface CatalogTier { id: string; label: string; detail: string }
 
 interface FullCatalogResponse {
-  hardware: { totalRamGb: number; isAppleSilicon: boolean; platform: string }
+  hardware: { totalRamGb: number; isAppleSilicon: boolean; platform: string; gpuVendor?: string; cudaDeviceCount?: number }
   recommendedTier: string; tiers: CatalogTier[]; models: CatalogEntry[]
   disk: { freeBytes: number; totalBytes: number }; ollamaRunning: boolean
   ollamaInstallBytes: number; activeModelIds: Record<string, string | null>
@@ -172,6 +172,8 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model, usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
   { id: 'tmux',          label: 'Coding Terminal Multiplexer', description: 'Powers split panes and reload-persistence in the Coding app\'s terminal.', bytes: 2_000_000, requires: ['claude-code'], icon: Code2 },
   { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
+  // Rendered only on Windows + NVIDIA (see the More Capabilities section guard).
+  { id: 'nvidia-gpu-tuning', label: 'NVIDIA Driver Tuning', description: 'Stops image/video generation from silently crawling when VRAM runs out: sets the driver\'s CUDA sysmem-fallback policy to "prefer none" for python.exe (via NVIDIA Profile Inspector), so over-commits fail fast and ComfyUI uses its own faster tiling instead. Applies to every python.exe on this machine. Re-apply after NVIDIA driver upgrades.', bytes: 450_000, requires: [], icon: Cpu },
 ]
 
 const LLM_ROLES_SET = new Set<ModelRole>(['llm', 'uncensored_llm'])
@@ -1543,7 +1545,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
         <div className="space-y-2">
           <p className="text-overline text-muted-foreground/60">More Capabilities</p>
           <p className="px-1 text-xs text-muted-foreground/70 -mt-1">Optional: add these at any time.</p>
-          {ADMIN_CAPS.filter(c => !c.base && c.id !== 'claude-code' && c.id !== 'tmux' && c.id !== 'coding-sandbox-user').map(cap => (
+          {ADMIN_CAPS.filter(c => !c.base && c.id !== 'claude-code' && c.id !== 'tmux' && c.id !== 'coding-sandbox-user' && c.id !== 'nvidia-gpu-tuning').map(cap => (
             <CapInstallRow key={cap.id} cap={cap}
               installed={compMap.get(cap.id) === true}
               blocked={cap.requires.some(r => compMap.get(r) !== true)}
@@ -1552,6 +1554,15 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
               onCancel={() => cancelInstall(cap.id)}
             />
           ))}
+          {catalog.hardware.platform === 'win32' && catalog.hardware.gpuVendor === 'nvidia' && (
+            <CapInstallRow
+              cap={ADMIN_CAPS.find(c => c.id === 'nvidia-gpu-tuning')!}
+              installed={compMap.get('nvidia-gpu-tuning') === true}
+              installState={installStates.get('nvidia-gpu-tuning')}
+              onInstall={() => void repairComponent('nvidia-gpu-tuning', 'nvidia-gpu-tuning')}
+              onCancel={() => cancelInstall('nvidia-gpu-tuning')}
+            />
+          )}
         </div>
 
       </div>
