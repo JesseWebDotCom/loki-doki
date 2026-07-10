@@ -13,6 +13,7 @@ import { runJudge, relinkEntityIds } from '@/memory/judge'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { getUserCeiling, parseCharacterContent, characterGate } from '@/lib/contentPolicy'
 import { runCompanionTurn, resolveTurnContext } from '@/lib/companionTurn'
+import { getActionById, resolveAction } from '@/lib/companionActions'
 import * as genQueue from '@/lib/genQueue'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
@@ -339,6 +340,31 @@ companions_.post('/companion', requireAuth, async (c) => {
     await stream.writeSSE({ event: 'gen', data: JSON.stringify({ genId: job.id }) })
     await genQueue.subscribeAndTail(stream, job, 0)
   })
+})
+
+// ── Staged-action confirmation (lib/companionActions) ────────────────────────
+// Non-conversational resolver for confirm_action directives: Telegram declines,
+// curl verification, future push-notification actions. Web surfaces normally
+// resolve by re-entering a turn with 'Yes'/'No' instead (spoken outcome + a
+// coherent transcript), but this endpoint hits the same single-use store, so
+// whichever path runs first wins. 404 is identical for missing, expired, and
+// foreign-user ids (no enumeration).
+companions_.post('/action/:id/approve', requireAuth, async (c) => {
+  const user = c.get('user')
+  const a = getActionById(c.req.param('id'))
+  if (!a || a.userId !== user.id) return c.json({ ok: false, error: 'expired' }, 404)
+  const res = await resolveAction(a.id, true)
+  if (!res) return c.json({ ok: false, error: 'expired' }, 404)
+  return c.json(res)
+})
+
+companions_.post('/action/:id/decline', requireAuth, async (c) => {
+  const user = c.get('user')
+  const a = getActionById(c.req.param('id'))
+  if (!a || a.userId !== user.id) return c.json({ ok: false, error: 'expired' }, 404)
+  const res = await resolveAction(a.id, false)
+  if (!res) return c.json({ ok: false, error: 'expired' }, 404)
+  return c.json(res)
 })
 
 // ── Single character ─────────────────────────────────────────────────────────

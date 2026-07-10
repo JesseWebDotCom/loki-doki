@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Connect to Loki Doki</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh; padding: 24px;
+    background: light-dark(#fafafa, #161618);
+    color: light-dark(#1c1c1e, #f2f2f4);
+  }
+  main { width: 100%; max-width: 360px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  p.hint { color: light-dark(#6e6e73, #98989f); margin-bottom: 16px; }
+  input {
+    width: 100%; padding: 10px 12px; font-size: 14px;
+    border: 1px solid light-dark(#d2d2d7, #3a3a3e); border-radius: 8px;
+    background: light-dark(#fff, #1f1f22); color: inherit;
+  }
+  input:focus { outline: 2px solid #6366f1; outline-offset: -1px; }
+  button {
+    margin-top: 12px; width: 100%; padding: 10px 12px; font-size: 14px; font-weight: 600;
+    border: 0; border-radius: 8px; background: #6366f1; color: #fff; cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .error { color: #dc2626; margin-top: 10px; min-height: 1.5em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Connect to Loki Doki</h1>
+  <p class="hint">Enter your Loki Doki server address.</p>
+  <input id="url" type="text" placeholder="http://192.168.1.10:3000" autofocus spellcheck="false" />
+  <button id="connect">Connect</button>
+  <p class="error" id="error"></p>
+</main>
+<script>
+  const input = document.getElementById('url')
+  const button = document.getElementById('connect')
+  const error = document.getElementById('error')
+
+  window.lokiSetup.currentUrl().then((url) => { if (url && !input.value) input.value = url })
+
+  async function connect() {
+    error.textContent = ''
+    button.disabled = true
+    button.textContent = 'Connecting…'
+    try {
+      const result = await window.lokiSetup.validate(input.value)
+      if (!result.ok) {
+        error.textContent = result.error || 'Could not reach the server.'
+        return
+      }
+      await window.lokiSetup.save(result.url)
+    } finally {
+      button.disabled = false
+      button.textContent = 'Connect'
+    }
+  }
+
+  button.addEventListener('click', connect)
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect() })
+</script>
+</body>
+</html>

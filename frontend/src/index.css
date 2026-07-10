@@ -916,3 +916,27 @@
     animation-duration: 0.001s;
   }
 }
+
+/* ── Desktop HUD island (SuperIsland-style Dynamic Island, /hud) ──────────── */
+/* One signature spring for every island morph, approximating SwiftUI
+   interactiveSpring(duration 0.5, extraBounce 0.25) via a linear() easing. */
+.island-spring {
+  transition-property: width, height, min-height, transform, border-radius, background-color;
+  transition-duration: 500ms;
+  transition-timing-function: linear(
+    0, 0.0132 1.6%, 0.0578 3.5%, 0.1533 6%, 0.4198 11.6%, 0.8659 21%,
+    1.0087 25.9%, 1.1103 31.3%, 1.1364 34.6%, 1.1289 38.3%, 1.0192 49.7%,
+    0.9807 57.5%, 0.9861 65.4%, 1.0025 82.5%, 1
+  );
+}
+/* Content swap crossfade between island tiers (SuperIsland .smooth(0.22)). */
+@keyframes island-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.island-swap { animation: island-fade-in 220ms ease; }
+/* Spectrogram bars for the now-playing wing chip. */
+@keyframes island-eq { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+.island-eq-bar { animation: island-eq 0.8s ease-in-out infinite; transform-origin: bottom; will-change: transform; }
+@media (prefers-reduced-motion: reduce) {
+  .island-spring { transition-duration: 0ms; }
+  .island-swap { animation: none; }
+  .island-eq-bar { animation: none; }
+}

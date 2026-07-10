@@ -17,6 +17,16 @@ import { useHandsFree, isStopCommand } from '@/hooks/useHandsFree'
 import { useVoicePlaying, useCharacterCaption, useStreamingSentenceCaption, stopSpeech, getVoicePlayback } from '@/lib/voice/voicePlaybackStore'
 import { useVoiceOwner, setVoiceWants } from '@/lib/voice/voiceOwnership'
 import { toast } from '@/lib/toast'
+import { matchesScreenIntent } from '@/lib/screenIntent'
+import { fetchVisionStatus } from '@/hooks/useVisionStatus'
+
+// Injected into uiContext for screen-awareness turns so the model knows the
+// attached image IS the user's live screen (uiContext is per-turn: it vanishes
+// next turn together with the image, unlike the persisted message history).
+const SCREEN_NOTE =
+  "[Screen] The attached image is a screenshot of the user's screen, captured just now at their request. " +
+  'When they say "this", "here", "my screen", or ask what they are looking at, they mean this screenshot. ' +
+  'Describe or answer based on what is actually visible in it.'
 
 // The companion "brain": every placement-independent piece of the old floating
 // CompanionOverlay (voice, hands-free, captions, cross-tab ownership, send/stop
@@ -34,6 +44,16 @@ export interface CompanionAvatarProps {
   listening: boolean
   mood: Mood
   audioLipSync: boolean
+}
+
+/** A staged action awaiting approval (confirm_action directive): surfaces
+ *  render approve/decline buttons from it. */
+export interface PendingCompanionAction {
+  actionId: string
+  summary: string
+  approveLabel: string
+  declineLabel: string
+  expiresAt: number
 }
 
 export interface CompanionEngine {
@@ -66,6 +86,12 @@ export interface CompanionEngine {
    *  question there so it lands in a persisted conversation. */
   promoteToChat: (text: string) => void
   onStop: () => void
+  /** Screen-awareness turn in flight (desktop shell): capture + vision prefill. */
+  lookingAtScreen: boolean
+  /** Staged action awaiting approval; off-chat surfaces render buttons from it. */
+  pendingAction: PendingCompanionAction | null
+  approvePendingAction: () => void
+  declinePendingAction: () => void
   /** Generating text OR still speaking audio; the composer shows Stop. */
   busy: boolean
   /** Bumped by focusComposer / the global shortcut; composers focus on change. */
@@ -95,11 +121,31 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const chat = useChatContext()
   const radio = useRadio()
   const youtube = useYoutubePlayback()
+  // Staged action awaiting the user's approval (confirm_action directive from
+  // an off-chat turn). Dock bubble / island / mobile sheet render buttons from
+  // it; on-chat the ChatContext derives a block instead, so this stays null there.
+  const [pendingAction, setPendingAction] = useState<PendingCompanionAction | null>(null)
+  useEffect(() => {
+    if (!pendingAction) return
+    const t = setTimeout(() => setPendingAction(null), Math.max(0, pendingAction.expiresAt - Date.now()))
+    return () => clearTimeout(t)
+  }, [pendingAction])
   // Off-chat companion turns can ask to start playback ("play heavy metal",
   // "play the Thriller music video"), drive the global mini-player in place.
   const onDirective = useCallback(
-    (directive: Parameters<typeof applyPlayDirective>[0]) =>
-      applyPlayDirective(directive, { playExpanded: youtube.playExpanded, startStation: radio.start }),
+    (directive: Parameters<typeof applyPlayDirective>[0]) => {
+      if (directive.action === 'confirm_action') {
+        setPendingAction({
+          actionId: directive.actionId,
+          summary: directive.summary,
+          approveLabel: directive.approveLabel,
+          declineLabel: directive.declineLabel,
+          expiresAt: Date.now() + 60_000,
+        })
+        return
+      }
+      applyPlayDirective(directive, { playExpanded: youtube.playExpanded, startStation: radio.start })
+    },
     [youtube.playExpanded, radio.start],
   )
   const companion = useCompanionStream({ onDirective })
@@ -131,6 +177,9 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     characterId: voiceCharacter?.id,
     wakeWordModelId: voiceCharacter?.wakeWordModelId ?? null,
     wakeWordPhrase: voiceCharacter?.wakeWordPhrase ?? null,
+    // While a confirmation is pending, hold the wake-word-free follow-up window
+    // open longer so a spoken "yes" lands naturally.
+    holdFollowUp: !!pendingAction,
     submit: hfSubmit,
     onEngageFailed: (reason) => {
       setHandsFree(false)
@@ -261,6 +310,15 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   // of ⌘K search. (⌘J would clash with the browser's Downloads shortcut.) Placements
   // watch focusKey: the dock reveals its composer flyout, composers focus their input.
   const [focusKey, setFocusKey] = useState(0)
+  // Screen-awareness turn in flight: covers capture + the slow vision prefill
+  // window so placements can show an honest "Looking at your screen" status.
+  // Cleared on the first reply token; handleSend also resets it per send and on
+  // capture failure, and onStop clears it, so it can't go stale across turns.
+  const [lookingAtScreen, setLookingAtScreen] = useState(false)
+  useEffect(() => {
+    if (lookingAtScreen && replyText.length > 0) setLookingAtScreen(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyText])
   const focusComposer = useCallback(() => setFocusKey((k) => k + 1), [])
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -274,6 +332,10 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const handleSend = useCallback(async (text: string, attachments?: File[]) => {
+    // Any fresh user message supersedes an open confirmation offer's buttons
+    // (the server-side staged action still expires on its own TTL; a typed
+    // "yes" still resolves it via the turn re-route).
+    setPendingAction(null)
     // Intercept stop commands when something is active, never let a bare "stop" reach the LLM.
     if (isStopCommand(text) && (streaming || audioPlaying || radio.active || !!youtube.track)) {
       if (isOnChat) chat.stop()
@@ -296,9 +358,36 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
       if (pathname !== '/chat' && !chat.conversationId) navigate('/chat')
       chat.submit(charId, text)
     } else if (charId) {
-      if (attachments && attachments.length > 0) {
+      // Screen awareness (desktop shell only): when the message references what's
+      // on screen and no files were attached, grab a live screenshot and ride the
+      // existing vision path. This is the single convergence point for typed AND
+      // voice input, which is why the check lives here and not in a page.
+      let screenImage: string | undefined
+      let uiContext = getContextBlock()
+      setLookingAtScreen(false)
+      if (
+        (!attachments || attachments.length === 0) &&
+        window.lokiDesktop?.captureScreen &&
+        matchesScreenIntent(text) &&
+        (await fetchVisionStatus())?.available
+      ) {
+        setLookingAtScreen(true)
+        const res = await window.lokiDesktop.captureScreen({ maxDim: 1344 })
+        if (res.ok) {
+          screenImage = res.imageBase64
+          uiContext = [uiContext, SCREEN_NOTE].filter(Boolean).join('\n\n')
+        } else {
+          setLookingAtScreen(false)
+          if (res.reason === 'permission') {
+            window.lokiDesktop.openScreenRecordingSettings?.()
+            toast.error('To see your screen, enable Screen Recording for Loki Doki in System Settings, then relaunch the app.')
+          }
+          // Never swallow the question: continue text-only.
+        }
+      }
+      if ((attachments && attachments.length > 0) || screenImage) {
         // Convert image files to base64 (no data: prefix) for the vision-capable companion endpoint
-        const images = await Promise.all(attachments.map(file => new Promise<string>((resolve, reject) => {
+        const images = await Promise.all((attachments ?? []).map(file => new Promise<string>((resolve, reject) => {
           const reader = new FileReader()
           reader.onload = () => {
             const result = reader.result as string
@@ -308,9 +397,10 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
           reader.onerror = reject
           reader.readAsDataURL(file)
         })))
-        companion.submit(text, charId, getContextBlock(), images)
+        if (screenImage) images.unshift(screenImage)
+        companion.submit(text, charId, uiContext, images)
       } else {
-        companion.submit(text, charId, getContextBlock())
+        companion.submit(text, charId, uiContext)
       }
     }
   }, [character, companions, chat, companion, isOnChat, getContextBlock, voiceMode, pathname, navigate, streaming, audioPlaying, radio, youtube])
@@ -337,7 +427,21 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     if (isOnChat) chat.stop()
     else companion.cancel()
     stopSpeech()
+    setLookingAtScreen(false)
+    setPendingAction(null)
   }, [isOnChat, chat, companion])
+
+  // Button resolution re-enters the turn with canonical text: the confirm
+  // pseudo-tool resolves the staged action and the outcome streams (and speaks)
+  // like any reply. Clear first so the buttons drop instantly.
+  const approvePendingAction = useCallback(() => {
+    setPendingAction(null)
+    void handleSend('Yes')
+  }, [handleSend])
+  const declinePendingAction = useCallback(() => {
+    setPendingAction(null)
+    void handleSend('No')
+  }, [handleSend])
 
   const isListening = handsFree.state === 'capturing' || handsFree.state === 'wake-detected'
 
@@ -369,6 +473,10 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     handleSend: (text, attachments) => { void handleSend(text, attachments) },
     promoteToChat,
     onStop,
+    lookingAtScreen,
+    pendingAction,
+    approvePendingAction,
+    declinePendingAction,
     busy,
     focusKey,
     focusComposer,

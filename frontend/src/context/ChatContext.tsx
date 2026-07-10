@@ -149,6 +149,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   applyDirectiveRef.current = (d: Directive) =>
     applyPlayDirective(d, { playExpanded: youtube.playExpanded, startStation: radio.start })
 
+  // confirm_action directives become an interactive block on the assistant
+  // message (approve/decline buttons) instead of a playback action. Derived
+  // client-side so every staging tool gets buttons with zero per-tool wiring;
+  // blocks are ephemeral, matching the staged action's 60s server TTL.
+  const confirmDirectiveToBlock = (directive: Directive, msgId: string): boolean => {
+    if (directive.action !== 'confirm_action') return false
+    const block: Block = {
+      kind: 'confirm_action',
+      data: {
+        actionId: directive.actionId,
+        summary: directive.summary,
+        approveLabel: directive.approveLabel,
+        declineLabel: directive.declineLabel,
+        expiresAt: Date.now() + 60_000,
+      },
+    }
+    setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, blocks: [...(m.blocks ?? []), block] } : m))
+    return true
+  }
+
   useEffect(() => {
     refreshProjects()
     refreshConversations()
@@ -591,7 +611,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             prev.map((m) => m.id === msgId ? { ...m, sources } : m),
           )
         },
-        onDirective: (directive) => applyDirectiveRef.current(directive),
+        onDirective: (directive) => {
+          if (confirmDirectiveToBlock(directive, pendingGenRef.current?.assistantMsgId ?? placeholderId)) return
+          applyDirectiveRef.current(directive)
+        },
         onDone: ({ conversationId: newConvId, title }) => {
           // Flush any RAF-buffered tokens before clearing generating state so there's
           // no blank frame where isGenerating=false but content is still empty.
@@ -702,7 +725,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const msgId = pendingGenRef.current?.assistantMsgId ?? assistantMessageId
           setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, sources } : m))
         },
-        onDirective: (directive) => applyDirectiveRef.current(directive),
+        onDirective: (directive) => {
+          if (confirmDirectiveToBlock(directive, pendingGenRef.current?.assistantMsgId ?? assistantMessageId)) return
+          applyDirectiveRef.current(directive)
+        },
         onDone: () => {
           if (tokenRafRef.current !== null) {
             cancelAnimationFrame(tokenRafRef.current)
@@ -805,7 +831,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
           setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, sources } : m))
         },
-        onDirective: (directive) => applyDirectiveRef.current(directive),
+        onDirective: (directive) => {
+          if (confirmDirectiveToBlock(directive, pendingGenRef.current?.assistantMsgId ?? placeholderId)) return
+          applyDirectiveRef.current(directive)
+        },
         onDone: () => {
           if (tokenRafRef.current !== null) {
             cancelAnimationFrame(tokenRafRef.current)

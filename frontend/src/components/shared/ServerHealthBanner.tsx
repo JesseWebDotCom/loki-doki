@@ -18,7 +18,10 @@ export function ServerHealthBanner() {
     return () => clearTimeout(t)
   }, [reachable])
 
-  if (reachable || !show || pathname.startsWith('/setup')) return null
+  // /hud is the desktop island's transparent overlay window: a full-width alarm
+  // strip there paints over the notch area. The island's top bar shows its own
+  // compact offline dot instead (IslandTopBar via the same useServerHealth signal).
+  if (reachable || !show || pathname.startsWith('/setup') || pathname === '/hud') return null
 
   // On the device's ambient display (/display) this is read from across a room, so use
   // a short, large message instead of the small full-sentence app banner.

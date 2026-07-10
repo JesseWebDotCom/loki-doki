@@ -1,0 +1,68 @@
+# Builds the desktop shell (desktop/) for macOS and Windows.
+# - Manual runs (workflow_dispatch): build + upload artifacts only.
+# - Tag pushes (desktop-v*): also publish a GitHub Release with the installers.
+# Builds are unsigned (see desktop/README.md for the Gatekeeper/SmartScreen notes).
+
+name: Desktop Build
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac --arm64 --x64
+          - os: windows-latest
+            args: --win --x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: desktop
+        # trustedDependencies in package.json lets Electron's postinstall fetch its
+        # binary. If this ever misbehaves on a runner, `npm install` is the fallback.
+        run: bun install
+
+      - name: Build installers
+        working-directory: desktop
+        run: bunx electron-builder ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ runner.os }}
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          body: |
+            Unsigned builds:
+            - **macOS**: right-click the app → Open → Open (or `xattr -dr com.apple.quarantine "/Applications/Loki Doki.app"`)
+            - **Windows**: SmartScreen → **More info** → **Run anyway**

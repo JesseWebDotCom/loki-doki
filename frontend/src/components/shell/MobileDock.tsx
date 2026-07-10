@@ -12,6 +12,7 @@ import { useCompanionEngine } from "./CompanionEngineContext";
 import { ChromeWash } from "@/components/shared/ChromeWash";
 import { MobileYouSheet } from "./MobileYouSheet";
 import { MobileCompanionBubble } from "./MobileCompanionBubble";
+import { PendingActionButtons } from "@/components/companion/PendingActionButtons";
 import { useSpotlight } from "@/components/shared/SpotlightSearch";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { useAuth } from "@/context/AuthContext";
@@ -133,10 +134,17 @@ export function MobileDock() {
         style={kbOffset > 0 ? { transform: `translateY(-${kbOffset}px)` } : undefined}
       >
         {/* Ephemeral reply: rendered here and ONLY here while the sheet is open */}
-        {(captionText || thinking) && (
-          <p className="mb-2 max-h-32 overflow-y-auto rounded-card bg-muted/60 px-3 py-1.5 text-sm">
-            {captionText || "…"}
-          </p>
+        {(captionText || thinking || engine.pendingAction) && (
+          <div className="mb-2 max-h-40 overflow-y-auto rounded-card bg-muted/60 px-3 py-1.5 text-sm">
+            {captionText || engine.pendingAction?.summary || "…"}
+            {engine.pendingAction && (
+              <PendingActionButtons
+                action={engine.pendingAction}
+                onApprove={engine.approvePendingAction}
+                onDecline={engine.declinePendingAction}
+              />
+            )}
+          </div>
         )}
         <CompanionComposer
           ref={composerRef}
@@ -224,9 +232,9 @@ export function MobileDock() {
           the reply already renders in the message stream. */}
       {!askOpen && !isOnChat && (
         <MobileCompanionBubble
-          text={captionText}
+          text={captionText || (engine.pendingAction ? `${engine.pendingAction.summary} Tap to confirm.` : "")}
           thinking={thinking}
-          active={thinking || engine.streaming || engine.talkActive}
+          active={thinking || engine.streaming || engine.talkActive || !!engine.pendingAction}
           onOpen={openAsk}
         />
       )}

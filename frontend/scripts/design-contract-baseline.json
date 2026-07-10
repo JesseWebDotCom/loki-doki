@@ -66,7 +66,7 @@
   "components/shared/RestorePrompt.tsx": 8,
   "components/shared/SpaceBackdrop.tsx": 2,
   "components/shared/ViewToggle.tsx": 2,
-  "components/shell/AppShell.tsx": 6,
+  "components/shell/AppShell.tsx": 5,
   "components/shell/CompanionComposer.tsx": 2,
   "components/shell/CompanionDock.tsx": 1,
   "components/ui/sidebar.tsx": 1,

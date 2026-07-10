@@ -50,53 +50,9 @@ export function isFollowUp(message: string): boolean {
   return false
 }
 
-// ── Security-action confirmation ─────────────────────────────────────────────
-// Unlocking a door or opening a garage on a fuzzy match is a physical-security
-// action — it must not execute on the first utterance. The resolved plan is parked
-// here and only executed when the user affirms ("yes", "go ahead") within the TTL.
-
-interface PendingAction {
-  plan: ResolvedPlan
-  ts: number
-}
-
-const pendingStore = new Map<string, PendingAction>()
-const PENDING_TTL_MS = 60_000
-
-export function setPendingAction(key: string, plan: ResolvedPlan): void {
-  pendingStore.set(key, { plan, ts: Date.now() })
-}
-
-export function getPendingAction(key: string): ResolvedPlan | null {
-  const p = pendingStore.get(key)
-  if (!p) return null
-  if (Date.now() - p.ts > PENDING_TTL_MS) { pendingStore.delete(key); return null }
-  return p.plan
-}
-
-export function clearPendingAction(key: string): void {
-  pendingStore.delete(key)
-}
-
-export function hasPendingAction(userId: string, conversationId: string): boolean {
-  return getPendingAction(ctxKey(userId, conversationId)) !== null
-}
-
-const AFFIRM_RE = /^\s*(?:yes|yeah|yep|yup|sure|ok|okay|confirm|confirmed|do it|go ahead|go for it|please do|affirmative|proceed)\b/i
-const NEGATE_RE = /^\s*(?:no|nope|nah|cancel|never\s?mind|nevermind|don'?t|stop|forget it|negative)\b/i
-
-/** Does this message look like a yes/no answer to a pending confirmation? */
-export function isConfirmationReply(message: string): boolean {
-  return AFFIRM_RE.test(message) || NEGATE_RE.test(message)
-}
-
-export function isAffirmative(message: string): boolean {
-  return AFFIRM_RE.test(message)
-}
-
-export function isNegative(message: string): boolean {
-  return NEGATE_RE.test(message)
-}
+// Security-action confirmation now lives in the surface-agnostic staged-action
+// store (lib/companionActions): the resolved plan is parked there as an execute
+// closure and resolved by the confirm_pending tool or a surface button.
 
 // Build a plan from a follow-up message using the remembered targets. Handles
 // explicit brightness ("20", "I meant 20%") and on/off references ("turn those off").

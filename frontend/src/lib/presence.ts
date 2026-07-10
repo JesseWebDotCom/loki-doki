@@ -24,6 +24,8 @@ export interface SleepConfig {
 }
 
 export interface NowPlaying {
+  source: 'radio' | 'youtube' | 'podcast'
+  sessionId?: string
   stationId: string | null
   videoId: string | null
   title: string

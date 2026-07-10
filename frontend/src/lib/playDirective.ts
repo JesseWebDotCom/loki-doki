@@ -41,7 +41,20 @@ export interface OpenArtifactDirective {
   title: string
 }
 
-export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective
+/** Mirror of the backend `ConfirmActionDirective` (tools/index.ts). Emitted when a
+ *  tool STAGED an action (send, delete, unlock...) and is asking for confirmation.
+ *  Surfaces render approve/decline buttons; either re-enters the turn with a
+ *  canonical 'Yes'/'No'. Handled by the stream consumers BEFORE applyPlayDirective
+ *  (chat derives a block, the engine sets pendingAction). */
+export interface ConfirmActionDirective {
+  action: 'confirm_action'
+  actionId: string
+  summary: string
+  approveLabel: string
+  declineLabel: string
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective | ConfirmActionDirective
 
 export interface PlayDirectiveDeps {
   /** YoutubePlaybackContext.playExpanded - docks + expands one clip. */
@@ -64,6 +77,17 @@ export function parsePlayDirective(raw: unknown): Directive | null {
     if (!d.artifactId || !d.artifactType) return null
     return d as OpenArtifactDirective
   }
+  if (action === 'confirm_action') {
+    const d = raw as Partial<ConfirmActionDirective>
+    if (!d.actionId || !d.summary) return null
+    return {
+      action: 'confirm_action',
+      actionId: d.actionId,
+      summary: d.summary,
+      approveLabel: d.approveLabel || 'Yes',
+      declineLabel: d.declineLabel || 'Cancel',
+    }
+  }
   const d = raw as Partial<PlayMediaDirective>
   if (d.action !== 'play_media') return null
   if (d.media !== 'video' && d.media !== 'station') return null
@@ -73,6 +97,12 @@ export function parsePlayDirective(raw: unknown): Directive | null {
 /** Honor a play/narration directive. No navigation: playback starts wherever
  *  the user is (global mini-player, or the shared TTS playback singleton). */
 export function applyPlayDirective(directive: Directive, deps: PlayDirectiveDeps): void {
+  if (directive.action === 'confirm_action') {
+    // Surface state, not a playback action: the stream consumers (ChatContext
+    // block derivation, CompanionEngineContext pendingAction) handle it before
+    // delegating here. No-op by design.
+    return
+  }
   if (directive.action === 'open_artifact') {
     // The canvas store is a global singleton, so this works whether or not the chat
     // page (and its deps) are mounted - the pane floats over the current app.

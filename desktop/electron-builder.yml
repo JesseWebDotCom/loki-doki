@@ -1,0 +1,30 @@
+appId: com.jessewebdotcom.lokidoki
+productName: Loki Doki
+directories:
+  output: release
+  buildResources: build
+files:
+  - src/**/*
+  - build/tray*.png
+  - package.json
+mac:
+  category: public.app-category.productivity
+  # Unsigned Phase 1 (electron-builder still ad-hoc signs arm64, required to launch).
+  # Install: right-click the app > Open, or `xattr -dr com.apple.quarantine`.
+  identity: null
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  extendInfo:
+    NSMicrophoneUsageDescription: "Loki Doki listens so you can talk to your companion."
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+# Releases are created by .github/workflows/desktop-build.yml, not by the builder.
+publish: null

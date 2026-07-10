@@ -9,6 +9,7 @@ import { db } from '@/db'
 import { memories } from '@/db/schema'
 import { embed, cosineSimilarity } from '@/llm/embed'
 import { invalidateMemoryBlocksForUser } from '@/memory/blockCache'
+import { stageWithDirective } from '@/lib/companionActions'
 import type { Tool, ToolResult } from './index'
 
 // Duplicate guard for remember: at/above this cosine the fact is already stored.
@@ -149,12 +150,31 @@ export const forgetTool: Tool = {
         return { success: true, data: { forgotten: false }, directReply: `I couldn't find a memory matching that — nothing was removed.` }
       }
 
-      await db
-        .update(memories)
-        .set({ status: 'superseded', updatedAt: new Date() })
-        .where(eq(memories.id, best.id))
-      invalidateMemoryBlocksForUser(userId)
-      return { success: true, data: { forgotten: true, text: best.text }, directReply: `Done — I've forgotten "${best.text}".` }
+      // Destructive: stage the removal and ask, instead of deleting on a fuzzy
+      // match. The confirm_pending tool (or a surface approve button) resolves it.
+      const target = best
+      const { directive } = stageWithDirective({
+        userId,
+        conversationId: String(config['_conversationId'] ?? ''),
+        toolId: 'forget',
+        summary: `forget "${target.text}"`,
+        approveLabel: 'Yes, forget it',
+        declineLabel: 'Keep it',
+        execute: async () => {
+          await db
+            .update(memories)
+            .set({ status: 'superseded', updatedAt: new Date() })
+            .where(eq(memories.id, target.id))
+          invalidateMemoryBlocksForUser(userId)
+          return `Done — I've forgotten "${target.text}".`
+        },
+      })
+      return {
+        success: true,
+        data: { pendingConfirm: true, text: target.text },
+        directReply: `Just to confirm, you want me to forget "${target.text}"?`,
+        directive,
+      }
     } catch (err) {
       return { success: false, error: String(err) }
     }

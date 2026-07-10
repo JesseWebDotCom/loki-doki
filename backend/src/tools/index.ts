@@ -48,7 +48,20 @@ export interface OpenArtifactDirective {
   title: string
 }
 
-export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective
+/** A structured client-side prompt: the companion staged an action (send,
+ *  delete, unlock...) and is asking for confirmation. Surfaces render
+ *  approve/decline buttons; either re-enters the turn with a canonical
+ *  'Yes'/'No', or the REST endpoint /api/companions/action/:id resolves it.
+ *  The staged work itself lives server-side in lib/companionActions. */
+export interface ConfirmActionDirective {
+  action: 'confirm_action'
+  actionId: string
+  summary: string
+  approveLabel: string
+  declineLabel: string
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective | ConfirmActionDirective
 
 export interface ToolResult {
   success: boolean
@@ -164,6 +177,7 @@ import { shoppingTool } from './shopping'
 import { codingTool } from './coding'
 import { canvasTool } from './canvas'
 import { narrateTool } from './narrate'
+import { confirmPendingTool } from './confirmPending'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -213,4 +227,5 @@ export const toolRegistry: Tool[] = [
   codingTool,
   canvasTool,
   narrateTool,
+  confirmPendingTool,
 ]

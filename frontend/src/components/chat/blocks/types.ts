@@ -222,6 +222,16 @@ export interface ArtifactBlockData {
   preview: string
 }
 
+
+export interface ConfirmActionBlockData {
+  actionId: string
+  summary: string
+  approveLabel: string
+  declineLabel: string
+  /** Client-stamped on directive receipt; mirrors the server's 60s TTL for UI only. */
+  expiresAt: number
+}
+
 export type Block =
   | { kind: 'weather'; data: WeatherBlockData }
   | { kind: 'content_rating'; data: ContentRatingBlockData }
@@ -240,3 +250,4 @@ export type Block =
   | { kind: 'play_music'; data: PlayMusicBlockData }
   | { kind: 'document_edit'; data: DocumentEditBlockData }
   | { kind: 'artifact'; data: ArtifactBlockData }
+  | { kind: 'confirm_action'; data: ConfirmActionBlockData }

@@ -9,10 +9,9 @@ import { deterministicResolve, scopeCandidates, type ResolvedPlan, type HAAction
 import { VALID_ACTIONS, serviceCallsFor, actionTargetDomain, clampPct, type ServiceCall } from './actions'
 import { isSecurityEntity } from './security'
 import { getGrants, filterByGrants } from './permissions'
-import {
-  ctxKey, getContext, setContext, isFollowUp, followUpResolve,
-  getPendingAction, setPendingAction, clearPendingAction, isAffirmative, isNegative,
-} from './context'
+import { ctxKey, getContext, setContext, isFollowUp, followUpResolve } from './context'
+import { stageWithDirective } from '@/lib/companionActions'
+import type { Directive } from '@/tools/index'
 
 export { normalizeConnection }
 export { ensureConnected, ensureConnectedSoft, getStore } from './sync'
@@ -61,6 +60,9 @@ export interface HandleResult {
   reply: string
   offline?: boolean
   data?: unknown
+  /** Set when the reply is a confirmation ask for a staged action (security
+   *  gate): surfaces render approve/decline buttons from it. */
+  directive?: Directive
 }
 
 export async function handleCommand(p: HandleParams): Promise<HandleResult> {
@@ -76,25 +78,12 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
 
   const entities = [...store.entities.values()]
 
-  // 0) Pending security confirmation ("Unlock the front door — yes?" → "yes").
-  // Executes the parked plan on an affirmative, cancels on a negative; anything
-  // else (the user changed subject) clears the pending action and resolves normally.
-  const pendKey = p.conversationId ? ctxKey(p.userId, p.conversationId) : null
-  let confirmedPlan: ResolvedPlan | null = null
-  if (pendKey) {
-    const pending = getPendingAction(pendKey)
-    if (pending) {
-      clearPendingAction(pendKey)
-      if (isAffirmative(p.message)) {
-        confirmedPlan = pending
-      } else if (isNegative(p.message)) {
-        return { ok: true, reply: 'Okay — cancelled.' }
-      }
-    }
-  }
+  // Security confirmations are now staged in lib/companionActions: the parked
+  // plan lives there as an execute closure, and the affirmative reply routes to
+  // the confirm_pending pseudo-tool (companionTurn re-route) instead of back here.
 
   // 1) Deterministic resolution (instant, no LLM).
-  let plan = confirmedPlan ?? deterministicResolve(p.message, entities, store.areas)
+  let plan = deterministicResolve(p.message, entities, store.areas)
 
   // 1b) Follow-up correction ("I meant 20", "turn those off") — apply to the device
   // the user just acted on in this conversation.
@@ -133,14 +122,25 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
   plan.targets = allowed
 
   // 3b) Security confirmation gate: unlocking, or opening a garage/gate/entry
-  // cover, must be explicitly confirmed — a fuzzy Tier-1 match must never actuate
-  // physical security on the first utterance. The plan is parked (60s TTL) and the
-  // affirmative reply re-enters through step 0 above.
-  if (!confirmedPlan && pendKey && plan.intent === 'control' && isSecuritySensitive(plan)) {
-    setPendingAction(pendKey, plan)
+  // cover, must be explicitly confirmed. A fuzzy Tier-1 match must never actuate
+  // physical security on the first utterance. The plan is STAGED (60s TTL) in
+  // lib/companionActions; grants were already filtered above, so the staged
+  // closure only ever actuates pre-authorized targets. Approval arrives via the
+  // confirm_pending tool (typed/spoken yes or a surface button).
+  if (p.conversationId && plan.intent === 'control' && isSecuritySensitive(plan)) {
+    const securePlan = plan
     const what = plan.action === 'unlock' ? `unlock ${describeTargets(plan)}` : `open ${describeTargets(plan)}`
-    logger.info(`[HA] security action parked for confirmation: ${plan.action} targets=${plan.targets.length}`)
-    return { ok: true, reply: `Just to confirm — ${what}? Say yes to go ahead.`, data: { intent: 'confirm', action: plan.action } }
+    const { directive } = stageWithDirective({
+      userId: p.userId,
+      conversationId: p.conversationId,
+      toolId: 'homeAssistant',
+      summary: what,
+      approveLabel: 'Yes',
+      declineLabel: 'Cancel',
+      execute: () => executePlan(p, store, securePlan, denied.length),
+    })
+    logger.info(`[HA] security action staged for confirmation: ${plan.action} targets=${plan.targets.length}`)
+    return { ok: true, reply: `Just to confirm, ${what}? Say yes to go ahead.`, data: { intent: 'confirm', action: plan.action }, directive }
   }
 
   // 4) Execute.
@@ -151,19 +151,8 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
       return { ok: true, reply, data: { intent: 'query', targets: plan.targets.map(t => ({ entity_id: t.entityId, name: t.name, state: store.states.get(t.entityId) })) } }
     }
 
-    const calls = buildServiceCalls(plan, store)
-    let anyOk = false
-    for (const call of calls) {
-      const r = await callService(p.conn, call.domain, call.service, call.data)
-      anyOk = anyOk || r.ok
-    }
-    if (anyOk && p.conversationId) {
-      // Remember this action so a follow-up correction can target it.
-      setContext(ctxKey(p.userId, p.conversationId), { targets: plan.targets, matchedArea: plan.matchedArea, matchedDomain: plan.matchedDomain })
-    }
-    const reply = anyOk
-      ? `${buildConfirmation(plan)}${denied.length ? ` (${denied.length} you can't control were skipped.)` : ''}`
-      : `Home Assistant didn't accept that command.`
+    const reply = await executePlan(p, store, plan, denied.length)
+    const anyOk = !reply.startsWith("Home Assistant didn't accept")
     logger.info(`[HA] control done action=${plan.action} targets=${plan.targets.length} ok=${anyOk} ${(performance.now() - t0).toFixed(0)}ms`)
     return { ok: anyOk, reply, data: { intent: 'control', action: plan.action, entity_ids: plan.targets.map(t => t.entityId) } }
   } catch (err) {
@@ -171,6 +160,25 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
     logger.warn(`[HA] execute failed: ${d.message}`)
     return { ok: false, offline: d.offline, reply: d.message }
   }
+}
+
+// The execution body shared by the direct path (step 4) and staged security
+// confirmations (the closure parked in lib/companionActions). Returns the
+// speakable outcome reply.
+async function executePlan(p: HandleParams, store: HAStore, plan: ResolvedPlan, deniedCount: number): Promise<string> {
+  const calls = buildServiceCalls(plan, store)
+  let anyOk = false
+  for (const call of calls) {
+    const r = await callService(p.conn, call.domain, call.service, call.data)
+    anyOk = anyOk || r.ok
+  }
+  if (anyOk && p.conversationId) {
+    // Remember this action so a follow-up correction can target it.
+    setContext(ctxKey(p.userId, p.conversationId), { targets: plan.targets, matchedArea: plan.matchedArea, matchedDomain: plan.matchedDomain })
+  }
+  return anyOk
+    ? `${buildConfirmation(plan)}${deniedCount ? ` (${deniedCount} you can't control were skipped.)` : ''}`
+    : `Home Assistant didn't accept that command.`
 }
 
 // A plan that actuates physical security: any unlock, or opening an entry-type

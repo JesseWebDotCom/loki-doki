@@ -33,6 +33,7 @@ import { WelcomeWizard } from '@/pages/WelcomeWizard'
 import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
+import { HudPage } from '@/pages/HudPage'
 import { WeatherPage } from '@/pages/WeatherPage'
 import { WeatherSettingsPage } from '@/pages/WeatherSettingsPage'
 import { AppSettingsGenericPage } from '@/pages/AppSettingsGenericPage'
@@ -306,7 +307,7 @@ function SaveGuard() {
 // popup, login, setup) — only show it inside the actual app.
 function GlobalSetupWidget() {
   const { pathname } = useLocation()
-  if (pathname === '/save' || pathname === '/login' || pathname === '/setup') return null
+  if (pathname === '/save' || pathname === '/login' || pathname === '/setup' || pathname === '/hud') return null
   return <BackgroundSetupWidget />
 }
 
@@ -549,6 +550,12 @@ export default function App() {
                   Pod's render shows the clock/weather straight away (no boot/welcome UI). */}
               <Route path="/display" element={<DisplayPage />} />
             </Route>
+
+            {/* Desktop shell HUD, a transparent always-on-top Electron window. Unguarded:
+                the page handles the signed-out state itself with a tiny hand-off pill
+                (a <Navigate> to /login would render the full profile picker in a 480px
+                transparent overlay). */}
+            <Route path="/hud" element={<HudPage />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />

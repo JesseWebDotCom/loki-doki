@@ -120,6 +120,6 @@ export const homeAssistantTool: Tool = {
     // right "unavailable" message. Every other outcome — success, "device not
     // found", "no permission" — is spoken directly (snappy, no LLM synthesis).
     if (result.offline) return { success: false, offline: true, error: result.reply }
-    return { success: true, data: result.data ?? {}, directReply: result.reply }
+    return { success: true, data: result.data ?? {}, directReply: result.reply, directive: result.directive }
   },
 }

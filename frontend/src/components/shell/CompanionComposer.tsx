@@ -89,6 +89,20 @@ export const CompanionComposer = forwardRef<CompanionComposerHandle, Props>(func
     setAttachments(prev => prev.filter((_, i) => i !== index))
   }
 
+  // Desktop shell only: stage a screenshot of the current screen as an image
+  // attachment (same vision path as Photos, preview chip for free).
+  async function attachScreen() {
+    const res = await window.lokiDesktop?.captureScreen?.({ maxDim: 1344 })
+    if (!res) return
+    if (!res.ok) {
+      if (res.reason === 'permission') window.lokiDesktop?.openScreenRecordingSettings?.()
+      return
+    }
+    const bytes = Uint8Array.from(atob(res.imageBase64), (c) => c.charCodeAt(0))
+    const file = new File([bytes], 'screen.jpg', { type: 'image/jpeg' })
+    setAttachments(prev => [...prev, file].slice(0, 4))
+  }
+
   return (
     <div className={cn('ai-ring', isGenerating && 'ai-ring--active', isThinking && 'ai-ring--thinking')}>
     <div className={cn(
@@ -168,6 +182,14 @@ export const CompanionComposer = forwardRef<CompanionComposerHandle, Props>(func
             >
               Files
             </DropdownMenuItem>
+            {!!window.lokiDesktop?.captureScreen && (
+              <DropdownMenuItem
+                disabled={!visionAvailable}
+                onSelect={() => { void attachScreen() }}
+              >
+                My screen
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 

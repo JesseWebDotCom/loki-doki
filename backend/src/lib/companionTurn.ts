@@ -28,8 +28,8 @@ import { resolveToolConfig, getAllowedToolIds } from '@/lib/toolConfig'
 import { toolRegistry } from '@/tools'
 import {
   isFollowUp as isHAFollowUp, hasRecentContext as hasRecentHAContext,
-  hasPendingAction as hasPendingHAAction, isConfirmationReply as isHAConfirmationReply,
 } from '@/lib/homeAssistant/context'
+import { hasPendingCompanionAction, isConfirmationReply } from '@/lib/companionActions'
 import { isOffline } from '@/lib/connectivity'
 import { friendshipLine } from '@/lib/friendshipMemory'
 import { buildLocalePrompt, getLocaleSettings } from '@/routes/adminLocale'
@@ -348,14 +348,22 @@ export async function runCompanionTurn(
   _lap('route-done')
   let { tool, args } = routeResult
 
+  // Pending-confirmation replies: a bare "yes"/"cancel" answering a staged
+  // action (unlock the door, forget a memory, ...) would otherwise route as
+  // chitchat. Force it to the confirm_pending pseudo-tool, which resolves the
+  // staged action in lib/companionActions. Not gated on allowedToolIds: it is
+  // core plumbing, same class as memory.
+  const pendingConfirm = isConfirmationReply(p.message) && hasPendingCompanionAction(p.userId, p.convId)
+  if (pendingConfirm) {
+    const confirmTool = toolRegistry.find((t) => t.id === 'confirm_pending')
+    if (confirmTool) { tool = confirmTool; args = { text: p.message } }
+  }
+
   // Home Assistant follow-ups ("I meant 20", "turn those off") carry no device
   // keywords, so the router can't catch them. If we just ran an HA command in
   // this conversation, treat an adjustment-shaped message as a follow-up to it.
-  // Same for yes/no replies to a pending security confirmation ("Unlock the front
-  // door — yes?"), which the router would otherwise treat as chitchat.
   const haFollowUp = isHAFollowUp(p.message) && hasRecentHAContext(p.userId, p.convId)
-  const haConfirmReply = isHAConfirmationReply(p.message) && hasPendingHAAction(p.userId, p.convId)
-  if ((!tool || tool.id !== 'homeAssistant') && (haFollowUp || haConfirmReply) && allowedToolIds.has('homeAssistant')) {
+  if (!pendingConfirm && (!tool || tool.id !== 'homeAssistant') && haFollowUp && allowedToolIds.has('homeAssistant')) {
     const haTool = toolRegistry.find((t) => t.id === 'homeAssistant')
     if (haTool) { tool = haTool; args = { text: p.message } }
   }

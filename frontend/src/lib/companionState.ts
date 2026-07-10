@@ -8,10 +8,16 @@ export type CaptionStyle = 'plain' | 'bold' | 'enlarge' | 'underline' | 'accent'
 
 export const CAPTION_STYLES: CaptionStyle[] = ['highlight', 'bold', 'enlarge', 'underline', 'accent', 'plain']
 
+// Display size, in the user's words: pill = Mini, collapsed = Docked (avatar + input),
+// expanded = Max (full bar). Drives the desktop HUD capsule's base size; the web
+// dock may adopt it later (state is shared here so that is a one-liner).
+export type CompanionSize = 'pill' | 'collapsed' | 'expanded'
+
 const CAPTIONS_KEY = 'companion.captions'
 const CAPTION_STYLE_KEY = 'companion.captionStyle'
 const VOICE_KEY = 'companion.voiceOn'
 const HANDSFREE_KEY = 'companion.handsFreeOn'
+const SIZE_KEY = 'companion.size'
 
 function read<T extends string>(key: string, fallback: T): T {
   try { return (localStorage.getItem(key) as T | null) ?? fallback } catch { return fallback }
@@ -23,6 +29,7 @@ let captionStyle: CaptionStyle = read<CaptionStyle>(CAPTION_STYLE_KEY, 'highligh
 // features must be explicitly enabled (mic permission, audio autoplay).
 let voiceOn: boolean = read<string>(VOICE_KEY, 'off') === 'on'
 let handsFreeOn: boolean = read<string>(HANDSFREE_KEY, 'off') === 'on'
+let size: CompanionSize = read<CompanionSize>(SIZE_KEY, 'pill')
 const subs = new Set<() => void>()
 const notify = () => subs.forEach((fn) => fn())
 
@@ -50,6 +57,16 @@ export function setCompanionHandsFree(next: boolean) {
   try { localStorage.setItem(HANDSFREE_KEY, next ? 'on' : 'off') } catch { /* ignore */ }
   notify()
 }
+export function setCompanionSize(next: CompanionSize) {
+  size = next
+  try { localStorage.setItem(SIZE_KEY, next) } catch { /* ignore */ }
+  notify()
+}
+const SIZE_ORDER: CompanionSize[] = ['pill', 'collapsed', 'expanded']
+export function cycleCompanionSize() {
+  const i = SIZE_ORDER.indexOf(size)
+  setCompanionSize(SIZE_ORDER[(i + 1) % SIZE_ORDER.length]!)
+}
 
 export function useCompanionState() {
   const [, force] = useState(0)
@@ -58,5 +75,5 @@ export function useCompanionState() {
     subs.add(sub)
     return () => { subs.delete(sub) }
   }, [])
-  return { captions, captionStyle, voiceOn, handsFreeOn, setCaptions: setCompanionCaptions, setCaptionStyle: setCompanionCaptionStyle, cycleCaptionStyle, setVoice: setCompanionVoice, setHandsFree: setCompanionHandsFree }
+  return { captions, captionStyle, voiceOn, handsFreeOn, size, setCaptions: setCompanionCaptions, setCaptionStyle: setCompanionCaptionStyle, cycleCaptionStyle, setVoice: setCompanionVoice, setHandsFree: setCompanionHandsFree, setSize: setCompanionSize, cycleSize: cycleCompanionSize }
 }

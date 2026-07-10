@@ -16,6 +16,7 @@ import { ContentRatingCard } from './ContentRatingCard'
 import { MusicPlayBlock } from './MusicPlayBlock'
 import { DocumentEditBlock } from './DocumentEditBlock'
 import { ArtifactBlock } from './ArtifactBlock'
+import { ConfirmActionBlock } from './ConfirmActionBlock'
 import type { Block } from './types'
 
 export type { Block }
@@ -41,6 +42,7 @@ export const BlockRenderer = memo(function BlockRenderer({ block }: { block: Blo
     case 'play_music':     return <MusicPlayBlock data={block.data} />
     case 'document_edit':  return <DocumentEditBlock data={block.data} />
     case 'artifact':       return <ArtifactBlock data={block.data} />
+    case 'confirm_action': return <ConfirmActionBlock data={block.data} />
     default:               return null
   }
 })

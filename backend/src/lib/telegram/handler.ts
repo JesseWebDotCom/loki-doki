@@ -13,7 +13,7 @@ import { runCompanionTurn, resolveTurnContext, type CompanionTurnParams } from '
 import { getLinkedUser, redeemLinkCode } from '@/lib/notify/telegramLink'
 import { createBookmark } from '@/lib/bookmarks/create'
 import { enqueueArchiveArticle } from '@/lib/downloadJobs'
-import { ctxKey, clearPendingAction, hasPendingAction } from '@/lib/homeAssistant/context'
+import { getActionById, resolveAction } from '@/lib/companionActions'
 import {
   answerCallbackQuery, editMessageReplyMarkup, editMessageText,
   sendChatAction, sendTelegramMessage,
@@ -215,7 +215,9 @@ export async function runTelegramTurn(userId: string, chatId: number, text: stri
   const typing = setInterval(() => void sendChatAction(chatId), 4500)
 
   let maskedText = ''
-  let haConfirm = false
+  // Set when the turn emits a confirm_action directive (staged action awaiting
+  // approval): the reply gets an inline approve/decline keyboard.
+  let confirmDirective: { actionId: string; approveLabel: string; declineLabel: string } | null = null
   try {
     const params: CompanionTurnParams = {
       userId,
@@ -246,11 +248,17 @@ export async function runTelegramTurn(userId: string, chatId: number, text: stri
     const result = await runCompanionTurn(params, {
       onToken: (t) => { maskedText += t },
       onEvent: (type, data) => {
-        if (type !== 'tool_data') return
+        if (type !== 'directive') return
         try {
-          const parsed = JSON.parse(data) as { tool?: string; data?: { intent?: string } }
-          if (parsed.tool === 'homeAssistant' && parsed.data?.intent === 'confirm') haConfirm = true
-        } catch { /* not the confirm event */ }
+          const parsed = JSON.parse(data) as { action?: string; actionId?: string; approveLabel?: string; declineLabel?: string }
+          if (parsed.action === 'confirm_action' && parsed.actionId) {
+            confirmDirective = {
+              actionId: parsed.actionId,
+              approveLabel: parsed.approveLabel || 'Yes',
+              declineLabel: parsed.declineLabel || 'Cancel',
+            }
+          }
+        } catch { /* not a confirm directive */ }
       },
       signal: { aborted: false },
     })
@@ -269,8 +277,15 @@ export async function runTelegramTurn(userId: string, chatId: number, text: stri
       })
       await db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, convId))
 
-      const keyboard: TgInlineKeyboard | undefined = haConfirm
-        ? { inline_keyboard: [[{ text: '✅ Yes', callback_data: 'ha:yes' }, { text: '❌ Cancel', callback_data: 'ha:no' }]] }
+      // callback_data 'act:y:<uuid>' is 42 chars, safely under Telegram's 64-byte cap.
+      // (Local read: TS can't see the onEvent-callback assignment, so it narrows
+      // the closure variable to null without this.)
+      const cd = confirmDirective as { actionId: string; approveLabel: string; declineLabel: string } | null
+      const keyboard: TgInlineKeyboard | undefined = cd
+        ? { inline_keyboard: [[
+            { text: `✅ ${cd.approveLabel}`, callback_data: `act:y:${cd.actionId}` },
+            { text: `❌ ${cd.declineLabel}`, callback_data: `act:n:${cd.actionId}` },
+          ]] }
         : undefined
       await sendTelegramMessage(chatId, maskedText.trim() || result.text, { replyMarkup: keyboard, replyToMessageId: replyTo })
     } else if (!result.completed) {
@@ -299,27 +314,37 @@ async function handleCallback(cb: TgCallbackQuery): Promise<void> {
     return
   }
   const data = cb.data ?? ''
-  const convId = `tg:${linked.userId}:${chatId}`
 
-  if (data === 'ha:yes') {
-    if (!hasPendingAction(linked.userId, convId)) {
+  // Staged-action confirmation buttons (lib/companionActions).
+  const act = /^act:(y|n):([0-9a-f-]{36})$/.exec(data)
+  if (act) {
+    const approve = act[1] === 'y'
+    const staged = getActionById(act[2]!)
+    if (!staged || staged.userId !== linked.userId) {
       await answerCallbackQuery(cb.id, 'That request expired — ask me again.')
       await editMessageReplyMarkup(chatId, messageId, null)
       return
     }
-    await answerCallbackQuery(cb.id, 'On it…')
-    await editMessageReplyMarkup(chatId, messageId, null)
-    // 'yes' re-enters the pipeline; companionTurn force-routes it to the HA tool,
-    // which executes the parked plan and replies in-voice.
-    await runTelegramTurn(linked.userId, chatId, 'yes')
+    if (approve) {
+      await answerCallbackQuery(cb.id, 'On it…')
+      await editMessageReplyMarkup(chatId, messageId, null)
+      // 'yes' re-enters the pipeline; companionTurn force-routes it to the
+      // confirm_pending tool, which executes the staged closure and replies in-voice.
+      await runTelegramTurn(linked.userId, chatId, 'yes')
+    } else {
+      await resolveAction(staged.id, false)
+      await answerCallbackQuery(cb.id, 'Cancelled')
+      await editMessageReplyMarkup(chatId, messageId, null)
+      await sendTelegramMessage(chatId, 'Okay — cancelled.')
+    }
     return
   }
 
-  if (data === 'ha:no') {
-    clearPendingAction(ctxKey(linked.userId, convId))
-    await answerCallbackQuery(cb.id, 'Cancelled')
+  // Legacy ha:* buttons from messages sent before the staged-action rework:
+  // their pending store is gone, so they can only ever be expired.
+  if (data === 'ha:yes' || data === 'ha:no') {
+    await answerCallbackQuery(cb.id, 'That request expired — ask me again.')
     await editMessageReplyMarkup(chatId, messageId, null)
-    await sendTelegramMessage(chatId, 'Okay — cancelled.')
     return
   }
 

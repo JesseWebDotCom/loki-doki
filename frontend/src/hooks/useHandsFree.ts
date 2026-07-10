@@ -34,6 +34,9 @@ const TTS_MUTE_GRACE_MS = 400
 // cold model load (20–30s to first token) before any audio has played.
 const REPLY_SAFETY_MS = 45000
 const POST_REPLY_TIMEOUT_MS = 8000
+// While a staged action awaits confirmation, the wake-word-free follow-up
+// window stays open much longer so a considered "yes" still lands.
+const POST_REPLY_HOLD_MS = 30_000
 // Phrase wake delivers the command via its own session; if the user says only
 // the wake phrase (no command), fall back to idle after this long.
 const WAKE_CAPTURE_TIMEOUT_MS = 7000
@@ -78,6 +81,10 @@ export interface UseHandsFreeOptions {
   wakeWordModelId?: string | null
   wakeWordPhrase?: string | null
   submit: (text: string) => void
+  /** Hold the post-reply (wake-word-free) listening window open for
+   *  POST_REPLY_HOLD_MS instead of the normal timeout, e.g. while a staged
+   *  action awaits a spoken confirmation. Re-arms live on change. */
+  holdFollowUp?: boolean
   onEngageFailed?: (reason: 'mic-denied' | 'models-missing') => void
   /** Called when a stop command is recognised. `wasTalking` is true if TTS was
    *  actively playing at the moment "stop" was heard (so callers can distinguish
@@ -92,9 +99,11 @@ export interface UseHandsFreeResult {
 }
 
 export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
-  const { enabled, characterId, wakeWordModelId, wakeWordPhrase, submit, onEngageFailed, onStopCommand } = opts
+  const { enabled, characterId, wakeWordModelId, wakeWordPhrase, submit, holdFollowUp, onEngageFailed, onStopCommand } = opts
   const onEngageFailedRef = useRef(onEngageFailed)
   onEngageFailedRef.current = onEngageFailed
+  const holdFollowUpRef = useRef(!!holdFollowUp)
+  holdFollowUpRef.current = !!holdFollowUp
   const onStopCommandRef = useRef(onStopCommand)
   onStopCommandRef.current = onStopCommand
   const [state, setStateRaw] = useState<HandsFreeState>('off')
@@ -456,6 +465,25 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
     return off
   }, [dispatch, openStt, closeStt])
 
+  // Arms (or re-arms) the post-reply-listen dismissal. Duration stretches while
+  // a confirmation is pending (holdFollowUp) so a spoken "yes" lands without a
+  // wake word.
+  const armPostReplyTimeout = useCallback(() => {
+    if (postReplyRef.current) clearTimeout(postReplyRef.current)
+    postReplyRef.current = setTimeout(() => {
+      if (stateRef.current === 'post-reply-listen') {
+        closeStt()
+        dispatch({ type: 'post_reply_timeout' }) // → idle
+      }
+    }, holdFollowUpRef.current ? POST_REPLY_HOLD_MS : POST_REPLY_TIMEOUT_MS)
+  }, [dispatch, closeStt])
+
+  // Live re-arm: a confirmation arriving (or resolving) mid-window adjusts the
+  // remaining time immediately instead of waiting for the old timer.
+  useEffect(() => {
+    if (stateRef.current === 'post-reply-listen') armPostReplyTimeout()
+  }, [holdFollowUp, armPostReplyTimeout])
+
   // ── TTS echo guard + post-TTS continued listening ─────────────────────────
   useEffect(() => {
     const pb = getVoicePlayback()
@@ -495,12 +523,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         if (stateRef.current === 'replying') {
           dispatch({ type: 'tts_end' }) // → post-reply-listen
           openStt() // Open for continued-conversation capture
-          postReplyRef.current = setTimeout(() => {
-            if (stateRef.current === 'post-reply-listen') {
-              closeStt()
-              dispatch({ type: 'post_reply_timeout' }) // → idle
-            }
-          }, POST_REPLY_TIMEOUT_MS)
+          armPostReplyTimeout()
         }
       }, graceMs)
     })
@@ -508,7 +531,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
       offStart()
       offEnd()
     }
-  }, [dispatch, openStt, closeStt])
+  }, [dispatch, openStt, closeStt, armPostReplyTimeout])
 
   // Safety: if a reply never produces audio (e.g. voice off), force to idle.
   useEffect(() => {
