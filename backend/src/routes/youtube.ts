@@ -1455,11 +1455,17 @@ youtubeRoute.get('/channel/:channelId/:tab', async (c) => {
   return c.json({ error: 'Unknown channel tab' }, 404)
 })
 
-// Real "Up next" — YouTube's own related videos for this watch page.
+// Real "Up next" — YouTube's own related videos for this watch page. Cached (20min,
+// matching typed search above): every watch-page open re-fetched this live from
+// InnerTube (~1.7s measured). cachedLookup is INSIDE tryInnertube — not around it like
+// the search route — so a transient InnerTube failure returns [] once instead of
+// memoizing an empty "Up next" rail for the full TTL.
 youtubeRoute.get('/related/:videoId', async (c) => {
   const videoId = c.req.param('videoId')
   const limit = Math.min(40, parseInt(c.req.query('limit') ?? '20', 10))
-  const videos = await tryInnertube('related', () => innertubeRelated(videoId, limit), [])
+  const videos = await tryInnertube('related',
+    () => cachedLookup('youtube:related', `${videoId}:${limit}`, 20 * 60_000, () => innertubeRelated(videoId, limit)),
+    [])
   return c.json({ videos })
 })
 
