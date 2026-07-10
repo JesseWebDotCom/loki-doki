@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { useAuth } from "@/context/AuthContext";
+import { MapsRegionSection } from "@/components/admin/MapsRegionSection";
 import { EXPLORE_CATEGORIES } from "../explore-categories";
 import { isCategoryVisible, type MapPrefs } from "../use-map-prefs";
 
@@ -29,6 +31,8 @@ export function MapSettingsPanel({
   onReset: () => void;
 }): JSX.Element {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   function toggleCategory(slug: string) {
     const next = { ...prefs.poiVisibility, [slug]: !isCategoryVisible(prefs, slug) };
@@ -48,6 +52,7 @@ export function MapSettingsPanel({
   return (
     <section className="grid gap-4">
       <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Map settings</h2>
+      {isAdmin && <MapsRegionSection />}
       <div className="grid gap-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-foreground/50">POI categories</p>
         {POI_GROUPS.map((group) => {

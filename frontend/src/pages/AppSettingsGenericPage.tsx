@@ -1,11 +1,12 @@
 import { useCallback } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Bot, MonitorPlay, ShieldCheck, Music4 } from "lucide-react";
+import { Bot, MonitorPlay, ShieldCheck, Music4, Sparkles } from "lucide-react";
 import { AppSettingsShell, type AppSettingsSection } from "@/components/shared/AppSettingsShell";
 import { CompanionAbilitiesCard } from "@/components/shared/CompanionAbilitiesCard";
 import { ToolConfigFields } from "@/components/shared/ToolConfigFields";
 import { PlexConnectCard } from "@/components/media/PlexConnectCard";
 import { MusicLyricsSettings } from "@/components/music/MusicLyricsSettings";
+import { LoraManager } from "@/components/admin/LoraManager";
 import { APP_GROUPS } from "@/lib/appCategories";
 
 // Apps whose global config (API keys, etc.) used to only live on the generic
@@ -49,6 +50,28 @@ const EXTRA_SECTIONS: Record<string, AppSettingsSection[]> = {
   ],
 };
 
+// Extra sections appended AFTER the shared Companion section (so a non-admin
+// still lands on a usable section first). Imaging colocates its admin-only LoRA
+// style browser here instead of in the central Admin panel.
+const APPEND_SECTIONS: Record<string, AppSettingsSection[]> = {
+  imaging: [
+    {
+      id: "loras",
+      label: "LoRA styles",
+      icon: Sparkles,
+      adminOnly: true,
+      content: (
+        <section className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Browse and import LoRA styles from CivitAI, then enable the ones you want available when generating images.
+          </p>
+          <LoraManager />
+        </section>
+      ),
+    },
+  ],
+};
+
 // Generic per-app settings page at /apps/:appId/settings/:section? for apps
 // that have no bespoke settings route. Today it hosts the Companion abilities
 // toggles; app-specific preferences can grow their own sections here. Apps
@@ -66,9 +89,11 @@ export function AppSettingsGenericPage() {
 
   const adminToolId = ADMIN_CONFIG_TOOL_ID[app.id];
   const extra = EXTRA_SECTIONS[app.id] ?? [];
+  const append = APPEND_SECTIONS[app.id] ?? [];
   const sections: AppSettingsSection[] = [
     ...extra,
     { id: "companion", label: "Companion", icon: Bot, content: <CompanionAbilitiesCard appId={app.id} /> },
+    ...append,
     ...(adminToolId
       ? [{ id: "admin", label: "Admin", icon: ShieldCheck, adminOnly: true, content: <ToolConfigFields toolId={adminToolId} /> }]
       : []),

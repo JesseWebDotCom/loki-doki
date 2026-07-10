@@ -1,6 +1,6 @@
 /**
- * Map regions section — rendered inside AdminFeaturesTab under the Maps
- * feature group (mirrors ZimSection / "Content Packs" under Offline Library).
+ * Map regions section — colocated inside the Maps app's own Settings panel
+ * (LeftRail → Settings → Offline regions), admin-gated by the caller.
  *
  * The maps toolchain itself installs via the feature group's normal repair
  * flow (component `maps-toolchain`); this section just downloads/builds the
@@ -60,8 +60,9 @@ function qMatch(text: string, q: string): boolean {
   return text.toLowerCase().includes(q.toLowerCase())
 }
 
-export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInstalled: boolean; query: string }) {
+export function MapsRegionSection({ query = '' }: { query?: string }) {
   const [tree, setTree] = useState<CatalogNode[]>([])
+  const [toolchainInstalled, setToolchainInstalled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(true)
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
@@ -74,7 +75,10 @@ export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInst
     setLoading(true)
     fetch('/api/admin/maps/catalog', { credentials: 'include' })
       .then((r) => r.json())
-      .then((d: { regions?: CatalogNode[] }) => setTree(d.regions ?? []))
+      .then((d: { regions?: CatalogNode[]; toolchainInstalled?: boolean }) => {
+        setTree(d.regions ?? [])
+        setToolchainInstalled(d.toolchainInstalled ?? true)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -153,18 +157,24 @@ export function MapsRegionSection({ toolchainInstalled, query }: { toolchainInst
   if (query && visible.length === 0) return null
 
   return (
-    <div className="space-y-2 pl-4 border-l border-border/30">
+    <div className="grid gap-2">
       <button
         type="button"
         onClick={() => !query && setOpen((o) => !o)}
-        className={cn('flex w-full items-center gap-2 px-1', !toolchainInstalled && 'opacity-40 pointer-events-none')}
+        className="flex w-full items-center gap-2"
       >
-        <ChevronDown className={cn('size-3 text-muted-foreground/50 transition-transform', !effectiveOpen && '-rotate-90')} />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Map Regions</span>
+        <ChevronDown className={cn('size-3.5 text-muted-foreground/50 transition-transform', !effectiveOpen && '-rotate-90')} />
+        <span className="text-xs font-semibold uppercase tracking-wide text-foreground/50">Offline regions</span>
         {installedCount > 0 && (
           <span className="text-[10px] text-muted-foreground/40 tabular-nums">{installedCount} installed</span>
         )}
       </button>
+
+      {effectiveOpen && !toolchainInstalled && (
+        <p className="text-xs text-muted-foreground/70 leading-snug">
+          The map engine is still installing. Regions become available once setup finishes.
+        </p>
+      )}
 
       {effectiveOpen && toolchainInstalled && (
         <div className="space-y-2">
