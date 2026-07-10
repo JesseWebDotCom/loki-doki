@@ -137,6 +137,7 @@ import { medicalTool } from './medical'
 import { whereToWatchTool } from './whereToWatch'
 import { holidaysTool } from './holidays'
 import { homeInventoryTool } from './homeInventory'
+import { serviceStatusTool } from './serviceStatus'
 import { onThisDayTool } from './onThisDay'
 import { localEventsTool } from './localEvents'
 import { localNewsTool } from './localNews'
@@ -190,6 +191,7 @@ export const toolRegistry: Tool[] = [
   contentRatingTool,
   sportsTool,
   homeAssistantTool,
+  serviceStatusTool,
   timeTool,
   converterTool,
   bookmarksLibraryTool,

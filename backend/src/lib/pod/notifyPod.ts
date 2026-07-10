@@ -7,7 +7,7 @@
 
 import { setUserAlert } from '@/lib/pod/presence'
 
-type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert' | 'price_alert' | 'file_drop'
+type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert' | 'price_alert' | 'file_drop' | 'service_alert'
 
 interface Spec {
   emoji: string
@@ -55,6 +55,16 @@ function specFor(type: NotifType, payload: Record<string, unknown>): Spec | null
     case 'file_drop': {
       const from = String(payload['senderLabel'] ?? 'A device')
       return { emoji: '📩', message: `Drop from ${from}`, color: '#3b82f6', ttlSec: 20 }
+    }
+    case 'service_alert': {
+      const monitor = String(payload['monitor'] ?? 'A service')
+      const down = payload['state'] === 'down'
+      return {
+        emoji: down ? '🔴' : '🟢',
+        message: down ? `${monitor} is down` : `${monitor} recovered`,
+        color: down ? '#dc2626' : '#16a34a',
+        ttlSec: down ? 30 : 20,
+      }
     }
     default:
       return null

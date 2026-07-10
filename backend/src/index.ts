@@ -156,6 +156,9 @@ import { seedContentProfiles } from '@/lib/contentPolicy'
 import { frigate } from '@/routes/frigate'
 import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
+import { monitoring } from '@/routes/monitoring'
+import { adminMonitoring } from '@/routes/adminMonitoring'
+import { startMonitoringReconcile } from '@/lib/monitoring/kuma'
 import { maybeSpawnComfyUI, stopComfyUI, isComfyUIInstalled } from '@/lib/comfyui'
 import { ensureVtracer } from '@/lib/vtracer'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
@@ -239,6 +242,10 @@ if (firstBoot) {
   // Connect to the (remote) Frigate broker if configured — drives camera event
   // notifications + companion announcements. No-op until an admin sets it up.
   void startFrigateMqtt()
+  // Start the Uptime Kuma reconcile poll (safety net for events missed while the app
+  // was down). No-op unless the integration + reconcile are both enabled. Real-time
+  // alerts come via the webhook receiver, not this.
+  void startMonitoringReconcile()
   // Scan image model .safetensors files for corruption before spawning ComfyUI — a
   // corrupt checkpoint causes an inscrutable generation error rather than a clear
   // install failure. Deletes bad files and re-queues them so the repair is automatic.
@@ -562,6 +569,8 @@ app.route('/api/admin/home-assistant', adminHomeAssistant)
 app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
+app.route('/api/monitoring', monitoring)
+app.route('/api/admin/monitoring', adminMonitoring)
 app.route('/api/videos/studio', studioRoute)
 app.route('/api/videos', videosRoute)
 app.route('/api/vstream', videoStreamRoute)

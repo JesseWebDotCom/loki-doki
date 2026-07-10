@@ -21,6 +21,7 @@ import { AdminNewsTab } from '@/components/admin/AdminNewsTab'
 import { AdminMusicTab } from '@/components/admin/AdminMusicTab'
 import { AdminNotificationsTab } from '@/components/admin/AdminNotificationsTab'
 import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
+import { AdminMonitoringTab } from '@/components/admin/AdminMonitoringTab'
 import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
@@ -224,6 +225,7 @@ export function AdminPage() {
         {section === 'notifications' && <AdminNotificationsTab openSignal={openSignal} />}
         {section === 'devices'    && <AdminDevicesTab view={sub} />}
         {section === 'integrations' && sub === 'frigate'         && <AdminFrigateTab />}
+        {section === 'integrations' && sub === 'monitoring'       && <AdminMonitoringTab />}
         {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}
         {section === 'integrations' && sub === 'home-assistant'  && <AdminHomeAssistantTab />}
         {section === 'integrations' && sub === 'books'           && <AdminBooksTab />}

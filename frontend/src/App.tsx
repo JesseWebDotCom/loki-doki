@@ -19,6 +19,7 @@ import { RadioProvider } from '@/context/RadioContext'
 import { LiveRadioProvider } from '@/context/LiveRadioContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
+import { MonitoringAnnounceProvider } from '@/context/MonitoringAnnounceContext'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
@@ -325,6 +326,7 @@ export default function App() {
           <LiveRadioProvider>
           <TimeAlarmProvider>
           <FrigateAnnounceProvider>
+          <MonitoringAnnounceProvider>
           <ChatProvider>
           <Suspense fallback={<AppLoading />}>
           <Routes>
@@ -546,6 +548,7 @@ export default function App() {
           </Routes>
           </Suspense>
           </ChatProvider>
+          </MonitoringAnnounceProvider>
           </FrigateAnnounceProvider>
           <AlarmRingDialog />
           <GlobalSetupWidget />

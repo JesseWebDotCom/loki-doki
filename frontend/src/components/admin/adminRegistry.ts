@@ -174,6 +174,11 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         description: 'Frigate NVR — VLM GenAI provider, camera event notifications and announcements',
       },
       {
+        id: 'monitoring', label: 'Monitoring', kind: 'view',
+        keywords: ['monitoring', 'uptime', 'kuma', 'uptime kuma', 'status', 'health', 'down', 'alerts', 'webhook', 'service', 'server', 'outage'],
+        description: 'Uptime Kuma — get told (and have the companion announce) when a service or server goes down',
+      },
+      {
         id: 'plex', label: 'Plex', kind: 'view',
         keywords: ['plex', 'media', 'server', 'watchlist', 'library', 'movies', 'shows', 'streaming', 'token', 'pin'],
         description: 'Link your Plex Media Server — library rails, two-way Watchlist sync, and in-app playback',

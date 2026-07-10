@@ -13,15 +13,17 @@ export type NotifType =
   | 'watcher_alert'
   | 'price_alert'
   | 'file_drop'
+  | 'service_alert'
 
 export type NotifPriority = 'info' | 'normal' | 'urgent'
-export type NotifCategory = 'camera' | 'downloads' | 'installs' | 'system' | 'companion' | 'watchers' | 'shopping' | 'drops'
+export type NotifCategory = 'camera' | 'downloads' | 'installs' | 'system' | 'companion' | 'watchers' | 'shopping' | 'drops' | 'monitoring'
 export type Channel = 'push' | 'telegram' | 'email'
 export type DeliveryMode = 'off' | 'instant' | 'digest'
 
 export const NOTIF_TYPES: readonly NotifType[] = [
   'install_request', 'install_complete', 'download_complete', 'system',
   'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert', 'file_drop',
+  'service_alert',
 ]
 
 export const CHANNELS: readonly Channel[] = ['push', 'telegram', 'email']
@@ -41,6 +43,7 @@ export const CATEGORY_META: readonly CategoryMeta[] = [
   { key: 'installs', label: 'App installs', description: 'Install requests and completed installs', types: ['install_request', 'install_complete'] },
   { key: 'companion', label: 'Companion check-ins', description: 'Your companion reaching out about things you shared', types: ['companion_checkin'] },
   { key: 'drops', label: 'Device drops', description: 'Files and links sent between your devices', types: ['file_drop'] },
+  { key: 'monitoring', label: 'Service monitoring', description: 'A service or server going down or recovering (Uptime Kuma)', types: ['service_alert'] },
   { key: 'system', label: 'System', description: 'Everything else — maintenance, warnings, admin messages', types: ['system'] },
 ]
 
@@ -52,6 +55,7 @@ export function categoryOf(type: NotifType): NotifCategory {
 export function defaultPriorityFor(type: NotifType): NotifPriority {
   switch (type) {
     case 'frigate_event': return 'urgent'
+    case 'service_alert': return 'urgent'
     case 'install_request': return 'info'
     default: return 'normal'
   }
@@ -67,6 +71,7 @@ export const DEFAULT_MATRIX: Record<NotifCategory, Record<Channel, DeliveryMode>
   installs: { push: 'instant', telegram: 'off', email: 'off' },
   companion: { push: 'instant', telegram: 'off', email: 'off' },
   drops: { push: 'instant', telegram: 'off', email: 'off' },
+  monitoring: { push: 'instant', telegram: 'off', email: 'off' },
   system: { push: 'instant', telegram: 'off', email: 'off' },
 }
 
@@ -96,6 +101,15 @@ export function deriveMessage(type: NotifType, payload: Record<string, unknown>)
       const from = String(payload['senderLabel'] ?? 'Another device')
       const name = payload['fileName'] ?? (payload['kind'] === 'text' ? 'a message' : 'a file')
       return { title: 'Incoming drop', body: `${from} sent ${String(name)}`, url: '/drop' }
+    }
+    case 'service_alert': {
+      const monitor = String(payload['monitor'] ?? 'A service')
+      const down = payload['state'] === 'down'
+      return {
+        title: down ? `${monitor} is down` : `${monitor} recovered`,
+        body: payload['message'] ? String(payload['message']) : undefined,
+        url: '/admin/monitoring',
+      }
     }
     case 'system':
     default:
