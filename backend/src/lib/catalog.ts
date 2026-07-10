@@ -188,6 +188,28 @@ export const CATALOG: CatalogModel[] = [
     backendLabel: 'ComfyUI',
   },
 
+  // RealVis XL V5.0 Lightning: distilled SDXL. detectSamplerPreset() keys off the
+  // 'lightning' in the checkpoint filename and switches to the 6-step/cfg-1.5 profile,
+  // so generations run ~3x faster than a 20-step standard fine-tune with comparable
+  // photorealism at these step counts. LoRAs, FaceID, and ESRGAN still apply (SDXL arch).
+  {
+    id: 'realvisxl-v5-lightning',
+    role: 'image_gen',
+    label: 'RealVis XL V5.0 Lightning',
+    description: 'Distilled SDXL checkpoint (Lightning, 6 steps). Photorealistic output ~3x faster than a standard 20-step SDXL fine-tune. 6.94 GB.',
+    backend: 'huggingface',
+    hf: {
+      repo: 'SG161222/RealVisXL_V5.0_Lightning',
+      file: 'RealVisXL_V5.0_Lightning_fp16.safetensors',
+      dest: 'comfyui/models/checkpoints/realvisxl-v5-lightning.safetensors',
+    },
+    approxBytes: 6_938_065_512,
+    tiers: ['apple-24', 'apple-36', 'pc-32'],
+    tags: ['fast', 'optional'],
+    format: 'fp16',
+    backendLabel: 'ComfyUI',
+  },
+
   // ── Face identity (IP-Adapter FaceID Plus v2 SDXL) ────────────────────────
   {
     id: 'ipadapter-faceid-plus-v2-sdxl',
