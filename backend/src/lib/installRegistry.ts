@@ -9,7 +9,7 @@
 // Plain Ollama models (llm/vision/router_llm/embeddings) are reconciled separately
 // from app_settings — they are not components.
 
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { exec, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -109,11 +109,23 @@ async function comfyConfig() {
  *  manager itself is often gone (choco/scoop/brew), so components flagged
  *  needsPackageManager must pre-check this before being auto-enqueued — otherwise their
  *  repair just throws in the background where nobody sees it. */
+/** Full path to winget, or null. winget.exe under WindowsApps is an app-execution alias
+ *  (IO_REPARSE_TAG_APPEXECLINK reparse point) — stat/existsSync FAILS on those under
+ *  Bun (EACCES → false), so listing the parent directory is the only reliable presence
+ *  check. Spawning still works when the command runs through cmd.exe (exec), which is
+ *  how installTesseract invokes it. Verified on Win11 26200 / Bun 1.3. */
+export function wingetPath(): string | null {
+  if (process.platform !== 'win32') return null
+  const winApps = `${process.env.LOCALAPPDATA}\\Microsoft\\WindowsApps`
+  try { if (readdirSync(winApps).includes('winget.exe')) return `${winApps}\\winget.exe` } catch { /* dir missing */ }
+  if (existsSync('C:\\Windows\\System32\\winget.exe')) return 'C:\\Windows\\System32\\winget.exe'
+  return null
+}
+
 export function availablePackageManagers(): string[] {
   const found: string[] = []
   if (process.platform === 'win32') {
-    if (existsSync('C:\\Windows\\System32\\winget.exe') ||
-        existsSync(`${process.env.LOCALAPPDATA}\\Microsoft\\WindowsApps\\winget.exe`)) found.push('winget')
+    if (wingetPath()) found.push('winget')
     if (existsSync('C:\\ProgramData\\chocolatey\\bin\\choco.exe')) found.push('choco')
     if (existsSync(`${process.env.USERPROFILE}\\scoop\\shims\\scoop.cmd`)) found.push('scoop')
   } else {
@@ -157,11 +169,12 @@ async function installTesseract(onProgress: InstallProgressFn): Promise<void> {
   let cmd: string
   let mgr: string
   if (process.platform === 'win32') {
-    const hasWinget = existsSync('C:\\Windows\\System32\\winget.exe') ||
-                      existsSync(`${process.env.LOCALAPPDATA}\\Microsoft\\WindowsApps\\winget.exe`)
+    const winget    = wingetPath()
     const hasChoco  = existsSync('C:\\ProgramData\\chocolatey\\bin\\choco.exe')
     const hasScoop  = existsSync(`${process.env.USERPROFILE}\\scoop\\shims\\scoop.cmd`)
-    if (hasWinget)     { cmd = 'winget install --id UB-Mannheim.TesseractOCR -e --accept-package-agreements --accept-source-agreements'; mgr = 'winget' }
+    // Full quoted path: the backend's PATH may lack WindowsApps (spawn-chain dependent),
+    // and cmd.exe launches app-execution aliases fine when given the explicit path.
+    if (winget)        { cmd = `"${winget}" install --id UB-Mannheim.TesseractOCR -e --accept-package-agreements --accept-source-agreements`; mgr = 'winget' }
     else if (hasChoco) { cmd = 'choco install tesseract -y'; mgr = 'Chocolatey' }
     else if (hasScoop) { cmd = 'scoop install tesseract'; mgr = 'Scoop' }
     else throw new Error('No package manager found (winget/choco/scoop). Install Tesseract manually from https://github.com/UB-Mannheim/tesseract/wiki')
