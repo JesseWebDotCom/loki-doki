@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clapperboard, Clock, Film, Heart, Plus, Sparkles, Trash2, Users, Video } from 'lucide-react'
+import { Clapperboard, Clock, Download, Film, Heart, Plus, Sparkles, Trash2, Users, Video } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -10,12 +10,14 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/lib/toast'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
+import { downloadArtifact } from '@/lib/converter/api'
 import {
-  createStudioProject, deleteStudioProject, isMineBinItem, listStudioBin, listStudioProjects,
+  createStudioProject, deleteStudioProject, exportBinItemAs, isMineBinItem, listStudioBin, listStudioProjects,
   setStudioMediaShared, studioStreamUrl, type StudioBinItem,
 } from '@/lib/videos/studioApi'
 
@@ -27,6 +29,94 @@ function fmtDur(sec: number | null): string {
 }
 
 const binIconBtnClass = 'grid size-7 place-items-center rounded-full bg-black/70 text-white opacity-0 transition-opacity hover:bg-black/90 group-hover:opacity-100'
+
+// The formats a Mine video can be saved as. Handled server-side by the converter's animation
+// engine (video → animated gif/webp, or a re-muxed mp4).
+const SAVE_AS: Array<{ format: string; label: string; hint: string }> = [
+  { format: 'gif', label: 'Animated GIF', hint: 'loops anywhere' },
+  { format: 'webp', label: 'Animated WebP', hint: 'smaller, sharper' },
+  { format: 'mp4', label: 'Video (MP4)', hint: 'H.264' },
+]
+
+/** Download a bin video's original bytes as-is (no transcode). */
+async function downloadOriginal(assetId: string, name: string): Promise<void> {
+  const r = await fetch(studioStreamUrl(assetId), { credentials: 'include' })
+  if (!r.ok) throw new Error(`Download failed (HTTP ${r.status})`)
+  const url = URL.createObjectURL(await r.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+/** Kick off a server-side conversion of a bin video, wait for it on the converter's SSE
+ *  stream, then trigger the browser download. */
+async function convertAndDownload(assetId: string, title: string, format: string): Promise<void> {
+  const { conversionId, jobId } = await exportBinItemAs(assetId, format, title)
+  await new Promise<void>((resolve, reject) => {
+    const es = new EventSource(`/api/converter/stream/${jobId}`, { withCredentials: true })
+    es.addEventListener('done', (ev) => {
+      es.close()
+      let id = conversionId, name = `${title}.${format}`
+      try { const d = JSON.parse((ev as MessageEvent).data); id = d.conversionId ?? id; name = d.outputName ?? name } catch { /* use defaults */ }
+      downloadArtifact(id, name).then(resolve).catch(reject)
+    })
+    es.addEventListener('error', (ev) => {
+      // EventSource also fires 'error' on transient reconnects (no data); only a payload is fatal.
+      const data = (ev as MessageEvent).data
+      if (!data) return
+      es.close()
+      try { reject(new Error(JSON.parse(data).error ?? 'Conversion failed')) } catch { reject(new Error('Conversion failed')) }
+    })
+  })
+}
+
+/** Hover "Save as…" menu on a Mine card: export the video to animated GIF / WebP / MP4. */
+function SaveAsMenu({ item }: { item: StudioBinItem }) {
+  const [busy, setBusy] = useState(false)
+  const title = item.title || 'video'
+  const pick = async (format: string, label: string) => {
+    setBusy(true)
+    try {
+      // "Save as video": if it's already a plain mp4 (or format unknown), just grab the
+      // original; only transcode when the source is a different container (e.g. webm).
+      if (format === 'mp4' && (!item.format || item.format === 'mp4')) {
+        await downloadOriginal(item.assetId, `${title}.mp4`)
+      } else {
+        await convertAndDownload(item.assetId, title, format)
+      }
+      toast.success(`Saved as ${label}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save this video')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button" title="Save as…" aria-label="Save as…"
+          onClick={(e) => e.stopPropagation()}
+          className={cn(binIconBtnClass, busy && 'opacity-100')}
+        >
+          {busy ? <Spinner size="sm" /> : <Download className="size-3.5" />}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        {SAVE_AS.map((f) => (
+          <DropdownMenuItem key={f.format} disabled={busy} onSelect={() => void pick(f.format, f.label)}>
+            <span className="font-medium">{f.label}</span>
+            <span className="ml-auto pl-4 text-xs text-muted-foreground">{f.hint}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 /** A Studio bin card, with hover-revealed Like / Watch Later toggles - the only way to get
  *  a Mine item into those collections, since there's no "watch" event to hang it off of.
@@ -62,6 +152,7 @@ function MineBinCard({ item, onPlay, onAskUnshare }: { item: StudioBinItem; onPl
           <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{fmtDur(item.durationSec)}</span>
         ) : null}
         <div className="absolute right-1.5 top-1.5 flex items-center gap-1.5">
+          <SaveAsMenu item={item} />
           <AddToPlaylistButton video={meta} className={binIconBtnClass} />
           <button type="button" title={liked ? 'Unlike' : 'Like'} aria-label={liked ? 'Unlike' : 'Like'}
             onClick={(e) => { e.stopPropagation(); toggleCollection('liked', meta) }}
@@ -219,9 +310,13 @@ export function MyVideosPage() {
       <Dialog open={!!playing} onOpenChange={(v) => { if (!v) setPlaying(null) }}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle className="truncate">{playing?.title}</DialogTitle></DialogHeader>
-          {playing && (
+          {playing && (playing.origin === 'generated' ? (
+            // AI clips are animated WebP (served from /api/image/artifacts), which <video> can't
+            // play — render as a looping <img>, same as the generator's own result view.
+            <img src={`/api/image/artifacts/${playing.assetId}`} alt={playing.title} className="aspect-video w-full rounded-card bg-black object-contain" />
+          ) : (
             <video src={studioStreamUrl(playing.assetId)} controls autoPlay playsInline className="aspect-video w-full rounded-card bg-black" />
-          )}
+          ))}
         </DialogContent>
       </Dialog>
     </PageContainer>

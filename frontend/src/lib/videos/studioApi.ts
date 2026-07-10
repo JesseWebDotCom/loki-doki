@@ -26,6 +26,8 @@ export interface StudioBinItem {
   mediaId?: string
   /** Studio-owned videos only: epoch ms when shared with the household, null = private. */
   sharedAt?: number | null
+  /** Source container format (e.g. 'mp4', 'webm'), when known. Drives format-aware export. */
+  format?: string | null
 }
 
 // The bin also holds source clips pulled in from other providers as raw editing material —
@@ -82,6 +84,13 @@ export async function uploadStudioMedia(file: File): Promise<{ ok: true; id: str
   if (!res.ok || !data?.id) throw new Error(data?.error ?? 'upload failed')
   return { ok: true, id: data.id }
 }
+
+/** Convert a Mine video to another format (animated webp / gif / a video container) via the
+ *  shared converter. Returns converter ids; poll /api/converter/stream/:jobId and download
+ *  from /api/converter/artifacts/:conversionId (see lib/converter/api). */
+export const exportBinItemAs = (assetId: string, format: string, name: string) =>
+  sendJson<{ conversionId: string; jobId: string }>(
+    `/api/videos/studio/media/${encodeURIComponent(assetId)}/export-as`, 'POST', { format, name })
 
 export const startStudioExport = (projectId: string, preset: string) =>
   sendJson<{ ok: true; exportId: string }>(`/api/videos/studio/projects/${encodeURIComponent(projectId)}/export`, 'POST', { preset })

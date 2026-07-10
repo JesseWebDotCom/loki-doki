@@ -14,6 +14,7 @@ import { DEFAULT_EDL, edlAssetIds, edlDurationSec, parseEdl } from '@/lib/videos
 import { assetBlobPath, ingestUpload, listBin, userOwnsAsset, assetThumbPath, MAX_UPLOAD_BYTES } from '@/lib/videostudio/assets'
 import { EXPORT_PRESETS } from '@/lib/videostudio/render/run'
 import { enqueueStudioRender } from '@/lib/downloadJobs'
+import { convert, ConversionError } from '@/lib/converter/manager'
 import type { AppEnv } from '@/types'
 
 const studioRoute = new Hono<AppEnv>()
@@ -219,6 +220,38 @@ studioRoute.get('/media/:assetId/stream', async (c) => {
   return new Response(buf, {
     headers: { 'Content-Type': contentType, 'Content-Length': String(fileStat.size), 'Accept-Ranges': 'bytes' },
   })
+})
+
+// Export a bin video to another format (animated WebP / GIF / a different video container) via
+// the shared converter. Runs on the blob in place (cleanupSrc: false — never delete the shared
+// blob); progress + download reuse the converter's /stream and /artifacts endpoints.
+studioRoute.post('/media/:assetId/export-as', async (c) => {
+  const user = c.get('user')
+  const assetId = c.req.param('assetId')
+  if (!(await userOwnsAsset(user.id, assetId))) return c.json({ error: 'not found' }, 404)
+  const src = await assetBlobPath(assetId)
+  if (!src) return c.json({ error: 'This video is not ready to export yet' }, 409)
+
+  const body = await c.req.json<{ format?: string; name?: string }>().catch(() => ({} as { format?: string; name?: string }))
+  const format = body.format?.trim()
+  if (!format) return c.json({ error: 'format required' }, 400)
+
+  // srcName only drives the input-ext detection + output base name; the blob path is read as-is.
+  const base = (body.name?.trim() || 'video').replace(/[^\w.\- ]/g, '_')
+  try {
+    const { conversionId, jobId } = await convert({
+      userId: user.id,
+      firstName: user.firstName,
+      srcPath: src.path,
+      srcName: `${base}.${src.format}`,
+      targetFormat: format,
+      cleanupSrc: false,
+    })
+    return c.json({ conversionId, jobId })
+  } catch (err) {
+    if (err instanceof ConversionError) return c.json({ error: err.message }, 400)
+    throw err
+  }
 })
 
 studioRoute.get('/media/:assetId/thumb', async (c) => {

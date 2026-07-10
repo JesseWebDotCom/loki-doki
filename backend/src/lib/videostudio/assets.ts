@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { clips, mediaAssets, studioMedia, videoSaves, ytDownloads, ytVideos } from '@/db/schema'
+import { clips, generatedImages, mediaAssets, studioMedia, videoSaves, ytDownloads, ytVideos } from '@/db/schema'
 import { blobAbsPath, contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/content/store'
 import { ensureFfmpeg, ffmpegBin } from '@/lib/ffmpeg'
 import { probeMedia } from '@/lib/videostudio/probe'
@@ -27,11 +27,13 @@ export interface BinItem {
   mediaId?: string
   /** Studio-owned videos only: epoch ms when shared with the household, null = private. */
   sharedAt?: number | null
+  /** Source container format from media_assets (e.g. 'mp4', 'webm'), for format-aware export UI. */
+  format?: string | null
 }
 
 /** Everything in the user's libraries that's ready to edit, newest first. */
 export async function listBin(userId: string): Promise<BinItem[]> {
-  const [yt, clipRows, saves, studio] = await Promise.all([
+  const [yt, clipRows, saves, studio, gen] = await Promise.all([
     db.select({
       assetId: ytDownloads.assetId, title: ytDownloads.title, kind: ytDownloads.kind,
       videoId: ytDownloads.videoId, createdAt: ytDownloads.createdAt,
@@ -47,6 +49,17 @@ export async function listBin(userId: string): Promise<BinItem[]> {
     db.select().from(studioMedia)
       .where(and(eq(studioMedia.userId, userId), eq(studioMedia.status, 'ready')))
       .orderBy(desc(studioMedia.createdAt)).limit(200),
+    // AI-generated clips (Generate a clip): animated WebP served from /api/image/artifacts,
+    // not blob-backed media_assets — so they carry their own thumb/playback URL and never
+    // touch studioStreamUrl. origin 'generated' is what MINE_ORIGINS keys off of.
+    db.select({
+      id: generatedImages.id, prompt: generatedImages.prompt, createdAt: generatedImages.createdAt,
+    }).from(generatedImages)
+      .where(and(
+        eq(generatedImages.userId, userId), eq(generatedImages.state, 'ready'),
+        inArray(generatedImages.pipeline, ['video', 'i2v']),
+      ))
+      .orderBy(desc(generatedImages.createdAt)).limit(200),
   ])
 
   const items: BinItem[] = []
@@ -91,6 +104,24 @@ export async function listBin(userId: string): Promise<BinItem[]> {
       mediaId: r.id, sharedAt: r.sharedAt ? r.sharedAt.getTime() : null,
     })
   }
+  for (const r of gen) {
+    items.push({
+      assetId: r.id, title: r.prompt?.trim().slice(0, 80) || 'AI clip', kind: 'video',
+      durationSec: null, origin: 'generated',
+      thumbUrl: `/api/image/artifacts/${r.id}`,
+      createdAt: r.createdAt.getTime(),
+    })
+  }
+  // Attach each item's source container format (one batched lookup) so the export UI can be
+  // format-aware — e.g. offer "download original" instead of a pointless mp4 → mp4 transcode.
+  const assetIds = items.map((i) => i.assetId)
+  if (assetIds.length) {
+    const fmts = await db.select({ id: mediaAssets.id, format: mediaAssets.format })
+      .from(mediaAssets).where(inArray(mediaAssets.id, assetIds))
+    const fmtMap = new Map(fmts.map((f) => [f.id, f.format]))
+    for (const it of items) it.format = fmtMap.get(it.assetId) ?? null
+  }
+
   return items.sort((a, b) => b.createdAt - a.createdAt)
 }
 
