@@ -9,6 +9,7 @@ import { cn } from '@/lib/cn'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 import { queueForKaraoke } from '@/lib/music/karaokeQueue'
 import { fmtClock } from '@/lib/youtube/format'
+import { useAlbumPalette, accentOf, readableOn } from '@/lib/music/albumColors'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { SeekBar } from '@/components/shared/SeekBar'
 import { Spinner } from '@/components/ui/spinner'
@@ -29,8 +30,11 @@ export function RadioMiniBar() {
   const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec, skipping } = radio
   // Real square album art when it resolves; the video thumbnail stays as the instant fallback.
   const miniArt = useSongArt(currentTrack?.videoId, currentTrack?.title, currentTrack?.author)
+  // Plexamp-style album persona: seek/EQ/play pick up the cover's accent; a monochrome
+  // cover falls back to the station colour so the bar never goes grey-on-grey.
+  const palette = useAlbumPalette(miniArt ?? (currentTrack?.thumbnail ? proxyImg(currentTrack.thumbnail) : null))
   // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors
-  const accent = station?.color ?? '#fb923c'
+  const accent = palette.muted ? (station?.color ?? '#fb923c') : accentOf(palette)
   // Songs are finite + seekable; only while a track is actually playing (not during DJ talk).
   const canSeek = phase === 'playing' && !djSpeaking && durationSec > 0
 
@@ -47,15 +51,18 @@ export function RadioMiniBar() {
     <div className="relative z-40 shrink-0">
       {/* design-ok(backdrop-blur-outside-chrome): fixed mini-player chrome, mirrors YoutubeMiniBar */}
       <div className="relative overflow-hidden border-t border-border/60 bg-background/95 backdrop-blur-md shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
-        {/* Live faux-EQ - sits subtly behind the controls, tinted to the station accent. */}
+        {/* UltraBlur wash: a whisper of the album's corner colours across the bar, so the
+            mini player carries the song's persona like the full players do. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 opacity-[0.16] dark:opacity-25"
+          style={{ background: `linear-gradient(90deg, ${palette.corners[0]}, ${palette.corners[1]} 35%, transparent 60%, ${palette.corners[3]})` }} />
+        {/* Live faux-EQ - sits subtly behind the controls, tinted to the album accent. */}
         {radio.visualizerEnabled && (
           <div className="absolute inset-0 z-0">
             <EqVisualizer
               active={!paused && (phase === 'playing' || djSpeaking)}
               getAnalyser={radio.getAnalyser}
-              // design-ok(hex-in-tsx): canvas visualizer tint fallbacks (canvas cannot read CSS vars)
-              color={station?.color ?? '#fb923c'}
-              colorDark={station?.colorDark ?? '#f97316'} // design-ok(hex-in-tsx): canvas visualizer tint fallback
+              color={accent}
+              colorDark={palette.muted ? (station?.colorDark ?? '#f97316') : palette.dark} // design-ok(hex-in-tsx): canvas visualizer tint fallback
               opacity={0.2}
               fade
             />
@@ -160,7 +167,8 @@ export function RadioMiniBar() {
               </button>
               {/* design-ok(hand-styled-button): mini-player transport control, mirrors YoutubeMiniBar */}
               <button onClick={radio.togglePause}
-                className="grid size-9 place-items-center rounded-full bg-foreground text-background hover:opacity-90"
+                className="grid size-9 place-items-center rounded-full hover:opacity-90"
+                style={{ background: accent, color: readableOn(accent) }}
                 aria-label={paused ? 'Resume' : 'Pause'}>
                 {paused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
               </button>

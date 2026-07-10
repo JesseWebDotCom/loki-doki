@@ -8,7 +8,6 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
-import { fmtClock } from '@/lib/youtube/format'
 import { useRadio } from '@/context/RadioContext'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useCatalogNav } from '@/lib/music/catalogNav'
@@ -16,7 +15,8 @@ import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { StarRating } from '@/components/music/StarRating'
 import { useTitleMask } from '@/lib/music/policy'
 import { SongArt, useSongArt } from '@/components/music/SongArt'
-import { useAlbumPalette } from '@/lib/music/albumColors'
+import { useAlbumPalette, accentOf, readableOn } from '@/lib/music/albumColors'
+import { UltraBlur } from '@/components/music/UltraBlur'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { Spinner } from '@/components/ui/spinner'
@@ -60,11 +60,12 @@ export function NowPlayingOverlay() {
   // and its extracted palette for the UltraBlur wash.
   const overlayArt = useSongArt(curForArt?.videoId, curForArt?.title, curForArt?.author)
   const palette = useAlbumPalette(overlayArt ?? (curForArt?.thumbnail ? proxyImg(curForArt.thumbnail) : null))
+  const mask = useTitleMask()
 
   if (!open) return null
 
   const cur = curForArt
-  const mask = useTitleMask()
+  const accent = accentOf(palette)
   // design-ok(hex-in-tsx): station accent fallbacks (brand hues) - canvas/gradient literals
   const c1 = radio.station?.color ?? '#fb923c'
   const c2 = radio.station?.colorDark ?? '#f97316'
@@ -94,14 +95,10 @@ export function NowPlayingOverlay() {
       className="fixed inset-0 z-[100] flex flex-col text-white"
       style={{ transform: dragY ? `translateY(${dragY}px)` : undefined, transition: dragY ? 'none' : 'transform 0.25s ease' }}
     >
-      {/* Backdrop: UltraBlur - the cover's own dominant colours give each song its persona,
-          under the station-accent wash so the chrome stays readable. */}
-      <div className="absolute inset-0 -z-10 bg-black">
-        {(overlayArt || cur?.thumbnail) && (
-          <img src={overlayArt ?? proxyImg(cur!.thumbnail)} alt="" className="absolute inset-0 size-full scale-125 object-cover opacity-50 blur-3xl saturate-150" />
-        )}
-        <div className="absolute inset-0" style={{ background: `radial-gradient(120% 90% at 50% 0%, ${palette.vibrant}22, transparent 55%), linear-gradient(160deg, ${c1}40, ${c2}bb 55%, rgba(10,10,12,0.96))` }} />
-      </div>
+      {/* Backdrop: UltraBlur - four corner colours extracted from the cover give each song
+          its own persona (Plexamp's "smoked glass" look), scrimmed for readable chrome. */}
+      <UltraBlur artUrl={overlayArt ?? (cur?.thumbnail ? proxyImg(cur.thumbnail) : null)}
+        palette={palette} className="-z-10" />
 
       {/* Ambient EQ across the very bottom */}
       {radio.visualizerEnabled && (
@@ -169,21 +166,21 @@ export function NowPlayingOverlay() {
               className="mt-1 block w-full truncate text-sm text-white/70 transition hover:text-white hover:underline disabled:opacity-60"
               title="View artist details">{artist}</button>
           )}
-          {cur && <StarRating trackRef={cur.videoId} title={cur.title} artist={artist} size="sm" className="mt-2 justify-center" />}
+          {/* Plexamp's "FLAC ★★★★★ 44/16" row: format badge + stars together under the title. */}
+          {cur && (
+            <div className="mt-2 flex items-center justify-center gap-3">
+              <StarRating trackRef={cur.videoId} title={cur.title} artist={artist} size="sm" />
+              <TrackTechBadge trackRef={cur.videoId} />
+            </div>
+          )}
         </div>
 
-        {/* Seek: the track's real waveform when scanned, plain track otherwise */}
-        <div className="mt-3">
-          {cur ? (
-            <WaveformSeekBar trackRef={cur.videoId} pos={radio.positionSec} total={radio.durationSec}
-              onSeek={radio.seek} accent="#ffffff" disabled={!canSeek} />
-          ) : null}
-          <div className="mt-1 flex items-center justify-between text-[11px] tabular-nums text-white/60">
-            <span>{fmtClock(radio.positionSec)}</span>
-            {cur && <TrackTechBadge trackRef={cur.videoId} />}
-            <span>{radio.durationSec > 0 ? `-${fmtClock(Math.max(0, radio.durationSec - radio.positionSec))}` : '--:--'}</span>
-          </div>
-        </div>
+        {/* Seekprint: real loudness envelope, elapsed left / -remaining right, played
+            portion in the album accent - no thumb, the colour boundary is the playhead. */}
+        {cur && (
+          <WaveformSeekBar trackRef={cur.videoId} pos={radio.positionSec} total={radio.durationSec}
+            onSeek={radio.seek} accent={accent} disabled={!canSeek} clocks className="mt-3" />
+        )}
 
         {/* Transport */}
         <div className="mt-3 flex items-center justify-center gap-4">
@@ -200,7 +197,8 @@ export function NowPlayingOverlay() {
             <RotateCcw className="size-6" /><span className="absolute text-[9px] font-bold">15</span>
           </button>
           <button onClick={() => radio.togglePause()} aria-label={radio.paused ? 'Resume' : 'Pause'}
-            className="grid size-16 place-items-center rounded-full bg-white text-black shadow-xl transition hover:scale-105 active:scale-95">
+            className="grid size-16 place-items-center rounded-full shadow-xl transition hover:scale-105 active:scale-95"
+            style={{ background: accent, color: readableOn(accent) }}>
             {radio.paused ? <Play className="ml-0.5 size-7 fill-current" /> : <Pause className="size-7 fill-current" />}
           </button>
           <button onClick={() => radio.seekBy(30)} disabled={!canSeek} aria-label="Forward 30 seconds" title="Skip ahead 30s (e.g. past an ad)"

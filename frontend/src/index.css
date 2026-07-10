@@ -457,6 +457,14 @@
 /* Chat message padding — applied via CSS so it survives any module cache */
 .chat-scroll { padding-left: 1.5rem; padding-right: 1.5rem; padding-top: 0.75rem; }
 
+/* UltraBlur backdrop (music players): the corner colour field breathes very slowly.
+   Transform-only so it stays on the compositor; alternate direction so there's no snap. */
+@keyframes ultrablur-drift {
+  from { transform: translate3d(-2%, -1.5%, 0) scale(1); }
+  50%  { transform: translate3d(1.5%, 1%, 0) scale(1.06); }
+  to   { transform: translate3d(-1%, 2%, 0) scale(1.02); }
+}
+
 /* Shorts feed: a new short slides in from below (next) or above (prev), YouTube-style. */
 @keyframes yt-short-up { from { transform: translateY(100%); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
 @keyframes yt-short-down { from { transform: translateY(-100%); opacity: 0 } to { transform: translateY(0); opacity: 1 } }

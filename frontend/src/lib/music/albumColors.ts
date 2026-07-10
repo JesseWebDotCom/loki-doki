@@ -15,12 +15,15 @@ export interface Palette {
   dark: string
   /** A light companion, for text-safe highlights. */
   light: string
+  /** Four hue-diverse prominent colours for the UltraBlur corner gradients. */
+  corners: [string, string, string, string]
   /** True when the cover is essentially monochrome (palette collapses to tints). */
   muted: boolean
 }
 
 export const DEFAULT_PALETTE: Palette = {
-  dominant: '#3b3660', vibrant: '#b06bff', dark: '#171622', light: '#e6e2ff', muted: true,
+  dominant: '#3b3660', vibrant: '#b06bff', dark: '#171622', light: '#e6e2ff',
+  corners: ['#3b3660', '#b06bff', '#171622', '#4a3f7a'], muted: true,
 }
 
 const cache = new Map<string, Palette>()
@@ -82,17 +85,66 @@ function extract(img: HTMLImageElement): Palette {
   const [kr, kg, kb] = avg(byDark[0]!)
   const [lr, lg, lb] = avg(byLight[0]!)
   const [, vibrSat] = rgbToHsl(vr, vg, vb)
+
+  // UltraBlur corners: walk the score ranking and greedily keep colours that differ enough
+  // in hue OR luminance from the ones already kept, so the four corner washes read as a
+  // gradient field instead of one flat tint. Pad with darkened repeats when a cover is
+  // genuinely monochrome.
+  const picked: Array<readonly [number, number, number]> = []
+  for (const b of byScore) {
+    const c = avg(b)
+    const [h1, s1, l1] = rgbToHsl(c[0], c[1], c[2])
+    const distinct = picked.every(p => {
+      const [h2, , l2] = rgbToHsl(p[0], p[1], p[2])
+      const dh = Math.min(Math.abs(h1 - h2), 1 - Math.abs(h1 - h2))
+      return dh > 0.08 || Math.abs(l1 - l2) > 0.22
+    })
+    if (distinct && s1 > 0.04) picked.push(c)
+    if (picked.length === 4) break
+  }
+  while (picked.length < 4) {
+    const base = picked[0] ?? ([dr, dg, db] as const)
+    const f = 0.55 + picked.length * 0.12
+    picked.push([base[0] * f, base[1] * f, base[2] * f] as const)
+  }
+  // Darken for text safety: Plexamp's backdrops always stay dark enough for white chrome,
+  // so clamp each corner's luminance rather than relying on a heavy scrim alone.
+  const corners = picked.map(c => {
+    const [, , l] = rgbToHsl(c[0], c[1], c[2])
+    const f = l > 0.38 ? 0.38 / l : 1
+    return hex(c[0] * f, c[1] * f, c[2] * f)
+  }) as [string, string, string, string]
+
   return {
     dominant: hex(dr, dg, db),
     vibrant: hex(vr, vg, vb),
     dark: hex(kr * 0.7, kg * 0.7, kb * 0.7),
     light: hex(lr, lg, lb),
+    corners,
     muted: vibrSat < 0.2,
   }
 }
 
-/** Extract (and cache) the palette for an album-art URL. Returns the default palette until
- *  the image loads, then the real one. */
+/** Black or white, whichever stays readable on the given colour (for accent-filled buttons). */
+export function readableOn(color: string): string {
+  const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color)
+  if (!m) return '#fff'
+  const [r, g, b] = [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)]
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? '#000' : '#fff'
+}
+
+/** The palette accent for controls: the vibrant swatch, unless the cover is essentially
+ *  monochrome or its "vibrant" is too pale/washed-out to read as a colour on the filled
+ *  play button - then fall back to Plexamp-gold so chrome never goes grey-on-grey. */
+export function accentOf(palette: Palette): string {
+  // design-ok(hex-in-tsx): Plexamp-gold fallback accent, consumed by canvas/inline styles
+  const GOLD = '#e5a00d'
+  if (palette.muted) return GOLD
+  const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(palette.vibrant)
+  if (!m) return GOLD
+  const [, s, l] = rgbToHsl(parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16))
+  return s < 0.28 || l > 0.8 || l < 0.12 ? GOLD : palette.vibrant
+}
 export function useAlbumPalette(url: string | null | undefined): Palette {
   const [palette, setPalette] = useState<Palette>(() => (url && cache.get(url)) || DEFAULT_PALETTE)
   useEffect(() => {

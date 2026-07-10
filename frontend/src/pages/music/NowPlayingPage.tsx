@@ -24,8 +24,8 @@ import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { EqPanel } from '@/components/music/EqPanel'
 import { isYouTubeRef } from '@/lib/music/trackRef'
-
-const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, '0')}`
+import { UltraBlur } from '@/components/music/UltraBlur'
+import { useAlbumPalette, accentOf, readableOn, type Palette } from '@/lib/music/albumColors'
 
 // Generic fallback shown for the blink before the station's own lines load (or for legacy
 // preset stations with no saved id). The per-station LLM-written set replaces these.
@@ -66,17 +66,13 @@ function TuningLyrics({ stationId, color }: { stationId?: string; color: string 
   )
 }
 
-// The full-bleed player hero shell: blurred artwork backdrop over a forced-dark surface
-// (the Moosic/Apple-Music look), independent of the app theme like NowPlayingOverlay.
-function HeroShell({ backdropUrl, c1, children }: { backdropUrl: string | null; c1: string; children: React.ReactNode }) {
+// The full-bleed player hero shell: an UltraBlur backdrop (four corner colours extracted
+// from the artwork) over a forced-dark surface, independent of the app theme like
+// NowPlayingOverlay - each song gives the hero its own persona.
+function HeroShell({ backdropUrl, palette, children }: { backdropUrl: string | null; palette: Palette; children: React.ReactNode }) {
   return (
     <div data-theme="dark" className="relative overflow-hidden rounded-sheet bg-black shadow-lg">
-      {backdropUrl && (
-        <img src={backdropUrl} alt="" aria-hidden
-          className="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-50 blur-3xl saturate-150" />
-      )}
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/55 to-black/85" />
-      <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full opacity-20 blur-3xl" style={{ background: c1 }} />
+      <UltraBlur artUrl={backdropUrl} palette={palette} scrim="light" />
       {children}
     </div>
   )
@@ -89,9 +85,10 @@ function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, station
   c1: string; c2: string; emoji: string; label: string; paused: boolean; getAnalyser: () => AnalyserNode | null; stationId?: string; showViz: boolean; iconUrl?: string; sourceBackLink?: { url: string; label: string } | null
 }) {
   const navigate = useNavigate()
+  const palette = useAlbumPalette(iconUrl ?? null)
   return (
     <PageContainer width="full" className="pt-6 pb-8">
-      <HeroShell backdropUrl={iconUrl ?? null} c1={c1}>
+      <HeroShell backdropUrl={iconUrl ?? null} palette={palette}>
         {showViz && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3">
             <EqVisualizer active={!paused} getAnalyser={getAnalyser} color={c1} colorDark={c2} opacity={0.25} fade />
@@ -185,8 +182,10 @@ export function NowPlayingPage() {
   const mask = useTitleMask()
   const [eqOpen, setEqOpen] = useState(false)
   // Real square album art (iTunes-resolved, cached) for the hero + backdrop; the 16:9
-  // video thumbnail stays as the instant fallback. Unconditional hook - runs before returns.
+  // video thumbnail stays as the instant fallback. Unconditional hooks - run before returns.
   const heroArt = useSongArt(cur?.videoId, cur?.title, cur?.author)
+  const palette = useAlbumPalette(heroArt ?? (cur?.thumbnail ? proxyImg(cur.thumbnail) : null))
+  const accent = accentOf(palette)
 
   // Prefetch the current song's VIDEO (480p) so switching to Watch is instant + same-spot. Only
   // for real stations (where the Watch button is shown), not one-off/instant track sessions.
@@ -252,11 +251,11 @@ export function NowPlayingPage() {
 
   return (
     <PageContainer width="full" className="pt-6 pb-8">
-      {/* Player hero - full-bleed blurred artwork over a forced-dark surface. */}
-      <HeroShell backdropUrl={heroArt ?? (cur.thumbnail ? proxyImg(cur.thumbnail) : null)} c1={c1}>
+      {/* Player hero - full-bleed UltraBlur artwork colours over a forced-dark surface. */}
+      <HeroShell backdropUrl={heroArt ?? (cur.thumbnail ? proxyImg(cur.thumbnail) : null)} palette={palette}>
         {radio.visualizerEnabled && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3">
-            <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={c1} colorDark={c2} opacity={0.25} fade />
+            <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={palette.vibrant} colorDark={palette.dark} opacity={0.25} fade />
           </div>
         )}
         <div className="relative flex flex-col items-center px-6 pb-7 pt-5">
@@ -298,12 +297,13 @@ export function NowPlayingPage() {
               title="View artist details">{artist}</button>
           )}
 
-          {/* Heart · stars row */}
+          {/* Heart · stars · format row (Plexamp's "FLAC ★★★★★ 44/16") */}
           <div className="mt-4 flex items-center gap-6">
             <button onClick={favorite} aria-label="Favorite" className={utilBtn}>
               <Heart className="size-5" />
             </button>
             <StarRating trackRef={cur.videoId} title={cur.title} artist={artist} />
+            <TrackTechBadge trackRef={cur.videoId} />
             {isYt && (
               <button onClick={download} aria-label="Save offline" className={utilBtn}>
                 <Download className="size-5" />
@@ -311,19 +311,9 @@ export function NowPlayingPage() {
             )}
           </div>
 
-          {/* Waveform seek + clocks */}
-          <div className="mt-5 w-full max-w-2xl">
-            <WaveformSeekBar trackRef={cur.videoId} pos={radio.positionSec} total={radio.durationSec}
-              // design-ok(hex-in-tsx): white seek accent over the forced-dark hero (same as the overlay player)
-              onSeek={radio.seek} accent="#ffffff" disabled={!canSeek} />
-            <div className="mt-1 flex items-center justify-between text-[11px] tabular-nums text-white/50">
-              <span>{fmtClock(radio.positionSec)}</span>
-              <span>-{fmtClock(Math.max(0, radio.durationSec - radio.positionSec))}</span>
-            </div>
-          </div>
-
-          {/* Codec / lossless pill */}
-          <TrackTechBadge trackRef={cur.videoId} className="mt-1" />
+          {/* Seekprint: loudness envelope, elapsed left / -remaining right, accent playhead */}
+          <WaveformSeekBar trackRef={cur.videoId} pos={radio.positionSec} total={radio.durationSec}
+            onSeek={radio.seek} accent={accent} disabled={!canSeek} clocks className="mt-5 w-full max-w-2xl" />
 
           {/* Transport */}
           <div className="mt-4 flex items-center gap-6">
@@ -337,8 +327,9 @@ export function NowPlayingPage() {
               <RotateCcw className="size-8" /><span className="absolute inset-0 grid place-items-center text-[10px] font-bold">15</span>
             </button>
             <button onClick={() => radio.togglePause()} aria-label="Play/pause"
-              className="flex size-16 items-center justify-center text-white transition hover:scale-105 active:scale-95">
-              {radio.paused ? <Play className="size-14 translate-x-0.5 fill-current" /> : <Pause className="size-14 fill-current" />}
+              className="flex size-16 items-center justify-center rounded-full shadow-xl transition hover:scale-105 active:scale-95"
+              style={{ background: accent, color: readableOn(accent) }}>
+              {radio.paused ? <Play className="size-8 translate-x-0.5 fill-current" /> : <Pause className="size-8 fill-current" />}
             </button>
             <button onClick={() => radio.seekBy(30)} disabled={!canSeek} aria-label="Forward 30 seconds" title="Skip ahead 30s (e.g. past an ad)"
               className="relative flex items-center text-white/70 transition hover:text-white active:scale-95 disabled:opacity-40">
