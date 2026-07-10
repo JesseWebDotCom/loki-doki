@@ -13,14 +13,27 @@
 // build's hashed JS/CSS — so new deploys never took effect until several reloads (and a
 // mid-deploy broken bundle could get stuck in cache). Content-hashed assets stay cache-first
 // (their filenames change when content changes, so a cache hit is always correct).
-const CACHE_VERSION = "v2";
+// v3: offline navigations serve a precached self-contained /offline.html ("Connecting…" +
+// auto-reconnect) instead of the cached index.html. The cached shell references hashed
+// chunks that may not all be cached, which rendered a blank white page offline.
+// offline.html is fetched once at install — also bump this version when THAT file changes.
+const CACHE_VERSION = "v3";
 const CACHE_NAME = `lokidoki-${CACHE_VERSION}`;
+const OFFLINE_URL = "/offline.html";
 
 // API GETs worth serving stale-while-revalidate — small, frequently-polled, and useful
 // the instant the app opens even before the network responds.
 const CACHEABLE_API_PATHS = ["/api/briefing", "/api/home-layout"];
 
-self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      // cache:reload bypasses the HTTP cache so a stale copy can't get pinned for the
+      // lifetime of this CACHE_VERSION.
+      .then((c) => c.add(new Request(OFFLINE_URL, { cache: "reload" })))
+      .then(() => self.skipWaiting())
+  );
+});
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
@@ -43,16 +56,14 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // App shell: NETWORK-FIRST. Always try the live index.html so a new deploy's hashed chunk
-  // references load immediately; fall back to the cached shell only when offline.
+  // App shell: NETWORK-FIRST. When the server is unreachable, serve the precached
+  // offline page (which polls /api/health and reloads once the server is back) rather
+  // than a stale cached index.html whose hashed chunks may be missing → blank page.
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          if (res.ok) caches.open(CACHE_NAME).then((c) => c.put("/", res.clone()));
-          return res;
-        })
-        .catch(() => caches.open(CACHE_NAME).then((c) => c.match("/")).then((r) => r || Response.error()))
+      fetch(req).catch(() =>
+        caches.open(CACHE_NAME).then((c) => c.match(OFFLINE_URL)).then((r) => r || Response.error())
+      )
     );
     return;
   }

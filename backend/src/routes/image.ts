@@ -1571,6 +1571,22 @@ image.delete('/artifacts/:id', requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+// Rename / describe a generated clip (Videos → Mine metadata edit). Title falls back to the
+// prompt in listBin when null; empty description clears back to null.
+image.patch('/artifacts/:id/meta', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id   = c.req.param('id')
+  const body = await c.req.json<{ title?: string; description?: string }>().catch(() => ({}) as Record<string, never>)
+  const [row] = await db.select({ id: generatedImages.id }).from(generatedImages)
+    .where(and(eq(generatedImages.id, id), eq(generatedImages.userId, user.id))).limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  const patch: { updatedAt: Date; title?: string | null; description?: string | null } = { updatedAt: new Date() }
+  if (typeof body.title === 'string') patch.title = body.title.trim().slice(0, 200) || null
+  if (typeof body.description === 'string') patch.description = body.description.trim().slice(0, 2000) || null
+  await db.update(generatedImages).set(patch).where(eq(generatedImages.id, id))
+  return c.json({ ok: true })
+})
+
 // Return the most recent building job for the current user (any pipeline)
 image.get('/building', requireAuth, async (c) => {
   const user = c.get('user')

@@ -508,6 +508,10 @@ export const generatedImages = sqliteTable('generated_images', {
   loraIds: text('lora_ids').notNull().default('[]'),
   pipeline: text('pipeline').notNull().default('txt2img'),
   isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
+  // User-set display metadata for video/i2v clips surfaced in Videos → Mine. Null title
+  // falls back to the prompt; both are editable from the Mine card.
+  title: text('title'),
+  description: text('description'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
@@ -2804,6 +2808,7 @@ export const studioMedia = sqliteTable('studio_media', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   origin: text('origin', { enum: ['upload', 'recording', 'generated', 'export'] }).notNull(),
   title: text('title').notNull().default(''),
+  description: text('description'),
   kind: text('kind', { enum: ['video', 'audio', 'image'] }).notNull().default('video'),
   assetId: text('asset_id'),                    // → mediaAssets.id once ready
   status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),

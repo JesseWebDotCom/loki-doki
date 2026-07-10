@@ -23,6 +23,8 @@ export interface BinItem {
   origin: 'youtube' | 'clip' | 'reddit' | 'tiktok' | 'vimeo' | 'upload' | 'recording' | 'generated' | 'export'
   thumbUrl: string | null
   createdAt: number
+  /** User-set description (studio-owned + generated items); null when unset. */
+  description?: string | null
   /** Studio-owned items only: the studio_media row id (share toggle target). */
   mediaId?: string
   /** Studio-owned videos only: epoch ms when shared with the household, null = private. */
@@ -54,6 +56,7 @@ export async function listBin(userId: string): Promise<BinItem[]> {
     // touch studioStreamUrl. origin 'generated' is what MINE_ORIGINS keys off of.
     db.select({
       id: generatedImages.id, prompt: generatedImages.prompt, createdAt: generatedImages.createdAt,
+      title: generatedImages.title, description: generatedImages.description,
     }).from(generatedImages)
       .where(and(
         eq(generatedImages.userId, userId), eq(generatedImages.state, 'ready'),
@@ -98,7 +101,7 @@ export async function listBin(userId: string): Promise<BinItem[]> {
     if (!r.assetId) continue
     items.push({
       assetId: r.assetId, title: r.title || r.origin, kind: r.kind,
-      durationSec: r.durationSec, origin: r.origin,
+      durationSec: r.durationSec, origin: r.origin, description: r.description ?? null,
       thumbUrl: `/api/videos/studio/media/${r.assetId}/thumb`,
       createdAt: r.createdAt.getTime(),
       mediaId: r.id, sharedAt: r.sharedAt ? r.sharedAt.getTime() : null,
@@ -106,8 +109,8 @@ export async function listBin(userId: string): Promise<BinItem[]> {
   }
   for (const r of gen) {
     items.push({
-      assetId: r.id, title: r.prompt?.trim().slice(0, 80) || 'AI clip', kind: 'video',
-      durationSec: null, origin: 'generated',
+      assetId: r.id, title: r.title?.trim() || r.prompt?.trim().slice(0, 80) || 'AI clip', kind: 'video',
+      durationSec: null, origin: 'generated', description: r.description ?? null,
       thumbUrl: `/api/image/artifacts/${r.id}`,
       createdAt: r.createdAt.getTime(),
     })

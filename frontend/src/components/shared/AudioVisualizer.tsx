@@ -270,7 +270,11 @@ export function AudioVisualizer({
     // tier, the leading sliver breathes with the live signal, and the unplayed remainder
     // ghosts at low alpha so the track's shape is visible ahead of the playhead.
     function drawFanStrip(vib: Rgb, light: Rgb, dark: Rgb, corners: Rgb[], pk: number[] | null, prog: number) {
-      const SLIVER = 2.5, GAP = 2
+      // Sliver width scales with the bar so a desktop-wide strip stays chunky (~140
+      // blades, like the circular Soundprint's 144) instead of degrading into
+      // hundreds of hairlines that read as noise.
+      const SLIVER = Math.max(2.5, Math.min(8, w / 140))
+      const GAP = Math.max(2, SLIVER * 0.7)
       const n = Math.max(8, Math.floor((w + GAP) / (SLIVER + GAP)))
       const shades = [dark, corners[2] ?? dark, vib, corners[1] ?? mixRgb(vib, light, 0.5), light]
       let max = 1
@@ -292,7 +296,9 @@ export function AudioVisualizer({
         if (pk && played && i === drawn - 1) level = Math.min(1, level * (0.85 + bass * 0.4))
         const bh = Math.max(2, Math.pow(level, 1.2) * (h - 4))
         const tier = Math.min(shades.length - 1, Math.floor(level * shades.length))
-        ctx!.fillStyle = played ? rgba(shades[tier]!, 0.6 + level * 0.4) : rgba(mixRgb(vib, light, 0.3), 0.12)
+        // Ghost the unplayed remainder only faintly - at strip opacity a 0.12 ghost
+        // across a wide bar reads as smeared static rather than "the road ahead".
+        ctx!.fillStyle = played ? rgba(shades[tier]!, 0.6 + level * 0.4) : rgba(mixRgb(vib, light, 0.3), 0.05)
         ctx!.beginPath()
         ctx!.roundRect(x, h - bh, SLIVER, bh, SLIVER / 2)
         ctx!.fill()

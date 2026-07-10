@@ -28,6 +28,8 @@ export interface StudioBinItem {
   sharedAt?: number | null
   /** Source container format (e.g. 'mp4', 'webm'), when known. Drives format-aware export. */
   format?: string | null
+  /** User-set description; null/absent when unset. */
+  description?: string | null
 }
 
 // The bin also holds source clips pulled in from other providers as raw editing material —
@@ -91,6 +93,19 @@ export async function uploadStudioMedia(file: File): Promise<{ ok: true; id: str
 export const exportBinItemAs = (assetId: string, format: string, name: string) =>
   sendJson<{ conversionId: string; jobId: string }>(
     `/api/videos/studio/media/${encodeURIComponent(assetId)}/export-as`, 'POST', { format, name })
+
+/** Rename / describe a Mine item. Generated clips (origin 'generated') live in the image
+ *  store; everything else studio-owned lives in studio_media, so route accordingly. */
+export const updateBinItemMeta = (item: StudioBinItem, meta: { title?: string; description?: string }) =>
+  item.origin === 'generated'
+    ? sendJson<{ ok: true }>(`/api/image/artifacts/${encodeURIComponent(item.assetId)}/meta`, 'PATCH', meta)
+    : sendJson<{ ok: true }>(`/api/videos/studio/media/${encodeURIComponent(item.mediaId ?? '')}`, 'PATCH', meta)
+
+/** Delete a Mine item (generated clip or studio-owned upload/export/recording). */
+export const deleteBinItem = (item: StudioBinItem) =>
+  item.origin === 'generated'
+    ? sendJson<{ ok: true }>(`/api/image/artifacts/${encodeURIComponent(item.assetId)}`, 'DELETE')
+    : sendJson<{ ok: true }>(`/api/videos/studio/media/${encodeURIComponent(item.mediaId ?? '')}`, 'DELETE')
 
 export const startStudioExport = (projectId: string, preset: string) =>
   sendJson<{ ok: true; exportId: string }>(`/api/videos/studio/projects/${encodeURIComponent(projectId)}/export`, 'POST', { preset })

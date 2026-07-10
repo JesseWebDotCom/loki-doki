@@ -167,20 +167,48 @@ studioRoute.post('/media/upload', async (c) => {
 // My Videos Plex libraries (under this owner's show) and stay private otherwise.
 studioRoute.patch('/media/:id', async (c) => {
   const user = c.get('user')
-  const body = await c.req.json<{ shared?: boolean }>().catch(() => ({}) as Record<string, never>)
-  if (typeof body.shared !== 'boolean') return c.json({ error: 'shared (boolean) required' }, 400)
+  const body = await c.req.json<{ shared?: boolean; title?: string; description?: string }>().catch(() => ({}) as Record<string, never>)
   const [row] = await db.select().from(studioMedia)
     .where(and(eq(studioMedia.id, c.req.param('id')), eq(studioMedia.userId, user.id)))
     .limit(1)
   if (!row) return c.json({ error: 'not found' }, 404)
-  if (row.kind !== 'video') return c.json({ error: 'only videos can be shared' }, 400)
   const now = new Date()
-  await db.update(studioMedia)
-    .set({ sharedAt: body.shared ? now : null, updatedAt: now })
-    .where(eq(studioMedia.id, row.id))
-  const { fanOutShareChange } = await import('@/lib/videostudio/plexExport')
-  void fanOutShareChange(row.id, body.shared).catch(() => {})
-  return c.json({ ok: true, sharedAt: body.shared ? now.getTime() : null })
+
+  // Rename / describe (independent of sharing). Empty description clears back to null.
+  if (typeof body.title === 'string' || typeof body.description === 'string') {
+    const patch: Partial<typeof studioMedia.$inferInsert> = { updatedAt: now }
+    if (typeof body.title === 'string') patch.title = body.title.trim().slice(0, 200)
+    if (typeof body.description === 'string') patch.description = body.description.trim().slice(0, 2000) || null
+    await db.update(studioMedia).set(patch).where(eq(studioMedia.id, row.id))
+  }
+
+  if (typeof body.shared === 'boolean') {
+    if (row.kind !== 'video') return c.json({ error: 'only videos can be shared' }, 400)
+    await db.update(studioMedia)
+      .set({ sharedAt: body.shared ? now : null, updatedAt: now })
+      .where(eq(studioMedia.id, row.id))
+    const { fanOutShareChange } = await import('@/lib/videostudio/plexExport')
+    void fanOutShareChange(row.id, body.shared).catch(() => {})
+    return c.json({ ok: true, sharedAt: body.shared ? now.getTime() : null })
+  }
+  return c.json({ ok: true, sharedAt: row.sharedAt ? row.sharedAt.getTime() : null })
+})
+
+// Delete a studio-owned Mine item (upload / export / recording). Removes the row (its blob
+// asset reclaims on the next GC sweep) and pulls any shared copy from members' Plex libraries.
+// (AI-generated clips delete via DELETE /api/image/artifacts/:id instead.)
+studioRoute.delete('/media/:id', async (c) => {
+  const user = c.get('user')
+  const [row] = await db.select().from(studioMedia)
+    .where(and(eq(studioMedia.id, c.req.param('id')), eq(studioMedia.userId, user.id)))
+    .limit(1)
+  if (!row) return c.json({ error: 'not found' }, 404)
+  if (row.sharedAt) {
+    const { fanOutMineRemoval } = await import('@/lib/videostudio/plexExport')
+    await fanOutMineRemoval(row.id, user.id).catch(() => {})
+  }
+  await db.delete(studioMedia).where(eq(studioMedia.id, row.id))
+  return c.json({ ok: true })
 })
 
 // Range-capable source streaming for the editor's preview player.

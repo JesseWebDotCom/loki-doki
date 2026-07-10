@@ -3100,4 +3100,10 @@ export function runMigrations() {
   // Plex library under the owner's show (see schema.ts studioMedia.sharedAt). Must run
   // AFTER the studio_media CREATE above so a fresh install gets the column too.
   addColumn('studio_media', 'shared_at', 'INTEGER')
+
+  // Editable display metadata for Videos → Mine items (rename / describe from the card).
+  // studio_media already has `title`; generated clips fall back to their prompt when title is null.
+  addColumn('studio_media', 'description', 'TEXT')
+  addColumn('generated_images', 'title', 'TEXT')
+  addColumn('generated_images', 'description', 'TEXT')
 }

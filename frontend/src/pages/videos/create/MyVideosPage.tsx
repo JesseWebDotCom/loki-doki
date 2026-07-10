@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clapperboard, Clock, Download, Film, Heart, Plus, Sparkles, Trash2, Users, Video } from 'lucide-react'
+import { Clapperboard, Clock, Download, Film, Heart, Pencil, Plus, Sparkles, Trash2, Users, Video } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -11,14 +11,17 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/lib/toast'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { AddToPlaylistButton } from '@/components/youtube/AddToPlaylistButton'
 import { downloadArtifact } from '@/lib/converter/api'
 import {
-  createStudioProject, deleteStudioProject, exportBinItemAs, isMineBinItem, listStudioBin, listStudioProjects,
-  setStudioMediaShared, studioStreamUrl, type StudioBinItem,
+  createStudioProject, deleteBinItem, deleteStudioProject, exportBinItemAs, isMineBinItem,
+  listStudioBin, listStudioProjects, setStudioMediaShared, studioStreamUrl, updateBinItemMeta,
+  type StudioBinItem,
 } from '@/lib/videos/studioApi'
 
 function fmtDur(sec: number | null): string {
@@ -122,7 +125,10 @@ function SaveAsMenu({ item }: { item: StudioBinItem }) {
  *  a Mine item into those collections, since there's no "watch" event to hang it off of.
  *  Also carries the household-share toggle (shared videos land in other members' My Videos
  *  Plex libraries under your show); unsharing confirms since it removes them there. */
-function MineBinCard({ item, onPlay, onAskUnshare }: { item: StudioBinItem; onPlay: () => void; onAskUnshare: (item: StudioBinItem) => void }) {
+function MineBinCard({ item, onPlay, onAskUnshare, onEdit, onAskDelete }: {
+  item: StudioBinItem; onPlay: () => void; onAskUnshare: (item: StudioBinItem) => void
+  onEdit: (item: StudioBinItem) => void; onAskDelete: (item: StudioBinItem) => void
+}) {
   const qc = useQueryClient()
   const liked = useCollection('liked').some((v) => v.videoId === item.assetId)
   const watchLater = useCollection('watch-later').some((v) => v.videoId === item.assetId)
@@ -172,15 +178,78 @@ function MineBinCard({ item, onPlay, onAskUnshare }: { item: StudioBinItem; onPl
               <Users className={cn('size-3.5', shared && 'fill-current')} />
             </button>
           )}
+          <button type="button" title="Edit details" aria-label="Edit details"
+            onClick={(e) => { e.stopPropagation(); onEdit(item) }}
+            className={binIconBtnClass}>
+            <Pencil className="size-3.5" />
+          </button>
+          <button type="button" title="Delete" aria-label="Delete"
+            onClick={(e) => { e.stopPropagation(); onAskDelete(item) }}
+            className={cn(binIconBtnClass, 'hover:bg-destructive')}>
+            <Trash2 className="size-3.5" />
+          </button>
         </div>
       </button>
       <div className="min-w-0">
         <p className="line-clamp-2 text-sm font-semibold leading-snug">{item.title}</p>
+        {item.description ? (
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.description}</p>
+        ) : null}
         <p className="mt-0.5 text-xs capitalize text-muted-foreground">
           {item.origin}{shared ? ' · shared' : ''}
         </p>
       </div>
     </div>
+  )
+}
+
+/** Rename / describe a Mine item. Seeds from the item; Save routes to the right store
+ *  (generated clips → image meta, studio-owned → studio_media) via updateBinItemMeta. */
+function EditMetaDialog({ item, onOpenChange, onSaved }: {
+  item: StudioBinItem | null; onOpenChange: (v: boolean) => void; onSaved: () => void
+}) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (item) { setTitle(item.title ?? ''); setDescription(item.description ?? '') }
+  }, [item])
+
+  const save = async () => {
+    if (!item) return
+    setBusy(true)
+    try {
+      await updateBinItemMeta(item, { title: title.trim(), description: description.trim() })
+      toast.success('Details saved')
+      onSaved()
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!item} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Edit details</DialogTitle></DialogHeader>
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">Title</span>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">Description</span>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Add a description…" rows={3} />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+            <Button onClick={() => void save()} disabled={busy}>{busy ? <Spinner size="sm" /> : 'Save'}</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -191,6 +260,8 @@ export function MyVideosPage() {
   const qc = useQueryClient()
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null)
   const [confirmUnshare, setConfirmUnshare] = useState<StudioBinItem | null>(null)
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState<StudioBinItem | null>(null)
+  const [editItem, setEditItem] = useState<StudioBinItem | null>(null)
   const [playing, setPlaying] = useState<StudioBinItem | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ['studio-projects'], queryFn: listStudioProjects })
@@ -241,7 +312,7 @@ export function MyVideosPage() {
           <SectionHeader title="Your videos" className="mb-4" />
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4">
             {mine.map((item) => (
-              <MineBinCard key={item.assetId} item={item} onPlay={() => setPlaying(item)} onAskUnshare={setConfirmUnshare} />
+              <MineBinCard key={item.assetId} item={item} onPlay={() => setPlaying(item)} onAskUnshare={setConfirmUnshare} onEdit={setEditItem} onAskDelete={setConfirmDeleteItem} />
             ))}
           </div>
         </section>
@@ -305,6 +376,29 @@ export function MyVideosPage() {
             .then(() => { toast.success('No longer shared'); void qc.invalidateQueries({ queryKey: ['studio-bin'] }) })
             .catch(() => toast.error('Could not unshare this video'))
         }}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDeleteItem}
+        onOpenChange={(v) => { if (!v) setConfirmDeleteItem(null) }}
+        title="Delete this video?"
+        description={`"${confirmDeleteItem?.title}" will be permanently removed. This can't be undone.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          const item = confirmDeleteItem
+          setConfirmDeleteItem(null)
+          if (!item) return
+          void deleteBinItem(item)
+            .then(() => { toast.success('Deleted'); void qc.invalidateQueries({ queryKey: ['studio-bin'] }) })
+            .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not delete this video'))
+        }}
+      />
+
+      <EditMetaDialog
+        item={editItem}
+        onOpenChange={(v) => { if (!v) setEditItem(null) }}
+        onSaved={() => void qc.invalidateQueries({ queryKey: ['studio-bin'] })}
       />
 
       <Dialog open={!!playing} onOpenChange={(v) => { if (!v) setPlaying(null) }}>
