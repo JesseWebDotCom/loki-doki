@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, Info, Music2 } from 'lucide-react'
+import { DndContext, PointerSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { ExternalLink, GripVertical, Info, Music2, Play } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, type LyricLine } from '@/lib/music/catalogApi'
 import { useRadio } from '@/context/RadioContext'
+import { SongArt } from '@/components/music/SongArt'
+import { useTitleMask } from '@/lib/music/policy'
+import type { QueuedTrack } from '@/lib/music/radioEngine'
 
 // Shared building blocks for the Now Playing surfaces (the app-wide player overlay and any
 // deep-link page). Extracted from the old NowPlayingPage so lyrics/about/links never diverge.
@@ -230,5 +236,68 @@ export function SmartLinksRow({ artist, title, color }: { artist: string; title:
         </a>
       ))}
     </div>
+  )
+}
+
+// ── Up Next (shared by the overlay player and the Now Playing page) ────────────────
+// Plexamp queue behaviors: drag a row (by its grip) to reorder what plays after the
+// current song, click a row to play it now. Purely a view over radio.queue - the engine
+// owns the live array (reorderQueue/jumpTo splice it in place).
+
+function UpNextRow({ id, track, n, absIndex }: { id: string; track: QueuedTrack; n: number; absIndex: number }) {
+  const radio = useRadio()
+  const mask = useTitleMask()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  return (
+    <div ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn('group flex items-center gap-3 rounded-control px-2 py-1.5 transition-colors hover:bg-foreground/[0.06]',
+        isDragging && 'relative z-10 bg-foreground/[0.08] shadow-lg')}>
+      <button type="button" onClick={() => radio.jumpTo(absIndex)}
+        className="relative grid w-4 shrink-0 place-items-center text-center text-xs tabular-nums text-muted-foreground/60"
+        aria-label={`Play ${track.title} now`} title="Play now">
+        <span className="group-hover:opacity-0">{n}</span>
+        <Play className="absolute size-3.5 fill-current text-foreground opacity-0 group-hover:opacity-100" />
+      </button>
+      <SongArt trackRef={track.videoId} title={track.title} artist={track.author} className="size-10" rounded="rounded-control" />
+      <button type="button" onClick={() => radio.jumpTo(absIndex)} className="min-w-0 flex-1 text-left" title="Play now">
+        <p className="truncate text-sm font-medium">{mask(track.title)}</p>
+        {track.author && <p className="truncate text-xs text-muted-foreground">{track.author}</p>}
+      </button>
+      <button type="button" {...attributes} {...listeners}
+        className="grid size-8 shrink-0 cursor-grab touch-none place-items-center rounded-control text-muted-foreground/50 opacity-0 transition hover:text-foreground group-hover:opacity-100 active:cursor-grabbing"
+        aria-label={`Reorder ${track.title}`} title="Drag to reorder">
+        <GripVertical className="size-4" />
+      </button>
+    </div>
+  )
+}
+
+export function UpNextList({ tracks, baseIndex }: {
+  /** The queue tail after the current track (radio.queue.slice(radio.index + 1, …)). */
+  tracks: QueuedTrack[]
+  /** Absolute queue index of tracks[0] (radio.index + 1). */
+  baseIndex: number
+}) {
+  const radio = useRadio()
+  // A grip-drag must move a few px before dnd-kit claims the pointer, so plain clicks
+  // (play-now) on the same rows never get eaten by the sensor.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const ids = tracks.map((t, i) => `${t.videoId}:${baseIndex + i}`)
+  const onDragEnd = (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id) return
+    const from = ids.indexOf(String(e.active.id))
+    const to = ids.indexOf(String(e.over.id))
+    if (from < 0 || to < 0) return
+    radio.reorderQueue(baseIndex + from, baseIndex + to)
+  }
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        {tracks.map((t, i) => (
+          <UpNextRow key={ids[i]!} id={ids[i]!} track={t} n={i + 1} absIndex={baseIndex + i} />
+        ))}
+      </SortableContext>
+    </DndContext>
   )
 }

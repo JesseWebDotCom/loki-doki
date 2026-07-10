@@ -37,6 +37,9 @@ interface RadioCtx extends RadioState {
   /** Sweet Fades: overlap the next song where this one's outro begins (loudness-timed). */
   sweetFades: boolean
   setSweetFades: (on: boolean) => void
+  /** Up Next editing: move a queue item (absolute indexes) / play a queue item now. */
+  reorderQueue: (from: number, to: number) => void
+  jumpTo: (index: number) => void
   /** How many seconds a lyric line highlights BEFORE it's sung (read-ahead). Per-device pref. */
   lyricLeadSec: number
   setLyricLeadSec: (sec: number) => void
@@ -205,6 +208,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     skip: () => e.skip(),
     seek: (sec) => e.seek(sec),
     seekBy: (delta) => e.seekBy(delta),
+    reorderQueue: (from, to) => e.reorderQueue(from, to),
+    jumpTo: (i) => e.jumpTo(i),
     setRepeatOne: (on) => e.setRepeatOne(on),
     getAnalyser: () => e.getAnalyser(),
     togglePause: () => e.togglePause(),

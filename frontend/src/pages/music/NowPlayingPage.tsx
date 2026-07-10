@@ -16,10 +16,10 @@ import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, addFavorite, saveOffline, getStationTuning, getStation, prefetchMedia } from '@/lib/music/catalogApi'
 import { useCatalogNav } from '@/lib/music/catalogNav'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
-import { SectionLabel, LyricsPanel, AboutStrip, SmartLinksRow } from '@/components/music/nowPlayingParts'
+import { SectionLabel, LyricsPanel, AboutStrip, SmartLinksRow, UpNextList } from '@/components/music/nowPlayingParts'
 import { StarRating } from '@/components/music/StarRating'
 import { useTitleMask } from '@/lib/music/policy'
-import { SongArt, useSongArt } from '@/components/music/SongArt'
+import { useSongArt } from '@/components/music/SongArt'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { EqPanel } from '@/components/music/EqPanel'
@@ -420,16 +420,7 @@ export function NowPlayingPage() {
                 <p className="text-sm">Nothing queued.</p>
               </div>
             )}
-            {upNext.map((t, i) => (
-              <div key={t.videoId + i} className="group flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-foreground/[0.04]">
-                <span className="w-4 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground/50">{i + 1}</span>
-                <SongArt trackRef={t.videoId} title={t.title} artist={t.author} className="size-10" rounded="rounded-control" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{mask(t.title)}</p>
-                  {t.author && <p className="truncate text-xs text-muted-foreground">{t.author}</p>}
-                </div>
-              </div>
-            ))}
+            <UpNextList tracks={upNext} baseIndex={radio.index + 1} />
             {/* The station starts on its first track while the rest of the queue builds in the
                 background - show skeleton rows so the short list doesn't read as "that's all". */}
             {radio.queueLoading && (

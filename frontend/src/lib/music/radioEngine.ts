@@ -749,9 +749,36 @@ export class RadioEngine {
     await this.playFrom(runId, station, songs)
   }
 
+  // The LIVE queue array the transition loop iterates. Queue edits (drag-reorder, play-now)
+  // must splice this array in place - reassigning state.queue alone would edit a dead copy
+  // the loop never looks at again.
+  private songsRef: QueuedTrack[] | null = null
+
+  /** Move an Up Next item (absolute queue index) to another Up Next position. */
+  reorderQueue(from: number, to: number) {
+    const songs = this.songsRef
+    const min = this.state.index + 1
+    if (!songs || from === to) return
+    if (from < min || to < min || from >= songs.length || to >= songs.length) return
+    const [moved] = songs.splice(from, 1)
+    if (!moved) return
+    songs.splice(to, 0, moved)
+    this.set({ queue: songs.slice(), nextTrack: songs[this.state.index + 1] ?? null })
+  }
+
+  /** Play an Up Next item NOW: pull it to the front of Up Next, then skip into it. */
+  jumpTo(index: number) {
+    const songs = this.songsRef
+    const min = this.state.index + 1
+    if (!songs || index < min || index >= songs.length) return
+    if (index !== min) this.reorderQueue(index, min)
+    this.skip()
+  }
+
   // Run the transition loop over `songs`, assuming songs[0] is ALREADY playing on `this.deck`.
   // Shared by start() (after its DJ intro) and playTrack() (after its instant first song).
   private async playFrom(runId: number, station: DjStation, songs: QueuedTrack[]) {
+    this.songsRef = songs
     for (let i = 0; i < songs.length; i++) {
       if (this.stale(runId)) return
       const cur = songs[i]!
@@ -787,7 +814,16 @@ export class RadioEngine {
         this.set({ phase: 'transition' })
         // Manual skip → fast crossfade, no DJ (the listener wants the next song NOW). Drop the
         // prepared DJ segment (and free its audio) instead of waiting on / playing it.
-        const quick = reason === 'skip'
+        let quick = reason === 'skip'
+        // The queue was edited while this song played (drag-reorder / play-now) and a
+        // DIFFERENT track is up next than the one pre-cued at iteration start: re-cue the
+        // incoming deck and go quick - the prepared DJ segment introduces the wrong song.
+        let effNext = next
+        if (songs[i + 1] && songs[i + 1] !== next) {
+          effNext = songs[i + 1]!
+          this.cueSrc(otherDeck, effNext.videoId)
+          quick = true
+        }
         if (quick) { void preparedNext?.then(d => { if (d.blobUrl) URL.revokeObjectURL(d.blobUrl) }) }
         const [dj, firstRealLyricSec] = await Promise.all([
           quick ? Promise.resolve({ text: null, blobUrl: null }) : (preparedNext ?? Promise.resolve({ text: null, blobUrl: null })),
@@ -797,7 +833,7 @@ export class RadioEngine {
         // The display flip (currentTrack/index/nextTrack) happens INSIDE transition() the moment
         // the incoming song starts under the DJ — so the page's hero/lyrics/info update as the DJ
         // introduces it, not after the DJ finishes. transition() also swaps this.deck.
-        await this.transition(runId, this.deck, otherDeck, dj, { index: i + 1, currentTrack: next, nextTrack: songs[i + 2] ?? null }, quick, quick ? null : firstRealLyricSec)
+        await this.transition(runId, this.deck, otherDeck, dj, { index: i + 1, currentTrack: effNext, nextTrack: songs[i + 2] ?? null }, quick, quick ? null : firstRealLyricSec)
         this.set({ djSpeaking: false, djText: null })
       } else {
         this.set({ phase: 'outro' })
@@ -1010,6 +1046,7 @@ export class RadioEngine {
   stop() {
     this.runId++
     this.skipResolve = null
+    this.songsRef = null
     if (this.sleepTimeout) { clearTimeout(this.sleepTimeout); this.sleepTimeout = null }
     if (this.built) {
       (Object.keys(this.ch) as ChKey[]).forEach(k => {

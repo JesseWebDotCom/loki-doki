@@ -14,7 +14,7 @@ import { useCatalogNav } from '@/lib/music/catalogNav'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
 import { StarRating } from '@/components/music/StarRating'
 import { useTitleMask } from '@/lib/music/policy'
-import { SongArt, useSongArt } from '@/components/music/SongArt'
+import { useSongArt } from '@/components/music/SongArt'
 import { useAlbumPalette, accentOf, readableOn } from '@/lib/music/albumColors'
 import { UltraBlur } from '@/components/music/UltraBlur'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
@@ -22,7 +22,7 @@ import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel } from './nowPlayingParts'
+import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel, UpNextList } from './nowPlayingParts'
 import { addFavorite, saveOffline } from '@/lib/music/catalogApi'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 import { queueForKaraoke } from '@/lib/music/karaokeQueue'
@@ -295,16 +295,7 @@ export function NowPlayingOverlay() {
                     <p className="text-sm">Nothing queued.</p>
                   </div>
                 )}
-                {upNext.map((t, i) => (
-                  <div key={t.videoId + i} className="flex items-center gap-3 rounded-control px-2 py-1.5">
-                    <span className="w-4 shrink-0 text-center text-xs tabular-nums text-white/40">{i + 1}</span>
-                    <SongArt trackRef={t.videoId} title={t.title} artist={t.author} className="size-10" rounded="rounded-control" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-white">{mask(t.title)}</p>
-                      {t.author && <p className="truncate text-xs text-white/60">{t.author}</p>}
-                    </div>
-                  </div>
-                ))}
+                <UpNextList tracks={upNext} baseIndex={radio.index + 1} />
                 {radio.queueLoading && (
                   <div className="space-y-2 pt-1">
                     {Array.from({ length: 4 }).map((_, i) => (

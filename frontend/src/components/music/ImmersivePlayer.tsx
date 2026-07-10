@@ -12,6 +12,7 @@ import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { MusicVisualizer, VISUALIZERS, type VisualizerVariant } from '@/components/music/MusicVisualizer'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useSongArt } from '@/components/music/SongArt'
+import { LyricsPanel } from '@/components/music/nowPlayingParts'
 
 /** App-level mount: renders the immersive player when the overlay context has it open. */
 export function ImmersivePlayerMount() {
@@ -21,6 +22,7 @@ export function ImmersivePlayerMount() {
 
 const VIS_KEY = 'music.immersiveVisualizer'
 const MODE_KEY = 'music.immersiveShowVisualizer'
+const LYR_KEY = 'music.immersiveShowLyrics'
 
 /** Plexamp-style fullscreen Now Playing: an "UltraBlur" album-colour backdrop, big art that
  *  swaps to a live audio-reactive visualizer (tap the art, Plexamp-style), the seekprint
@@ -31,6 +33,7 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
   const mask = useTitleMask()
   const rootRef = useRef<HTMLDivElement>(null)
   const [showVis, setShowVis] = useState(() => localStorage.getItem(MODE_KEY) === '1')
+  const [showLyr, setShowLyr] = useState(() => localStorage.getItem(LYR_KEY) === '1')
   const [variant, setVariant] = useState<VisualizerVariant>(() =>
     (VISUALIZERS.find(v => v.id === localStorage.getItem(VIS_KEY))?.id) ?? 'fan')
   const [idle, setIdle] = useState(false)
@@ -58,6 +61,7 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
   const upNext = radio.queue.slice(radio.index + 1, radio.index + 5)
 
   useEffect(() => { localStorage.setItem(MODE_KEY, showVis ? '1' : '0') }, [showVis])
+  useEffect(() => { localStorage.setItem(LYR_KEY, showLyr ? '1' : '0') }, [showLyr])
   useEffect(() => { localStorage.setItem(VIS_KEY, variant) }, [variant])
 
   // Esc closes the immersive layer (the browser Fullscreen API is driven by the context that
@@ -97,10 +101,10 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
       <UltraBlur artUrl={artUrl || null} palette={palette} scrim="light" />
 
       {/* Center stage: album art OR the visualizer. Tap to toggle between them (Plexamp). */}
-      <button type="button" onClick={() => setShowVis(v => !v)}
+      <button type="button" onClick={() => { setShowVis(v => !v); setShowLyr(false) }}
         className="absolute inset-0 flex items-center justify-center"
         title={showVis ? 'Show album art' : 'Show visualizer'}>
-        {showVis ? (
+        {showLyr ? null : showVis ? (
           <MusicVisualizer variant={variant} getAnalyser={radio.getAnalyser} palette={palette}
             active={!radio.paused} peaks={peaks} progress={progress} className="absolute inset-0" />
         ) : (
@@ -111,19 +115,34 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
         )}
       </button>
 
+      {/* Lyrics stage (LYR): synced lyrics over the bare UltraBlur, Plexamp-style. The panel
+          uses theme tokens, so pin the dark theme regardless of the app's. */}
+      {showLyr && track && (
+        <div data-theme="dark" className="absolute inset-x-0 bottom-52 top-16 mx-auto w-full max-w-3xl px-6 text-foreground">
+          <LyricsPanel artist={track.author ?? ''} title={track.title}
+            position={radio.positionSec} duration={radio.durationSec || undefined} onSeek={radio.seek} />
+        </div>
+      )}
+
       {/* Top bar */}
       <div className={cn('absolute inset-x-0 top-0 flex items-center justify-between p-5 transition-opacity duration-500', idle && 'opacity-0')}>
         <div className="min-w-0">
           {radio.station?.label && <div className="text-xs font-medium uppercase tracking-[0.2em] text-white/50">{radio.station.label}</div>}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={(e) => { e.stopPropagation(); setShowVis(v => !v) }}
+          <button type="button" onClick={(e) => { e.stopPropagation(); setShowVis(v => !v); setShowLyr(false) }}
             className={cn('rounded-full px-3 py-1.5 text-[11px] font-bold tracking-widest backdrop-blur transition',
-              showVis ? 'bg-white/90 text-black' : 'bg-white/10 text-white/80 hover:bg-white/20')}
-            title={showVis ? 'Show album art' : 'Show visualizer'}>
+              showVis && !showLyr ? 'bg-white/90 text-black' : 'bg-white/10 text-white/80 hover:bg-white/20')}
+            title={showVis && !showLyr ? 'Show album art' : 'Show visualizer'}>
             VIZ
           </button>
-          {showVis && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); setShowLyr(v => !v) }}
+            className={cn('rounded-full px-3 py-1.5 text-[11px] font-bold tracking-widest backdrop-blur transition',
+              showLyr ? 'bg-white/90 text-black' : 'bg-white/10 text-white/80 hover:bg-white/20')}
+            title={showLyr ? 'Hide lyrics' : 'Show lyrics'}>
+            LYR
+          </button>
+          {showVis && !showLyr && (
             <button type="button" onClick={(e) => { e.stopPropagation(); cycleVisualizer() }}
               className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium backdrop-blur transition hover:bg-white/20"
               title="Change visualizer">
