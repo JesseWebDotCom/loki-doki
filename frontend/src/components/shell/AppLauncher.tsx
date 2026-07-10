@@ -57,6 +57,9 @@ interface AppLauncherBodyProps {
   /** Overrides the grid scroller height (dialog uses a fixed height; the mobile sheet flex-fills). */
   scrollerClassName?: string;
   className?: string;
+  /** Hides the built-in search header (the mobile Spotlight embeds the launcher as its
+   *  empty state and owns the one search input). */
+  hideSearch?: boolean;
 }
 
 const RECENTS_MAX = 8;
@@ -203,7 +206,7 @@ export function AppLauncher({ open, onOpenChange, pinnedIds, recentIds, onPin, o
   );
 }
 
-export function AppLauncherBody({ active, onClose, pinnedIds, recentIds, onPin, onUnpin, scrollerClassName, className }: AppLauncherBodyProps) {
+export function AppLauncherBody({ active, onClose, pinnedIds, recentIds, onPin, onUnpin, scrollerClassName, className, hideSearch = false }: AppLauncherBodyProps) {
   const navigate = useNavigate();
   const prefetch = useIntentPrefetch();
   const appFeatures = useAppFeatures();
@@ -370,6 +373,7 @@ export function AppLauncherBody({ active, onClose, pinnedIds, recentIds, onPin, 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
           {/* Search, flush header matching SpotlightSearch */}
+          {!hideSearch && (
           <div className="flex shrink-0 items-center gap-3 border-b border-border/50 px-5 py-4">
             <Search className="size-4 shrink-0 text-foreground/40" aria-hidden="true" />
             <input
@@ -387,6 +391,7 @@ export function AppLauncherBody({ active, onClose, pinnedIds, recentIds, onPin, 
               esc
             </kbd>
           </div>
+          )}
 
           {/* Category chips: the App Store's categories */}
           <ChipRow className="shrink-0 px-4 pb-1 pt-3">

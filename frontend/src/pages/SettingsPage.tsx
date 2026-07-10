@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Bell, Brain, Cpu, Home, Info, Menu, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
+import { Bell, Brain, Cpu, Home, Info, Palette, PanelLeft, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
 import type { PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
 import { Button } from '@/components/ui/button'
@@ -52,8 +52,11 @@ export function SettingsPage() {
   useAppHeader({
     query: '', setQuery: () => {}, searchable: false,
     leftSlot: (
-      <Button variant="ghost" size="icon-sm" onClick={() => setMobileNavOpen(true)} className="md:hidden" aria-label="Open navigation">
-        <Menu className="size-5" />
+      // Labeled (not a bare hamburger): an unlabeled Menu glyph here was identical to
+      // other menu icons while opening a completely different drawer.
+      <Button variant="ghost" size="sm" onClick={() => setMobileNavOpen(true)} className="md:hidden gap-1.5" aria-label="Open settings sections">
+        <PanelLeft className="size-4" />
+        Sections
       </Button>
     ),
     extraCrumbs: [{ label: sectionLabel }],

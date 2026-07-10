@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Square, Plus, X, FileText } from 'lucide-react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { ArrowUp, Square, Plus, X, FileText, Mic } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { RippleButton } from '@/components/shared/RippleButton'
 import { Button } from '@/components/ui/button'
@@ -31,12 +31,24 @@ interface Props {
   focusKey?: number
   /** When false, Photos option is disabled (no vision model available). */
   visionAvailable?: boolean
+  /** Renders a hands-free mic toggle inside the composer (mobile quick-ask / chat). */
+  micOn?: boolean
+  onMicToggle?: () => void
+}
+
+export interface CompanionComposerHandle {
+  /** Focus the text input. Call synchronously inside a tap handler so iOS raises
+   *  the keyboard (programmatic focus outside a user gesture is unreliable). */
+  focus: () => void
 }
 
 // The companion's text input. Self-contained local state; the overlay decides where
 // the message goes (chat.submit on /chat, navigate+submit elsewhere). Visual style
 // matches the retired GlobalChatInput InputBar.
-export function CompanionComposer({ onSend, onStop, isGenerating = false, isThinking = false, placeholder = 'Message Loki Doki…', autoFocus = false, onTyping, focusKey, visionAvailable = true }: Props) {
+export const CompanionComposer = forwardRef<CompanionComposerHandle, Props>(function CompanionComposer(
+  { onSend, onStop, isGenerating = false, isThinking = false, placeholder = 'Message Loki Doki…', autoFocus = false, onTyping, focusKey, visionAvailable = true, micOn, onMicToggle }: Props,
+  ref,
+) {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
   // Document attachments live in chat context (extracted text persists to the conversation).
@@ -44,6 +56,8 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
   const inputRef = useRef<HTMLInputElement>(null)
   const photosInputRef = useRef<HTMLInputElement>(null)
   const filesInputRef = useRef<HTMLInputElement>(null)
+
+  useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), [])
 
   useEffect(() => { if (autoFocus) inputRef.current?.focus() }, [autoFocus])
   useEffect(() => { if (focusKey !== undefined && focusKey > 0) { inputRef.current?.focus(); inputRef.current?.select() } }, [focusKey])
@@ -164,8 +178,23 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
           onChange={(e) => { setValue(e.target.value); onTyping?.() }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           placeholder={placeholder}
-          className="flex-1 bg-transparent text-sm text-foreground/90 outline-none placeholder:text-foreground/25"
+          className="min-w-0 flex-1 bg-transparent text-base md:text-sm text-foreground/90 outline-none placeholder:text-foreground/25"
         />
+
+        {onMicToggle && (
+          <button
+            type="button"
+            aria-label={micOn ? 'Turn off voice' : 'Talk'}
+            aria-pressed={micOn}
+            onClick={onMicToggle}
+            className={cn(
+              'grid size-7 shrink-0 place-items-center rounded-full transition-colors',
+              micOn ? 'bg-brand text-brand-foreground' : 'text-foreground/40 hover:text-foreground',
+            )}
+          >
+            <Mic className="size-3.5" />
+          </button>
+        )}
 
         {!value.trim() && !isGenerating && attachments.length === 0 && (
           <kbd className="hidden shrink-0 select-none rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground/30 sm:inline">
@@ -195,4 +224,4 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
     </div>
     </div>
   )
-}
+})

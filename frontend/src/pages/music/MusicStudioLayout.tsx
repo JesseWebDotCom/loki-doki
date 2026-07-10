@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { AppTabBar, type AppTab } from '@/components/shared/AppTabBar'
-import { EqVisualizer } from '@/components/shared/EqVisualizer'
+import { AudioVisualizer, useVisualizerPref } from '@/components/shared/AudioVisualizer'
+import { paletteFromColors } from '@/lib/music/albumColors'
 import { WaveSeekBar } from '@/components/music/studio/WaveSeekBar'
 import { ChordTimeline } from '@/components/music/studio/ChordTimeline'
 import { ActiveChordDiagram } from '@/components/music/studio/ActiveChordDiagram'
@@ -48,7 +49,11 @@ const TABS: AppTab<'mixer' | 'tab' | 'tutorials'>[] = [
   { id: 'tutorials', label: 'Tutorials', icon: ListVideo },
 ]
 
+// design-ok(hex-in-tsx): canvas fillStyle cannot consume CSS vars; hue matches --gradient-brand-3
+const STUDIO_PALETTE = paletteFromColors('#b06bff')
+
 function StudioShell() {
+  const stripVariant = useVisualizerPref()
   const navigate = useNavigate()
   const location = useLocation()
   const { trackId, track, installed, engine, metro, invalidate, vocalsOnsetSec } = useStudioEngine()
@@ -160,7 +165,9 @@ function StudioShell() {
           ) : (
             <div className="space-y-2 border-t border-border/50 p-3 sm:p-4">
               <div className="relative h-8 overflow-hidden rounded-control bg-card/40">
-                <EqVisualizer active={engine.isPlaying()} getAnalyser={() => engine.getAnalyser()} className="absolute inset-0" opacity={0.5} fade />
+                <AudioVisualizer variant={stripVariant} mode="strip" active={engine.isPlaying()}
+                  getAnalyser={() => engine.getAnalyser()} palette={STUDIO_PALETTE}
+                  className="absolute inset-0" opacity={0.5} fade />
               </div>
               <WaveSeekBar peaks={mixPeaks} position={displayPos} total={duration} onSeek={seekTo} onScrubStateChange={setScrubbing} />
 

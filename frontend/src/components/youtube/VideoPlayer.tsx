@@ -11,7 +11,11 @@ import { VideoThumb } from '@/components/youtube/media'
 import { useZoomToFillFullscreen } from '@/hooks/use-zoom-to-fill-fullscreen'
 import { useAudioBoost } from '@/hooks/use-audio-boost'
 import { useMediaAnalyser } from '@/hooks/use-media-analyser'
-import { EqVisualizer } from '@/components/shared/EqVisualizer'
+import { AudioVisualizer, useVisualizerPref } from '@/components/shared/AudioVisualizer'
+import { paletteFromColors } from '@/lib/music/albumColors'
+
+// design-ok(hex-in-tsx): canvas fillStyle cannot consume CSS vars; hues match the Videos accent
+const VIDEO_AUDIO_PALETTE = paletteFromColors('#22d3ee', '#0891b2')
 
 export interface VideoPlayerHandle {
   seek: (sec: number) => void
@@ -92,6 +96,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // sizes the 9:16 box); used by the vertical Shorts feed.
   aspect?: 'video' | 'short'
 }>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
+  const stripVariant = useVisualizerPref()
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null)
@@ -477,7 +482,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
                 mini-players), kept clear of the bottom control bar. */}
             {/* design-ok(hex-in-tsx): canvas fillStyle cannot consume CSS vars; hues match the Videos accent (--yt-accent-fg/--yt-accent) */}
             <div className="pointer-events-none absolute inset-x-0 bottom-14 top-1/2">
-              <EqVisualizer active={playing} getAnalyser={getAnalyser} color="#22d3ee" colorDark="#0891b2" opacity={0.7} fade />
+              <AudioVisualizer variant={stripVariant} mode="strip" active={playing} getAnalyser={getAnalyser}
+                palette={VIDEO_AUDIO_PALETTE} opacity={0.7} fade />
             </div>
             {/* design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): status badge on a theme-invariant chip floating over the video surface */}
             <span className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-semibold text-sky-300 opacity-0 backdrop-blur transition group-hover:opacity-100">

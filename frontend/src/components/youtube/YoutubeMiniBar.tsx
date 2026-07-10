@@ -1,16 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Play, Pause, Maximize2, PictureInPicture, X, SkipBack, SkipForward } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
-import { useRadio } from '@/context/RadioContext'
-import { useLiveRadio } from '@/context/LiveRadioContext'
 import { registerTransport, acquireAudio } from '@/lib/mediaCoordinator'
-import { RadioMiniBar } from '@/components/music/RadioMiniBar'
-import { LiveRadioMiniBar } from '@/components/music/LiveRadioMiniBar'
+import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
 import { fileUrl, proxyStreamUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { proxyImg } from '@/lib/img'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
@@ -27,14 +24,15 @@ import { useTikTokPlayer } from '@/hooks/use-tiktok-player'
  *  - Online YouTube: YouTube IFrame embed (videoId, no localKind, no streamUrl)
  *  - Offline saved:  local <video> via fileUrl()   (localKind = 'audio' | 'video')
  *  - Live stream:    <audio src={streamUrl}>       (streamUrl set, no IFrame, no progress bar)
+ *
+ * Mounted (always) by MediaBarSlot, which owns bar arbitration and the route rules;
+ * `visible` only hides the chrome. The component must stay mounted while a track
+ * exists because the playback surfaces (iframe/<video>/<audio>) live inside it.
  */
-export function YoutubeMiniBar() {
+export function YoutubeMiniBar({ visible = true }: { visible?: boolean }) {
   const pb = useYoutubePlayback()
-  const radio = useRadio()
-  const liveRadio = useLiveRadio()
   const pbRef = useRef(pb); pbRef.current = pb
   const navigate = useNavigate()
-  const location = useLocation()
   const hostRef = useRef<HTMLDivElement>(null)
   const ytRef = useRef<any>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -104,10 +102,8 @@ export function YoutubeMiniBar() {
     if (pb.expandRequest > 0 && online) setExpanded(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pb.expandRequest])
-  const hidden = !track || location.pathname.startsWith('/videos/youtube/shorts') || location.pathname.startsWith('/music/watch')
-    // Hide on ANY source's watch page (…/videos/<source>/watch/…), so a docked video doesn't
-    // double-play against the full watch player when you navigate back to it.
-    || /^\/videos\/[^/]+\/watch\//.test(location.pathname)
+  // Route-based hiding (watch pages etc.) moved to MediaBarSlot; `visible` carries it.
+  const hidden = !track || !visible
 
   // ── Online: drive the YouTube IFrame embed ───────────────────────────────────
   useEffect(() => {
@@ -392,19 +388,6 @@ export function YoutubeMiniBar() {
     }).catch(() => {})
   }, [track])
 
-  // Show the AI-Radio controller when a station is live, nothing's docked in the YT
-  // player, and we're not already on the full radio tab.
-  const onRadioTab = location.pathname === '/music' && new URLSearchParams(location.search).get('tab') === 'radio'
-  const showRadio = radio.active && !track && !onRadioTab
-    && !location.pathname.startsWith('/videos/youtube/watch') && !location.pathname.startsWith('/videos/youtube/shorts')
-  if (showRadio) return <RadioMiniBar />
-
-  // Live internet radio: same slot, when nothing else claims it (the mediaCoordinator's
-  // acquireAudio already guarantees only one engine plays at a time).
-  const showLiveRadio = liveRadio.active && !track && !radio.active
-    && !location.pathname.startsWith('/videos/youtube/watch') && !location.pathname.startsWith('/videos/youtube/shorts')
-  if (showLiveRadio) return <LiveRadioMiniBar />
-
   if (hidden) return null
 
   const total = dur || track!.durationSec || 0
@@ -518,7 +501,31 @@ export function YoutubeMiniBar() {
 
       {/* The visible bar */}
       <div className="glass-chrome relative border-t border-border/60 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
-        <div className="flex items-center gap-3 px-4 py-2">
+        {/* Phone: shared compact row; the full control set lives on the watch page. */}
+        <CompactMediaBar
+          art={
+            isStream ? (
+              <span className="flex size-full items-center justify-center text-xl leading-none">{track!.icon ?? '📻'}</span>
+            ) : (
+              <img src={thumbSrc} alt="" referrerPolicy="no-referrer" className="size-full object-cover" />
+            )
+          }
+          title={track!.title}
+          subtitle={
+            <>
+              {isStream && <StatusDot status="error" pulse />}
+              <span className="truncate">{track!.author ?? (isStream ? 'Live Radio' : 'YouTube')}</span>
+            </>
+          }
+          playing={playing}
+          loading={loading}
+          onToggle={togglePlay}
+          onNext={!isStream && pb.hasNext ? skipNext : undefined}
+          onClose={onClose}
+          onExpand={goWatch}
+          expandLabel={isStream ? 'Go to radio' : 'Open watch page'}
+        />
+        <div className="hidden md:flex items-center gap-3 px-4 py-2">
           {/* Thumbnail / station art */}
           {/* design-ok(hand-styled-button): media thumbnail surface is the tap target */}
           <button onClick={isStream ? goWatch : toggleExpand}

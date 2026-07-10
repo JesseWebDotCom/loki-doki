@@ -79,6 +79,18 @@ It greps the diff's files for the mechanical Visual Language violations (em dash
 - `clsx` + `tailwind-merge` - always compose via `cn()` from `@/lib/cn`
 - `class-variance-authority` for variant-based component APIs
 
+**Desktop shell (`desktop/`)**
+- Electron (plain-JS CJS main process, no build step; `bun install` with `trustedDependencies`)
+- A thin wrapper that loads the web app **from the server** (`http://<server>:3000`) - no bundled
+  frontend, so features ship via the server. Two windows on one `persist:loki` partition:
+  the always-on-top voice HUD (route `/hud`, `frontend/src/pages/HudPage.tsx`) and the full app.
+- Renderer↔shell bridge: `window.lokiDesktop` (`desktop/src/preload.js`, typed in
+  `frontend/src/types/desktop.d.ts`); all IPC handlers validate the sender's origin.
+- Voice-ownership rule: the HUD window never fully hides while hands-free is armed (visibility
+  keeps mic ownership per `voiceOwnership.ts`) - it shrinks to a pill instead.
+- Builds: `.github/workflows/desktop-build.yml` (workflow_dispatch, or Release on `desktop-v*` tags);
+  unsigned installers - see `desktop/README.md`.
+
 **Backend**
 - Hono - lightweight, Bun-native HTTP framework
 - Database: SQLite via Bun's built-in `bun:sqlite` + Drizzle ORM
@@ -559,6 +571,33 @@ Notes:
 - Keyframes live in `index.css` (`star-twinkle` reused; `space-shoot`, `ufo-drift` added). Per-star randomized values are inline styles (genuinely dynamic).
 - Place it as an `absolute inset-0 z-0` layer with the real content in a `relative z-10` sibling. Over a dark space backdrop, wrap content in `data-theme="dark"` so themed tokens (foreground/card) stay readable regardless of the app's active theme.
 
+### `AudioVisualizer` - `src/components/shared/AudioVisualizer.tsx`
+
+THE audio-reactive visualizer (there is exactly one; do not hand-roll canvas EQs). One
+registry of scenes (`VISUALIZERS`: Soundprint, Ribbons, Dot Grid, Aurora, Spectrum, Radial,
+Nebula), two modes and EVERY scene renders in both: `mode="full"` (the immersive stage)
+and `mode="strip"` (a short ambient band behind mini players/chrome; center-anchored
+scenes have purpose-built strip forms - Soundprint becomes a horizontal loudness timeline,
+Radial a bottom-anchored sunrise fan, Nebula a drifting orb). Driven by a real Web-Audio
+`AnalyserNode` - never fake motion; no-signal scenes settle and the strip rAF parks
+(hidden tabs always park). `useWaveform(ref)` (`lib/music/metaApi.ts`) supplies `peaks`
+for Soundprint surfaces.
+
+```ts
+{ variant; mode?: 'full' | 'strip'; getAnalyser: () => AnalyserNode | null; palette: Palette;
+  active?; peaks?; progress?; opacity?; fade?; className? }
+```
+
+Notes:
+- Colors come from a `Palette` (`useAlbumPalette`); surfaces without album art build one via
+  `paletteFromColors(color, colorDark?)` (`lib/music/albumColors.ts`).
+- ONE app-wide per-device scene pref shared by strips AND fullscreen: `useVisualizerPref()` /
+  `setVisualizerPref()` (localStorage `music.visualizer`; legacy strip/immersive keys migrate
+  on read). Picked from the radio mini bar's `VisualizerMenu` (both breakpoints), the Now
+  Playing overflow menu (with None), or the fullscreen stage dropdown.
+- Consumers: RadioMiniBar, LiveRadioMiniBar, NowPlayingOverlay bottom band, Music Studio
+  header, YouTube audio-only player (strips); ImmersivePlayer (full).
+
 ### `ViewToggle` - `src/components/shared/ViewToggle.tsx`
 
 Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a page offers both a grid and a list layout instead of hand-rolling the two-button group. Pair it with `useViewPreference(key, fallback)` (`src/hooks/useViewPreference.ts`) to persist the choice per-user in `user_preferences` (dotted key, e.g. `youtube.channel_view`) so it survives reloads and syncs across devices.
@@ -633,8 +672,22 @@ opposite at least once.
   pads itself (`NowPlayingOverlay`, `ImmersivePlayer`, `PrivacyOverlay`, kiosk/display pages).
   If you build a new fixed overlay, add `pt-safe`/`pb-safe` to it or its own chrome.
 - Anything pinned to the bottom of the viewport needs `pb-safe` (checker rule
-  `fixed-bottom-no-pb-safe`). Anything floating above the dock offsets past it
-  (`bottom-[76px]` like the composer sheet) instead of stacking a second bottom bar.
+  `fixed-bottom-no-pb-safe`). Anything floating above the bottom chrome offsets past
+  `--bottom-chrome` (a CSS var the shell measures from the real media-bar + tab-bar
+  stack via `useBottomChrome`; see `BackgroundSetupWidget`, the quick-ask sheet)
+  instead of hardcoding a bar height or stacking a second bottom bar.
+- **The bottom tab bar is ALWAYS visible on phones.** Every overlay - sheets, drawers,
+  Spotlight, dim scrims, even the full music/immersive players - stops at
+  `max-md:bottom-[var(--bottom-chrome,0px)]` instead of `inset-0`'s bottom (ui/sheet and
+  ui/dialog overlays already do this). Never call `requestFullscreen` on a phone
+  (`PlayerOverlayContext` gates it on `min-width: 768px`); non-route overlays that leave
+  the bar tappable must close themselves on navigation (see `PlayerOverlayProvider`'s
+  pathname effect and MobileDock's surfaces). Exactly ONE
+  media mini-bar renders at a time (`MediaBarSlot` arbitrates music/live-radio/
+  podcast/video and hides a bar on routes where its full player owns the screen);
+  never mount a new persistent bar outside that slot. On phones every media bar
+  renders the shared `CompactMediaBar` row (art + title + play + next + close, tap
+  body = open full player); extra controls belong in the full player, not the bar.
 
 ### No accidental zoom, ever
 
@@ -649,12 +702,21 @@ opposite at least once.
 
 ### Navigation: back always exists, rails are always reachable
 
+- The phone model is two bars. Top bar (`MobileTopBar`) = THIS app: back chevron, app title
+  (chevron opens the rail drawer), the app's action slots, gear = this app's settings. Bottom
+  tab bar (`MobileDock`) = GLOBAL, four labeled tabs: Companion (screen-aware quick-ask sheet,
+  never a second input echoing the reply), Home, Search (Spotlight; its empty state is the
+  full app launcher grid), You (profile, notifications, global settings, admin, sign out).
+  No unlabeled hamburgers anywhere; a many-section drawer trigger (Admin/global Settings) is
+  a labeled "Sections" button.
 - `MobileTopBar` shows a back chevron whenever router history can go back. It is the ONLY back
   affordance in the installed PWA, so never build a phone flow that traps the user (e.g. a
   full-screen overlay whose only exit is a hover control).
 - A layout app (own left rail on desktop) MUST publish that rail through
   `useAppHeader({ rail })` so phones get it as the title-chevron drawer. If a screen is only
   reachable from a desktop rail, it does not exist on phones.
+- App settings pages use `AppSettingsShell`: sections render as a horizontal `AppTabBar` pill
+  row on phones (never a drawer for a handful of sections).
 - Known gap to avoid making worse: inline rails render at `lg:` (1024px) but the mobile
   top bar/dock only exist below `md:` (768px), so 768-1024 tablets currently have neither.
   Don't add rail-only functionality without checking that band.

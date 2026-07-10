@@ -7,6 +7,7 @@ import { ShowCover } from '@/components/podcast/ShowCover'
 import { NowPlaying } from '@/components/podcast/NowPlaying'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { fmtTime } from '@/lib/podcast/format'
+import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
 
 const POP_SIZE = 220 // px, fixed square - cover art has no natural aspect to resize like video
 
@@ -87,7 +88,19 @@ export function PodcastPlayerBar() {
           <div className="absolute top-1 h-0.5 bg-brand" style={{ width: `${pct}%` }} />
         </div>
 
-        <div className="flex items-center gap-3 px-4 py-2">
+        {/* Phone: shared compact row; tap opens the full Now Playing sheet. */}
+        <CompactMediaBar
+          art={<ShowCover showId={track.showId ?? ''} title={track.showName} fill rounded="rounded-none" className="size-full" />}
+          title={track.title}
+          subtitle={<span className="truncate">{track.showName}</span>}
+          playing={playing}
+          onToggle={playing ? pause : resume}
+          onNext={next}
+          onClose={close}
+          onExpand={() => setSheetOpen(true)}
+          expandLabel="Open player"
+        />
+        <div className="hidden md:flex items-center gap-3 px-4 py-2">
           <button onClick={togglePop} className="flex items-center gap-3 min-w-0 flex-1 text-left" aria-label="Pop out artwork">
             <ShowCover showId={track.showId ?? ''} title={track.showName} size={40} rounded="rounded-control" />
             <div className="min-w-0">

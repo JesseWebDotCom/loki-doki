@@ -15,7 +15,9 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      // max-md: stop above the bottom chrome (tab bar + media bar) so the bottom row
+      // stays visible on phones (Mobile Design Contract).
+      "fixed inset-0 max-md:bottom-[var(--bottom-chrome,0px)] z-50 bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
     )}
     {...props}

@@ -1,6 +1,7 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
 import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, SlidersHorizontal, Heart, ListMusic, History, Download, CalendarRange, Mic2, type LucideIcon } from 'lucide-react'
 import { useRadio } from '@/context/RadioContext'
+import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
@@ -37,6 +38,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function MusicRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'drawer' }) {
   const radio = useRadio()
+  const { openPlayer } = usePlayerOverlay()
   const offline = useMusicModeOptional() === 'offline'
   const drawer = variant === 'drawer'
   return (
@@ -51,7 +53,14 @@ export function MusicRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'draw
       {/* Live radio streams need the internet - hide it offline (recordings stay reachable
           via the library's Radio tab below). */}
       {!offline && <RailLink to="/music/live" icon={RadioTower} label="Live Radio" />}
-      {radio.active && <RailLink to="/music/now-playing" icon={Disc3} label="Now Playing" />}
+      {/* Raises the full player overlay in place (no route change; the /music/now-playing
+          deep link still works for external callers and does the same). */}
+      {radio.active && (
+        <button type="button" onClick={() => openPlayer()}
+          className="flex items-center gap-3 rounded-control px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+          <Disc3 className="size-[18px]" /> Now Playing
+        </button>
+      )}
 
       {/* Create needs the internet (LLM + generators) - hide it offline. */}
       {!offline && <>

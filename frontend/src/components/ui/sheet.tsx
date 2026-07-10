@@ -25,7 +25,8 @@ function SheetOverlay({ className, ...props }: React.ComponentProps<typeof Sheet
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/50",
+        // max-md: leave the bottom chrome (tab bar + media bar) uncovered on phones.
+        "fixed inset-0 max-md:bottom-[var(--bottom-chrome,0px)] z-50 bg-black/50",
         "data-[state=open]:animate-in data-[state=open]:fade-in-0",
         "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
         className,
@@ -56,10 +57,12 @@ function SheetContent({
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-200 data-[state=open]:duration-200",
           // Sheets are fixed overlays, so they escape the shell's safe-area padding and
           // must clear the status bar / home indicator themselves (Mobile Design Contract).
-          side === "left" && "inset-y-0 left-0 h-full w-3/4 max-w-sm border-r pt-safe pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-          side === "right" && "inset-y-0 right-0 h-full w-3/4 max-w-sm border-l pt-safe pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          // max-md: side/bottom sheets stop above the bottom chrome so the tab bar (and
+          // any media bar) stays on screen; tapping it dismisses the sheet.
+          side === "left" && "inset-y-0 max-md:bottom-[var(--bottom-chrome,0px)] max-md:h-auto max-md:pb-0 left-0 h-full w-3/4 max-w-sm border-r pt-safe pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          side === "right" && "inset-y-0 max-md:bottom-[var(--bottom-chrome,0px)] max-md:h-auto max-md:pb-0 right-0 h-full w-3/4 max-w-sm border-l pt-safe pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
           side === "top" && "inset-x-0 top-0 border-b pt-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-          side === "bottom" && "inset-x-0 bottom-0 border-t pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          side === "bottom" && "inset-x-0 bottom-0 max-md:bottom-[var(--bottom-chrome,0px)] max-md:pb-0 border-t pb-safe data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
           className,
         )}
         {...props}

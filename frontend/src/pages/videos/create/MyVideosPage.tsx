@@ -312,7 +312,7 @@ export function MyVideosPage() {
           <DialogHeader><DialogTitle className="truncate">{playing?.title}</DialogTitle></DialogHeader>
           {playing && (playing.origin === 'generated' ? (
             // AI clips are animated WebP (served from /api/image/artifacts), which <video> can't
-            // play — render as a looping <img>, same as the generator's own result view.
+            // play - render as a looping <img>, same as the generator's own result view.
             <img src={`/api/image/artifacts/${playing.assetId}`} alt={playing.title} className="aspect-video w-full rounded-card bg-black object-contain" />
           ) : (
             <video src={studioStreamUrl(playing.assetId)} controls autoPlay playsInline className="aspect-video w-full rounded-card bg-black" />

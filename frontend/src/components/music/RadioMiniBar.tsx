@@ -9,13 +9,45 @@ import { cn } from '@/lib/cn'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 import { queueForKaraoke } from '@/lib/music/karaokeQueue'
 import { fmtClock } from '@/lib/youtube/format'
-import { useAlbumPalette, accentOf, readableOn } from '@/lib/music/albumColors'
-import { EqVisualizer } from '@/components/shared/EqVisualizer'
+import { useWaveform } from '@/lib/music/metaApi'
+import { useAlbumPalette, accentOf, readableOn, paletteFromColors } from '@/lib/music/albumColors'
+import { AudioVisualizer, VISUALIZERS, useVisualizerPref, setVisualizerPref } from '@/components/shared/AudioVisualizer'
 import { SeekBar } from '@/components/shared/SeekBar'
 import { Spinner } from '@/components/ui/spinner'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { useTitleMask } from '@/lib/music/policy'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
+
+// Scene selector right on the bar (both breakpoints) - changing the visual must not
+// require opening the full player. Same shared pref as everywhere else (None + every
+// scene; each has a purpose-built strip form).
+function VisualizerMenu({ triggerClass }: { triggerClass: string }) {
+  const radio = useRadio()
+  const stripVariant = useVisualizerPref()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={triggerClass}
+          aria-label="Visualizer"
+          title={radio.visualizerEnabled ? `Visualizer: ${VISUALIZERS.find(v => v.id === stripVariant)?.label}` : 'Visualizer: off'}>
+          <AudioLines className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => { if (radio.visualizerEnabled) radio.toggleVisualizer() }}>
+          {!radio.visualizerEnabled ? '✓ ' : ''}None
+        </DropdownMenuItem>
+        {VISUALIZERS.map(v => (
+          <DropdownMenuItem key={v.id} onClick={() => { setVisualizerPref(v.id); if (!radio.visualizerEnabled) radio.toggleVisualizer() }}>
+            {radio.visualizerEnabled && v.id === stripVariant ? '✓ ' : ''}{v.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 /**
  * Compact AI-Radio control shown in the app-wide mini-player slot while a station
@@ -26,6 +58,7 @@ export function RadioMiniBar() {
   const radio = useRadio()
   const navigate = useNavigate()
   const { openPlayer } = usePlayerOverlay()
+  const stripVariant = useVisualizerPref()
   const cat = useCatalogNav()
   const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec, skipping } = radio
   // Real square album art when it resolves; the video thumbnail stays as the instant fallback.
@@ -33,6 +66,8 @@ export function RadioMiniBar() {
   // Plexamp-style album persona: seek/EQ/play pick up the cover's accent; a monochrome
   // cover falls back to the station colour so the bar never goes grey-on-grey.
   const palette = useAlbumPalette(miniArt ?? (currentTrack?.thumbnail ? proxyImg(currentTrack.thumbnail) : null))
+  // Loudness envelope for the strip Soundprint (cached; radioEngine prefetches it per track).
+  const stripPeaks = useWaveform(currentTrack?.videoId)
   // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors
   const accent = palette.muted ? (station?.color ?? '#fb923c') : accentOf(palette)
   // Songs are finite + seekable; only while a track is actually playing (not during DJ talk).
@@ -55,25 +90,61 @@ export function RadioMiniBar() {
             mini player carries the song's persona like the full players do. */}
         <div aria-hidden className="pointer-events-none absolute inset-0 z-0 opacity-[0.16] dark:opacity-25"
           style={{ background: `linear-gradient(90deg, ${palette.corners[0]}, ${palette.corners[1]} 35%, transparent 60%, ${palette.corners[3]})` }} />
-        {/* Live faux-EQ - sits subtly behind the controls, tinted to the album accent. */}
+        {/* Live visualizer strip - sits subtly behind the controls, tinted to the album
+            persona (style chosen via the Now Playing menu, shared by every strip). A
+            monochrome cover falls back to the station's own colors so it never goes grey. */}
         {radio.visualizerEnabled && (
           <div className="absolute inset-0 z-0">
-            <EqVisualizer
+            <AudioVisualizer
+              variant={stripVariant}
+              mode="strip"
               active={!paused && (phase === 'playing' || djSpeaking)}
               getAnalyser={radio.getAnalyser}
-              color={accent}
-              colorDark={palette.muted ? (station?.colorDark ?? '#f97316') : palette.dark} // design-ok(hex-in-tsx): canvas visualizer tint fallback
+              palette={palette.muted && station ? paletteFromColors(station.color, station.colorDark) : palette}
+              peaks={stripPeaks}
+              progress={durationSec > 0 ? positionSec / durationSec : 0}
               opacity={0.2}
               fade
             />
           </div>
         )}
-        <div className="relative z-10 flex items-center gap-3 px-4 py-2">
+        {/* Phone: shared compact row; everything else lives in the full player overlay. */}
+        <CompactMediaBar
+          art={
+            <span className="grid size-full place-items-center text-xl leading-none"
+              style={{ background: station ? `linear-gradient(135deg, ${station.color}, ${station.colorDark})` : undefined }}>
+              {(miniArt || currentTrack?.thumbnail) ? (
+                <img src={miniArt ?? proxyImg(currentTrack!.thumbnail)} alt="" className="absolute inset-0 size-full object-cover" />
+              ) : (
+                <span className="relative">{station?.emoji ?? '📻'}</span>
+              )}
+            </span>
+          }
+          title={title}
+          subtitle={
+            <>
+              <StatusDot status="error" pulse />
+              <span className="truncate">{subtitle}</span>
+            </>
+          }
+          playing={!paused}
+          loading={busy}
+          onToggle={radio.togglePause}
+          onNext={phase === 'playing' && !skipping ? radio.skip : undefined}
+          onClose={radio.stop}
+          onExpand={() => openPlayer()}
+          expandLabel="Open full player"
+          extra={<VisualizerMenu triggerClass={cn('grid size-10 shrink-0 place-items-center rounded-full',
+            radio.visualizerEnabled ? 'text-muted-foreground' : 'text-muted-foreground/40')} />}
+          accent={accent}
+          accentText={readableOn(accent)}
+        />
+        <div className="relative z-10 hidden md:flex items-center gap-3 px-4 py-2">
           {/* Now-playing art - current track thumbnail, station emoji as fallback */}
-          <button onClick={() => navigate('/music/now-playing')}
+          <button onClick={() => openPlayer()}
             className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-control text-2xl leading-none"
             style={{ background: station ? `linear-gradient(135deg, ${station.color}, ${station.colorDark})` : undefined }}
-            aria-label="Open AI Radio">
+            aria-label="Open full player">
             {(miniArt || currentTrack?.thumbnail) && (
               <img src={miniArt ?? proxyImg(currentTrack!.thumbnail)} alt="" className="absolute inset-0 size-full object-cover" />
             )}
@@ -94,7 +165,7 @@ export function RadioMiniBar() {
           {/* Title + subtitle. Title opens the full now-playing view; the artist subtitle (when it's
               a real artist, not "On the mic…"/"Live") opens that artist's in-app MB detail page. */}
           <div className="min-w-0 flex-1">
-            <button onClick={() => navigate('/music/now-playing')} className="block max-w-full text-left">
+            <button onClick={() => openPlayer()} className="block max-w-full text-left">
               <p className="truncate text-sm font-semibold">{title}</p>
             </button>
             <span className="mt-0.5 flex items-center gap-1.5">
@@ -119,13 +190,8 @@ export function RadioMiniBar() {
           {/* Controls + seek */}
           <div className="flex flex-col items-stretch gap-1.5">
             <div className="flex items-center justify-end gap-1">
-              <button onClick={radio.toggleVisualizer}
-                className={cn('grid size-8 place-items-center rounded-full hover:text-foreground',
-                  radio.visualizerEnabled ? 'text-muted-foreground' : 'text-muted-foreground/40')}
-                aria-label={radio.visualizerEnabled ? 'Hide visualizer' : 'Show visualizer'}
-                title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}>
-                <AudioLines className="size-4" />
-              </button>
+              <VisualizerMenu triggerClass={cn('grid size-8 place-items-center rounded-full hover:text-foreground',
+                radio.visualizerEnabled ? 'text-muted-foreground' : 'text-muted-foreground/40')} />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className={cn('grid size-8 place-items-center rounded-full hover:text-foreground',

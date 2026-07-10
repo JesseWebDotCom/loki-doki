@@ -165,3 +165,25 @@ export function useAlbumPalette(url: string | null | undefined): Palette {
   }, [url])
   return palette
 }
+
+// ── Shared color math for the canvas visualizers ─────────────────────────────
+// (canvas fillStyle can't consume CSS vars, so visualizers work in parsed RGB)
+
+export type Rgb = [number, number, number]
+export function hexToRgb(h: string): Rgb {
+  const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h)
+  return m ? [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)] : [176, 107, 255]
+}
+export const mixRgb = (a: Rgb, b: Rgb, t: number): Rgb =>
+  [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+export const rgba = (c: Rgb, a: number) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`
+
+/** Build a Palette from one or two plain colors, for surfaces without album art
+ *  (live radio's amber, the YouTube audio player's cyan, the Studio default). */
+export function paletteFromColors(color: string, colorDark?: string): Palette {
+  const c = hexToRgb(color)
+  const dark = colorDark ?? rgbToHex(mixRgb(c, [0, 0, 0], 0.55))
+  const light = rgbToHex(mixRgb(c, [255, 255, 255], 0.55))
+  return { dominant: color, vibrant: color, dark, light, corners: [color, light, dark, color], muted: false }
+}
+const rgbToHex = (c: Rgb) => hex(c[0], c[1], c[2])

@@ -1,19 +1,20 @@
 import { useCallback, useState, type ReactNode } from "react";
-import { Lock, Menu, type LucideIcon } from "lucide-react";
+import { Lock, type LucideIcon } from "lucide-react";
 import type { PanelSection } from "@/components/shared/PanelLayout";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { AppTabBar } from "@/components/shared/AppTabBar";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useAuth } from "@/context/AuthContext";
 
 // THE app-settings layout, extracted from the YouTube settings page so every
 // app's settings looks identical: PageHeader up top, collapsible left section
-// sidebar (SettingsSidebar, same anatomy as Settings/Admin), mobile drawer.
-// Sections marked adminOnly render their content for admins and a locked
-// notice for everyone else. Section state is internal by default; pass
-// activeSection + onNavigate to drive it from a /:section? route param
-// (YouTube, the generic /apps/:appId/settings page).
+// sidebar (SettingsSidebar, same anatomy as Settings/Admin) on desktop, and a
+// horizontal AppTabBar pill row on phones (app settings have few sections; the
+// old hamburger-drawer was visually identical to the dock menu and read as a
+// second mystery menu). Sections marked adminOnly render their content for
+// admins and a locked notice for everyone else. Section state is internal by
+// default; pass activeSection + onNavigate to drive it from a /:section? route
+// param (YouTube, the generic /apps/:appId/settings page).
 
 export interface AppSettingsSection extends PanelSection {
   content: ReactNode;
@@ -49,7 +50,6 @@ export function AppSettingsShell({ appId, title = "Settings", icon, gradient, se
   const collapseKey = `${appId}.settingsSidebarCollapsed`;
 
   const [internalSection, setInternalSection] = useState(sections[0]?.id ?? "");
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(collapseKey) === "1");
   const toggleCollapsed = useCallback(() => {
     setCollapsed((c) => {
@@ -64,7 +64,6 @@ export function AppSettingsShell({ appId, title = "Settings", icon, gradient, se
     (id: string) => {
       if (onNavigate) onNavigate(id);
       else setInternalSection(id);
-      setMobileNavOpen(false);
     },
     [onNavigate],
   );
@@ -73,17 +72,17 @@ export function AppSettingsShell({ appId, title = "Settings", icon, gradient, se
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader
-        title={title}
-        icon={icon}
-        gradient={gradient}
-        className="px-4 pt-6 pb-5 sm:px-6 lg:px-8"
-        actions={
-          <Button variant="ghost" size="icon-sm" onClick={() => setMobileNavOpen(true)} className="md:hidden" aria-label="Open navigation">
-            <Menu className="size-5" />
-          </Button>
-        }
-      />
+      <PageHeader title={title} icon={icon} gradient={gradient} className="px-4 pt-6 pb-5 sm:px-6 lg:px-8" />
+
+      {/* Phone: sections as a horizontal pill row (one row, scrolls; never a drawer). */}
+      {sections.length > 1 && (
+        <AppTabBar
+          className="mx-4 mb-3 shrink-0 md:hidden"
+          tabs={sections.map((s) => ({ id: s.id, label: s.label, icon: s.icon }))}
+          value={active?.id ?? ""}
+          onChange={go}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <SettingsSidebar
@@ -94,13 +93,6 @@ export function AppSettingsShell({ appId, title = "Settings", icon, gradient, se
           collapsed={collapsed}
           onToggleCollapse={toggleCollapsed}
         />
-
-        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-          <SheetContent side="left" className="w-64 p-0">
-            <SheetTitle className="sr-only">Settings navigation</SheetTitle>
-            <SettingsSidebar className="h-full w-full border-r-0" sections={sections} activeSection={active?.id ?? ""} onNavigate={go} />
-          </SheetContent>
-        </Sheet>
 
         <div className="min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
           {active && (active.adminOnly && !isAdmin ? <AdminLockedNotice /> : active.content)}

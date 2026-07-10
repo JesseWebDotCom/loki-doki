@@ -62,6 +62,9 @@ export interface CompanionEngine {
   /** This tab wants voice but another open tab currently owns mic + audio. */
   otherTabOwner: boolean
   handleSend: (text: string, attachments?: File[]) => void
+  /** Escape hatch from the ephemeral quick-ask: jump to /chat and re-run the given
+   *  question there so it lands in a persisted conversation. */
+  promoteToChat: (text: string) => void
   onStop: () => void
   /** Generating text OR still speaking audio; the composer shows Stop. */
   busy: boolean
@@ -313,6 +316,20 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   }, [character, companions, chat, companion, isOnChat, getContextBlock, voiceMode, pathname, navigate, streaming, audioPlaying, radio, youtube])
   handleSendRef.current = handleSend
 
+  // Quick-ask → real chat handoff: cancel the ephemeral stream, then re-submit the
+  // question through the persisted chat flow. chat.submit doesn't depend on the
+  // route, so submitting right after navigate() is safe - the reply streams into
+  // the conversation view as it mounts.
+  const promoteToChat = useCallback((text: string) => {
+    const trimmed = text.trim()
+    const charId = character?.id ?? companions[0]?.id
+    if (!trimmed || !charId) return
+    companion.cancel()
+    stopSpeech()
+    navigate('/chat')
+    chat.submit(charId, trimmed)
+  }, [character, companions, companion, chat, navigate])
+
   // The composer shows Stop while EITHER generating text OR still speaking audio,
   // and Stop halts both.
   const busy = streaming || (voiceMode && audioPlaying)
@@ -350,6 +367,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     handsFreePartial: handsFree.partial ?? '',
     otherTabOwner: wantsVoice && !isVoiceOwner,
     handleSend: (text, attachments) => { void handleSend(text, attachments) },
+    promoteToChat,
     onStop,
     busy,
     focusKey,

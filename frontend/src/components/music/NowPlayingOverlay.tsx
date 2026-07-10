@@ -4,14 +4,15 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   ChevronDown, Heart, Download, MonitorPlay, Play, Pause, SkipForward, AudioLines,
-  Mic, Mic2, Moon, Volume2, VolumeX, ListMusic, Music2, Disc3, Sparkles, RotateCcw, RotateCw, Repeat1,
+  Mic, Mic2, Moon, Volume2, VolumeX, ListMusic, Disc3, Sparkles, RotateCcw, RotateCw, Repeat1,
+  SlidersHorizontal, MoreHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { useRadio } from '@/context/RadioContext'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useCatalogNav } from '@/lib/music/catalogNav'
-import { EqVisualizer } from '@/components/shared/EqVisualizer'
+import { AudioVisualizer, VISUALIZERS, useVisualizerPref, setVisualizerPref } from '@/components/shared/AudioVisualizer'
 import { StarRating } from '@/components/music/StarRating'
 import { useTitleMask } from '@/lib/music/policy'
 import { useSongArt } from '@/components/music/SongArt'
@@ -21,10 +22,12 @@ import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel, UpNextList } from './nowPlayingParts'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu'
+import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel, UpNextList, TuningLyrics, useSourceBackLink, useNowPlayingPrefetch } from './nowPlayingParts'
+import { EqPanel } from './EqPanel'
 import { addFavorite, saveOffline } from '@/lib/music/catalogApi'
 import { isYouTubeRef } from '@/lib/music/trackRef'
+import { useWaveform } from '@/lib/music/metaApi'
 import { queueForKaraoke } from '@/lib/music/karaokeQueue'
 
 type Tab = 'lyrics' | 'up-next' | 'about'
@@ -57,10 +60,18 @@ export function NowPlayingOverlay() {
 
   const curForArt = radio.currentTrack ?? radio.queue[radio.index] ?? null
   // Unconditional hooks (before the early return): real square album art for cover + backdrop,
-  // and its extracted palette for the UltraBlur wash.
+  // and its extracted palette for the UltraBlur wash. Prefetch keeps the next track's
+  // art/lyrics/info warm even while the overlay is closed (staleTime:Infinity cache warming,
+  // inherited from the retired NowPlayingPage).
   const overlayArt = useSongArt(curForArt?.videoId, curForArt?.title, curForArt?.author)
   const palette = useAlbumPalette(overlayArt ?? (curForArt?.thumbnail ? proxyImg(curForArt.thumbnail) : null))
   const mask = useTitleMask()
+  const sourceBackLink = useSourceBackLink()
+  useNowPlayingPrefetch()
+  const [eqOpen, setEqOpen] = useState(false)
+  const stripVariant = useVisualizerPref()
+  // Loudness envelope for the strip Soundprint at the bottom of the overlay.
+  const stripPeaks = useWaveform(curForArt?.videoId)
 
   if (!open) return null
 
@@ -92,7 +103,10 @@ export function NowPlayingOverlay() {
     // the right column's stacking context and paint under the sidebar).
     <div
       data-theme="dark"
-      className="fixed inset-0 z-[100] flex flex-col text-white"
+      // max-md: stops above the bottom chrome so the tab bar stays visible (Mobile
+      // Design Contract); desktop keeps the true full-viewport fullscreen player.
+      // design-ok(raw-overlay): see the block comment above (full-screen player surface)
+      className="fixed inset-0 max-md:bottom-[var(--bottom-chrome,0px)] z-[100] flex flex-col text-white"
       style={{ transform: dragY ? `translateY(${dragY}px)` : undefined, transition: dragY ? 'none' : 'transform 0.25s ease' }}
     >
       {/* Backdrop: UltraBlur - four corner colours extracted from the cover give each song
@@ -100,10 +114,13 @@ export function NowPlayingOverlay() {
       <UltraBlur artUrl={overlayArt ?? (cur?.thumbnail ? proxyImg(cur.thumbnail) : null)}
         palette={palette} className="-z-10" />
 
-      {/* Ambient EQ across the very bottom */}
+      {/* Ambient visualizer strip across the very bottom (shared strip style) */}
       {radio.visualizerEnabled && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-40">
-          <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={palette.vibrant} colorDark={c2} opacity={0.35} fade />
+          <AudioVisualizer variant={stripVariant} mode="strip" active={!radio.paused}
+            getAnalyser={radio.getAnalyser} palette={palette}
+            peaks={stripPeaks} progress={radio.durationSec > 0 ? radio.positionSec / radio.durationSec : 0}
+            opacity={0.35} fade />
         </div>
       )}
 
@@ -120,8 +137,16 @@ export function NowPlayingOverlay() {
           <button onClick={closePlayer} aria-label="Close player" className="grid size-9 place-items-center rounded-full text-white/80 hover:bg-white/10 hover:text-white">
             <ChevronDown className="size-6" />
           </button>
-          <span className="inline-flex items-center gap-1.5 truncate rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90">
-            <span>{emoji}</span> {radio.station?.label ?? 'AI Radio'}
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 truncate rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90">
+              <span>{emoji}</span> {radio.station?.label ?? 'AI Radio'}
+            </span>
+            {sourceBackLink && (
+              <button onClick={() => { closePlayer(); navigate(sourceBackLink.url) }}
+                className="inline-flex items-center gap-1 truncate rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 transition hover:bg-white/20 hover:text-white">
+                ← {sourceBackLink.label}
+              </button>
+            )}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -129,7 +154,8 @@ export function NowPlayingOverlay() {
                 <Moon className={cn('size-5', radio.sleepAtMs && 'text-white')} />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            {/* z-[110]: menus portal at z-50 by default, which lands BEHIND this z-[100] player */}
+            <DropdownMenuContent align="end" className="z-[110]">
               {[15, 30, 45, 60].map(m => <DropdownMenuItem key={m} onClick={() => radio.setSleep(m)}>Stop in {m} minutes</DropdownMenuItem>)}
               {radio.sleepAtMs && <DropdownMenuItem onClick={() => radio.setSleep(null)}>Turn off timer</DropdownMenuItem>}
             </DropdownMenuContent>
@@ -211,7 +237,9 @@ export function NowPlayingOverlay() {
           </button>
         </div>
 
-        {/* Volume + secondary controls */}
+        {/* Volume + a calm secondary row: immersive stays inline (the marquee lean-back
+            action); everything else lives behind one labeled overflow menu. Seven bare
+            icons here read as clutter on a phone. */}
         <div className="mt-4 flex items-center gap-3">
           <button onClick={radio.toggleMute} aria-label={radio.muted ? 'Unmute' : 'Mute'} className="shrink-0 text-white/70 hover:text-white">
             {radio.muted || radio.volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
@@ -223,40 +251,71 @@ export function NowPlayingOverlay() {
             aria-label="Volume"
             className="h-1 flex-1 cursor-pointer accent-white"
           />
-          <button onClick={radio.toggleVisualizer} aria-label="Toggle visualizer" title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}
-            className={cn('shrink-0 hover:text-white', radio.visualizerEnabled ? 'text-white/80' : 'text-white/35')}>
-            <AudioLines className="size-4" />
-          </button>
-          <button onClick={openImmersive} aria-label="Immersive visuals" title="Immersive visuals"
-            className="shrink-0 text-white/70 hover:text-white">
+          <button onClick={openImmersive} aria-label="Fullscreen visualizer" title="Fullscreen visualizer"
+            className="grid size-9 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white">
             <Sparkles className="size-4" />
-          </button>
-          <button onClick={() => navigate(radio.station?.stationId ? `/music/watch/${radio.station.stationId}` : '/music/watch/current')}
-            aria-label="Watch video" title="Switch to video" className="shrink-0 text-white/70 hover:text-white">
-            <MonitorPlay className="size-4" />
-          </button>
-          {cur && isYouTubeRef(cur.videoId) && (
-            <button onClick={() => { queueForKaraoke({ videoId: cur.videoId, title: cur.title, artist, durationSec: radio.durationSec || null }); closePlayer(); navigate('/music/karaoke') }}
-              aria-label="Sing in karaoke" title="Karaoke this song" className="shrink-0 text-white/70 hover:text-white">
-              <Mic2 className="size-4" />
-            </button>
-          )}
-          <button onClick={download} aria-label="Save offline" className="shrink-0 text-white/70 hover:text-white">
-            <Download className="size-4" />
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button aria-label="DJ mode" title={`DJ: ${radio.station?.djMode ?? 'full'}`}
-                className={cn('shrink-0 hover:text-white', (radio.station?.djMode ?? 'full') === 'silent' ? 'text-white/35' : 'text-white/70')}>
-                <Mic className="size-4" />
+              <button aria-label="More options"
+                className="grid size-9 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white">
+                <MoreHorizontal className="size-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {([['full', 'Full DJ'], ['minimal', 'DJ minimal'], ['silent', 'Silent (no DJ)']] as const).map(([mode, label]) => (
-                <DropdownMenuItem key={mode} onClick={() => radio.setDjMode(mode)}>
-                  {(radio.station?.djMode ?? 'full') === mode ? '✓ ' : ''}{label}
+            {/* z-[110]: menus portal at z-50 by default, which lands BEHIND this z-[100] player */}
+            <DropdownMenuContent align="end" className="z-[110] w-52">
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <AudioLines className="mr-2 size-4" />
+                  Visualizer: {radio.visualizerEnabled ? VISUALIZERS.find(v => v.id === stripVariant)?.label : 'None'}
+                </DropdownMenuSubTrigger>
+                {/* ONE app-wide scene choice (None or a scene), shared by the ambient strips
+                    (this overlay's bottom band, mini players, Studio, audio-only video) AND
+                    the fullscreen visualizer. Center-anchored scenes can't draw in a short
+                    strip, so strips fall back to Spectrum for those. */}
+                <DropdownMenuSubContent className="z-[110]">
+                  <DropdownMenuItem onClick={() => { if (radio.visualizerEnabled) radio.toggleVisualizer() }}>
+                    {!radio.visualizerEnabled ? '✓ ' : ''}None
+                  </DropdownMenuItem>
+                  {VISUALIZERS.map(v => (
+                    <DropdownMenuItem key={v.id} onClick={() => { setVisualizerPref(v.id); if (!radio.visualizerEnabled) radio.toggleVisualizer() }}>
+                      {radio.visualizerEnabled && v.id === stripVariant ? '✓ ' : ''}{v.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem onClick={() => setEqOpen(true)}>
+                <SlidersHorizontal className="size-4" />
+                Equalizer & sound
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate(radio.station?.stationId ? `/music/watch/${radio.station.stationId}` : '/music/watch/current')}>
+                <MonitorPlay className="size-4" />
+                Switch to video
+              </DropdownMenuItem>
+              {cur && isYouTubeRef(cur.videoId) && (
+                <DropdownMenuItem onClick={() => { queueForKaraoke({ videoId: cur.videoId, title: cur.title, artist, durationSec: radio.durationSec || null }); closePlayer(); navigate('/music/karaoke') }}>
+                  <Mic2 className="size-4" />
+                  Karaoke this song
                 </DropdownMenuItem>
-              ))}
+              )}
+              <DropdownMenuItem onClick={download}>
+                <Download className="size-4" />
+                Save offline
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Mic className="mr-2 size-4" />
+                  DJ: {(radio.station?.djMode ?? 'full') === 'full' ? 'Full' : (radio.station?.djMode ?? 'full') === 'minimal' ? 'Minimal' : 'Silent'}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="z-[110]">
+                  {([['full', 'Full DJ'], ['minimal', 'DJ minimal'], ['silent', 'Silent (no DJ)']] as const).map(([mode, label]) => (
+                    <DropdownMenuItem key={mode} onClick={() => radio.setDjMode(mode)}>
+                      {(radio.station?.djMode ?? 'full') === mode ? '✓ ' : ''}{label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -275,8 +334,11 @@ export function NowPlayingOverlay() {
 
           <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
             {tab === 'lyrics' && (
-              cur ? <LyricsPanel artist={artist} title={cur.title} position={radio.positionSec} duration={radio.durationSec} />
-                  : <div className="flex h-full items-center justify-center text-white/60"><Music2 className="mr-2 size-5 opacity-40" /> Tuning in…</div>
+              // While the station spins up (no track cued yet, or the DJ intro is still being
+              // written), show the station's playful tuning lines instead of empty lyrics.
+              cur && !(radio.phase === 'intro' && !radio.djSpeaking)
+                ? <LyricsPanel artist={artist} title={cur.title} position={radio.positionSec} duration={radio.durationSec} />
+                : <TuningLyrics stationId={radio.station?.stationId} color={c1} />
             )}
 
             {tab === 'about' && (
@@ -317,6 +379,8 @@ export function NowPlayingOverlay() {
           </div>
         </div>
       </div>
+
+      <EqPanel open={eqOpen} onOpenChange={setEqOpen} />
     </div>,
     document.body,
   )

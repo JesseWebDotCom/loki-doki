@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 // Client for /api/music/meta - audio facts (codec/bitrate/LUFS), waveform peaks, and
 // per-user star ratings, all keyed by unified track ref.
 
@@ -64,4 +65,18 @@ export async function setRating(ref: string, stars: number, title?: string, arti
 
 export async function clearRating(ref: string): Promise<void> {
   await fetch(`/api/music/meta/ratings/${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'include' })
+}
+
+/** React hook over getWaveform: the track's loudness envelope, null while unscanned/loading.
+ *  Used by every Soundprint surface (immersive stage, mini strips). */
+export function useWaveform(ref: string | null | undefined): number[] | null {
+  const [peaks, setPeaks] = useState<number[] | null>(null)
+  useEffect(() => {
+    if (!ref) { setPeaks(null); return }
+    let alive = true
+    setPeaks(null)
+    void getWaveform(ref).then((p) => { if (alive) setPeaks(p) })
+    return () => { alive = false }
+  }, [ref])
+  return peaks
 }

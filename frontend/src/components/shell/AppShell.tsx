@@ -25,10 +25,10 @@ import { CompanionEngineProvider } from "./CompanionEngineContext";
 import { NavPreferencesProvider } from "@/context/NavPreferencesContext";
 import { SpotlightSearch } from "@/components/shared/SpotlightSearch";
 import { QueueBanner } from "./QueueBanner";
-import { PodcastPlayerBar } from "@/components/podcast/PodcastPlayerBar";
-import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
+import { MediaBarSlot } from "./MediaBarSlot";
 import { NowPlayingOverlay } from "@/components/music/NowPlayingOverlay";
 import { ImmersivePlayerMount } from "@/components/music/ImmersivePlayer";
+import { useBottomChrome } from "@/hooks/useBottomChrome";
 import { ArtifactPane } from "@/components/canvas/ArtifactPane";
 import { useArtifactState } from "@/lib/canvas/artifactStore";
 import { useChatContext } from "@/context/ChatContext";
@@ -62,6 +62,9 @@ export function AppShell() {
   // standard one is suppressed there. shellBackdrop is true for standard scroller apps,
   // which is where the shell paints the registry color/gradient tint.
   const { isHome, isChat, isPanel, isReader, isFullBleed, shellBackdrop } = classifyRoute(pathname);
+  // Any settings surface (/apps/:id/settings, /weather/settings, /settings); the gear
+  // in the breadcrumb doubles as the close toggle there (matches MobileTopBar).
+  const onSettingsPage = /\/settings(\/|$)/.test(pathname);
   const { conversations, conversationId, currentProject } = useChatContext();
   // When the Canvas pane is open, inset the whole content column on desktop so chat
   // (and any app) reflows BESIDE the pane rather than being covered by it. Mobile
@@ -331,11 +334,17 @@ export function AppShell() {
                   <div className="flex-1" />
                 )}
                 {breadcrumbSearch.rightSlot}
-                {breadcrumbSearch.settingsHref && (
+                {/* Toggle, same as MobileTopBar: lit + closes settings while on a settings page. */}
+                {(breadcrumbSearch.settingsHref || onSettingsPage) && (
                   <Button
-                    variant="ghost" size="icon" className="size-8 shrink-0"
-                    title="Settings"
-                    onClick={() => navigate(breadcrumbSearch.settingsHref!)}
+                    variant="ghost" size="icon"
+                    className={`size-8 shrink-0 ${onSettingsPage ? "bg-brand/15 text-brand" : ""}`}
+                    title={onSettingsPage ? "Close settings" : "Settings"}
+                    onClick={() => {
+                      if (!onSettingsPage) navigate(breadcrumbSearch.settingsHref!)
+                      else if ((window.history.state?.idx ?? 0) > 0) navigate(-1)
+                      else navigate("/")
+                    }}
                   >
                     <Settings className="size-4" />
                   </Button>
@@ -369,7 +378,7 @@ export function AppShell() {
         ) : (
           <div className="relative flex-1 min-h-0">
             {shellBackdrop && <AppBackdrop gradient={pageGradient} GhostIcon={PageIcon ?? undefined} />}
-            <div id="main-scroll" className="relative z-10 h-full overflow-y-auto pb-28 md:pb-32">
+            <div id="main-scroll" className="relative z-10 h-full overflow-y-auto pb-[max(7rem,calc(var(--bottom-chrome,0px)+1.5rem))] md:pb-[max(8rem,calc(var(--bottom-chrome,0px)+2rem))]">
               <Outlet key={appReloadKey} />
             </div>
           </div>
@@ -378,19 +387,30 @@ export function AppShell() {
         {/* Canvas artifact pane: chat-app only (hides when you switch apps) */}
         <ArtifactPane />
 
-        {/* Persistent media player bars — shown above companion when a track is loaded */}
-        <YoutubeMiniBar />
-        <PodcastPlayerBar />
-
-        {/* App-wide full-page music player, raised from the mini bar / rail / deep link */}
+        {/* App-wide full-page music player, raised from the mini bar / rail / deep link
+            (portalled to <body>, so it sits outside the measured chrome below) */}
         <NowPlayingOverlay />
         <ImmersivePlayerMount />
 
-        {/* Bottom dock: mobile only (Home + companion pill + Menu) */}
-        <MobileDock />
+        {/* Bottom chrome: the ONE media bar (MediaBarSlot arbitrates) + the mobile tab
+            bar. Measured into --bottom-chrome so scrollers/floating widgets clear it. */}
+        <BottomChrome />
       </div>
     </div>
     </CompanionEngineProvider>
     </NavPreferencesProvider>
+  );
+}
+
+// The in-flow bottom stack, wrapped so useBottomChrome can measure the real
+// rendered height (media bar heights vary, the dock is mobile-only, and its
+// pb-safe inset differs per device).
+function BottomChrome() {
+  const ref = useBottomChrome<HTMLDivElement>();
+  return (
+    <div ref={ref} className="shrink-0">
+      <MediaBarSlot />
+      <MobileDock />
+    </div>
   );
 }

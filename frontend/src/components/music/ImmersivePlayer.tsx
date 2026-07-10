@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Play, Pause, SkipForward, SkipBack, ImageIcon, Sparkles } from 'lucide-react'
+import { X, Play, Pause, SkipForward, SkipBack, ImageIcon, Sparkles, ChevronDown } from 'lucide-react'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { useTitleMask } from '@/lib/music/policy'
 import { proxyImgAuto } from '@/lib/img'
 import { useAlbumPalette, accentOf, readableOn } from '@/lib/music/albumColors'
-import { getWaveform } from '@/lib/music/metaApi'
+import { useWaveform } from '@/lib/music/metaApi'
 import { UltraBlur } from '@/components/music/UltraBlur'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
-import { MusicVisualizer, VISUALIZERS, type VisualizerVariant } from '@/components/music/MusicVisualizer'
+import { AudioVisualizer, VISUALIZERS, useVisualizerPref, setVisualizerPref } from '@/components/shared/AudioVisualizer'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useSongArt } from '@/components/music/SongArt'
 import { LyricsPanel } from '@/components/music/nowPlayingParts'
@@ -20,7 +21,6 @@ export function ImmersivePlayerMount() {
   return <ImmersivePlayer open={immersive} onClose={closeImmersive} />
 }
 
-const VIS_KEY = 'music.immersiveVisualizer'
 const MODE_KEY = 'music.immersiveShowVisualizer'
 const LYR_KEY = 'music.immersiveShowLyrics'
 
@@ -34,8 +34,8 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
   const rootRef = useRef<HTMLDivElement>(null)
   const [showVis, setShowVis] = useState(() => localStorage.getItem(MODE_KEY) === '1')
   const [showLyr, setShowLyr] = useState(() => localStorage.getItem(LYR_KEY) === '1')
-  const [variant, setVariant] = useState<VisualizerVariant>(() =>
-    (VISUALIZERS.find(v => v.id === localStorage.getItem(VIS_KEY))?.id) ?? 'fan')
+  // ONE app-wide scene choice, shared with the mini/ambient strips.
+  const variant = useVisualizerPref()
   const [idle, setIdle] = useState(false)
 
   const track = radio.currentTrack
@@ -46,23 +46,14 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
   const palette = useAlbumPalette(artUrl || null)
   const accent = accentOf(palette)
 
-  // The track's server loudness envelope feeds the Soundprint visualizer (and would be
-  // cheap to reuse elsewhere - getWaveform misses lazily queue a scan server-side).
-  const [peaks, setPeaks] = useState<number[] | null>(null)
-  useEffect(() => {
-    if (!open || !track?.videoId) { setPeaks(null); return }
-    let alive = true
-    setPeaks(null)
-    getWaveform(track.videoId).then(p => { if (alive) setPeaks(p) })
-    return () => { alive = false }
-  }, [open, track?.videoId])
+  // The track's server loudness envelope feeds the Soundprint visualizer.
+  const peaks = useWaveform(open ? track?.videoId : null)
 
   // The queue tail after the current index, for the Up Next strip.
   const upNext = radio.queue.slice(radio.index + 1, radio.index + 5)
 
   useEffect(() => { localStorage.setItem(MODE_KEY, showVis ? '1' : '0') }, [showVis])
   useEffect(() => { localStorage.setItem(LYR_KEY, showLyr ? '1' : '0') }, [showLyr])
-  useEffect(() => { localStorage.setItem(VIS_KEY, variant) }, [variant])
 
   // Esc closes the immersive layer (the browser Fullscreen API is driven by the context that
   // opens it, so here we only need the keyboard affordance for the non-fullscreen fallback).
@@ -74,8 +65,11 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
   }, [open, onClose])
 
   // Auto-hide the chrome after a few seconds of no pointer movement (kiosk/TV feel).
+  // Desktop/TV only: on a phone there's no hovering pointer, so chrome vanishing and
+  // reappearing on stray touches reads as the UI randomly hiding itself.
   useEffect(() => {
     if (!open) return
+    if (window.matchMedia('(max-width: 767px)').matches) { setIdle(false); return }
     let t: ReturnType<typeof setTimeout>
     const bump = () => { setIdle(false); clearTimeout(t); t = setTimeout(() => setIdle(true), 3500) }
     bump()
@@ -88,24 +82,21 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
 
   const progress = radio.durationSec > 0 ? radio.positionSec / radio.durationSec : 0
   const canSeek = radio.phase === 'playing' && !radio.djSpeaking && radio.durationSec > 0
-  const cycleVisualizer = () => {
-    const i = VISUALIZERS.findIndex(v => v.id === variant)
-    setVariant(VISUALIZERS[(i + 1) % VISUALIZERS.length]!.id)
-  }
 
   return createPortal(
     <div ref={rootRef}
-      className={cn('fixed inset-0 z-[200] overflow-hidden bg-black text-white select-none', idle && 'cursor-none')}>
+      // max-md: stops above the bottom chrome so the tab bar stays visible (Mobile
+      // Design Contract); desktop keeps the true lean-back fullscreen.
+      className={cn('fixed inset-0 max-md:bottom-[var(--bottom-chrome,0px)] z-[200] overflow-hidden bg-black text-white select-none', idle && 'cursor-none')}>
 
       {/* UltraBlur backdrop: four extracted corner colours over the massively blurred cover. */}
       <UltraBlur artUrl={artUrl || null} palette={palette} scrim="light" />
 
-      {/* Center stage: album art OR the visualizer. Tap to toggle between them (Plexamp). */}
-      <button type="button" onClick={() => { setShowVis(v => !v); setShowLyr(false) }}
-        className="absolute inset-0 flex items-center justify-center"
-        title={showVis ? 'Show album art' : 'Show visualizer'}>
+      {/* Center stage: album art, lyrics, or the visualizer - picked from the ONE stage
+          dropdown (tap-to-toggle was removed: it fought the dropdown and read as random). */}
+      <div className="absolute inset-0 flex items-center justify-center">
         {showLyr ? null : showVis ? (
-          <MusicVisualizer variant={variant} getAnalyser={radio.getAnalyser} palette={palette}
+          <AudioVisualizer variant={variant} mode="full" getAnalyser={radio.getAnalyser} palette={palette}
             active={!radio.paused} peaks={peaks} progress={progress} className="absolute inset-0" />
         ) : (
           artUrl
@@ -113,7 +104,7 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
                 style={{ boxShadow: `0 30px 120px -20px ${palette.vibrant}` }} />
             : <div className="grid aspect-square w-[min(46vh,46vw)] place-items-center rounded-[18px] bg-white/5"><ImageIcon className="size-16 text-white/30" /></div>
         )}
-      </button>
+      </div>
 
       {/* Lyrics stage (LYR): synced lyrics over the bare UltraBlur, Plexamp-style. The panel
           uses theme tokens, so pin the dark theme regardless of the app's. */}
@@ -124,36 +115,39 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
         </div>
       )}
 
-      {/* Top bar */}
-      <div className={cn('absolute inset-x-0 top-0 flex items-center justify-between p-5 transition-opacity duration-500', idle && 'opacity-0')}>
-        <div className="min-w-0">
-          {radio.station?.label && <div className="text-xs font-medium uppercase tracking-[0.2em] text-white/50">{radio.station.label}</div>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={(e) => { e.stopPropagation(); setShowVis(v => !v); setShowLyr(false) }}
-            className={cn('rounded-full px-3 py-1.5 text-[11px] font-bold tracking-widest backdrop-blur transition',
-              showVis && !showLyr ? 'bg-white/90 text-black' : 'bg-white/10 text-white/80 hover:bg-white/20')}
-            title={showVis && !showLyr ? 'Show album art' : 'Show visualizer'}>
-            VIZ
-          </button>
-          <button type="button" onClick={(e) => { e.stopPropagation(); setShowLyr(v => !v) }}
-            className={cn('rounded-full px-3 py-1.5 text-[11px] font-bold tracking-widest backdrop-blur transition',
-              showLyr ? 'bg-white/90 text-black' : 'bg-white/10 text-white/80 hover:bg-white/20')}
-            title={showLyr ? 'Hide lyrics' : 'Show lyrics'}>
-            LYR
-          </button>
-          {showVis && !showLyr && (
-            <button type="button" onClick={(e) => { e.stopPropagation(); cycleVisualizer() }}
+      {/* Floating chrome: ONE stage selector (album art / lyrics / each scene) + close.
+          The old row of station label + VIZ + LYR + style pills read as clutter. */}
+      <div className={cn('absolute right-5 top-5 z-10 flex items-center gap-2 transition-opacity duration-500', idle && 'opacity-0')}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button"
               className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium backdrop-blur transition hover:bg-white/20"
-              title="Change visualizer">
-              <Sparkles className="size-3.5" /> {VISUALIZERS.find(v => v.id === variant)?.label}
+              title="Change what's on stage">
+              <Sparkles className="size-3.5" />
+              {showLyr ? 'Lyrics' : showVis ? VISUALIZERS.find(v => v.id === variant)?.label : 'Album art'}
+              <ChevronDown className="size-3" />
             </button>
-          )}
-          <button type="button" onClick={onClose}
-            className="grid size-9 place-items-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" title="Exit fullscreen">
-            <X className="size-5" />
-          </button>
-        </div>
+          </DropdownMenuTrigger>
+          {/* z-[210]: this layer is z-[200]; the default menu z-50 would land behind it */}
+          <DropdownMenuContent align="end" className="z-[210]">
+            <DropdownMenuItem onClick={() => { setShowVis(false); setShowLyr(false) }}>
+              {!showVis && !showLyr ? '✓ ' : ''}Album art
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowLyr(true)}>
+              {showLyr ? '✓ ' : ''}Lyrics
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {VISUALIZERS.map(v => (
+              <DropdownMenuItem key={v.id} onClick={() => { setVisualizerPref(v.id); setShowVis(true); setShowLyr(false) }}>
+                {showVis && !showLyr && v.id === variant ? '✓ ' : ''}{v.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button type="button" onClick={onClose}
+          className="grid size-9 place-items-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" title="Close">
+          <X className="size-5" />
+        </button>
       </div>
 
       {/* Bottom: title + soundwave seek + controls + Up Next */}

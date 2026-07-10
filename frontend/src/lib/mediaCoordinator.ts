@@ -13,11 +13,12 @@ export interface Transport {
   stop: () => void
 }
 
-type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio' | 'studio'
+export type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio' | 'studio'
 
 const stops: Partial<Record<MediaSource, StopFn>> = {}
 const transports: Partial<Record<MediaSource, Transport>> = {}
 let active: MediaSource | null = null
+const sourceListeners = new Set<() => void>()
 
 export function registerMediaStop(kind: MediaSource, fn: StopFn): () => void {
   stops[kind] = fn
@@ -29,6 +30,21 @@ export function acquireAudio(source: MediaSource): void {
   for (const [kind, fn] of Object.entries(stops) as [string, StopFn][]) {
     if (kind !== source) fn()
   }
+  // Notify after the losers were stopped so subscribers see the settled state.
+  sourceListeners.forEach((fn) => fn())
+}
+
+/** Most-recently-acquired source; MediaBarSlot uses it to pick the one visible bar.
+ *  Sticky like hasActiveMedia (never reset to null) - bar visibility must derive from
+ *  the playback contexts' content, this only breaks ties. */
+export function getActiveSource(): MediaSource | null {
+  return active
+}
+
+/** Subscribe to active-source changes (useSyncExternalStore-compatible). */
+export function subscribeActiveSource(fn: () => void): () => void {
+  sourceListeners.add(fn)
+  return () => { sourceListeners.delete(fn) }
 }
 
 /** An engine registers its transport controls; the most-recently-acquired one is active. */
@@ -53,4 +69,19 @@ export function dispatchTransport(action: string, position?: number): void {
   else if (action === 'prev') t.prev()
   else if (action === 'seek' && typeof position === 'number') t.seek(position)
   else if (action === 'stop') t.stop()
+}
+
+// Winner selection shared by every "one media surface at a time" placement
+// (MediaBarSlot's app bar, the desktop HUD island's now-playing slot). The
+// most-recently-acquired source wins while still present; otherwise fall back
+// in fixed presence order. Callers build the `present` map themselves (that is
+// where surface-specific rules like route redundancy guards live).
+export const MEDIA_FALLBACK_ORDER: readonly MediaSource[] = ['podcast', 'youtube', 'radio', 'liveRadio']
+
+export function pickMediaWinner(
+  present: Partial<Record<MediaSource, boolean>>,
+  activeSource: MediaSource | null,
+): MediaSource | null {
+  if (activeSource && activeSource !== 'studio' && present[activeSource]) return activeSource
+  return MEDIA_FALLBACK_ORDER.find((s) => present[s]) ?? null
 }

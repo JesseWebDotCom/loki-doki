@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 
 // Open/close state for the app-wide full-page music player (NowPlayingOverlay). The overlay is
 // mounted once in AppShell (and portaled to <body> so it covers the sidebar too) and driven from
@@ -24,7 +25,13 @@ interface PlayerOverlayValue {
 
 const Ctx = createContext<PlayerOverlayValue | null>(null);
 
+// Phones never enter real browser fullscreen: the installed PWA has no browser chrome
+// to hide, the transition is jarring, and the Mobile Design Contract keeps the bottom
+// tab bar on screen (the overlays stop above it instead of covering it).
+const isPhone = () => window.matchMedia("(max-width: 767px)").matches;
+
 function requestFs() {
+  if (isPhone()) return;
   const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
   try {
     (el.requestFullscreen ?? el.webkitRequestFullscreen)?.call(el)?.catch?.(() => {});
@@ -44,6 +51,23 @@ function exitFs() {
 export function PlayerOverlayProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
+  const { pathname } = useLocation();
+  // On phones the tab bar stays visible (and tappable) under the player, so navigating
+  // must fold the player away or it would keep covering the new page. The grace window
+  // protects the /music/now-playing deep-link shim, which opens the player and then
+  // immediately redirects to /music.
+  const openedAtRef = useRef(0);
+  const firstPathRef = useRef(true);
+  useEffect(() => {
+    if (firstPathRef.current) {
+      firstPathRef.current = false;
+      return;
+    }
+    if (!isPhone()) return;
+    if (Date.now() - openedAtRef.current < 600) return;
+    setOpen(false);
+    setImmersive(false);
+  }, [pathname]);
   // Tracks whether we actually reached fullscreen for this session, so the change→false handler
   // only auto-closes after a real fullscreen exit (not on the brief pre-activation frame, and not
   // on platforms where requestFullscreen silently no-ops).
@@ -70,6 +94,7 @@ export function PlayerOverlayProvider({ children }: { children: ReactNode }) {
 
   const openPlayer = useCallback(() => {
     enteredRef.current = false;
+    openedAtRef.current = Date.now();
     setOpen(true);
     requestFs();
   }, []);
@@ -82,6 +107,7 @@ export function PlayerOverlayProvider({ children }: { children: ReactNode }) {
 
   const openImmersive = useCallback(() => {
     enteredRef.current = false;
+    openedAtRef.current = Date.now();
     setImmersive(true);
     requestFs();
   }, []);

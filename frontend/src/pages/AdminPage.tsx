@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Menu, Search, WifiOff } from 'lucide-react'
+import { PanelLeft, Search, WifiOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
@@ -93,8 +93,11 @@ export function AdminPage() {
   useAppHeader({
     query: '', setQuery: () => {}, searchable: false,
     leftSlot: (
-      <Button variant="ghost" size="icon-sm" onClick={() => setMobileNavOpen(true)} className="md:hidden" aria-label="Open navigation">
-        <Menu className="size-5" />
+      // Labeled (not a bare hamburger): an unlabeled Menu glyph here was identical to
+      // other menu icons while opening a completely different drawer.
+      <Button variant="ghost" size="sm" onClick={() => setMobileNavOpen(true)} className="md:hidden gap-1.5" aria-label="Open admin sections">
+        <PanelLeft className="size-4" />
+        Sections
       </Button>
     ),
     rightSlot: (

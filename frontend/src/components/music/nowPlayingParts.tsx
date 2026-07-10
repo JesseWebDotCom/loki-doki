@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DndContext, PointerSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ExternalLink, GripVertical, Info, Music2, Play } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
-import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, type LyricLine } from '@/lib/music/catalogApi'
+import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, getStation, getStationTuning, prefetchMedia, type LyricLine } from '@/lib/music/catalogApi'
+import { proxyImg } from '@/lib/img'
+import { isYouTubeRef } from '@/lib/music/trackRef'
 import { useRadio } from '@/context/RadioContext'
 import { SongArt } from '@/components/music/SongArt'
 import { useTitleMask } from '@/lib/music/policy'
@@ -300,4 +302,93 @@ export function UpNextList({ tracks, baseIndex }: {
       </SortableContext>
     </DndContext>
   )
+}
+
+// Generic fallback shown for the blink before the station's own lines load (or for legacy
+// preset stations with no saved id). The per-station LLM-written set replaces these.
+const FALLBACK_TUNING = [
+  'Warming up the speakers…',
+  'Lining up the perfect first track…',
+  'Cueing something good…',
+  'Finding the groove…',
+]
+
+// Fills the lyrics area while a station spins up: pulsing equalizer + rotating playful
+// "tuning in" lines pulled from the station's stored, LLM-written set. Shared by the
+// NowPlayingOverlay (the one full player) and any future lyric surface.
+export function TuningLyrics({ stationId, color }: { stationId?: string; color: string }) {
+  const { data } = useQuery({
+    queryKey: ['station-tuning', stationId], queryFn: () => getStationTuning(stationId!),
+    enabled: !!stationId, staleTime: Infinity,
+  })
+  const messages = data?.messages?.length ? data.messages : FALLBACK_TUNING
+  const [i, setI] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setI(n => n + 1), 5500)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">
+      <div className="flex items-end gap-1.5" aria-hidden>
+        {[14, 22, 11, 18, 13].map((h, n) => (
+          // design-ok(adhoc-pulse): bespoke station-tint tuning equalizer, not a loading skeleton
+          <span key={n} className="w-1.5 rounded-full animate-pulse"
+            style={{ background: color, height: h, animationDelay: `${n * 130}ms`, animationDuration: '1100ms' }} />
+        ))}
+      </div>
+      <p key={i} className="max-w-xs text-lg font-semibold text-foreground/90 animate-in fade-in duration-700">
+        {messages[i % messages.length]}
+      </p>
+    </div>
+  )
+}
+
+// Where this station came from (a movie/show soundtrack pivot). Fast path: sourceRef is
+// carried in the DjStation shape; fallback fetches the station row for stations started
+// before sourceRef existed.
+export function useSourceBackLink(): { url: string; label: string } | null {
+  const radio = useRadio()
+  const stationId = radio.station?.stationId
+  const { data: stationDetail } = useQuery({
+    queryKey: ['station', stationId],
+    queryFn: () => getStation(stationId!),
+    enabled: !!stationId && !radio.station?.sourceRef,
+    staleTime: Infinity,
+  })
+  const sourceRef = radio.station?.sourceRef ?? stationDetail?.station.sourceRef ?? ''
+  const movieM = sourceRef.match(/^source:movie:(.+)$/)
+  if (movieM) return { url: `/movies/${movieM[1]}`, label: decodeURIComponent(movieM[1]) }
+  const showM = sourceRef.match(/^source:show:(\d+):(.+)$/)
+  if (showM) return { url: `/shows/${showM[1]}`, label: decodeURIComponent(showM[2]) }
+  return null
+}
+
+// Warm the NEXT track's content (art, lyrics, Wikipedia, smart links) into the query cache
+// while the current song still plays (everything is staleTime:Infinity, so the flip renders
+// instantly), plus the current song's 480p video so "Switch to video" is instant. Runs
+// whenever radio is active; safe to keep warm even while the overlay is closed.
+export function useNowPlayingPrefetch(): void {
+  const radio = useRadio()
+  const queryClient = useQueryClient()
+  const next = radio.nextTrack
+  useEffect(() => {
+    if (!next?.title) return
+    const artist = next.author ?? ''
+    const title = next.title
+    const warm = (key: unknown[], fn: () => Promise<unknown>) =>
+      void queryClient.prefetchQuery({ queryKey: key, queryFn: fn, staleTime: Infinity })
+    warm(['music-lyrics', artist, title], () => getLyrics(artist, title))
+    if (title) warm(['music-song-info-v2', artist, title], () => getSongInfo(artist, title))
+    if (artist) warm(['music-artist-info-v3', artist], () => getArtistInfo(artist))
+    if (artist && title) warm(['music-smart-links', artist, title], () => getSongSmartLinks(artist, title))
+    if (next.thumbnail) { const img = new Image(); img.src = proxyImg(next.thumbnail) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [next?.videoId, next?.title, next?.author, next?.thumbnail, queryClient])
+
+  const cur = radio.currentTrack ?? radio.queue[radio.index] ?? null
+  const watchableStation = radio.station?.stationId
+  useEffect(() => {
+    if (cur?.videoId && watchableStation && isYouTubeRef(cur.videoId)) void prefetchMedia(cur.videoId, 'video', 480)
+  }, [cur?.videoId, watchableStation])
 }

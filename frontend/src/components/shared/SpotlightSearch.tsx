@@ -17,6 +17,9 @@ import { Dialog, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { categoryVisual } from "@/lib/archiveCategories";
 import { APP_GROUPS } from "@/lib/appCategories";
+import { AppLauncherBody } from "@/components/shell/AppLauncher";
+import { useNavPrefs } from "@/context/NavPreferencesContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -270,6 +273,11 @@ export function SpotlightSearch() {
   const [archives, setArchives] = useState<LibraryItem[]>([]);
   const [content, setContent] = useState<ContentHit[]>([]);
   const navigate = useNavigate();
+  // On phones this dialog is the Search TAB: full screen, and its empty state is the
+  // app launcher grid (recents + categories) instead of a flat list. The single shared
+  // NavPreferences tracker keeps pins/recents in sync with the desktop sidebar.
+  const isMobile = useIsMobile();
+  const { pinnedIds, recentIds, pin, unpin } = useNavPrefs();
 
   // Fetch archives once per dialog open
   useEffect(() => {
@@ -391,18 +399,24 @@ export function SpotlightSearch() {
         <DialogOverlay />
         <RadixDialog.Content
           className={cn(
-            "fixed left-1/2 top-[22%] z-50 w-full max-w-[480px] -translate-x-1/2",
-            "rounded-sheet border border-border bg-background shadow-2xl overflow-hidden",
+            // Phones: the Search tab, full screen above the bottom chrome (the tab bar
+            // stays visible; tapping it dismisses). md+: centered palette.
+            "fixed z-50 flex flex-col bg-background shadow-2xl overflow-hidden",
+            "inset-x-0 top-0 bottom-[var(--bottom-chrome,0px)] pt-safe",
+            "md:inset-auto md:left-1/2 md:top-[22%] md:block md:w-full md:max-w-[480px] md:-translate-x-1/2",
+            "rounded-none md:rounded-sheet border-0 md:border md:border-border",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           )}
         >
           {/* Search input */}
-          <div className="flex items-center gap-3 border-b border-border/50 px-4 py-3.5">
+          <div className="flex shrink-0 items-center gap-3 border-b border-border/50 px-4 py-3.5">
             <Search className="size-4 shrink-0 text-foreground/40" />
             <input
-              autoFocus
+              // Autofocus only on desktop: the mobile Search tab doubles as the app
+              // launcher, and an instant keyboard would cover the grid.
+              autoFocus={!isMobile}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -417,15 +431,37 @@ export function SpotlightSearch() {
                 }
               }}
               placeholder="Search apps, articles, links, and libraries..."
-              className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/30"
+              className="min-w-0 flex-1 bg-transparent text-base md:text-sm text-foreground outline-none placeholder:text-foreground/30"
             />
-            <kbd className="inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/25 leading-none">
+            <kbd className="hidden md:inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/25 leading-none">
               esc
             </kbd>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="md:hidden shrink-0 rounded-control px-2 py-1 text-sm text-muted-foreground"
+            >
+              Done
+            </button>
           </div>
 
+          {/* Empty query on phones: the launcher grid (recents + categorized apps) */}
+          {isMobile && q === "" ? (
+            <AppLauncherBody
+              active={open}
+              onClose={() => setOpen(false)}
+              pinnedIds={pinnedIds}
+              recentIds={recentIds}
+              onPin={pin}
+              onUnpin={unpin}
+              hideSearch
+              className="min-h-0 flex-1"
+              scrollerClassName="flex-1 min-h-0"
+            />
+          ) : (
+          <>
           {/* Results */}
-          <div className="py-1.5 max-h-[360px] overflow-y-auto">
+          <div className="py-1.5 flex-1 min-h-0 md:flex-none max-h-none md:max-h-[360px] overflow-y-auto">
             {isEmpty ? (
               <p className="px-4 py-8 text-center text-sm text-foreground/30">
                 No results for &ldquo;{query}&rdquo;
@@ -502,14 +538,16 @@ export function SpotlightSearch() {
             )}
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center gap-3 border-t border-border/30 px-4 py-2">
+          {/* Footer (keyboard hints are meaningless on touch) */}
+          <div className="hidden md:flex items-center gap-3 border-t border-border/30 px-4 py-2">
             <span className="text-[11px] text-foreground/20">
               <kbd className="font-mono">↑↓</kbd> navigate &nbsp;
               <kbd className="font-mono">↵</kbd> open &nbsp;
               <kbd className="font-mono">esc</kbd> close
             </span>
           </div>
+          </>
+          )}
         </RadixDialog.Content>
       </DialogPortal>
     </Dialog>

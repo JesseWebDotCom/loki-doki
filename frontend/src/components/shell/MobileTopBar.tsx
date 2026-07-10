@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronLeft, ExternalLink, Search, Settings, type LucideIcon } from "lucide-react";
+import { ChevronDown, ChevronLeft, ExternalLink, Settings, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { AppIconTile } from "@/components/shared/AppIconTile";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useSpotlight } from "@/components/shared/SpotlightSearch";
 import type { AppHeaderConfig } from "@/context/BreadcrumbSearchContext";
 
 // The phone-only replacement for the breadcrumb. Instead of the full Home / Group / App
@@ -29,11 +28,14 @@ export function MobileTopBar({
   onReload: () => void;
   config: AppHeaderConfig | null;
 }) {
-  const { openSpotlight } = useSpotlight();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [railOpen, setRailOpen] = useState(false);
   const hasRail = !!config?.rail;
+  // Any settings surface (app settings /apps/:id/settings, in-app /weather/settings,
+  // global /settings) - matched by path so it works even though those routes publish
+  // their own header config without a settingsHref.
+  const onSettingsPage = /\/settings(\/|$)/.test(pathname);
 
   // Picking a rail item navigates but doesn't dismiss the drawer on its own, close it
   // whenever the route changes so the content is visible right away.
@@ -88,17 +90,22 @@ export function MobileTopBar({
         {config?.leftSlot}
         {config?.rightSlot}
 
-        <Button variant="ghost" size="icon" className="size-10 shrink-0" aria-label="Search" onClick={openSpotlight}>
-          <Search className="size-4" />
-        </Button>
-
-        {config?.settingsHref && (
+        {/* Settings gear is a TOGGLE: on any settings page it stays visible (lit) and
+            tapping it again leaves settings, back to where you came from. Without this
+            the gear navigated one-way and then vanished (the settings route publishes
+            its own header config without settingsHref), stranding the user. */}
+        {(config?.settingsHref || onSettingsPage) && (
           <Button
             variant="ghost"
             size="icon"
-            className="size-10 shrink-0"
-            aria-label="Settings"
-            onClick={() => navigate(config.settingsHref!)}
+            className={cn("size-10 shrink-0", onSettingsPage && "bg-brand/15 text-brand")}
+            aria-label={onSettingsPage ? "Close settings" : "Settings"}
+            aria-pressed={onSettingsPage}
+            onClick={() => {
+              if (!onSettingsPage) navigate(config!.settingsHref!)
+              else if ((window.history.state?.idx ?? 0) > 0) navigate(-1)
+              else navigate("/")
+            }}
           >
             <Settings className="size-4" />
           </Button>
