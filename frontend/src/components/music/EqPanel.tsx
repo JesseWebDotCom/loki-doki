@@ -14,7 +14,7 @@ const hzLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz))
 
 export function EqPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const radio = useRadio()
-  const { dsp, setDsp, crossfadeMs, setCrossfadeMs } = radio
+  const { dsp, setDsp, crossfadeMs, setCrossfadeMs, sweetFades, setSweetFades } = radio
 
   const setBand = (i: number, db: number) => {
     const gains = [...dsp.eqGains]
@@ -86,6 +86,13 @@ export function EqPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (
               onChange={e => setCrossfadeMs(Number(e.target.value))}
               aria-label="Crossfade length" className="mt-1.5 w-full accent-brand" />
           </div>
+          <label className="flex items-center justify-between text-sm">
+            <span>
+              <span className="font-medium">Sweet fades</span>
+              <span className="block text-xs text-muted-foreground">Each song's loudness picks the best moment to blend in the next one</span>
+            </span>
+            <Switch checked={sweetFades} onCheckedChange={v => setSweetFades(v === true)} />
+          </label>
           <label className="flex items-center justify-between text-sm">
             <span>
               <span className="font-medium">Loudness normalization</span>

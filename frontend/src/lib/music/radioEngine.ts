@@ -24,7 +24,7 @@ import { getOfflineQueue, offlineAudioUrl, prefetchReady, resolveSong, type Offl
 import { isYouTubeRef, streamSrcForRef, artUrlForRef } from '@/lib/music/trackRef'
 import { ensureMediaGraph, getSharedAnalyser, setLoudnessTrimDb } from '@/lib/mediaAudioGraph'
 import { applyStoredDsp } from '@/lib/music/dsp'
-import { getAudioFacts } from '@/lib/music/metaApi'
+import { getAudioFacts, getWaveform } from '@/lib/music/metaApi'
 import type { DjStation } from '@/lib/music/radioStations'
 
 export interface QueuedTrack {
@@ -427,6 +427,36 @@ export class RadioEngine {
     el.load()
     this.ramp(this.deckKey(deck), 0, 0)
     this.applyLoudnessTrim(deck, videoId)
+    this.analyzeOutro(deck, videoId)
+  }
+
+  // ── Sweet Fades (Plexamp): find where each track's outro actually begins ────────
+  // From the server loudness envelope, locate the last sustained-energy point (fade-out
+  // start) and the last audible point (end of trailing silence), as track fractions.
+  // waitTail() then overlaps the next song at the fade-out instead of a fixed offset -
+  // long quiet outros and trailing silence never leave the station hanging.
+  private deckOutro: ({ lastLoudFrac: number; lastSoundFrac: number } | null)[] = [null, null]
+  private analyzeOutro(deck: number, ref: string) {
+    this.deckOutro[deck] = null   // reset instantly so the previous track's outro never leaks
+    void getWaveform(ref).then(peaks => {
+      if (this.deckRefs[deck] !== ref || !peaks?.length) return   // deck re-cued / unscanned
+      let max = 0
+      for (const v of peaks) if (v > max) max = v
+      if (max < 16) return   // essentially silent scan - trust the fixed tail instead
+      // 3-bucket smoothing so one stray sample doesn't count as "still loud".
+      const smooth = (i: number) => Math.max(peaks[i - 1] ?? 0, peaks[i]!, peaks[i + 1] ?? 0)
+      let lastLoud = -1, lastSound = -1
+      for (let i = peaks.length - 1; i >= 0; i--) {
+        const v = smooth(i)
+        if (lastSound < 0 && v >= max * 0.05) lastSound = i
+        if (v >= max * 0.18) { lastLoud = i; break }
+      }
+      if (lastLoud < 0 || this.deckRefs[deck] !== ref) return
+      this.deckOutro[deck] = {
+        lastLoudFrac: (lastLoud + 1) / peaks.length,
+        lastSoundFrac: (Math.max(lastSound, lastLoud) + 1) / peaks.length,
+      }
+    }).catch(() => { /* the envelope is optional */ })
   }
 
   // Loudness normalization: aim the track at -14 LUFS using the server's scan, capped by
@@ -529,7 +559,7 @@ export class RadioEngine {
         if (this.stale(runId)) return finish('skip')
         if (el.error) return finish('end')
         const d = el.duration
-        if (isFinite(d) && d > 0 && el.currentTime >= d - this.tailSec()) return finish('tail')
+        if (isFinite(d) && d > 0 && el.currentTime >= d - this.effectiveTailSec(deck, d)) return finish('tail')
         if (!el.paused) {
           if (el.currentTime === lastT) { if (++stuck > 48) return finish('end') } // ~12s stalled
           else { stuck = 0; lastT = el.currentTime }
@@ -913,6 +943,27 @@ export class RadioEngine {
   setCrossfadeMs(ms: number) {
     this.crossfadeMs = Math.max(0, Math.min(12000, Math.round(ms)))
     try { localStorage.setItem('music.crossfadeMs', String(this.crossfadeMs)) } catch { /* quota */ }
+  }
+
+  // Sweet Fades: overlap the next song where this one's outro begins (per-track loudness
+  // analysis from analyzeOutro) instead of a fixed tail. On by default, persisted.
+  private sweetFades = typeof localStorage !== 'undefined' && localStorage.getItem('music.sweetFades') !== '0'
+  getSweetFades(): boolean { return this.sweetFades }
+  setSweetFades(on: boolean) {
+    this.sweetFades = on
+    try { localStorage.setItem('music.sweetFades', on ? '1' : '0') } catch { /* quota */ }
+  }
+  // The tail to hand off at: at least the crossfade's own tail; with Sweet Fades, all of
+  // the track's trailing silence plus up to 12s of its fade-out - but never more than half
+  // the song (a defensive clamp against a degenerate envelope).
+  private effectiveTailSec(deck: number, durationSec: number): number {
+    const base = this.tailSec()
+    const o = this.deckOutro[deck]
+    if (!this.sweetFades || !o) return base
+    const silence = Math.max(0, (1 - o.lastSoundFrac) * durationSec)
+    const fade = Math.max(0, (o.lastSoundFrac - o.lastLoudFrac) * durationSec)
+    const sweet = silence + Math.min(12, fade)
+    return Math.min(Math.max(base, sweet), Math.max(base, durationSec * 0.5))
   }
 
   // Repeat-one: when on, the current song replays from the top instead of advancing to the

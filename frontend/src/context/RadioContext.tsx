@@ -34,6 +34,9 @@ interface RadioCtx extends RadioState {
   setDsp: (next: DspSettings) => void
   crossfadeMs: number
   setCrossfadeMs: (ms: number) => void
+  /** Sweet Fades: overlap the next song where this one's outro begins (loudness-timed). */
+  sweetFades: boolean
+  setSweetFades: (on: boolean) => void
   /** How many seconds a lyric line highlights BEFORE it's sung (read-ahead). Per-device pref. */
   lyricLeadSec: number
   setLyricLeadSec: (sec: number) => void
@@ -88,6 +91,12 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   const setCrossfadeMs = (ms: number) => {
     engineRef.current?.setCrossfadeMs(ms)
     setCrossfadeState(engineRef.current?.getCrossfadeMs() ?? ms)
+  }
+  // Mirrors the engine's persisted Sweet Fades flag (same localStorage key) for the UI.
+  const [sweetFades, setSweetFadesState] = useState(() => engineRef.current?.getSweetFades() ?? true)
+  const setSweetFades = (on: boolean) => {
+    engineRef.current?.setSweetFades(on)
+    setSweetFadesState(engineRef.current?.getSweetFades() ?? on)
   }
 
   useEffect(() => {
@@ -207,11 +216,13 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     setDsp,
     crossfadeMs,
     setCrossfadeMs,
+    sweetFades,
+    setSweetFades,
     lyricLeadSec,
     setLyricLeadSec,
     visualizerEnabled,
     toggleVisualizer,
-  }), [state, e, visualizerEnabled, dsp, crossfadeMs, lyricLeadSec])
+  }), [state, e, visualizerEnabled, dsp, crossfadeMs, sweetFades, lyricLeadSec])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
