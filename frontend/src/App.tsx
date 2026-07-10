@@ -139,7 +139,10 @@ const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').th
 const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
 const MusicStudioPage = lazy(() => import('@/pages/music/MusicStudioPage').then((m) => ({ default: m.MusicStudioPage })))
 const KaraokePage = lazy(() => import('@/pages/music/KaraokePage').then((m) => ({ default: m.KaraokePage })))
+const MusicStudioLayout = lazy(() => import('@/pages/music/MusicStudioLayout').then((m) => ({ default: m.MusicStudioLayout })))
 const MusicStudioDetailPage = lazy(() => import('@/pages/music/MusicStudioDetailPage').then((m) => ({ default: m.MusicStudioDetailPage })))
+const MusicStudioTabPage = lazy(() => import('@/pages/music/MusicStudioTabPage').then((m) => ({ default: m.MusicStudioTabPage })))
+const MusicStudioTutorialsPage = lazy(() => import('@/pages/music/MusicStudioTutorialsPage').then((m) => ({ default: m.MusicStudioTutorialsPage })))
 
 const BooksLayout = lazy(() => import('@/components/books/BooksLayout').then((m) => ({ default: m.BooksLayout })))
 const BooksLibraryPage = lazy(() => import('@/pages/books/BooksLibraryPage').then((m) => ({ default: m.BooksLibraryPage })))
@@ -369,7 +372,11 @@ export default function App() {
                   <Route path="library" element={<MusicLibraryPage />} />
                   <Route path="replay" element={<MusicReplayPage />} />
                   <Route path="studio" element={<MusicStudioPage />} />
-                  <Route path="studio/:id" element={<MusicStudioDetailPage />} />
+                  <Route path="studio/:id" element={<MusicStudioLayout />}>
+                    <Route index element={<MusicStudioDetailPage />} />
+                    <Route path="tab" element={<MusicStudioTabPage />} />
+                    <Route path="tutorials" element={<MusicStudioTutorialsPage />} />
+                  </Route>
                   <Route path="karaoke" element={<KaraokePage />} />
                   <Route path="playlist/:id" element={<MusicPlaylistPage />} />
                 </Route>

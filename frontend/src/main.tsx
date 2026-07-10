@@ -10,6 +10,13 @@ import 'katex/dist/katex.min.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/shared/ErrorBoundary.tsx'
 import { persistOptions } from './lib/prefetch/persist.ts'
+import { reportClientError } from './lib/clientErrorReport.ts'
+
+// Errors that never reach the React tree (async handlers, unawaited promises) don't hit
+// the ErrorBoundary - ship them to the backend log ring too so recurring breakage is
+// diagnosable from Admin → logs instead of needing the user's devtools open at the time.
+window.addEventListener('error', (e) => reportClientError('window-error', e.error ?? e.message))
+window.addEventListener('unhandledrejection', (e) => reportClientError('unhandled-rejection', e.reason))
 
 // Register the pmtiles:// protocol so MapLibre can read offline vector-tile
 // archives served by the maps backend. Guarded so HMR never double-registers.

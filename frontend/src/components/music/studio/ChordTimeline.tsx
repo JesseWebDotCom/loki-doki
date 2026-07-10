@@ -11,7 +11,7 @@ const PX_PER_SEC = 90
 const PLAYHEAD_FRAC = 0.3   // playhead sits 30% from the left, so you see what's coming
 
 // Essentia labels: "G", "Em", "A#:min", "N" (no chord). Prettify for display.
-function pretty(label: string): string {
+export function pretty(label: string): string {
   if (!label || label === 'N') return '-'
   return label.replace(':maj', '').replace(':min', 'm').replace(':', '')
 }

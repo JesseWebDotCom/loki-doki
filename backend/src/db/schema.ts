@@ -654,6 +654,43 @@ export const musicStudioTracks = sqliteTable('music_studio_tracks', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Pinned YouTube tutorial videos for a Studio track (guitar/practice lessons). Plain
+// synchronous CRUD (pin/unpin), not job-backed — no status/*Error/polling columns needed.
+export const musicStudioTutorials = sqliteTable('music_studio_tutorials', {
+  id: text('id').primaryKey(),
+  trackId: text('track_id').notNull().references(() => musicStudioTracks.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  title: text('title').notNull(),
+  author: text('author'),
+  thumbnailUrl: text('thumbnail_url'),
+  durationSec: integer('duration_sec'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  trackVideoUnique: uniqueIndex('music_studio_tutorials_track_video_idx').on(t.trackId, t.videoId),
+}))
+
+// An imported Guitar Pro / MusicXML tab for a Studio track, rendered + cursor-synced to
+// playback client-side via alphaTab (see AlphaTabView.tsx) — parsing happens in the browser,
+// so `status` only reflects upload validation, not a background job.
+// `alignJson` maps the file's own written timeline onto THIS recording's real seconds: alphaTab
+// assumes a constant tempo as written, but a real recording drifts (count-in, rubato, a
+// different take's tempo) — {startSec, endSec} are two anchors (when the first/last bar of the
+// score actually falls in this audio) that alphaTab's sync-point mechanism scales between.
+export const musicStudioTabs = sqliteTable('music_studio_tabs', {
+  id: text('id').primaryKey(),
+  trackId: text('track_id').notNull().references(() => musicStudioTracks.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  instrument: text('instrument'),
+  sourceRelPath: text('source_rel_path').notNull(),   // music/studio/<trackId>/tabs/<id>.<ext>
+  status: text('status', { enum: ['ready', 'failed'] }).notNull().default('ready'),
+  tabError: text('tab_error'),
+  alignJson: text('align_json'),   // JSON {startSec: number, endSec: number} | null
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // Resolver cache: maps a MusicBrainz recording (or a synthetic keyless query key) to the
 // YouTube videoId we play for it. Resolution is fuzzy and rate-limited, so we cache the
 // answer permanently and reuse it everywhere (stations, playlists, search, offline). A row

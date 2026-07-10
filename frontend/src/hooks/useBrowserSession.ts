@@ -13,7 +13,7 @@ import { manageEventSource } from '@/lib/managedEventSource'
 // remote-controls the app open in the browser.
 //
 // The stream is visibility-managed (see managedEventSource.ts): hidden tabs release
-// their connection so multiple tabs can't exhaust the browser's per-origin pool —
+// their connection so multiple tabs can't exhaust the browser's per-origin pool -
 // EXCEPT a hidden tab that's playing media, which stays connected so a device remote
 // can still drive it. Reconnecting on focus also means the backend's most-recent-tab
 // command routing follows the tab the user is actually looking at.

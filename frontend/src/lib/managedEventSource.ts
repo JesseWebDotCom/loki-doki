@@ -3,7 +3,7 @@
 // Browsers allow only ~6 concurrent HTTP/1.1 connections per origin, SHARED ACROSS ALL
 // TABS. Every long-lived SSE stream pins one of them for the tab's whole life, so two
 // or three open tabs (each holding its app-wide streams, plus any audio/media stream)
-// exhaust the pool and every later fetch — page loads included — queues forever. That
+// exhaust the pool and every later fetch - page loads included - queues forever. That
 // is the "second tab won't load / works in the other browser" failure mode.
 //
 // This wrapper keeps a stream open only while it can matter: open while the tab is
@@ -22,7 +22,7 @@ interface ManagedEventSourceOptions {
 
 /**
  * Manage `create()`'s EventSource across tab visibility changes. The factory must
- * attach all listeners itself — it runs on every (re)connect. Returns a dispose fn.
+ * attach all listeners itself - it runs on every (re)connect. Returns a dispose fn.
  */
 export function manageEventSource(
   create: () => EventSource,

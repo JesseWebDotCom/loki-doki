@@ -9,7 +9,7 @@
 
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { musicStudioTracks, users, downloadJobs } from '@/db/schema'
+import { musicStudioTracks, musicStudioTutorials, musicStudioTabs, users, downloadJobs } from '@/db/schema'
 import { eq, and, ne, desc, like, inArray, sql } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import { userPath, resolveUserPath, toRelativePath } from '@/lib/storage/paths'
@@ -23,6 +23,7 @@ import { enqueueAudioAnalyze, enqueueStemSeparation, enqueueStudioSource, enqueu
 import { isStemAudioInstalled, isRoformerGuitarInstalled } from '@/lib/stems/pyenv'
 import type { AlignedLine } from '@/lib/stems/reconcileLyrics'
 import { webSearch } from '@/lib/webSearch'
+import { searchGProTab, downloadGProTabFile, isGProTabSongUrl } from '@/lib/music/gprotab'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -486,6 +487,214 @@ musicStudio.get('/:id/stem/:name', async (c) => {
   try { absPath = await resolveUserPath(join(dirname(row!.sourceRelPath), 'stems', `${name}.mp3`)) }
   catch { return c.json({ error: 'Missing' }, 404) }
   return streamFile(c, absPath, 'audio/mpeg')
+})
+
+// ── Tutorials (pinned YouTube guitar lessons for this track) ─────────────────────
+// Suggestions/search/"find more" all go through the existing /api/youtube/search endpoint on
+// the client — this is just the pin/unpin CRUD, ordered by pin time.
+musicStudio.get('/:id/tutorials', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const rows = await db.select().from(musicStudioTutorials)
+    .where(eq(musicStudioTutorials.trackId, row!.id))
+    .orderBy(desc(musicStudioTutorials.createdAt))
+  return c.json({ tutorials: rows })
+})
+
+musicStudio.post('/:id/tutorials', async (c) => {
+  const user = c.get('user')
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  type Body = { videoId?: string; title?: string; author?: string; thumbnailUrl?: string; durationSec?: number }
+  const body = await c.req.json<Body>().catch(() => ({} as Body))
+  const videoId = (body.videoId ?? '').trim()
+  const title = (body.title ?? '').trim().slice(0, 300)
+  if (!videoId || !title) return c.json({ error: 'videoId and title required' }, 400)
+  const [existing] = await db.select().from(musicStudioTutorials)
+    .where(and(eq(musicStudioTutorials.trackId, row!.id), eq(musicStudioTutorials.videoId, videoId))).limit(1)
+  if (existing) return c.json({ tutorial: existing })
+  const tutorial = {
+    id: crypto.randomUUID(), trackId: row!.id, userId: user.id, videoId, title,
+    author: body.author?.trim() || null, thumbnailUrl: body.thumbnailUrl || null,
+    durationSec: body.durationSec ?? null, createdAt: new Date(),
+  }
+  await db.insert(musicStudioTutorials).values(tutorial)
+  return c.json({ tutorial })
+})
+
+musicStudio.delete('/:id/tutorials/:videoId', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  await db.delete(musicStudioTutorials)
+    .where(and(eq(musicStudioTutorials.trackId, row!.id), eq(musicStudioTutorials.videoId, c.req.param('videoId'))))
+  return c.json({ ok: true })
+})
+
+// ── Tabs (imported Guitar Pro / MusicXML, rendered + synced client-side via alphaTab) ────
+const TAB_EXTENSIONS = new Set(['gp', 'gp3', 'gp4', 'gp5', 'gpx', 'musicxml', 'xml'])
+const TAB_MAX_BYTES = 20 * 1024 * 1024   // tab files are small; generous ceiling against abuse
+
+function tabDto(row: typeof musicStudioTabs.$inferSelect) {
+  let align: { startSec: number; endSec: number } | null = null
+  try { align = row.alignJson ? JSON.parse(row.alignJson) : null } catch { align = null }
+  return {
+    id: row.id, title: row.title, instrument: row.instrument, status: row.status, tabError: row.tabError,
+    align, fileUrl: `/api/music/studio/${row.trackId}/tabs/${row.id}/file`,
+    createdAt: row.createdAt, updatedAt: row.updatedAt,
+  }
+}
+
+async function ownedTab(c: any, trackRow: typeof musicStudioTracks.$inferSelect) {
+  const [row] = await db.select().from(musicStudioTabs)
+    .where(and(eq(musicStudioTabs.id, c.req.param('tabId')), eq(musicStudioTabs.trackId, trackRow.id))).limit(1)
+  if (!row) return { err: c.json({ error: 'Not found' }, 404) }
+  return { row }
+}
+
+/** Persist tab-file bytes + row — shared by the direct upload and the GProTab import. */
+async function saveTabFile(userId: string, trackId: string, bytes: Uint8Array, ext: string, title: string, instrument: string | null) {
+  const id = crypto.randomUUID()
+  const fn = await firstName(userId)
+  const abs = await userPath(userId, fn, 'music', 'studio', trackId, 'tabs', `${id}.${ext}`)
+  await writeFile(abs, Buffer.from(bytes))
+  const rel = await toRelativePath(abs)
+
+  const now = new Date()
+  await db.insert(musicStudioTabs).values({
+    id, trackId, userId, title, instrument, sourceRelPath: rel,
+    status: 'ready', tabError: null, alignJson: null, createdAt: now, updatedAt: now,
+  })
+  const [saved] = await db.select().from(musicStudioTabs).where(eq(musicStudioTabs.id, id))
+  return saved!
+}
+
+musicStudio.post('/:id/tabs', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const user = c.get('user')
+  const form = await c.req.formData()
+  const file = form.get('file')
+  if (!(file instanceof File)) return c.json({ error: 'file required' }, 400)
+  const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+  if (!TAB_EXTENSIONS.has(ext)) return c.json({ error: 'Unsupported file type — use Guitar Pro (.gp/.gpx) or MusicXML' }, 400)
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  if (bytes.byteLength === 0) return c.json({ error: 'Empty file' }, 400)
+  if (bytes.byteLength > TAB_MAX_BYTES) return c.json({ error: 'File too large' }, 413)
+
+  const title = (typeof form.get('title') === 'string' ? String(form.get('title')).trim() : '').slice(0, 160)
+    || file.name.replace(/\.[^.]+$/, '').slice(0, 160)
+  const instrument = (typeof form.get('instrument') === 'string' ? String(form.get('instrument')).trim() : '').slice(0, 60) || null
+
+  const saved = await saveTabFile(user.id, row!.id, bytes, ext, title, instrument)
+  return c.json({ tab: tabDto(saved) })
+})
+
+// ── Import a tab file straight from a GProTab.net song page ─────────────────────────
+// The server does the download (browser CORS won't allow it), validates it like an upload,
+// and stores it through the same pipeline. `url` is strictly allowlisted to gprotab.net song
+// pages (checked again inside downloadGProTabFile) — this is NOT a general fetch-any-URL
+// endpoint, so no broader SSRF surface opens up.
+musicStudio.post('/:id/tabs/from-url', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const user = c.get('user')
+  const body = await c.req.json<{ url?: string; title?: string }>().catch(() => ({} as { url?: string; title?: string }))
+  const url = (body.url ?? '').trim()
+  if (!isGProTabSongUrl(url)) return c.json({ error: 'Only gprotab.net tab pages can be imported' }, 400)
+
+  const file = await downloadGProTabFile(url, TAB_MAX_BYTES)
+  if (!file) return c.json({ error: 'Could not download that tab file' }, 502)
+  const ext = (file.filename.split('.').pop() ?? '').toLowerCase()
+  if (!TAB_EXTENSIONS.has(ext)) return c.json({ error: `Unsupported file type: .${ext}` }, 422)
+
+  const title = (body.title ?? '').trim().slice(0, 160)
+    || file.filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 160)
+  const saved = await saveTabFile(user.id, row!.id, file.bytes, ext, title, null)
+  return c.json({ tab: tabDto(saved) })
+})
+
+musicStudio.get('/:id/tabs', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const rows = await db.select().from(musicStudioTabs)
+    .where(eq(musicStudioTabs.trackId, row!.id)).orderBy(desc(musicStudioTabs.createdAt))
+  return c.json({ tabs: rows.map(tabDto) })
+})
+
+musicStudio.get('/:id/tabs/:tabId/file', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const { row: tab, err: tabErr } = await ownedTab(c, row!)
+  if (tabErr) return tabErr
+  let absPath: string
+  try { absPath = await resolveUserPath(tab!.sourceRelPath) } catch { return c.json({ error: 'Missing' }, 404) }
+  return streamFile(c, absPath, 'application/octet-stream')
+})
+
+musicStudio.put('/:id/tabs/:tabId/align', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const { row: tab, err: tabErr } = await ownedTab(c, row!)
+  if (tabErr) return tabErr
+  const body = await c.req.json<{ startSec?: number; endSec?: number }>().catch(() => ({} as { startSec?: number; endSec?: number }))
+  if (typeof body.startSec !== 'number' || typeof body.endSec !== 'number' || !(body.endSec > body.startSec)) {
+    return c.json({ error: 'startSec and endSec (endSec > startSec) required' }, 400)
+  }
+  await db.update(musicStudioTabs)
+    .set({ alignJson: JSON.stringify({ startSec: body.startSec, endSec: body.endSec }), updatedAt: new Date() })
+    .where(eq(musicStudioTabs.id, tab!.id))
+  return c.json({ ok: true })
+})
+
+musicStudio.delete('/:id/tabs/:tabId', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const { row: tab, err: tabErr } = await ownedTab(c, row!)
+  if (tabErr) return tabErr
+  try { await rm(await resolveUserPath(tab!.sourceRelPath), { force: true }) } catch { /* best-effort */ }
+  await db.delete(musicStudioTabs).where(eq(musicStudioTabs.id, tab!.id))
+  return c.json({ ok: true })
+})
+
+// ── Find a tab online (Ultimate Guitar / Songsterr) ───────────────────────────────
+// Site-scoped web search — no scraping of those sites themselves, just links to view on the
+// original site (they don't allow framing anyway). Reuses the app's own multi-engine
+// `webSearch()` (SearXNG-backed with keyless fallback) rather than a bespoke scraper; the
+// site: + exclusion-term query shape mirrors what's already proven to find the right page.
+// Ultimate Guitar serves the same tab catalog under dozens of per-language subdomains
+// (ja., it., de., ru., ...); those pages are real tabs but not the canonical English one most
+// users expect, and a site:-scoped search happily returns them since they're still on
+// ultimate-guitar.com. Restrict to the apex/www host explicitly.
+function isCanonicalHost(url: string, host: string): boolean {
+  try { const h = new URL(url).hostname; return h === host || h === `www.${host}` } catch { return false }
+}
+
+musicStudio.get('/:id/tab-search', async (c) => {
+  const { row, err } = await ownedTrack(c)
+  if (err) return err
+  const q = (c.req.query('q') ?? `${row!.artist ?? ''} ${row!.title}`).trim().slice(0, 200)
+  if (!q) return c.json({ ultimateGuitar: [], songsterr: [], gprotab: [] })
+  const [ultimateGuitar, songsterr, gprotab] = await Promise.all([
+    webSearch(`site:ultimate-guitar.com "${q}" tab official -bass -chords`, 8)
+      .then((rs) => rs.filter((r) => isCanonicalHost(r.url, 'ultimate-guitar.com')).slice(0, 5)),
+    webSearch(`site:songsterr.com "${q}" tab -bass -chords`, 8)
+      .then((rs) => rs.filter((r) => isCanonicalHost(r.url, 'songsterr.com')).slice(0, 5)),
+    // GProTab has its own on-site search (its pages barely surface in web-search indexes) and,
+    // unlike the two above, its results are actual downloadable files → the Import flow.
+    // Its search is AND-strict — "artist + title" together often returns nothing while the
+    // title alone hits — so fall back to title-only and rank the matching artist first.
+    searchGProTab(q, 5).then(async (rs) => {
+      const title = row!.title.trim()
+      if (rs.length > 0 || !title || title.toLowerCase() === q.toLowerCase()) return rs
+      const artist = (row!.artist ?? '').toLowerCase()
+      const retried = await searchGProTab(title, 8)
+      if (!artist) return retried.slice(0, 5)
+      return retried
+        .sort((a, b) => Number(b.artist.toLowerCase().includes(artist)) - Number(a.artist.toLowerCase().includes(artist)))
+        .slice(0, 5)
+    }),
+  ])
+  return c.json({ ultimateGuitar, songsterr, gprotab })
 })
 
 // ── Delete ───────────────────────────────────────────────────────────────────

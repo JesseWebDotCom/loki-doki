@@ -13,7 +13,7 @@ export interface Transport {
   stop: () => void
 }
 
-type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio'
+type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio' | 'studio'
 
 const stops: Partial<Record<MediaSource, StopFn>> = {}
 const transports: Partial<Record<MediaSource, Transport>> = {}

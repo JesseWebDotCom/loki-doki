@@ -12,7 +12,7 @@ import {
 // actionable toast anywhere in the app, not just while the Drop page is open. It also
 // re-emits events on `window` so an open Drop page can refresh its inbox live.
 //
-// Visibility-managed (see managedEventSource.ts): a hidden tab drops its connection —
+// Visibility-managed (see managedEventSource.ts): a hidden tab drops its connection -
 // its toast couldn't be seen anyway, every tab in this browser shares one deviceId, and
 // each pinned SSE stream eats into the browser's small per-origin connection pool.
 
@@ -32,7 +32,7 @@ export function useDropReceiver() {
       const url = `/api/drop/stream?deviceId=${encodeURIComponent(deviceId)}&label=${encodeURIComponent(label)}`
       const es = new EventSource(url, { withCredentials: true })
 
-      // Proof of life for the health banner — see the same wiring in useBrowserSession.
+      // Proof of life for the health banner - see the same wiring in useBrowserSession.
       es.onopen = () => reportAliveRef.current()
       es.addEventListener('ping', () => reportAliveRef.current())
 

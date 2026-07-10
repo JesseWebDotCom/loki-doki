@@ -15,6 +15,10 @@ frontend/public/ort/*.mjs
 # (predev/prebuild), regenerable, ~20 MB. See frontend/scripts/copy-openmoji.mjs.
 frontend/public/openmoji/
 
+# alphaTab SMuFL font — copied from @coderline/alphatab at build (predev/prebuild),
+# regenerable. See frontend/scripts/copy-alphatab.mjs.
+frontend/public/alphatab/
+
 # Backend environment variables
 backend/.env
 

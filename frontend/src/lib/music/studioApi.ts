@@ -118,9 +118,87 @@ export interface KaraokeReadySong {
   id: string; title: string; artist: string | null
   videoId: string | null; durationSec: number | null; coverUrl: string | null
 }
-/** Songs already stem-separated on the server (survive restarts) — re-singing is instant. */
+/** Songs already stem-separated on the server (survive restarts) - re-singing is instant. */
 export async function getKaraokeReady(): Promise<KaraokeReadySong[]> {
   const r = await fetch('/api/music/studio/karaoke/ready', opts)
   if (!r.ok) return []
   return (await r.json() as { songs: KaraokeReadySong[] }).songs
+}
+
+// ── Tutorials (pinned YouTube guitar lessons) ────────────────────────────────────
+export interface StudioTutorial {
+  id: string; videoId: string; title: string; author: string | null
+  thumbnailUrl: string | null; durationSec: number | null; createdAt: number
+}
+
+export async function listStudioTutorials(trackId: string): Promise<StudioTutorial[]> {
+  const r = await fetch(`/api/music/studio/${trackId}/tutorials`, opts)
+  if (!r.ok) return []
+  return (await r.json() as { tutorials: StudioTutorial[] }).tutorials
+}
+
+export async function pinStudioTutorial(trackId: string, v: {
+  videoId: string; title: string; author?: string | null; thumbnailUrl?: string | null; durationSec?: number | null
+}): Promise<StudioTutorial> {
+  const r = await fetch(`/api/music/studio/${trackId}/tutorials`, { ...opts, method: 'POST', headers: J, body: JSON.stringify(v) })
+  if (!r.ok) throw new Error('pin')
+  return (await r.json() as { tutorial: StudioTutorial }).tutorial
+}
+
+export async function unpinStudioTutorial(trackId: string, videoId: string): Promise<void> {
+  const r = await fetch(`/api/music/studio/${trackId}/tutorials/${encodeURIComponent(videoId)}`, { ...opts, method: 'DELETE' })
+  if (!r.ok) throw new Error('unpin')
+}
+
+// ── Tabs (imported Guitar Pro / MusicXML, rendered client-side via alphaTab) ─────────────
+export interface StudioTabAlign { startSec: number; endSec: number }
+export interface StudioTab {
+  id: string; title: string; instrument: string | null; status: 'ready' | 'failed'; tabError: string | null
+  align: StudioTabAlign | null; fileUrl: string; createdAt: number; updatedAt: number
+}
+
+export async function listStudioTabs(trackId: string): Promise<StudioTab[]> {
+  const r = await fetch(`/api/music/studio/${trackId}/tabs`, opts)
+  if (!r.ok) return []
+  return (await r.json() as { tabs: StudioTab[] }).tabs
+}
+
+export async function uploadStudioTab(trackId: string, file: File, meta: { title?: string; instrument?: string } = {}): Promise<StudioTab> {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  if (meta.title) fd.append('title', meta.title)
+  if (meta.instrument) fd.append('instrument', meta.instrument)
+  const r = await fetch(`/api/music/studio/${trackId}/tabs`, { ...opts, method: 'POST', body: fd })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? 'upload')
+  return (await r.json() as { tab: StudioTab }).tab
+}
+
+export async function saveTabAlign(trackId: string, tabId: string, align: StudioTabAlign): Promise<void> {
+  const r = await fetch(`/api/music/studio/${trackId}/tabs/${tabId}/align`, { ...opts, method: 'PUT', headers: J, body: JSON.stringify(align) })
+  if (!r.ok) throw new Error('align')
+}
+
+export async function deleteStudioTab(trackId: string, tabId: string): Promise<void> {
+  const r = await fetch(`/api/music/studio/${trackId}/tabs/${tabId}`, { ...opts, method: 'DELETE' })
+  if (!r.ok) throw new Error('delete')
+}
+
+// ── Find a tab online (Ultimate Guitar / Songsterr / GProTab) ────────────────────
+export interface TabSearchResult { title: string; snippet: string; url: string; engine?: string }
+/** GProTab results are actual downloadable Guitar Pro files - importable, not just viewable. */
+export interface TabFileResult { artist: string; title: string; url: string }
+export interface TabSearchResponse { ultimateGuitar: TabSearchResult[]; songsterr: TabSearchResult[]; gprotab: TabFileResult[] }
+
+export async function searchTabsOnline(trackId: string, q?: string): Promise<TabSearchResponse> {
+  const url = `/api/music/studio/${trackId}/tab-search${q ? `?q=${encodeURIComponent(q)}` : ''}`
+  const r = await fetch(url, opts)
+  if (!r.ok) return { ultimateGuitar: [], songsterr: [], gprotab: [] }
+  return await r.json() as TabSearchResponse
+}
+
+/** Server-side download+import of a GProTab song page's file into this track's tabs. */
+export async function importTabFromUrl(trackId: string, url: string, title?: string): Promise<StudioTab> {
+  const r = await fetch(`/api/music/studio/${trackId}/tabs/from-url`, { ...opts, method: 'POST', headers: J, body: JSON.stringify({ url, title }) })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? 'import')
+  return (await r.json() as { tab: StudioTab }).tab
 }

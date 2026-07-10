@@ -809,6 +809,38 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_music_studio_user ON music_studio_tracks(user_id);
 
+    CREATE TABLE IF NOT EXISTS music_studio_tutorials (
+      id TEXT NOT NULL PRIMARY KEY,
+      track_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT,
+      thumbnail_url TEXT,
+      duration_sec INTEGER,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (track_id) REFERENCES music_studio_tracks(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS music_studio_tutorials_track_video_idx ON music_studio_tutorials(track_id, video_id);
+
+    CREATE TABLE IF NOT EXISTS music_studio_tabs (
+      id TEXT NOT NULL PRIMARY KEY,
+      track_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      instrument TEXT,
+      source_rel_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ready',
+      tab_error TEXT,
+      align_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (track_id) REFERENCES music_studio_tracks(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_studio_tabs_track ON music_studio_tabs(track_id);
+
     CREATE TABLE IF NOT EXISTS music_resolve (
       key TEXT NOT NULL PRIMARY KEY,
       video_id TEXT,
