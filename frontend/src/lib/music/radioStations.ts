@@ -21,6 +21,8 @@ export interface DjStation {
   aiPrompt?: string
   seedType?: 'prompt' | 'genre' | 'artist' | 'song'
   seedValue?: string
+  /** Plexamp-style personal station: queue built from the listener's history/favorites. */
+  personal?: 'library' | 'deep-cuts' | 'time-travel'
   djMode?: 'full' | 'minimal' | 'silent'
   // "source:movie:Title" | "source:show:{id}:Title" — written at creation time so Now Playing
   // can show a back-link without an extra network round-trip.

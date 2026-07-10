@@ -62,6 +62,8 @@ export async function fetchStationQueue(body: {
   seedType?: 'prompt' | 'genre' | 'artist' | 'song'
   seedValue?: string
   seedVideoId?: string
+  /** Plexamp-style personal station seeded by the listener's history/favorites. */
+  personal?: 'library' | 'deep-cuts' | 'time-travel'
   name?: string
   count?: number
   excludeVideoIds?: string[]

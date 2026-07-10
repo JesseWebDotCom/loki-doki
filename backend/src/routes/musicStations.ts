@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { eq, or, and, isNull, like, desc, inArray } from 'drizzle-orm'
 
 import { db } from '@/db'
-import { musicStations, musicOfflineStations, musicOfflineStationTracks, musicDjCache, ytDownloads, users } from '@/db/schema'
+import { musicStations, musicOfflineStations, musicOfflineStationTracks, musicDjCache, musicFavorites, musicHistory, ytDownloads, users } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib/music/stationEngine'
 import { itunesSongArt } from '@/lib/music/catalog'
@@ -637,10 +637,95 @@ musicStations_route.get('/:id/art/:which', async (c) => {
   }
 })
 
+// ── Personal stations (Plexamp-style) ────────────────────────────────────────────
+// Library Radio / Deep Cuts / Time Travel Radio are seeded by the LISTENER's own history
+// and favorites instead of a prompt. Library Radio plays the actual tracks they know;
+// the other two use the listening profile to steer the normal station engine.
+export type PersonalStationKind = 'library' | 'deep-cuts' | 'time-travel'
+
+async function buildPersonalQueue(
+  userId: string, kind: PersonalStationKind, count: number | undefined,
+  excludeVideoIds: string[], fast: boolean,
+): Promise<{ tracks: Array<{ videoId: string; title: string; artist: string }>; source: string }> {
+  // Listening profile: play counts per track + per artist, favorites boosted.
+  const hist = await db.select().from(musicHistory)
+    .where(eq(musicHistory.userId, userId)).orderBy(desc(musicHistory.playedAt)).limit(1500)
+  const favs = await db.select().from(musicFavorites)
+    .where(and(eq(musicFavorites.userId, userId), eq(musicFavorites.kind, 'song')))
+
+  type Cand = { videoId: string; title: string; artist: string; score: number }
+  const byRef = new Map<string, Cand>()
+  const artistPlays = new Map<string, number>()
+  for (const h of hist) {
+    const cur = byRef.get(h.videoId) ?? { videoId: h.videoId, title: h.title, artist: h.artist ?? '', score: 0 }
+    cur.score += 1
+    byRef.set(h.videoId, cur)
+    if (h.artist) artistPlays.set(h.artist, (artistPlays.get(h.artist) ?? 0) + 1)
+  }
+  for (const f of favs) {
+    const cur = byRef.get(f.refId) ?? { videoId: f.refId, title: f.title ?? '', artist: f.artist ?? '', score: 0 }
+    cur.score += 3
+    if (!cur.title && f.title) cur.title = f.title
+    if (!cur.artist && f.artist) cur.artist = f.artist
+    byRef.set(f.refId, cur)
+    if (f.artist) artistPlays.set(f.artist, (artistPlays.get(f.artist) ?? 0) + 1)
+  }
+  const topArtists = [...artistPlays.entries()].sort((a, b) => b[1] - a[1]).map(([a]) => a)
+  const want = fast ? Math.min(Math.max(count ?? 3, 1), 4) : Math.min(Math.max(count ?? 24, 6), 100)
+  const excluded = new Set(excludeVideoIds)
+
+  if (kind === 'library' && byRef.size >= 5) {
+    // Weighted shuffle (exponential-sort: key = U^(1/w)), then a greedy pass so the same
+    // artist never plays back-to-back - Plexamp's "smart shuffle of what you listen to".
+    const pool = [...byRef.values()]
+      .filter(t => t.title && !excluded.has(t.videoId))
+      .map(t => ({ t, key: Math.pow(Math.random(), 1 / Math.max(1, t.score)) }))
+      .sort((a, b) => b.key - a.key)
+      .map(x => x.t)
+    const out: Cand[] = []
+    while (pool.length && out.length < want) {
+      const prev = out[out.length - 1]?.artist
+      const idx = pool.findIndex(t => !prev || t.artist !== prev)
+      out.push(pool.splice(idx < 0 ? 0 : idx, 1)[0]!)
+    }
+    if (out.length) return { tracks: out.map(({ videoId, title, artist }) => ({ videoId, title, artist })), source: 'personal-library' }
+  }
+
+  // Deep Cuts / Time Travel (and a thin library) steer the normal engine off the profile.
+  // Deep cuts also excludes everything they've already played so only unknowns surface.
+  const artists = topArtists.slice(0, kind === 'time-travel' ? 8 : 6)
+  const played = kind === 'deep-cuts' ? [...byRef.keys()].slice(0, 200) : []
+  const prompt = !artists.length
+    ? 'An eclectic mix of beloved songs across eras and genres'
+    : kind === 'deep-cuts'
+      ? `Lesser-known album tracks, B-sides and deep cuts (strictly no hit singles or radio staples) by artists like: ${artists.join(', ')}`
+      : kind === 'time-travel'
+        ? `A chronological journey through the eras spanned by artists like ${artists.join(', ')}: start with the oldest recordings and progress steadily toward the newest`
+        : `A shuffle of songs by ${artists.join(', ')} and close neighbours`
+  const result = await buildStationQueue(
+    { name: PERSONAL_STATION_NAMES[kind], aiPrompt: prompt, seedType: 'prompt', count, excludeVideoIds: [...excluded, ...played].slice(0, 200) },
+    { fast },
+  )
+  return { tracks: result.tracks.map(t => ({ videoId: t.videoId, title: t.title, artist: t.artist })), source: `personal-${kind}` }
+}
+
+const PERSONAL_STATION_NAMES: Record<PersonalStationKind, string> = {
+  library: 'Library Radio', 'deep-cuts': 'Deep Cuts', 'time-travel': 'Time Travel Radio',
+}
+
 // ── Build a queue from a seed (no persistence required) ──────────────────────────
 musicStations_route.post('/queue', async (c) => {
-  type QueueBody = Partial<StationSeed> & { stationId?: string; fast?: boolean }
+  type QueueBody = Partial<StationSeed> & { stationId?: string; fast?: boolean; personal?: PersonalStationKind }
   const body = await c.req.json<QueueBody>().catch(() => ({} as QueueBody))
+
+  // Personal stations: seeded by the listener's own history/favorites, no prompt needed.
+  if (body.personal === 'library' || body.personal === 'deep-cuts' || body.personal === 'time-travel') {
+    const listener = c.get('user')
+    const exclude = Array.isArray(body.excludeVideoIds) ? body.excludeVideoIds.slice(0, 200) : []
+    const personal = await buildPersonalQueue(listener.id, body.personal, body.count, exclude, body.fast === true)
+    personal.tracks = await filterTracksForUser(listener.id, personal.tracks)
+    return c.json(personal)
+  }
 
   // If a saved station id is given, build from its stored config.
   let seed: StationSeed | null = null

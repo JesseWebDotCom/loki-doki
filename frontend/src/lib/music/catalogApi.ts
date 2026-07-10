@@ -389,6 +389,24 @@ export function stationToDj(s: Station): DjStation {
   }
 }
 
+/** Plexamp-style personal stations: queues built server-side from the listener's own
+ *  history and favorites (Library Radio plays tracks they know; Deep Cuts and Time Travel
+ *  steer the station engine off their listening profile). */
+export type PersonalStationKind = 'library' | 'deep-cuts' | 'time-travel'
+export const PERSONAL_STATIONS: { kind: PersonalStationKind; label: string; description: string; emoji: string; color: string; colorDark: string }[] = [
+  // design-ok(hex-in-tsx): station identity colours, same contract as DJ_STATIONS presets
+  { kind: 'library', label: 'Library Radio', description: 'A smart shuffle of the music you actually play', emoji: '📻', color: '#e5a00d', colorDark: '#b47c07' },
+  { kind: 'deep-cuts', label: 'Deep Cuts', description: 'Album tracks and B-sides from your favorite artists', emoji: '💿', color: '#a855f7', colorDark: '#7c3aed' },
+  { kind: 'time-travel', label: 'Time Travel Radio', description: 'Your artists, oldest recordings first, marching forward', emoji: '⏳', color: '#14b8a6', colorDark: '#0f766e' },
+]
+export function personalStationDj(kind: PersonalStationKind): DjStation {
+  const p = PERSONAL_STATIONS.find(s => s.kind === kind)!
+  return {
+    id: `personal:${kind}`, label: p.label, emoji: p.emoji, color: p.color, colorDark: p.colorDark,
+    personal: kind, djMode: 'full',
+  }
+}
+
 /** An ephemeral "instant station" seeded by an artist, song, genre, or freeform prompt
  *  (Apple-Music style). artist/song ride YouTube Music's radio mix; genre/prompt drive the
  *  AI station engine off the text. */

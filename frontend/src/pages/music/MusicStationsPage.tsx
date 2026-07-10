@@ -11,7 +11,7 @@ import { StationCard } from '@/components/music/StationCard'
 import { StationEditorDialog } from '@/components/music/StationEditorDialog'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicMode } from '@/components/music/MusicLayout'
-import { listStations, listOfflineStations, instantStationDj, type Station } from '@/lib/music/catalogApi'
+import { listStations, listOfflineStations, instantStationDj, personalStationDj, PERSONAL_STATIONS, type Station } from '@/lib/music/catalogApi'
 
 function Grid({ stations }: { stations: Station[] }) {
   return (
@@ -81,6 +81,27 @@ export function MusicStationsPage() {
     <PageContainer width="wide" className="pb-10">
       <PageHeader plain title="Stations" subtitle="Generative AI radio, built from a prompt."
         actions={<Button onClick={() => setEditorOpen(true)}><Plus className="size-4" /> New station</Button>} />
+
+      {/* Personal stations (Plexamp): seeded by YOUR history + favorites, not a prompt. */}
+      <section className="mt-2 mb-6">
+        <SectionHeader title="Made for you" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {PERSONAL_STATIONS.map(p => (
+            <button key={p.kind} type="button"
+              onClick={() => { radio.start(personalStationDj(p.kind)); navigate('/music/now-playing') }}
+              className="flex items-center gap-3 rounded-card border border-border/60 bg-card p-4 text-left transition hover:bg-foreground/[0.04]">
+              <span className="grid size-11 shrink-0 place-items-center rounded-control text-xl"
+                style={{ background: `linear-gradient(135deg, ${p.color}, ${p.colorDark})` }}>
+                {p.emoji}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold">{p.label}</span>
+                <span className="block truncate text-xs text-muted-foreground">{p.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {(buckets?.mine.length ?? 0) > 0 && (
         <section className="mt-2 mb-6"><SectionHeader title="Your stations" /><Grid stations={buckets!.mine} /></section>
