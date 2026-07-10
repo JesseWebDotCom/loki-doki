@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Mic2, Play, Pause, SkipForward, RotateCcw, Plus, X, Search, Maximize2, Music2, GripVertical } from 'lucide-react'
+import { Mic2, Play, Pause, SkipForward, RotateCcw, Plus, X, Search, Maximize2, Minimize2, Music2, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImgAuto } from '@/lib/img'
 import { useRadio } from '@/context/RadioContext'
 import { StemEngine } from '@/lib/music/stemEngine'
-import { prepareKaraoke, getStudioTrack, getKaraokeSuggestions, type StudioTrack } from '@/lib/music/studioApi'
+import { prepareKaraoke, getStudioTrack, getKaraokeSuggestions, getKaraokeReady, type StudioTrack, type KaraokeReadySong } from '@/lib/music/studioApi'
 import { catalogSearchSongs, resolveSong, getLyrics } from '@/lib/music/catalogApi'
 import { drainKaraokeSeeds, subscribeKaraoke } from '@/lib/music/karaokeQueue'
 import { isYouTubeRef } from '@/lib/music/trackRef'
@@ -28,7 +28,31 @@ interface QueueItem {
 }
 
 const VOCAL_KEY = 'music.karaokeVocalGuide'
+const QUEUE_KEY = 'music.karaokeQueue.v1'
 const uid = () => Math.random().toString(36).slice(2, 9)
+
+// Restore the queue a refresh / app restart would otherwise wipe. prep state is never
+// stored: restored items re-run prepare, which the server dedups to the already-separated
+// track (instant - no re-download, no second Demucs run). Items still mid-resolve (no
+// videoId yet) are dropped; they never got a playable source to come back to.
+function loadStoredQueue(): { items: QueueItem[]; currentIdx: number } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? 'null') as
+      { items?: Array<Partial<QueueItem>>; currentIdx?: number } | null
+    const items: QueueItem[] = (raw?.items ?? [])
+      .filter((it) => typeof it?.videoId === 'string' && it.videoId && typeof it.title === 'string')
+      .map((it) => ({
+        key: typeof it.key === 'string' ? it.key : uid(),
+        videoId: it.videoId!, title: it.title!, artist: it.artist ?? '',
+        durationSec: it.durationSec ?? null, cover: it.cover ?? null,
+        singer: it.singer, studioId: it.studioId, prep: 'idle',
+      }))
+    const currentIdx = Math.min(Math.max(0, raw?.currentIdx ?? 0), Math.max(0, items.length - 1))
+    return { items, currentIdx }
+  } catch {
+    return { items: [], currentIdx: 0 }
+  }
+}
 
 // Vocal-guide presets: how much of the ORIGINAL singer is mixed back in. Off = pure karaoke
 // (you sing every word); Guide = a quiet original vocal to follow (helps when you don't know
@@ -41,8 +65,8 @@ const GUIDE_PRESETS: { label: string; v: number; hint: string }[] = [
 
 export function KaraokePage() {
   const radio = useRadio()
-  const [queue, setQueue] = useState<QueueItem[]>([])
-  const [currentIdx, setCurrentIdx] = useState(0)
+  const [queue, setQueue] = useState<QueueItem[]>(() => loadStoredQueue().items)
+  const [currentIdx, setCurrentIdx] = useState(() => loadStoredQueue().currentIdx)
   const [vocalGuide, setVocalGuide] = useState(() => {
     const raw = parseFloat(localStorage.getItem(VOCAL_KEY) ?? '')
     return Number.isFinite(raw) ? raw : 0.18
@@ -81,25 +105,37 @@ export function KaraokePage() {
   const curTrack = curTrackData?.track ?? null
 
   // Pre-prepare the current + next song (the queue is a natural prefetch buffer, so stems
-  // are ready by the time the singer's turn comes).
-  const ensurePrepared = useCallback(async (idx: number) => {
-    setQueue((q) => {
-      const it = q[idx]
-      if (!it || it.prep !== 'idle' || !it.videoId) return q
-      const next = [...q]; next[idx] = { ...it, prep: 'preparing' }
-      // Fire the prepare outside setState.
-      void prepareKaraoke({ videoId: it.videoId, title: it.title, artist: it.artist, durationSec: it.durationSec })
-        .then((studioId) => setQueue((qq) => qq.map((x) => x.key === it.key ? { ...x, studioId, prep: 'preparing' } : x)))
-        .catch((e) => {
-          toast.error(e instanceof Error && /not installed/i.test(e.message) ? 'Karaoke needs the Music Studio component installed.' : 'Could not prepare that song')
-          setQueue((qq) => qq.map((x) => x.key === it.key ? { ...x, prep: 'failed' } : x))
-        })
-      return next
-    })
+  // are ready by the time the singer's turn comes). The prepare fires OUTSIDE the setQueue
+  // updater, guarded by an in-flight ref: React runs updaters/effects twice (StrictMode,
+  // re-renders), and the old fire-inside-the-updater version launched TWO prepares for one
+  // song - each kicking a full download + Demucs run before the server could dedup.
+  const queueRef = useRef(queue)
+  queueRef.current = queue
+  const inFlightPrepare = useRef(new Set<string>())
+  const ensurePrepared = useCallback((idx: number) => {
+    const it = queueRef.current[idx]
+    if (!it || it.prep !== 'idle' || !it.videoId || inFlightPrepare.current.has(it.key)) return
+    inFlightPrepare.current.add(it.key)
+    setQueue((q) => q.map((x) => (x.key === it.key ? { ...x, prep: 'preparing' } : x)))
+    prepareKaraoke({ videoId: it.videoId, title: it.title, artist: it.artist, durationSec: it.durationSec })
+      // The poll may have already flipped a reused track to 'ready' - don't downgrade it.
+      .then((studioId) => setQueue((qq) => qq.map((x) => x.key === it.key ? { ...x, studioId, prep: x.prep === 'ready' ? 'ready' : 'preparing' } : x)))
+      .catch((e) => {
+        toast.error(e instanceof Error && /not installed/i.test(e.message) ? 'Karaoke needs the Music Studio component installed.' : 'Could not prepare that song')
+        setQueue((qq) => qq.map((x) => (x.key === it.key ? { ...x, prep: 'failed' } : x)))
+      })
+      .finally(() => inFlightPrepare.current.delete(it.key))
   }, [])
 
-  useEffect(() => { if (queue[currentIdx]) void ensurePrepared(currentIdx) }, [currentIdx, queue, ensurePrepared])
-  useEffect(() => { if (queue[currentIdx + 1]) void ensurePrepared(currentIdx + 1) }, [currentIdx, queue, ensurePrepared])
+  useEffect(() => { if (queue[currentIdx]) ensurePrepared(currentIdx) }, [currentIdx, queue, ensurePrepared])
+  useEffect(() => { if (queue[currentIdx + 1]) ensurePrepared(currentIdx + 1) }, [currentIdx, queue, ensurePrepared])
+
+  // Persist the queue so a refresh or app restart doesn't lose the party (see loadStoredQueue).
+  useEffect(() => {
+    const items = queue.map(({ key, videoId, title, artist, durationSec, cover, singer, studioId }) =>
+      ({ key, videoId, title, artist, durationSec, cover, singer, studioId }))
+    try { localStorage.setItem(QUEUE_KEY, JSON.stringify({ items, currentIdx })) } catch { /* quota */ }
+  }, [queue, currentIdx])
 
   // Reflect the polled stem-ready state back onto the queue item.
   useEffect(() => {
@@ -210,6 +246,18 @@ export function KaraokePage() {
   const addSong = useCallback((s: QueueItem) => setQueue((q) => [...q, s]), [])
   const removeAt = (key: string) => setQueue((q) => q.filter((x) => x.key !== key))
 
+  // One tap for an already-separated song: its stems are on the server, so queueing it is
+  // instant (prepare re-finds the existing track - no download, no second Demucs run).
+  const addReady = useCallback((s: KaraokeReadySong) => {
+    addSong({
+      key: uid(), videoId: s.videoId ?? '', title: s.title, artist: s.artist ?? '',
+      durationSec: s.durationSec, cover: s.coverUrl, studioId: s.id,
+      // No stored source ref (old row) → prepare can't run; the poll on studioId still
+      // drives it to 'ready' once it's the current song.
+      prep: s.videoId ? 'idle' : 'preparing',
+    })
+  }, [addSong])
+
   // Add a picked catalog song to the queue INSTANTLY (prep 'resolving'), then resolve it to a
   // playable ref in the background - so the song shows up the moment you tap it instead of after
   // a multi-second resolve. Once resolved, prep flips to 'idle' and ensurePrepared kicks in.
@@ -242,7 +290,16 @@ export function KaraokePage() {
     return subscribeKaraoke(pull)
   }, [])
 
-  const enterFullscreen = () => { rootRef.current?.requestFullscreen?.().catch(() => {}) }
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+    else rootRef.current?.requestFullscreen?.().catch(() => {})
+  }
 
   const playing = engine.isPlaying()
   const duration = engine.getDuration() || current?.durationSec || 0
@@ -263,8 +320,10 @@ export function KaraokePage() {
       <div className="flex items-center justify-between gap-3 px-6 py-4">
         <div className="flex items-center gap-2 text-lg font-bold"><Mic2 className="size-5" style={{ color: palette.vibrant }} /> Karaoke</div>
         <div className="flex items-center gap-2">
-          <AddSongPopover onPick={pickSong} onSeedNowPlaying={seedFromNowPlaying} accent={palette.vibrant} />
-          <button onClick={enterFullscreen} title="Fullscreen" className="grid size-9 place-items-center rounded-full bg-white/10 hover:bg-white/20"><Maximize2 className="size-4" /></button>
+          <AddSongPopover onPick={pickSong} onPickReady={addReady} onSeedNowPlaying={seedFromNowPlaying} accent={palette.vibrant} />
+          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="grid size-9 place-items-center rounded-full bg-white/10 hover:bg-white/20">
+            {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </button>
         </div>
       </div>
 
@@ -273,13 +332,20 @@ export function KaraokePage() {
         {/* Lyrics focal area */}
         <div className="relative flex min-w-0 flex-1 flex-col rounded-3xl bg-black/20 p-4">
           {!current ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center">
-              <div className="flex flex-col items-center gap-3">
-                <Mic2 className="size-14 text-white/20" />
-                <p className="text-2xl font-semibold text-white/50">Add songs to start the show</p>
-                <p className="max-w-md text-sm text-white/30">Vocals are removed with AI so you can sing lead. Lyrics scroll big; the queue keeps the party moving.</p>
+            // min-h-0 + overflow-y-auto: the ready rail + suggestions can be taller than the
+            // stage, and un-clipped flex content just paints on under the control bar. The
+            // m-auto wrapper (not justify-center) keeps the group centered when it fits while
+            // still letting the top scroll into view when it doesn't.
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 text-center">
+              <div className="m-auto flex w-full flex-col items-center gap-6 py-4">
+                <div className="flex flex-col items-center gap-3">
+                  <Mic2 className="size-14 text-white/20" />
+                  <p className="text-2xl font-semibold text-white/50">Add songs to start the show</p>
+                  <p className="max-w-md text-sm text-white/30">Vocals are removed with AI so you can sing lead. Lyrics scroll big; the queue keeps the party moving.</p>
+                </div>
+                <KaraokeReadyRail onPick={addReady} />
+                <KaraokeSuggestions onPick={pickSong} />
               </div>
-              <KaraokeSuggestions onPick={pickSong} />
             </div>
           ) : preparing ? (() => {
             // Report the actual pipeline stage (fetch → separate → align) with its own progress,
@@ -416,6 +482,35 @@ export function KaraokePage() {
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, '0')}`
 
+// Songs already stem-separated on the server (they survive restarts and refreshes) - one
+// tap re-queues them and they're ready to sing immediately.
+function KaraokeReadyRail({ onPick }: { onPick: (s: KaraokeReadySong) => void }) {
+  const { data } = useQuery({ queryKey: ['karaoke-ready'], queryFn: getKaraokeReady, staleTime: 60_000 })
+  if (!data?.length) return null
+
+  return (
+    <div className="w-full max-w-4xl">
+      <div className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Sing again - already prepared, starts instantly</div>
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {data.map((s) => (
+          <button key={s.id} onClick={() => onPick(s)} className="group relative w-28 shrink-0 text-left">
+            <div className="relative aspect-square w-28 overflow-hidden rounded-xl bg-white/5">
+              {s.coverUrl
+                ? <img src={s.coverUrl} alt="" className="size-full object-cover transition group-hover:scale-105" />
+                : <div className="grid size-full place-items-center"><Music2 className="size-8 text-white/20" /></div>}
+              <div className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                <Plus className="size-7 text-white" />
+              </div>
+            </div>
+            <div className="mt-1.5 truncate text-xs font-medium text-white/90">{s.title}</div>
+            <div className="truncate text-[11px] text-white/50">{s.artist}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Curated popular-karaoke row shown on the empty stage. Clicking a card queues it instantly.
 function KaraokeSuggestions({ onPick }: { onPick: (c: { title: string; artist: string; cover?: string | null }) => void }) {
   const { data } = useQuery({ queryKey: ['karaoke-suggestions'], queryFn: getKaraokeSuggestions, staleTime: Infinity })
@@ -448,7 +543,7 @@ function KaraokeSuggestions({ onPick }: { onPick: (c: { title: string; artist: s
 // Search-and-add popover: picking a song queues it INSTANTLY (resolve happens in the queue).
 // An optional artist field scopes the search (like the Studio picker) so covers don't bury the
 // real recording.
-function AddSongPopover({ onPick, onSeedNowPlaying, accent }: { onPick: (c: { title: string; artist: string; mbid?: string; durationSec?: number | null }) => void; onSeedNowPlaying: () => void; accent: string }) {
+function AddSongPopover({ onPick, onPickReady, onSeedNowPlaying, accent }: { onPick: (c: { title: string; artist: string; mbid?: string; durationSec?: number | null }) => void; onPickReady: (s: KaraokeReadySong) => void; onSeedNowPlaying: () => void; accent: string }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [artist, setArtist] = useState('')
@@ -457,11 +552,13 @@ function AddSongPopover({ onPick, onSeedNowPlaying, accent }: { onPick: (c: { ti
     queryFn: () => catalogSearchSongs(q, artist || undefined),
     enabled: q.trim().length >= 2,
   })
+  const { data: ready } = useQuery({ queryKey: ['karaoke-ready'], queryFn: getKaraokeReady, staleTime: 60_000 })
 
   const pick = (s: { title: string; artistName: string; mbid: string; durationSec: number | null }) => {
     onPick({ title: s.title, artist: s.artistName, mbid: s.mbid || undefined, durationSec: s.durationSec })
     setQ(''); setOpen(false)
   }
+  const pickReady = (s: KaraokeReadySong) => { onPickReady(s); setOpen(false) }
 
   return (
     <div className="relative">
@@ -473,6 +570,25 @@ function AddSongPopover({ onPick, onSeedNowPlaying, accent }: { onPick: (c: { ti
           <button onClick={() => { onSeedNowPlaying(); }} className="mb-2 flex w-full items-center gap-2 rounded-lg bg-white/5 px-3 py-2 text-sm hover:bg-white/10">
             <Music2 className="size-4" /> Add what’s playing now
           </button>
+          {!!ready?.length && (
+            <div className="mb-2">
+              <div className="mb-1 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/40">Ready to sing - starts instantly</div>
+              <div className="max-h-40 overflow-y-auto">
+                {ready.map((s) => (
+                  <button key={s.id} onClick={() => pickReady(s)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white/10">
+                    {s.coverUrl
+                      ? <img src={s.coverUrl} alt="" className="size-7 shrink-0 rounded-md object-cover" />
+                      : <div className="grid size-7 shrink-0 place-items-center rounded-md bg-white/5"><Music2 className="size-3.5 text-white/30" /></div>}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{s.title}</div>
+                      <div className="truncate text-xs text-white/50">{s.artist}</div>
+                    </div>
+                    <span className="shrink-0 text-[10px] font-semibold uppercase" style={{ color: accent }}>Ready</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
             <Search className="size-4 text-white/40" />
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a song…"

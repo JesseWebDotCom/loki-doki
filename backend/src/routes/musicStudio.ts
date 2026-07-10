@@ -21,6 +21,8 @@ import { dirname, join } from 'node:path'
 import { ensureFfmpeg } from '@/lib/ffmpeg'
 import { enqueueAudioAnalyze, enqueueStemSeparation, enqueueStudioSource, enqueueLyricAlign } from '@/lib/downloadJobs'
 import { isStemAudioInstalled, isRoformerGuitarInstalled } from '@/lib/stems/pyenv'
+import type { AlignedLine } from '@/lib/stems/reconcileLyrics'
+import { webSearch } from '@/lib/webSearch'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -73,7 +75,7 @@ function trackDto(row: typeof musicStudioTracks.$inferSelect) {
     // Lyrics re-timed to this track's own vocals (forced alignment). When ready, the client
     // uses these instead of raw LRCLIB timing. `lyrics` is [{sec, text}] or [] when not ready.
     lyricsAlignStatus: row.lyricsAlignStatus,
-    lyrics: row.lyricsJson ? (JSON.parse(row.lyricsJson) as Array<{ sec: number; text: string }>) : [],
+    lyrics: row.lyricsJson ? (JSON.parse(row.lyricsJson) as AlignedLine[]) : [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -209,6 +211,12 @@ musicStudio.post('/from-catalog', async (c) => {
 // track for the same videoId (dedup — a full Demucs run is minutes) instead of making a new
 // one every time, and kicks the source-fetch + 2-stem separation when there isn't one yet.
 // Returns a track id the client then polls via GET /:id and plays via GET /:id/stem/:name.
+
+// Concurrent prepares for the SAME song (a double-fired client effect, current+next prefetch
+// of a duplicated queue entry, two tabs) both miss the find below and each kick a full
+// download + Demucs run. Serialize per user+song so the second caller awaits the first.
+const inflightKaraokePrepare = new Map<string, Promise<{ id: string; reused: boolean }>>()
+
 musicStudio.post('/karaoke/prepare', async (c) => {
   const user = c.get('user')
   if (!isStemAudioInstalled()) return c.json({ error: 'The stem-audio runtime is not installed yet.' }, 409)
@@ -219,45 +227,89 @@ musicStudio.post('/karaoke/prepare', async (c) => {
   if (!videoId || !title) return c.json({ error: 'videoId and title required' }, 400)
   const artist = (body.artist ?? '').trim().slice(0, 160) || null
 
-  // Reuse a cached karaoke separation for the SAME song (dedup by title+artist, not the resolved
-  // ref - a song can resolve to a Plex ref one time and a YouTube id the next, so keying on the
-  // ref missed the cache). Skip failed rows; touch last_used_at so the TTL sweep keeps it alive.
-  const now = new Date()
-  const [existing] = await db.select().from(musicStudioTracks)
+  const flightKey = `${user.id}|${title.toLowerCase()}|${(artist ?? '').toLowerCase()}`
+  const inflight = inflightKaraokePrepare.get(flightKey)
+  if (inflight) return c.json(await inflight)
+
+  const work = (async (): Promise<{ id: string; reused: boolean }> => {
+    // Reuse a cached karaoke separation for the SAME song (dedup by title+artist, not the resolved
+    // ref - a song can resolve to a Plex ref one time and a YouTube id the next, so keying on the
+    // ref missed the cache). Skip failed rows; touch last_used_at so the TTL sweep keeps it alive.
+    const now = new Date()
+    const [existing] = await db.select().from(musicStudioTracks)
+      .where(and(
+        eq(musicStudioTracks.userId, user.id),
+        eq(musicStudioTracks.origin, 'karaoke'),
+        ne(musicStudioTracks.sourceStatus, 'failed'),
+        sql`lower(${musicStudioTracks.title}) = ${title.toLowerCase()}`,
+        sql`lower(coalesce(${musicStudioTracks.artist}, '')) = ${(artist ?? '').toLowerCase()}`,
+      ))
+      .orderBy(desc(musicStudioTracks.createdAt)).limit(1)
+    if (existing) {
+      await db.update(musicStudioTracks).set({ lastUsedAt: now, updatedAt: now }).where(eq(musicStudioTracks.id, existing.id))
+      if (existing.sourceStatus === 'ready' && (existing.stemStatus === 'none' || existing.stemStatus === 'failed')) {
+        await db.update(musicStudioTracks).set({ stemStatus: 'pending', stemError: null }).where(eq(musicStudioTracks.id, existing.id))
+        await enqueueStemSeparation(existing.id, { model: '2-stem' }, `Karaoke stems: ${existing.title}`)
+      }
+      return { id: existing.id, reused: true }
+    }
+
+    const id = crypto.randomUUID()
+    await db.insert(musicStudioTracks).values({
+      id, userId: user.id, title, artist, sourceRelPath: null, sourceVideoId: videoId, origin: 'karaoke', lastUsedAt: now,
+      durationSec: body.durationSec ?? null,
+      sourceStatus: 'fetching', sourceError: null,
+      stemStatus: 'none', stemModel: null, stemsJson: null, stemError: null,
+      analysisStatus: 'none', bpm: null, keyLabel: null, beatsJson: null, chordsJson: null, analysisError: null,
+      createdAt: now, updatedAt: now,
+    })
+    // Fetch the source, then (chained by the client's poll → it will already be 'pending')
+    // separate. We pre-arm stems to 'pending' so the client shows "preparing" immediately;
+    // the separation is enqueued by the source job's completion via the karaoke auto-chain below.
+    await enqueueStudioSource({
+      studioTrackId: id, videoId, mbid: null, albumMbid: null, albumTitle: null,
+      title, artist, durationSec: body.durationSec ?? null, thenSeparate: '2-stem',
+    }, `Karaoke: ${title}`)
+    return { id, reused: false }
+  })()
+
+  inflightKaraokePrepare.set(flightKey, work)
+  try {
+    return c.json(await work)
+  } finally {
+    inflightKaraokePrepare.delete(flightKey)
+  }
+})
+
+// ── Karaoke library (already-prepared songs) ──────────────────────────────────────
+// Songs whose stems are already on disk survive restarts/refreshes — surface them so
+// re-singing is one tap and never re-downloads or re-separates. Deduped by song (the
+// pre-serialization race could leave duplicate rows), most recently sung first.
+musicStudio.get('/karaoke/ready', async (c) => {
+  const user = c.get('user')
+  const rows = await db.select().from(musicStudioTracks)
     .where(and(
       eq(musicStudioTracks.userId, user.id),
       eq(musicStudioTracks.origin, 'karaoke'),
-      ne(musicStudioTracks.sourceStatus, 'failed'),
-      sql`lower(${musicStudioTracks.title}) = ${title.toLowerCase()}`,
-      sql`lower(coalesce(${musicStudioTracks.artist}, '')) = ${(artist ?? '').toLowerCase()}`,
+      eq(musicStudioTracks.stemStatus, 'ready'),
     ))
-    .orderBy(desc(musicStudioTracks.createdAt)).limit(1)
-  if (existing) {
-    await db.update(musicStudioTracks).set({ lastUsedAt: now, updatedAt: now }).where(eq(musicStudioTracks.id, existing.id))
-    if (existing.sourceStatus === 'ready' && (existing.stemStatus === 'none' || existing.stemStatus === 'failed')) {
-      await db.update(musicStudioTracks).set({ stemStatus: 'pending', stemError: null }).where(eq(musicStudioTracks.id, existing.id))
-      await enqueueStemSeparation(existing.id, { model: '2-stem' }, `Karaoke stems: ${existing.title}`)
-    }
-    return c.json({ id: existing.id, reused: true })
-  }
-
-  const id = crypto.randomUUID()
-  await db.insert(musicStudioTracks).values({
-    id, userId: user.id, title, artist, sourceRelPath: null, sourceVideoId: videoId, origin: 'karaoke', lastUsedAt: now,
-    durationSec: body.durationSec ?? null,
-    sourceStatus: 'fetching', sourceError: null,
-    stemStatus: 'none', stemModel: null, stemsJson: null, stemError: null,
-    analysisStatus: 'none', bpm: null, keyLabel: null, beatsJson: null, chordsJson: null, analysisError: null,
-    createdAt: now, updatedAt: now,
-  })
-  // Fetch the source, then (chained by the client's poll → it will already be 'pending')
-  // separate. We pre-arm stems to 'pending' so the client shows "preparing" immediately;
-  // the separation is enqueued by the source job's completion via the karaoke auto-chain below.
-  await enqueueStudioSource({
-    studioTrackId: id, videoId, mbid: null, albumMbid: null, albumTitle: null,
-    title, artist, durationSec: body.durationSec ?? null, thenSeparate: '2-stem',
-  }, `Karaoke: ${title}`)
-  return c.json({ id, reused: false })
+    .orderBy(desc(musicStudioTracks.lastUsedAt), desc(musicStudioTracks.createdAt))
+    .limit(48)
+  const seen = new Set<string>()
+  const songs = rows.filter((r) => {
+    const k = `${r.title.toLowerCase()}|${(r.artist ?? '').toLowerCase()}`
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  }).slice(0, 24).map((r) => ({
+    id: r.id,
+    title: r.title,
+    artist: r.artist,
+    videoId: r.sourceVideoId,
+    durationSec: r.durationSec,
+    coverUrl: r.coverRelPath ? `/api/music/studio/${r.id}/cover` : null,
+  }))
+  return c.json({ songs })
 })
 
 // ── List / get ──────────────────────────────────────────────────────────────────

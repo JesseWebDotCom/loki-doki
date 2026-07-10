@@ -12,7 +12,10 @@ export type StemStatus = 'none' | 'pending' | 'separating' | 'ready' | 'failed'
 export type SourceStatus = 'ready' | 'fetching' | 'failed'
 export type LyricsAlignStatus = 'none' | 'pending' | 'aligning' | 'ready' | 'failed'
 export type StemModel = '2-stem' | '4-stem' | '6-stem'
-export interface StudioLyricLine { sec: number; text: string }
+export interface StudioLyricWord { sec: number; end: number; text: string }
+// `words`, when present, times each individual word (from forced alignment) so the karaoke
+// wipe can pace itself to real word durations instead of interpolating across the whole line.
+export interface StudioLyricLine { sec: number; text: string; words?: StudioLyricWord[] }
 
 export interface StudioTrack {
   id: string
@@ -109,4 +112,15 @@ export async function getKaraokeSuggestions(): Promise<KaraokeSuggestion[]> {
   const r = await fetch('/api/music/studio/karaoke/suggestions', opts)
   if (!r.ok) return []
   return (await r.json() as { suggestions: KaraokeSuggestion[] }).suggestions
+}
+
+export interface KaraokeReadySong {
+  id: string; title: string; artist: string | null
+  videoId: string | null; durationSec: number | null; coverUrl: string | null
+}
+/** Songs already stem-separated on the server (survive restarts) — re-singing is instant. */
+export async function getKaraokeReady(): Promise<KaraokeReadySong[]> {
+  const r = await fetch('/api/music/studio/karaoke/ready', opts)
+  if (!r.ok) return []
+  return (await r.json() as { songs: KaraokeReadySong[] }).songs
 }

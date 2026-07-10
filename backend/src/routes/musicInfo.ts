@@ -356,7 +356,7 @@ musicInfo.get('/song', async (c) => {
 
 // ── Lyrics (LRCLIB) ────────────────────────────────────────────────────────────────
 // Free, keyless, open lyrics database with time-synced LRC. Cached hard (lyrics don't change).
-interface LyricLine { sec: number; text: string }
+export interface LyricLine { sec: number; text: string }
 interface LyricsResult { synced: LyricLine[] | null; plain: string | null; source: string }
 
 // Normalise a title/artist to comparable tokens: lowercase, drop parentheticals &
@@ -468,6 +468,17 @@ export async function plainLyricsForAlign(artist: string, title: string, duratio
   if (r.plain?.trim()) return r.plain
   if (r.synced?.length) { const t = r.synced.map(l => l.text).filter(Boolean).join('\n'); return t.trim() ? t : null }
   return null
+}
+
+// LRCLIB's own synced line timing for a track, for cross-checking against our forced
+// alignment (see reconcileLyrics.ts). Same cached lookup/key as plainLyricsForAlign, so
+// this is a free read whenever that's already warm. Null when LRCLIB has no synced lyrics.
+export async function syncedLyricsForAlign(artist: string, title: string, duration?: number): Promise<LyricLine[] | null> {
+  const r = await cachedLookup<LyricsResult>(
+    'lrclib', `${artist}|${title}|${duration ?? ''}`, THIRTY_DAYS_MS,
+    () => fetchLrclib(artist, title, duration),
+  )
+  return r.synced?.length ? r.synced : null
 }
 
 // GET /api/music/info/policy — the caller's music content-protection policy. The frontend

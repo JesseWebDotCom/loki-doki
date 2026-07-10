@@ -19,7 +19,12 @@ Usage: python align.py VOCALS_AUDIO LYRICS_TEXT_FILE
   LYRICS_TEXT_FILE  plain lyrics, one line per line (blank lines allowed)
 
 Emits a single JSON manifest to stdout:
-  {"lines": [{"sec": float, "text": "You got the touch"}, ...], "alignedWords": int, "totalWords": int}
+  {"lines": [{"sec": float, "text": "You got the touch",
+              "words": [{"sec": float, "end": float, "text": "You"}, ...]}, ...],
+   "alignedWords": int, "totalWords": int}
+Each line's own per-word start/end times drive the karaoke wipe animation (rather than
+interpolating one gradient across the whole line); a word missing from "words" means the
+aligner couldn't anchor it, so the caller should keep interpolating around the gaps.
 Exit non-zero with a stderr message when nothing could be aligned (caller falls back to
 raw LRCLIB timing).
 """
@@ -76,6 +81,7 @@ def main():
     # unalignable ones) so the output structure matches the source lyrics.
     lines = []          # {"text": str, "word_idx": [global indices], "sec": None}
     transcript = []     # normalized words fed to the aligner, in order
+    raw_tokens = []     # original (unnormalized) token text, parallel to transcript
     for text in raw_lines:
         entry = {"text": text, "word_idx": [], "sec": None}
         for tok in text.split():
@@ -83,6 +89,7 @@ def main():
             if norm:
                 entry["word_idx"].append(len(transcript))
                 transcript.append(norm)
+                raw_tokens.append(tok)
         lines.append(entry)
 
     total_words = len(transcript)
@@ -115,34 +122,77 @@ def main():
     # either nulls almost everything or catches nothing. We trust the measured onsets directly; a
     # rare misplaced line is preferable to interpolating the whole song between a few points.
     word_start = [None] * total_words
+    word_end = [None] * total_words
     for gi, spans in enumerate(token_spans):
         if gi < total_words and spans:
             word_start[gi] = round(float(spans[0].start) * ratio, 3)
+            word_end[gi] = round(float(spans[-1].end) * ratio, 3)
 
-    # A line's anchor is its first aligned word's start.
+    # A line's anchor is its first aligned word's start; its "words" list carries every
+    # aligned word's own start/end so the caller can pace the wipe word-by-word instead of
+    # smearing one gradient across the whole line.
     for entry in lines:
+        words = []
         for gi in entry["word_idx"]:
             if word_start[gi] is not None:
-                entry["sec"] = word_start[gi]
-                break
+                if entry["sec"] is None:
+                    entry["sec"] = word_start[gi]
+                words.append({"sec": word_start[gi], "end": word_end[gi], "text": raw_tokens[gi]})
+        entry["words"] = words
 
     aligned_words = sum(1 for w in word_start if w is not None)
     if aligned_words == 0:
         sys.stderr.write("aligner produced no word timings\n")
         sys.exit(3)
 
-    # Fill unanchored lines (blank lines, ♪, non-latin) by carrying the previous anchor
-    # forward so the timeline stays monotonic and nothing sorts out of place.
-    last = 0.0
-    for entry in lines:
-        if entry["sec"] is None:
-            entry["sec"] = last
-        else:
-            last = entry["sec"]
+    # Reject anchors that break the song's time order: a misfired anchor used to get sorted
+    # into the wrong spot in the display order, where the line showed for a fraction of a
+    # second at the wrong moment ("flashed on and then it was gone"). Keep the longest
+    # non-decreasing subsequence of anchors (so one bad anchor is dropped no matter where it
+    # lands — even first) and null the rest; nulled lines are re-timed by interpolation
+    # below, in their correct text position.
+    anchored = [idx for idx, e in enumerate(lines) if e["sec"] is not None]
+    if len(anchored) > 1:
+        best_len = [1] * len(anchored)   # LIS lengths over the anchored lines' secs
+        best_prev = [-1] * len(anchored)
+        for b in range(1, len(anchored)):
+            for a in range(b):
+                if lines[anchored[a]]["sec"] <= lines[anchored[b]]["sec"] and best_len[a] + 1 > best_len[b]:
+                    best_len[b] = best_len[a] + 1
+                    best_prev[b] = a
+        end = max(range(len(anchored)), key=lambda k: best_len[k])
+        keep = set()
+        while end != -1:
+            keep.add(anchored[end])
+            end = best_prev[end]
+        for idx in anchored:
+            if idx not in keep:
+                lines[idx]["sec"] = None
+                lines[idx]["words"] = []
+
+    # Re-time unanchored lines (blank, ♪, non-latin, rejected misfires) by spacing them
+    # evenly between the surrounding good anchors — carrying the previous anchor verbatim
+    # gave runs of equal timestamps, and the display scan skips all but the last of an
+    # equal-time group, so those lines never appeared at all.
+    n = len(lines)
+    i = 0
+    while i < n:
+        if lines[i]["sec"] is not None:
+            i += 1
+            continue
+        j = i
+        while j < n and lines[j]["sec"] is None:
+            j += 1
+        prev_sec = lines[i - 1]["sec"] if i > 0 else 0.0
+        next_sec = lines[j]["sec"] if j < n else prev_sec + 3.0 * (j - i)
+        span = max(0.01 * (j - i + 1), next_sec - prev_sec)
+        for k in range(i, j):
+            lines[k]["sec"] = round(prev_sec + span * (k - i + 1) / (j - i + 1), 3)
+        i = j
 
     # Keep only lines with visible text; a purely-blank source line carries no lyric.
-    out_lines = [{"sec": e["sec"], "text": e["text"]} for e in lines if e["text"].strip()]
-    out_lines.sort(key=lambda x: x["sec"])
+    # Monotonic by construction now — no sort, so text order is always preserved.
+    out_lines = [{"sec": e["sec"], "text": e["text"], "words": e["words"]} for e in lines if e["text"].strip()]
 
     json.dump({"lines": out_lines, "alignedWords": aligned_words, "totalWords": total_words}, sys.stdout)
     sys.stdout.flush()

@@ -1,13 +1,17 @@
 import { useMemo } from 'react'
 import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
+import { useActiveLyricIndex } from './nowPlayingParts'
 import type { LyricLine } from '@/lib/music/catalogApi'
 
 // Big-screen karaoke lyric renderer. The active line fills left-to-right (the classic
 // karaoke "wipe") over its own duration; the next line previews below so singers read
 // ahead; instrumental gaps > 5s show countdown pips that extinguish into the next entry.
-// Line-level LRCLIB timing gives a convincing word-ish sweep because we interpolate the
-// fill across the whole gap to the next line.
+// When the line carries per-word timings (Studio's forced alignment), the wipe paces
+// itself to each word's own start/end instead of interpolating across the whole line —
+// that per-word data is what makes the sweep track the actual singing rather than
+// crawling too slowly on long lines or racing ahead on short ones. Lines without word
+// timings (raw LRCLIB) fall back to the old whole-line interpolation.
 
 interface Props {
   lines: LyricLine[] | null
@@ -21,41 +25,81 @@ const GAP_FOR_PIPS = 5   // seconds of instrumental before the count-in dots app
 const PIP_COUNT = 4
 const UNSUNG = 'rgba(255,255,255,0.34)'
 
+// How early the ACTIVE line swaps in, ahead of its first sung word. Two clocks on purpose:
+// the line must arrive early enough to read (highlighting exactly on the onset reads as
+// late — CTC onsets also land a hair after the perceived attack), but the wipe must fill on
+// the true word times or it runs ahead of the singing. Floor, not replacement: a larger
+// user-set lyric lead (Music → Settings) still wins.
+const LINE_LEAD_SEC = 0.55
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
+
+// Fraction (0-1) of the line "sung" so far, weighted by character count per word so the
+// wipe's pace tracks real word durations instead of a flat sweep. Holds steady during the
+// small gap between two words (rather than creeping forward) so it never reads as ahead of
+// the singer. Falls back to whole-line interpolation when this line has no word timings.
+function wordWipeFill(cur: LyricLine, next: LyricLine | null, t: number): number {
+  const words = cur.words
+  if (!words?.length) {
+    const start = cur.sec
+    const end = next?.sec ?? start + 4
+    return clamp01((t - start) / Math.max(0.5, end - start))
+  }
+  let charPos = 0
+  const spans = words.map((w) => {
+    const charStart = charPos
+    charPos += w.text.length + 1   // +1 for the space before the next word
+    return { sec: w.sec, end: w.end, charStart, charEnd: charPos - 1 }
+  })
+  const totalChars = Math.max(1, charPos - 1)
+  let sungChars = 0
+  for (const s of spans) {
+    if (t >= s.end) { sungChars = s.charEnd; continue }
+    if (t > s.sec) sungChars = s.charStart + (s.charEnd - s.charStart) * clamp01((t - s.sec) / Math.max(0.05, s.end - s.sec))
+    break
+  }
+  return clamp01(sungChars / totalChars)
+}
+
 export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, className }: Props) {
   // Read-ahead so lines arrive a touch before they're sung (user-tunable in Music settings).
   const { lyricLeadSec } = useRadio()
   const t = position - offsetSec + lyricLeadSec
   const synced = lines && lines.length > 0 ? lines : null
+  // Locked active-line index: once advanced it only moves back on a real seek, so timing
+  // jitter right at a line boundary can't flip the highlight back onto the previous line.
+  // Activated LINE_LEAD_SEC early (see above); the wipe below stays on the unled clock.
+  const active = useActiveLyricIndex(synced, position, offsetSec, Math.max(lyricLeadSec, LINE_LEAD_SEC))
 
   const view = useMemo(() => {
     if (!synced) return null
-    // Active line = last line whose time has passed. -1 before the first line.
-    let active = -1
-    for (let i = 0; i < synced.length; i++) {
-      if (synced[i]!.sec <= t) active = i; else break
-    }
     const cur = active >= 0 ? synced[active]! : null
     const next = synced[active + 1] ?? null
     const prev = active > 0 ? synced[active - 1] ?? null : null
     const nextNext = synced[active + 2] ?? null
 
-    // Fill fraction across the active line's on-screen duration.
-    const start = cur?.sec ?? 0
-    const end = next?.sec ?? (cur ? start + 4 : 0)
-    const fill = cur ? Math.max(0, Math.min(1, (t - start) / Math.max(0.5, end - start))) : 0
+    const fill = cur ? wordWipeFill(cur, next, t) : 0
 
     // Count-in: when the NEXT line is > GAP_FOR_PIPS away and we're within its lead-in window,
     // show shrinking pips that land on the line's entry (also before the very first line).
-    const gapStart = cur?.sec ?? 0
+    // The gap is measured from when the current line's SINGING ends (its last word), not
+    // from the line's start — a line whose own window just exceeds the threshold (held
+    // note, slow phrase) is not an instrumental break, and measuring from the start made
+    // the pips replace it mid-song ("Born and raised in South Detroit" flashed, then dots).
+    const curSungEnd = cur?.words?.length ? cur.words[cur.words.length - 1]!.end : null
+    const gapStart = cur ? (curSungEnd ?? cur.sec) : 0
     const gapEnd = next?.sec ?? (active < 0 && synced[0] ? synced[0]!.sec : 0)
     const gap = gapEnd - (active < 0 ? 0 : gapStart)
     const inGap = next || active < 0
+    // Without word timing we can't tell when singing ends, so demand a much larger window
+    // before concluding the line is over and swapping in the countdown.
+    const minGap = cur && curSungEnd == null ? GAP_FOR_PIPS * 2 : GAP_FOR_PIPS
     const remaining = gapEnd - t
-    const showPips = !!inGap && gap > GAP_FOR_PIPS && remaining > 0 && remaining <= PIP_COUNT + 0.5
+    const showPips = !!inGap && gap > minGap && remaining > 0 && remaining <= PIP_COUNT + 0.5
     const pipsLit = showPips ? Math.ceil(remaining) : 0
 
     return { cur, next, prev, nextNext, fill, showPips, pipsLit }
-  }, [synced, t])
+  }, [synced, active, t])
 
   if (!synced) {
     return (

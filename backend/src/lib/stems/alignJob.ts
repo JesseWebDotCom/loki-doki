@@ -15,13 +15,14 @@ import { db } from '@/db'
 import { musicStudioTracks } from '@/db/schema'
 import { resolveUserPath } from '@/lib/storage/paths'
 import { stemVenvPython, ALIGN_SCRIPT, TORCH_HOME, isStemAudioInstalled, ensureLyricAlignModel } from './pyenv'
-import { plainLyricsForAlign } from '@/routes/musicInfo'
+import { plainLyricsForAlign, syncedLyricsForAlign } from '@/routes/musicInfo'
+import { reconcile, type AlignedLine } from './reconcileLyrics'
 import type { DownloadProgress } from '@/lib/download'
 import { logger } from '@/lib/logger'
 
 export interface LyricAlignJobPayload { studioTrackId: string }
 
-interface AlignManifest { lines: Array<{ sec: number; text: string }>; alignedWords?: number; totalWords?: number }
+interface AlignManifest { lines: AlignedLine[]; alignedWords?: number; totalWords?: number }
 
 /** Run align.py against a vocals stem + lyrics text file; parse JSON. Rejects on non-zero exit. */
 function runAlign(python: string, audio: string, textFile: string, signal?: AbortSignal): Promise<AlignManifest> {
@@ -97,12 +98,19 @@ export async function runAlignJob(
     const m = await runAlign(stemVenvPython(), vocals, textFile, signal)
     if (!m.lines?.length) throw new Error('aligner returned no lines')
 
+    // Cross-check against LRCLIB's own synced timing (same cached lookup as plainLyricsForAlign
+    // above, so this is a warm read): confirms our alignment / repairs misfired lines when it's
+    // clearly the same recording, and is ignored outright for covers/re-records.
+    const synced = await syncedLyricsForAlign(row.artist ?? '', row.title, row.durationSec ?? undefined)
+    const result = reconcile(m.lines, synced)
+
     await db.update(musicStudioTracks).set({
       lyricsAlignStatus: 'ready', lyricsAlignError: null,
-      lyricsJson: JSON.stringify(m.lines), updatedAt: new Date(),
+      lyricsJson: JSON.stringify(result.lines), updatedAt: new Date(),
     }).where(eq(musicStudioTracks.id, studioTrackId))
     onProgress?.({ completed: 100, total: 100, speedBps: 0, etaSeconds: 0, note: 'Lyrics aligned' })
-    logger.info(`[align] ${studioTrackId}: ready (${m.lines.length} lines, ${m.alignedWords ?? '?'}/${m.totalWords ?? '?'} words)`)
+    logger.info(`[align] ${studioTrackId}: ready (${m.lines.length} lines, ${m.alignedWords ?? '?'}/${m.totalWords ?? '?'} words, `
+      + `source=${result.source} matchedFrac=${result.matchedFrac.toFixed(2)} offset=${result.offsetSec.toFixed(2)}s)`)
   } catch (err) {
     await db.update(musicStudioTracks)
       .set({ lyricsAlignStatus: 'failed', lyricsAlignError: String(err), updatedAt: new Date() })

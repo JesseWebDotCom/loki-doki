@@ -40,7 +40,7 @@ const COUNTIN_MIN_GAP = 2.0
 // `offsetSec` shifts LRCLIB's timestamps to this track's actual audio - LRCLIB lines are timed to
 // whatever recording it matched, which may be a different edit than what's playing. Forced-aligned
 // lines pass offsetSec 0. A line is "reached" once `line.sec - LEAD <= position - offsetSec`.
-function useActiveLyricIndex(synced: LyricLine[] | null, position: number, offsetSec = 0, leadSec = DEFAULT_LYRIC_LEAD_SEC): number {
+export function useActiveLyricIndex(synced: LyricLine[] | null, position: number, offsetSec = 0, leadSec = DEFAULT_LYRIC_LEAD_SEC): number {
   const lastIdxRef = useRef(-1)
   const lastPosRef = useRef(0)
   const adjPosition = position - offsetSec + leadSec

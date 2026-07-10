@@ -242,7 +242,10 @@ export interface Replay {
 export function getReplay(year?: number) { return mfetch<Replay>(`/rails/replay${year ? `?year=${year}` : ''}`) }
 
 // ── Lyrics + song/artist info (Now-Playing panel) ───────────────────────────────────
-export interface LyricLine { sec: number; text: string }
+// `words`, when present (Studio's forced-aligned lines only — raw LRCLIB never has it),
+// times each individual word so the karaoke wipe can pace itself to real word durations.
+export interface LyricWord { sec: number; end: number; text: string }
+export interface LyricLine { sec: number; text: string; words?: LyricWord[] }
 export function getLyrics(artist: string, title: string, duration?: number) {
   const p = new URLSearchParams({ artist, title })
   if (duration) p.set('duration', String(duration))
