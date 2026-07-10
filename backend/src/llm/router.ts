@@ -38,8 +38,10 @@ const NOT_MEDIA_PLAY_RE = /\bplay(?:ing)?\s+(?:a\s+|some\s+)?(?:game|games|chess
 
 // Arithmetic the embeddings can't see: symbols and money-math score near-zero on
 // all-minilm ("what is 17 × 23?" → calculator=0.24), so a regex is the only gate
-// that catches them before the search-intent path swallows the question.
-const MATH_INTENT_RE = /\d\s*[+\-×x*/÷^]\s*\d|\d+(?:\.\d+)?\s*%\s*(?:tip|of|on)|\b(?:tip|split|divide)\b[^.?!]{0,40}\$?\d/i
+// that catches them before the search-intent path swallows the question. WORD forms
+// ("17 times 23", "100 divided by 4") also miss the symbol class and, worse, embed
+// closer to unit_conversion than calculator — so spell out the common word operators.
+const MATH_INTENT_RE = /\d\s*[+\-×x*/÷^]\s*\d|\b\d+(?:\.\d+)?\s*(?:times|multiplied by|plus|minus|divided by)\s+\d|\d+(?:\.\d+)?\s*%\s*(?:tip|of|on)|\b(?:tip|split|divide)\b[^.?!]{0,40}\$?\d/i
 
 // Unit conversions phrased as questions ("how many km is 5 miles?", "what is 6
 // foot 2 in cm?") sit just below the tier-2 band on embeddings (0.33–0.39) and
@@ -64,6 +66,17 @@ const QUESTION_RE = /^(?:who|what|what'?s|whats|whatre|whens?|where'?s|where|whi
 // Pure social/chitchat questions that need no tool — short-circuit so they don't pay a
 // Tier 2 round trip just because QUESTION_RE matched ("how are you", "what's up").
 const SOCIAL_QUESTION_RE = /^(?:how (?:are|r|have) (?:you|u|ya|been)|how'?s it going|how'?s your|what'?s up|whats up|what are you (?:up to|doing)|are you (?:ok|okay|there|sure|free|busy))\b/i
+
+// First-person possessive recall about the USER's OWN life facts ("what's my son's
+// name?", "when is my wedding anniversary?", "what's my dog's name?"). These embed
+// right onto the remember tool (so tier-1 STORED the question as a junk memory instead
+// of answering it) OR trip the search fast path (which then CONFABULATES a personal
+// fact it cannot possibly know — e.g. inventing a child's name from web results). They
+// must be answered from the injected memory block, or the companion admits it doesn't
+// know. Matches only when the message is a QUESTION (QUESTION_RE) AND names a personal
+// fact/relationship after "my"/"our" — so tool-bearing possessives ("my local weather",
+// "my alarms", "my thermostat") still route to their tools.
+const PERSONAL_FACT_RE = /\b(?:my|our)\s+(?:\w+\s+){0,2}(?:names?|nicknames?|birth\s?days?|anniversar\w*|addresse?s?|phone|emails?|ages?|jobs?|allerg\w*|son|daughter|kids?|child|children|wife|husband|spouse|partner|fianc\w*|mom|mother|dad|father|parents?|brothers?|sisters?|siblings?|grandmothers?|grandfathers?|grandma|grandpa|aunts?|uncles?|cousins?|pets?|dogs?|cats?|favou?rite|hometowns?)\b/i
 
 // Questions directed AT the companion itself ("who are you?", "how do you feel?",
 // "what is wrong with you") — these must never take the literal search-intent fast
@@ -335,6 +348,15 @@ export async function routePrompt(
   if (/^(?:hey\s+\w+[\s,]+)?(?:do|did|don'?t|can|would|will) you (?:remember|recall|still remember)\b/i.test(prompt.trim())) {
     logger.info(`[ROUTER] path=recall-question msg="${excerpt}"`)
     return { tool: null, args: {}, path: 'recall-question' }
+  }
+
+  // Fast path: possessive recall about the user's own life ("what's my son's name?",
+  // "when is my anniversary?"). Answer from the injected memory block — never STORE the
+  // question (remember tool) or WEB-SEARCH a personal fact (search confabulates one). If
+  // nothing is stored, the conversational reply admits it rather than inventing a fact.
+  if (QUESTION_RE.test(prompt.trim()) && PERSONAL_FACT_RE.test(prompt)) {
+    logger.info(`[ROUTER] path=personal-recall msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'personal-recall' }
   }
 
   // Fast path: a contextual lookup command ("look it up", "google it"). The thing
