@@ -5,16 +5,20 @@
 import type { Engine, Capabilities, MediaFamily } from './types'
 import { vipsEngine } from './engines/vips'
 import { ffmpegEngine } from './engines/ffmpeg'
-import { IMAGE, AUDIO, VIDEO, VIPS_IN, VIPS_OUT, familyOf } from './formats'
+import { animEngine } from './engines/anim'
+import { IMAGE, AUDIO, VIDEO, VIPS_IN, VIPS_OUT, ANIM_IMAGE, familyOf, animatedTargetsFor } from './formats'
 
-// Priority order. vips first so it's chosen for images when present.
-const ENGINES: Engine[] = [vipsEngine, ffmpegEngine]
+// Priority order. anim is first so it claims the animation-preserving conversions (gif/webp ⇄
+// video, gif ⇄ webp) before the still-image engines flatten them to one frame. vips outranks
+// ffmpeg for the remaining still-image work.
+const ENGINES: Engine[] = [animEngine, vipsEngine, ffmpegEngine]
 
 /** Pick the highest-priority available engine that can do inExt → outExt, or null. */
 export async function pickEngine(inExt: string, outExt: string): Promise<Engine | null> {
   const i = inExt.toLowerCase(), o = outExt.toLowerCase()
-  // Conversions are constrained to within a media family (no png → mp3).
-  if (!familyOf(i) || familyOf(i) !== familyOf(o)) return null
+  // Both sides must be known media; each engine's supports() encodes the valid pairs (incl.
+  // the few cross-family animation bridges), so no blanket same-family gate here.
+  if (!familyOf(i) || !familyOf(o)) return null
   for (const e of ENGINES) {
     if (e.supports(i, o) && (await e.available())) return e
   }
@@ -40,5 +44,12 @@ export async function capabilities(): Promise<Capabilities> {
     audio: { inputs: [...AUDIO].sort(), outputs: [...AUDIO].sort() },
     video: { inputs: [...VIDEO].sort(), outputs: [...VIDEO].sort() },
   }
-  return { vipsAvailable: vipsOk, families }
+
+  // Cross-family targets the anim engine adds: animated gif/webp → any video container, and
+  // any video → animated gif/webp. Advertised unconditionally — the webp-decode dependency
+  // (libwebp) auto-installs on first use, matching how ffmpeg/vips are handled.
+  const animatedTargets: Record<string, string[]> = {}
+  for (const e of [...ANIM_IMAGE, ...VIDEO]) animatedTargets[e] = animatedTargetsFor(e).sort()
+
+  return { vipsAvailable: vipsOk, families, animatedTargets }
 }

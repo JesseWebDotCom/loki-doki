@@ -28,3 +28,20 @@ export function familyOf(ext: string): MediaFamily | null {
 
 /** Lossy formats where a quality knob is meaningful. */
 export const LOSSY = new Set(['jpg', 'jpeg', 'webp', 'avif', 'heic', 'heif', 'mp3', 'aac', 'ogg', 'opus'])
+
+// Image formats that can carry animation. These cross the image/video line: the anim engine
+// transcodes them to video (and to each other) with every frame preserved, instead of the
+// still-image engines' single-frame collapse.
+export const ANIM_IMAGE = ['gif', 'webp']
+
+/**
+ * Extra output formats the anim engine unlocks for an animated-capable input, *beyond* its own
+ * media family: an animated gif/webp gains every video container; a video gains animated gif +
+ * webp. Same-family targets (e.g. gif → webp) already appear in the image family's outputs.
+ */
+export function animatedTargetsFor(ext: string): string[] {
+  const e = ext.toLowerCase()
+  if (ANIM_IMAGE.includes(e)) return [...VIDEO]
+  if (VIDEO.includes(e)) return [...ANIM_IMAGE]
+  return []
+}

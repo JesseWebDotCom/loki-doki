@@ -8,6 +8,9 @@ export type MediaFamily = 'image' | 'audio' | 'video'
 export interface Capabilities {
   vipsAvailable: boolean
   families: Record<MediaFamily, { inputs: string[]; outputs: string[] }>
+  /** Extra cross-family outputs per input ext, unlocked by the animation engine
+   *  (e.g. 'webp' → ['mp4', …], 'mp4' → ['gif', 'webp']). Merged into the target list. */
+  animatedTargets?: Record<string, string[]>
 }
 
 export type ConversionState = 'pending' | 'converting' | 'ready' | 'failed' | 'cancelled'

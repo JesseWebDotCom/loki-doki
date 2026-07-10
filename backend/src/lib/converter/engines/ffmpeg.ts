@@ -4,7 +4,7 @@
 
 import { spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
-import { ensureFfmpeg } from '@/lib/ffmpeg'
+import { ensureFfmpeg, ensureWebpFfmpeg } from '@/lib/ffmpeg'
 import type { Engine, EngineRunArgs } from '../types'
 import { IMAGE, AUDIO, VIDEO } from '../formats'
 
@@ -36,15 +36,19 @@ export const ffmpegEngine: Engine = {
   },
 
   async run({ inPath, outPath, outExt, family, quality, signal }: EngineRunArgs): Promise<void> {
-    const bin = await ensureFfmpeg()
     const o = ext(outExt)
+    // webp encoding needs the libwebp encoder, which many PATH builds (e.g. Homebrew) omit.
+    // ensureWebpFfmpeg() self-heals by fetching a managed build that ships it.
+    const bin = o === 'webp' ? await ensureWebpFfmpeg() : await ensureFfmpeg()
 
     // -y overwrite; per-family quality/codec hints kept conservative for broad compatibility.
     const args = ['-y', '-i', inPath]
     if (family === 'image') {
       // Map a 1–100 quality to ffmpeg's per-encoder scale where it helps.
       if ((o === 'jpg' || o === 'jpeg') && quality) args.push('-q:v', String(Math.max(2, Math.round(31 - (quality / 100) * 29))))
-      if (o === 'webp' && quality) args.push('-quality', String(quality))
+      // Pin the libwebp encoder explicitly — default encoder selection fails on builds where
+      // it's the only webp encoder present but not the format's registered default.
+      if (o === 'webp') { args.push('-c:v', 'libwebp'); if (quality) args.push('-quality', String(quality)) }
       args.push('-frames:v', '1') // single still even from animated/multi-frame inputs
     } else if (family === 'audio') {
       if (quality && (o === 'mp3')) args.push('-q:a', String(Math.max(0, Math.round(9 - (quality / 100) * 9))))

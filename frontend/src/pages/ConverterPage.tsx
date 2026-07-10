@@ -68,8 +68,10 @@ export function ConverterPage() {
   const family: MediaFamily | null = file && caps ? familyOf(srcExt, caps) : null
   // Hide the input format itself, and the jpg/jpeg alias of it, from the target list.
   const alias = srcExt === 'jpg' ? 'jpeg' : srcExt === 'jpeg' ? 'jpg' : ''
+  // Same-family outputs plus any cross-family animated targets (gif/webp ⇄ video), de-duped.
   const outputs = family && caps
-    ? caps.families[family].outputs.filter((o) => o !== srcExt && o !== alias)
+    ? Array.from(new Set([...caps.families[family].outputs, ...(caps.animatedTargets?.[srcExt] ?? [])]))
+        .filter((o) => o !== srcExt && o !== alias)
     : []
 
   const pickFile = useCallback((f: File | null) => {

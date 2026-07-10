@@ -42,4 +42,7 @@ export interface ConvertInput {
 export interface Capabilities {
   vipsAvailable: boolean
   families: Record<MediaFamily, { inputs: string[]; outputs: string[] }>
+  /** Extra cross-family outputs per input ext, unlocked by the animation engine
+   *  (e.g. 'webp' → ['mp4', …], 'mp4' → ['gif', 'webp']). Merged into the picker's targets. */
+  animatedTargets: Record<string, string[]>
 }

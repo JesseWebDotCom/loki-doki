@@ -147,6 +147,33 @@ export function ensureNvencFfmpeg(): Promise<string> {
   return nvencPromise
 }
 
+// Force-download of a webp-capable build is a one-time resolution shared by concurrent callers.
+let webpPromise: Promise<string> | null = null
+
+/**
+ * Resolve an ffmpeg that can encode WebP (`libwebp`) and return its path. Many PATH builds —
+ * notably Homebrew's default `ffmpeg` — are compiled WITHOUT the libwebp encoder, so writing
+ * `.webp` fails with "Default encoder for format webp is probably disabled / Encoder not found".
+ * Our managed static builds (evermeet on macOS, BtbN `*-gpl` on Linux/Windows) ship libwebp.
+ * Mirrors ensureNvencFfmpeg(): if the currently resolved binary lacks libwebp, force-download
+ * the managed build and re-point to it. Returns the resolved path regardless — the caller checks
+ * capability again and surfaces a clear error if libwebp is still unavailable (e.g. the managed
+ * fetch failed while offline).
+ */
+export function ensureWebpFfmpeg(): Promise<string> {
+  if (webpPromise) return webpPromise
+  webpPromise = (async () => {
+    const bin = await ensureFfmpeg()
+    if (await ffmpegHasEncoder(bin, 'libwebp')) return bin
+    logger.info('[ffmpeg] current ffmpeg lacks the libwebp encoder — fetching a webp-capable managed build')
+    await downloadManaged()  // evermeet/BtbN builds ship libwebp; sets resolvedBin = MANAGED_PATH on success
+    return resolvedBin
+  })()
+  // Let a later attempt retry if the managed fetch failed and we still lack libwebp.
+  webpPromise.then((bin) => ffmpegHasEncoder(bin, 'libwebp')).then((ok) => { if (!ok) webpPromise = null }).catch(() => { webpPromise = null })
+  return webpPromise
+}
+
 // ── Encode-job load throttling ────────────────────────────────────────────────
 // An unbounded ffmpeg re-encode (software decode + filter graph) pins every core at
 // turbo for the length of the job. On this hardware that sustained peak is what arms
