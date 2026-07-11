@@ -10,6 +10,7 @@ import { registerTransport, acquireAudio } from '@/lib/mediaCoordinator'
 import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
 import { fileUrl, proxyStreamUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { proxyImg } from '@/lib/img'
+import { accentOf, readableOn, useArtPalette } from '@/lib/artPalette'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
 import { loadYTApi } from '@/lib/youtube/ytapi'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
@@ -388,6 +389,14 @@ export function YoutubeMiniBar({ visible = true }: { visible?: boolean }) {
     }).catch(() => {})
   }, [track])
 
+  // Plexamp-style persona (mirrors RadioMiniBar): the bar's wash + play button pick up an
+  // accent extracted from the video's thumbnail; streams keep neutral chrome. Hook must run
+  // unconditionally (before the `hidden` early-return below).
+  const palette = useArtPalette(
+    track && !isStream ? (track.thumbnail ? proxyImg(track.thumbnail) : ytImageProxy(thumbUrl(track.videoId, 'mq'))) : null,
+  )
+  const accent = accentOf(palette)
+
   if (hidden) return null
 
   const total = dur || track!.durationSec || 0
@@ -500,9 +509,17 @@ export function YoutubeMiniBar({ visible = true }: { visible?: boolean }) {
       )}
 
       {/* The visible bar */}
-      <div className="glass-chrome relative border-t border-border/60 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+      <div className="glass-chrome relative overflow-hidden border-t border-border/60 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+        {/* UltraBlur wash: a whisper of the thumbnail's corner colours across the bar, so
+            the mini player carries the video's persona (mirrors RadioMiniBar). */}
+        {!isStream && (
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 opacity-[0.16] dark:opacity-25"
+            style={{ background: `linear-gradient(90deg, ${palette.corners[0]}, ${palette.corners[1]} 35%, transparent 60%, ${palette.corners[3]})` }} />
+        )}
         {/* Phone: shared compact row; the full control set lives on the watch page. */}
         <CompactMediaBar
+          accent={!isStream ? accent : undefined}
+          accentText={!isStream ? readableOn(accent) : undefined}
           art={
             isStream ? (
               <span className="flex size-full items-center justify-center text-xl leading-none">{track!.icon ?? '📻'}</span>
@@ -581,7 +598,9 @@ export function YoutubeMiniBar({ visible = true }: { visible?: boolean }) {
                   <SkipBack className="size-4" />
                 </Button>
               )}
-              <Button size="icon" onClick={togglePlay} className="bg-foreground text-background hover:bg-foreground/90" aria-label={playing ? 'Pause' : 'Play'}>
+              <Button size="icon" onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}
+                className={cn(isStream && 'bg-foreground text-background hover:bg-foreground/90')}
+                style={!isStream ? { background: accent, color: readableOn(accent) } : undefined}>
                 {playing ? <Pause className="size-4 fill-current" /> : <Play className="ml-0.5 size-4 fill-current" />}
               </Button>
               {!isStream && (
@@ -608,7 +627,7 @@ export function YoutubeMiniBar({ visible = true }: { visible?: boolean }) {
 
             {/* Progress bar: YouTube/offline only; streams are live */}
             {!isStream && (
-              <SeekBar pos={pos} total={total} onSeek={seekTo}
+              <SeekBar pos={pos} total={total} onSeek={seekTo} accent={accent}
                 onScrubStateChange={(s) => { scrubbing.current = s }} />
             )}
           </div>
