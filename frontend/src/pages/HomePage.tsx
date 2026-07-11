@@ -1089,7 +1089,7 @@ function WidgetBookmarksRecent({ displayMode = 'column' }: { displayMode?: 'row'
   useEffect(() => {
     fetch(`/api/bookmarks?limit=${limit}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .then((d: { items?: BookmarkItem[] } | null) => { setItems((d?.items ?? []).slice(0, show)); })
+      .then((d: { items?: BookmarkItem[] } | null) => { setItems((d?.items ?? []).filter(b => !b.isHidden).slice(0, show)); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [limit, show]);

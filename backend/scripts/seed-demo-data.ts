@@ -27,7 +27,8 @@ export const DEMO_LOCATION = { displayName: 'Portland, Oregon', lat: 45.5152, ln
 export interface DemoTrack { videoId: string; title: string; artist: string; durationSec: number }
 export interface DemoChannel { externalId: string; title: string; handle?: string }
 export interface DemoVideo { videoId: string; title: string; author: string; durationSec: number }
-export interface DemoWatchlistItem { mediaType: 'show' | 'movie'; refId: string; title: string; subtitle?: string; status: 'want' | 'watching' | 'completed' }
+// wiki: exact Wikipedia article title when the movie title is ambiguous (poster lookup).
+export interface DemoWatchlistItem { mediaType: 'show' | 'movie'; refId: string; title: string; subtitle?: string; status: 'want' | 'watching' | 'completed'; wiki?: string }
 export interface DemoBook { id: string; title: string; author: string; isbn?: string; publishedYear?: number; progress?: number }
 export interface DemoBookmark { url: string; title: string; siteName: string; category: string; collection?: string }
 export interface DemoRadio { name: string; streamUrl: string; tags: string; country: string }
@@ -108,7 +109,9 @@ export const DEMO_PERSONAS: DemoPersona[] = [
       canvas: [
         { id: 'demo-row-news', cols: [{ toolId: 'news', colSpan: 2 }] },
         { id: 'demo-row-media', cols: [{ toolId: 'music', colSpan: 1 }, { toolId: 'watchlist', colSpan: 1 }] },
-        { id: 'demo-row-daily', cols: [{ toolId: 'bookmarks-recent', colSpan: 1 }, { toolId: 'on-this-day', colSpan: 1 }] },
+        { id: 'demo-row-live', cols: [{ toolId: 'sports', colSpan: 1 }, { toolId: 'bookmarks-recent', colSpan: 1 }] },
+        { id: 'demo-row-browse', cols: [{ toolId: 'video-categories', colSpan: 1 }, { toolId: 'jokes', colSpan: 1 }] },
+        { id: 'demo-row-otd', cols: [{ toolId: 'on-this-day', colSpan: 2 }] },
       ],
     },
     toolDenials: [],
@@ -130,7 +133,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
       { mediaType: 'show', refId: '44913', title: 'Severance', subtitle: 'Apple TV+', status: 'watching' },
       { mediaType: 'show', refId: '60180', title: 'The Bear', subtitle: 'FX', status: 'want' },
       { mediaType: 'movie', refId: 'Dune: Part Two', title: 'Dune: Part Two', subtitle: '2024', status: 'want' },
-      { mediaType: 'movie', refId: 'Oppenheimer', title: 'Oppenheimer', subtitle: '2023', status: 'completed' },
+      { mediaType: 'movie', refId: 'Oppenheimer', title: 'Oppenheimer', subtitle: '2023', status: 'completed', wiki: 'Oppenheimer (film)' },
     ],
     musicPlaylist: {
       name: 'Road Trip Classics',
@@ -148,6 +151,8 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     musicHistory: [
       { track: T.hello, positionSec: 190 },
       { track: T.uptownFunk, positionSec: 270 },
+      { track: T.bohemian, positionSec: 359 },
+      { track: T.teenSpirit, positionSec: 120 },
     ],
     radioStations: [],
     books: [
@@ -261,7 +266,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     watchlist: [
       { mediaType: 'show', refId: '35256', title: 'Bluey', subtitle: 'ABC Kids', status: 'watching' },
       { mediaType: 'movie', refId: 'Inside Out 2', title: 'Inside Out 2', subtitle: '2024', status: 'want' },
-      { mediaType: 'movie', refId: 'Moana', title: 'Moana', subtitle: '2016', status: 'completed' },
+      { mediaType: 'movie', refId: 'Moana', title: 'Moana', subtitle: '2016', status: 'completed', wiki: 'Moana (2016 film)' },
     ],
     musicPlaylist: {
       name: 'Dance Party',
@@ -309,7 +314,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     watchProgress: [],
     watchlist: [
       { mediaType: 'show', refId: '32604', title: 'The Great British Bake Off', subtitle: 'Channel 4', status: 'watching' },
-      { mediaType: 'movie', refId: 'Casablanca', title: 'Casablanca', subtitle: '1942', status: 'completed' },
+      { mediaType: 'movie', refId: 'Casablanca', title: 'Casablanca', subtitle: '1942', status: 'completed', wiki: 'Casablanca (film)' },
       { mediaType: 'movie', refId: "Singin' in the Rain", title: "Singin' in the Rain", subtitle: '1952', status: 'want' },
     ],
     musicFavorites: [T.hello, T.perfect],

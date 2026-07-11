@@ -180,7 +180,7 @@ function SidePanelShell<T extends string>({ tabs, active, onChange, action, chil
         </div>
         {action}
       </div>
-      <div className="px-1 pt-3">{children}</div>
+      <div className="px-1 pt-3 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden">{children}</div>
     </div>
   )
 }
@@ -441,7 +441,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
       {/* Side column: ONE tabbed rail - the queue is the first (default) tab, not a second
           module stacked under the panel. */}
-      <aside className="min-w-0 space-y-5 xl:sticky xl:top-6 xl:self-start">
+      <aside className="min-w-0 xl:sticky xl:top-6 xl:flex xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:flex-col xl:self-start">
         <SidePanelShell
           tabs={[
             { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
@@ -462,7 +462,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             pq.active && pq.playlistId ? (
               <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
             ) : (
-              <div className="space-y-1 xl:max-h-[calc(100dvh-15rem)] xl:overflow-y-auto xl:pr-1">
+              <div className="space-y-1 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
                 {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
                 {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
               </div>
@@ -792,7 +792,7 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
   const shown = ql ? lines.filter(l => l.text.toLowerCase().includes(ql)) : lines
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:gap-3 xl:space-y-0">
       {/* design-ok(glass-on-plain-bg): glass field over the UltraBlur cinema backdrop */}
       <div className="flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2">
         <Search className="size-3.5 text-muted-foreground" />
@@ -800,7 +800,7 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search transcript" className="w-full bg-transparent text-base outline-none md:text-sm" />
       </div>
       {/* `relative` so the active line's offsetTop is measured against THIS pane. */}
-      <div ref={listRef} className="relative max-h-[440px] space-y-1 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-17rem)]">
+      <div ref={listRef} className="relative max-h-[440px] space-y-1 overflow-y-auto pr-1 xl:max-h-none xl:min-h-0 xl:flex-1">
         {lines.length > 0 ? (
           shown.map((l, idx) => {
             const active = !ql && lines[activeIdx] === l
@@ -835,7 +835,7 @@ function SummaryTab({ videoId, initial, source = 'youtube' }: { videoId: string;
   })
   if (isPending) return <Centered><Spinner /> Summarizing…</Centered>
   if (!data) return <Empty>No summary available. This video has no captions to summarize.</Empty>
-  return <div className="max-h-[480px] space-y-3 overflow-y-auto whitespace-pre-wrap px-1 text-sm leading-relaxed text-foreground/85 xl:max-h-[calc(100dvh-15rem)]">{data}</div>
+  return <div className="max-h-[480px] space-y-3 overflow-y-auto whitespace-pre-wrap px-1 text-sm leading-relaxed text-foreground/85 xl:max-h-none xl:min-h-0 xl:flex-1">{data}</div>
 }
 
 function YoutubeCommentsTab({ videoId }: { videoId: string }) {
@@ -843,7 +843,7 @@ function YoutubeCommentsTab({ videoId }: { videoId: string }) {
   if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
   if (!comments.length) return <Empty>No comments. They may be turned off for this video.</Empty>
   return (
-    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-15rem)]">
+    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-none xl:min-h-0 xl:flex-1">
       {comments.map((c, i) => (
         <div key={i} className="flex gap-2.5">
           <CreatorAvatar title={c.author || '?'} src={c.authorThumb} className="mt-0.5 size-7 shrink-0 text-[10px]" />
@@ -1341,7 +1341,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
       {/* Side column: ONE tabbed rail - the queue/watch-next content is the first
           (default) tab, not modules stacked under the panel. */}
-      <aside className="min-w-0 space-y-5 xl:sticky xl:top-6 xl:self-start">
+      <aside className="min-w-0 xl:sticky xl:top-6 xl:flex xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:flex-col xl:self-start">
         <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}
           action={tab === 'upnext' && pq.active && pq.playlistId ? (
             <label className="flex shrink-0 cursor-pointer items-center gap-2 pr-1 text-xs font-medium text-muted-foreground">
@@ -1356,7 +1356,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             pq.active && pq.playlistId ? (
               <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
             ) : (
-              <div className="space-y-5 xl:max-h-[calc(100dvh-15rem)] xl:overflow-y-auto xl:pr-1">
+              <div className="space-y-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
                 {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
                 {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
                 {!capabilities?.related && !item.creator && <Empty>Nothing queued.</Empty>}
@@ -1379,7 +1379,7 @@ function GenericCommentsTab({ source, id }: { source: VideoSource; id: string })
   if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
   if (!comments.length) return <Empty>No comments.</Empty>
   return (
-    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-15rem)]">
+    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-none xl:min-h-0 xl:flex-1">
       {comments.map((cm, i) => (
         <div key={i} className="text-sm">
           <p className="font-medium text-foreground">{cm.author}

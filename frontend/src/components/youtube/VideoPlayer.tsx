@@ -114,6 +114,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const posRef = useRef(resumeSec)
 
   const [playing, setPlaying] = useState(false)
+  // Embed idle-state bookkeeping: before first play and after the end there's no frame
+  // worth keeping, so the poster cover hides YouTube's cued/endscreen chrome ("More
+  // videos" wall). A mid-watch PAUSE keeps the actual frame - only YouTube's paused
+  // overlays get masked (top scrim + our control bar forced visible).
+  const [started, setStarted] = useState(false)
+  const [endedUi, setEndedUi] = useState(false)
+  useEffect(() => { setStarted(false); setEndedUi(false) }, [videoId])
   const [pipActive, setPipActive] = useState(false)
   const [position, setPosition] = useState(resumeSec)
   const [duration, setDuration] = useState(0)
@@ -312,10 +319,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             setPlaying(e.data === 1)
             setBuffering(e.data === 3) // 3 = BUFFERING
             if (e.data === 1 || e.data === 2) setBuffering(false)
+            if (e.data === 1) { setStarted(true); setEndedUi(false) }
             // Re-enforce OUR caption preference every time playback (re)starts - YouTube
             // re-applies its sticky captions-on state at play, overriding the onReady set.
             if (e.data === 1) enforceEmbedCc(e.target, ccOnRef.current)
-            if (e.data === YT.PlayerState?.ENDED) { persist(true); onEnded?.() }
+            if (e.data === YT.PlayerState?.ENDED) { setEndedUi(true); persist(true); onEnded?.() }
           },
         },
       })
@@ -513,6 +521,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     ? (PROXY_QUALITIES.find(q => q.value === proxyQuality)?.label ?? 'Auto')
     : useIframe ? (YT_QUALITY_LABEL[embedQuality] ?? 'Auto') : null
 
+  // Mid-watch pause on the embed: KEEP the paused frame (no poster swap) and mask
+  // YouTube's paused chrome instead - top scrim over its title bar, our control bar
+  // forced visible over its bottom row.
+  const pausedFrame = useIframe && !playing && !buffering && started && !endedUi
+
   return (
     <div ref={wrapRef} onMouseLeave={() => { setMenu(null); setBoostOpen(false) }}
       className={cn('group relative overflow-hidden bg-black', !frameless && 'rounded-card',
@@ -585,10 +598,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
         </div>
       )}
 
+      {/* Paused-frame mask: hides the embed's paused title bar without covering the frame. */}
+      {pausedFrame && (
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-24 bg-gradient-to-b from-black/90 via-black/50 to-transparent" />
+      )}
+
       {/* Custom control bar. pointer-events are disabled while it's hidden so the
           full-surface toggle layer below handles taps everywhere; on hover the bar
-          becomes interactive so its scrubber + buttons work. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 translate-y-2 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 opacity-0 transition group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto">
+          becomes interactive so its scrubber + buttons work. Forced visible while a
+          started embed is paused, so it masks YouTube's own paused bottom chrome. */}
+      <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 z-30 translate-y-2 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 opacity-0 transition group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto',
+        pausedFrame && 'pointer-events-auto translate-y-0 from-black/90 opacity-100')}>
         <div ref={scrubRef} onMouseDown={onScrubDown} onMouseMove={onScrubMove} onMouseLeave={onScrubLeave}
           className="relative mb-3 h-1 cursor-pointer rounded-full bg-white/25">
           {/* SponsorBlock segment markers */}
@@ -728,11 +748,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           only captures pointer events on hover, so taps on the video always toggle. */}
       <button onClick={() => { if (menu) { setMenu(null); return } toggle() }} aria-label={playing ? 'Pause' : 'Play'}
         className="absolute inset-0 z-10 flex items-center justify-center">
-        {/* Idle embed: whenever the iframe isn't actively playing (paused, loading, ended),
-            cover it with our own poster so YouTube's built-in overlays - "More videos",
-            title bar, share/watch-later, logo - never show. The buffering spinner (z-20)
-            sits above this cover. Native paths have no such chrome. */}
-        {useIframe && !playing && (
+        {/* Idle embed BEFORE first play or AFTER the end: no frame worth keeping, so cover
+            the iframe with our own poster to hide YouTube's cued/endscreen chrome ("More
+            videos" wall, title bar, logo). A mid-watch pause keeps the frame (see the
+            pausedFrame scrim + forced control bar instead). */}
+        {useIframe && !playing && (!started || endedUi) && (
           <span aria-hidden className="absolute inset-0">
             <VideoThumb videoId={videoId} title="" quality="hq"
               overrideSrc={ytImageProxy(thumbUrl(videoId, 'maxres'))}

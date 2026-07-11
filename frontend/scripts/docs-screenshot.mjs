@@ -112,7 +112,8 @@ async function getPage(personaKey, variant, entry = {}) {
   const key = custom ? `${personaKey}:${variant}:${entry.name}` : `${personaKey}:${variant}`
   if (contexts.has(key)) return contexts.get(key)
   const opts = { ...VIEWPORTS[variant] }
-  if (entry.viewport) opts.viewport = entry.viewport
+  // Per-entry viewport only applies to the desktop variant — mobile stays phone-sized.
+  if (entry.viewport && variant === 'desktop') opts.viewport = entry.viewport
   const ctx = await browser.newContext(opts)
   if (entry.localStorage) {
     await ctx.addInitScript((kv) => {

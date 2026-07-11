@@ -17,7 +17,8 @@
 // jamie; teen surfaces from riley; news/radio/classics from rose.
 
 export default [
-  { route: '/', persona: 'sam', name: 'home', variants: ['desktop', 'mobile'], settleMs: 4000 },
+  // Taller viewport so the README hero shows the full widget spread.
+  { route: '/', persona: 'sam', name: 'home', variants: ['desktop', 'mobile'], settleMs: 4000, viewport: { width: 1440, height: 1180 } },
   { route: '/', persona: 'jamie', name: 'home-kid', variants: ['mobile'] },
   // Chat: Sam's seeded conversation (deterministic id from seed-demo.ts).
   { route: '/chat/demo-conv-sam', persona: 'sam', name: 'chat' },

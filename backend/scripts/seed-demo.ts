@@ -17,6 +17,7 @@ import { notInArray } from 'drizzle-orm'
 import { join } from 'node:path'
 import { inArray, like, eq } from 'drizzle-orm'
 import { db } from '@/db'
+import { isNull } from 'drizzle-orm'
 import {
   users, profilePins, sessions, userPreferences, toolUserPermissions, characters,
   conversations, messages, memories, notifications,
@@ -90,6 +91,35 @@ async function assignCompanion(p: DemoPersona): Promise<string | null> {
   return char.id
 }
 
+// ── Live metadata enrichment ─────────────────────────────────────────────────
+// Watchlist cards render from the stored posterUrl, so the seed fetches real
+// poster art from keyless public APIs at seed time (TVMaze for shows, iTunes for
+// movies). Network failures degrade gracefully to poster-less cards. TVMaze also
+// returns the canonical show id, which becomes the refId so cards deep-link right.
+async function fetchShowMeta(title: string): Promise<{ id: string; poster: string | null } | null> {
+  try {
+    const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(title)}`)
+    if (!res.ok) return null
+    const show = await res.json() as { id: number; image?: { medium?: string; original?: string } }
+    return { id: String(show.id), poster: show.image?.medium ?? show.image?.original ?? null }
+  } catch { return null }
+}
+
+// Wikipedia REST summary — the article's lead image is the film poster. (iTunes
+// search was the first choice but returns empty for movies from some networks.)
+async function fetchMoviePoster(wikiTitle: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle.replace(/ /g, '_'))}`)
+    if (!res.ok) return null
+    const data = await res.json() as { thumbnail?: { source?: string }; originalimage?: { source?: string } }
+    return data.thumbnail?.source ?? data.originalimage?.source ?? null
+  } catch { return null }
+}
+
+function faviconFor(url: string): string | null {
+  try { return `https://icons.duckduckgo.com/ip3/${new URL(url).hostname}.ico` } catch { return null }
+}
+
 async function seedContentFor(p: DemoPersona): Promise<void> {
   const now = new Date()
   const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000)
@@ -104,6 +134,15 @@ async function seedContentFor(p: DemoPersona): Promise<void> {
   }
   if (p.homeLayout) await setPref(p.id, 'home.layout', p.homeLayout)
   if (p.lockedHomeLayout) await setPref(p.id, 'home.layout.locked', true)
+
+  // GLOBAL (admin/shared) bookmarks are visible to every user — including the owner's
+  // real ones, which must never surface in a demo screenshot (the "Claude Status"
+  // incident). Hide every current global bookmark from this demo user via the same
+  // per-user pref the Bookmarks UI uses.
+  const globalBookmarks = await db.select({ id: bookmarks.id }).from(bookmarks).where(isNull(bookmarks.ownerId))
+  if (globalBookmarks.length > 0) {
+    await setPref(p.id, 'bookmarks.hidden', globalBookmarks.map((b) => b.id))
+  }
 
   for (const toolId of p.toolDenials) {
     await db.insert(toolUserPermissions).values({
@@ -137,9 +176,17 @@ async function seedContentFor(p: DemoPersona): Promise<void> {
   }
 
   for (const [i, item] of p.watchlist.entries()) {
+    let refId = item.refId
+    let posterUrl: string | null = null
+    if (item.mediaType === 'show') {
+      const meta = await fetchShowMeta(item.title)
+      if (meta) { refId = meta.id; posterUrl = meta.poster }
+    } else {
+      posterUrl = await fetchMoviePoster(item.wiki ?? item.title)
+    }
     await db.insert(mediaWatchlist).values({
       id: `demo-watch-${p.key}-${i}`, userId: p.id, mediaType: item.mediaType,
-      refId: item.refId, title: item.title, subtitle: item.subtitle, status: item.status,
+      refId, title: item.title, subtitle: item.subtitle, status: item.status, posterUrl,
       addedAt: hoursAgo(24 * (i + 1)), updatedAt: hoursAgo(24 * (i + 1)),
     })
   }
@@ -221,6 +268,7 @@ async function seedContentFor(p: DemoPersona): Promise<void> {
     await db.insert(bookmarks).values({
       id: `demo-bm-${p.key}-${i}`, ownerId: p.id, source: 'bookmark', type: 'live',
       url: bm.url, title: bm.title, siteName: bm.siteName, category: bm.category,
+      faviconUrl: faviconFor(bm.url),
       collectionId: bm.collection && collectionId ? collectionId : null,
       createdAt: hoursAgo(24 * (i + 3)), updatedAt: hoursAgo(24 * (i + 3)),
     })
