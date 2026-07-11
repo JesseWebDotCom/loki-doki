@@ -136,6 +136,7 @@ async function runActions(page, actions = []) {
     if (a.type === 'click') await page.click(a.selector, { timeout: a.timeout ?? 10000 })
     else if (a.type === 'waitFor') await page.waitForSelector(a.selector, { timeout: a.timeout ?? 10000 })
     else if (a.type === 'fill') await page.fill(a.selector, a.value)
+    else if (a.type === 'press') await page.press(a.selector, a.key)
     else if (a.type === 'wait') await page.waitForTimeout(a.ms)
   }
 }
@@ -178,6 +179,11 @@ for (const entry of entries) {
     }
 
     const text = await visibleText(page, entry.selector)
+    if (text.includes('something went wrong')) {
+      console.error(`ERROR BOUNDARY ${entry.name} (${variant}): page crashed — not a usable screenshot`)
+      hits.push({ name: entry.name, variant, term: '<error boundary>' })
+      continue
+    }
     const matched = denylist.filter((term) => text.includes(term))
     if (matched.length > 0) {
       for (const term of matched) {

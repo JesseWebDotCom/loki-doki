@@ -22,10 +22,17 @@ export default [
   // Chat: Sam's seeded conversation (deterministic id from seed-demo.ts).
   { route: '/chat/demo-conv-sam', persona: 'sam', name: 'chat' },
   { route: '/imaging', persona: 'sam', name: 'image-gen' },
-  { route: '/videos/create', persona: 'sam', name: 'video-gen' },
+  {
+    route: '/videos/create',
+    persona: 'sam',
+    name: 'video-gen',
+    actions: [
+      { type: 'click', selector: 'text=Generate a clip' },
+      { type: 'wait', ms: 2500 },
+    ],
+  },
   { route: '/podcasts', persona: 'rose', name: 'podcasts', settleMs: 4000 },
-  { route: '/books', persona: 'sam', name: 'books-store' },
-  { route: '/reference/medical', persona: 'rose', name: 'reference-medical' },
+  { route: '/reference', persona: 'rose', name: 'reference' },
   { route: '/music', persona: 'sam', name: 'music' },
   { route: '/videos', persona: 'riley', name: 'videos' },
   { route: '/news', persona: 'rose', name: 'news' },

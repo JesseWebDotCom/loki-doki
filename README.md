@@ -1,8 +1,4 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)"  srcset="assets/hero.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/hero.svg">
-  <img src="assets/hero.svg" width="100%" alt="Loki Doki: A full AI stack that runs in your home and stays there" />
-</picture>
+<img src="docs/src/assets/screenshots/hero.png" width="100%" alt="Loki Doki — a private AI home hub: the family dashboard on desktop and a child's own view on their phone, all served from your hardware" />
 
 <p align="center">
   <img src="https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=20&duration=3000&pause=800&color=8B5CF6&center=true&vCenter=true&width=700&height=56&lines=Your+family.+Your+data.+Your+rules.;Private+AI+that+never+leaves+home.;Works+offline.+Zero+subscriptions.;Uncensored+for+adults.+Safe+for+kids." alt="Typing SVG" />
@@ -38,11 +34,52 @@ One server. The whole family. Zero subscriptions. No corporation reads your chat
 
 <br/>
 
-<p align="center">
-  <img src="docs/src/assets/screenshots/home-desktop.png" width="880" alt="The Loki Doki home dashboard — personal greeting, live weather, news, and a floating companion, all served from your own hardware" />
-</p>
+---
 
-<br/>
+## ✨ See It in Action
+
+<table width="100%">
+<tr>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/chat/"><img src="docs/src/assets/screenshots/chat-desktop.png" width="100%" alt="Private AI chat with your companion" /></a>
+  <p><b>💬 Chat</b> — talk to your own AI about anything. It remembers your family, plans your weekend, and never phones home.</p>
+</td>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/image-generation/"><img src="docs/src/assets/screenshots/image-gen-desktop.png" width="100%" alt="Local AI image generation" /></a>
+  <p><b>🎨 Image Generation</b> — create art, photos, and logos from a prompt, on your own GPU. Nothing is uploaded, nothing is filtered for adults.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/videos/"><img src="docs/src/assets/screenshots/video-gen-desktop.png" width="100%" alt="Local text-to-video generation" /></a>
+  <p><b>🎬 Video Creation</b> — turn a text prompt or an image into a video clip, generated entirely at home.</p>
+</td>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/music/"><img src="docs/src/assets/screenshots/music-desktop.png" width="100%" alt="Private streaming music with AI radio stations" /></a>
+  <p><b>🎵 Music</b> — your own streaming service: AI radio stations with a live DJ, playlists, synced lyrics, karaoke, and offline saves.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/videos/"><img src="docs/src/assets/screenshots/videos-desktop.png" width="100%" alt="One private video app for every source" /></a>
+  <p><b>📺 Videos</b> — YouTube, TikTok, Vimeo, Reddit, and your own clips in one calm app. No ads, no tracking, no algorithm aimed at your kids.</p>
+</td>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/podcasts/"><img src="docs/src/assets/screenshots/podcasts-desktop.png" width="100%" alt="AI-produced podcasts from anything you watch" /></a>
+  <p><b>🎙 Podcasts</b> — your companion writes, narrates, and produces full podcast episodes about any show, movie, or channel — entirely offline.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/books/"><img src="docs/src/assets/screenshots/books-kid-desktop.png" width="100%" alt="A private family library of ebooks and audiobooks" /></a>
+  <p><b>📚 Books</b> — ebooks, audiobooks, comics, and magazines with a private library per family member — including the kids.</p>
+</td>
+<td width="50%" valign="top">
+  <a href="https://jessewebdotcom.github.io/loki-doki/user/features/reference/"><img src="docs/src/assets/screenshots/reference-desktop.png" width="100%" alt="Offline reference: dictionary, medical, Wikipedia" /></a>
+  <p><b>🩺 Offline Knowledge</b> — dictionary, medical lookups, all of Wikipedia, and TED talks stored at home. Health questions stay in the house, and answers work with the internet down.</p>
+</td>
+</tr>
+</table>
 
 ---
 

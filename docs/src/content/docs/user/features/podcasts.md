@@ -7,6 +7,8 @@ sidebar:
 
 Loki Doki can turn the things you care about into a podcast, hosted by your own AI companions, in their own voices. It is like having a little radio station for your household that only covers what your family follows.
 
+![The Podcasts app: AI narration, original stingers, chapter markers, and offline listening — produced entirely on your hardware](../../../../assets/screenshots/podcasts-desktop.png)
+
 ## What a Show Is
 
 A **show** is an ongoing series, like a real podcast. It has a name, a cover, one or more host companions, and a set of sources it draws from. Each time you generate, the show gets a new **episode**.

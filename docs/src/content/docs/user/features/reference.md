@@ -7,6 +7,8 @@ sidebar:
 
 Full reference libraries that live on your own server and work with no internet at all. Nobody logs what you read or look up.
 
+![The Reference hub: Dictionary and Medical lookups plus offline Wikipedia and TED talk archives](../../../../assets/screenshots/reference-desktop.png)
+
 ## Overview
 
 Reference gives you whole offline archives, including Wikipedia, Wiktionary, medical references, and more, served straight from your home server. It also holds the Dictionary and Medical lookup tools. There is no internet connection required and no account anywhere tracking your reading.

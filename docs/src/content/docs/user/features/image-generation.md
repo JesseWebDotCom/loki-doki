@@ -7,6 +7,8 @@ sidebar:
 
 Describe anything in plain words and the Imaging page creates it for you: a photo, a painting, a cartoon, a logo, a short video. Everything runs on your own server, so nothing you create ever leaves your home network. For adult accounts there are no refusals or restrictions; accounts with content filtering enabled stay family-friendly automatically.
 
+![The Generate page: describe what you want, pick a ratio and output format, and create images on your own hardware](../../../../assets/screenshots/image-gen-desktop.png)
+
 The Imaging page has four areas along the side: **Generate**, **Edit**, **Recognize**, and **Logo**.
 
 ## Generate

@@ -7,6 +7,8 @@ sidebar:
 
 Your chats run on a model on your own hardware. No corporation is reading them, no third-party server keeps your history, and nothing you say is harvested or sold. The AI just remembers _you_.
 
+![A chat conversation with a companion: planning a family hike, setting a reminder, and adding to the shopping list](../../../../assets/screenshots/chat-desktop.png)
+
 ## Starting a Conversation
 
 Open the Chat page and type your message, or say your wakeword to start hands-free.

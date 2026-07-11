@@ -396,13 +396,17 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
   return (
    <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))}>
-    <PageContainer width="wide" className="grid grid-cols-1 gap-6 py-6 xl:grid-cols-[1fr_400px]">
-      {/* Main column */}
-      <div className="min-w-0 space-y-5">
-        {isPending ? (
-          <Skeleton className="aspect-video w-full rounded-card" />
-        ) : (
-          <div className="relative rounded-card shadow-2xl ring-1 ring-white/10">
+    <PageContainer width="wide" className="space-y-6 py-6">
+      {/* Theater stage: the player is the page's hero - full-width band, centered and
+          height-capped like a cinema screen, floating on a glow in the video's own accent
+          instead of sitting boxed inside a column (the YouTube skeleton). */}
+      {isPending ? (
+        // design-ok(adhoc-container): theater-stage width cap (viewport-height-derived), not a page container
+        <Skeleton className="mx-auto aspect-video w-full max-w-[calc(72vh*(16/9))] rounded-card" />
+      ) : (
+        // design-ok(adhoc-container): theater-stage width cap (viewport-height-derived), not a page container
+        <div className="relative mx-auto w-full max-w-[calc(72vh*(16/9))] rounded-card bg-black ring-1 ring-white/10"
+          style={{ boxShadow: '0 50px 160px -50px var(--yt-accent)' }}>
             <VideoPlayer
               ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
               resumeSec={resumeSec} onEnded={onEnded}
@@ -433,6 +437,9 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           </div>
         )}
 
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_400px]">
+      {/* Main column */}
+      <div className="min-w-0 space-y-5">
         <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
           votes={votes ?? null} localKind={localKind}
           privacy={privacy} onTogglePrivacy={togglePrivacy}
@@ -476,6 +483,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           </div>
         )}
       </aside>
+      </div>
     </PageContainer>
    </WatchCinema>
   )
@@ -595,61 +603,67 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
   return (
     <div className="space-y-4">
       {unsubDialog}
-      <div className="flex items-start justify-between gap-3">
+      {/* Eyebrow + big editorial title (the music player's hierarchy: quiet overline meta,
+          loud name) - no control cluster competing with the title line. */}
+      <div className="space-y-1.5">
+        {views && <p className="text-overline text-white/50">{views}</p>}
         {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-        <h1 className="text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">{title}</h1>
-        {/* Player options live on the title line — display/viewing prefs, not social actions,
-         *  so they don't compete with the creator row for width and force it to wrap. */}
-        {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
-        <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/10 p-1">
-          <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
-            title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
-          {online && (
-            <SegBtn icon={ShieldCheck} label="Private stream" active={privacy} tone="success" iconFill={privacy} onClick={onTogglePrivacy}
-              title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." />
-          )}
-          {online && (
-            <SegBtn icon={Headphones} label="Audio only" active={audioOnly} tone="info" onClick={onToggleAudioOnly}
-              title="Audio only: play just the audio to save bandwidth." />
-          )}
-          {isShortVid && (
-            <SegBtn icon={Smartphone} label="Shorts view" to={`/videos/youtube/shorts/${videoId}`} title="Open in Shorts view" />
-          )}
-        </div>
+        <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{title}</h1>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2.5">
+        {/* Creator identity chip: avatar + name + subs in one glass pill, like a music artist chip. */}
+        {/* design-ok(glass-on-plain-bg): identity chip over the UltraBlur cinema backdrop */}
         {author && (channelId ? (
           <Link to={`/videos/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
-            className="group flex items-center gap-2.5">
-            <CreatorAvatar title={author} src={channelThumb} className="size-10 text-sm ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+            className="group flex items-center gap-2.5 rounded-full bg-white/10 py-1 pl-1 pr-4 transition-colors hover:bg-white/15">
+            <CreatorAvatar title={author} src={channelThumb} className="size-9 text-sm ring-1 ring-white/15 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
             <div>
               <p className="text-sm font-semibold leading-tight transition-colors group-hover:text-[var(--yt-accent-fg)]">{author}</p>
-              {subscribers && <p className="text-xs text-muted-foreground">{subscribers}</p>}
+              {subscribers && <p className="text-xs leading-tight text-muted-foreground">{subscribers}</p>}
             </div>
           </Link>
         ) : (
-          <div className="flex items-center gap-2.5">
-            <CreatorAvatar title={author} src={channelThumb} className="size-10 text-sm ring-1 ring-border/40" />
+          // design-ok(glass-on-plain-bg): identity chip over the UltraBlur cinema backdrop
+          <div className="flex items-center gap-2.5 rounded-full bg-white/10 py-1 pl-1 pr-4">
+            <CreatorAvatar title={author} src={channelThumb} className="size-9 text-sm ring-1 ring-white/15" />
             <div>
               <p className="text-sm font-semibold leading-tight">{author}</p>
-              {subscribers && <p className="text-xs text-muted-foreground">{subscribers}</p>}
+              {subscribers && <p className="text-xs leading-tight text-muted-foreground">{subscribers}</p>}
             </div>
           </div>
         ))}
         {channelId && (subbed ? (
-          <Button variant="secondary" size="icon" onClick={toggleSub} disabled={subBusy} title="Subscribed. Click to unsubscribe" aria-label="Subscribed"
-            className="bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-60">
-            {subBusy ? <Spinner /> : <Check className="size-4" />}
+          // design-ok(glass-on-plain-bg): glass pill over the UltraBlur cinema backdrop
+          <Button onClick={toggleSub} disabled={subBusy} title="Subscribed. Click to unsubscribe" aria-label="Subscribed"
+            className="rounded-full bg-white/10 px-4 text-foreground/80 hover:bg-destructive/20 hover:text-destructive disabled:opacity-60">
+            {subBusy ? <Spinner /> : <><Check className="size-4" /> Subscribed</>}
           </Button>
         ) : (
-          <Button size="icon" onClick={toggleSub} disabled={subBusy} title="Subscribe" aria-label="Subscribe"
-            className="bg-[var(--yt-accent)] text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
-            {subBusy ? <Spinner className="text-white" /> : <Plus className="size-4" />}
+          <Button onClick={toggleSub} disabled={subBusy} title="Subscribe" aria-label="Subscribe"
+            className="rounded-full bg-[var(--yt-accent)] px-4 text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+            {subBusy ? <Spinner className="text-current" /> : <><Plus className="size-4" /> Subscribe</>}
           </Button>
         ))}
         {votes && <VotesBar votes={votes} />}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {/* Player options: display/viewing prefs, kept apart from the social actions. */}
+          {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+          <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
+            <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
+              title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
+            {online && (
+              <SegBtn icon={ShieldCheck} label="Private stream" active={privacy} tone="success" iconFill={privacy} onClick={onTogglePrivacy}
+                title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." />
+            )}
+            {online && (
+              <SegBtn icon={Headphones} label="Audio only" active={audioOnly} tone="info" onClick={onToggleAudioOnly}
+                title="Audio only: play just the audio to save bandwidth." />
+            )}
+            {isShortVid && (
+              <SegBtn icon={Smartphone} label="Shorts view" to={`/videos/youtube/shorts/${videoId}`} title="Open in Shorts view" />
+            )}
+          </div>
           {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
           {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
           <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
@@ -694,7 +708,7 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
         </div>
       </div>
 
-      <DescriptionCard views={views}
+      <DescriptionCard views={null}
         description={description ? (hasOriginalDescription ? description : description) : null} />
       {hasOriginalDescription && description && (
         <button onClick={() => setShowOriginalDescription(v => !v)} className="-mt-3 text-xs font-semibold text-muted-foreground hover:text-foreground">
@@ -1134,13 +1148,13 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
   return (
    <WatchCinema art={item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : null}>
-    <PageContainer width="wide" className="grid grid-cols-1 gap-6 py-6 xl:grid-cols-[1fr_400px]">
-      {/* Main column */}
-      <div className="min-w-0 space-y-5">
-        {/* Vertical (TikTok/Reels) videos are capped by HEIGHT so the title + action row stay
-            visible beneath the player instead of a full 9:16 tower pushing them off-screen. */}
-        <div className={item.vertical ? 'flex justify-center' : ''}>
-          <div className="relative rounded-card shadow-2xl ring-1 ring-white/10">
+    <PageContainer width="wide" className="space-y-6 py-6">
+        {/* Theater stage: player as the page hero, centered and height-capped, floating on
+            an accent glow. Vertical (TikTok/Reels) videos are capped by HEIGHT so the info
+            below stays visible instead of a full 9:16 tower pushing it off-screen. */}
+        <div className="flex justify-center">
+          <div className={cn('relative rounded-card bg-black ring-1 ring-white/10', !item.vertical && 'w-full max-w-[calc(72vh*(16/9))]')}
+            style={{ boxShadow: '0 50px 160px -50px var(--yt-accent)' }}>
             {showEmbed ? (
               source === 'vimeo' ? (
                 <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
@@ -1193,45 +1207,56 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           </div>
         </div>
 
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_400px]">
+      {/* Main column */}
+      <div className="min-w-0 space-y-5">
         <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
+          {/* Eyebrow + big editorial title (the music player's hierarchy). */}
+          <div className="space-y-1.5">
+            {(item.viewsText || item.likesText || item.publishedText || item.publishedAt) && (
+              <p className="text-overline text-white/50">
+                {[item.viewsText, item.likesText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ')}
+              </p>
+            )}
             {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-            <h1 className="text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">{item.title}</h1>
-            {/* Player options live on the title line — display/viewing prefs, not social
-             *  actions, so they don't compete with the creator row for width and force it to wrap. */}
-            {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
-            <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/10 p-1">
-              <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={minimize}
-                title="Minimize: keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
-              {pipSupported && (
-                <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
-                  title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
-              )}
-            </div>
+            <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{item.title}</h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Creator identity chip: avatar + name in one glass pill, like a music artist chip. */}
+            {/* design-ok(glass-on-plain-bg): identity chip over the UltraBlur cinema backdrop */}
             {item.creator && creatorPath && (
-              <Link to={creatorPath} className="group flex items-center gap-2.5">
+              <Link to={creatorPath} className="group flex items-center gap-2.5 rounded-full bg-white/10 py-1 pl-1 pr-4 transition-colors hover:bg-white/15">
                 <CreatorAvatar title={item.creator.name} src={item.creator.avatarUrl}
-                  className="size-10 text-sm ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+                  className="size-9 text-sm ring-1 ring-white/15 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
                 <p className="text-sm font-semibold transition-colors group-hover:text-[var(--yt-accent-fg)]">{item.creator.name}</p>
               </Link>
             )}
             {item.creator && (follow ? (
-              <Button variant="secondary" size="icon" onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
+              // design-ok(glass-on-plain-bg): glass pill over the UltraBlur cinema backdrop
+              <Button onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
                 title="Subscribed. Click to unsubscribe" aria-label="Subscribed"
-                className="bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-60">
-                {followMutation.isPending ? <Spinner /> : <Check className="size-4" />}
+                className="rounded-full bg-white/10 px-4 text-foreground/80 hover:bg-destructive/20 hover:text-destructive disabled:opacity-60">
+                {followMutation.isPending ? <Spinner /> : <><Check className="size-4" /> Subscribed</>}
               </Button>
             ) : (
-              <Button size="icon" onClick={() => followMutation.mutate()} disabled={followMutation.isPending} title="Subscribe" aria-label="Subscribe"
-                className="bg-[var(--yt-accent)] text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
-                {followMutation.isPending ? <Spinner className="text-white" /> : <Plus className="size-4" />}
+              <Button onClick={() => followMutation.mutate()} disabled={followMutation.isPending} title="Subscribe" aria-label="Subscribe"
+                className="rounded-full bg-[var(--yt-accent)] px-4 text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+                {followMutation.isPending ? <Spinner className="text-current" /> : <><Plus className="size-4" /> Subscribe</>}
               </Button>
             ))}
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {/* Player options: display/viewing prefs, kept apart from the social actions. */}
+              {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+              <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
+                <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={minimize}
+                  title="Minimize: keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
+                {pipSupported && (
+                  <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
+                    title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
+                )}
+              </div>
               {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
               {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
               <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
@@ -1275,7 +1300,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             </div>
           </div>
 
-          <DescriptionCard views={[item.viewsText, item.likesText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ') || null} description={item.description ?? null} />
+          <DescriptionCard views={null} description={item.description ?? null} />
         </div>
 
         <CreatePodcastDialog open={podcastOpen} onClose={() => setPodcastOpen(false)}
@@ -1308,6 +1333,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
         {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
         {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
       </aside>
+      </div>
     </PageContainer>
    </WatchCinema>
   )

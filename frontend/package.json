@@ -10,6 +10,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "shots:docs": "node scripts/docs-screenshot.mjs",
+    "shots:hero": "node scripts/docs-hero.mjs",
     "check:design-contract": "node scripts/check-design-contract.mjs",
     "lint:design": "node scripts/check-design-contract.mjs"
   },

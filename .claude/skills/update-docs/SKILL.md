@@ -74,6 +74,8 @@ cd backend && bun run seed:demo
   full admin pages show the real household's global state.
 - Run `cd frontend && bun run shots:docs` (pass name filters to re-shoot a subset).
 - On a non-zero exit, report the DENYLIST HIT / failed-action lines verbatim and STOP.
+- If the home shots were re-taken, also run `bun run shots:hero` — it composites
+  `hero.png` (the README masthead) from `home-desktop.png` + `home-kid-mobile.png`.
 
 ### 6. Embed
 
@@ -86,6 +88,7 @@ Screenshots land in `docs/src/assets/screenshots/<name>-<variant>.png`.
   GitHub via the repo-relative path).
 - Orphan check both directions: every referenced screenshot exists on disk, and every
   PNG in the screenshots dir is referenced somewhere (README or docs). Report strays.
+  (`home-desktop.png` is legitimately unreferenced — it's the input to `hero.png`.)
 
 ### 7. Verify
 
