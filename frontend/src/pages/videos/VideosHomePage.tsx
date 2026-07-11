@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
-import { Play, Film } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Film } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
+import { Button } from '@/components/ui/button'
+import { BlendedHeroBackdrop } from '@/components/shared/BlendedHeroBackdrop'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
@@ -17,12 +19,14 @@ import { MineCard, MineRow } from '@/components/videos/MineCard'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
 import { MixedDiscovery, useCategoryFeed } from '@/components/videos/SourceDiscovery'
 import { SourceChip, MineChip } from '@/components/videos/SourceChip'
+import { VideoBillboard } from '@/components/videos/VideoBillboard'
 import { MINE_META } from '@/lib/videos/sources'
 import { VIDEO_CATEGORIES, getVideoCategory, type VideoCategory } from '@/lib/videos/categories'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem } from '@/lib/youtube/types'
 import { getHubHistory, getHubHome, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
+import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { listStudioBin, isMineBinItem } from '@/lib/videos/studioApi'
 
 // The Videos hub landing: source pills filter a mixed feed interleaved across every
@@ -92,20 +96,27 @@ function HubLanding() {
 
   const activeCategory = category ? getVideoCategory(category) : null
 
+  // The billboard's editorial pick: deterministic daily rotation over the head of the
+  // mixed feed (same day-index trick as Music's "Station of the day"). Falls back to the
+  // freshest resume item when discovery hasn't landed; filtered contexts (Mine, category)
+  // are task-mode and suppress it entirely.
+  const day = Math.floor(Date.now() / 86_400_000)
+  const billboardCandidates = feedItems.slice(0, 12)
+  const featured = billboardCandidates.length > 0 ? billboardCandidates[day % billboardCandidates.length]! : null
+  const resumeFallback = !featured ? continueWatching[0] ?? null : null
+  // Don't show the same video twice on one screen when the billboard IS the resume item.
+  const railContinue = resumeFallback
+    ? continueWatching.filter((i) => !(i.source === resumeFallback.source && i.id === resumeFallback.id))
+    : continueWatching
+
   return (
     <PageContainer width="wide" className="py-6">
-      <ChipRow className="mb-3">
-        <Chip label="All" active={category === null} onClick={() => { setMineOnly(false); setCategory(null) }} />
-        {VIDEO_CATEGORIES.map((c) => (
-          <Chip
-            key={c.id}
-            label={c.label}
-            active={category === c.id}
-            onClick={() => { setMineOnly(false); setCategory(category === c.id ? null : c.id) }}
-          />
-        ))}
-      </ChipRow>
+      {!mineOnly && !activeCategory && (
+        featured ? <VideoBillboard item={featured} eyebrow="Featured today" />
+          : resumeFallback ? <VideoBillboard item={resumeFallback} eyebrow="Continue watching" resume /> : null
+      )}
 
+      {/* One scrolling chip line (mobile contract): identity filters first, then categories. */}
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
           <MineChip active={mineOnly} onClick={() => { setCategory(null); setMineOnly((v) => !v) }} />
@@ -115,6 +126,16 @@ function HubLanding() {
               source={s.source}
               active={!mineOnly && active.includes(s.source)}
               onClick={() => { setMineOnly(false); toggle(s.source, allIds) }}
+            />
+          ))}
+          <div aria-hidden className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
+          <Chip label="All" active={category === null && !mineOnly} onClick={() => { setMineOnly(false); setCategory(null) }} />
+          {VIDEO_CATEGORIES.map((c) => (
+            <Chip
+              key={c.id}
+              label={c.label}
+              active={category === c.id}
+              onClick={() => { setMineOnly(false); setCategory(category === c.id ? null : c.id) }}
             />
           ))}
         </ChipRow>
@@ -138,8 +159,8 @@ function HubLanding() {
         <CategoryBody category={activeCategory} activeSources={sources.filter((s) => active.includes(s.source))} view={view} />
       ) : (
         <div className="space-y-10">
-          {continueWatching.length > 0 ? (
-            <HubMediaShelf title="Continue watching" items={continueWatching} view={view} />
+          {railContinue.length > 0 ? (
+            <HubMediaShelf title="Continue watching" items={railContinue} view={view} />
           ) : historyLoading ? <ShelfSkeleton /> : null}
 
           {/* One mixed Popular + one mixed Trending, interleaved across every active source. */}
@@ -221,13 +242,23 @@ function FeedCard({ item, view }: { item: HubVideoItem; view: 'big' | 'grid' | '
 }
 
 function EmptyFeed() {
+  const mode = useYoutubeModeOptional()
+  // design-ok(hex-in-tsx): mode identity accents mirrored from VideosLayout's ACCENT map
+  const [color, colorDark] = mode === 'offline' ? ['#059669', '#022c22'] : ['#0891b2', '#164e63']
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
-      <Film className="mb-3 size-10 opacity-30" />
-      <p className="text-sm font-medium">Nothing here yet</p>
-      <p className="mt-1 inline-flex items-center gap-1 text-xs">
-        Browse a source from the rail <Play className="size-3" /> or paste a link into Clip a Link.
-      </p>
+    <div className="relative overflow-hidden rounded-sheet shadow-xl">
+      <BlendedHeroBackdrop art={null} color={color} colorDark={colorDark} />
+      <div className="relative flex flex-col items-start gap-2 p-6 py-14 sm:p-9 sm:py-16">
+        <Film className="mb-1 size-8 text-white/50" />
+        <p className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">Nothing here yet</p>
+        <p className="max-w-md text-sm text-white/70">
+          Browse a source to start your feed, or paste any video link and watch it here.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button asChild className="rounded-full"><Link to="/videos/youtube">Browse YouTube</Link></Button>
+          <Button asChild variant="secondary" className="rounded-full"><Link to="/videos/clip">Clip a link</Link></Button>
+        </div>
+      </div>
     </div>
   )
 }
