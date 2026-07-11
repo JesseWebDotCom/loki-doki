@@ -66,7 +66,7 @@ const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
   channelThumb: v.channelThumb ?? null, localKind: v.localKind, durationSec: v.durationSec ?? null,
 })
 
-type SideTab = 'transcript' | 'summary' | 'comments'
+type SideTab = 'upnext' | 'transcript' | 'summary' | 'comments'
 
 /** Compact like/dislike counts (1234 → "1.2K"). */
 function fmtCount(n: number): string {
@@ -195,7 +195,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const navigate = useNavigate()
   const pb = useYoutubePlayback()
   const playerRef = useRef<VideoPlayerHandle>(null)
-  const [tab, setTab] = useState<SideTab>('transcript')
+  const [tab, setTab] = useState<SideTab>('upnext')
   const [autoplay, setAutoplay] = useState(true)
   // Present when this video was opened via a playlist's "Play all" or a row click (?plist=&
   // ppos=) — autoplay then advances through the playlist's own order instead of algorithmic
@@ -426,41 +426,40 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           isShortVid={isShortVid} onMinimize={minimize} />
       </div>
 
-      {/* Side column */}
+      {/* Side column: ONE tabbed rail - the queue is the first (default) tab, not a second
+          module stacked under the panel. */}
       <aside className="min-w-0 space-y-5">
-        <YoutubeSidePanel
-          videoId={videoId} tab={tab} setTab={setTab} currentSec={currentSec}
-          onSeek={(sec) => playerRef.current?.seek(sec)} initialSummary={meta?.summary ?? null}
-        />
-        {pq.active && pq.playlistId ? (
-          <div className="space-y-2">
-            <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
-              Autoplay
-              <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
-                className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
-                <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
-              </button>
-            </label>
-            <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
-          </div>
-        ) : (
-          <div>
-            <div className="mb-2 flex items-center justify-between px-1">
-              <h3 className="text-overline text-white/60">Up next</h3>
-              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
+        <SidePanelShell
+          tabs={[
+            { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
+            { key: 'transcript' as SideTab, label: 'Transcript' },
+            { key: 'summary' as SideTab, label: 'AI Summary' },
+            { key: 'comments' as SideTab, label: 'Comments' },
+          ]}
+          active={tab} onChange={setTab}>
+          {tab === 'upnext' && (
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
                 Autoplay
                 <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
                   className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
                   <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
                 </button>
               </label>
+              {pq.active && pq.playlistId ? (
+                <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
+              ) : (
+                <div className="space-y-1">
+                  {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
+                  {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
+                </div>
+              )}
             </div>
-            <div className="space-y-1">
-              {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
-              {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
-            </div>
-          </div>
-        )}
+          )}
+          {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
+          {tab === 'summary' && <SummaryTab videoId={videoId} initial={meta?.summary ?? null} />}
+          {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
+        </SidePanelShell>
       </aside>
       </div>
     </PageContainer>
@@ -722,28 +721,6 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
   )
 }
 
-// ── YouTube side panel: transcript / summary / comments ──────────────────────
-
-function YoutubeSidePanel({ videoId, tab, setTab, onSeek, initialSummary, currentSec }: {
-  videoId: string
-  tab: SideTab
-  setTab: (t: SideTab) => void
-  onSeek: (sec: number) => void
-  initialSummary: string | null
-  currentSec: number
-}) {
-  const tabs: Array<{ key: SideTab; label: string }> = [
-    ['transcript', 'Transcript'], ['summary', 'AI Summary'], ['comments', 'Comments'],
-  ].map(([k, l]) => ({ key: k as SideTab, label: l }))
-  return (
-    <SidePanelShell tabs={tabs} active={tab} onChange={setTab}>
-      {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={onSeek} currentSec={currentSec} />}
-      {tab === 'summary' && <SummaryTab videoId={videoId} initial={initialSummary} />}
-      {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
-    </SidePanelShell>
-  )
-}
-
 /** Timed transcript panel. YouTube reads its own caption endpoints; any other source
  *  (pass `source`) reads the hub transcript route (provider captions API or yt-dlp). */
 function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { videoId: string; onSeek: (sec: number) => void; currentSec: number; source?: VideoSource }) {
@@ -947,7 +924,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const capabilities = sourcesData?.sources.find((s) => s.source === source)?.capabilities
   // Default to Transcript like the YouTube panel, unless this source has no transcript
   // capability (its first tab is then Comments, when present).
-  const tab: SideTab = explicitTab ?? (capabilities?.transcript === false ? 'comments' : 'transcript')
+  const tab: SideTab = explicitTab ?? 'upnext'
 
   const { data: savesData } = useQuery({ queryKey: ['videos-saves', source], queryFn: () => listSaves(source) })
   const save = savesData?.saves.find((s) => s.videoId === id && s.kind === 'video')
@@ -1133,11 +1110,14 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
   const saveState = save?.status
   const badge = SOURCE_META[source]
-  // Same panel as YouTube's, same order: Transcript / AI Summary / Comments. Each tab is
-  // capability-gated: Transcript + AI Summary drop off where the platform's videos never
-  // carry captions (TikTok, Reddit), where they'd always render empty, and Comments drops off
-  // where there's no comments API at all (TikTok).
-  const tabs: Array<{ key: SideTab; label: string }> = []
+  // Same panel as YouTube's: the queue/watch-next content is the first (default) tab,
+  // then Transcript / AI Summary / Comments. Each tab is capability-gated: Transcript +
+  // AI Summary drop off where the platform's videos never carry captions (TikTok,
+  // Reddit), where they'd always render empty, and Comments drops off where there's no
+  // comments API at all (TikTok).
+  const tabs: Array<{ key: SideTab; label: string }> = [
+    { key: 'upnext', label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
+  ]
   if (capabilities?.transcript !== false) {
     tabs.push({ key: 'transcript', label: 'Transcript' }, { key: 'summary', label: 'AI Summary' })
   }
@@ -1317,27 +1297,34 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           defaultLabel={item.title} />
       </div>
 
-      {/* Side column */}
+      {/* Side column: ONE tabbed rail - the queue/watch-next content is the first
+          (default) tab, not modules stacked under the panel. */}
       <aside className="min-w-0 space-y-5">
         <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}>
+          {tab === 'upnext' && (
+            pq.active && pq.playlistId ? (
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
+                  Autoplay
+                  <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
+                    className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
+                    <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
+                  </button>
+                </label>
+                <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
+                {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
+                {!capabilities?.related && !item.creator && <Empty>Nothing queued.</Empty>}
+              </div>
+            )
+          )}
           {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
           {tab === 'summary' && <SummaryTab videoId={id} initial={null} source={source} />}
           {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
         </SidePanelShell>
-        {pq.active && pq.playlistId && (
-          <div className="space-y-2">
-            <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
-              Autoplay
-              <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
-                className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
-                <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
-              </button>
-            </label>
-            <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
-          </div>
-        )}
-        {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
-        {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
       </aside>
       </div>
     </PageContainer>
