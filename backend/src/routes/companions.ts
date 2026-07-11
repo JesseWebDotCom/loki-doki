@@ -259,6 +259,10 @@ companions_.post('/companion', requireAuth, async (c) => {
   const cookieHeader = c.req.header('cookie') ?? ''
 
   const run = async (jobCtx: genQueue.JobRunContext): Promise<void> => {
+   // Never leak internal error text into the overlay bubble: a throw before/around the stream
+   // (e.g. a DB error in getAllowedToolIds/buildToolConfig) would otherwise be fanned out by
+   // genQueue as the raw exception string. Mirror makeChatRun's guard.
+   try {
     const result = await runCompanionTurn(
       {
         userId: user.id,
@@ -317,6 +321,10 @@ companions_.post('/companion', requireAuth, async (c) => {
     } else {
       jobCtx.emit('done', '{}')
     }
+   } catch (err) {
+     logger.error(`[companion] overlay turn threw user=${user.id}: ${err instanceof Error ? err.stack ?? err.message : err}`)
+     jobCtx.emit('error', 'Something went wrong generating that reply.')
+   }
   }
 
   // Through the shared generation queue: voice turns get the same concurrency

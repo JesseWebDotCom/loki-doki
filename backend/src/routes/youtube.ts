@@ -581,7 +581,14 @@ youtubeRoute.post('/plex/sync-all', async (c) => {
 youtubeRoute.post('/plex/sync-collections', async (c) => {
   const user = c.get('user')
   const { syncPlaylistsForUser } = await import('@/lib/plex/export/playlists')
-  await syncPlaylistsForUser(user.id).catch(() => {})
+  // Fail loudly: swallowing the error returned {ok:true} while nothing synced (Plex down /
+  // token expired) with no signal to the user — the sibling /plex/sync-all was fixed for this.
+  try {
+    await syncPlaylistsForUser(user.id)
+  } catch (err) {
+    logger.warn(`[youtube] plex playlist sync failed: ${err instanceof Error ? err.message : err}`)
+    return c.json({ error: 'Plex playlist sync failed — check your Plex connection.' }, 502)
+  }
   return c.json({ ok: true })
 })
 

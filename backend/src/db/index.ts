@@ -11,6 +11,10 @@ mkdirSync(dirname(dbPath), { recursive: true })
 export const sqlite = new Database(dbPath, { create: true })
 sqlite.exec('PRAGMA journal_mode = WAL;')
 sqlite.exec('PRAGMA foreign_keys = ON;')
+// WAL's recommended durability: fsync at checkpoints, not on every commit. Removes a per-write
+// fsync (multi-row write loops were paying one fsync'd commit per row); WAL still recovers on
+// crash — only a power loss in the sub-second window before a checkpoint can lose the last txns.
+sqlite.exec('PRAGMA synchronous = NORMAL;')
 // Wait up to 5s for a lock instead of failing instantly with SQLITE_BUSY (WAL still
 // serializes writers, and our boot migrations + request handlers can contend).
 sqlite.exec('PRAGMA busy_timeout = 5000;')

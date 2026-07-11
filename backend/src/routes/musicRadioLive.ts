@@ -172,8 +172,11 @@ musicRadioLive.get('/stream/:key', async (c) => {
   }
 
   // Close the upstream ICY connection the moment the listener disconnects — an infinite
-  // body never ends on its own, and leaked connections pile up per tune-in otherwise.
+  // body never ends on its own, and leaked connections pile up per tune-in otherwise. A tab
+  // closed during the (up to 10-30s) connect window already aborted the request signal; a
+  // listener added now would never fire, so check first and cancel immediately.
   const body = upstream.body
+  if (c.req.raw.signal.aborted) { body.cancel().catch(() => {}); return new Response(null, { status: 499 }) }
   c.req.raw.signal.addEventListener('abort', () => { body.cancel().catch(() => {}) }, { once: true })
 
   // radio-browser etiquette: report a listen so station popularity counts stay honest.

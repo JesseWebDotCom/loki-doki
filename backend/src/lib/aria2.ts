@@ -212,6 +212,10 @@ function runAria2(
   signal: AbortSignal,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    // A listener added to an already-aborted signal never fires, so a cancel that lands while
+    // we were still inside ensureAria2() (minutes when brew/apt-installing) would otherwise let
+    // aria2c download the whole file to completion in the background. Bail before spawning.
+    if (signal.aborted) { reject(new DOMException('Cancelled', 'AbortError')); return }
     const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     const onAbort = () => { try { child.kill('SIGTERM') } catch { /* already dead */ } }
     signal.addEventListener('abort', onAbort, { once: true })

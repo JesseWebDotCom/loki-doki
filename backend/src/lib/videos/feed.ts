@@ -113,6 +113,10 @@ async function pollOnce(): Promise<void> {
       await pollFollow(follow)
     } catch (err) {
       logger.warn(`[videos-feed] poll failed for ${follow.source}:${follow.externalId}: ${err}`)
+      // Stamp lastFetchedAt even on failure. Otherwise a permanently-broken follow (deleted/
+      // renamed creator, provider breakage) keeps its stale timestamp, sorts to the head of the
+      // asc(lastFetchedAt) due-list every tick, and starves healthy follows out of the limit(20).
+      await db.update(videoFollows).set({ lastFetchedAt: new Date() }).where(eq(videoFollows.id, follow.id)).catch(() => {})
     }
   }
   // Follow/subscription-level remove-once-watched rides the same tick (covers YouTube too).

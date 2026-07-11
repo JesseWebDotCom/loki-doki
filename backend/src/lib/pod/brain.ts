@@ -46,6 +46,10 @@ export async function* runPodBrain(text: string, opts: PodBrainOptions): AsyncGe
     onToken: (t) => { queue.push(t); ping() },
     signal: opts.signal,
   }).finally(() => { done = true; ping() })
+  // Defuse: if the Pod consumer abandons this generator mid-reply (return() at the yield), the
+  // `await turn` below never runs — so register a no-op handler now to keep a later rejection
+  // from surfacing as an unhandled rejection (fatal under Bun's strict rejection handling).
+  turn.catch(() => {})
 
   while (true) {
     if (queue.length) { yield queue.shift()!; continue }

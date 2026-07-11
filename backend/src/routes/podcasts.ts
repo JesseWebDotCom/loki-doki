@@ -792,6 +792,9 @@ podcastsRoute.get('/episodes/:id/stream', async (c) => {
       return c.json({ error: `Episode source responded ${upstream.status}` }, 502)
     }
     const body = upstream.body
+    // A tab closed during the (up to 30s) upstream connect already aborted the signal; a
+    // listener added now would never fire and leak the stream, so check first.
+    if (body && c.req.raw.signal.aborted) { body.cancel().catch(() => {}); return new Response(null, { status: 499 }) }
     if (body) c.req.raw.signal.addEventListener('abort', () => { body.cancel().catch(() => {}) }, { once: true })
     const headers: Record<string, string> = {
       'Content-Type': upstream.headers.get('content-type') ?? formatContentType(enclosureFormat(episode.enclosureType, episode.enclosureUrl)),

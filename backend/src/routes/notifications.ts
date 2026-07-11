@@ -17,7 +17,10 @@ const visibleTo = (user: { id: string; role: string }) =>
     : eq(notifications.userId, user.id)
 
 type NotifType = typeof notifications.$inferSelect['type']
-const NOTIF_TYPES: readonly NotifType[] = ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert']
+// Derive from the schema enum so muting/validation never silently drifts out of sync when a
+// new type is added (price_alert/file_drop/service_alert were previously missing → muting them
+// was a no-op and POSTing them 400'd).
+const NOTIF_TYPES: readonly NotifType[] = notifications.type.enumValues as readonly NotifType[]
 
 // Per-user "delivery" preference (Settings → Notifications). A user can mute whole
 // notification types; we filter at read time rather than creation time because the
