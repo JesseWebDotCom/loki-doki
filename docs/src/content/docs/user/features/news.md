@@ -7,6 +7,8 @@ sidebar:
 
 News is your private news reader. It pulls together global headlines, local stories, and any RSS feeds you follow, and organizes everything into tabs you control. Nothing tracks what you read, and there's no algorithm deciding what you see.
 
+![The News app showing world headlines in category tabs, with personal RSS feeds alongside the built-in categories](../../../../assets/screenshots/news-desktop.png)
+
 ## Categories
 
 The tabs across the top are **categories**:

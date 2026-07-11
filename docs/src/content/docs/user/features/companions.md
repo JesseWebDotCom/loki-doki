@@ -9,6 +9,8 @@ Your companion is a friendly AI personality that lives in a little floating bar 
 
 And it belongs to you. It isn't built to hook you or upsell you, there's no subscription keeping it "alive," and it can't be quietly updated into something creepy. You set the name, personality, voice, and look, and it stays exactly that way on your own hardware.
 
+![The Companion Store: browse companion personalities by category, favorite the ones you like, and make one yours](../../../../assets/screenshots/companions-desktop.png)
+
 ## Meet Your Companion
 
 Loki Doki ships with a roster of ready-made companions so there's always someone to talk to, including everyday buddies, mentors and coaches, kid-friendly storytellers and study helpers, calm wellness listeners, and creative muses. Pick one and start chatting right away.

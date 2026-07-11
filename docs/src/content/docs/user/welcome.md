@@ -15,6 +15,8 @@ When you want live information like movie showtimes, current events, or sports s
 
 One server. The whole family. Zero subscriptions.
 
+![Loki Doki on a phone: personal greeting, live weather, news, and your companion one tap away](../../../assets/screenshots/home-mobile.png)
+
 **New here?** Jump to [Getting Started](../getting-started/) to install Loki Doki on your server or log in for the first time.
 
 ## Built for Families

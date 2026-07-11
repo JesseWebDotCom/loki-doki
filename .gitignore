@@ -22,8 +22,14 @@ frontend/public/alphatab/
 # Backend environment variables
 backend/.env
 
-# Local agent state
-.claude/
+# Local agent state (but track project skills — .claude/skills is shared config)
+.claude/*
+!.claude/skills/
+
+# Docs screenshot pipeline — demo session tokens + the owner's personal-term denylist
+# must never be committed (see backend/scripts/seed-demo.ts / frontend/scripts/docs-screenshot.mjs)
+frontend/scripts/.demo-sessions.json
+.demo-denylist.txt
 
 # Build artifacts / caches (regenerated)
 __pycache__/

@@ -9,9 +9,8 @@
 // IDs: every row seeded from this file uses a `demo-` prefixed primary key (or one of
 // the fixed DEMO_USER_IDS UUIDs), which is what teardown keys on for shared tables.
 
-export const DEMO_PREFIX = 'demo-'
-
-// Fixed UUIDs = deterministic upsert key AND teardown key.
+// Fixed UUIDs = deterministic upsert key, teardown key, AND the screenshot engine's
+// "this session really is a demo user" guard (it requires the dde30000- prefix).
 export const DEMO_USER_IDS = {
   sam: 'dde30000-0000-4000-8000-000000000001',
   riley: 'dde30000-0000-4000-8000-000000000002',
@@ -92,7 +91,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     id: DEMO_USER_IDS.sam,
     firstName: 'Sam',
     lastName: 'Parker',
-    nickname: 'demo-sam',
+    nickname: 'Sam',
     birthdate: '1984-05-12',
     role: 'admin',
     profileSlug: 'adult',
@@ -169,7 +168,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     id: DEMO_USER_IDS.riley,
     firstName: 'Riley',
     lastName: 'Parker',
-    nickname: 'demo-riley',
+    nickname: 'Riley',
     birthdate: '2011-02-03',
     role: 'user',
     profileSlug: 'teen',
@@ -229,7 +228,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     id: DEMO_USER_IDS.jamie,
     firstName: 'Jamie',
     lastName: 'Parker',
-    nickname: 'demo-jamie',
+    nickname: 'Jamie',
     birthdate: '2017-09-21',
     role: 'user',
     profileSlug: 'locked',
@@ -279,7 +278,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     id: DEMO_USER_IDS.rose,
     firstName: 'Rose',
     lastName: 'Parker',
-    nickname: 'demo-rose',
+    nickname: 'Rose',
     birthdate: '1948-11-02',
     role: 'user',
     profileSlug: 'adult',

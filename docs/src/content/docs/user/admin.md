@@ -28,6 +28,8 @@ The panel is organized into groups, each with its own pages:
 
 Create user accounts with a username and initial PIN. Assign the `admin` role to give another user full access. Regular users only see the apps and features the admin has installed and granted to them. Each user also has a content ceiling, so the admin can keep younger family members fully filtered while adults run unrestricted.
 
+![Content Profiles in the Admin panel: graduated tiers from Locked Down (safe for children, the default) through Teen and Adult to No Restrictions](../../../assets/screenshots/admin-content-profiles-desktop.png)
+
 ## Installing Models and Apps
 
 The Features group shows the install status of every AI model and component. If something is missing, tap **Install** to download it. Progress streams inline, with no need to leave the page. Larger or non-essential downloads continue in the background after boot, so the app stays usable while they finish.

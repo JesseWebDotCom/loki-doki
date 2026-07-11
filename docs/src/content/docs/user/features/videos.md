@@ -7,6 +7,8 @@ sidebar:
 
 **One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - just a calmer, more honest way for the people you love to watch. You decide what your family sees, not an algorithm.
 
+![The Videos home feed mixing trending content from YouTube, Vimeo, and other enabled sources into one calm grid](../../../../assets/screenshots/videos-desktop.png)
+
 ## One app, many sources
 
 The Home page interleaves what's popular and trending across every source you have enabled, along with a "Continue watching" shelf and uploads from creators you follow. Filter by source with one tap, switch between card, list, and large views, or browse categories (Comedy, Sports, and so on) that mix results from everywhere. Each source also has its own space - YouTube with its full channel pages, topic shelves, and a swipeable vertical Shorts feed; TikTok and Vimeo browsing; Reddit's video communities - and an admin chooses which sources appear.

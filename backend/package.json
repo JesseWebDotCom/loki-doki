@@ -9,6 +9,8 @@
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "seed:demo": "bun run scripts/seed-demo.ts",
+    "seed:demo:reset": "bun run scripts/seed-demo.ts --reset",
     "eval:router": "bun run scripts/eval/router-eval.ts",
     "eval:memory": "bun run scripts/eval/memory-eval.ts",
     "eval:chat": "bun run scripts/eval/chat-e2e.ts",

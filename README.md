@@ -38,6 +38,12 @@ One server. The whole family. Zero subscriptions. No corporation reads your chat
 
 <br/>
 
+<p align="center">
+  <img src="docs/src/assets/screenshots/home-desktop.png" width="880" alt="The Loki Doki home dashboard — personal greeting, live weather, news, and a floating companion, all served from your own hardware" />
+</p>
+
+<br/>
+
 ---
 
 ## 🏠 Built for Families
@@ -90,6 +96,17 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
 </td>
 </tr>
 </table>
+
+<br/>
+
+<p align="center">
+  <img src="docs/src/assets/screenshots/home-kid-mobile.png" width="280" alt="A child's phone view: their own greeting, their own companion in the tab bar, and only the apps their parent granted" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/src/assets/screenshots/admin-content-profiles-desktop.png" width="560" alt="Admin content profiles: graduated tiers from Locked Down (safe for children, the default) through Teen and Adult to No Restrictions" />
+</p>
+<p align="center">
+  <sub>Every family member gets their own space — and the admin sets each person's content ceiling.</sub>
+</p>
 
 ---
 

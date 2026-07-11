@@ -9,6 +9,7 @@
     "prebuild": "node scripts/copy-ort.mjs && node scripts/copy-openmoji.mjs && node scripts/copy-alphatab.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "shots:docs": "node scripts/docs-screenshot.mjs",
     "check:design-contract": "node scripts/check-design-contract.mjs",
     "lint:design": "node scripts/check-design-contract.mjs"
   },

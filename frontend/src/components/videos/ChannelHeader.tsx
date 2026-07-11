@@ -53,21 +53,23 @@ export function ChannelHeader({
           )}
           <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
         </div>
-        <div className="absolute inset-x-0 bottom-0 flex items-end gap-3 p-4 sm:gap-4 sm:p-6">
+        {/* Actions float top-right so the identity row keeps the full width on phones
+            (inline actions crushed the title to a couple of characters at 393pt). */}
+        {actions && <div className="absolute right-3 top-3 flex items-center gap-2 sm:right-5 sm:top-auto sm:bottom-5">{actions}</div>}
+        <div className="absolute inset-x-0 bottom-0 flex items-end gap-3 p-4 sm:gap-4 sm:p-6 sm:pr-44">
           <CreatorAvatar title={title} src={avatarUrl} className="size-14 shrink-0 text-2xl shadow-lg ring-2 ring-white/20 sm:size-20 sm:text-3xl" />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}
               <h1 className="truncate text-xl font-extrabold tracking-tight text-white sm:text-3xl">{title}</h1>
               {badge && (
-                <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', badge.badgeClass)}>
+                <span className={cn('hidden shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold sm:inline-flex', badge.badgeClass)}>
                   <badge.icon className="size-3" aria-hidden /> {badge.label}
                 </span>
               )}
             </div>
             {metaLine && <p className="mt-0.5 truncate text-xs text-white/70 sm:text-sm">{metaLine}</p>}
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </div>
       </div>
       {(description || links.length > 0 || linksLoading) && (

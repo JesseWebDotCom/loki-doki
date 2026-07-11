@@ -42,11 +42,12 @@ export function VideoBillboard({ item, eyebrow, resume }: {
   return (
     <Link to={HUB_PATHS[item.source].watch(item.id)}
       className="group relative mb-8 block w-full overflow-hidden rounded-sheet text-left shadow-xl">
-      <div className="relative aspect-[2/1] w-full overflow-hidden sm:aspect-[21/6]">
+      {/* Taller on phones: eyebrow + 2-line title + meta + pill need the extra height. */}
+      <div className="relative aspect-[5/3] w-full overflow-hidden sm:aspect-[21/6]">
         <BlendedHeroBackdrop art={art} color={accent} colorDark={palette.dark}
           fallback={<VideoPlaceholderArt source={item.source} />} />
       </div>
-      <div className="absolute inset-y-0 left-0 flex max-w-xl flex-col justify-center gap-2 p-6 sm:p-9">
+      <div className="absolute inset-y-0 left-0 flex max-w-xl flex-col justify-center gap-2 p-5 sm:p-9">
         <span className="flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-widest text-white/60">{eyebrow}</span>
           <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.badgeClass)}>

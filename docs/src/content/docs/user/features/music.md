@@ -7,6 +7,8 @@ sidebar:
 
 The Music app is your own private music service. Tune in to AI radio stations, browse the world's catalog of artists, albums, and songs, follow along with synced lyrics, save what you love for offline play, and share stations and playlists with your household. It can also generate original instrumental music and remix MIDI files, fully offline. There's no account to sign in to and nothing tracking what you listen to.
 
+![The Music home page: a featured station of the day, your continue-listening shelf, and rows of AI radio stations to browse](../../../../assets/screenshots/music-desktop.png)
+
 ## Stations
 
 Stations are the heart of the app: generative AI radio that builds a fresh mix every time you tune in.

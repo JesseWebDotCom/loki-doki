@@ -7,6 +7,8 @@ sidebar:
 
 A storefront for ebooks and audiobooks, with your own private library, no account or subscription required.
 
+![A child's Books library with a continue-reading shelf — each family member gets their own private, age-appropriate collection](../../../../assets/screenshots/books-kid-desktop.png)
+
 ## Overview
 
 Books shelves anything you'd actually read cover to cover: novels, classics, textbooks, manuals, comics, and magazines. Looking for a dictionary, an encyclopedia, or a quick lookup instead? That's [Reference](../reference/).
