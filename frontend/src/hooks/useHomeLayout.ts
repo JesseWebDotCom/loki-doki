@@ -79,12 +79,16 @@ export function useHomeLayout(): UseHomeLayoutResult {
   }, [rev])
 
   const save = useCallback(async (next: HomeLayout) => {
-    await fetch('/api/home-layout', {
+    // Check res.ok: fetch only rejects on network errors, so a 401 (expired session), 403
+    // (admin-locked layout), or 500 would otherwise resolve normally and we'd show the new
+    // layout as saved even though the server rejected it (silently reverting on next reload).
+    const res = await fetch('/api/home-layout', {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next),
     })
+    if (!res.ok) throw new Error(`Failed to save layout (${res.status})`)
     setLayout(next)
   }, [])
 

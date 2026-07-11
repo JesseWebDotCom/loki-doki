@@ -24,6 +24,16 @@ export function useBrowserSession() {
   const { reportAlive } = useServerHealth()
   const reportAliveRef = useRef(reportAlive)
   reportAliveRef.current = reportAlive
+  // useRadio()/usePodcastPlayback() return a fresh value every second while media plays (the
+  // engine's positionSec ticks). Read them through refs so the SSE-opening effect can depend on
+  // [] — depending on `radio` tore down and reopened the EventSource once per second, dropping
+  // any command that landed in a reconnect gap.
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
+  const radioRef = useRef(radio)
+  radioRef.current = radio
+  const podcastRef = useRef(podcast)
+  podcastRef.current = podcast
 
   useEffect(() => {
     return manageEventSource(() => {
@@ -46,7 +56,7 @@ export function useBrowserSession() {
             let handled = true
             switch (cmd.type) {
               case 'navigate':
-                if (typeof cmd.path === 'string') navigate(cmd.path)
+                if (typeof cmd.path === 'string') navigateRef.current(cmd.path)
                 else handled = false
                 break
               case 'open_url':
@@ -55,12 +65,12 @@ export function useBrowserSession() {
                 break
               case 'app_action': {
                 const payload = (cmd.payload ?? {}) as Record<string, unknown>
-                if (cmd.action === 'play_pause') radio.togglePause()
-                else if (cmd.action === 'next_track') radio.skip()
-                else if (cmd.action === 'prev_track') radio.seek(0)
+                if (cmd.action === 'play_pause') radioRef.current.togglePause()
+                else if (cmd.action === 'next_track') radioRef.current.skip()
+                else if (cmd.action === 'prev_track') radioRef.current.seek(0)
                 else if (cmd.action === 'play_station' && typeof payload.stationId === 'string') {
                   const dj = await djStationById(payload.stationId)
-                  if (dj) { radio.start(dj); navigate('/music/now-playing') }
+                  if (dj) { radioRef.current.start(dj); navigateRef.current('/music/now-playing') }
                   else { handled = false; console.warn('[controller] play_station: station not found', payload.stationId) }
                 }
                 else if (cmd.action === 'play_podcast' && typeof payload.showId === 'string') {
@@ -70,12 +80,12 @@ export function useBrowserSession() {
                     .then(r => r.json()).catch(() => null) as { episodes?: Array<{ id: string; title: string; status?: string; durationSec?: number }> } | null
                   const ep = res?.episodes?.find(e => e.status === 'ready')
                   if (ep) {
-                    podcast.play({
+                    podcastRef.current.play({
                       episodeId: ep.id, showId, title: ep.title, durationSec: ep.durationSec ?? undefined,
                       showName: typeof payload.showName === 'string' ? payload.showName : 'Podcast',
                       coverUrl: `/api/podcasts/shows/${showId}/cover`,
                     })
-                    navigate('/podcasts')
+                    navigateRef.current('/podcasts')
                   } else {
                     handled = false
                     console.warn('[controller] play_podcast: no ready episode', { showId, episodes: res?.episodes?.length })
@@ -111,5 +121,6 @@ export function useBrowserSession() {
 
       return es
     }, { keepWhenHidden: hasActiveMedia })
-  }, [navigate, radio])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- radio/podcast/navigate read via refs
+  }, [])
 }

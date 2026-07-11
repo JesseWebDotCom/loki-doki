@@ -84,6 +84,10 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   const playTrackAt = useCallback((newTrack: PodcastTrack, startSec: number) => {
     acquireAudio('podcast')   // stop radio/YouTube — podcasts are a first-class audio source
     sessionIdRef.current = uuid()
+    // Reset the resume-save watermark. Otherwise it carries over from the previous episode, so
+    // the `currentTime - lastSaved >= 10` gate never fires for a new episode until its playhead
+    // passes the old episode's position — for most episodes, never — silently losing resume.
+    lastSaved.current = 0
     pendingStart.current = startSec
     setTrack(newTrack)
     setPositionSec(startSec)
@@ -181,7 +185,9 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     if (!el) return
     const onTime = () => {
       setPositionSec(el.currentTime)
-      if (track && el.currentTime - lastSaved.current >= 10) {
+      // Math.abs so a backward seek also persists (a forward-only gate would skip saving until
+      // the playhead climbs back past the last-saved position).
+      if (track && Math.abs(el.currentTime - lastSaved.current) >= 10) {
         lastSaved.current = el.currentTime
         void saveWatchState(track.episodeId, el.currentTime, false)
       }

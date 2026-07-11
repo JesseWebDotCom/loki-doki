@@ -246,6 +246,11 @@ async function resumeStream(
 export function GenerationProvider({ children }: { children: ReactNode }) {
   const [imagingState, setImagingState] = useState<GenState>(IDLE)
   const imagingReader = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
+  // Synchronous in-flight guard: imagingReader/videoReader are only assigned after runStream's
+  // await fetch(), so two rapid generate() calls both passed the reader-null check and queued
+  // two jobs. These flags are set before the fetch so the second call bails immediately.
+  const imagingInflight = useRef(false)
+  const videoInflight = useRef(false)
   const [imagingDoneAt, setImagingDoneAt] = useState<number | null>(null)
   const [imagingIsAdult, setImagingIsAdult] = useState(false)
   const [imagingActivePrompt, setImagingActivePrompt] = useState<string | null>(null)
@@ -261,7 +266,8 @@ export function GenerationProvider({ children }: { children: ReactNode }) {
   // ── Imaging channel ──────────────────────────────────────────────────────────
 
   const imagingGenerate = useCallback(async (params: GenerateParams, isAdult = false): Promise<string | null> => {
-    if (imagingReader.current) return null
+    if (imagingReader.current || imagingInflight.current) return null
+    imagingInflight.current = true
     setImagingIsAdult(isAdult)
     setImagingActivePrompt(params.prompt ?? null)
     setImagingActiveLoraIds(params.loraWeights ? Object.keys(params.loraWeights) : (params.loraIds ?? null))
@@ -270,10 +276,14 @@ export function GenerationProvider({ children }: { children: ReactNode }) {
       status: 'generating', imageId: null, step: 0, stepOffset: 0,
       totalSteps: params.steps ?? 20, elapsedMs: 0, error: null, previewUrl: null,
     })
-    return runStream(params, setImagingState, imagingReader, () => {
-      setImagingDoneAt(Date.now())
-      toast.success('Image ready')
-    }, setImagingIsAdult)
+    try {
+      return await runStream(params, setImagingState, imagingReader, () => {
+        setImagingDoneAt(Date.now())
+        toast.success('Image ready')
+      }, setImagingIsAdult)
+    } finally {
+      imagingInflight.current = false
+    }
   }, [])
 
   const imagingCancel = useCallback(async (imageId: string) => {
@@ -295,7 +305,8 @@ export function GenerationProvider({ children }: { children: ReactNode }) {
   // ── Video channel ────────────────────────────────────────────────────────────
 
   const videoGenerate = useCallback(async (params: GenerateParams, isAdult = false): Promise<string | null> => {
-    if (videoReader.current) return null
+    if (videoReader.current || videoInflight.current) return null
+    videoInflight.current = true
     setVideoIsAdult(isAdult)
     setVideoActivePrompt(params.prompt ?? null)
     setVideoActiveLoraIds(params.loraIds ?? (params.loraWeights ? Object.keys(params.loraWeights) : null))
@@ -304,10 +315,14 @@ export function GenerationProvider({ children }: { children: ReactNode }) {
       status: 'generating', imageId: null, step: 0, stepOffset: 0,
       totalSteps: params.steps ?? 20, elapsedMs: 0, error: null, previewUrl: null,
     })
-    return runStream(params, setVideoState, videoReader, () => {
-      setVideoDoneAt(Date.now())
-      toast.success('Video ready')
-    }, setVideoIsAdult)
+    try {
+      return await runStream(params, setVideoState, videoReader, () => {
+        setVideoDoneAt(Date.now())
+        toast.success('Video ready')
+      }, setVideoIsAdult)
+    } finally {
+      videoInflight.current = false
+    }
   }, [])
 
   const videoCancel = useCallback(async (imageId: string) => {

@@ -210,6 +210,8 @@ export class StemEngine {
     if (!this.ctx) return
     const when = this.ctx.currentTime + 0.03
     this.startAtCtxTime = when - fromPos / this.rate
+    // The longest stem determines when playback naturally ends.
+    let longest: { s: LoadedStem; dur: number } | null = null
     for (const s of this.stems) {
       const src = this.ctx.createBufferSource()
       src.buffer = s.buffer
@@ -223,6 +225,19 @@ export class StemEngine {
       }
       src.start(when, Math.min(fromPos, Math.max(0, s.buffer.duration - 0.01)))
       s.source = src
+      if (!longest || s.buffer.duration > longest.dur) longest = { s, dur: s.buffer.duration }
+    }
+    // Detect natural end-of-playback: without this the transport stayed "playing" over silence,
+    // the play/pause button showed Pause forever, and metronome/lyrics logic keyed on isPlaying()
+    // kept running. stopSources() nulls onended before stop(), so this only fires on a real end.
+    if (longest) {
+      longest.s.source!.onended = () => {
+        if (!this.playing || this.stems.find((x) => x.name === longest!.s.name)?.source !== longest!.s.source) return
+        this.stopSources()
+        this.playing = false
+        this.pausedPosition = 0
+        this.emit()
+      }
     }
   }
 

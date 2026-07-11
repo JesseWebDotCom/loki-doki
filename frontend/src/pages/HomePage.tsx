@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cardVariants } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { toast } from "@/lib/toast";
 import type { VideoItem } from "@/lib/youtube/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DeviceCard, type CardAction } from "@/components/homeassistant/DeviceCard";
@@ -2421,6 +2422,9 @@ export function HomePage() {
       await save({ ...layout, canvas });
       setEditMode(false);
       setDraftRows([]);
+    } catch {
+      // Keep edit mode open so the user's arrangement isn't lost, and tell them it didn't save.
+      toast.error("Couldn't save your layout — please try again.");
     } finally {
       setIsSaving(false);
     }

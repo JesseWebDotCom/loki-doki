@@ -124,10 +124,15 @@ export class VoicePlayback {
       resolveDrain = r;
     });
 
+    // Only the single-sentence path acquires a fetch slot; the finally must release exactly what
+    // was acquired. Releasing unconditionally decremented the counter for a slot this call never
+    // held, breaking the MAX_PARALLEL_SENTENCE_FETCHES cap (3+ concurrent TTS synths could run).
+    let acquiredSlot = false;
     try {
       const singleSentence = splitSentences(body.text).length <= 1;
       if (singleSentence) {
         await this.acquireFetchSlot(abort.signal);
+        acquiredSlot = true;
       } else {
         await predecessorDrained;
       }
@@ -192,7 +197,7 @@ export class VoicePlayback {
         resolveDrain();
       }
     } finally {
-      this.releaseFetchSlot();
+      if (acquiredSlot) this.releaseFetchSlot();
       resolveDrain();
       this.aborts = this.aborts.filter((a) => a !== abort);
       this.inflight = Math.max(0, this.inflight - 1);

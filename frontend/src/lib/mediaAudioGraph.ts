@@ -47,7 +47,10 @@ export interface MediaAudioGraph {
 }
 
 const graphs = new WeakMap<HTMLMediaElement, MediaAudioGraph>()
-const liveGraphs = new Set<MediaAudioGraph>()   // for apply-to-all (WeakMap isn't iterable)
+// Apply-to-all needs an iterable of graphs, but a strong Set would pin every graph (and, through
+// its source node, every <video>/<audio> element that ever got one) for the tab's lifetime,
+// defeating the WeakMap's GC. Hold WeakRefs and prune dead ones during applyDsp.
+const liveGraphs = new Set<WeakRef<MediaAudioGraph>>()
 let sharedCtx: AudioContext | null = null
 let sharedAnalyser: AnalyserNode | null = null
 let settings: DspSettings = { ...DEFAULT_DSP, eqGains: [...DEFAULT_DSP.eqGains] }
@@ -89,7 +92,11 @@ function applyToGraph(g: MediaAudioGraph) {
 /** Push new DSP settings to every live graph (and all future ones). */
 export function applyDsp(next: DspSettings): void {
   settings = { ...next, eqGains: [...next.eqGains] }
-  for (const g of liveGraphs) applyToGraph(g)
+  for (const ref of liveGraphs) {
+    const g = ref.deref()
+    if (g) applyToGraph(g)
+    else liveGraphs.delete(ref)   // element was GC'd — drop the dead ref
+  }
 }
 
 /** Per-element loudness trim (dB). The radio engine sets this per cued track from the
@@ -169,7 +176,7 @@ export function ensureMediaGraph(el: HTMLMediaElement, opts?: { kind?: 'music' |
 
     const graph: MediaAudioGraph = { gain, analyser, kind: opts?.kind ?? 'music', preGain, eq, crossfeedWet, trimDb: 0 }
     graphs.set(el, graph)
-    liveGraphs.add(graph)
+    liveGraphs.add(new WeakRef(graph))
     applyToGraph(graph)             // pick up current settings immediately
     return graph
   } catch {

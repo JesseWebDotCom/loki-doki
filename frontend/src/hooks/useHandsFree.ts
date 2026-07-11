@@ -567,7 +567,12 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   // Engage/disengage follows the `enabled` flag.
   useEffect(() => {
     if (enabled && !micRef.current) void engage()
-    if (!enabled && micRef.current) disengage()
+    // Disengage unconditionally on !enabled — NOT gated on micRef.current. engage() only sets
+    // micRef after its awaits (wakeword load, the mic-permission prompt), so a toggle-off during
+    // that window would otherwise leave micRef null → disengage never runs → the mic stays live
+    // and wake detection keeps running with the UI showing off. disengage() safely handles the
+    // not-yet-engaged case and clears engagingRef, which engage()'s post-await check honors.
+    if (!enabled) disengage()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])
 
