@@ -51,6 +51,7 @@ import {
 } from '@/lib/videos/api'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
 import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
+import { readStoredVolume, storeVolume } from '@/components/videos/PlayerControlBar'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { usePlaylistQueue, playlistWatchHref } from '@/lib/videos/playlistWatch'
 import { PlaylistQueuePanel } from '@/components/videos/PlaylistQueuePanel'
@@ -224,11 +225,11 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const { items } = useYtFeed()
   const online = !localKind
 
-  // Privacy proxy: stream through our server instead of the YouTube embed. Opt-in:
-  // it has zero YouTube chrome and fully custom controls. Quality reaches 1080p via the
-  // server-side remux tier (split tracks copied into fragmented MP4); the embed stays
-  // the default, with the poster covers + paused masks suppressing its built-in chrome.
-  const [privacy, setPrivacy] = useState(() => localStorage.getItem(PRIVACY_KEY) === '1')
+  // Privacy proxy: stream through our server instead of the YouTube embed. It has zero
+  // YouTube chrome, fully custom controls, and reaches 4K via the server-side remux
+  // tiers - but the embed starts faster, so NON-private is the default on every fresh
+  // session. The toggle sticks for the current tab only (sessionStorage), not forever.
+  const [privacy, setPrivacy] = useState(() => { try { return sessionStorage.getItem(PRIVACY_KEY) === '1' } catch { return false } })
 
   // Warm the proxy-stream cache the moment the page opens: flipping Private stream on
   // (or a PiP/minimize handoff) then starts in ~a second instead of a cold resolve.
@@ -239,7 +240,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
     try { q = (localStorage.getItem('yt.proxyQuality') as StreamQuality) || '1080' } catch { /* private mode */ }
     prewarmStream(videoId, 'video', q)
   }, [videoId, online])
-  const togglePrivacy = () => setPrivacy(p => { const n = !p; try { localStorage.setItem(PRIVACY_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
+  const togglePrivacy = () => setPrivacy(p => { const n = !p; try { sessionStorage.setItem(PRIVACY_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
   // Picture-in-Picture on the plain iframe embed needs a real <video> to hand off to,
   // which means switching onto the privacy-proxy stream (see VideoPlayer's togglePip).
   // Doesn't persist the toggle — this is "just get me PiP", not "always use the proxy".
@@ -981,6 +982,13 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const [nativePlaying, setNativePlaying] = useState(true)
   const [nativeMuted, setNativeMuted] = useState(false)
   const [nativeDuration, setNativeDuration] = useState(0)
+  const [nativeVolume, setNativeVolume] = useState(readStoredVolume)
+  const onNativeVolume = (v: number) => {
+    setNativeVolume(v)
+    storeVolume(v)
+    const el = videoRef.current
+    if (el) { el.volume = v; if (v > 0 && el.muted) { el.muted = false; setNativeMuted(false) } }
+  }
 
   usePlaybackAttach(videoRef, data?.playback ?? null, localUrl)
 
@@ -1200,6 +1208,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   onPause={() => setNativePlaying(false)}
                   onDurationChange={(e) => setNativeDuration(e.currentTarget.duration || 0)}
                   onVolumeChange={(e) => setNativeMuted(e.currentTarget.muted)}
+                  onLoadedMetadata={(e) => { e.currentTarget.volume = readStoredVolume() }}
                   className="size-full"
                 />
                 <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay} />
@@ -1208,7 +1217,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   onToggle={toggleNativePlay}
                   onToggleMute={() => { const v = videoRef.current; if (!v) return; v.muted = !v.muted; setNativeMuted(v.muted) }}
                   onSeek={seekTo}
-                  onFullscreen={toggleNativeFullscreen} />
+                  onFullscreen={toggleNativeFullscreen}
+                  volume={nativeVolume} onVolume={onNativeVolume} />
               </div>
             )}
             {countdown && pq.next && (
