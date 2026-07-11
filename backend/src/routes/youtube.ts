@@ -24,7 +24,7 @@ import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblo
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
-import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, isValidVideoId, parseQuality, type StreamKind } from '@/lib/youtube/stream'
+import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
 import { ensureFfmpeg, ffmpegBin } from '@/lib/ffmpeg'
 import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot, getCookiesStatus, saveCookiesFile, clearCookiesFile } from '@/lib/ytdlp'
 import {
@@ -1607,22 +1607,27 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
   const kind: StreamKind = c.req.query('kind') === 'audio' ? 'audio' : 'video'
   let quality = parseQuality(c.req.query('q'))
 
-  // 1080p tier: YouTube splits everything above 720p into video-only + audio-only
-  // tracks, so this branch remuxes the pair server-side — ffmpeg stream copy (no
-  // re-encode) into fragmented MP4, piped straight to the response. The pipe is not
-  // byte-seekable; the player seeks by re-requesting with ?t=<seconds>, which ffmpeg
-  // honors with an input-side -ss (fast keyframe seek in both tracks).
-  if (kind === 'video' && quality === '1080') {
-    const urls = await resolveSplitStreamUrls(videoId)
+  // High tiers (1080/1440/2160): YouTube splits everything above 720p into video-only +
+  // audio-only tracks, so this branch remuxes the pair server-side — ffmpeg stream copy
+  // (no re-encode) into fragmented MP4, piped straight to the response. Above 1080p the
+  // tracks are VP9/AV1 (h264 stops at 1080), which modern browsers decode fine in MP4.
+  // The pipe is not byte-seekable; the player seeks by re-requesting with ?t=<seconds>,
+  // which ffmpeg honors with an input-side -ss (fast keyframe seek in both tracks).
+  if (kind === 'video' && REMUX_QUALITIES.has(quality)) {
+    const maxHeight = Number(quality)
+    const urls = await resolveSplitStreamUrls(videoId, maxHeight)
     if (urls) {
       await ensureFfmpeg().catch(() => { /* falls out below if the binary is truly absent */ })
       const startSec = Math.max(0, Number.parseFloat(c.req.query('t') ?? '0') || 0)
       const seek = startSec > 0.25 ? ['-ss', startSec.toFixed(3)] : []
       // googlevideo is picky about the UA matching the client that resolved the URL,
-      // and long plays benefit from ffmpeg's own reconnect handling.
+      // and long plays benefit from ffmpeg's own reconnect handling. The tight probe
+      // caps matter for time-to-first-byte: ffmpeg's defaults read ~5MB per input
+      // before emitting anything, which costs seconds at googlevideo's paced delivery.
       const inputFlags = [
         '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '2',
+        '-probesize', '1000000', '-analyzeduration', '1000000',
       ]
       const proc = spawn(ffmpegBin(), [
         '-hide_banner', '-loglevel', 'error', '-nostdin',
@@ -1630,6 +1635,9 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
         ...inputFlags, ...seek, '-i', urls.audio,
         '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy',
         '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+        // Emit ~1s fragments and flush eagerly so the browser can start decoding the
+        // moment data exists instead of waiting on ffmpeg's internal buffering.
+        '-frag_duration', '1000000', '-flush_packets', '1',
         '-f', 'mp4', 'pipe:1',
       ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
       let ffErr = ''
@@ -1638,7 +1646,7 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
         if (code) {
           // A dead remux usually means the signed URLs rotated — drop them so the
           // player's retry (or next seek) resolves fresh instead of failing the same way.
-          invalidateSplitStreamUrls(videoId)
+          invalidateSplitStreamUrls(videoId, maxHeight)
           if (!c.req.raw.signal.aborted) logger.warn(`[youtube/stream] remux ffmpeg exited ${code} for ${videoId}: ${ffErr.slice(-400)}`)
         }
       })
@@ -1732,8 +1740,8 @@ youtubeRoute.get('/stream/:videoId/prewarm', async (c) => {
   // keyed accordingly, so warming 'video'/'auto' does nothing for a 1080p-remux consumer.
   const kind: StreamKind = c.req.query('kind') === 'audio' ? 'audio' : 'video'
   const quality = parseQuality(c.req.query('q'))
-  if (kind === 'video' && quality === '1080') void resolveSplitStreamUrls(videoId)
-  else void resolveStreamUrl(videoId, kind, quality === '1080' ? 'auto' : quality)
+  if (kind === 'video' && REMUX_QUALITIES.has(quality)) void resolveSplitStreamUrls(videoId, Number(quality))
+  else void resolveStreamUrl(videoId, kind, REMUX_QUALITIES.has(quality) ? 'auto' : quality)
   return c.body(null, 204)
 })
 

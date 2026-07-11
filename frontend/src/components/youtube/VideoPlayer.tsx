@@ -4,7 +4,7 @@ import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture,
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock, thumbUrl } from '@/lib/youtube/format'
-import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, getStoryboards, ytImageProxy, type SkipSegment, type WatchMeta, type StreamQuality, type StoryboardLevel } from '@/lib/youtube/api'
+import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, getStoryboards, ytImageProxy, REMUX_QUALITIES, type SkipSegment, type WatchMeta, type StreamQuality, type StoryboardLevel } from '@/lib/youtube/api'
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
 import { pickStoryboardLevel, frameForTime } from '@/lib/youtube/storyboard'
 import { VideoThumb } from '@/components/youtube/media'
@@ -24,11 +24,14 @@ export interface VideoPlayerHandle {
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
-// '1080' is the server-side remux tier (split video+audio tracks copied into fragmented
-// MP4); its pipe isn't byte-seekable, so the player seeks it by re-requesting with an
-// offset. 'auto'/'720'/'360' are plain progressive files with native Range seeking.
+// 2160/1440/1080 are server-side remux tiers (split video+audio tracks copied into
+// fragmented MP4; above 1080p the video track is VP9/AV1 since h264 stops there); their
+// pipes aren't byte-seekable, so the player seeks by re-requesting with an offset.
+// 'auto'/'720'/'360' are plain progressive files with native Range seeking. A tier a
+// video doesn't have simply serves the best it does (the server picks ≤ the cap).
 const PROXY_QUALITIES: { value: StreamQuality; label: string }[] = [
-  { value: '1080', label: '1080p' }, { value: 'auto', label: '720p (fast seek)' }, { value: '360', label: '360p' },
+  { value: '2160', label: '4K' }, { value: '1440', label: '1440p' }, { value: '1080', label: '1080p' },
+  { value: 'auto', label: '720p (fast seek)' }, { value: '360', label: '360p' },
 ]
 const PROXY_QUALITY_KEY = 'yt.proxyQuality'
 // YouTube IFrame API quality level → human label.
@@ -214,11 +217,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Audio-only streams just the audio through our server, with the thumbnail as poster.
   const onlineAudio = audioOnly && !localKind && !proxyFailed
   const usingProxy = privacyProxy && !localKind && !proxyFailed && !onlineAudio
-  // 1080p remux tier: the server pipes a live ffmpeg remux, which has no byte-range
-  // seeking - the element plays from an OFFSET and every seek swaps the src to a new
-  // offset. `remuxStart` is that offset (state so a change remounts the src);
+  // Remux tiers (1080/1440/4K): the server pipes a live ffmpeg remux, which has no
+  // byte-range seeking - the element plays from an OFFSET and every seek swaps the src
+  // to a new offset. `remuxStart` is that offset (state so a change remounts the src);
   // `remuxOffsetRef` mirrors it for the position math in read()/persist.
-  const remux = usingProxy && proxyQuality === '1080'
+  const remux = usingProxy && REMUX_QUALITIES.has(proxyQuality)
   const [remuxStart, setRemuxStart] = useState(() => Math.max(0, resumeSec))
   const remuxOffsetRef = useRef(Math.max(0, resumeSec))
   // Native <video>/<audio> source: an offline file, the privacy proxy, audio-only, or (once

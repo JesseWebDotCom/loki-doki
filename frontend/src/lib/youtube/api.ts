@@ -137,7 +137,9 @@ export interface VideoPodcast {
 
 export const fileUrl = (videoId: string, kind: 'audio' | 'video') => `/api/youtube/file/${videoId}/${kind}`
 export const exportFileUrl = (jobId: string) => `/api/youtube/export/${jobId}/file`
-export type StreamQuality = 'auto' | '1080' | '720' | '360'
+export type StreamQuality = 'auto' | '2160' | '1440' | '1080' | '720' | '360'
+/** The proxy tiers served by the server-side remux (split tracks, seek via ?t=). */
+export const REMUX_QUALITIES = new Set<StreamQuality>(['2160', '1440', '1080'])
 /** Privacy proxy: stream a video (or its audio) through our server, never Google.
  *  `startSec` only applies to the 1080p remux tier, whose piped output isn't
  *  byte-seekable, so the player seeks by re-requesting from an offset instead. */

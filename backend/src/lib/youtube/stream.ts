@@ -18,8 +18,10 @@ export type StreamKind = 'video' | 'audio'
 // YouTube — higher resolutions are split into separate DASH video+audio streams, which
 // the '1080' tier serves by remuxing them server-side (see the route's ffmpeg branch and
 // resolveSplitStreamUrls below).
-export type StreamQuality = 'auto' | '1080' | '720' | '360'
-const QUALITIES: StreamQuality[] = ['auto', '1080', '720', '360']
+export type StreamQuality = 'auto' | '2160' | '1440' | '1080' | '720' | '360'
+const QUALITIES: StreamQuality[] = ['auto', '2160', '1440', '1080', '720', '360']
+/** The tiers served by the ffmpeg remux branch (split video+audio tracks). */
+export const REMUX_QUALITIES = new Set<StreamQuality>(['2160', '1440', '1080'])
 export const parseQuality = (q: string | undefined): StreamQuality =>
   (QUALITIES as string[]).includes(q ?? '') ? (q as StreamQuality) : 'auto'
 
@@ -213,13 +215,26 @@ const splitCache = new Map<string, { urls: SplitStreamUrls; expires: number }>()
 const splitInflight = new Map<string, Promise<SplitStreamUrls | null>>()
 const splitKey = (videoId: string, maxHeight: number) => `${videoId}:split:${maxHeight}`
 
-// Best h264 (avc1) video-only track at or under the height cap: stream-copies cleanly
-// into fragmented MP4 that every browser decodes. VP9/AV1 tracks are skipped — copying
-// them into MP4 is a compatibility minefield and re-encoding is off the table.
+// Best video-only track at or under the height cap. h264 (avc1) exists only up to
+// 1080p; above that YouTube publishes VP9/AV1, which also copy cleanly into fragmented
+// MP4 for every modern browser we target (Chrome/Edge/Firefox). At equal height prefer
+// avc1 > vp9 > av01 for the widest decode support.
+function codecRank(mime: string): number {
+  if (/avc1/i.test(mime)) return 0
+  if (/vp0?9/i.test(mime)) return 1
+  if (/av01/i.test(mime)) return 2
+  return 3
+}
 function pickSplitVideo(streams: ItStreams, maxHeight: number): string | null {
+  // Require a track that actually BEATS the 720p progressive ceiling: InnerTube often
+  // exposes only low unciphered adaptive tracks (the high tiers are ciphered), and
+  // remuxing a 360p track would silently undercut the plain progressive stream. Passing
+  // on those lets the yt-dlp fallback resolve the real high tiers instead.
   const pool = streams.video
-    .filter(f => f.url && /avc1/i.test(f.mime) && (f.height ?? 0) > 0 && (f.height ?? 0) <= maxHeight)
-    .sort((a, b) => ((b.height ?? 0) - (a.height ?? 0)) || ((b.bitrate ?? 0) - (a.bitrate ?? 0)))
+    .filter(f => f.url && codecRank(f.mime) < 3 && (f.height ?? 0) > 720 && (f.height ?? 0) <= maxHeight)
+    .sort((a, b) => ((b.height ?? 0) - (a.height ?? 0))
+      || (codecRank(a.mime) - codecRank(b.mime))
+      || ((b.bitrate ?? 0) - (a.bitrate ?? 0)))
   return pool[0]?.url ?? null
 }
 
@@ -264,9 +279,16 @@ async function doResolveSplit(videoId: string, maxHeight: number, key: string, n
     logger.warn(`[youtube/stream] innertube split-resolve failed for ${videoId}: ${err}`)
   }
   // yt-dlp fallback: a video+audio format spec makes `-g` print two URLs (video, audio).
+  // Codec preference mirrors pickSplitVideo: avc1 first (tops out at 1080p), then
+  // vp9/av01 for the tiers above it. The >720 floor mirrors pickSplitVideo too - if no
+  // track beats the progressive ceiling, failing here lets the route serve progressive.
+  const v = (codec: string) => `bestvideo[vcodec^=${codec}][height<=${maxHeight}][height>720][protocol^=https]`
+  const videoSpec = maxHeight > 1080
+    ? `${v('vp09')}/${v('vp9')}/${v('av01')}/${v('avc1')}`
+    : `${v('avc1')}/bestvideo[ext=mp4][height<=${maxHeight}][height>720][protocol^=https]`
   try {
     const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
-      '-f', `bestvideo[vcodec^=avc1][height<=${maxHeight}][protocol^=https]+bestaudio[ext=m4a][protocol^=https]/bestvideo[ext=mp4][height<=${maxHeight}][protocol^=https]+bestaudio[protocol^=https]`,
+      '-f', `(${videoSpec})+bestaudio[ext=m4a][protocol^=https]/(${videoSpec})+bestaudio[protocol^=https]`,
       '-g', '--no-warnings', '--no-playlist', '--force-ipv4',
       '--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`,
       `https://www.youtube.com/watch?v=${videoId}`,
