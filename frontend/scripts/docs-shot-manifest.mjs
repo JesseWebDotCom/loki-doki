@@ -33,6 +33,29 @@ export default [
   },
   { route: '/podcasts', persona: 'rose', name: 'podcasts', settleMs: 4000 },
   { route: '/reference', persona: 'rose', name: 'reference' },
+  {
+    // Desktop Dynamic Island HUD (/hud is the Electron shell's transparent window;
+    // in a plain browser it renders the same island). localStorage picks the Max
+    // base size; transparent keeps the capsule's margins see-through.
+    route: '/hud',
+    persona: 'sam',
+    name: 'dynamic-island',
+    viewport: { width: 700, height: 520 },
+    localStorage: { 'companion.size': 'expanded' },
+    transparent: true,
+    settleMs: 4000,
+  },
+  {
+    // Same island settled to its Docked capsule (avatar + input against the notch).
+    route: '/hud',
+    persona: 'sam',
+    name: 'dynamic-island-docked',
+    viewport: { width: 700, height: 520 },
+    localStorage: { 'companion.size': 'collapsed' },
+    transparent: true,
+    clip: { x: 0, y: 0, width: 700, height: 160 },
+    settleMs: 4000,
+  },
   { route: '/music', persona: 'sam', name: 'music' },
   { route: '/videos', persona: 'riley', name: 'videos' },
   { route: '/news', persona: 'rose', name: 'news' },

@@ -105,11 +105,20 @@ const VIEWPORTS = {
 }
 
 // One context per persona+variant, created lazily and reused across entries.
+// Entries with a custom viewport or pre-seeded localStorage get a private context.
 const contexts = new Map()
-async function getPage(personaKey, variant) {
-  const key = `${personaKey}:${variant}`
+async function getPage(personaKey, variant, entry = {}) {
+  const custom = entry.viewport || entry.localStorage
+  const key = custom ? `${personaKey}:${variant}:${entry.name}` : `${personaKey}:${variant}`
   if (contexts.has(key)) return contexts.get(key)
-  const ctx = await browser.newContext(VIEWPORTS[variant])
+  const opts = { ...VIEWPORTS[variant] }
+  if (entry.viewport) opts.viewport = entry.viewport
+  const ctx = await browser.newContext(opts)
+  if (entry.localStorage) {
+    await ctx.addInitScript((kv) => {
+      for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v)
+    }, entry.localStorage)
+  }
   await ctx.addCookies([
     { name: 'session', value: personas[personaKey].token, url: BASE },
     { name: 'session', value: personas[personaKey].token, url: API },
@@ -165,7 +174,7 @@ let taken = 0
 
 for (const entry of entries) {
   for (const variant of entry.variants ?? ['desktop']) {
-    const page = await getPage(entry.persona, variant)
+    const page = await getPage(entry.persona, variant, entry)
     // 'load' + settle instead of networkidle: the app holds SSE connections open,
     // so networkidle never fires and every route would eat the full timeout.
     await page.goto(BASE + entry.route, { waitUntil: 'load', timeout: 30000 }).catch(() => {})
@@ -194,6 +203,9 @@ for (const entry of entries) {
     }
 
     const file = join(OUT, `${entry.name}-${variant}.png`)
+    const shotOpts = { path: file }
+    if (entry.transparent) shotOpts.omitBackground = true
+    if (entry.clip) shotOpts.clip = entry.clip
     if (entry.selector) {
       const el = await page.waitForSelector(entry.selector, { timeout: 10000 }).catch(() => null)
       if (!el) {
@@ -201,9 +213,9 @@ for (const entry of entries) {
         hits.push({ name: entry.name, variant, term: '<selector missing>' })
         continue
       }
-      await el.screenshot({ path: file })
+      await el.screenshot(shotOpts)
     } else {
-      await page.screenshot({ path: file })
+      await page.screenshot(shotOpts)
     }
     taken++
     console.log(`✓ ${entry.name}-${variant}.png  (${entry.route} as ${entry.persona})`)

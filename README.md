@@ -1,4 +1,4 @@
-<img src="docs/src/assets/screenshots/hero.png" width="100%" alt="Loki Doki — a private AI home hub: the family dashboard on desktop and a child's own view on their phone, all served from your hardware" />
+<img src="docs/src/assets/screenshots/home-desktop.png" width="100%" alt="Loki Doki — a private AI home hub: the family dashboard with news, music, watchlist, and your companion, served from your own hardware" />
 
 <p align="center">
   <img src="https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=20&duration=3000&pause=800&color=8B5CF6&center=true&vCenter=true&width=700&height=56&lines=Your+family.+Your+data.+Your+rules.;Private+AI+that+never+leaves+home.;Works+offline.+Zero+subscriptions.;Uncensored+for+adults.+Safe+for+kids." alt="Typing SVG" />
@@ -337,6 +337,20 @@ A **Today dashboard** (news, sports, weather, on-this-day history, holidays, loc
 Most AI companion apps are designed to hook you: flattering you, creating emotional dependency, nudging you to spend more time in the app. Loki Doki's companions are different. **They are yours.**
 
 You configure the name, personality, voice, and look. The companion comes to life as an animated avatar: it breathes, tilts its head when it's thinking, and lip-syncs to its own voice. It remembers your conversations and grows with you: a genuine buddy, not a product designed to manipulate you. No subscription to keep it "alive." No company that can push an update and change its personality. It runs on your hardware, belongs to your family, and stays exactly the way you set it up.
+
+### 🏝 The Dynamic Island, on your desktop
+
+The desktop app (macOS & Windows) pins your companion to the top of your screen as a dark capsule flush against the notch — wake word armed, one hotkey away, and aware of what's on your screen when you ask. It talks only to your server.
+
+<p align="center">
+  <img src="docs/src/assets/screenshots/dynamic-island-docked-desktop.png" width="560" alt="The Dynamic Island docked capsule: companion avatar, wake-word listening, and live weather, flush against the notch" />
+</p>
+<p align="center">
+  <img src="docs/src/assets/screenshots/dynamic-island-desktop.png" width="560" alt="The island's Max view: now playing, today's date and local events, and a composer ready for a question" />
+</p>
+<p align="center">
+  <sub><a href="https://jessewebdotcom.github.io/loki-doki/user/features/desktop/">Install &amp; setup guide →</a></sub>
+</p>
 
 ---
 

@@ -428,7 +428,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
       {/* Side column: ONE tabbed rail - the queue is the first (default) tab, not a second
           module stacked under the panel. */}
-      <aside className="min-w-0 space-y-5">
+      <aside className="min-w-0 space-y-5 xl:sticky xl:top-6 xl:self-start">
         <SidePanelShell
           tabs={[
             { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
@@ -449,7 +449,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               {pq.active && pq.playlistId ? (
                 <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
               ) : (
-                <div className="space-y-1">
+                <div className="space-y-1 xl:max-h-[calc(100dvh-17rem)] xl:overflow-y-auto xl:pr-1">
                   {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
                   {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
                 </div>
@@ -780,7 +780,7 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search transcript" className="w-full bg-transparent text-base outline-none md:text-sm" />
       </div>
       {/* `relative` so the active line's offsetTop is measured against THIS pane. */}
-      <div ref={listRef} className="relative max-h-[440px] space-y-1 overflow-y-auto pr-1">
+      <div ref={listRef} className="relative max-h-[440px] space-y-1 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-17rem)]">
         {lines.length > 0 ? (
           shown.map((l, idx) => {
             const active = !ql && lines[activeIdx] === l
@@ -815,7 +815,7 @@ function SummaryTab({ videoId, initial, source = 'youtube' }: { videoId: string;
   })
   if (isPending) return <Centered><Spinner /> Summarizing…</Centered>
   if (!data) return <Empty>No summary available. This video has no captions to summarize.</Empty>
-  return <div className="max-h-[480px] space-y-3 overflow-y-auto whitespace-pre-wrap px-1 text-sm leading-relaxed text-foreground/85">{data}</div>
+  return <div className="max-h-[480px] space-y-3 overflow-y-auto whitespace-pre-wrap px-1 text-sm leading-relaxed text-foreground/85 xl:max-h-[calc(100dvh-15rem)]">{data}</div>
 }
 
 function YoutubeCommentsTab({ videoId }: { videoId: string }) {
@@ -823,7 +823,7 @@ function YoutubeCommentsTab({ videoId }: { videoId: string }) {
   if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
   if (!comments.length) return <Empty>No comments. They may be turned off for this video.</Empty>
   return (
-    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1">
+    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-15rem)]">
       {comments.map((c, i) => (
         <div key={i} className="flex gap-2.5">
           <CreatorAvatar title={c.author || '?'} src={c.authorThumb} className="mt-0.5 size-7 shrink-0 text-[10px]" />
@@ -1299,7 +1299,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
       {/* Side column: ONE tabbed rail - the queue/watch-next content is the first
           (default) tab, not modules stacked under the panel. */}
-      <aside className="min-w-0 space-y-5">
+      <aside className="min-w-0 space-y-5 xl:sticky xl:top-6 xl:self-start">
         <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}>
           {tab === 'upnext' && (
             pq.active && pq.playlistId ? (
@@ -1314,7 +1314,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                 <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
               </div>
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-5 xl:max-h-[calc(100dvh-15rem)] xl:overflow-y-auto xl:pr-1">
                 {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
                 {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
                 {!capabilities?.related && !item.creator && <Empty>Nothing queued.</Empty>}
@@ -1338,7 +1338,7 @@ function GenericCommentsTab({ source, id }: { source: VideoSource; id: string })
   if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
   if (!comments.length) return <Empty>No comments.</Empty>
   return (
-    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1">
+    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-15rem)]">
       {comments.map((cm, i) => (
         <div key={i} className="text-sm">
           <p className="font-medium text-foreground">{cm.author}
