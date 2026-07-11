@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
+import { safeFetch } from '@/lib/ssrfGuard'
 
 const CACHE_DIR = join(dataDir, 'media-image-cache')
 const FETCH_TIMEOUT_MS = 10_000
@@ -59,10 +60,11 @@ export async function getOrFetchMediaImage(rawUrl: string): Promise<{ data: Buff
   }
 
   try {
-    const res = await fetch(rawUrl, {
+    // safeFetch re-validates every redirect hop so an allowlisted CDN can't open-redirect us
+    // to an internal address.
+    const res = await safeFetch(rawUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'image/*' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
+    }, { timeoutMs: FETCH_TIMEOUT_MS })
     if (!res.ok) return null
     const contentType = res.headers.get('content-type') ?? 'image/jpeg'
     if (!contentType.startsWith('image/')) return null

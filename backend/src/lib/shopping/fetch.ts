@@ -5,6 +5,7 @@
 
 import { fetchHtml, BROWSER_UA } from '@/lib/scrape'
 import { renderPage } from '@/lib/bookmarks/render'
+import { assertPublicUrl, SsrfError } from '@/lib/ssrfGuard'
 
 // ── per-host throttle ────────────────────────────────────────────────────────────
 // Minimum jittered gap between requests to the same store, shared by browse, resolve,
@@ -53,18 +54,35 @@ export function looksBlocked(html: string): boolean {
  *  Never throws: any failure (timeout, DNS, non-HTTP scheme) returns the original URL,
  *  so callers can always treat this as "best-effort improvement", not a hard dependency. */
 export async function followRedirect(url: string, timeoutMs = 8_000): Promise<string> {
-  const opts = (method: string): RequestInit => ({
-    method, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs),
-    headers: { 'User-Agent': BROWSER_UA },
-  })
+  // Follow the redirect chain by hand, re-validating every hop against the SSRF guard so an
+  // affiliate redirector can't bounce us into localhost / the metadata endpoint / a LAN
+  // service. Returns the final public URL; on any block/failure returns the original.
+  const follow = async (method: string): Promise<string> => {
+    let current = url
+    for (let hop = 0; hop < 6; hop++) {
+      await assertPublicUrl(current)
+      const res = await fetch(current, {
+        method, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
+        headers: { 'User-Agent': BROWSER_UA },
+      })
+      if (res.status >= 300 && res.status < 400 && res.headers.has('location')) {
+        res.body?.cancel().catch(() => {})
+        current = new URL(res.headers.get('location')!, current).toString()
+        continue
+      }
+      res.body?.cancel().catch(() => {})
+      return current
+    }
+    return current
+  }
   try {
-    const res = await fetch(url, opts('HEAD'))
-    if (res.url && res.url !== url) return res.url
-    if (res.ok || res.status === 405) return res.url || url
-  } catch { /* fall through to GET */ }
+    return await follow('HEAD')
+  } catch (err) {
+    if (err instanceof SsrfError) return url
+    /* HEAD rejected by some redirectors — fall through to GET */
+  }
   try {
-    const res = await fetch(url, opts('GET'))
-    return res.url || url
+    return await follow('GET')
   } catch {
     return url
   }

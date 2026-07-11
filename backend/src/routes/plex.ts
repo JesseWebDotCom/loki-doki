@@ -25,6 +25,7 @@ import { eq } from 'drizzle-orm'
 import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { ensureFfmpeg } from '@/lib/ffmpeg'
+import { logger } from '@/lib/logger'
 import { plexItemsToPosters } from '@/lib/plex/resolve'
 import { createPlexPin, checkPlexPin, discoverPlexServers } from '@/lib/plex/auth'
 import { savePlexConfig, getPlexConfigSummary } from '@/lib/plex/config'
@@ -192,6 +193,10 @@ plexRoute.get('/music/stream/:ratingKey', async (c) => {
     const srcUrl = `${conn.baseUrl}${partKey}${sep}X-Plex-Token=${encodeURIComponent(conn.token)}`
     const child = spawn(ff, ['-hide_banner', '-loglevel', 'error', '-i', srcUrl, '-vn', '-c:a', 'libmp3lame', '-b:a', '320k', '-f', 'mp3', 'pipe:1'],
       { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    // Without an 'error' handler a spawn failure (missing ffmpeg binary, transient EMFILE)
+    // becomes an uncaughtException → index.ts calls process.exit(1). Swallow it; the body
+    // stream errors and closes on its own so the client just sees a failed stream.
+    child.on('error', (err) => { logger.warn(`[plex/music] transcode ffmpeg spawn failed for ${ratingKey}: ${String(err)}`) })
     c.req.raw.signal.addEventListener('abort', () => { try { child.kill('SIGKILL') } catch { /* already gone */ } })
     // Node Readable → web stream: Bun's Response won't read a Node stream directly
     // (verified live: the response body came back 0 bytes).

@@ -888,7 +888,30 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
         return
       }
 
-      const dlRes = await fetch(body.downloadUrl, { headers, signal: AbortSignal.timeout(300_000) })
+      // Follow redirects manually, re-validating each hop against the SSRF guard (a validated
+      // public host can still 302 to an internal address). Drop the Civitai auth header the
+      // moment the origin changes so a redirect can't exfiltrate the key to a third-party host.
+      let dlRes: Response
+      {
+        let current = body.downloadUrl
+        const startOrigin = new URL(current).origin
+        for (let hop = 0; ; hop++) {
+          const hopHeaders = new URL(current).origin === startOrigin
+            ? headers
+            : Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== 'authorization'))
+          dlRes = await fetch(current, { headers: hopHeaders, redirect: 'manual', signal: AbortSignal.timeout(300_000) })
+          if (dlRes.status >= 300 && dlRes.status < 400 && dlRes.headers.has('location') && hop < 6) {
+            dlRes.body?.cancel().catch(() => {})
+            current = new URL(dlRes.headers.get('location')!, current).toString()
+            try { await assertPublicUrl(current) } catch {
+              await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: 'Download redirected to a blocked URL' }) })
+              return
+            }
+            continue
+          }
+          break
+        }
+      }
 
       if (!dlRes.ok && dlRes.status !== 206) {
         const hint = dlRes.status === 401

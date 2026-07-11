@@ -9,6 +9,7 @@ import { extractArticle } from '@/lib/content/extract'
 import { getInterests, setInterestsText, recordFeedback, scoreItems } from '@/lib/feeds/classifier'
 import { promoteToBookmarks, unpromoteFromBookmarks } from '@/routes/bookmarks'
 import { logger } from '@/lib/logger'
+import { assertPublicUrl } from '@/lib/ssrfGuard'
 import type { AppEnv } from '@/types'
 
 const feedsRouter = new Hono<AppEnv>()
@@ -83,6 +84,9 @@ feedsRouter.post('/', async (c) => {
     feedUrl = candidates[0]!.url
     title = title || candidates[0]!.title || ''
   }
+  // An explicit feedUrl bypasses discoverFeeds' guard, so validate before we store a URL the
+  // poller will fetch on a schedule (SSRF: localhost / metadata / LAN services).
+  try { await assertPublicUrl(feedUrl) } catch { return c.json({ error: 'That feed URL is not allowed' }, 422) }
 
   const existing = await db.select({ id: feeds.id }).from(feeds)
     .where(and(eq(feeds.userId, user.id), eq(feeds.url, feedUrl))).then((r) => r[0])
@@ -348,6 +352,8 @@ feedsRouter.post('/opml/import', async (c) => {
   for (const tag of opml.match(/<outline\b[^>]*xmlUrl=["'][^"']+["'][^>]*\/?>/gi) ?? []) {
     const url = tag.match(/xmlUrl=["']([^"']+)["']/i)?.[1]
     if (!url) continue
+    // OPML files are user-supplied; refuse internal targets before we store + poll them.
+    try { await assertPublicUrl(url) } catch { continue }
     const title = tag.match(/(?:text|title)=["']([^"']*)["']/i)?.[1] ?? ''
     const exists = await db.select({ id: feeds.id }).from(feeds)
       .where(and(eq(feeds.userId, user.id), eq(feeds.url, url))).then((r) => r[0])

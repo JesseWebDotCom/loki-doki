@@ -5,6 +5,10 @@
 
 import { spawn } from 'node:child_process'
 import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
+import { assertPublicUrl } from '@/lib/ssrfGuard'
+
+// A wedged yt-dlp holds one of only 6 global slots forever; a hard timeout releases it.
+const YTDLP_TIMEOUT_MS = 30_000
 
 export interface ClipFormat {
   formatId: string
@@ -49,16 +53,22 @@ interface YtDlpMetaRaw {
 
 function runYtDlpJson(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', '--no-warnings', url], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    // Trailing `--` terminates option parsing so a URL starting with `-`/`--` can't be read
+    // as a yt-dlp flag (e.g. --config-location → arbitrary options incl. --exec).
+    const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', '--no-warnings', '--', url], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let out = ''
     let errTail = ''
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; proc.kill('SIGKILL') }, YTDLP_TIMEOUT_MS)
     proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
     proc.stderr?.on('data', (d: Buffer) => { errTail = (errTail + d.toString()).slice(-2048) })
     proc.on('close', (code) => {
-      if (code === 0) resolve(out)
+      clearTimeout(timer)
+      if (timedOut) reject(new Error(`yt-dlp timed out after ${YTDLP_TIMEOUT_MS}ms`))
+      else if (code === 0) resolve(out)
       else reject(new Error(errTail.trim().split('\n').filter(Boolean).slice(-2).join(' | ') || `yt-dlp exited ${code}`))
     })
-    proc.on('error', reject)
+    proc.on('error', (err) => { clearTimeout(timer); reject(err) })
   })
 }
 
@@ -80,6 +90,9 @@ function isPlausibleUrl(input: string): boolean {
 export async function resolveClip(url: string): Promise<ClipMeta> {
   const trimmed = url.trim()
   if (!isPlausibleUrl(trimmed)) throw new Error('That doesn\'t look like a valid URL.')
+  // Refuse internal targets: yt-dlp's generic extractor would otherwise fetch localhost /
+  // metadata / LAN services on our behalf (blind SSRF).
+  await assertPublicUrl(trimmed)
 
   let json: string
   try {

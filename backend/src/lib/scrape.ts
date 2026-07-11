@@ -9,6 +9,7 @@
 //   parseLabelValueTable(html) — turn two-cell <tr> rows into a label→value map (assessor/spec tables).
 
 import { stripTags } from '@/lib/htmlText'
+import { assertPublicUrl } from '@/lib/ssrfGuard'
 
 // A realistic desktop-browser UA. We can't impersonate a full TLS fingerprint the way
 // curl_cffi does, so some Cloudflare-fronted sites may still 403 from certain IPs — every
@@ -50,13 +51,28 @@ export async function fetchHtml(url: string, opts: FetchHtmlOptions = {}): Promi
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, {
-        method,
-        headers,
-        body,
-        redirect: 'follow',
-        signal: AbortSignal.timeout(timeoutMs),
-      })
+      // Follow redirects by hand, re-validating each hop against the SSRF guard so a
+      // user-influenced URL (or a redirector) can't reach localhost / the metadata endpoint /
+      // a LAN service. The method/body apply only to the first hop; 3xx follow as GET, which
+      // matches the sites this scrapes (none 307/308-redirect a form POST to internal).
+      let current = url
+      let res: Response
+      for (let hop = 0; ; hop++) {
+        await assertPublicUrl(current)
+        res = await fetch(current, {
+          method: hop === 0 ? method : 'GET',
+          headers,
+          body: hop === 0 ? body : undefined,
+          redirect: 'manual',
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+        if (res.status >= 300 && res.status < 400 && res.headers.has('location') && hop < 6) {
+          res.body?.cancel().catch(() => {})
+          current = new URL(res.headers.get('location')!, current).toString()
+          continue
+        }
+        break
+      }
       if (!res.ok) {
         // Retry transient 5xx; a 4xx (block / not found) won't change on retry.
         if (res.status >= 500 && attempt < retries) continue

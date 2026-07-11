@@ -1642,6 +1642,14 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
       ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
       let ffErr = ''
       proc.stderr?.on('data', (d) => { ffErr = (ffErr + String(d)).slice(-2048) })
+      // A ChildProcess 'error' event (ffmpeg binary missing — ensureFfmpeg() never throws and
+      // falls back to a bare 'ffmpeg' that may not exist — or a transient EMFILE) is otherwise
+      // unhandled and becomes an uncaughtException, which index.ts turns into process.exit(1).
+      // Swallow it: the response body (proc.stdout) will error and close on its own.
+      proc.on('error', (err) => {
+        invalidateSplitStreamUrls(videoId, maxHeight)
+        logger.warn(`[youtube/stream] remux ffmpeg spawn failed for ${videoId}: ${String(err)}`)
+      })
       proc.on('close', (code) => {
         if (code) {
           // A dead remux usually means the signed URLs rotated — drop them so the

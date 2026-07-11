@@ -13,6 +13,7 @@ import { getDeviceDigest } from '@/lib/home/digest'
 import { getVisionModel, getModel } from '@/lib/models'
 import { screenImage, logCsamBlock } from '@/lib/safety/csamGuard'
 import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
+import { safeFetch } from '@/lib/ssrfGuard'
 import type { AppEnv } from '@/types'
 
 const home = new Hono<AppEnv>()
@@ -647,10 +648,9 @@ function triggerLookup(
 
         for (let i = 0; i < result.aiPhotoUrls.length; i++) {
           try {
-            const photoRes = await fetch(result.aiPhotoUrls[i], {
+            const photoRes = await safeFetch(result.aiPhotoUrls[i]!, {
               headers: { 'User-Agent': UA },
-              signal: AbortSignal.timeout(10_000),
-            })
+            }, { timeoutMs: 10_000 })
             if (!photoRes.ok) continue
             const ct = photoRes.headers.get('content-type') ?? ''
             if (!ct.startsWith('image/')) continue

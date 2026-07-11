@@ -10,6 +10,7 @@ import { db } from '@/db'
 import { feeds, feedItems } from '@/db/schema'
 import { logger } from '@/lib/logger'
 import { parseFeedXml, type ParsedEntry } from '@/lib/feeds/parse'
+import { safeFetch } from '@/lib/ssrfGuard'
 import { googleNewsSearch } from '@/lib/briefing/sources/rss'
 
 const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
@@ -108,7 +109,7 @@ export async function fetchAndUpsertFeed(feed: Feed): Promise<number> {
   if (feed.etag) headers['If-None-Match'] = feed.etag
   if (feed.lastModified) headers['If-Modified-Since'] = feed.lastModified
 
-  const res = await fetch(feed.url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  const res = await safeFetch(feed.url, { headers }, { timeoutMs: FETCH_TIMEOUT_MS })
   if (res.status === 304) {
     await db.update(feeds).set({ lastFetchedAt: now, lastError: null }).where(eq(feeds.id, feed.id))
     return 0
