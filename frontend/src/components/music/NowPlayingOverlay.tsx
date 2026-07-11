@@ -16,8 +16,8 @@ import { AudioVisualizer, VISUALIZERS, useVisualizerPref, setVisualizerPref } fr
 import { StarRating } from '@/components/music/StarRating'
 import { useTitleMask } from '@/lib/music/policy'
 import { useSongArt } from '@/components/music/SongArt'
-import { useAlbumPalette, accentOf, readableOn } from '@/lib/music/albumColors'
-import { UltraBlur } from '@/components/music/UltraBlur'
+import { useArtPalette, accentOf, readableOn } from '@/lib/artPalette'
+import { UltraBlur } from '@/components/shared/UltraBlur'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { Spinner } from '@/components/ui/spinner'
@@ -64,7 +64,7 @@ export function NowPlayingOverlay() {
   // art/lyrics/info warm even while the overlay is closed (staleTime:Infinity cache warming,
   // inherited from the retired NowPlayingPage).
   const overlayArt = useSongArt(curForArt?.videoId, curForArt?.title, curForArt?.author)
-  const palette = useAlbumPalette(overlayArt ?? (curForArt?.thumbnail ? proxyImg(curForArt.thumbnail) : null))
+  const palette = useArtPalette(overlayArt ?? (curForArt?.thumbnail ? proxyImg(curForArt.thumbnail) : null))
   const mask = useTitleMask()
   const sourceBackLink = useSourceBackLink()
   useNowPlayingPrefetch()

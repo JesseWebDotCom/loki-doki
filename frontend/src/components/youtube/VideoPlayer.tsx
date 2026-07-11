@@ -12,7 +12,7 @@ import { useZoomToFillFullscreen } from '@/hooks/use-zoom-to-fill-fullscreen'
 import { useAudioBoost } from '@/hooks/use-audio-boost'
 import { useMediaAnalyser } from '@/hooks/use-media-analyser'
 import { AudioVisualizer, useVisualizerPref } from '@/components/shared/AudioVisualizer'
-import { paletteFromColors } from '@/lib/music/albumColors'
+import { paletteFromColors } from '@/lib/artPalette'
 
 // design-ok(hex-in-tsx): canvas fillStyle cannot consume CSS vars; hues match the Videos accent
 const VIDEO_AUDIO_PALETTE = paletteFromColors('#22d3ee', '#0891b2')

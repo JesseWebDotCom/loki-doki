@@ -1,5 +1,5 @@
 import { cn } from '@/lib/cn'
-import type { Palette } from '@/lib/music/albumColors'
+import type { Palette } from '@/lib/artPalette'
 
 /**
  * Plexamp-style "UltraBlur" backdrop: the album cover massively blurred, under a field of

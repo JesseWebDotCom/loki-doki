@@ -1,8 +1,10 @@
-// Album-art colour extraction for the "UltraBlur" backdrop and the visualizers.
-// Downsamples the cover to a tiny canvas, buckets pixels into a coarse histogram, and
+// Artwork colour extraction (album covers, video thumbnails, channel banners) for the
+// "UltraBlur" backdrop, blended heroes, and the visualizers.
+// Downsamples the art to a tiny canvas, buckets pixels into a coarse histogram, and
 // picks a small palette biased toward vibrant colours (covers are mostly dark/neutral,
-// so a naive "most common" pick yields mud). All art is served same-origin through our
-// image proxies, so canvas pixel reads are never CORS-tainted.
+// so a naive "most common" pick yields mud). Art MUST be served same-origin through our
+// image proxies (proxyImg/proxyImgAuto/ytImageProxy) - a cross-origin URL taints the
+// canvas and silently yields DEFAULT_PALETTE.
 
 import { useEffect, useState } from 'react'
 
@@ -145,7 +147,7 @@ export function accentOf(palette: Palette): string {
   const [, s, l] = rgbToHsl(parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16))
   return s < 0.28 || l > 0.8 || l < 0.12 ? GOLD : palette.vibrant
 }
-export function useAlbumPalette(url: string | null | undefined): Palette {
+export function useArtPalette(url: string | null | undefined): Palette {
   const [palette, setPalette] = useState<Palette>(() => (url && cache.get(url)) || DEFAULT_PALETTE)
   useEffect(() => {
     if (!url) { setPalette(DEFAULT_PALETTE); return }

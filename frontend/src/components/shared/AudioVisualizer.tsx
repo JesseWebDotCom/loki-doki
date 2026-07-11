@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
-import { accentOf, hexToRgb, mixRgb, rgba, type Palette, type Rgb } from '@/lib/music/albumColors'
+import { accentOf, hexToRgb, mixRgb, rgba, type Palette, type Rgb } from '@/lib/artPalette'
 
 // THE audio-reactive visualizer (replaces the old shared/EqVisualizer + music/MusicVisualizer
 // pair). One registry of scenes, two rendering modes - EVERY scene renders in both:

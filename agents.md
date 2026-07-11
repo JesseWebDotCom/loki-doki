@@ -589,14 +589,43 @@ for Soundprint surfaces.
 ```
 
 Notes:
-- Colors come from a `Palette` (`useAlbumPalette`); surfaces without album art build one via
-  `paletteFromColors(color, colorDark?)` (`lib/music/albumColors.ts`).
+- Colors come from a `Palette` (`useArtPalette`); surfaces without artwork build one via
+  `paletteFromColors(color, colorDark?)` (`lib/artPalette.ts`).
 - ONE app-wide per-device scene pref shared by strips AND fullscreen: `useVisualizerPref()` /
   `setVisualizerPref()` (localStorage `music.visualizer`; legacy strip/immersive keys migrate
   on read). Picked from the radio mini bar's `VisualizerMenu` (both breakpoints), the Now
   Playing overflow menu (with None), or the fullscreen stage dropdown.
 - Consumers: RadioMiniBar, LiveRadioMiniBar, NowPlayingOverlay bottom band, Music Studio
   header, YouTube audio-only player (strips); ImmersivePlayer (full).
+
+### `UltraBlur` - `src/components/shared/UltraBlur.tsx`
+
+Plexamp-style immersive backdrop: the artwork massively blurred under four hue-diverse corner
+radial washes (from `Palette.corners`) with a slow motion-safe drift and a readability scrim on
+top. THE backdrop for full-bleed media surfaces (music Now Playing / Immersive player, videos
+watch page). Positioned `absolute inset-0`; parent must be `relative`.
+
+```ts
+{ artUrl?: string | null; palette: Palette; scrim?: 'default' | 'light' | 'heavy'; className? }
+```
+
+Notes:
+- `palette` comes from `useArtPalette(url)` / `paletteFromColors(color, colorDark?)`
+  (`lib/artPalette.ts`). Art URLs MUST be same-origin (proxied) or extraction silently falls
+  back to `DEFAULT_PALETTE`.
+- Keyframes `ultrablur-drift` live in `index.css`.
+
+### `BlendedHeroBackdrop` - `src/components/shared/BlendedHeroBackdrop.tsx`
+
+The editorial billboard backdrop (Apple-Music/Spotify pattern): artwork anchored to the right
+edge, mask-fading left into an accent gradient, plus a left scrim for text contrast. Drop inside
+any `relative overflow-hidden` container (typically `rounded-sheet`); the caller owns the
+foreground. Used by the Music home "Station of the day" billboard, music station pages, and the
+Videos billboard/heroes.
+
+```ts
+{ art: string | null; color: string; colorDark: string; fallback?: ReactNode }
+```
 
 ### `ViewToggle` - `src/components/shared/ViewToggle.tsx`
 

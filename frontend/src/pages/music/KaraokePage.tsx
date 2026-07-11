@@ -10,7 +10,7 @@ import { prepareKaraoke, getStudioTrack, getKaraokeSuggestions, getKaraokeReady,
 import { catalogSearchSongs, resolveSong, getLyrics } from '@/lib/music/catalogApi'
 import { drainKaraokeSeeds, subscribeKaraoke } from '@/lib/music/karaokeQueue'
 import { isYouTubeRef } from '@/lib/music/trackRef'
-import { useAlbumPalette } from '@/lib/music/albumColors'
+import { useArtPalette } from '@/lib/artPalette'
 import { KaraokeLyrics } from '@/components/music/KaraokeLyrics'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -228,7 +228,7 @@ export function KaraokePage() {
       : current?.videoId && isYouTubeRef(current.videoId)
         ? proxyImgAuto(`https://i.ytimg.com/vi/${current.videoId}/mqdefault.jpg`)
         : ''
-  const palette = useAlbumPalette(artUrl || null)
+  const palette = useArtPalette(artUrl || null)
 
   const advance = useCallback(() => {
     loadedKeyRef.current = ''

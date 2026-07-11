@@ -10,7 +10,7 @@ import { isYouTubeRef } from '@/lib/music/trackRef'
 import { queueForKaraoke } from '@/lib/music/karaokeQueue'
 import { fmtClock } from '@/lib/youtube/format'
 import { useWaveform } from '@/lib/music/metaApi'
-import { useAlbumPalette, accentOf, readableOn, paletteFromColors } from '@/lib/music/albumColors'
+import { useArtPalette, accentOf, readableOn, paletteFromColors } from '@/lib/artPalette'
 import { AudioVisualizer, VISUALIZERS, useVisualizerPref, setVisualizerPref } from '@/components/shared/AudioVisualizer'
 import { SeekBar } from '@/components/shared/SeekBar'
 import { Spinner } from '@/components/ui/spinner'
@@ -65,7 +65,7 @@ export function RadioMiniBar() {
   const miniArt = useSongArt(currentTrack?.videoId, currentTrack?.title, currentTrack?.author)
   // Plexamp-style album persona: seek/EQ/play pick up the cover's accent; a monochrome
   // cover falls back to the station colour so the bar never goes grey-on-grey.
-  const palette = useAlbumPalette(miniArt ?? (currentTrack?.thumbnail ? proxyImg(currentTrack.thumbnail) : null))
+  const palette = useArtPalette(miniArt ?? (currentTrack?.thumbnail ? proxyImg(currentTrack.thumbnail) : null))
   // Loudness envelope for the strip Soundprint (cached; radioEngine prefetches it per track).
   const stripPeaks = useWaveform(currentTrack?.videoId)
   // design-ok(hex-in-tsx): canvas/seek accent fallback - EqVisualizer + SeekBar take literal colors

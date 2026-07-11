@@ -3,7 +3,7 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { useRadio } from '@/context/RadioContext'
 import { AudioVisualizer, useVisualizerPref } from '@/components/shared/AudioVisualizer'
-import { useAlbumPalette } from '@/lib/music/albumColors'
+import { useArtPalette } from '@/lib/artPalette'
 import { CharacterAvatar } from '@/components/companion/CharacterAvatar'
 import { CompanionOrb } from '@/components/companion/CompanionOrb'
 import { CompanionComposer } from '@/components/shell/CompanionComposer'
@@ -38,7 +38,7 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
   const visionStatus = useVisionStatus()
   const radio = useRadio()
   const stripVariant = useVisualizerPref()
-  const palette = useAlbumPalette(nowPlaying?.artUrl)
+  const palette = useArtPalette(nowPlaying?.artUrl)
   // The ambient strip mirrors NowPlayingOverlay's: only for tier-1 radio (the
   // Web Audio analyser lives in this window), behind all panel content.
   const showStrip = radio.visualizerEnabled && nowPlaying?.tier === 1 && nowPlaying.source === 'radio'

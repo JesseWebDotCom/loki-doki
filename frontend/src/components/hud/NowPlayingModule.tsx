@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useRadio } from '@/context/RadioContext'
 import { VISUALIZERS, setVisualizerPref, useVisualizerPref } from '@/components/shared/AudioVisualizer'
-import { useAlbumPalette, accentOf } from '@/lib/music/albumColors'
+import { useArtPalette, accentOf } from '@/lib/artPalette'
 import { SpectroBars } from './SpectroBars'
 import type { NowPlayingInfo } from './useNowPlaying'
 
@@ -204,7 +204,7 @@ export function NowPlayingRow({ info }: { info: NowPlayingInfo }) {
 // Art up top (visualizer picker beside it, Alcove-style), bold title, dim
 // artist, slim accent-tinted seek, then a large centered transport row.
 export function NowPlayingCard({ info }: { info: NowPlayingInfo }) {
-  const palette = useAlbumPalette(info.artUrl)
+  const palette = useArtPalette(info.artUrl)
   const accent = info.artUrl ? accentOf(palette) : undefined
   const showVisualizerPicker = info.tier === 1 && info.source === 'radio'
   return (

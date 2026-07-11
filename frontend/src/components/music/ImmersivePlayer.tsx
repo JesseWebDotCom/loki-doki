@@ -6,9 +6,9 @@ import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { useTitleMask } from '@/lib/music/policy'
 import { proxyImgAuto } from '@/lib/img'
-import { useAlbumPalette, accentOf, readableOn } from '@/lib/music/albumColors'
+import { useArtPalette, accentOf, readableOn } from '@/lib/artPalette'
 import { useWaveform } from '@/lib/music/metaApi'
-import { UltraBlur } from '@/components/music/UltraBlur'
+import { UltraBlur } from '@/components/shared/UltraBlur'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { AudioVisualizer, VISUALIZERS, useVisualizerPref, setVisualizerPref } from '@/components/shared/AudioVisualizer'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
@@ -43,7 +43,7 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
   // as the instant fallback - same contract as the overlay and now-playing page.
   const squareArt = useSongArt(track?.videoId, track?.title, track?.author)
   const artUrl = squareArt ?? (track?.thumbnail ? proxyImgAuto(track.thumbnail) : '')
-  const palette = useAlbumPalette(artUrl || null)
+  const palette = useArtPalette(artUrl || null)
   const accent = accentOf(palette)
 
   // The track's server loudness envelope feeds the Soundprint visualizer.
