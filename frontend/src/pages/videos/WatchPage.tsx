@@ -224,9 +224,13 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const { items } = useYtFeed()
   const online = !localKind
 
-  // Privacy proxy: stream through our server instead of the YouTube embed. Opt-in
-  // (slower to start, currently caps at 720p) and remembered across the session.
-  const [privacy, setPrivacy] = useState(() => localStorage.getItem(PRIVACY_KEY) === '1')
+  // Privacy proxy: stream through our server instead of the YouTube embed. DEFAULT ON
+  // (opt-out): the native player has zero YouTube chrome - no paused "More videos" wall,
+  // no title bar, no forced captions - and fully custom controls + our subtitle track.
+  // The iframe embed survives as the automatic fallback when the proxy can't produce a
+  // stream, and for users who explicitly flip Private stream off (slower start / 720p
+  // cap are the trade-offs of the proxy).
+  const [privacy, setPrivacy] = useState(() => localStorage.getItem(PRIVACY_KEY) !== '0')
   const togglePrivacy = () => setPrivacy(p => { const n = !p; try { localStorage.setItem(PRIVACY_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
   // Picture-in-Picture on the plain iframe embed needs a real <video> to hand off to,
   // which means switching onto the privacy-proxy stream (see VideoPlayer's togglePip).
