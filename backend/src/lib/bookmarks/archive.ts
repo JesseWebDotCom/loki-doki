@@ -34,15 +34,26 @@ function contentFingerprint(text: string | null | undefined): string {
 // Best-effort page-media capture via yt-dlp (opt-in per bookmark). Downloads the page's
 // embedded video/audio into the archive dir as media.<ext> and returns its archive-relative
 // name, or null if nothing was found. Concurrency-capped via the shared yt-dlp slot.
-async function capturePageMedia(url: string, absDir: string): Promise<string | null> {
+// A wedged yt-dlp against a scrape-hostile page holds one of only 6 global slots forever and
+// used to freeze every other yt-dlp consumer app-wide (see lib/videos/ytdlpJson.ts). --max-filesize
+// bounds bytes, not time, so a hard timeout + SIGKILL and the job's abort signal are what free the slot.
+const MEDIA_CAPTURE_TIMEOUT_MS = 10 * 60_000
+
+async function capturePageMedia(url: string, absDir: string, signal?: AbortSignal): Promise<string | null> {
   try {
     await withYtDlpSlot(() => new Promise<void>((resolve, reject) => {
       const proc = spawn(ytDlpBin(), [
         '--no-playlist', '--no-warnings', '-f', 'bv*+ba/b', '--max-filesize', '500M',
-        '-o', join(absDir, 'media.%(ext)s'), url,
+        '-o', join(absDir, 'media.%(ext)s'), '--', url,
       ], { stdio: 'ignore', windowsHide: true })
-      proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`yt-dlp exit ${code}`))))
-      proc.on('error', reject)
+      let done = false
+      const finish = (fn: () => void) => { if (done) return; done = true; clearTimeout(timer); signal?.removeEventListener('abort', onAbort); fn() }
+      const onAbort = () => { try { proc.kill('SIGKILL') } catch { /* gone */ }; finish(() => reject(new Error('aborted'))) }
+      const timer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ }; finish(() => reject(new Error('yt-dlp timed out'))) }, MEDIA_CAPTURE_TIMEOUT_MS)
+      if (signal?.aborted) return onAbort()
+      signal?.addEventListener('abort', onAbort, { once: true })
+      proc.on('exit', (code) => finish(() => (code === 0 ? resolve() : reject(new Error(`yt-dlp exit ${code}`)))))
+      proc.on('error', (err) => finish(() => reject(err)))
     }))
     const files = await readdir(absDir)
     return files.find((f) => /^media\.[a-z0-9]+$/i.test(f)) ?? null
@@ -116,7 +127,7 @@ export async function runArchiveArticleJob(
     let mediaRel = item.mediaPath
     if (item.captureMedia) {
       onProgress({ completed: 0, total: 1, speedBps: 0, etaSeconds: 0, note: 'Capturing media…' })
-      mediaRel = (await capturePageMedia(item.url, absDir)) ?? item.mediaPath
+      mediaRel = (await capturePageMedia(item.url, absDir, _signal)) ?? item.mediaPath
     }
 
     // Change detection: compare the new fingerprint against the one stored at the previous

@@ -7,7 +7,7 @@ import { eq, and, isNull, isNotNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { ytVideos, ytCollections, ytWatchState, userPreferences } from '@/db/schema'
 import { getTranscriptText } from '@/lib/youtube/transcript'
-import { ytDlpBin } from '@/lib/ytdlp'
+import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
 import { innertubeChannelAvatar } from '@/lib/youtube/innertube'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
 import { cachedLookup } from '@/lib/lookupCache'
@@ -267,13 +267,14 @@ export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''):
   // every episode in a "Season 0000" specials bucket) is missing.
   let channelId = v?.channelId ?? null
   if (!v?.description || !v?.publishedAt) {
-    const json = await new Promise<string>((resolve, reject) => {
-      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    const json = await withYtDlpSlot(() => new Promise<string>((resolve, reject) => {
+      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', '--', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       let out = ''
+      const timer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ } }, 60_000)
       proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
-      proc.on('close', code => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
-      proc.on('error', reject)
-    }).catch(() => null)
+      proc.on('close', code => { clearTimeout(timer); code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)) })
+      proc.on('error', (err) => { clearTimeout(timer); reject(err) })
+    })).catch(() => null)
 
     if (json) {
       let m: YtDlpMeta | null = null

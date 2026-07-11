@@ -6,9 +6,12 @@ import { spawn } from 'node:child_process'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { ytVideos } from '@/db/schema'
-import { ytDlpBin } from '@/lib/ytdlp'
+import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
 
 const MAX_PER_CALL = 50
+// Hard cap so a wedged extraction (up to 50 URLs in one process) can't hang a request handler
+// forever — backfillDurations is awaited directly in routes/youtube.ts.
+const BATCH_TIMEOUT_MS = 90_000
 
 /**
  * Resolve durations for the given videoIds, fetching only those we don't already
@@ -31,15 +34,17 @@ export async function backfillDurations(videoIds: string[]): Promise<Record<stri
 
   try {
     const urls = missing.map(id => `https://www.youtube.com/watch?v=${id}`)
-    const printed = await new Promise<string>((resolve, reject) => {
-      // --socket-timeout caps how long a single stuck video can stall the whole batch;
-      // without it one unresponsive request could hold the connection open for ~40s.
-      const proc = spawn(ytDlpBin(), ['--no-warnings', '--skip-download', '--socket-timeout', '15', '--print', '%(id)s\t%(duration)s', ...urls], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    // Route through the global slot so this can't fork-bomb yt-dlp under concurrent requests,
+    // and add a wall-clock kill so a wedged extractor releases the slot (--socket-timeout only
+    // bounds a single socket read, not an extractor wedge).
+    const printed = await withYtDlpSlot(() => new Promise<string>((resolve, reject) => {
+      const proc = spawn(ytDlpBin(), ['--no-warnings', '--skip-download', '--socket-timeout', '15', '--print', '%(id)s\t%(duration)s', '--', ...urls], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       let buf = ''
+      const timer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ } }, BATCH_TIMEOUT_MS)
       proc.stdout?.on('data', (d: Buffer) => { buf += d.toString() })
-      proc.on('close', () => resolve(buf))
-      proc.on('error', reject)
-    })
+      proc.on('close', () => { clearTimeout(timer); resolve(buf) })
+      proc.on('error', (err) => { clearTimeout(timer); reject(err) })
+    }))
     for (const line of printed.split('\n')) {
       const [id, durStr] = line.split('\t')
       const dur = parseInt(durStr ?? '', 10)

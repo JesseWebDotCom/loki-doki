@@ -92,8 +92,9 @@ async function redditJson<T>(path: string, ttl: number): Promise<T> {
     const res = token
       ? await fetch(`https://oauth.reddit.com${path}`, {
           headers: { Authorization: `Bearer ${token}`, 'User-Agent': redditUserAgent(), Accept: 'application/json' },
+          signal: AbortSignal.timeout(15_000),
         })
-      : await fetch(`https://www.reddit.com${path}`, { headers: { 'User-Agent': BROWSER_UA } })
+      : await fetch(`https://www.reddit.com${path}`, { headers: { 'User-Agent': BROWSER_UA }, signal: AbortSignal.timeout(15_000) })
     if (!res.ok) throw new Error(`reddit ${res.status} for ${path}`)
     return res.json() as Promise<T>
   })

@@ -106,6 +106,7 @@ async function vimeoApi<T>(path: string, ttl: number): Promise<T> {
         Accept: 'application/vnd.vimeo.*+json;version=3.4',
         ...(token ? {} : { 'User-Agent': BROWSER_UA }),
       },
+      signal: AbortSignal.timeout(15_000),
     })
     if (res.status === 401 && !token) viewerJwt = null
     if (!res.ok) throw new Error(`vimeo ${res.status} for ${path}`)
@@ -274,7 +275,7 @@ async function stampCreatorInfo(items: VideoItem[]): Promise<VideoItem[]> {
  *  page (an empty id there is exactly what used to 400 on "source and externalId required"). */
 async function oembedItem(id: string): Promise<(VideoItem & { description?: string | null }) | null> {
   return cachedLookup('vimeo:oembed', id, ITEM_TTL, async () => {
-    const res = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(`https://vimeo.com/${id}`)}`)
+    const res = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(`https://vimeo.com/${id}`)}`, { signal: AbortSignal.timeout(15_000) })
     if (!res.ok) return null
     const o = await res.json() as { title?: string; author_name?: string; author_url?: string; thumbnail_url?: string; duration?: number; width?: number; height?: number }
     const authorId = o.author_url?.split('/').filter(Boolean).pop() ?? ''

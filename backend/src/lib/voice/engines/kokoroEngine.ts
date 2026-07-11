@@ -24,7 +24,9 @@ export const kokoroEngine: TtsEngine = {
         voice: opts.voice || kokoroEngine.defaultVoice,
         speed: opts.speechRate ?? 1.0,
       }),
-      signal: opts.signal,
+      // A wedged sidecar (accepts the socket, never responds) would otherwise hang
+      // /api/tts/stream forever with the voice UI silent; 30s matches the podcast path.
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     })
     if (!res.ok) throw new Error('tts_engine_error')
     const { pcmB64, sampleRate } = wavToPcm(await res.arrayBuffer(), { gain: opts.gain })

@@ -44,6 +44,7 @@ export async function getRedditAccessToken(): Promise<string | null> {
       'User-Agent': UA,
     },
     body,
+    signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) throw new Error(`reddit token request failed (${res.status}) — check the client id`)
   const data = await res.json() as { access_token?: string; expires_in?: number }

@@ -35,6 +35,7 @@ models.post('/uninstall', requireAdmin, async (c) => {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: tag }),
+      signal: AbortSignal.timeout(15_000),
     })
     if (!res.ok) return c.json({ error: 'Ollama delete failed' }, 502)
     return c.json({ ok: true })

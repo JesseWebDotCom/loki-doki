@@ -14,7 +14,7 @@ import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
 import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
 import { ensureSummary, ensureSavedVideoMeta, ensureSmartDescription } from '@/lib/youtube/summarize'
-import { ytDlpBin, ytDlpAuthArgs, ytDlpYoutubeClientArgs } from '@/lib/ytdlp'
+import { ytDlpBin, ytDlpAuthArgs, ytDlpYoutubeClientArgs, withYtDlpSlot } from '@/lib/ytdlp'
 import { ensureFfmpeg, ffmpegLocation, ffprobeBin } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
 
@@ -331,7 +331,9 @@ export async function ensureTranscript(
   await mkdir(outDir, { recursive: true })
   const url = `${YT_WATCH_BASE}${videoId}`
   try {
-    await new Promise<void>((resolve, reject) => {
+    // Pooled + hard-timeout: ensureTranscript is awaited by request handlers and the (un-stall-
+    // watched) plex-sync job; an unpooled/un-timed wedge would fork-bomb yt-dlp or park the job.
+    await withYtDlpSlot(() => new Promise<void>((resolve, reject) => {
       const proc = spawn(ytDlpBin(), [
         '--write-auto-subs', '--write-subs',
         '--sub-lang', subLang,
@@ -341,11 +343,12 @@ export async function ensureTranscript(
         '--no-playlist',
         '--quiet',
         ...ytDlpAuthArgs(),
-        url,
+        '--', url,
       ], { stdio: 'ignore', windowsHide: true })
-      proc.on('close', code => code === 0 ? resolve() : reject(new Error(`code ${code}`)))
-      proc.on('error', reject)
-    })
+      const timer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ } }, 60_000)
+      proc.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`code ${code}`)) })
+      proc.on('error', (err) => { clearTimeout(timer); reject(err) })
+    }))
   } catch { /* transcript is optional */ }
 
   return existsSync(absPath) ? absPath : null

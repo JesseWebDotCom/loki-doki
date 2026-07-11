@@ -36,11 +36,20 @@ function parseYtDlpProgress(line: string): Partial<DownloadProgress> | null {
   return { completed: parseFloat(m[1]!), total: 100, speedBps: 0, etaSeconds: parseInt(m[2]!, 10) * 60 + parseInt(m[3]!, 10) }
 }
 
+// Overall wall-clock cap so a hung yt-dlp/ffmpeg (stalled CDN socket, scrape-hostile page)
+// can't wedge the job lane forever — the 'video-media' job type isn't in the queue's stall
+// watchdog, so this is the only thing that frees it. Generous enough for a long HD download.
+const RUN_TIMEOUT_MS = 30 * 60_000
+
 function runProcess(bin: string, args: string[], onLine: (line: string) => void, signal: AbortSignal, label: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     let killTimer: ReturnType<typeof setTimeout> | null = null
     let errTail = ''
+    const runTimer = setTimeout(() => {
+      try { proc.kill('SIGKILL') } catch { /* gone */ }
+      reject(new Error(`${label} timed out after ${RUN_TIMEOUT_MS}ms`))
+    }, RUN_TIMEOUT_MS)
     proc.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
       errTail = (errTail + text).slice(-4096)
@@ -53,11 +62,12 @@ function runProcess(bin: string, args: string[], onLine: (line: string) => void,
       reject(new Error('Aborted'))
     }, { once: true })
     proc.on('close', (code) => {
+      clearTimeout(runTimer)
       if (killTimer) clearTimeout(killTimer)
       if (code === 0) resolve()
       else reject(new Error(`${label} exited with code ${code}${errTail ? `: ${errTail.trim().split('\n').slice(-2).join(' | ').slice(-400)}` : ''}`))
     })
-    proc.on('error', reject)
+    proc.on('error', (err) => { clearTimeout(runTimer); reject(err) })
   })
 }
 
@@ -126,7 +136,9 @@ export async function runVideoMediaJob(
   if (spec.method === 'hls') {
     // Remux the manifest (best variant) straight to mp4; -c copy keeps it cheap.
     onProgress({ completed: 0, total: 100, speedBps: 0, etaSeconds: 0, note: 'Fetching stream…' })
-    const args = ['-y', '-loglevel', 'warning', '-i', spec.url,
+    // -rw_timeout (µs) makes ffmpeg error out if an HLS read stalls, instead of hanging on a
+    // dead v.redd.it/CDN socket with no progress callback to notice.
+    const args = ['-y', '-loglevel', 'warning', '-rw_timeout', '30000000', '-i', spec.url,
       ...(kind === 'audio' ? ['-vn', '-acodec', 'libmp3lame', '-q:a', '2'] : ['-c', 'copy', '-movflags', '+faststart', '-bsf:a', 'aac_adtstoasc']),
       outPath]
     await runProcess(ffmpegBin(), args, () => {}, signal, 'ffmpeg')

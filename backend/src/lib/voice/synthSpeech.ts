@@ -53,7 +53,8 @@ export async function synthesizeWithPauses(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: chunk.text, voice: opts.voice, speed: opts.speed ?? 1.0 }),
-      signal: opts.signal,
+      // Bound a wedged sidecar so an AI-DJ render can't hang forever.
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     })
     if (!res.ok) return null
     const { samples, sampleRate: sr } = wavToInt16(await res.arrayBuffer())

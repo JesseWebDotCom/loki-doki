@@ -78,7 +78,9 @@ export async function ollamaHealthCheck(): Promise<boolean> {
 }
 
 export async function ollamaList(): Promise<OllamaModel[]> {
-  const res = await fetch(`${ollamaUrl()}/api/tags`)
+  // Without a timeout a stalled Ollama (mid-model-reload, VRAM thrash) hangs the 5+ handlers
+  // that call this forever.
+  const res = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(15_000) })
   if (!res.ok) throw new Error('Failed to list Ollama models')
   const data = (await res.json()) as { models: OllamaModel[] }
   return data.models
@@ -105,10 +107,13 @@ export async function ollamaWarmModel(model: string): Promise<void> {
 }
 
 export async function ollamaEmbed(model: string, input: string): Promise<number[]> {
+  // ollamaEmbed is on the companion-turn hot path (router/RAG). Without a timeout, a stalled
+  // Ollama hangs every turn indefinitely.
   const res = await fetch(`${ollamaUrl()}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, input, keep_alive: -1 }),
+    signal: AbortSignal.timeout(20_000),
   })
   if (!res.ok) throw new Error('Embedding request failed')
   const data = (await res.json()) as { embeddings: number[][] }
