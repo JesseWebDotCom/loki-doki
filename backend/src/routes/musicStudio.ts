@@ -132,7 +132,10 @@ musicStudio.post('/upload', async (c) => {
   await db.insert(musicStudioTracks).values({
     id, userId: user.id, title, artist, sourceRelPath: rel, durationSec: null, coverRelPath: coverRel,
     stemStatus: 'none', stemModel: null, stemsJson: null, stemError: null,
-    analysisStatus: 'pending', bpm: null, keyLabel: null, beatsJson: null, chordsJson: null, analysisError: null,
+    // Only claim 'pending' if we're actually enqueuing the analyze job. When the stem runtime
+    // isn't installed nothing ever runs it (and only lyric-align self-heals on GET), so 'pending'
+    // showed an analysis spinner forever. 'none' matches lib/stems/fetchSource.ts's absent state.
+    analysisStatus: isStemAudioInstalled() ? 'pending' : 'none', bpm: null, keyLabel: null, beatsJson: null, chordsJson: null, analysisError: null,
     createdAt: now, updatedAt: now,
   })
 

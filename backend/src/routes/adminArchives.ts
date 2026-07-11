@@ -68,12 +68,16 @@ adminArchives.get('/download/:sourceId', async (c) => {
   const variant    = source.variants.find((v) => v.key === variantKey)
   if (!variant) return c.json({ error: 'Unknown variant' }, 400)
 
+  // Register synchronously, right after the check — the streamSSE callback below runs on a later
+  // tick, so setting there let two near-simultaneous GETs (StrictMode double-mount) both pass the
+  // has() guard and start two concurrent downloads of the same file, the second overwriting the
+  // first's controller so /cancel could no longer abort the live one.
   if (activeDownloads.has(sourceId)) return c.json({ error: 'Already downloading' }, 409)
+  const controller = new AbortController()
+  activeDownloads.set(sourceId, controller)
 
   c.header('X-Accel-Buffering', 'no')
   return streamSSE(c, async (stream) => {
-    const controller = new AbortController()
-    activeDownloads.set(sourceId, controller)
 
     // If the client closes the stream (page reload, StrictMode remount, retry),
     // abort the in-flight download and drop the registration — otherwise the stale

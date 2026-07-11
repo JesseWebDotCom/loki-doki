@@ -20,7 +20,11 @@ const ringSink = new Writable({
     if (line) {
       if (logRing.length >= RING_SIZE) logRing.shift()
       logRing.push(line)
-      for (const sub of logSubscribers) sub(line)
+      // Guard each subscriber: one throwing (e.g. a dead /api/logs SSE writer) must not break the
+      // broadcast for the others or throw inside the logger's own write path. Prune dead ones.
+      for (const sub of logSubscribers) {
+        try { sub(line) } catch { logSubscribers.delete(sub) }
+      }
     }
     cb()
   },

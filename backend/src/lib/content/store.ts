@@ -16,7 +16,7 @@
 
 import { createHash } from 'node:crypto'
 import { createReadStream, statSync } from 'node:fs'
-import { mkdir, rename, cp, rm, unlink } from 'node:fs/promises'
+import { mkdir, rename, cp, rm, unlink, readdir, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { and, eq, exists, like, lt, ne, notExists, notLike, or } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
@@ -264,8 +264,32 @@ export async function gcSweep(): Promise<{ removed: number; bytes: number; asset
 
 let _gcTimer: ReturnType<typeof setInterval> | null = null
 /** Start the periodic GC sweep (idempotent). */
+// Remove stale staging files in content/tmp. Success paths rename the staged file into the blob
+// store, but every FAILURE path (yt-dlp non-zero exit after partial fragments, abort mid-download,
+// putBlobFromFile error, a crash) leaves the timestamped temp file behind, and gcSweep only
+// reclaims the blob store — so these accreted unboundedly (multi-GB video fragments). Anything
+// older than a few hours can't belong to a live download.
+const TMP_MAX_AGE_MS = 6 * 60 * 60_000
+export async function sweepContentTmp(): Promise<void> {
+  try {
+    const dir = await contentTmpDir()
+    const now = Date.now()
+    for (const name of await readdir(dir)) {
+      const fp = join(dir, name)
+      try {
+        const st = await stat(fp)
+        if (now - st.mtimeMs > TMP_MAX_AGE_MS) await rm(fp, { recursive: true, force: true })
+      } catch { /* vanished / in use — skip */ }
+    }
+  } catch { /* dir missing — nothing to sweep */ }
+}
+
 export function startContentGc(): void {
   if (_gcTimer) return
+  void sweepContentTmp()   // boot sweep clears temp files a prior run/crash left behind
   setTimeout(() => void gcSweep().catch(() => {}), 60_000)
-  _gcTimer = setInterval(() => void gcSweep().catch(() => {}), 30 * 60_000)
+  _gcTimer = setInterval(() => {
+    void gcSweep().catch(() => {})
+    void sweepContentTmp()
+  }, 30 * 60_000)
 }

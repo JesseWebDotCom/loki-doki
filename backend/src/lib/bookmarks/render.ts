@@ -59,9 +59,20 @@ function installManagedChromium(): Promise<boolean> {
     const proc = spawn('bun', ['x', 'playwright', 'install', 'chromium'], {
       env: process.env, stdio: 'ignore', windowsHide: true,
     })
-    proc.on('exit', (code) => resolve(code === 0))
-    proc.on('error', () => resolve(false))
+    // Bound the download: a stalled installer (network drop) would otherwise leave ensureChromium's
+    // memoized promise pending forever, hanging every bookmark archive + Canvas PDF export.
+    const timer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ }; resolve(false) }, 8 * 60_000)
+    proc.on('exit', (code) => { clearTimeout(timer); resolve(code === 0) })
+    proc.on('error', () => { clearTimeout(timer); resolve(false) })
   })
+}
+
+/** Clear the memoized browser resolution so the next ensureChromium() re-probes. Called after an
+ *  admin repairs Chromium via chromiumInstall, so archives stop degrading to static without a
+ *  full server restart. */
+export function invalidateChromium(): void {
+  resolved = undefined
+  resolving = undefined
 }
 
 // Resolve (and if needed install) a working browser. Memoized; concurrent callers share.

@@ -13,7 +13,7 @@ import { Hono } from 'hono'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createReadStream } from 'node:fs'
-import { mkdir, rm, stat } from 'node:fs/promises'
+import { mkdir, rm, stat, rename } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import { join } from 'node:path'
 import { requireAuth } from '@/middleware/auth'
@@ -31,6 +31,10 @@ function download(path: string, url: string, method: 'ytdlp' | 'hls'): Promise<b
   const existing = inFlight.get(path)
   if (existing) return existing
   const p = (async () => {
+    // Download to a temp file and atomically rename on success, so the final cache path only
+    // ever names a COMPLETE file. Writing directly meant a backend restart mid-download (routine
+    // here) left a truncated .mp4 that existsSync treated as a valid hit forever.
+    const tmp = path.replace(/\.mp4$/, `.part-${process.pid}.mp4`)
     let bin: string
     let args: string[]
     if (method === 'hls') {
@@ -39,8 +43,8 @@ function download(path: string, url: string, method: 'ytdlp' | 'hls'): Promise<b
       // v.redd.it is already h264/aac, so -c copy stays browser-playable.
       await ensureFfmpeg()
       bin = ffmpegBin()
-      args = ['-y', '-loglevel', 'error', '-i', url,
-        '-c', 'copy', '-movflags', '+faststart', '-bsf:a', 'aac_adtstoasc', path]
+      args = ['-y', '-loglevel', 'error', '-rw_timeout', '30000000', '-i', url,
+        '-c', 'copy', '-movflags', '+faststart', '-bsf:a', 'aac_adtstoasc', tmp]
     } else {
       bin = ytDlpBin()
       args = [
@@ -49,18 +53,20 @@ function download(path: string, url: string, method: 'ytdlp' | 'hls'): Promise<b
         // separate A/V tracks, so a merged avc1+aac wins before any progressive HEVC.
         '-f', 'best[ext=mp4][vcodec^=avc1][acodec!=none]/best[ext=mp4][vcodec^=h264][acodec!=none]/bestvideo[vcodec^=avc1]+bestaudio/best[ext=mp4][acodec!=none]/mp4/best',
         '--no-playlist', '--no-warnings', '--merge-output-format', 'mp4',
-        '--force-overwrites', '-o', path, url,
+        '--force-overwrites', '-o', tmp, '--', url,
       ]
     }
     const ok = await new Promise<boolean>((resolve) => {
       const proc = spawn(bin, args, { stdio: 'ignore', windowsHide: true })
-      proc.on('close', (code) => resolve(code === 0 && existsSync(path)))
+      proc.on('close', (code) => resolve(code === 0 && existsSync(tmp)))
       proc.on('error', () => resolve(false))
     })
-    // A failed ffmpeg run can leave a partial mp4 behind, which existsSync would treat as
-    // a valid cache hit on the next request — remove it so retries start clean.
-    if (!ok) await rm(path, { force: true }).catch(() => {})
-    return ok
+    if (ok) {
+      try { await rename(tmp, path); return true } catch { await rm(tmp, { force: true }).catch(() => {}); return false }
+    }
+    // Failed run — remove any partial temp so retries start clean.
+    await rm(tmp, { force: true }).catch(() => {})
+    return false
   })().finally(() => inFlight.delete(path))
   inFlight.set(path, p)
   return p

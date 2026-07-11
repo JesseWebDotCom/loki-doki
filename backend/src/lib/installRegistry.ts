@@ -461,7 +461,13 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     id: 'chromium-render', group: 'chat', label: 'Document export (PDF)',
     approxBytes: 150_000_000,
     isInstalled: isChromiumInstalled,
-    repair: (onP, sig) => installChromium(statusAdapter(onP), sig),
+    repair: async (onP, sig) => {
+      await installChromium(statusAdapter(onP), sig)
+      // Clear render.ts's memoized "no browser" result so archives pick up the freshly-installed
+      // Chromium without a full server restart.
+      const { invalidateChromium } = await import('@/lib/bookmarks/render')
+      invalidateChromium()
+    },
   },
 ]
 
