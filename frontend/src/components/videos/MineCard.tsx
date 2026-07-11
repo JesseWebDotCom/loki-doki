@@ -1,6 +1,7 @@
 import { cn } from '@/lib/cn'
 import { MINE_META } from '@/lib/videos/sources'
 import { studioStreamUrl, type StudioBinItem } from '@/lib/videos/studioApi'
+import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 
 function fmtMineDur(sec: number | null): string | null {
   if (sec == null || sec <= 0) return null
@@ -21,11 +22,10 @@ export function MineCard({ item, shape }: { item: StudioBinItem; shape?: 'wide' 
   const dur = fmtMineDur(item.durationSec)
   return (
     <a href={studioStreamUrl(item.assetId)} target="_blank" rel="noreferrer noopener" className="group flex flex-col gap-2.5">
-      <div className={cn('relative w-full overflow-hidden rounded-card bg-muted', shape === 'tall' ? 'aspect-[9/16]' : 'aspect-video')}>
-        {item.thumbUrl ? (
-          <img src={item.thumbUrl} alt="" loading="lazy" className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
-        ) : (
-          <div className="flex size-full items-center justify-center"><MINE_META.icon className="size-8 text-muted-foreground/50" /></div>
+      <div className={cn('relative w-full overflow-hidden rounded-card shadow-md ring-1 ring-white/10 transition duration-200 group-hover:shadow-xl group-hover:ring-white/20', shape === 'tall' ? 'aspect-[9/16]' : 'aspect-video')}>
+        <VideoPlaceholderArt source="mine" />
+        {item.thumbUrl && (
+          <img src={item.thumbUrl} alt="" loading="lazy" className="relative size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
         )}
         {mineBadge}
         {dur && <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>}
@@ -44,11 +44,10 @@ export function MineRow({ item }: { item: StudioBinItem }) {
   return (
     <a href={studioStreamUrl(item.assetId)} target="_blank" rel="noreferrer noopener"
       className="group flex gap-3 rounded-card p-1.5 transition-colors hover:bg-accent/50 sm:gap-4">
-      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card bg-muted sm:w-56">
-        {item.thumbUrl ? (
-          <img src={item.thumbUrl} alt="" loading="lazy" className="size-full object-cover transition group-hover:scale-105" />
-        ) : (
-          <div className="flex size-full items-center justify-center"><MINE_META.icon className="size-8 text-muted-foreground/40" /></div>
+      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card shadow-md ring-1 ring-white/10 sm:w-56">
+        <VideoPlaceholderArt source="mine" />
+        {item.thumbUrl && (
+          <img src={item.thumbUrl} alt="" loading="lazy" className="relative size-full object-cover transition group-hover:scale-105" />
         )}
         {mineBadge}
         {dur && <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{dur}</span>}

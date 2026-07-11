@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom'
-import { Film } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { fmtAge, fmtDur } from '@/lib/youtube/format'
@@ -8,6 +7,7 @@ import type { HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { CardMetaBlock, DurationBadge, OnlineOnlyBadge, WatchProgressBar } from '@/components/videos/cardParts'
 import { HUB_PATHS, useOfflineSet } from '@/components/videos/HubVideoCard'
+import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 
 /** Full-width horizontal list row, matching HubVideoCard's grid card layout: the list
@@ -34,11 +34,10 @@ export function HubVideoListRow({ item, showSource = true }: { item: HubVideoIte
     >
       {/* List rows are always small horizontal (16:9) cards, uniform across sources — a
           vertical item's thumbnail simply crops to fit (matches youtube's VideoListRow). */}
-      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card bg-muted sm:w-56">
-        {item.thumbnailUrl ? (
-          <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy" className="size-full object-cover transition group-hover:scale-105" />
-        ) : (
-          <div className="flex size-full items-center justify-center"><Film className="size-8 text-muted-foreground/40" /></div>
+      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card shadow-md ring-1 ring-white/10 sm:w-56">
+        <VideoPlaceholderArt source={item.source} />
+        {item.thumbnailUrl && (
+          <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy" className="relative size-full object-cover transition group-hover:scale-105" />
         )}
         {showSource && (
           <span className={cn('absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.badgeClass)}>

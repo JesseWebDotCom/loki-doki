@@ -11,6 +11,7 @@ import { saveOffline, cancelDownloads } from '@/lib/youtube/api'
 import { useSavedState, useYtDownloads } from '@/lib/youtube/useData'
 import { VideoThumb } from '@/components/youtube/media'
 import { CardMetaBlock, DurationBadge, SaveOfflineButton, WatchProgressBar } from '@/components/videos/cardParts'
+import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/videos/VideosLayout'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useCardHoverPreview } from '@/hooks/use-card-hover-preview'
@@ -81,7 +82,7 @@ function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, 
   const letterbox = cardTall && aspect !== 'short'
   const media = (
     <>
-      <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
+      <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('relative size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
       {previewSrc && !ghosted && (
         <video
           key={previewSrc} src={previewSrc} muted autoPlay loop playsInline preload="auto"
@@ -93,7 +94,9 @@ function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, 
     </>
   )
   return (
-    <div className={cn('relative overflow-hidden rounded-card bg-muted', cardTall ? 'aspect-[9/16]' : 'aspect-video')}>
+    <div className={cn('relative overflow-hidden rounded-card shadow-md ring-1 ring-white/10 transition duration-200 group-hover:shadow-xl group-hover:ring-white/20', cardTall ? 'aspect-[9/16]' : 'aspect-video')}>
+      {/* Bottom of the stack: identity art so loading/missing thumbs never show a hole. */}
+      <VideoPlaceholderArt source="youtube" />
       {letterbox ? (
         <>
           <VideoThumb videoId={i.videoId} title="" overrideSrc={overrideSrc} className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />

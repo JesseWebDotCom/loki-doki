@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Play } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { thumbUrl } from '@/lib/youtube/format'
 import { ytImageProxy } from '@/lib/youtube/api'
+import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 
 /** Video thumbnail with a graceful fallback when the image 404s. An `overrideSrc`
  *  (e.g. a DeArrow community thumbnail, already same-origin) is used when present and
@@ -22,13 +22,14 @@ export function VideoThumb({ videoId, title, quality = 'mq', className, override
       src={useOverride ? overrideSrc! : ytImageProxy(thumbUrl(videoId, quality))}
       alt={title}
       referrerPolicy="no-referrer"
-      className={cn('object-cover bg-muted', className)}
+      className={cn('object-cover', className)}
       loading="lazy"
       onError={() => useOverride ? setOverrideFailed(true) : setOk(false)}
     />
   ) : (
-    <div className={cn('flex items-center justify-center bg-muted', className)}>
-      <Play className="size-8 text-muted-foreground/40" />
+    // Identity gradient instead of a flat bg-muted hole when the thumbnail 404s.
+    <div className={cn('relative overflow-hidden', className)}>
+      <VideoPlaceholderArt source="youtube" />
     </div>
   )
 }

@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Film } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { Spinner } from '@/components/ui/spinner'
 import { CardMetaBlock, DurationBadge, OnlineOnlyBadge, SaveOfflineButton, WatchProgressBar } from '@/components/videos/cardParts'
+import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 import { toast } from '@/lib/toast'
 import { listSaves, saveVideo, type HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -90,14 +90,16 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
       }}
     >
       <div className={cn(
-        'relative w-full overflow-hidden rounded-card bg-muted',
+        'relative w-full overflow-hidden rounded-card shadow-md ring-1 ring-white/10 transition duration-200 group-hover:shadow-xl group-hover:ring-white/20',
         // The uniform view toggle forces one shape on EVERY source (object-cover crops to fit);
         // with no toggle context we fall back to the item's native orientation.
         shape === 'tall' ? 'aspect-[9/16]'
           : shape === 'wide' ? 'aspect-video'
           : item.vertical ? 'aspect-[9/16] max-h-72' : 'aspect-video',
       )}>
-        {item.thumbnailUrl ? (
+        {/* Bottom of the stack: source-identity art so loading/missing thumbs never show a hole. */}
+        <VideoPlaceholderArt source={item.source} />
+        {item.thumbnailUrl && (
           letterbox ? (
             <>
               <img src={proxyImg(item.thumbnailUrl)} aria-hidden alt="" loading="lazy"
@@ -112,12 +114,8 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
             </>
           ) : (
             <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy"
-              className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
+              className="relative size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
           )
-        ) : (
-          <div className="flex size-full items-center justify-center">
-            <Film className="size-8 text-muted-foreground/50" />
-          </div>
         )}
         {previewUrl && previewing && (
           // pointer-events-none so a click still falls through to the card's watch link.

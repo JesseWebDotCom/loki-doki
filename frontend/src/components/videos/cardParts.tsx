@@ -37,7 +37,7 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
         <p className={cn('line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
         {(creatorName || metaSuffix) && (
           <div className="mt-1.5 flex items-center gap-2 overflow-hidden">
-            {creatorName && <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-border/40', ghosted && 'grayscale')} />}
+            {creatorName && <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-white/10', ghosted && 'grayscale')} />}
             {metaLine}
           </div>
         )}
@@ -48,7 +48,7 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
     <div className="space-y-1">
       <div className="flex items-start gap-2.5">
         {creatorName && (
-          <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('mt-0.5 size-8 shrink-0 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />
+          <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('mt-0.5 size-8 shrink-0 text-[11px] ring-1 ring-white/10', ghosted && 'grayscale')} />
         )}
         <p className={cn('line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
       </div>

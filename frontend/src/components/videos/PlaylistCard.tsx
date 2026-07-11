@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ListVideo } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import type { VideoSource } from '@/lib/videos/api'
+import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 
 /** Minimal shape a playlist card needs; satisfied by both search and channel-tab rows. */
 export interface PlaylistCardData {
@@ -22,17 +23,18 @@ interface PlaylistCardProps {
   proxy?: (url: string) => string
 }
 
-/** Cover art: a real thumbnail (ring so a near-black/dark frame still reads as "present"
- *  against the app's dark theme, not a blank void), falling back to the ListVideo icon on
- *  a missing URL or a genuine load failure. */
-function Cover({ thumbnailUrl, proxy, title }: { thumbnailUrl: string | null; proxy: (url: string) => string; title: string }) {
+/** Cover art: a real thumbnail over the source's identity gradient (which also covers a
+ *  missing URL or a genuine load failure, so a playlist never renders as a blank void). */
+function Cover({ thumbnailUrl, proxy, title, source }: { thumbnailUrl: string | null; proxy: (url: string) => string; title: string; source: VideoSource }) {
   const [failed, setFailed] = useState(false)
-  if (!thumbnailUrl || failed) {
-    return <div className="flex size-full items-center justify-center ring-1 ring-inset ring-border/40"><ListVideo className="size-8 text-muted-foreground/40" /></div>
-  }
   return (
-    <img src={proxy(thumbnailUrl)} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)}
-      className="size-full object-cover ring-1 ring-inset ring-border/40 transition group-hover:scale-105" title={title} />
+    <>
+      <VideoPlaceholderArt source={source} />
+      {thumbnailUrl && !failed && (
+        <img src={proxy(thumbnailUrl)} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)}
+          className="relative size-full object-cover transition group-hover:scale-105" title={title} />
+      )}
+    </>
   )
 }
 
@@ -43,8 +45,8 @@ export function PlaylistCard({ p, source = 'youtube', proxy = proxyImg }: Playli
   return (
     <Link to={`/videos/${source}/playlist/${encodeURIComponent(p.playlistId)}`}
       state={{ title: p.title, thumbnailUrl: p.thumbnailUrl, videoCount: p.videoCount }} className="group">
-      <div className="relative aspect-video overflow-hidden rounded-card bg-muted">
-        <Cover thumbnailUrl={p.thumbnailUrl} proxy={proxy} title={p.title} />
+      <div className="relative aspect-video overflow-hidden rounded-card shadow-md ring-1 ring-white/10 transition duration-200 group-hover:shadow-xl group-hover:ring-white/20">
+        <Cover thumbnailUrl={p.thumbnailUrl} proxy={proxy} title={p.title} source={source} />
         <div className="absolute bottom-0 right-0 flex items-center gap-1 rounded-tl-control bg-black/80 px-2 py-1 text-[11px] font-semibold text-white">
           <ListVideo className="size-3" /> {p.videoCount != null ? `${p.videoCount}` : 'Playlist'}
         </div>
@@ -61,8 +63,8 @@ export function PlaylistListRow({ p, source = 'youtube', proxy = proxyImg }: Pla
     <Link to={`/videos/${source}/playlist/${encodeURIComponent(p.playlistId)}`}
       state={{ title: p.title, thumbnailUrl: p.thumbnailUrl, videoCount: p.videoCount }}
       className="group flex gap-3 rounded-card p-1.5 transition-colors hover:bg-accent/50 sm:gap-4">
-      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card bg-muted sm:w-56">
-        <Cover thumbnailUrl={p.thumbnailUrl} proxy={proxy} title={p.title} />
+      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card shadow-md ring-1 ring-white/10 sm:w-56">
+        <Cover thumbnailUrl={p.thumbnailUrl} proxy={proxy} title={p.title} source={source} />
         <div className="absolute bottom-0 right-0 flex items-center gap-1 rounded-tl-control bg-black/80 px-2 py-1 text-[11px] font-semibold text-white">
           <ListVideo className="size-3" /> {p.videoCount != null ? `${p.videoCount}` : 'Playlist'}
         </div>
