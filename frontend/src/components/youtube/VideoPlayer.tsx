@@ -141,11 +141,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const ccOnRef = useRef(ccOn)
   const enforceEmbedCc = (y: any, on: boolean) => {
     // Both module names: 'captions' is the HTML5 player's, 'cc' the legacy one - YouTube
-    // answers to whichever the current build uses. Clearing the active track via
-    // setOption is what actually turns captions OFF; unloadModule alone gets overridden.
+    // answers to whichever the current build uses. Turning ON needs an explicit track
+    // selection (loadModule alone shows nothing); the tracklist populates asynchronously
+    // after the module loads, hence the retry beat. Turning OFF must clear the active
+    // track via setOption - unloadModule alone gets overridden by Google's sticky pref.
     try {
-      if (on) { y.loadModule?.('captions'); y.loadModule?.('cc') }
-      else {
+      if (on) {
+        y.loadModule?.('captions'); y.loadModule?.('cc')
+        const pick = () => {
+          try {
+            const list = (y.getOption?.('captions', 'tracklist') ?? y.getOption?.('cc', 'tracklist') ?? []) as Array<{ languageCode?: string }>
+            const track = list.find(t => t.languageCode?.startsWith('en')) ?? list[0]
+            if (track) { y.setOption?.('captions', 'track', track); y.setOption?.('cc', 'track', track); return true }
+          } catch { /* not ready */ }
+          return false
+        }
+        if (!pick()) setTimeout(() => { if (ccOnRef.current) void pick() }, 600)
+      } else {
         y.unloadModule?.('captions'); y.unloadModule?.('cc')
         y.setOption?.('captions', 'track', {}); y.setOption?.('cc', 'track', {})
       }
@@ -598,9 +610,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
         </div>
       )}
 
-      {/* Paused-frame mask: hides the embed's paused title bar without covering the frame. */}
+      {/* Paused-frame masks: near-opaque bands over the zones where the embed paints its
+          paused chrome (title bar up top; share/watch-later/"More videos"/logo along the
+          bottom) - the frame itself stays visible in between. */}
       {pausedFrame && (
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-24 bg-gradient-to-b from-black/90 via-black/50 to-transparent" />
+        <>
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-28 bg-gradient-to-b from-black via-black/90 to-transparent" />
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-36 bg-gradient-to-t from-black via-black/95 to-transparent" />
+        </>
       )}
 
       {/* Custom control bar. pointer-events are disabled while it's hidden so the
