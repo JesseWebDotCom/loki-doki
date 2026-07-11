@@ -398,6 +398,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             try {
               e.target.playVideo?.(); setDuration(e.target.getDuration?.() || 0)
               e.target.setPlaybackRate?.(rate)
+              e.target.setVolume?.(Math.round(volumeRef.current * 100))
               setEmbedLevels(e.target.getAvailableQualityLevels?.() ?? [])
               // Force the embed to OUR caption preference: Google's sticky captions-on
               // state otherwise wins and our chrome has no native toggle (controls: 0).
@@ -474,6 +475,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     // Remux streams already begin at the requested offset - seeking the element would
     // double-apply it (and the pipe isn't seekable anyway).
     el.playbackRate = rate
+    el.volume = volumeRef.current
     void el.play()?.catch(() => {})
   }
 
@@ -498,6 +500,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     if (m) m.muted = next
     else if (y) { try { next ? y.mute?.() : y.unMute?.() } catch { /* noop */ } }
     setMuted(next)
+  }
+  // Volume (not just on/mute): persisted per device, applied to whichever backing
+  // player is active. Kept in a ref too so the embed's onReady (created once) and
+  // startLocalAt can apply the CURRENT value without stale closures.
+  const [volume, setVolumeState] = useState(() => {
+    try { const v = Number.parseFloat(localStorage.getItem('yt.volume') ?? '1'); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1 } catch { return 1 }
+  })
+  const volumeRef = useRef(volume)
+  const setVolume = (v: number) => {
+    const vol = Math.min(1, Math.max(0, v))
+    volumeRef.current = vol
+    setVolumeState(vol)
+    try { localStorage.setItem('yt.volume', String(vol)) } catch { /* quota */ }
+    const m = mediaRef.current, y = ytRef.current
+    if (m) {
+      m.volume = vol
+      if (vol > 0 && m.muted) { m.muted = false; setMuted(false) }
+    } else if (y) {
+      try {
+        y.setVolume?.(Math.round(vol * 100))
+        if (vol > 0) { y.unMute?.(); setMuted(false) }
+      } catch { /* noop */ }
+    }
   }
   const { isFullscreen, fillMode, toggleFullscreen, toggleFillMode } = useZoomToFillFullscreen(mediaRef, wrapRef)
   const { boost, setBoost } = useAudioBoost(mediaRef)
@@ -742,9 +767,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
             {playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />}
           </button>
-          <button onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
-            {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
-          </button>
+          {/* Mute + a hover-expanding volume slider (the mute-only toggle wasn't enough). */}
+          <div className="group/vol flex items-center">
+            <button onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>
+              {muted || volume === 0 ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+            </button>
+            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume}
+              onChange={e => setVolume(Number(e.target.value))} aria-label="Volume"
+              className="ml-0 w-0 cursor-pointer opacity-0 transition-all duration-200 accent-[var(--yt-accent)] group-hover/vol:ml-2 group-hover/vol:w-20 group-hover/vol:opacity-100" />
+          </div>
           <span className="text-xs tabular-nums text-white/80">{fmtClock(position)} / {fmtClock(duration)}</span>
           {currentChapter && <span className="hidden truncate text-xs font-medium text-white/70 sm:block max-w-[40%]">· {currentChapter}</span>}
           <div className="flex-1" />
