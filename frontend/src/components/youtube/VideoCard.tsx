@@ -241,17 +241,20 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
       </div>
     </>
   )
+  // Hover overlay, NOT an in-flow sibling: a reserved gutter would shave width off every
+  // row and leave a ragged empty column down the rail's right edge.
   const addBtn = (
-    <AddToPlaylistButton
-      video={{ videoId: item.videoId, title, author: item.author ?? undefined, durationSec: item.durationSec ?? undefined }}
-      className="self-center opacity-0 group-hover:opacity-100"
-    />
+    <span className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-black/80 opacity-0 shadow transition-opacity group-hover:opacity-100">
+      <AddToPlaylistButton
+        video={{ videoId: item.videoId, title, author: item.author ?? undefined, durationSec: item.durationSec ?? undefined }}
+      />
+    </span>
   )
   if (ghosted) {
     return (
-      <div className="group flex w-full items-center gap-1">
+      <div className="group relative">
         {/* design-ok(hand-styled-button): the whole media row is the tap target (card-shaped ghost row) */}
-        <button type="button" onClick={onClick} className="flex min-w-0 flex-1 gap-2.5 rounded-control p-1.5 text-left transition-colors hover:bg-accent/50">
+        <button type="button" onClick={onClick} className="flex w-full min-w-0 gap-2.5 rounded-control p-1.5 text-left transition-colors hover:bg-accent/50">
           {body}
         </button>
         {addBtn}
@@ -259,9 +262,9 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
     )
   }
   return (
-    <div className="group flex items-center gap-1">
+    <div className="group relative">
       <Link to={watchHref(item)} state={{ title, author: item.author, channelThumb: item.channelThumb }}
-        className={cn('flex min-w-0 flex-1 gap-2.5 rounded-control p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')} {...bind}>
+        className={cn('flex min-w-0 gap-2.5 rounded-control p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')} {...bind}>
         {body}
       </Link>
       {addBtn}

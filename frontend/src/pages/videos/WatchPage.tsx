@@ -154,10 +154,12 @@ function DescriptionCard({ views, description }: { views: string | null; descrip
 
 /** Tabbed Card shell for the side column: same tab-header style (border-b, active underline)
  *  for every source, whatever tabs it actually has. */
-function SidePanelShell<T extends string>({ tabs, active, onChange, children }: {
+function SidePanelShell<T extends string>({ tabs, active, onChange, action, children }: {
   tabs: Array<{ key: T; label: string }>
   active: T
   onChange: (t: T) => void
+  /** Optional right-aligned control on the tab row (e.g. the queue's Autoplay toggle). */
+  action?: React.ReactNode
   children: React.ReactNode
 }) {
   if (tabs.length === 0) return null
@@ -165,15 +167,18 @@ function SidePanelShell<T extends string>({ tabs, active, onChange, children }: 
   // group, active tab solid white - no card box, no underline tabs.
   return (
     <div>
-      {/* design-ok(glass-on-plain-bg): pill tab switcher over the watch page's UltraBlur cinema backdrop */}
-      <div className="no-scrollbar flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-white/10 p-1">
-        {tabs.map(({ key, label }) => (
-          <button key={key} onClick={() => onChange(key)}
-            className={cn('shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors',
-              active === key ? 'bg-white text-black' : 'text-white/70 hover:text-white')}>
-            {label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-3">
+        {/* design-ok(glass-on-plain-bg): pill tab switcher over the watch page's UltraBlur cinema backdrop */}
+        <div className="no-scrollbar flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-white/10 p-1">
+          {tabs.map(({ key, label }) => (
+            <button key={key} onClick={() => onChange(key)}
+              className={cn('shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors',
+                active === key ? 'bg-white text-black' : 'text-white/70 hover:text-white')}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {action}
       </div>
       <div className="px-1 pt-3">{children}</div>
     </div>
@@ -380,13 +385,15 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
   return (
    <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))}>
-    <PageContainer width="wide" className="py-6">
+    <PageContainer width="full" className="py-6">
       <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
       {/* Main column: player with the vertical action rail beside it, then a calm title
           block (one title, creator subtitle, readable description - nothing else). */}
       <div className="min-w-0 space-y-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-      <div className="min-w-0 flex-1">
+      {/* design-ok(adhoc-container): viewport-height-derived cap so an ultrawide column
+          can't make the video taller than the screen; the rail hugs its right edge. */}
+      <div className="min-w-0 flex-1 lg:max-w-[calc(78vh*(16/9))]">
       {isPending ? (
         <Skeleton className="aspect-video w-full rounded-card" />
       ) : (
@@ -441,25 +448,25 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             { key: 'transcript' as SideTab, label: 'Transcript' },
             { key: 'comments' as SideTab, label: 'Comments' },
           ]}
-          active={tab} onChange={setTab}>
+          active={tab} onChange={setTab}
+          action={tab === 'upnext' ? (
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 pr-1 text-xs font-medium text-muted-foreground">
+              Autoplay
+              <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
+                className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
+                <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
+              </button>
+            </label>
+          ) : undefined}>
           {tab === 'upnext' && (
-            <div className="space-y-2">
-              <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
-                Autoplay
-                <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
-                  className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
-                  <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
-                </button>
-              </label>
-              {pq.active && pq.playlistId ? (
-                <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
-              ) : (
-                <div className="space-y-1 xl:max-h-[calc(100dvh-17rem)] xl:overflow-y-auto xl:pr-1">
-                  {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
-                  {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
-                </div>
-              )}
-            </div>
+            pq.active && pq.playlistId ? (
+              <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
+            ) : (
+              <div className="space-y-1 xl:max-h-[calc(100dvh-15rem)] xl:overflow-y-auto xl:pr-1">
+                {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
+                {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
+              </div>
+            )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
           {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
@@ -680,8 +687,8 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
           {saveState === 'saved' ? <Check className="size-4" /> : saveState === 'saving' ? <Spinner className="size-4" /> : <HardDriveDownload className="size-4" />}
         </Button>
       )}
-      <Button size="icon" onClick={() => void shareLink(`${window.location.origin}/videos/youtube/watch/${videoId}`, { label: 'Link' })}
-        title="Share" aria-label="Share" className={railBtn}>
+      <Button size="icon" onClick={() => void shareLink(`https://www.youtube.com/watch?v=${videoId}`, { label: 'Link' })}
+        title="Share the YouTube link" aria-label="Share" className={railBtn}>
         <Share2 className="size-4" />
       </Button>
       {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
@@ -1139,14 +1146,16 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
   return (
    <WatchCinema art={item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : null}>
-    <PageContainer width="wide" className="py-6">
+    <PageContainer width="full" className="py-6">
       <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
       {/* Main column: player with the vertical action rail beside it, then a calm title
           block (one title, creator subtitle, readable description - nothing else).
           Vertical (TikTok/Reels) videos are capped by HEIGHT so the info stays visible. */}
       <div className="min-w-0 space-y-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-        <div className={cn('min-w-0 flex-1', item.vertical && 'flex justify-center')}>
+        {/* design-ok(adhoc-container): viewport-height-derived cap so an ultrawide column
+            can't make the video taller than the screen; the rail hugs its right edge. */}
+        <div className={cn('min-w-0 flex-1', item.vertical ? 'flex justify-center' : 'lg:max-w-[calc(78vh*(16/9))]')}>
           <div className={cn('relative', !item.vertical && 'overflow-hidden rounded-card shadow-2xl')}>
             {showEmbed ? (
               source === 'vimeo' ? (
@@ -1219,8 +1228,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
               : <HardDriveDownload className="size-4" />}
           </Button>
           {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
-          <Button size="icon" onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })}
-            title="Share" aria-label="Share"
+          <Button size="icon" onClick={() => shareLink(item.url, { label: 'Link' })}
+            title={`Share the ${badge.label} link`} aria-label="Share"
             className="size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15">
             <Share2 className="size-4" />
           </Button>
@@ -1333,19 +1342,19 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
       {/* Side column: ONE tabbed rail - the queue/watch-next content is the first
           (default) tab, not modules stacked under the panel. */}
       <aside className="min-w-0 space-y-5 xl:sticky xl:top-6 xl:self-start">
-        <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}>
+        <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}
+          action={tab === 'upnext' && pq.active && pq.playlistId ? (
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 pr-1 text-xs font-medium text-muted-foreground">
+              Autoplay
+              <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
+                className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
+                <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
+              </button>
+            </label>
+          ) : undefined}>
           {tab === 'upnext' && (
             pq.active && pq.playlistId ? (
-              <div className="space-y-2">
-                <label className="flex cursor-pointer items-center justify-end gap-2 px-1 text-xs font-medium text-muted-foreground">
-                  Autoplay
-                  <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
-                    className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
-                    <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
-                  </button>
-                </label>
-                <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
-              </div>
+              <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
             ) : (
               <div className="space-y-5 xl:max-h-[calc(100dvh-15rem)] xl:overflow-y-auto xl:pr-1">
                 {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
