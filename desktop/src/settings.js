@@ -20,6 +20,27 @@ function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 
+// One-time migration: the app was renamed "Loki Doki" → "Doki Dock" (2026-07),
+// which moved userData on both platforms. Carry over settings and the persisted
+// login partition so existing installs keep their server URL and session. Runs
+// at require-time so it lands before any window creates the 'persist:loki'
+// partition; a failed copy just means a fresh first-run, never a crash.
+function migrateFromOldName() {
+  const dir = app.getPath('userData')
+  if (fs.existsSync(settingsPath())) return
+  const oldDir = path.join(path.dirname(dir), 'Loki Doki')
+  if (!fs.existsSync(path.join(oldDir, 'settings.json'))) return
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.copyFileSync(path.join(oldDir, 'settings.json'), settingsPath())
+    const oldPartitions = path.join(oldDir, 'Partitions')
+    if (fs.existsSync(oldPartitions)) {
+      fs.cpSync(oldPartitions, path.join(dir, 'Partitions'), { recursive: true })
+    }
+  } catch {}
+}
+migrateFromOldName()
+
 function load() {
   try {
     const raw = fs.readFileSync(settingsPath(), 'utf8')

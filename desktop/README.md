@@ -1,6 +1,6 @@
-# Loki Doki Desktop
+# Doki Dock
 
-A thin Electron shell around the Loki Doki web app served by your home server. It adds
+The Loki Doki desktop app: a thin Electron shell around the web app served by your home server. It adds
 what a browser tab can't: an always-on-top voice HUD near the notch, a global hotkey,
 a tray icon, and launch-at-login. Every feature (chat, music, videos, ...) loads live
 from the server, so server updates reach the desktop app automatically — the shell
@@ -63,7 +63,7 @@ attempt. Ask the companion about your screen once, flip the toggle, then **fully
 and relaunch** (the grant doesn't apply to a running process). Dev gotchas:
 
 - In dev the grant attaches to the **Electron binary** (`desktop/node_modules/electron/...`),
-  listed as **"Electron"** — not "Loki Doki".
+  listed as **"Electron"** — not "Doki Dock".
 - Upgrading the `electron` dependency replaces that binary, so expect to re-grant
   (remove the stale "Electron" row and re-add if captures come back black).
 - Terminal-launched dev runs can inherit the terminal's grant on some macOS versions —
@@ -74,7 +74,7 @@ and relaunch** (the grant doesn't apply to a running process). Dev gotchas:
 Phase 1 builds are not code-signed:
 
 - **macOS**: Gatekeeper will block the first launch. Right-click the app → Open → Open,
-  or run `xattr -dr com.apple.quarantine "/Applications/Loki Doki.app"`.
+  or run `xattr -dr com.apple.quarantine "/Applications/Doki Dock.app"`.
 - **Windows**: SmartScreen will warn. Click **More info → Run anyway**.
 
 ## Architecture notes

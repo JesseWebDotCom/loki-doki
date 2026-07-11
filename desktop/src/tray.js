@@ -16,7 +16,7 @@ function iconPath() {
 function create(handlers) {
   const image = nativeImage.createFromPath(iconPath())
   tray = new Tray(image)
-  tray.setToolTip('Loki Doki')
+  tray.setToolTip('Doki Dock')
   rebuild(handlers)
   return tray
 }
@@ -62,7 +62,7 @@ function rebuild({ state, settings, serverReachable, actions }) {
     },
     { label: 'Open Settings File', click: actions.openSettingsFile },
     { type: 'separator' },
-    { label: 'Quit Loki Doki', click: actions.quit },
+    { label: 'Quit Doki Dock', click: actions.quit },
   ])
   tray.setContextMenu(menu)
 }

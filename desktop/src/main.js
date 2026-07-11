@@ -1,5 +1,5 @@
-// Loki Doki desktop shell: a thin Electron wrapper around the web app served by
-// the home server. Two windows on one persistent partition (log in once):
+// Doki Dock, the Loki Doki desktop shell: a thin Electron wrapper around the web
+// app served by the home server. Two windows on one persistent partition (log in once):
 //   - HUD: frameless transparent always-on-top pill near the notch, loads /hud
 //   - Main: a normal window with the full app (chat, music, videos, ...)
 // A global hotkey summons the HUD and toggles hands-free listening. All features

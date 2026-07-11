@@ -161,6 +161,10 @@ Plus a Today dashboard, time & alarms, voice memos, recipes, speed test, file an
 - [User Guide](https://jessewebdotcom.github.io/loki-doki/user/welcome/) — getting started, features, and settings
 - [Developer Guide](https://jessewebdotcom.github.io/loki-doki/dev/architecture/) — architecture, API, and contributing
 
+## 📄 License
+
+[AGPL-3.0](LICENSE) — free to use, modify, and self-host. If you distribute a modified version, or host one for people outside your household, you must share your source under the same terms.
+
 ## ⚖️ Disclaimer
 
 Loki Doki is open-source software for **personal, self-hosted, non-commercial use** by you and your household. It is not affiliated with, endorsed by, or sponsored by YouTube, Google, TikTok, Vimeo, Reddit, Plex, or any other platform it can connect to; all product names and trademarks belong to their respective owners. You are responsible for how you use the software and for complying with the terms and laws that apply to you and the services you access. Community datasets used for sponsor-skipping and title cleanup come from [SponsorBlock](https://sponsor.ajay.app/) and [DeArrow](https://dearrow.ajay.app/) (CC BY-NC-SA 4.0) — see [NOTICE](NOTICE) for full third-party attributions.

@@ -64,5 +64,5 @@ jobs:
           files: dist/**
           body: |
             Unsigned builds:
-            - **macOS**: right-click the app → Open → Open (or `xattr -dr com.apple.quarantine "/Applications/Loki Doki.app"`)
+            - **macOS**: right-click the app → Open → Open (or `xattr -dr com.apple.quarantine "/Applications/Doki Dock.app"`)
             - **Windows**: SmartScreen → **More info** → **Run anyway**

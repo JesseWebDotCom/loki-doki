@@ -1,12 +1,12 @@
 {
   "name": "loki-doki-desktop",
-  "productName": "Loki Doki",
+  "productName": "Doki Dock",
   "version": "0.1.0",
-  "description": "Loki Doki desktop companion shell",
+  "description": "Doki Dock — the Loki Doki desktop companion shell",
   "private": true,
   "main": "src/main.js",
   "author": "Jesse Torres",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "electron .",
     "dist": "electron-builder",

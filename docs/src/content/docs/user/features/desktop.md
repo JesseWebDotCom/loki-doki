@@ -1,11 +1,11 @@
 ---
-title: Desktop App
-description: The Dynamic Island — your companion pinned to the top of your Mac or Windows desktop, with voice, screen awareness, and a global hotkey.
+title: Doki Dock (Desktop App)
+description: Doki Dock — your companion pinned to the top of your Mac or Windows desktop as a Dynamic Island, with voice, screen awareness, and a global hotkey.
 sidebar:
   order: 3
 ---
 
-The desktop app puts your companion right on your desktop as a **Dynamic Island**: a
+**Doki Dock**, the desktop app, puts your companion right on your desktop as a **Dynamic Island**: a
 dark capsule that sits flush against the top of your screen (hugging the notch on a
 MacBook). Your companion lives there all day — listening for its wake word, answering
 out loud, and morphing open when you talk to it — without a browser tab open.
@@ -39,13 +39,13 @@ it, or ask it ever leaves your home.
 **Download** the installer for your platform from the project's GitHub **Releases**
 page (published from `desktop-v*` tags):
 
-- **macOS**: open the `.dmg` and drag **Loki Doki** to Applications.
+- **macOS**: open the `.dmg` and drag **Doki Dock** to Applications.
 - **Windows**: run the NSIS `.exe` installer.
 
 Early builds are not yet code-signed, so the first launch needs one extra step:
 
 - **macOS**: Gatekeeper blocks the first open. Right-click the app → **Open** →
-  **Open**. (Or from Terminal: `xattr -dr com.apple.quarantine "/Applications/Loki Doki.app"`.)
+  **Open**. (Or from Terminal: `xattr -dr com.apple.quarantine "/Applications/Doki Dock.app"`.)
 - **Windows**: SmartScreen warns once. Click **More info → Run anyway**.
 
 Prefer building it yourself? From the repo: `cd desktop && bun install`, then
@@ -67,7 +67,7 @@ attempt:
 
 1. Ask the companion something about your screen once (the answer will fail).
 2. Open **System Settings → Privacy & Security → Screen Recording** and enable
-   **Loki Doki**.
+   **Doki Dock**.
 3. **Fully quit and relaunch** the app — the permission doesn't apply to a running
    process.
 
