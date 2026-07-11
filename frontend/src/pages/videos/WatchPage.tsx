@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2, PictureInPicture2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { accentOf, readableOn, useArtPalette } from '@/lib/artPalette'
+import { UltraBlur } from '@/components/shared/UltraBlur'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -29,11 +31,11 @@ import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
-  startLiveRecord, stopLiveRecord, saveOffline,
+  startLiveRecord, stopLiveRecord, saveOffline, ytImageProxy,
   type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
-import { fmtAge, fmtViews } from '@/lib/youtube/format'
+import { fmtAge, fmtViews, thumbUrl } from '@/lib/youtube/format'
 import { parseChapters } from '@/lib/youtube/chapters'
 import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
@@ -94,6 +96,36 @@ export function WatchPage() {
 
 // ── Shared shell pieces ──────────────────────────────────────────────────────
 
+/** The watch page's cinema shell (both branches render through it): an UltraBlur wallpaper
+ *  band built from the video's own thumbnail dissolves into the hub's black, and the page
+ *  subtree's accent vars retint to a palette extracted from that art, so every already-tinted
+ *  control (SegBtns, Subscribe, tab underlines, progress bars) follows the video with zero
+ *  per-control edits. One of the three sanctioned dynamic-palette surfaces. No art (or a
+ *  still-loading palette) simply keeps the mode accent. */
+function WatchCinema({ art, children }: { art: string | null; children: React.ReactNode }) {
+  const palette = useArtPalette(art)
+  const accent = accentOf(palette)
+  const vars = art ? {
+    '--yt-accent': accent,
+    '--yt-accent-hover': accent,
+    '--yt-accent-fg': accent,
+    '--yt-accent-soft': `color-mix(in oklab, ${accent} 15%, transparent)`,
+    '--yt-accent-contrast': readableOn(accent),
+    '--brand': accent,
+    '--ring': accent,
+  } as React.CSSProperties : undefined
+  return (
+    <div className="relative" style={vars}>
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[420px] overflow-hidden">
+        <UltraBlur artUrl={art} palette={palette} scrim="default" className="opacity-60" />
+        {/* Dissolve the wallpaper into the layout's true black so it reads as atmosphere. */}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black" />
+      </div>
+      <div className="relative">{children}</div>
+    </div>
+  )
+}
+
 /** A compact icon button that lives inside one of the grouped segment bars in the action row.
  *  Renders as a <Link> when `to` is set, otherwise a <button>. Shared by every source. */
 function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, onClick, to }: {
@@ -127,7 +159,7 @@ function DescriptionCard({ views, description }: { views: string | null; descrip
 
   if (!views && !description) return null
   return (
-    <Card variant="flat" className="p-4 text-sm leading-relaxed text-foreground/85">
+    <Card variant="flat" className="bg-white/[0.04] p-4 text-sm leading-relaxed text-foreground/85">
       {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
       {description && (
         <>
@@ -153,7 +185,7 @@ function SidePanelShell<T extends string>({ tabs, active, onChange, children }: 
 }) {
   if (tabs.length === 0) return null
   return (
-    <Card>
+    <Card className="border-white/10 bg-white/[0.04]">
       <div className="flex gap-1 border-b border-border/50 px-2 pt-2">
         {tabs.map(({ key, label }) => (
           <button key={key} onClick={() => onChange(key)}
@@ -367,13 +399,14 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   }
 
   return (
+   <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))}>
     <PageContainer width="wide" className="grid grid-cols-1 gap-6 py-6 xl:grid-cols-[1fr_400px]">
       {/* Main column */}
       <div className="min-w-0 space-y-5">
         {isPending ? (
           <Skeleton className="aspect-video w-full rounded-card" />
         ) : (
-          <div className="relative">
+          <div className="relative rounded-card shadow-2xl ring-1 ring-white/10">
             <VideoPlayer
               ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
               resumeSec={resumeSec} onEnded={onEnded}
@@ -429,7 +462,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
           </div>
         ) : (
-          <Card className="p-3">
+          <Card className="border-white/10 bg-white/[0.04] p-3">
             <div className="mb-2 flex items-center justify-between px-1">
               <h3 className="text-sm font-semibold">Up next</h3>
               <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -448,6 +481,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
         )}
       </aside>
     </PageContainer>
+   </WatchCinema>
   )
 }
 
@@ -613,7 +647,7 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
           </Button>
         ) : (
           <Button size="icon" onClick={toggleSub} disabled={subBusy} title="Subscribe" aria-label="Subscribe"
-            className="bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+            className="bg-[var(--yt-accent)] text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
             {subBusy ? <Spinner className="text-white" /> : <Plus className="size-4" />}
           </Button>
         ))}
@@ -1098,13 +1132,14 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments' })
 
   return (
+   <WatchCinema art={item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : null}>
     <PageContainer width="wide" className="grid grid-cols-1 gap-6 py-6 xl:grid-cols-[1fr_400px]">
       {/* Main column */}
       <div className="min-w-0 space-y-5">
         {/* Vertical (TikTok/Reels) videos are capped by HEIGHT so the title + action row stay
             visible beneath the player instead of a full 9:16 tower pushing them off-screen. */}
         <div className={item.vertical ? 'flex justify-center' : ''}>
-          <div className="relative">
+          <div className="relative rounded-card shadow-2xl ring-1 ring-white/10">
             {showEmbed ? (
               source === 'vimeo' ? (
                 <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
@@ -1189,7 +1224,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
               </Button>
             ) : (
               <Button size="icon" onClick={() => followMutation.mutate()} disabled={followMutation.isPending} title="Subscribe" aria-label="Subscribe"
-                className="bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+                className="bg-[var(--yt-accent)] text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
                 {followMutation.isPending ? <Spinner className="text-white" /> : <Plus className="size-4" />}
               </Button>
             ))}
@@ -1271,6 +1306,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
         {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
       </aside>
     </PageContainer>
+   </WatchCinema>
   )
 }
 
@@ -1303,7 +1339,7 @@ function RelatedVideosCard({ source, excludeId }: { source: VideoSource; exclude
   const items = (data?.items ?? []).filter((i) => i.id !== excludeId).slice(0, 12)
   if (!items.length) return null
   return (
-    <Card className="p-3">
+    <Card className="border-white/10 bg-white/[0.04] p-3">
       <div className="mb-2 px-1"><h3 className="text-sm font-semibold">Related videos</h3></div>
       <div className="space-y-1">
         {items.map((i) => (
@@ -1329,7 +1365,7 @@ function MoreFromCreatorCard({ source, creatorId, excludeId }: { source: VideoSo
   const { data } = useQuery({ queryKey: ['videos-creator', source, creatorId], queryFn: () => getSourceCreator(source, creatorId) })
   const items = (data?.videos.items ?? []).filter((i) => i.id !== excludeId).slice(0, 15)
   return (
-    <Card className="p-3">
+    <Card className="border-white/10 bg-white/[0.04] p-3">
       <div className="mb-2 px-1"><h3 className="text-sm font-semibold">More from this creator</h3></div>
       <div className="space-y-1">
         {items.map((i) => (
