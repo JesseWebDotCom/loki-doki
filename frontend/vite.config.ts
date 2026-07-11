@@ -166,5 +166,48 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+    // The default 500kB warning fired on the old 8.5MB monolithic entry. After code-splitting,
+    // the eager first-paint path is ~1MB gzip across cacheable chunks; every remaining chunk
+    // above 500kB is either the app core (index) or a single third-party library isolated to a
+    // lazy route it only loads on demand (mdi icon set, maplibre, alphatab, codemirror). Raise
+    // the threshold so the warning stops flagging those intentional isolations. If a NEW eager
+    // chunk grows past this, that's worth investigating — check the index/vendor-* sizes.
+    chunkSizeWarningLimit: 2900,
+    rollupOptions: {
+      output: {
+        // Split heavy vendor libs into their own cacheable chunks instead of one monolithic
+        // entry bundle. Libs used only by lazy routes (maplibre/xterm/codemirror/alphatab)
+        // become dynamic chunks the entry never loads; the rest are separate long-cache files
+        // so a code change doesn't re-download all of node_modules.
+        // Isolate the heaviest leaf libraries. Those used only by lazy routes (maplibre, xterm,
+        // codemirror, alphatab, audio synths) become dynamic chunks the entry never loads.
+        // Everything else returns undefined so Rollup's automatic per-route splitting distributes
+        // it — a catch-all "vendor" bucket would just rebuild one monolithic always-loaded chunk.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("maplibre") || id.includes("pmtiles")) return "vendor-maplibre";
+          if (id.includes("react-syntax-highlighter") || id.includes("refractor") || id.includes("lowlight") || id.includes("highlight.js")) return "vendor-syntax";
+          if (id.includes("@xterm")) return "vendor-xterm";
+          if (id.includes("@codemirror") || id.includes("@uiw") || id.includes("codemirror")) return "vendor-codemirror";
+          if (id.includes("@coderline/alphatab")) return "vendor-alphatab";
+          if (id.includes("@dicebear")) return "vendor-dicebear";
+          if (id.includes("katex")) return "vendor-katex";
+          if (id.includes("spessasynth") || id.includes("@tonejs") || id.includes("soundtouch")) return "vendor-audio";
+          if (id.includes("react-router") || id.includes("/react-dom/") || id.includes("/react/") || id.includes("/scheduler/")) return "vendor-react";
+          if (id.includes("@tanstack")) return "vendor-tanstack";
+          // Icon libraries get one chunk each (each is large and reached from broadly-shared
+          // components) so they're cached independently of app code and of each other, instead
+          // of collapsing into one ~3MB blob or bloating the entry chunk.
+          if (id.includes("@tabler/icons")) return "vendor-tabler";
+          if (id.includes("lucide-react")) return "vendor-lucide";
+          // @mdi/js is intentionally NOT bucketed: it's only dynamically imported now (HAIcon,
+          // for custom icons), so Rollup isolates it into a lazy chunk loaded on demand.
+          // Markdown/radix/motion are used by eager pages, so isolate them for caching.
+          if (id.includes("react-markdown") || id.includes("remark") || id.includes("rehype") || id.includes("micromark") || id.includes("mdast") || id.includes("/hast") || id.includes("unified") || id.includes("unist") || id.includes("/vfile") || id.includes("/decode-named") || id.includes("/property-information")) return "vendor-markdown";
+          if (id.includes("@radix-ui")) return "vendor-radix";
+          if (id.includes("framer-motion") || id.includes("motion-dom") || id.includes("motion-utils")) return "vendor-motion";
+        },
+      },
+    },
   },
 });

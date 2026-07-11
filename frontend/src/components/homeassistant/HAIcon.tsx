@@ -6,7 +6,7 @@ import {
   mdiPowerPlug, mdiPowerPlugOff, mdiRollerShade, mdiRollerShadeClosed, mdiSnowflake, mdiSpeaker,
   mdiTelevision, mdiThermostat, mdiToggleSwitch, mdiToggleSwitchOff, mdiWindowClosed, mdiWindowOpen,
   mdiWindowShutter, mdiWindowShutterOpen,
-} from '@mdi/js'
+} from './haDefaultIcons'
 import type { HAEntity } from './DeviceDetailDialog'
 
 // Renders the SAME icon Home Assistant shows for an entity:

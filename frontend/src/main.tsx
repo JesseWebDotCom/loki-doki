@@ -3,8 +3,6 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import maplibregl from 'maplibre-gl'
-import { Protocol } from 'pmtiles'
 import './index.css'
 import 'katex/dist/katex.min.css'
 import App from './App.tsx'
@@ -18,17 +16,12 @@ import { reportClientError } from './lib/clientErrorReport.ts'
 window.addEventListener('error', (e) => reportClientError('window-error', e.error ?? e.message))
 window.addEventListener('unhandledrejection', (e) => reportClientError('unhandled-rejection', e.reason))
 
-// Register the pmtiles:// protocol so MapLibre can read offline vector-tile
-// archives served by the maps backend. Guarded so HMR never double-registers.
+// The pmtiles:// protocol MapLibre uses is registered inside the lazy MapsPage chunk so
+// maplibre-gl isn't hoisted into this entry bundle. (window flag declared below.)
 declare global {
   interface Window {
     __lokidokiPmtilesProtocolInstalled__?: boolean
   }
-}
-if (!window.__lokidokiPmtilesProtocolInstalled__) {
-  const pmtilesProtocol = new Protocol()
-  maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile)
-  window.__lokidokiPmtilesProtocolInstalled__ = true
 }
 
 // When the network interface changes on sleep/wake, Vite's ESM fetches fail with

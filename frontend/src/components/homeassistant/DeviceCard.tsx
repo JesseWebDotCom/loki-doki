@@ -3,7 +3,7 @@ import {
   ChevronDown, ChevronUp, Lock, LockOpen, Minus, Pause, Play, Plus,
   MoreHorizontal, ShieldAlert, SkipBack, SkipForward, Square, Star,
 } from 'lucide-react'
-import { mdiAutorenew, mdiFan, mdiFire, mdiPower, mdiSnowflake, mdiWaterPercent } from '@mdi/js'
+import { mdiAutorenew, mdiFan, mdiFire, mdiPower, mdiSnowflake, mdiWaterPercent } from './haDefaultIcons'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/cn'

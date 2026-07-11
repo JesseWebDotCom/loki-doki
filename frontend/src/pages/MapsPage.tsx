@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { Protocol } from "pmtiles";
 import { MapPin } from "lucide-react";
+
+// Register the pmtiles:// protocol so MapLibre can read offline vector-tile archives. Lives
+// here (in the lazy Maps chunk) rather than main.tsx so maplibre-gl (~800KB) isn't hoisted into
+// the entry bundle every session pays for. Runs once when this chunk first loads; guarded so
+// HMR never double-registers.
+if (!window.__lokidokiPmtilesProtocolInstalled__) {
+  maplibregl.addProtocol("pmtiles", new Protocol().tile);
+  window.__lokidokiPmtilesProtocolInstalled__ = true;
+}
 import { PageShell } from "@/components/shared/PageShell";
 import { SpaceBackdrop } from "@/components/shared/SpaceBackdrop";
 

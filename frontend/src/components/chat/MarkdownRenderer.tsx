@@ -3,9 +3,33 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+// PrismLight ships no languages by default — register only the ones chat code blocks actually
+// use, instead of the full Prism build (all ~300 grammars) that was bloating the entry chunk.
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
+import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
 import { Check, Copy } from 'lucide-react'
+
+for (const [name, lang] of [
+  ['jsx', jsx], ['tsx', tsx], ['typescript', typescript], ['ts', typescript],
+  ['javascript', javascript], ['js', javascript], ['python', python], ['py', python],
+  ['bash', bash], ['sh', bash], ['shell', bash], ['json', json], ['css', css],
+  ['markup', markup], ['html', markup], ['xml', markup], ['sql', sql], ['yaml', yaml],
+  ['yml', yaml], ['markdown', markdown], ['md', markdown],
+] as const) {
+  SyntaxHighlighter.registerLanguage(name, lang)
+}
 import { cn } from '@/lib/cn'
 import { CitationChip } from './CitationChip'
 import { transformCitations } from '@/lib/transformCitations'

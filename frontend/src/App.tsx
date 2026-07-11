@@ -55,64 +55,7 @@ import { NewsReadPage } from '@/pages/news/NewsReadPage'
 import { SavePage } from '@/pages/SavePage'
 import { BoredPage } from '@/pages/BoredPage'
 import { VideoPage } from '@/pages/VideoPage'
-import { HomeInventoryPage } from '@/pages/HomeInventoryPage'
-import { CompanionStoreLayout } from '@/components/companions/store/CompanionStoreLayout'
-import { CompanionHomePage } from '@/pages/companion-store/CompanionHomePage'
-import { CompanionBrowsePage } from '@/pages/companion-store/CompanionBrowsePage'
-import { CompanionCategoriesPage } from '@/pages/companion-store/CompanionCategoriesPage'
-import { CompanionCategoryPage } from '@/pages/companion-store/CompanionCategoryPage'
-import { CompanionFavoritesPage } from '@/pages/companion-store/CompanionFavoritesPage'
-import { CompanionDetailPage } from '@/pages/companion-store/CompanionDetailPage'
-import { CompanionStudioPage } from '@/pages/companion-store/CompanionStudioPage'
-import { DocsPage } from '@/pages/DocsPage'
-import { NewsPage } from '@/pages/NewsPage'
-import { OnThisDayPage } from '@/pages/OnThisDayPage'
-import { RecipesPage } from '@/pages/RecipesPage'
-import { ShowtimesPage } from '@/pages/ShowtimesPage'
-import { SkillsPage } from '@/pages/SkillsPage'
-import { VoiceMemosPage } from '@/pages/VoiceMemosPage'
-import { JokePage } from '@/pages/JokePage'
-import { UnitConverterPage } from '@/pages/UnitConverterPage'
-import { SpeedTestPage } from '@/pages/SpeedTestPage'
-import { ShoppingPage } from '@/pages/shopping/ShoppingPage'
-import { ProductDetailPage } from '@/pages/shopping/ProductDetailPage'
-import { CodingPage } from '@/pages/coding/CodingPage'
-import { CamerasPage } from '@/pages/CamerasPage'
-import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
-import { ConverterPage } from '@/pages/ConverterPage'
-import { DropPage } from '@/pages/DropPage'
-import { ClipperPage } from '@/pages/ClipperPage'
-import { CanvasPage } from '@/pages/CanvasPage'
-import { PodcastLayout } from '@/components/podcast/PodcastLayout'
-import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
-import { PodcastBrowsePage } from '@/pages/podcast/PodcastBrowsePage'
-import { PodcastPreviewPage } from '@/pages/podcast/PodcastPreviewPage'
-import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
-import { PodcastOfflinePage } from '@/pages/podcast/PodcastOfflinePage'
-import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
-import { PodcastSettingsPage } from '@/pages/podcast/PodcastSettingsPage'
-import { DictionaryPage } from '@/pages/DictionaryPage'
-import { ShowsHomePage } from '@/pages/shows/ShowsHomePage'
-import { ShowDetailPage as ShowsDetailPage } from '@/pages/shows/ShowDetailPage'
-import { MoviesHomePage } from '@/pages/movies/MoviesHomePage'
-import { MovieDetailPage } from '@/pages/movies/MovieDetailPage'
-import { MoviesSettingsPage } from '@/pages/movies/MoviesSettingsPage'
-import { WhereToWatchPage } from '@/pages/WhereToWatchPage'
 import { MedicalPage } from '@/pages/MedicalPage'
-import { ReferencePage } from '@/pages/reference/ReferencePage'
-import { SportsPage } from '@/pages/SportsPage'
-import { HolidaysPage } from '@/pages/HolidaysPage'
-import { MoonPhasePage } from '@/pages/MoonPhasePage'
-import { HomeAssistantPage } from '@/pages/HomeAssistantPage'
-import { HomeAssistantSettingsPage } from '@/pages/HomeAssistantSettingsPage'
-import { LocalEventsPage } from '@/pages/LocalEventsPage'
-import { StoreLayout } from '@/components/store/StoreLayout'
-import { StoreHomePage } from '@/pages/store/StoreHomePage'
-import { StoreBrowsePage } from '@/pages/store/StoreBrowsePage'
-import { StoreCategoriesPage } from '@/pages/store/StoreCategoriesPage'
-import { StoreCategoryPage } from '@/pages/store/StoreCategoryPage'
-import { StoreAppDetailPage } from '@/pages/store/StoreAppDetailPage'
-import { StoreInstalledPage } from '@/pages/store/StoreInstalledPage'
 
 // Lazy-loaded: each of these pulls in a heavy leaf dependency (MapLibre/pmtiles, the full
 // admin panel, image-gen UI, InnerTube/player, or the music engine) that most sessions
@@ -122,6 +65,67 @@ import { StoreInstalledPage } from '@/pages/store/StoreInstalledPage'
 const MapsPage = lazy(() => import('@/pages/MapsPage').then((m) => ({ default: m.MapsPage })))
 const ImagingPage = lazy(() => import('@/pages/ImagingPage').then((m) => ({ default: m.ImagingPage })))
 const AdminPage = lazy(() => import('@/pages/AdminPage').then((m) => ({ default: m.AdminPage })))
+
+// Non-first-open routes, split out of the entry chunk (Coding pulls xterm, Canvas pulls
+// CodeMirror, and the podcast/store/companion-store/shows/movies groups are large but rarely
+// the first page a session opens).
+const HomeInventoryPage = lazy(() => import('@/pages/HomeInventoryPage').then((m) => ({ default: m.HomeInventoryPage })))
+const CompanionStoreLayout = lazy(() => import('@/components/companions/store/CompanionStoreLayout').then((m) => ({ default: m.CompanionStoreLayout })))
+const CompanionHomePage = lazy(() => import('@/pages/companion-store/CompanionHomePage').then((m) => ({ default: m.CompanionHomePage })))
+const CompanionBrowsePage = lazy(() => import('@/pages/companion-store/CompanionBrowsePage').then((m) => ({ default: m.CompanionBrowsePage })))
+const CompanionCategoriesPage = lazy(() => import('@/pages/companion-store/CompanionCategoriesPage').then((m) => ({ default: m.CompanionCategoriesPage })))
+const CompanionCategoryPage = lazy(() => import('@/pages/companion-store/CompanionCategoryPage').then((m) => ({ default: m.CompanionCategoryPage })))
+const CompanionFavoritesPage = lazy(() => import('@/pages/companion-store/CompanionFavoritesPage').then((m) => ({ default: m.CompanionFavoritesPage })))
+const CompanionDetailPage = lazy(() => import('@/pages/companion-store/CompanionDetailPage').then((m) => ({ default: m.CompanionDetailPage })))
+const CompanionStudioPage = lazy(() => import('@/pages/companion-store/CompanionStudioPage').then((m) => ({ default: m.CompanionStudioPage })))
+const DocsPage = lazy(() => import('@/pages/DocsPage').then((m) => ({ default: m.DocsPage })))
+const NewsPage = lazy(() => import('@/pages/NewsPage').then((m) => ({ default: m.NewsPage })))
+const OnThisDayPage = lazy(() => import('@/pages/OnThisDayPage').then((m) => ({ default: m.OnThisDayPage })))
+const RecipesPage = lazy(() => import('@/pages/RecipesPage').then((m) => ({ default: m.RecipesPage })))
+const ShowtimesPage = lazy(() => import('@/pages/ShowtimesPage').then((m) => ({ default: m.ShowtimesPage })))
+const SkillsPage = lazy(() => import('@/pages/SkillsPage').then((m) => ({ default: m.SkillsPage })))
+const VoiceMemosPage = lazy(() => import('@/pages/VoiceMemosPage').then((m) => ({ default: m.VoiceMemosPage })))
+const JokePage = lazy(() => import('@/pages/JokePage').then((m) => ({ default: m.JokePage })))
+const UnitConverterPage = lazy(() => import('@/pages/UnitConverterPage').then((m) => ({ default: m.UnitConverterPage })))
+const SpeedTestPage = lazy(() => import('@/pages/SpeedTestPage').then((m) => ({ default: m.SpeedTestPage })))
+const ShoppingPage = lazy(() => import('@/pages/shopping/ShoppingPage').then((m) => ({ default: m.ShoppingPage })))
+const ProductDetailPage = lazy(() => import('@/pages/shopping/ProductDetailPage').then((m) => ({ default: m.ProductDetailPage })))
+const CodingPage = lazy(() => import('@/pages/coding/CodingPage').then((m) => ({ default: m.CodingPage })))
+const CamerasPage = lazy(() => import('@/pages/CamerasPage').then((m) => ({ default: m.CamerasPage })))
+const ReverseLookupPage = lazy(() => import('@/pages/ReverseLookupPage').then((m) => ({ default: m.ReverseLookupPage })))
+const ConverterPage = lazy(() => import('@/pages/ConverterPage').then((m) => ({ default: m.ConverterPage })))
+const DropPage = lazy(() => import('@/pages/DropPage').then((m) => ({ default: m.DropPage })))
+const ClipperPage = lazy(() => import('@/pages/ClipperPage').then((m) => ({ default: m.ClipperPage })))
+const CanvasPage = lazy(() => import('@/pages/CanvasPage').then((m) => ({ default: m.CanvasPage })))
+const PodcastLayout = lazy(() => import('@/components/podcast/PodcastLayout').then((m) => ({ default: m.PodcastLayout })))
+const ListenNowPage = lazy(() => import('@/pages/podcast/ListenNowPage').then((m) => ({ default: m.ListenNowPage })))
+const PodcastBrowsePage = lazy(() => import('@/pages/podcast/PodcastBrowsePage').then((m) => ({ default: m.PodcastBrowsePage })))
+const PodcastPreviewPage = lazy(() => import('@/pages/podcast/PodcastPreviewPage').then((m) => ({ default: m.PodcastPreviewPage })))
+const PodcastLibraryPage = lazy(() => import('@/pages/podcast/PodcastLibraryPage').then((m) => ({ default: m.PodcastLibraryPage })))
+const PodcastOfflinePage = lazy(() => import('@/pages/podcast/PodcastOfflinePage').then((m) => ({ default: m.PodcastOfflinePage })))
+const ShowDetailPage = lazy(() => import('@/pages/podcast/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
+const PodcastSettingsPage = lazy(() => import('@/pages/podcast/PodcastSettingsPage').then((m) => ({ default: m.PodcastSettingsPage })))
+const DictionaryPage = lazy(() => import('@/pages/DictionaryPage').then((m) => ({ default: m.DictionaryPage })))
+const ShowsHomePage = lazy(() => import('@/pages/shows/ShowsHomePage').then((m) => ({ default: m.ShowsHomePage })))
+const ShowsDetailPage = lazy(() => import('@/pages/shows/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
+const MoviesHomePage = lazy(() => import('@/pages/movies/MoviesHomePage').then((m) => ({ default: m.MoviesHomePage })))
+const MovieDetailPage = lazy(() => import('@/pages/movies/MovieDetailPage').then((m) => ({ default: m.MovieDetailPage })))
+const MoviesSettingsPage = lazy(() => import('@/pages/movies/MoviesSettingsPage').then((m) => ({ default: m.MoviesSettingsPage })))
+const WhereToWatchPage = lazy(() => import('@/pages/WhereToWatchPage').then((m) => ({ default: m.WhereToWatchPage })))
+const ReferencePage = lazy(() => import('@/pages/reference/ReferencePage').then((m) => ({ default: m.ReferencePage })))
+const SportsPage = lazy(() => import('@/pages/SportsPage').then((m) => ({ default: m.SportsPage })))
+const HolidaysPage = lazy(() => import('@/pages/HolidaysPage').then((m) => ({ default: m.HolidaysPage })))
+const MoonPhasePage = lazy(() => import('@/pages/MoonPhasePage').then((m) => ({ default: m.MoonPhasePage })))
+const HomeAssistantPage = lazy(() => import('@/pages/HomeAssistantPage').then((m) => ({ default: m.HomeAssistantPage })))
+const HomeAssistantSettingsPage = lazy(() => import('@/pages/HomeAssistantSettingsPage').then((m) => ({ default: m.HomeAssistantSettingsPage })))
+const LocalEventsPage = lazy(() => import('@/pages/LocalEventsPage').then((m) => ({ default: m.LocalEventsPage })))
+const StoreLayout = lazy(() => import('@/components/store/StoreLayout').then((m) => ({ default: m.StoreLayout })))
+const StoreHomePage = lazy(() => import('@/pages/store/StoreHomePage').then((m) => ({ default: m.StoreHomePage })))
+const StoreBrowsePage = lazy(() => import('@/pages/store/StoreBrowsePage').then((m) => ({ default: m.StoreBrowsePage })))
+const StoreCategoriesPage = lazy(() => import('@/pages/store/StoreCategoriesPage').then((m) => ({ default: m.StoreCategoriesPage })))
+const StoreCategoryPage = lazy(() => import('@/pages/store/StoreCategoryPage').then((m) => ({ default: m.StoreCategoryPage })))
+const StoreAppDetailPage = lazy(() => import('@/pages/store/StoreAppDetailPage').then((m) => ({ default: m.StoreAppDetailPage })))
+const StoreInstalledPage = lazy(() => import('@/pages/store/StoreInstalledPage').then((m) => ({ default: m.StoreInstalledPage })))
 
 const MusicLayout = lazy(() => import('@/components/music/MusicLayout').then((m) => ({ default: m.MusicLayout })))
 const MusicHomePage = lazy(() => import('@/pages/music/MusicHomePage').then((m) => ({ default: m.MusicHomePage })))
