@@ -95,7 +95,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Frame shape: 'video' self-sizes to 16:9; 'short' fills its parent (the parent
   // sizes the 9:16 box); used by the vertical Shorts feed.
   aspect?: 'video' | 'short'
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
+  /** Square corners for full-bleed cinema surfaces (the watch hero); default keeps rounded-card. */
+  frameless?: boolean
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video', frameless = false }, ref) {
   const stripVariant = useVisualizerPref()
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -454,7 +456,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 
   return (
     <div ref={wrapRef} onMouseLeave={() => { setMenu(null); setBoostOpen(false) }}
-      className={cn('group relative overflow-hidden rounded-card bg-black',
+      className={cn('group relative overflow-hidden bg-black', !frameless && 'rounded-card',
         aspect === 'short' ? 'size-full' : 'aspect-video w-full')}>
       <div ref={frameRef} className="size-full">
         {nativeVideoSrc ? (

@@ -34,7 +34,7 @@ export function VimeoWatchPlayer({ embedUrl, title, vertical }: { embedUrl: stri
   }
 
   return (
-    <div ref={wrapRef} className={cn('group relative overflow-hidden rounded-card bg-black',
+    <div ref={wrapRef} className={cn('group relative overflow-hidden bg-black', vertical && 'rounded-card',
       vertical ? 'aspect-[9/16] h-[min(64vh,600px)]' : 'aspect-video w-full')}>
       <iframe ref={iframeRef} src={embedUrl} title={title}
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen

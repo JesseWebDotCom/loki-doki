@@ -3,7 +3,7 @@ import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'reac
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
-  ThumbsUp, ThumbsDown, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
+  ThumbsUp, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2, PictureInPicture2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -116,22 +116,6 @@ function WatchCinema({ art, children }: { art: string | null; children: React.Re
       <div className="relative">{children}</div>
     </div>
   )
-}
-
-/** A compact icon button that lives inside one of the grouped segment bars in the action row.
- *  Renders as a <Link> when `to` is set, otherwise a <button>. Shared by every source. */
-function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, onClick, to }: {
-  icon: typeof Heart; label: string; title?: string; active?: boolean
-  tone?: 'accent' | 'success' | 'info'; iconFill?: boolean; onClick?: () => void; to?: string
-}) {
-  const activeText = tone === 'success' ? 'text-success' : tone === 'info' ? 'text-info' : 'text-[var(--yt-accent-fg)]'
-  const cls = cn(
-    'grid size-8 place-items-center rounded-full transition-colors hover:bg-white/15',
-    active ? cn('bg-black/40', activeText) : 'text-foreground/80',
-  )
-  const icon = <Icon className={cn('size-4', iconFill && 'fill-current')} />
-  if (to) return <Link to={to} title={title ?? label} aria-label={label} className={cls}>{icon}</Link>
-  return <button onClick={onClick} title={title ?? label} aria-label={label} className={cls}>{icon}</button>
 }
 
 /** Views + expandable description, the same Card style everywhere. The toggle only shows when
@@ -396,17 +380,15 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
   return (
    <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))}>
-    <PageContainer width="wide" className="space-y-6 py-6">
-      {/* Theater stage: the player is the page's hero - full-width band, centered and
-          height-capped like a cinema screen, floating on a glow in the video's own accent
-          instead of sitting boxed inside a column (the YouTube skeleton). */}
+    <PageContainer width="wide" className="py-6">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
+      {/* Main column: player, then a calm title block (course-page language: one title,
+          a couple of labeled actions, readable description - nothing else). */}
+      <div className="min-w-0 space-y-5">
       {isPending ? (
-        // design-ok(adhoc-container): theater-stage width cap (viewport-height-derived), not a page container
-        <Skeleton className="mx-auto aspect-video w-full max-w-[calc(72vh*(16/9))] rounded-card" />
+        <Skeleton className="aspect-video w-full rounded-card" />
       ) : (
-        // design-ok(adhoc-container): theater-stage width cap (viewport-height-derived), not a page container
-        <div className="relative mx-auto w-full max-w-[calc(72vh*(16/9))] rounded-card bg-black ring-1 ring-white/10"
-          style={{ boxShadow: '0 50px 160px -50px var(--yt-accent)' }}>
+        <div className="relative overflow-hidden rounded-card shadow-2xl">
             <VideoPlayer
               ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
               resumeSec={resumeSec} onEnded={onEnded}
@@ -437,9 +419,6 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           </div>
         )}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_400px]">
-      {/* Main column */}
-      <div className="min-w-0 space-y-5">
         <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
           votes={votes ?? null} localKind={localKind}
           privacy={privacy} onTogglePrivacy={togglePrivacy}
@@ -600,90 +579,75 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
     } catch { toast.error('Could not update subscription') } finally { setSubBusy(false) }
   }
 
+  const subtitle = (
+    // The creator is a quiet subtitle line under the title (course-page language), not a
+    // chip competing with the actions. Subscribe rides along as one compact pill.
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1.5">
+      {author && (
+        <span className="flex items-center gap-2">
+          <CreatorAvatar title={author} src={channelThumb} className="size-6 text-[10px] ring-1 ring-white/15" />
+          {channelId ? (
+            <Link to={`/videos/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
+              className="text-sm font-medium text-white/80 transition-colors hover:text-[var(--yt-accent-fg)]">{author}</Link>
+          ) : (
+            <span className="text-sm font-medium text-white/80">{author}</span>
+          )}
+          {subscribers && <span className="text-xs text-muted-foreground">{subscribers}</span>}
+        </span>
+      )}
+      {channelId && (subbed ? (
+        // design-ok(glass-on-plain-bg): compact pill over the UltraBlur cinema backdrop
+        <Button size="sm" onClick={toggleSub} disabled={subBusy} title="Subscribed. Click to unsubscribe"
+          className="h-7 rounded-full bg-white/10 px-3 text-xs font-semibold text-foreground/75 shadow-none hover:bg-destructive/20 hover:text-destructive disabled:opacity-60">
+          {subBusy ? <Spinner className="size-3" /> : <Check className="size-3.5" />} Subscribed
+        </Button>
+      ) : (
+        <Button size="sm" onClick={toggleSub} disabled={subBusy} title="Subscribe"
+          className="h-7 rounded-full bg-[var(--yt-accent)] px-3 text-xs font-semibold text-[var(--yt-accent-contrast,white)] shadow-none hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+          {subBusy ? <Spinner className="size-3 text-current" /> : <Plus className="size-3.5" />} Subscribe
+        </Button>
+      ))}
+    </div>
+  )
+
   return (
     <div className="space-y-4">
       {unsubDialog}
-      {/* Eyebrow + big editorial title (the music player's hierarchy: quiet overline meta,
-          loud name) - no control cluster competing with the title line. */}
-      <div className="space-y-1.5">
-        {views && <p className="text-overline text-white/50">{views}</p>}
-        {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-        <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{title}</h1>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2.5">
-        {/* Creator identity chip: avatar + name + subs in one glass pill, like a music artist chip. */}
-        {/* design-ok(glass-on-plain-bg): identity chip over the UltraBlur cinema backdrop */}
-        {author && (channelId ? (
-          <Link to={`/videos/youtube/channel/${encodeURIComponent(channelId)}`} state={{ title: author, thumbnailUrl: channelThumb }}
-            className="group flex items-center gap-2.5 rounded-full bg-white/10 py-1 pl-1 pr-4 transition-colors hover:bg-white/15">
-            <CreatorAvatar title={author} src={channelThumb} className="size-9 text-sm ring-1 ring-white/15 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
-            <div>
-              <p className="text-sm font-semibold leading-tight transition-colors group-hover:text-[var(--yt-accent-fg)]">{author}</p>
-              {subscribers && <p className="text-xs leading-tight text-muted-foreground">{subscribers}</p>}
-            </div>
-          </Link>
-        ) : (
-          // design-ok(glass-on-plain-bg): identity chip over the UltraBlur cinema backdrop
-          <div className="flex items-center gap-2.5 rounded-full bg-white/10 py-1 pl-1 pr-4">
-            <CreatorAvatar title={author} src={channelThumb} className="size-9 text-sm ring-1 ring-white/15" />
-            <div>
-              <p className="text-sm font-semibold leading-tight">{author}</p>
-              {subscribers && <p className="text-xs leading-tight text-muted-foreground">{subscribers}</p>}
-            </div>
-          </div>
-        ))}
-        {channelId && (subbed ? (
-          // design-ok(glass-on-plain-bg): glass pill over the UltraBlur cinema backdrop
-          <Button onClick={toggleSub} disabled={subBusy} title="Subscribed. Click to unsubscribe" aria-label="Subscribed"
-            className="rounded-full bg-white/10 px-4 text-foreground/80 hover:bg-destructive/20 hover:text-destructive disabled:opacity-60">
-            {subBusy ? <Spinner /> : <><Check className="size-4" /> Subscribed</>}
+      {/* One calm header row: eyebrow + title + creator subtitle on the left, exactly two
+          labeled actions (Save, Share) + a ⋯ menu on the right. Everything else lives in
+          the menu - likes ride in the eyebrow. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0 flex-1 basis-72 space-y-1.5">
+          {(views || votes) && (
+            <p className="text-overline text-white/50" title={votes ? `${fmtCount(votes.likes)} likes · ${fmtCount(votes.dislikes)} dislikes (Return YouTube Dislike)` : undefined}>
+              {[views, votes ? `${fmtCount(votes.likes)} likes` : null].filter(Boolean).join(' · ')}
+            </p>
+          )}
+          {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
+          <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{title}</h1>
+          {subtitle}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 pt-1.5">
+          {!localKind && (
+            // design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop
+            <Button onClick={saveState === 'saving' ? undefined : saveVideoOffline} disabled={saveState === 'saved'}
+              title="Save offline: this server downloads the video so you can watch it later without streaming."
+              className={cn('rounded-full px-4 shadow-none', saveState === 'saved'
+                ? 'bg-white/10 text-foreground/75 disabled:opacity-100'
+                : 'bg-white/10 text-foreground/90 hover:bg-white/15')}>
+              {saveState === 'saved' ? <><Check className="size-4" /> Saved</>
+                : saveState === 'saving' ? <><Spinner className="size-4" /> Saving</>
+                : <><HardDriveDownload className="size-4" /> Save</>}
+            </Button>
+          )}
+          {/* design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop */}
+          <Button onClick={() => void shareLink(`${window.location.origin}/videos/youtube/watch/${videoId}`, { label: 'Link' })}
+            className="rounded-full bg-white/10 px-4 text-foreground/90 shadow-none hover:bg-white/15">
+            <Share2 className="size-4" /> Share
           </Button>
-        ) : (
-          <Button onClick={toggleSub} disabled={subBusy} title="Subscribe" aria-label="Subscribe"
-            className="rounded-full bg-[var(--yt-accent)] px-4 text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
-            {subBusy ? <Spinner className="text-current" /> : <><Plus className="size-4" /> Subscribe</>}
-          </Button>
-        ))}
-        {votes && <VotesBar votes={votes} />}
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {/* Player options: display/viewing prefs, kept apart from the social actions. */}
-          {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+          {/* design-ok(glass-on-plain-bg): compact icon pair over the UltraBlur cinema backdrop */}
           <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
-            <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
-              title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
-            {online && (
-              <SegBtn icon={ShieldCheck} label="Private stream" active={privacy} tone="success" iconFill={privacy} onClick={onTogglePrivacy}
-                title="Private stream: route through this server so Google never sees you. Slower to start and caps at 720p." />
-            )}
-            {online && (
-              <SegBtn icon={Headphones} label="Audio only" active={audioOnly} tone="info" onClick={onToggleAudioOnly}
-                title="Audio only: play just the audio to save bandwidth." />
-            )}
-            {isShortVid && (
-              <SegBtn icon={Smartphone} label="Shorts view" to={`/videos/youtube/shorts/${videoId}`} title="Open in Shorts view" />
-            )}
-          </div>
-          {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
-          {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
-          <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
-            <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked} onClick={() => toggleCollection('liked', snapshot)} />
             <AddToPlaylistPill compact video={{ videoId, title, author: author ?? undefined, channelId: channelId ?? undefined, durationSec: meta?.durationSec ?? undefined }} />
-            {online && meta?.isLive && (
-              <SegBtn icon={recording ? Square : Circle} label={recording ? 'Stop recording' : 'Record from start'}
-                active={recording} tone="accent" iconFill={recording} onClick={recordBusy ? undefined : toggleRecording}
-                title={recording ? 'Stop recording — keeps what was captured' : 'Record this livestream from its start'} />
-            )}
-            {!localKind && (
-              <SegBtn icon={saveState === 'saved' ? Check : HardDriveDownload}
-                label={saveState === 'saved' ? 'Saved offline' : saveState === 'saving' ? 'Saving offline…' : 'Save offline'}
-                active={saveState === 'saved'} iconFill={false}
-                onClick={saveState === 'saving' ? undefined : saveVideoOffline}
-                title="Save offline: this server downloads the video so you can watch it later without streaming." />
-            )}
-            <SegBtn icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)}
-              title="Download: pull the video file down to this device (like any web download)." />
-            <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/videos/youtube/watch/${videoId}`, { label: 'Link' })} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button title="More actions" aria-label="More actions"
@@ -691,11 +655,46 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
                   <MoreHorizontal className="size-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={() => toggleCollection('liked', snapshot)}>
+                  <Heart className={cn('size-4', liked && 'fill-current text-[var(--yt-accent-fg)]')} />
+                  {liked ? 'Remove from Liked' : 'Like'}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => toggleCollection('watch-later', snapshot)}>
                   <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
                   {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => ui.openDownload(videoId, title, localKind)}>
+                  <Download className="size-4" /> Download
+                </DropdownMenuItem>
+                {online && meta?.isLive && (
+                  <DropdownMenuItem onClick={recordBusy ? undefined : toggleRecording}>
+                    {recording ? <Square className="size-4 fill-current text-[var(--yt-accent-fg)]" /> : <Circle className="size-4" />}
+                    {recording ? 'Stop recording' : 'Record from start'}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={onMinimize}
+                  title="Keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy).">
+                  <SquareArrowOutDownLeft className="size-4" /> Minimize to mini-player
+                </DropdownMenuItem>
+                {online && (
+                  <DropdownMenuItem onClick={onTogglePrivacy}
+                    title="Route through this server so Google never sees you. Slower to start and caps at 720p.">
+                    <ShieldCheck className={cn('size-4', privacy && 'fill-current text-success')} />
+                    Private stream {privacy && <Check className="ml-auto size-4" />}
+                  </DropdownMenuItem>
+                )}
+                {online && (
+                  <DropdownMenuItem onClick={onToggleAudioOnly} title="Play just the audio to save bandwidth.">
+                    <Headphones className={cn('size-4', audioOnly && 'text-info')} />
+                    Audio only {audioOnly && <Check className="ml-auto size-4" />}
+                  </DropdownMenuItem>
+                )}
+                {isShortVid && (
+                  <DropdownMenuItem asChild>
+                    <Link to={`/videos/youtube/shorts/${videoId}`}><Smartphone className="size-4" /> Open in Shorts view</Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
                   <Mic className="size-4" /> Create podcast
                 </DropdownMenuItem>
@@ -719,19 +718,6 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
       <CreatePodcastDialog open={podcastOpen} onClose={() => setPodcastOpen(false)}
         videos={[{ videoId, title, author: author ?? undefined }]}
         sourceLabel={title} suggestedShowName={author ?? undefined} defaultLabel={title} />
-    </div>
-  )
-}
-
-// Estimated like/dislike counts from Return YouTube Dislike (YouTube hides dislikes).
-function VotesBar({ votes }: { votes: VideoVotes }) {
-  return (
-    // design-ok(glass-on-plain-bg): floating pill over the UltraBlur cinema backdrop
-    <div className="flex items-center rounded-full bg-white/10 text-[13px] font-semibold text-foreground/85"
-      title="Estimated by Return YouTube Dislike">
-      <span className="flex items-center gap-1.5 px-3 py-1.5"><ThumbsUp className="size-3.5" />{fmtCount(votes.likes)}</span>
-      <span className="my-1.5 h-4 w-px bg-border" />
-      <span className="flex items-center gap-1.5 px-3 py-1.5"><ThumbsDown className="size-3.5" />{fmtCount(votes.dislikes)}</span>
     </div>
   )
 }
@@ -789,8 +775,18 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
     return idx
   }, [lines, currentSec, ql])
 
-  // Follow along: keep the active line in view (only while not searching).
-  useEffect(() => { if (activeIdx >= 0) activeRef.current?.scrollIntoView({ block: 'nearest' }) }, [activeIdx])
+  // Follow along: keep the active line in view (only while not searching). Scoped to the
+  // transcript's OWN pane - scrollIntoView would also scroll every ancestor, yanking the
+  // whole page down a notch on every caption change.
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = activeRef.current, list = listRef.current
+    if (activeIdx < 0 || !el || !list) return
+    const y = el.offsetTop
+    if (y < list.scrollTop + 8 || y + el.offsetHeight > list.scrollTop + list.clientHeight - 8) {
+      list.scrollTo({ top: Math.max(0, y - list.clientHeight / 2 + el.offsetHeight / 2) })
+    }
+  }, [activeIdx])
 
   if (isPending) return <Centered><Spinner /> Fetching captions…</Centered>
   const prose = data?.prose ?? null
@@ -806,7 +802,8 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
         {/* 16px on phones so iOS doesn't focus-zoom (Mobile Design Contract). */}
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search transcript" className="w-full bg-transparent text-base outline-none md:text-sm" />
       </div>
-      <div className="max-h-[440px] space-y-1 overflow-y-auto pr-1">
+      {/* `relative` so the active line's offsetTop is measured against THIS pane. */}
+      <div ref={listRef} className="relative max-h-[440px] space-y-1 overflow-y-auto pr-1">
         {lines.length > 0 ? (
           shown.map((l, idx) => {
             const active = !ql && lines[activeIdx] === l
@@ -1148,13 +1145,14 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
   return (
    <WatchCinema art={item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : null}>
-    <PageContainer width="wide" className="space-y-6 py-6">
-        {/* Theater stage: player as the page hero, centered and height-capped, floating on
-            an accent glow. Vertical (TikTok/Reels) videos are capped by HEIGHT so the info
-            below stays visible instead of a full 9:16 tower pushing it off-screen. */}
-        <div className="flex justify-center">
-          <div className={cn('relative rounded-card bg-black ring-1 ring-white/10', !item.vertical && 'w-full max-w-[calc(72vh*(16/9))]')}
-            style={{ boxShadow: '0 50px 160px -50px var(--yt-accent)' }}>
+    <PageContainer width="wide" className="py-6">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
+      {/* Main column: player, then a calm title block (course-page language: one title,
+          a couple of labeled actions, readable description - nothing else). Vertical
+          (TikTok/Reels) videos are capped by HEIGHT so the info stays visible. */}
+      <div className="min-w-0 space-y-5">
+        <div className={item.vertical ? 'flex justify-center' : ''}>
+          <div className={cn('relative', !item.vertical && 'overflow-hidden rounded-card shadow-2xl')}>
             {showEmbed ? (
               source === 'vimeo' ? (
                 <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
@@ -1168,11 +1166,11 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   allowFullScreen
                   className={item.vertical
                     ? 'aspect-[9/16] h-[min(64vh,600px)] rounded-card border-0 bg-black'
-                    : 'aspect-video w-full rounded-card border-0 bg-black'}
+                    : 'aspect-video w-full border-0 bg-black'}
                 />
               )
             ) : (
-              <div ref={nativeWrapRef} className={cn('group relative overflow-hidden rounded-card bg-black',
+              <div ref={nativeWrapRef} className={cn('group relative overflow-hidden bg-black', item.vertical && 'rounded-card',
                 item.vertical ? 'aspect-[9/16] h-[min(64vh,600px)]' : 'aspect-video w-full')}>
                 <video
                   ref={videoRef}
@@ -1207,71 +1205,62 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           </div>
         </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_400px]">
-      {/* Main column */}
-      <div className="min-w-0 space-y-5">
         <div className="space-y-4">
-          {/* Eyebrow + big editorial title (the music player's hierarchy). */}
-          <div className="space-y-1.5">
-            {(item.viewsText || item.likesText || item.publishedText || item.publishedAt) && (
-              <p className="text-overline text-white/50">
-                {[item.viewsText, item.likesText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ')}
-              </p>
-            )}
-            {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-            <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{item.title}</h1>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Creator identity chip: avatar + name in one glass pill, like a music artist chip. */}
-            {/* design-ok(glass-on-plain-bg): identity chip over the UltraBlur cinema backdrop */}
-            {item.creator && creatorPath && (
-              <Link to={creatorPath} className="group flex items-center gap-2.5 rounded-full bg-white/10 py-1 pl-1 pr-4 transition-colors hover:bg-white/15">
-                <CreatorAvatar title={item.creator.name} src={item.creator.avatarUrl}
-                  className="size-9 text-sm ring-1 ring-white/15 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
-                <p className="text-sm font-semibold transition-colors group-hover:text-[var(--yt-accent-fg)]">{item.creator.name}</p>
-              </Link>
-            )}
-            {item.creator && (follow ? (
-              // design-ok(glass-on-plain-bg): glass pill over the UltraBlur cinema backdrop
-              <Button onClick={() => followMutation.mutate()} disabled={followMutation.isPending}
-                title="Subscribed. Click to unsubscribe" aria-label="Subscribed"
-                className="rounded-full bg-white/10 px-4 text-foreground/80 hover:bg-destructive/20 hover:text-destructive disabled:opacity-60">
-                {followMutation.isPending ? <Spinner /> : <><Check className="size-4" /> Subscribed</>}
-              </Button>
-            ) : (
-              <Button onClick={() => followMutation.mutate()} disabled={followMutation.isPending} title="Subscribe" aria-label="Subscribe"
-                className="rounded-full bg-[var(--yt-accent)] px-4 text-[var(--yt-accent-contrast,white)] hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
-                {followMutation.isPending ? <Spinner className="text-current" /> : <><Plus className="size-4" /> Subscribe</>}
-              </Button>
-            ))}
-
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {/* Player options: display/viewing prefs, kept apart from the social actions. */}
-              {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
-              <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
-                <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={minimize}
-                  title="Minimize: keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
-                {pipSupported && (
-                  <SegBtn icon={PictureInPicture2} label="Picture-in-picture" onClick={togglePip}
-                    title="Picture-in-picture: pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
+          {/* One calm header row: eyebrow + title + creator subtitle left, two labeled
+              actions (Save, Share) + a ⋯ menu right. Everything else lives in the menu. */}
+          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+            <div className="min-w-0 flex-1 basis-72 space-y-1.5">
+              {(item.viewsText || item.likesText || item.publishedText || item.publishedAt) && (
+                <p className="text-overline text-white/50">
+                  {[item.viewsText, item.likesText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ')}
+                </p>
+              )}
+              {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
+              <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{item.title}</h1>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1.5">
+                {item.creator && (
+                  <span className="flex items-center gap-2">
+                    <CreatorAvatar title={item.creator.name} src={item.creator.avatarUrl} className="size-6 text-[10px] ring-1 ring-white/15" />
+                    {creatorPath ? (
+                      <Link to={creatorPath} className="text-sm font-medium text-white/80 transition-colors hover:text-[var(--yt-accent-fg)]">{item.creator.name}</Link>
+                    ) : (
+                      <span className="text-sm font-medium text-white/80">{item.creator.name}</span>
+                    )}
+                  </span>
                 )}
+                {item.creator && (follow ? (
+                  // design-ok(glass-on-plain-bg): compact pill over the UltraBlur cinema backdrop
+                  <Button size="sm" onClick={() => followMutation.mutate()} disabled={followMutation.isPending} title="Subscribed. Click to unsubscribe"
+                    className="h-7 rounded-full bg-white/10 px-3 text-xs font-semibold text-foreground/75 shadow-none hover:bg-destructive/20 hover:text-destructive disabled:opacity-60">
+                    {followMutation.isPending ? <Spinner className="size-3" /> : <Check className="size-3.5" />} Subscribed
+                  </Button>
+                ) : (
+                  <Button size="sm" onClick={() => followMutation.mutate()} disabled={followMutation.isPending} title="Subscribe"
+                    className="h-7 rounded-full bg-[var(--yt-accent)] px-3 text-xs font-semibold text-[var(--yt-accent-contrast,white)] shadow-none hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+                    {followMutation.isPending ? <Spinner className="size-3 text-current" /> : <Plus className="size-3.5" />} Subscribe
+                  </Button>
+                ))}
               </div>
-              {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
-              {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+            </div>
+            <div className="flex shrink-0 items-center gap-2 pt-1.5">
+              {/* design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop */}
+              <Button onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
+                disabled={saveState === 'ready'}
+                title="Save offline: this server downloads the video so you can watch it later without streaming."
+                className={cn('rounded-full px-4 shadow-none', saveState === 'ready'
+                  ? 'bg-white/10 text-foreground/75 disabled:opacity-100'
+                  : 'bg-white/10 text-foreground/90 hover:bg-white/15')}>
+                {saveState === 'ready' ? <><Check className="size-4" /> Saved</>
+                  : (saveState === 'pending' || saveState === 'downloading') ? <><Spinner className="size-4" /> Saving</>
+                  : <><HardDriveDownload className="size-4" /> Save</>}
+              </Button>
+              {/* design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop */}
+              <Button onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })}
+                className="rounded-full bg-white/10 px-4 text-foreground/90 shadow-none hover:bg-white/15">
+                <Share2 className="size-4" /> Share
+              </Button>
+              {/* design-ok(glass-on-plain-bg): compact icon pair over the UltraBlur cinema backdrop */}
               <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
-                <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked}
-                  onClick={() => toggleCollection('liked', collectionSnapshot())} />
-                <SegBtn
-                  icon={saveState === 'ready' ? Check : HardDriveDownload}
-                  label={saveState === 'ready' ? 'Saved offline' : saveState === 'pending' || saveState === 'downloading' ? 'Saving offline…' : 'Save offline'}
-                  active={saveState === 'ready'} iconFill={false}
-                  onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
-                  title="Save offline: this server downloads the video so you can watch it later without streaming." />
-                <SegBtn icon={Download} label="Download"
-                  onClick={() => { const a = document.createElement('a'); a.href = vstreamUrl; a.download = `${item.title || 'video'}.mp4`; document.body.appendChild(a); a.click(); a.remove() }}
-                  title="Download: pull the video file down to this device (like any web download)." />
-                <SegBtn icon={Share2} label="Share" onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })} />
                 <AddToPlaylistPill compact video={{
                   videoId: id, title: item.title, author: item.creator?.name ?? undefined, channelId: item.creator?.id ?? undefined,
                   durationSec: item.durationSec ?? undefined, videoSource: source, thumbnailUrl: item.thumbnailUrl,
@@ -1283,11 +1272,28 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                       <MoreHorizontal className="size-4" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem onClick={() => toggleCollection('liked', collectionSnapshot())}>
+                      <Heart className={cn('size-4', liked && 'fill-current text-[var(--yt-accent-fg)]')} />
+                      {liked ? 'Remove from Liked' : 'Like'}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => toggleCollection('watch-later', collectionSnapshot())}>
                       <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
                       {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { const a = document.createElement('a'); a.href = vstreamUrl; a.download = `${item.title || 'video'}.mp4`; document.body.appendChild(a); a.click(); a.remove() }}>
+                      <Download className="size-4" /> Download
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={minimize}
+                      title="Keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start).">
+                      <SquareArrowOutDownLeft className="size-4" /> Minimize to mini-player
+                    </DropdownMenuItem>
+                    {pipSupported && (
+                      <DropdownMenuItem onClick={togglePip}
+                        title="Pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start).">
+                        <PictureInPicture2 className="size-4" /> Picture-in-picture
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
                       <Mic className="size-4" /> Create podcast
                     </DropdownMenuItem>

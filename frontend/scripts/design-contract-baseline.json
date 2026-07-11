@@ -257,7 +257,7 @@
   "pages/videos/SourcePlaylistPage.tsx": 1,
   "pages/videos/VideosHomePage.tsx": 3,
   "pages/videos/VideosOfflinePage.tsx": 3,
-  "pages/videos/WatchPage.tsx": 21,
+  "pages/videos/WatchPage.tsx": 18,
   "pages/youtube/YoutubeLibraryPage.tsx": 5,
   "pages/youtube/YoutubeMyPlaylistPage.tsx": 5
  },
