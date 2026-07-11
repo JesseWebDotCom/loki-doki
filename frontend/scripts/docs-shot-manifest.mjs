@@ -17,8 +17,15 @@
 // jamie; teen surfaces from riley; news/radio/classics from rose.
 
 export default [
-  { route: '/', persona: 'sam', name: 'home', variants: ['desktop', 'mobile'] },
+  { route: '/', persona: 'sam', name: 'home', variants: ['desktop', 'mobile'], settleMs: 4000 },
   { route: '/', persona: 'jamie', name: 'home-kid', variants: ['mobile'] },
+  // Chat: Sam's seeded conversation (deterministic id from seed-demo.ts).
+  { route: '/chat/demo-conv-sam', persona: 'sam', name: 'chat' },
+  { route: '/imaging', persona: 'sam', name: 'image-gen' },
+  { route: '/videos/create', persona: 'sam', name: 'video-gen' },
+  { route: '/podcasts', persona: 'rose', name: 'podcasts', settleMs: 4000 },
+  { route: '/books', persona: 'sam', name: 'books-store' },
+  { route: '/reference/medical', persona: 'rose', name: 'reference-medical' },
   { route: '/music', persona: 'sam', name: 'music' },
   { route: '/videos', persona: 'riley', name: 'videos' },
   { route: '/news', persona: 'rose', name: 'news' },

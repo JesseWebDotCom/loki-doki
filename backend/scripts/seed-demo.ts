@@ -102,6 +102,7 @@ async function seedContentFor(p: DemoPersona): Promise<void> {
       blockUncensoredLlm: true, blockAdultLoras: true, blockAdultImages: true, blockSensitiveTopics: true,
     })
   }
+  if (p.homeLayout) await setPref(p.id, 'home.layout', p.homeLayout)
   if (p.lockedHomeLayout) await setPref(p.id, 'home.layout.locked', true)
 
   for (const toolId of p.toolDenials) {

@@ -1,9 +1,12 @@
-// The hub home's focal point: a full-width editorial billboard for one featured video,
-// the same Apple-Music/Netflix pattern as Music's StationBillboard. The video's thumbnail
-// anchors the right edge and DISSOLVES into an accent extracted from the art itself
-// (this is one of the three sanctioned dynamic-palette surfaces: watch page, channel
-// pages, home billboard). Clicking anywhere opens the watch page.
+// The hub home's focal point: a full-width editorial billboard, the same
+// Apple-Music/Netflix pattern as Music's StationBillboard, but multi-page: up to six
+// featured videos in a scroll-snap carousel that auto-rotates (paused on hover, on a
+// hidden tab, and under prefers-reduced-motion; a swipe/drag pauses it briefly too).
+// Each slide's thumbnail anchors the right edge and DISSOLVES into an accent extracted
+// from the art itself (one of the three sanctioned dynamic-palette surfaces: watch page,
+// channel pages, home billboard). Clicking anywhere opens the watch page.
 
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Play } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -17,6 +20,8 @@ import { HUB_PATHS } from '@/components/videos/HubVideoCard'
 import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 import type { HubVideoItem } from '@/lib/videos/api'
 
+const ROTATE_MS = 7000
+
 /** Billboard art: YouTube gets the sharper hqdefault straight from the yt image cache
  *  (mq looks soft at billboard size; maxres has no onError path here so we don't chase it);
  *  other sources proxy whatever thumbnail the provider gave us. Same-origin either way,
@@ -26,13 +31,7 @@ function billboardArt(item: HubVideoItem): string | null {
   return item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : null
 }
 
-export function VideoBillboard({ item, eyebrow, resume }: {
-  item: HubVideoItem
-  /** Editorial label, e.g. "Featured today" or "Continue watching". */
-  eyebrow: string
-  /** Renders the pill as "Resume" (the watch page picks up the saved position). */
-  resume?: boolean
-}) {
+function BillboardSlide({ item, eyebrow, resume }: { item: HubVideoItem; eyebrow: string; resume?: boolean }) {
   const art = billboardArt(item)
   const palette = useArtPalette(art)
   const accent = accentOf(palette)
@@ -40,8 +39,8 @@ export function VideoBillboard({ item, eyebrow, resume }: {
   const meta = [item.creator?.name, item.viewsText].filter(Boolean).join(' · ')
 
   return (
-    <Link to={HUB_PATHS[item.source].watch(item.id)}
-      className="group relative mb-8 block w-full overflow-hidden rounded-sheet text-left shadow-xl">
+    <Link to={HUB_PATHS[item.source].watch(item.id)} draggable={false}
+      className="group relative w-full shrink-0 snap-center overflow-hidden text-left">
       {/* Taller on phones: eyebrow + 2-line title + meta + pill need the extra height. */}
       <div className="relative aspect-[5/3] w-full overflow-hidden sm:aspect-[21/6]">
         <BlendedHeroBackdrop art={art} color={accent} colorDark={palette.dark}
@@ -61,5 +60,73 @@ export function VideoBillboard({ item, eyebrow, resume }: {
         </span>
       </div>
     </Link>
+  )
+}
+
+export function VideoBillboard({ items, eyebrow, resume }: {
+  /** Featured slides, best first (a single item renders without dots or rotation). */
+  items: HubVideoItem[]
+  /** Editorial label, e.g. "Featured today" or "Continue watching". */
+  eyebrow: string
+  /** Renders the pill as "Resume" (the watch page picks up the saved position). */
+  resume?: boolean
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const [index, setIndex] = useState(0)
+  const [paused, setPaused] = useState(false)
+  // A manual swipe/scroll parks the timer for one cycle so it doesn't fight the user.
+  const holdUntil = useRef(0)
+
+  const count = items.length
+  const goTo = (i: number, smooth = true) => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTo({ left: i * el.clientWidth, behavior: smooth ? 'smooth' : 'auto' })
+  }
+
+  useEffect(() => {
+    if (count < 2) return
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduced) return
+    const iv = setInterval(() => {
+      if (paused || document.hidden || Date.now() < holdUntil.current) return
+      const el = scrollerRef.current
+      if (!el) return
+      const cur = Math.round(el.scrollLeft / el.clientWidth)
+      goTo((cur + 1) % count)
+    }, ROTATE_MS)
+    return () => clearInterval(iv)
+  }, [count, paused])
+
+  if (count === 0) return null
+
+  return (
+    <div className="group/billboard relative mb-8 overflow-hidden rounded-sheet shadow-xl"
+      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      <div ref={scrollerRef}
+        className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
+        onScroll={(e) => {
+          const el = e.currentTarget
+          const i = Math.round(el.scrollLeft / el.clientWidth)
+          if (i !== index) setIndex(Math.max(0, Math.min(count - 1, i)))
+        }}
+        onTouchStart={() => { holdUntil.current = Date.now() + ROTATE_MS * 2 }}
+        onWheel={() => { holdUntil.current = Date.now() + ROTATE_MS * 2 }}>
+        {items.map((item) => (
+          <BillboardSlide key={`${item.source}:${item.id}`} item={item} eyebrow={eyebrow} resume={resume} />
+        ))}
+      </div>
+      {count > 1 && (
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5">
+          {items.map((item, i) => (
+            <button key={`${item.source}:${item.id}`} type="button"
+              aria-label={`Show slide ${i + 1} of ${count}`}
+              onClick={() => { holdUntil.current = Date.now() + ROTATE_MS * 2; goTo(i) }}
+              className={cn('h-1.5 rounded-full transition-all',
+                i === index ? 'w-5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70')} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

@@ -50,6 +50,7 @@ import {
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
+import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { usePlaylistQueue, playlistWatchHref } from '@/lib/videos/playlistWatch'
 import { PlaylistQueuePanel } from '@/components/videos/PlaylistQueuePanel'
@@ -107,10 +108,10 @@ function WatchCinema({ art, children }: { art: string | null; children: React.Re
   const palette = useArtPalette(art)
   return (
     <div className="relative" style={art ? videoAccentVars(palette) : undefined}>
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[420px] overflow-hidden">
-        <UltraBlur artUrl={art} palette={palette} scrim="default" className="opacity-60" />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[560px] overflow-hidden">
+        <UltraBlur artUrl={art} palette={palette} scrim="light" />
         {/* Dissolve the wallpaper into the layout's true black so it reads as atmosphere. */}
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/30 to-black" />
       </div>
       <div className="relative">{children}</div>
     </div>
@@ -125,8 +126,8 @@ function SegBtn({ icon: Icon, label, title, active, tone = 'accent', iconFill, o
 }) {
   const activeText = tone === 'success' ? 'text-success' : tone === 'info' ? 'text-info' : 'text-[var(--yt-accent-fg)]'
   const cls = cn(
-    'grid size-8 place-items-center rounded-full transition-colors hover:bg-background/60',
-    active ? cn('bg-background/70', activeText) : 'text-foreground/70',
+    'grid size-8 place-items-center rounded-full transition-colors hover:bg-white/15',
+    active ? cn('bg-black/40', activeText) : 'text-foreground/80',
   )
   const icon = <Icon className={cn('size-4', iconFill && 'fill-current')} />
   if (to) return <Link to={to} title={title ?? label} aria-label={label} className={cls}>{icon}</Link>
@@ -149,8 +150,9 @@ function DescriptionCard({ views, description }: { views: string | null; descrip
   }, [description])
 
   if (!views && !description) return null
+  // Borderless, straight on the cinema backdrop (the music "About" language) - no card box.
   return (
-    <Card variant="flat" className="bg-white/[0.04] p-4 text-sm leading-relaxed text-foreground/85">
+    <div className="px-1 text-sm leading-relaxed text-foreground/85">
       {views && <div className="mb-2 font-semibold text-foreground">{views}</div>}
       {description && (
         <>
@@ -162,7 +164,7 @@ function DescriptionCard({ views, description }: { views: string | null; descrip
           )}
         </>
       )}
-    </Card>
+    </div>
   )
 }
 
@@ -175,19 +177,22 @@ function SidePanelShell<T extends string>({ tabs, active, onChange, children }: 
   children: React.ReactNode
 }) {
   if (tabs.length === 0) return null
+  // The music player's pill switcher (NowPlayingOverlay language): floating rounded-full
+  // group, active tab solid white - no card box, no underline tabs.
   return (
-    <Card className="border-white/10 bg-white/[0.04]">
-      <div className="flex gap-1 border-b border-border/50 px-2 pt-2">
+    <div>
+      {/* design-ok(glass-on-plain-bg): pill tab switcher over the watch page's UltraBlur cinema backdrop */}
+      <div className="no-scrollbar flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-white/10 p-1">
         {tabs.map(({ key, label }) => (
           <button key={key} onClick={() => onChange(key)}
-            className={cn('-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors',
-              active === key ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+            className={cn('shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors',
+              active === key ? 'bg-white text-black' : 'text-white/70 hover:text-white')}>
             {label}
           </button>
         ))}
       </div>
-      <div className="p-3">{children}</div>
-    </Card>
+      <div className="px-1 pt-3">{children}</div>
+    </div>
   )
 }
 
@@ -453,9 +458,9 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
           </div>
         ) : (
-          <Card className="border-white/10 bg-white/[0.04] p-3">
+          <div>
             <div className="mb-2 flex items-center justify-between px-1">
-              <h3 className="text-sm font-semibold">Up next</h3>
+              <h3 className="text-overline text-white/60">Up next</h3>
               <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
                 Autoplay
                 <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
@@ -468,7 +473,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
               {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
             </div>
-          </Card>
+          </div>
         )}
       </aside>
     </PageContainer>
@@ -592,10 +597,11 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
       {unsubDialog}
       <div className="flex items-start justify-between gap-3">
         {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-        <h1 className="text-title leading-tight">{title}</h1>
+        <h1 className="text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">{title}</h1>
         {/* Player options live on the title line — display/viewing prefs, not social actions,
          *  so they don't compete with the creator row for width and force it to wrap. */}
-        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border/60 p-1">
+        {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/10 p-1">
           <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={onMinimize}
             title="Minimize: keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." />
           {online && (
@@ -645,7 +651,8 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
         {votes && <VotesBar votes={votes} />}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
-          <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
+          {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+          <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
             <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked} onClick={() => toggleCollection('liked', snapshot)} />
             <AddToPlaylistPill compact video={{ videoId, title, author: author ?? undefined, channelId: channelId ?? undefined, durationSec: meta?.durationSec ?? undefined }} />
             {online && meta?.isLive && (
@@ -705,7 +712,8 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
 // Estimated like/dislike counts from Return YouTube Dislike (YouTube hides dislikes).
 function VotesBar({ votes }: { votes: VideoVotes }) {
   return (
-    <div className="flex items-center rounded-full bg-muted text-[13px] font-semibold text-foreground/80"
+    // design-ok(glass-on-plain-bg): floating pill over the UltraBlur cinema backdrop
+    <div className="flex items-center rounded-full bg-white/10 text-[13px] font-semibold text-foreground/85"
       title="Estimated by Return YouTube Dislike">
       <span className="flex items-center gap-1.5 px-3 py-1.5"><ThumbsUp className="size-3.5" />{fmtCount(votes.likes)}</span>
       <span className="my-1.5 h-4 w-px bg-border" />
@@ -778,7 +786,8 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 rounded-control border border-border/60 bg-background px-3 py-2">
+      {/* design-ok(glass-on-plain-bg): glass field over the UltraBlur cinema backdrop */}
+      <div className="flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2">
         <Search className="size-3.5 text-muted-foreground" />
         {/* 16px on phones so iOS doesn't focus-zoom (Mobile Design Contract). */}
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search transcript" className="w-full bg-transparent text-base outline-none md:text-sm" />
@@ -1187,10 +1196,11 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3">
             {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-            <h1 className="text-title leading-tight">{item.title}</h1>
+            <h1 className="text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">{item.title}</h1>
             {/* Player options live on the title line — display/viewing prefs, not social
              *  actions, so they don't compete with the creator row for width and force it to wrap. */}
-            <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border/60 p-1">
+            {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+            <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/10 p-1">
               <SegBtn icon={SquareArrowOutDownLeft} label="Minimize to mini-player" onClick={minimize}
                 title="Minimize: keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start)." />
               {pipSupported && (
@@ -1223,7 +1233,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {/* Actions — primary ones inline, the rest folded into a ⋯ menu */}
-              <div className="flex items-center gap-0.5 rounded-full bg-muted p-1">
+              {/* design-ok(glass-on-plain-bg): floating pill group over the UltraBlur cinema backdrop */}
+              <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
                 <SegBtn icon={Heart} label="Like" active={liked} tone="accent" iconFill={liked}
                   onClick={() => toggleCollection('liked', collectionSnapshot())} />
                 <SegBtn
@@ -1331,13 +1342,14 @@ function RelatedVideosCard({ source, excludeId }: { source: VideoSource; exclude
   const items = (data?.items ?? []).filter((i) => i.id !== excludeId).slice(0, 12)
   if (!items.length) return null
   return (
-    <Card className="border-white/10 bg-white/[0.04] p-3">
-      <div className="mb-2 px-1"><h3 className="text-sm font-semibold">Related videos</h3></div>
+    <div>
+      <div className="mb-2 px-1"><h3 className="text-overline text-white/60">Related videos</h3></div>
       <div className="space-y-1">
         {items.map((i) => (
           <Link key={i.id} to={HUB_PATHS[i.source].watch(i.id)} className="group flex gap-2.5 rounded-card p-1.5 transition-colors hover:bg-accent/50">
-            <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-card bg-muted sm:w-36">
-              {i.thumbnailUrl && <img src={proxyImg(i.thumbnailUrl)} alt="" loading="lazy" className="size-full object-cover transition group-hover:scale-105" />}
+            <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-card shadow-sm ring-1 ring-white/10 sm:w-36">
+              <VideoPlaceholderArt source={i.source} />
+              {i.thumbnailUrl && <img src={proxyImg(i.thumbnailUrl)} alt="" loading="lazy" className="relative size-full object-cover transition group-hover:scale-105" />}
             </div>
             <div className="min-w-0 flex-1 py-0.5">
               <p className="line-clamp-2 text-sm font-semibold leading-snug">{i.title}</p>
@@ -1348,7 +1360,7 @@ function RelatedVideosCard({ source, excludeId }: { source: VideoSource; exclude
           </Link>
         ))}
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -1357,13 +1369,14 @@ function MoreFromCreatorCard({ source, creatorId, excludeId }: { source: VideoSo
   const { data } = useQuery({ queryKey: ['videos-creator', source, creatorId], queryFn: () => getSourceCreator(source, creatorId) })
   const items = (data?.videos.items ?? []).filter((i) => i.id !== excludeId).slice(0, 15)
   return (
-    <Card className="border-white/10 bg-white/[0.04] p-3">
-      <div className="mb-2 px-1"><h3 className="text-sm font-semibold">More from this creator</h3></div>
+    <div>
+      <div className="mb-2 px-1"><h3 className="text-overline text-white/60">More from this creator</h3></div>
       <div className="space-y-1">
         {items.map((i) => (
           <Link key={i.id} to={HUB_PATHS[i.source].watch(i.id)} className="group flex gap-2.5 rounded-card p-1.5 transition-colors hover:bg-accent/50">
-            <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-card bg-muted sm:w-36">
-              {i.thumbnailUrl && <img src={proxyImg(i.thumbnailUrl)} alt="" loading="lazy" className="size-full object-cover transition group-hover:scale-105" />}
+            <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-card shadow-sm ring-1 ring-white/10 sm:w-36">
+              <VideoPlaceholderArt source={i.source} />
+              {i.thumbnailUrl && <img src={proxyImg(i.thumbnailUrl)} alt="" loading="lazy" className="relative size-full object-cover transition group-hover:scale-105" />}
             </div>
             <div className="min-w-0 flex-1 py-0.5">
               <p className="line-clamp-2 text-sm font-semibold leading-snug">{i.title}</p>
@@ -1373,6 +1386,6 @@ function MoreFromCreatorCard({ source, creatorId, excludeId }: { source: VideoSo
         ))}
         {items.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing else from this creator yet.</p>}
       </div>
-    </Card>
+    </div>
   )
 }

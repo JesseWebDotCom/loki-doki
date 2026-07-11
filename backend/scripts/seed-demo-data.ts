@@ -47,6 +47,9 @@ export interface DemoPersona {
   avatarSeed: string
   companionName: string
   lockedHomeLayout?: boolean
+  // Custom home.layout pref (HomeLayout JSON, backend/src/routes/homeLayout.ts).
+  // Omit to use the system default. Widget ids: frontend/src/lib/homeWidgets.ts.
+  homeLayout?: unknown
   toolDenials: string[]
   ytSubscriptions: DemoChannel[]
   watchLater: DemoVideo[]
@@ -98,6 +101,16 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     pin: '0000',
     avatarSeed: 'demo-sam',
     companionName: 'Sage',
+    // Rich dashboard for the docs hero shot: every widget here renders from seeded
+    // demo data (music history, watchlist, bookmarks) or live server caches (news).
+    homeLayout: {
+      header: { weather: true, jokes: true, ticker: { enabled: true, sources: ['sports', 'news', 'youtube'] }, locked: false },
+      canvas: [
+        { id: 'demo-row-news', cols: [{ toolId: 'news', colSpan: 2 }] },
+        { id: 'demo-row-media', cols: [{ toolId: 'music', colSpan: 1 }, { toolId: 'watchlist', colSpan: 1 }] },
+        { id: 'demo-row-daily', cols: [{ toolId: 'bookmarks-recent', colSpan: 1 }, { toolId: 'on-this-day', colSpan: 1 }] },
+      ],
+    },
     toolDenials: [],
     ytSubscriptions: [
       { externalId: 'UCHnyfMqiRRG1u-2MsSQLbXA', title: 'Veritasium', handle: '@veritasium' },

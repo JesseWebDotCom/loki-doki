@@ -96,14 +96,19 @@ function HubLanding() {
 
   const activeCategory = category ? getVideoCategory(category) : null
 
-  // The billboard's editorial pick: deterministic daily rotation over the head of the
-  // mixed feed (same day-index trick as Music's "Station of the day"). Falls back to the
+  // The billboard's editorial picks: the head of the mixed feed as an auto-rotating
+  // carousel, its starting order shifted daily (same day-index trick as Music's "Station
+  // of the day") so the first slide isn't always the same video. Falls back to the
   // freshest resume item when discovery hasn't landed; filtered contexts (Mine, category)
   // are task-mode and suppress it entirely.
-  const day = Math.floor(Date.now() / 86_400_000)
-  const billboardCandidates = feedItems.slice(0, 12)
-  const featured = billboardCandidates.length > 0 ? billboardCandidates[day % billboardCandidates.length]! : null
-  const resumeFallback = !featured ? continueWatching[0] ?? null : null
+  const featured = useMemo(() => {
+    const pool = feedItems.slice(0, 6)
+    if (pool.length === 0) return []
+    const day = Math.floor(Date.now() / 86_400_000)
+    const start = day % pool.length
+    return [...pool.slice(start), ...pool.slice(0, start)]
+  }, [feedItems])
+  const resumeFallback = featured.length === 0 ? continueWatching[0] ?? null : null
   // Don't show the same video twice on one screen when the billboard IS the resume item.
   const railContinue = resumeFallback
     ? continueWatching.filter((i) => !(i.source === resumeFallback.source && i.id === resumeFallback.id))
@@ -112,8 +117,8 @@ function HubLanding() {
   return (
     <PageContainer width="wide" className="py-6">
       {!mineOnly && !activeCategory && (
-        featured ? <VideoBillboard item={featured} eyebrow="Featured today" />
-          : resumeFallback ? <VideoBillboard item={resumeFallback} eyebrow="Continue watching" resume /> : null
+        featured.length > 0 ? <VideoBillboard items={featured} eyebrow="Featured today" />
+          : resumeFallback ? <VideoBillboard items={[resumeFallback]} eyebrow="Continue watching" resume /> : null
       )}
 
       {/* One scrolling chip line (mobile contract): identity filters first, then categories. */}
