@@ -49,7 +49,7 @@ function RailLink({ to, icon: Icon, label, end, className }: { to: string; icon:
     <NavLink to={to} end={end}
       className={({ isActive }) => cn(
         'flex items-center gap-3 rounded-control px-3 py-2 text-sm font-medium transition-colors',
-        isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+        isActive ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
         className,
       )}>
       <Icon className="size-[18px]" /> {label}

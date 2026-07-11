@@ -58,11 +58,11 @@ export function useYoutubeUIOptional(): YoutubeUI | null { return useContext(You
 // red, and not the violet/fuchsia already claimed by Chat, Movies, Podcasts, Companions
 // etc. this wash paints the whole hub, every source, not just YouTube). Offline =
 // emerald so the two states stay visually distinct. Feeds CSS vars app-wide via `bg-[var(--yt-accent)]` etc.
-const ACCENT: Record<YoutubeMode, { base: string; hover: string; fg: string }> = {
+const ACCENT: Record<YoutubeMode, { base: string; hover: string; fg: string; contrast: string }> = {
   // design-ok(hex-in-tsx): mode identity accents (Videos brand cyan / offline emerald) fed into CSS vars + color-mix
-  online: { base: '#0891b2', hover: '#06b6d4', fg: '#22d3ee' },
+  online: { base: '#0891b2', hover: '#06b6d4', fg: '#22d3ee', contrast: '#04313b' },
   // design-ok(hex-in-tsx): mode identity accents (Videos brand cyan / offline emerald) fed into CSS vars + color-mix
-  offline: { base: '#059669', hover: '#10b981', fg: '#34d399' },
+  offline: { base: '#059669', hover: '#10b981', fg: '#34d399', contrast: '#03301f' },
 }
 const MODE_KEY = 'yt.mode'
 
@@ -156,15 +156,24 @@ export function VideosLayout() {
     '--yt-accent-hover': a.hover,
     '--yt-accent-fg': a.fg,
     '--yt-accent-soft': `color-mix(in oklab, ${a.fg} 15%, transparent)`,
-    // A faint accent wash over the page background so Online (cyan) and Offline
-    // (emerald) are distinguishable at a glance. Layered on top of bg-background.
-    backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 7%, transparent)`}, ${`color-mix(in oklab, ${a.base} 7%, transparent)`})`,
+    // Rebrand the whole subtree: every text-brand/bg-brand/ring inside Videos resolves to
+    // the mode identity (inline vars beat the [data-theme=dark] stylesheet definitions).
+    '--brand': a.fg,
+    '--brand-hover': a.hover,
+    '--brand-foreground': a.contrast,
+    '--ring': a.fg,   // focus rings follow the identity too (inputs, buttons)
+    // A faint accent wash over the near-black base so Online (cyan) and Offline (emerald)
+    // still read at a glance without lifting the black.
+    backgroundImage: `linear-gradient(${`color-mix(in oklab, ${a.base} 4%, transparent)`}, ${`color-mix(in oklab, ${a.base} 4%, transparent)`})`,
   } as CSSProperties
 
   return (
     <YoutubeUICtx.Provider value={ui}>
      <DeArrowProvider>
-      <div className="flex min-h-0 flex-1 overflow-hidden bg-background" style={accentVars}>
+      {/* The Videos hub is an always-dark, true-black "cinema" surface (the Netflix/Apple-TV
+          look), independent of the app-wide theme - same posture as the Music app.
+          Tokens inside resolve via data-theme="dark". */}
+      <div data-theme="dark" className="flex min-h-0 flex-1 overflow-hidden bg-black text-foreground" style={accentVars}>
         <VideosRail />
         <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none pb-[max(7rem,calc(var(--bottom-chrome,0px)+1.5rem))] md:pb-[max(8rem,calc(var(--bottom-chrome,0px)+2rem))]"><Outlet /></div>
       </div>
