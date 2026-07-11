@@ -20,6 +20,8 @@ import { qualityBadge } from '@/lib/youtube/format'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { VideoCollection, YT_GRID as GRID } from '@/components/youtube/VideoCollection'
 import { ChannelHeader } from '@/components/videos/ChannelHeader'
+import { CreatorAccentScope } from '@/components/videos/AccentScope'
+import { proxyImgAuto } from '@/lib/img'
 import { ChannelTabBar } from '@/components/videos/ChannelTabBar'
 import { PlaylistCard, PlaylistListRow } from '@/components/youtube/shelves'
 import { ViewToggle } from '@/components/shared/ViewToggle'
@@ -236,6 +238,7 @@ export function YoutubeChannelPage() {
   if (videos.isLoading && !videos.firstPage) return <ChannelSkeleton />
 
   return (
+   <CreatorAccentScope art={bannerUrl ? proxyImgAuto(bannerUrl) : thumb ? proxyImgAuto(thumb) : null}>
     <PageContainer width="wide" className="py-6">
       {unsubDialog}
 
@@ -267,7 +270,7 @@ export function YoutubeChannelPage() {
             aria-label={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
             title={subscribed ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
             className={cn('group size-10 disabled:opacity-60',
-              subscribed ? 'bg-[var(--yt-accent)] text-white hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              subscribed ? 'bg-[var(--yt-accent)] text-[var(--yt-accent-contrast,white)] hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
             {busy ? <Spinner className="text-current" /> : subscribed ? <Check className="size-4" /> : <Plus className="size-4" />}
           </Button>
         </>}
@@ -315,6 +318,7 @@ export function YoutubeChannelPage() {
             : <div className={GRID}>{playlistsQuery.data!.playlists.map(p => <PlaylistCard key={p.playlistId} p={p} />)}</div>
       )}
     </PageContainer>
+   </CreatorAccentScope>
   )
 }
 

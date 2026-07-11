@@ -3,6 +3,7 @@ import { Link2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImgAuto } from '@/lib/img'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
+import { BlendedHeroBackdrop } from '@/components/shared/BlendedHeroBackdrop'
 import { SOURCE_META } from '@/lib/videos/sources'
 import type { VideoSource } from '@/lib/videos/api'
 
@@ -35,28 +36,44 @@ export function ChannelHeader({
   // channel navigations, so a prior broken banner shouldn't suppress the next one's).
   useEffect(() => { setBannerOk(true) }, [bannerUrl])
 
+  const heroMeta = source ? SOURCE_META[source] : SOURCE_META.link
   return (
     <>
-      {bannerUrl && bannerOk && (
-        <div className="mb-5 overflow-hidden rounded-card ring-1 ring-border/40">
-          <img src={proxyImgAuto(bannerUrl)} alt="" referrerPolicy="no-referrer" className="aspect-[6/1] w-full object-cover" onError={() => setBannerOk(false)} />
+      {/* Banner-driven identity hero: the banner (or a blended avatar/brand backdrop when
+          there is none) is the surface, with the identity overlaid on a bottom scrim, so a
+          channel page opens like a title page instead of a strip + detached text block. */}
+      <div className="relative mb-4 overflow-hidden rounded-sheet shadow-xl">
+        <div className="relative aspect-[21/9] w-full sm:aspect-[5/1]">
+          {bannerUrl && bannerOk ? (
+            <img src={proxyImgAuto(bannerUrl)} alt="" referrerPolicy="no-referrer"
+              className="absolute inset-0 size-full object-cover" onError={() => setBannerOk(false)} />
+          ) : (
+            <BlendedHeroBackdrop art={avatarUrl ? proxyImgAuto(avatarUrl) : null}
+              color={heroMeta.heroColor} colorDark={heroMeta.heroColorDark} />
+          )}
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
         </div>
-      )}
-      <div className="mb-6 flex items-start gap-4">
-        <CreatorAvatar title={title} src={avatarUrl} className="size-20 shrink-0 text-3xl ring-1 ring-border/40 sm:size-24" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}
-            <h1 className="truncate text-display">{title}</h1>
-            {badge && (
-              <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', badge.badgeClass)}>
-                <badge.icon className="size-3" aria-hidden /> {badge.label}
-              </span>
-            )}
+        <div className="absolute inset-x-0 bottom-0 flex items-end gap-3 p-4 sm:gap-4 sm:p-6">
+          <CreatorAvatar title={title} src={avatarUrl} className="size-14 shrink-0 text-2xl shadow-lg ring-2 ring-white/20 sm:size-20 sm:text-3xl" />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}
+              <h1 className="truncate text-xl font-extrabold tracking-tight text-white sm:text-3xl">{title}</h1>
+              {badge && (
+                <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', badge.badgeClass)}>
+                  <badge.icon className="size-3" aria-hidden /> {badge.label}
+                </span>
+              )}
+            </div>
+            {metaLine && <p className="mt-0.5 truncate text-xs text-white/70 sm:text-sm">{metaLine}</p>}
           </div>
-          {metaLine && <p className="mt-0.5 text-sm text-muted-foreground">{metaLine}</p>}
+          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        </div>
+      </div>
+      {(description || links.length > 0 || linksLoading) && (
+        <div className="mb-6">
           {description && (
-            <div className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted-foreground/80">
+            <div className="max-w-2xl text-xs leading-relaxed text-muted-foreground/80">
               <p className={cn('whitespace-pre-line', !descOpen && 'line-clamp-2')}>{description}</p>
               {description.length > 120 && (
                 <button onClick={() => setDescOpen((o) => !o)} className="mt-0.5 font-semibold text-foreground/70 hover:text-foreground">
@@ -76,8 +93,7 @@ export function ChannelHeader({
             </div>
           )}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-      </div>
+      )}
     </>
   )
 }

@@ -3,7 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { KeyRound } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
-import { PageHeader } from '@/components/shared/PageHeader'
+import { SourceHero, useSourceHeroArt } from '@/components/videos/SourceHero'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
@@ -78,6 +78,7 @@ export function VimeoBrowsePage() {
   const feeds = vimeo?.browseFeeds ?? []
 
   const continueWatching = useSourceContinueWatching('vimeo', configured && enabled)
+  const heroArt = useSourceHeroArt('vimeo', configured && enabled && (vimeo?.discovery.length ?? 0) > 0 ? vimeo!.discovery[0]! : null)
 
   // Dashboard = nothing selected (the default landing view); a category chip swaps in the
   // flat single-feed grid below instead. Vimeo has no follow system yet, so the dashboard
@@ -94,13 +95,13 @@ export function VimeoBrowsePage() {
   const items = useMemo(() => (feedQuery.data?.pages ?? []).flatMap((p) => p.items), [feedQuery.data])
 
   const header = (
-    <PageHeader
-      title={SOURCE_META.vimeo.label}
-      icon={SOURCE_META.vimeo.icon}
-      gradient={SOURCE_META.vimeo.gradient}
-      subtitle={!enabled ? 'Turned off by an admin.' : 'Popular right now, plus Staff Picks handpicked by Vimeo.'}
-      className="pt-4 pb-4"
-    />
+    <div className="pt-4">
+      <SourceHero
+        source="vimeo"
+        artUrl={heroArt}
+        subtitle={!enabled ? 'Turned off by an admin.' : 'Popular right now, plus Staff Picks handpicked by Vimeo.'}
+      />
+    </div>
   )
 
   if (!enabled) {

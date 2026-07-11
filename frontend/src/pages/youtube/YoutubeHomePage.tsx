@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Rss } from 'lucide-react'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { PageContainer } from '@/components/shared/PageContainer'
-import { PageHeader } from '@/components/shared/PageHeader'
+import { SourceHero, useSourceHeroArt } from '@/components/videos/SourceHero'
 import { SOURCE_META } from '@/lib/videos/sources'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
@@ -67,6 +67,7 @@ export function YoutubeHomePage() {
 function HomeLanding() {
   const mode = useYoutubeMode()
   const online = mode === 'online'
+  const heroArt = useSourceHeroArt('youtube', online ? 'popular' : null)
   const [filter, setFilter] = useState<Filter>('all')
   // A selected topic overrides the type filter and shows a live topic feed instead.
   const [topic, setTopic] = useState<string | null>(null)
@@ -109,13 +110,13 @@ function HomeLanding() {
 
   return (
     <PageContainer width="wide" className="pt-1 pb-6">
-      <PageHeader
-        title={SOURCE_META.youtube.label}
-        icon={SOURCE_META.youtube.icon}
-        gradient={SOURCE_META.youtube.gradient}
-        subtitle={online ? 'Your subscriptions, recommendations & trending.' : 'Your saved YouTube library.'}
-        className="pt-4 pb-4"
-      />
+      <div className="pt-4">
+        <SourceHero
+          source="youtube"
+          subtitle={online ? 'Your subscriptions, recommendations & trending.' : 'Your saved YouTube library.'}
+          artUrl={heroArt}
+        />
+      </div>
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
           {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} activeClassName={SOURCE_META.youtube.pillActiveClass} onClick={() => { setTopic(null); setFilter(k) }} />)}

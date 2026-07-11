@@ -7,7 +7,8 @@ import {
 } from 'lucide-react'
 import { ShieldCheck, Headphones, ExternalLink, Share2, PictureInPicture2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { accentOf, readableOn, useArtPalette } from '@/lib/artPalette'
+import { useArtPalette } from '@/lib/artPalette'
+import { videoAccentVars } from '@/components/videos/AccentScope'
 import { UltraBlur } from '@/components/shared/UltraBlur'
 import { Button } from '@/components/ui/button'
 import {
@@ -104,18 +105,8 @@ export function WatchPage() {
  *  still-loading palette) simply keeps the mode accent. */
 function WatchCinema({ art, children }: { art: string | null; children: React.ReactNode }) {
   const palette = useArtPalette(art)
-  const accent = accentOf(palette)
-  const vars = art ? {
-    '--yt-accent': accent,
-    '--yt-accent-hover': accent,
-    '--yt-accent-fg': accent,
-    '--yt-accent-soft': `color-mix(in oklab, ${accent} 15%, transparent)`,
-    '--yt-accent-contrast': readableOn(accent),
-    '--brand': accent,
-    '--ring': accent,
-  } as React.CSSProperties : undefined
   return (
-    <div className="relative" style={vars}>
+    <div className="relative" style={art ? videoAccentVars(palette) : undefined}>
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[420px] overflow-hidden">
         <UltraBlur artUrl={art} palette={palette} scrim="default" className="opacity-60" />
         {/* Dissolve the wallpaper into the layout's true black so it reads as atmosphere. */}

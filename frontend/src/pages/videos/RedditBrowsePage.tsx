@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Plus } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
-import { PageHeader } from '@/components/shared/PageHeader'
+import { SourceHero, useSourceHeroArt } from '@/components/videos/SourceHero'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ViewToggle } from '@/components/shared/ViewToggle'
@@ -85,6 +85,7 @@ export function RedditBrowsePage() {
   const subEntries = useMemo(() => subs.map((s) => ({ id: s.externalId, title: s.title, thumbnailUrl: s.thumbnailUrl ?? null })), [subs])
 
   const continueWatching = useSourceContinueWatching('reddit', configured && enabled)
+  const heroArt = useSourceHeroArt('reddit', configured && enabled && (reddit?.discovery.length ?? 0) > 0 ? reddit!.discovery[0]! : null)
 
   // Dashboard = nothing selected (the default landing view); any feed/category chip or a
   // specific followed subreddit swaps in the flat single-feed grid below instead.
@@ -117,14 +118,14 @@ export function RedditBrowsePage() {
   })
 
   const header = (extra?: React.ReactNode) => (
-    <PageHeader
-      title={SOURCE_META.reddit.label}
-      icon={SOURCE_META.reddit.icon}
-      gradient={SOURCE_META.reddit.gradient}
-      subtitle={!enabled ? 'Turned off by an admin.' : configured ? 'Video posts from the communities you subscribe to.' : 'Connect Reddit to browse video communities.'}
-      className="pt-4 pb-4"
-      actions={extra}
-    />
+    <div className="pt-4">
+      <SourceHero
+        source="reddit"
+        artUrl={heroArt}
+        subtitle={!enabled ? 'Turned off by an admin.' : configured ? 'Video posts from the communities you subscribe to.' : 'Connect Reddit to browse video communities.'}
+        actions={extra}
+      />
+    </div>
   )
 
   if (!enabled) {

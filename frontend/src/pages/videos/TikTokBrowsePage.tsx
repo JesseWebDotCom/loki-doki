@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link2, Plus, UserRound } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
-import { PageHeader } from '@/components/shared/PageHeader'
+import { SourceHero, useSourceHeroArt } from '@/components/videos/SourceHero'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ViewToggle } from '@/components/shared/ViewToggle'
@@ -38,6 +38,7 @@ export function TikTokBrowsePage() {
   const creatorEntries = useMemo(() => creators.map((c) => ({ id: c.externalId, title: c.title, thumbnailUrl: c.thumbnailUrl ?? null })), [creators])
 
   const continueWatching = useSourceContinueWatching('tiktok', enabled)
+  const heroArt = useSourceHeroArt('tiktok', enabled && (tiktokSource?.discovery.length ?? 0) > 0 ? tiktokSource!.discovery[0]! : null)
 
   // Dashboard = nothing selected (the default landing view); a category or a specific
   // followed creator swaps in the flat single-feed grid below instead.
@@ -77,8 +78,7 @@ export function TikTokBrowsePage() {
   if (!enabled) {
     return (
       <PageContainer width="wide" className="pt-1 pb-8">
-        <PageHeader title={SOURCE_META.tiktok.label} icon={SOURCE_META.tiktok.icon} gradient={SOURCE_META.tiktok.gradient}
-          subtitle="Turned off by an admin." className="pt-4 pb-4" />
+        <div className="pt-4"><SourceHero source="tiktok" subtitle="Turned off by an admin." /></div>
         <div className="py-8"><SourceDisabledCard label={SOURCE_META.tiktok.label} /></div>
       </PageContainer>
     )
@@ -86,12 +86,11 @@ export function TikTokBrowsePage() {
 
   return (
     <PageContainer width="wide" className="pt-1 pb-8">
-      <PageHeader
-        title={SOURCE_META.tiktok.label}
-        icon={SOURCE_META.tiktok.icon}
-        gradient={SOURCE_META.tiktok.gradient}
+     <div className="pt-4">
+      <SourceHero
+        source="tiktok"
+        artUrl={heroArt}
         subtitle={creators.length > 0 ? 'Latest from the creators you subscribe to.' : 'Popular right now. Subscribe to creators to make this feed yours.'}
-        className="pt-4 pb-4"
         actions={
           <form
             className="flex shrink-0 gap-2"
@@ -105,6 +104,7 @@ export function TikTokBrowsePage() {
           </form>
         }
       />
+     </div>
 
       <div className="mb-5 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">

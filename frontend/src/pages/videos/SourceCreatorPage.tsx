@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { ChannelHeader } from '@/components/videos/ChannelHeader'
+import { CreatorAccentScope } from '@/components/videos/AccentScope'
+import { proxyImgAuto } from '@/lib/img'
 import { ChannelTabBar } from '@/components/videos/ChannelTabBar'
 import { ConfigureOfflinePopover } from '@/components/videos/ConfigureOfflinePopover'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
@@ -102,7 +104,9 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
   const following = !!follow
   const tabs: Array<[Tab, string]> = hasPlaylists ? [['videos', 'Videos'], ['playlists', 'Playlists']] : [['videos', 'Videos']]
 
+  const heroArt = creator.bannerUrl ?? creator.avatarUrl
   return (
+   <CreatorAccentScope art={heroArt ? proxyImgAuto(heroArt) : null}>
     <PageContainer width="wide" className="py-6">
       <ChannelHeader
         title={creator.name}
@@ -133,7 +137,7 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
             aria-label={following ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
             title={following ? 'Subscribed. Click to unsubscribe' : 'Subscribe'}
             className={cn('group size-10 disabled:opacity-60',
-              following ? 'bg-[var(--yt-accent)] text-white hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              following ? 'bg-[var(--yt-accent)] text-[var(--yt-accent-contrast,white)] hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground')}>
             {followMutation.isPending ? <Spinner className="text-current" /> : following ? <Check className="size-4" /> : <Plus className="size-4" />}
           </Button>
         </>}
@@ -190,5 +194,6 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
         )
       )}
     </PageContainer>
+   </CreatorAccentScope>
   )
 }
