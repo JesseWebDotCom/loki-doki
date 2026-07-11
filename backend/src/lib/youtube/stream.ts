@@ -15,10 +15,11 @@ const execFileAsync = promisify(execFile)
 
 export type StreamKind = 'video' | 'audio'
 // Privacy-proxy quality. Progressive (single-file, muxed) MP4 only goes up to 720p on
-// YouTube — higher resolutions are split into separate DASH video+audio streams that a
-// plain <video> can't play without muxing — so these are the meaningful choices.
-export type StreamQuality = 'auto' | '720' | '360'
-const QUALITIES: StreamQuality[] = ['auto', '720', '360']
+// YouTube — higher resolutions are split into separate DASH video+audio streams, which
+// the '1080' tier serves by remuxing them server-side (see the route's ffmpeg branch and
+// resolveSplitStreamUrls below).
+export type StreamQuality = 'auto' | '1080' | '720' | '360'
+const QUALITIES: StreamQuality[] = ['auto', '1080', '720', '360']
 export const parseQuality = (q: string | undefined): StreamQuality =>
   (QUALITIES as string[]).includes(q ?? '') ? (q as StreamQuality) : 'auto'
 
@@ -203,6 +204,88 @@ function sweepExpired(): void {
 /** Drop a cached URL (e.g. after an upstream 403 — the signature likely rotated). */
 export function invalidateStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto'): void {
   cache.delete(cacheKey(videoId, kind, quality))
+}
+
+// ── Split (video-only + audio-only) resolution for the 1080p remux tier ─────────
+
+export interface SplitStreamUrls { video: string; audio: string }
+const splitCache = new Map<string, { urls: SplitStreamUrls; expires: number }>()
+const splitInflight = new Map<string, Promise<SplitStreamUrls | null>>()
+const splitKey = (videoId: string, maxHeight: number) => `${videoId}:split:${maxHeight}`
+
+// Best h264 (avc1) video-only track at or under the height cap: stream-copies cleanly
+// into fragmented MP4 that every browser decodes. VP9/AV1 tracks are skipped — copying
+// them into MP4 is a compatibility minefield and re-encoding is off the table.
+function pickSplitVideo(streams: ItStreams, maxHeight: number): string | null {
+  const pool = streams.video
+    .filter(f => f.url && /avc1/i.test(f.mime) && (f.height ?? 0) > 0 && (f.height ?? 0) <= maxHeight)
+    .sort((a, b) => ((b.height ?? 0) - (a.height ?? 0)) || ((b.bitrate ?? 0) - (a.bitrate ?? 0)))
+  return pool[0]?.url ?? null
+}
+
+/** Resolve (and cache) a pre-signed video-only + audio-only URL pair for the ffmpeg
+ *  remux tier. Fast InnerTube path first, yt-dlp `-g` (two output lines) as fallback.
+ *  Returns null when no suitable avc1 track exists — the route then falls back to the
+ *  best progressive stream instead of failing. */
+export async function resolveSplitStreamUrls(videoId: string, maxHeight = 1080): Promise<SplitStreamUrls | null> {
+  if (!isValidVideoId(videoId)) return null
+  const now = Date.now()
+  const key = splitKey(videoId, maxHeight)
+  const hit = splitCache.get(key)
+  if (hit && hit.expires > now) return hit.urls
+  if (hit) splitCache.delete(key)
+  const pending = splitInflight.get(key)
+  if (pending) return pending
+  const p = doResolveSplit(videoId, maxHeight, key, now)
+  splitInflight.set(key, p)
+  void p.finally(() => { if (splitInflight.get(key) === p) splitInflight.delete(key) })
+  return p
+}
+
+function cacheSplit(key: string, urls: SplitStreamUrls, now: number): void {
+  if (splitCache.size > 200) { for (const [k, v] of splitCache) if (v.expires <= now) splitCache.delete(k) }
+  splitCache.set(key, { urls, expires: now + TTL_MS })
+}
+
+async function doResolveSplit(videoId: string, maxHeight: number, key: string, now: number): Promise<SplitStreamUrls | null> {
+  // Fast path: one InnerTube call yields pre-signed video-only + audio-only URLs.
+  try {
+    const streams = await innertubePlayerStreams(videoId)
+    if (streams) {
+      const video = pickSplitVideo(streams, maxHeight)
+      const audio = pickAudio(streams)
+      if (video && audio && isAllowedUpstream(video) && isAllowedUpstream(audio)) {
+        const urls = { video, audio }
+        cacheSplit(key, urls, now)
+        return urls
+      }
+    }
+  } catch (err) {
+    logger.warn(`[youtube/stream] innertube split-resolve failed for ${videoId}: ${err}`)
+  }
+  // yt-dlp fallback: a video+audio format spec makes `-g` print two URLs (video, audio).
+  try {
+    const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
+      '-f', `bestvideo[vcodec^=avc1][height<=${maxHeight}][protocol^=https]+bestaudio[ext=m4a][protocol^=https]/bestvideo[ext=mp4][height<=${maxHeight}][protocol^=https]+bestaudio[protocol^=https]`,
+      '-g', '--no-warnings', '--no-playlist', '--force-ipv4',
+      '--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`,
+      `https://www.youtube.com/watch?v=${videoId}`,
+    ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }))
+    const [video, audio] = stdout.split('\n').map(l => l.trim()).filter(Boolean)
+    if (video && audio && isAllowedUpstream(video) && isAllowedUpstream(audio)) {
+      const urls = { video, audio }
+      cacheSplit(key, urls, now)
+      return urls
+    }
+  } catch (err) {
+    logger.warn(`[youtube/stream] yt-dlp split-resolve failed for ${videoId}: ${err}`)
+  }
+  return null
+}
+
+/** Drop a cached split pair (e.g. after ffmpeg dies on a rotated/expired URL). */
+export function invalidateSplitStreamUrls(videoId: string, maxHeight = 1080): void {
+  splitCache.delete(splitKey(videoId, maxHeight))
 }
 
 /** Cache-or-fast-path resolve for card hover-preview: a cache hit is free, otherwise this

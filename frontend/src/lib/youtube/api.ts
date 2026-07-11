@@ -137,15 +137,17 @@ export interface VideoPodcast {
 
 export const fileUrl = (videoId: string, kind: 'audio' | 'video') => `/api/youtube/file/${videoId}/${kind}`
 export const exportFileUrl = (jobId: string) => `/api/youtube/export/${jobId}/file`
-export type StreamQuality = 'auto' | '720' | '360'
-/** Privacy proxy: stream a video (or its audio) through our server, never Google. */
-export const proxyStreamUrl = (videoId: string, kind: 'audio' | 'video' = 'video', quality: StreamQuality = 'auto') =>
-  `/api/youtube/stream/${videoId}?kind=${kind}${quality !== 'auto' ? `&q=${quality}` : ''}`
+export type StreamQuality = 'auto' | '1080' | '720' | '360'
+/** Privacy proxy: stream a video (or its audio) through our server, never Google.
+ *  `startSec` only applies to the 1080p remux tier, whose piped output isn't
+ *  byte-seekable, so the player seeks by re-requesting from an offset instead. */
+export const proxyStreamUrl = (videoId: string, kind: 'audio' | 'video' = 'video', quality: StreamQuality = 'auto', startSec?: number) =>
+  `/api/youtube/stream/${videoId}?kind=${kind}${quality !== 'auto' ? `&q=${quality}` : ''}${startSec && startSec > 0.25 ? `&t=${startSec.toFixed(3)}` : ''}`
 
 /** Warm the proxy-stream cache so a later hand-off to the mini-player plays instantly.
  *  Best-effort and fire-and-forget — failures are harmless (the stream just resolves cold). */
-export const prewarmStream = (videoId: string, kind: 'audio' | 'video' = 'video') =>
-  void fetch(`/api/youtube/stream/${videoId}/prewarm${kind === 'audio' ? '?kind=audio' : ''}`, { credentials: 'include' }).catch(() => {})
+export const prewarmStream = (videoId: string, kind: 'audio' | 'video' = 'video', quality: StreamQuality = 'auto') =>
+  void fetch(`/api/youtube/stream/${videoId}/prewarm?kind=${kind}${quality !== 'auto' ? `&q=${quality}` : ''}`, { credentials: 'include' }).catch(() => {})
 
 /** Card hover-preview support: cache hit is free server-side, otherwise the server makes
  *  one InnerTube HTTP call (no subprocess) to see if a preview stream is available. Never

@@ -24,9 +24,13 @@ export interface VideoPlayerHandle {
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+// '1080' is the server-side remux tier (split video+audio tracks copied into fragmented
+// MP4); its pipe isn't byte-seekable, so the player seeks it by re-requesting with an
+// offset. 'auto'/'720'/'360' are plain progressive files with native Range seeking.
 const PROXY_QUALITIES: { value: StreamQuality; label: string }[] = [
-  { value: 'auto', label: 'Auto' }, { value: '720', label: '720p' }, { value: '360', label: '360p' },
+  { value: '1080', label: '1080p' }, { value: 'auto', label: '720p (fast seek)' }, { value: '360', label: '360p' },
 ]
+const PROXY_QUALITY_KEY = 'yt.proxyQuality'
 // YouTube IFrame API quality level → human label.
 const YT_QUALITY_LABEL: Record<string, string> = {
   highres: '4K+', hd2160: '2160p', hd1440: '1440p', hd1080: '1080p', hd720: '720p',
@@ -101,7 +105,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // so the page chrome stays calm. Provided only where toggling makes sense (online).
   onTogglePrivacy?: () => void
   onToggleAudioOnly?: () => void
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video', frameless = false, onTogglePrivacy, onToggleAudioOnly }, ref) {
+  /** Total duration from metadata - the 1080p remux pipe can't report its own. */
+  durationHintSec?: number | null
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video', frameless = false, onTogglePrivacy, onToggleAudioOnly, durationHintSec }, ref) {
   const stripVariant = useVisualizerPref()
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -178,7 +184,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   })
   const [boostOpen, setBoostOpen] = useState(false)
   // Privacy-proxy quality (re-requests the stream); embed quality is a best-effort hint.
-  const [proxyQuality, setProxyQuality] = useState<StreamQuality>('auto')
+  // Persisted per device; defaults to the 1080p remux tier - full quality is the whole
+  // point of the upgrade, and a failed remux falls back to progressive server-side.
+  const [proxyQuality, setProxyQuality] = useState<StreamQuality>(() => {
+    try { return (localStorage.getItem(PROXY_QUALITY_KEY) as StreamQuality) || '1080' } catch { return '1080' }
+  })
+  const pickProxyQuality = (q: StreamQuality) => {
+    try { localStorage.setItem(PROXY_QUALITY_KEY, q) } catch { /* quota */ }
+    // Entering/leaving the remux tier swaps the src; carry the position across via the
+    // remux offset (into 1080) or posRef + startLocalAt (out of it).
+    remuxOffsetRef.current = posRef.current
+    setRemuxStart(posRef.current)
+    setProxyQuality(q)
+  }
   const [embedLevels, setEmbedLevels] = useState<string[]>([])
   const [embedQuality, setEmbedQuality] = useState('auto')
   // If the privacy proxy can't produce a stream, fall back to the embed so playback
@@ -196,12 +214,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // Audio-only streams just the audio through our server, with the thumbnail as poster.
   const onlineAudio = audioOnly && !localKind && !proxyFailed
   const usingProxy = privacyProxy && !localKind && !proxyFailed && !onlineAudio
+  // 1080p remux tier: the server pipes a live ffmpeg remux, which has no byte-range
+  // seeking - the element plays from an OFFSET and every seek swaps the src to a new
+  // offset. `remuxStart` is that offset (state so a change remounts the src);
+  // `remuxOffsetRef` mirrors it for the position math in read()/persist.
+  const remux = usingProxy && proxyQuality === '1080'
+  const [remuxStart, setRemuxStart] = useState(() => Math.max(0, resumeSec))
+  const remuxOffsetRef = useRef(Math.max(0, resumeSec))
   // Native <video>/<audio> source: an offline file, the privacy proxy, audio-only, or (once
   // the last-resort download lands) the freshly-saved offline file.
   const nativeVideoSrc =
     localKind === 'video' ? localSrc
     : fallbackReadyKind === 'video' ? fileUrl(videoId, 'video')
-    : usingProxy ? proxyStreamUrl(videoId, 'video', proxyQuality)
+    : usingProxy ? proxyStreamUrl(videoId, 'video', proxyQuality, remux ? remuxStart : undefined)
     : null
   const nativeAudioSrc =
     localKind === 'audio' ? localSrc
@@ -251,17 +276,34 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     setProxyFailed(true)
   }
 
-  // Reading position works against whichever backing player is active.
+  // Reading position works against whichever backing player is active. The remux pipe
+  // plays from an offset and can't report a total duration, so both are corrected here.
   const read = () => {
     const m = mediaRef.current, y = ytRef.current
-    if (m) return { t: m.currentTime || 0, d: m.duration || 0, playing: !m.paused }
+    if (m) {
+      const t = (m.currentTime || 0) + (remux ? remuxOffsetRef.current : 0)
+      const d = remux ? (durationHintSec ?? 0) : (m.duration || 0)
+      return { t, d, playing: !m.paused }
+    }
     if (y?.getCurrentTime) { try { return { t: y.getCurrentTime() || 0, d: y.getDuration?.() || 0, playing: y.getPlayerState?.() === 1 } } catch { /* not ready */ } }
     return null
   }
 
   const seekTo = (sec: number) => {
     const m = mediaRef.current, y = ytRef.current
-    if (m) { try { m.currentTime = sec } catch { /* not seekable */ } }
+    if (m) {
+      if (remux) {
+        // The pipe isn't byte-seekable: re-request the stream from the new offset
+        // (ffmpeg does an input-side keyframe seek server-side).
+        remuxOffsetRef.current = sec
+        posRef.current = sec
+        setPosition(sec)
+        setBuffering(true)
+        setRemuxStart(sec)
+        return
+      }
+      try { m.currentTime = sec } catch { /* not seekable */ }
+    }
     else if (y?.seekTo) { try { y.seekTo(sec, true) } catch { /* noop */ } }
   }
 
@@ -272,10 +314,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     void saveWatchState(videoId, s.t, done, videoMeta)
   }
 
+  // No dependency array: the handle must close over the CURRENT remux/seek state (an
+  // empty-deps handle froze the mount-time closure and broke remux seeking).
   useImperativeHandle(ref, () => ({
     seek: (sec: number) => {
       const m = mediaRef.current, y = ytRef.current
-      if (m) { try { m.currentTime = sec; void m.play()?.catch(() => {}) } catch { /* noop */ } }
+      if (m) {
+        seekTo(sec)
+        void m.play()?.catch(() => {})
+      }
       else if (y?.seekTo) { try { y.seekTo(sec, true); y.playVideo?.() } catch { /* noop */ } }
       setPosition(sec)
     },
@@ -294,7 +341,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
       const m = mediaRef.current, y = ytRef.current
       if (m) { try { m.pause() } catch { /* noop */ } } else { try { y?.pauseVideo?.() } catch { /* noop */ } }
     },
-  }), [])
+  }))
 
   // Online (embed only): drive the IFrame API. Skipped when a native source is active.
   useEffect(() => {
@@ -389,8 +436,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // quality switch reloads the element).
   function startLocalAt() {
     const el = mediaRef.current; if (!el) return
-    const target = Math.max(resumeSec, posRef.current)
-    if (target > 1) { try { el.currentTime = target } catch { /* not seekable */ } }
+    if (!remux) {
+      const target = Math.max(resumeSec, posRef.current)
+      if (target > 1) { try { el.currentTime = target } catch { /* not seekable */ } }
+    }
+    // Remux streams already begin at the requested offset - seeking the element would
+    // double-apply it (and the pipe isn't seekable anyway).
     el.playbackRate = rate
     void el.play()?.catch(() => {})
   }
@@ -553,7 +604,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             }}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
             onError={() => { if (privacyProxy && !localKind) void handleStreamError('video', nativeVideoSrc) }}
-            onEnded={() => { persist(true); onEnded?.() }}>
+            onEnded={() => {
+              // A remux pipe that dies mid-stream (network blip, rotated upstream URL)
+              // ends the element early - that's a stall, not the end of the video.
+              // Resume from the current position with a fresh request instead of firing
+              // autoplay-next; the server invalidates + re-resolves the URLs on retry.
+              if (remux && durationHintSec && (remuxOffsetRef.current + (mediaRef.current?.currentTime ?? 0)) < durationHintSec - 8) {
+                seekTo(remuxOffsetRef.current + (mediaRef.current?.currentTime ?? 0))
+                return
+              }
+              persist(true); onEnded?.()
+            }}>
             {/* Subtitles for the native paths (private stream / offline): the transcript VTT
                 as a real track, shown only when our CC toggle is on. */}
             <track kind="subtitles" srcLang="en" label="Subtitles" src={`/api/youtube/transcript/${videoId}`} default={ccOn} />
@@ -704,7 +765,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
                     {usingProxy
                       ? PROXY_QUALITIES.map(q => (
                           <OptionRow key={q.value} label={q.label} active={proxyQuality === q.value}
-                            onClick={() => { setProxyQuality(q.value); setMenu(null) }} />
+                            onClick={() => { pickProxyQuality(q.value); setMenu(null) }} />
                         ))
                       : (
                         <>

@@ -32,8 +32,8 @@ import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
-  startLiveRecord, stopLiveRecord, saveOffline, ytImageProxy,
-  type VideoMeta, type VideoVotes,
+  startLiveRecord, stopLiveRecord, saveOffline, ytImageProxy, prewarmStream,
+  type VideoMeta, type VideoVotes, type StreamQuality,
 } from '@/lib/youtube/api'
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
 import { fmtAge, fmtViews, thumbUrl } from '@/lib/youtube/format'
@@ -225,11 +225,20 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const online = !localKind
 
   // Privacy proxy: stream through our server instead of the YouTube embed. Opt-in:
-  // it has zero YouTube chrome and fully custom controls, but starts slower and caps at
-  // 720p (YouTube's combined A/V streams top out there; higher tiers are split tracks
-  // that would need server-side muxing). The embed stays the default for speed/quality,
-  // with the poster covers + paused masks suppressing its built-in chrome.
+  // it has zero YouTube chrome and fully custom controls. Quality reaches 1080p via the
+  // server-side remux tier (split tracks copied into fragmented MP4); the embed stays
+  // the default, with the poster covers + paused masks suppressing its built-in chrome.
   const [privacy, setPrivacy] = useState(() => localStorage.getItem(PRIVACY_KEY) === '1')
+
+  // Warm the proxy-stream cache the moment the page opens: flipping Private stream on
+  // (or a PiP/minimize handoff) then starts in ~a second instead of a cold resolve.
+  // Warms the remux pair when 1080p is the saved proxy quality.
+  useEffect(() => {
+    if (!online) return
+    let q: StreamQuality = 'auto'
+    try { q = (localStorage.getItem('yt.proxyQuality') as StreamQuality) || '1080' } catch { /* private mode */ }
+    prewarmStream(videoId, 'video', q)
+  }, [videoId, online])
   const togglePrivacy = () => setPrivacy(p => { const n = !p; try { localStorage.setItem(PRIVACY_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
   // Picture-in-Picture on the plain iframe embed needs a real <video> to hand off to,
   // which means switching onto the privacy-proxy stream (see VideoPlayer's togglePip).
@@ -407,6 +416,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               privacyProxy={online && privacy} audioOnly={online && audioOnly}
               onTogglePrivacy={online ? togglePrivacy : undefined}
               onToggleAudioOnly={online ? toggleAudioOnly : undefined}
+              durationHintSec={meta?.durationSec ?? null}
               onNeedsProxyForPip={enablePrivacyForPip}
               autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
               onNeedsProxyForBoost={enablePrivacyForBoost}

@@ -915,7 +915,7 @@ async function getVisitorData(): Promise<string | null> {
 }
 
 export interface ItStreamFormat { itag: number; url: string; height: number | null; bitrate: number | null; mime: string }
-export interface ItStreams { progressive: ItStreamFormat[]; audio: ItStreamFormat[] }
+export interface ItStreams { progressive: ItStreamFormat[]; audio: ItStreamFormat[]; video: ItStreamFormat[] }
 
 export async function innertubePlayerStreams(videoId: string, timeout = 6000): Promise<ItStreams | null> {
   const visitorData = await getVisitorData()
@@ -949,7 +949,10 @@ export async function innertubePlayerStreams(videoId: string, timeout = 6000): P
   }
   const progressive = ((sd.formats ?? []).map(toFmt).filter(Boolean)) as ItStreamFormat[]
   const audio = ((sd.adaptiveFormats ?? []).filter((f: any) => String(f?.mimeType ?? '').startsWith('audio/')).map(toFmt).filter(Boolean)) as ItStreamFormat[]
-  return { progressive, audio }
+  // Video-only adaptive tracks: the 1080p+ tiers the progressive formats never reach.
+  // Paired with an audio track by the stream proxy's ffmpeg remux.
+  const video = ((sd.adaptiveFormats ?? []).filter((f: any) => String(f?.mimeType ?? '').startsWith('video/')).map(toFmt).filter(Boolean)) as ItStreamFormat[]
+  return { progressive, audio, video }
 }
 
 // Storyboard (scrub-preview sprite sheet) levels for a video. The plain WEB `player` call
