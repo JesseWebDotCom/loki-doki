@@ -5,7 +5,7 @@ import {
   HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
   ThumbsUp, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
 } from 'lucide-react'
-import { ShieldCheck, Headphones, ExternalLink, Share2, PictureInPicture2 } from 'lucide-react'
+import { ExternalLink, Share2, PictureInPicture2, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useArtPalette } from '@/lib/artPalette'
 import { videoAccentVars } from '@/components/videos/AccentScope'
@@ -66,7 +66,7 @@ const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
   channelThumb: v.channelThumb ?? null, localKind: v.localKind, durationSec: v.durationSec ?? null,
 })
 
-type SideTab = 'upnext' | 'transcript' | 'summary' | 'comments'
+type SideTab = 'upnext' | 'transcript' | 'comments'
 
 /** Compact like/dislike counts (1234 → "1.2K"). */
 function fmtCount(n: number): string {
@@ -382,9 +382,11 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
    <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))}>
     <PageContainer width="wide" className="py-6">
       <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
-      {/* Main column: player, then a calm title block (course-page language: one title,
-          a couple of labeled actions, readable description - nothing else). */}
+      {/* Main column: player with the vertical action rail beside it, then a calm title
+          block (one title, creator subtitle, readable description - nothing else). */}
       <div className="min-w-0 space-y-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+      <div className="min-w-0 flex-1">
       {isPending ? (
         <Skeleton className="aspect-video w-full rounded-card" />
       ) : (
@@ -393,6 +395,8 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               ref={playerRef} key={`${videoId}:${privacy}:${audioOnly}`} videoId={videoId} localKind={localKind}
               resumeSec={resumeSec} onEnded={onEnded}
               privacyProxy={online && privacy} audioOnly={online && audioOnly}
+              onTogglePrivacy={online ? togglePrivacy : undefined}
+              onToggleAudioOnly={online ? toggleAudioOnly : undefined}
               onNeedsProxyForPip={enablePrivacyForPip}
               autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
               onNeedsProxyForBoost={enablePrivacyForBoost}
@@ -418,12 +422,14 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             )}
           </div>
         )}
+      </div>
+        <YoutubeActionRail videoId={videoId} title={title} author={author}
+          channelId={meta?.channelId ?? null} channelThumb={channelThumb} meta={meta}
+          localKind={localKind} isShortVid={isShortVid} onMinimize={minimize} />
+      </div>
 
         <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
-          votes={votes ?? null} localKind={localKind}
-          privacy={privacy} onTogglePrivacy={togglePrivacy}
-          audioOnly={audioOnly} onToggleAudioOnly={toggleAudioOnly}
-          isShortVid={isShortVid} onMinimize={minimize} />
+          votes={votes ?? null} />
       </div>
 
       {/* Side column: ONE tabbed rail - the queue is the first (default) tab, not a second
@@ -433,7 +439,6 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           tabs={[
             { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
             { key: 'transcript' as SideTab, label: 'Transcript' },
-            { key: 'summary' as SideTab, label: 'AI Summary' },
             { key: 'comments' as SideTab, label: 'Comments' },
           ]}
           active={tab} onChange={setTab}>
@@ -457,7 +462,6 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             </div>
           )}
           {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
-          {tab === 'summary' && <SummaryTab videoId={videoId} initial={meta?.summary ?? null} />}
           {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
         </SidePanelShell>
       </aside>
@@ -469,42 +473,17 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
 // ── YouTube info panel ───────────────────────────────────────────────────────
 
-function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, localKind,
-  privacy, onTogglePrivacy, audioOnly, onToggleAudioOnly, isShortVid, onMinimize }: {
+function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes }: {
   videoId: string
   title: string
   author: string | null
   channelThumb: string | null
   meta: VideoMeta | undefined
   votes: VideoVotes | null
-  localKind?: 'audio' | 'video'
-  privacy: boolean
-  onTogglePrivacy: () => void
-  audioOnly: boolean
-  onToggleAudioOnly: () => void
-  isShortVid: boolean
-  onMinimize: () => void
 }) {
-  const online = !localKind
-  const ui = useYoutubeUI()
   const qc = useQueryClient()
-  const { shareLink } = useShareLink()
   const [showOriginalDescription, setShowOriginalDescription] = useState(false)
-  // One-click Save: yt-dlp downloads this to the Offline library at the user's default quality.
-  const savedRemote = useSavedState(videoId)
-  const [savingLocal, setSavingLocal] = useState(false)
-  const saveState: 'saved' | 'saving' | null = localKind ? 'saved' : savingLocal ? 'saving' : savedRemote
-  async function saveVideoOffline() {
-    if (saveState === 'saved' || saveState === 'saving') return
-    setSavingLocal(true)
-    try {
-      const d = await saveOffline({ videoId, title, kind: 'video' })
-      if (d.error) { toast.error(d.error); return }
-      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
-      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
-    } catch { toast.error('Could not save') } finally { setSavingLocal(false) }
-  }
-  const [podcastOpen, setPodcastOpen] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
   const [subbed, setSubbed] = useState(meta?.subscribed ?? false)
   const [subId, setSubId] = useState(meta?.subscriptionId ?? null)
   const [subBusy, setSubBusy] = useState(false)
@@ -525,31 +504,6 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
   useEffect(() => {
     if (meta?.subscribed !== undefined) { setSubbed(meta.subscribed); setSubId(meta.subscriptionId ?? null) }
   }, [meta?.subscribed, meta?.subscriptionId])
-
-  const snapshot = { videoId, title, author, channelId, channelThumb, durationSec: meta?.durationSec ?? null, videoSource: 'youtube' as const }
-  const liked = useCollection('liked').some(v => v.videoId === videoId)
-  const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
-
-  // Live DVR: record an in-progress stream from its start. `recording` is local UI state only —
-  // the capture itself runs server-side as a durable job, so reloading this page just loses the
-  // "Stop" affordance (clicking Record again harmlessly coalesces onto the same in-progress job).
-  const [recording, setRecording] = useState(false)
-  const [recordBusy, setRecordBusy] = useState(false)
-  async function toggleRecording() {
-    setRecordBusy(true)
-    try {
-      if (recording) {
-        await stopLiveRecord(videoId)
-        setRecording(false)
-        toast.success('Recording finalizing — check Offline library shortly')
-      } else {
-        const d = await startLiveRecord(videoId, title)
-        if (d.error) { toast.error(d.error); return }
-        setRecording(true)
-        toast.success('Recording from the start of the stream')
-      }
-    } catch { toast.error('Could not update the recording') } finally { setRecordBusy(false) }
-  }
 
   const { ask: askUnsub, dialog: unsubDialog } = useUnsubscribeConfirm()
   async function toggleSub() {
@@ -612,107 +566,166 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes, l
   return (
     <div className="space-y-4">
       {unsubDialog}
-      {/* One calm header row: eyebrow + title + creator subtitle on the left, exactly two
-          labeled actions (Save, Share) + a ⋯ menu on the right. Everything else lives in
-          the menu - likes ride in the eyebrow. */}
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div className="min-w-0 flex-1 basis-72 space-y-1.5">
-          {(views || votes) && (
-            <p className="text-overline text-white/50" title={votes ? `${fmtCount(votes.likes)} likes · ${fmtCount(votes.dislikes)} dislikes (Return YouTube Dislike)` : undefined}>
-              {[views, votes ? `${fmtCount(votes.likes)} likes` : null].filter(Boolean).join(' · ')}
-            </p>
-          )}
-          {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
-          <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{title}</h1>
-          {subtitle}
-        </div>
-        <div className="flex shrink-0 items-center gap-2 pt-1.5">
-          {!localKind && (
-            // design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop
-            <Button onClick={saveState === 'saving' ? undefined : saveVideoOffline} disabled={saveState === 'saved'}
-              title="Save offline: this server downloads the video so you can watch it later without streaming."
-              className={cn('rounded-full px-4 shadow-none', saveState === 'saved'
-                ? 'bg-white/10 text-foreground/75 disabled:opacity-100'
-                : 'bg-white/10 text-foreground/90 hover:bg-white/15')}>
-              {saveState === 'saved' ? <><Check className="size-4" /> Saved</>
-                : saveState === 'saving' ? <><Spinner className="size-4" /> Saving</>
-                : <><HardDriveDownload className="size-4" /> Save</>}
-            </Button>
-          )}
-          {/* design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop */}
-          <Button onClick={() => void shareLink(`${window.location.origin}/videos/youtube/watch/${videoId}`, { label: 'Link' })}
-            className="rounded-full bg-white/10 px-4 text-foreground/90 shadow-none hover:bg-white/15">
-            <Share2 className="size-4" /> Share
-          </Button>
-          {/* design-ok(glass-on-plain-bg): compact icon pair over the UltraBlur cinema backdrop */}
-          <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
-            <AddToPlaylistPill compact video={{ videoId, title, author: author ?? undefined, channelId: channelId ?? undefined, durationSec: meta?.durationSec ?? undefined }} />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button title="More actions" aria-label="More actions"
-                  className="grid size-8 place-items-center rounded-full text-foreground/70 transition-colors hover:bg-background/60 data-[state=open]:bg-background/70 data-[state=open]:text-foreground">
-                  <MoreHorizontal className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={() => toggleCollection('liked', snapshot)}>
-                  <Heart className={cn('size-4', liked && 'fill-current text-[var(--yt-accent-fg)]')} />
-                  {liked ? 'Remove from Liked' : 'Like'}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => toggleCollection('watch-later', snapshot)}>
-                  <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
-                  {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => ui.openDownload(videoId, title, localKind)}>
-                  <Download className="size-4" /> Download
-                </DropdownMenuItem>
-                {online && meta?.isLive && (
-                  <DropdownMenuItem onClick={recordBusy ? undefined : toggleRecording}>
-                    {recording ? <Square className="size-4 fill-current text-[var(--yt-accent-fg)]" /> : <Circle className="size-4" />}
-                    {recording ? 'Stop recording' : 'Record from start'}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={onMinimize}
-                  title="Keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy).">
-                  <SquareArrowOutDownLeft className="size-4" /> Minimize to mini-player
-                </DropdownMenuItem>
-                {online && (
-                  <DropdownMenuItem onClick={onTogglePrivacy}
-                    title="Route through this server so Google never sees you. Slower to start and caps at 720p.">
-                    <ShieldCheck className={cn('size-4', privacy && 'fill-current text-success')} />
-                    Private stream {privacy && <Check className="ml-auto size-4" />}
-                  </DropdownMenuItem>
-                )}
-                {online && (
-                  <DropdownMenuItem onClick={onToggleAudioOnly} title="Play just the audio to save bandwidth.">
-                    <Headphones className={cn('size-4', audioOnly && 'text-info')} />
-                    Audio only {audioOnly && <Check className="ml-auto size-4" />}
-                  </DropdownMenuItem>
-                )}
-                {isShortVid && (
-                  <DropdownMenuItem asChild>
-                    <Link to={`/videos/youtube/shorts/${videoId}`}><Smartphone className="size-4" /> Open in Shorts view</Link>
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
-                  <Mic className="size-4" /> Create podcast
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')}>
-                  <ExternalLink className="size-4" /> Open on YouTube
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
+      {/* Calm full-width header: eyebrow + title + creator subtitle. Actions live in the
+          vertical rail beside the player, so long titles never wrap around buttons. */}
+      <div className="min-w-0 space-y-1.5">
+        {(views || votes) && (
+          <p className="text-overline text-white/50" title={votes ? `${fmtCount(votes.likes)} likes · ${fmtCount(votes.dislikes)} dislikes (Return YouTube Dislike)` : undefined}>
+            {[views, votes ? `${fmtCount(votes.likes)} likes` : null].filter(Boolean).join(' · ')}
+          </p>
+        )}
+        {/* design-ok(raw-h1-in-pages): video title is content on a full-bleed watch surface, not page chrome */}
+        <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{title}</h1>
+        {subtitle}
       </div>
 
       <DescriptionCard views={null}
         description={description ? (hasOriginalDescription ? description : description) : null} />
-      {hasOriginalDescription && description && (
-        <button onClick={() => setShowOriginalDescription(v => !v)} className="-mt-3 text-xs font-semibold text-muted-foreground hover:text-foreground">
-          {showOriginalDescription ? 'Show cleaned description' : 'View original'}
+      {/* Description footnotes: the AI summary lives HERE, inline with the description
+          it condenses (fetched only when opened), not as a rail tab. */}
+      <div className="-mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 px-1">
+        <button onClick={() => setSummaryOpen(v => !v)}
+          className={cn('flex items-center gap-1 text-xs font-semibold transition-colors',
+            summaryOpen ? 'text-[var(--yt-accent-fg)]' : 'text-muted-foreground hover:text-foreground')}>
+          <Sparkles className="size-3" /> {summaryOpen ? 'Hide AI summary' : 'AI summary'}
         </button>
+        {hasOriginalDescription && description && (
+          <button onClick={() => setShowOriginalDescription(v => !v)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+            {showOriginalDescription ? 'Show cleaned description' : 'View original'}
+          </button>
+        )}
+      </div>
+      {summaryOpen && (
+        <div className="rounded-card bg-white/[0.04] p-4 ring-1 ring-white/10">
+          <SummaryTab videoId={videoId} initial={meta?.summary ?? null} />
+        </div>
       )}
+    </div>
+  )
+}
+
+/** Vertical icon rail beside the player (the TikTok/Reels pattern): like, save, share,
+ *  playlist and the ⋯ menu live here as unlabeled circles, so the title block keeps the
+ *  full column width. Wraps to a horizontal row under the player on smaller screens. */
+function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, meta, localKind, isShortVid, onMinimize }: {
+  videoId: string
+  title: string
+  author: string | null
+  channelId: string | null
+  channelThumb: string | null
+  meta: VideoMeta | undefined
+  localKind?: 'audio' | 'video'
+  isShortVid: boolean
+  onMinimize: () => void
+}) {
+  const online = !localKind
+  const ui = useYoutubeUI()
+  const qc = useQueryClient()
+  const { shareLink } = useShareLink()
+  // One-click Save: yt-dlp downloads this to the Offline library at the user's default quality.
+  const savedRemote = useSavedState(videoId)
+  const [savingLocal, setSavingLocal] = useState(false)
+  const saveState: 'saved' | 'saving' | null = localKind ? 'saved' : savingLocal ? 'saving' : savedRemote
+  async function saveVideoOffline() {
+    if (saveState === 'saved' || saveState === 'saving') return
+    setSavingLocal(true)
+    try {
+      const d = await saveOffline({ videoId, title, kind: 'video' })
+      if (d.error) { toast.error(d.error); return }
+      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
+      qc.invalidateQueries({ queryKey: ['yt-downloads'] })
+    } catch { toast.error('Could not save') } finally { setSavingLocal(false) }
+  }
+  const [podcastOpen, setPodcastOpen] = useState(false)
+  const snapshot = { videoId, title, author, channelId, channelThumb, durationSec: meta?.durationSec ?? null, videoSource: 'youtube' as const }
+  const liked = useCollection('liked').some(v => v.videoId === videoId)
+  const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
+
+  // Live DVR: record an in-progress stream from its start. `recording` is local UI state only —
+  // the capture itself runs server-side as a durable job, so reloading this page just loses the
+  // "Stop" affordance (clicking Record again harmlessly coalesces onto the same in-progress job).
+  const [recording, setRecording] = useState(false)
+  const [recordBusy, setRecordBusy] = useState(false)
+  async function toggleRecording() {
+    setRecordBusy(true)
+    try {
+      if (recording) {
+        await stopLiveRecord(videoId)
+        setRecording(false)
+        toast.success('Recording finalizing — check Offline library shortly')
+      } else {
+        const d = await startLiveRecord(videoId, title)
+        if (d.error) { toast.error(d.error); return }
+        setRecording(true)
+        toast.success('Recording from the start of the stream')
+      }
+    } catch { toast.error('Could not update the recording') } finally { setRecordBusy(false) }
+  }
+
+  // design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop
+  const railBtn = 'size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15'
+  return (
+    <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 lg:w-10 lg:flex-col lg:flex-nowrap lg:justify-start">
+      {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
+      <Button size="icon" onClick={() => toggleCollection('liked', snapshot)}
+        title={liked ? 'Remove from Liked' : 'Like'} aria-label={liked ? 'Remove from Liked' : 'Like'}
+        className={cn(railBtn, liked && 'text-[var(--yt-accent-fg)]')}>
+        <Heart className={cn('size-4', liked && 'fill-current')} />
+      </Button>
+      {!localKind && (
+        <Button size="icon" onClick={saveState === 'saving' ? undefined : saveVideoOffline} disabled={saveState === 'saved'}
+          title={saveState === 'saved' ? 'Saved offline' : 'Save offline: this server downloads the video so you can watch it later without streaming.'}
+          aria-label="Save offline"
+          className={cn(railBtn, saveState === 'saved' && 'text-[var(--yt-accent-fg)] disabled:opacity-100')}>
+          {saveState === 'saved' ? <Check className="size-4" /> : saveState === 'saving' ? <Spinner className="size-4" /> : <HardDriveDownload className="size-4" />}
+        </Button>
+      )}
+      <Button size="icon" onClick={() => void shareLink(`${window.location.origin}/videos/youtube/watch/${videoId}`, { label: 'Link' })}
+        title="Share" aria-label="Share" className={railBtn}>
+        <Share2 className="size-4" />
+      </Button>
+      {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
+      <span className="grid size-10 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/15" title="Add to playlist">
+        <AddToPlaylistPill compact video={{ videoId, title, author: author ?? undefined, channelId: channelId ?? undefined, durationSec: meta?.durationSec ?? undefined }} />
+      </span>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="icon" title="More actions" aria-label="More actions"
+            className={cn(railBtn, 'data-[state=open]:bg-white/20 data-[state=open]:text-foreground')}>
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onClick={() => toggleCollection('watch-later', snapshot)}>
+            <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
+            {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => ui.openDownload(videoId, title, localKind)}>
+            <Download className="size-4" /> Download
+          </DropdownMenuItem>
+          {online && meta?.isLive && (
+            <DropdownMenuItem onClick={recordBusy ? undefined : toggleRecording}>
+              {recording ? <Square className="size-4 fill-current text-[var(--yt-accent-fg)]" /> : <Circle className="size-4" />}
+              {recording ? 'Stop recording' : 'Record from start'}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={onMinimize}
+            title="Keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy).">
+            <SquareArrowOutDownLeft className="size-4" /> Minimize to mini-player
+          </DropdownMenuItem>
+          {isShortVid && (
+            <DropdownMenuItem asChild>
+              <Link to={`/videos/youtube/shorts/${videoId}`}><Smartphone className="size-4" /> Open in Shorts view</Link>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
+            <Mic className="size-4" /> Create podcast
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')}>
+            <ExternalLink className="size-4" /> Open on YouTube
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <CreatePodcastDialog open={podcastOpen} onClose={() => setPodcastOpen(false)}
         videos={[{ videoId, title, author: author ?? undefined }]}
@@ -890,6 +903,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const nativeWrapRef = useRef<HTMLDivElement>(null)
   const toggleNativeFullscreen = useFullscreenToggle(nativeWrapRef)
   const [explicitTab, setExplicitTab] = useState<SideTab | null>(null)
+  const [summaryOpen, setSummaryOpen] = useState(false)
   // Present when this video was opened via a playlist's "Play all" or a row click. Autoplay
   // here only ever means "advance through that playlist" — there's no algorithmic "related"
   // autoplay fallback for hub sources (matches today's no-queue behavior outside a playlist).
@@ -1119,7 +1133,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     { key: 'upnext', label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
   ]
   if (capabilities?.transcript !== false) {
-    tabs.push({ key: 'transcript', label: 'Transcript' }, { key: 'summary', label: 'AI Summary' })
+    tabs.push({ key: 'transcript', label: 'Transcript' })
   }
   if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments' })
 
@@ -1127,11 +1141,12 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
    <WatchCinema art={item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : null}>
     <PageContainer width="wide" className="py-6">
       <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
-      {/* Main column: player, then a calm title block (course-page language: one title,
-          a couple of labeled actions, readable description - nothing else). Vertical
-          (TikTok/Reels) videos are capped by HEIGHT so the info stays visible. */}
+      {/* Main column: player with the vertical action rail beside it, then a calm title
+          block (one title, creator subtitle, readable description - nothing else).
+          Vertical (TikTok/Reels) videos are capped by HEIGHT so the info stays visible. */}
       <div className="min-w-0 space-y-5">
-        <div className={item.vertical ? 'flex justify-center' : ''}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+        <div className={cn('min-w-0 flex-1', item.vertical && 'flex justify-center')}>
           <div className={cn('relative', !item.vertical && 'overflow-hidden rounded-card shadow-2xl')}>
             {showEmbed ? (
               source === 'vimeo' ? (
@@ -1185,11 +1200,78 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           </div>
         </div>
 
+        {/* Vertical icon rail beside the player: like/save/share/playlist/⋯ as unlabeled
+            circles, so the title block keeps the full column width. */}
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 lg:w-10 lg:flex-col lg:flex-nowrap lg:justify-start">
+          {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
+          <Button size="icon" onClick={() => toggleCollection('liked', collectionSnapshot())}
+            title={liked ? 'Remove from Liked' : 'Like'} aria-label={liked ? 'Remove from Liked' : 'Like'}
+            className={cn('size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15', liked && 'text-[var(--yt-accent-fg)]')}>
+            <Heart className={cn('size-4', liked && 'fill-current')} />
+          </Button>
+          {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
+          <Button size="icon" onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
+            disabled={saveState === 'ready'} aria-label="Save offline"
+            title={saveState === 'ready' ? 'Saved offline' : 'Save offline: this server downloads the video so you can watch it later without streaming.'}
+            className={cn('size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15', saveState === 'ready' && 'text-[var(--yt-accent-fg)] disabled:opacity-100')}>
+            {saveState === 'ready' ? <Check className="size-4" />
+              : (saveState === 'pending' || saveState === 'downloading') ? <Spinner className="size-4" />
+              : <HardDriveDownload className="size-4" />}
+          </Button>
+          {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
+          <Button size="icon" onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })}
+            title="Share" aria-label="Share"
+            className="size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15">
+            <Share2 className="size-4" />
+          </Button>
+          {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
+          <span className="grid size-10 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/15" title="Add to playlist">
+            <AddToPlaylistPill compact video={{
+              videoId: id, title: item.title, author: item.creator?.name ?? undefined, channelId: item.creator?.id ?? undefined,
+              durationSec: item.durationSec ?? undefined, videoSource: source, thumbnailUrl: item.thumbnailUrl,
+            }} />
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
+              <Button size="icon" title="More actions" aria-label="More actions"
+                className="size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15 data-[state=open]:bg-white/20 data-[state=open]:text-foreground">
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onClick={() => toggleCollection('watch-later', collectionSnapshot())}>
+                <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
+                {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { const a = document.createElement('a'); a.href = vstreamUrl; a.download = `${item.title || 'video'}.mp4`; document.body.appendChild(a); a.click(); a.remove() }}>
+                <Download className="size-4" /> Download
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={minimize}
+                title="Keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start).">
+                <SquareArrowOutDownLeft className="size-4" /> Minimize to mini-player
+              </DropdownMenuItem>
+              {pipSupported && (
+                <DropdownMenuItem onClick={togglePip}
+                  title="Pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start).">
+                  <PictureInPicture2 className="size-4" /> Picture-in-picture
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
+                <Mic className="size-4" /> Create podcast
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}>
+                <ExternalLink className="size-4" /> Open on {badge.label}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        </div>
+
         <div className="space-y-4">
-          {/* One calm header row: eyebrow + title + creator subtitle left, two labeled
-              actions (Save, Share) + a ⋯ menu right. Everything else lives in the menu. */}
-          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-            <div className="min-w-0 flex-1 basis-72 space-y-1.5">
+          {/* Calm full-width header: eyebrow + title + creator subtitle. Actions live in
+              the vertical rail beside the player. */}
+          <div className="min-w-0 space-y-1.5">
               {(item.viewsText || item.likesText || item.publishedText || item.publishedAt) && (
                 <p className="text-overline text-white/50">
                   {[item.viewsText, item.likesText, item.publishedText ?? fmtAge(item.publishedAt)].filter(Boolean).join(' · ')}
@@ -1222,71 +1304,22 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                 ))}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2 pt-1.5">
-              {/* design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop */}
-              <Button onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
-                disabled={saveState === 'ready'}
-                title="Save offline: this server downloads the video so you can watch it later without streaming."
-                className={cn('rounded-full px-4 shadow-none', saveState === 'ready'
-                  ? 'bg-white/10 text-foreground/75 disabled:opacity-100'
-                  : 'bg-white/10 text-foreground/90 hover:bg-white/15')}>
-                {saveState === 'ready' ? <><Check className="size-4" /> Saved</>
-                  : (saveState === 'pending' || saveState === 'downloading') ? <><Spinner className="size-4" /> Saving</>
-                  : <><HardDriveDownload className="size-4" /> Save</>}
-              </Button>
-              {/* design-ok(glass-on-plain-bg): labeled action pill over the UltraBlur cinema backdrop */}
-              <Button onClick={() => shareLink(`${window.location.origin}/videos/${source}/watch/${id}`, { label: 'Link' })}
-                className="rounded-full bg-white/10 px-4 text-foreground/90 shadow-none hover:bg-white/15">
-                <Share2 className="size-4" /> Share
-              </Button>
-              {/* design-ok(glass-on-plain-bg): compact icon pair over the UltraBlur cinema backdrop */}
-              <div className="flex items-center gap-0.5 rounded-full bg-white/10 p-1">
-                <AddToPlaylistPill compact video={{
-                  videoId: id, title: item.title, author: item.creator?.name ?? undefined, channelId: item.creator?.id ?? undefined,
-                  durationSec: item.durationSec ?? undefined, videoSource: source, thumbnailUrl: item.thumbnailUrl,
-                }} />
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button title="More actions" aria-label="More actions"
-                      className="grid size-8 place-items-center rounded-full text-foreground/70 transition-colors hover:bg-background/60 data-[state=open]:bg-background/70 data-[state=open]:text-foreground">
-                      <MoreHorizontal className="size-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem onClick={() => toggleCollection('liked', collectionSnapshot())}>
-                      <Heart className={cn('size-4', liked && 'fill-current text-[var(--yt-accent-fg)]')} />
-                      {liked ? 'Remove from Liked' : 'Like'}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => toggleCollection('watch-later', collectionSnapshot())}>
-                      <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
-                      {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { const a = document.createElement('a'); a.href = vstreamUrl; a.download = `${item.title || 'video'}.mp4`; document.body.appendChild(a); a.click(); a.remove() }}>
-                      <Download className="size-4" /> Download
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={minimize}
-                      title="Keep playing in the mini-player while you browse. For TikTok/Vimeo this streams a direct copy (a few seconds to start).">
-                      <SquareArrowOutDownLeft className="size-4" /> Minimize to mini-player
-                    </DropdownMenuItem>
-                    {pipSupported && (
-                      <DropdownMenuItem onClick={togglePip}
-                        title="Pop the video into a floating window while you keep browsing. For TikTok/Vimeo this streams a direct copy (a few seconds to start).">
-                        <PictureInPicture2 className="size-4" /> Picture-in-picture
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem onClick={() => setPodcastOpen(true)}>
-                      <Mic className="size-4" /> Create podcast
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}>
-                      <ExternalLink className="size-4" /> Open on {badge.label}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-          </div>
-
           <DescriptionCard views={null} description={item.description ?? null} />
+          {/* AI summary lives inline with the description it condenses, not as a rail tab. */}
+          {capabilities?.transcript !== false && (
+            <>
+              <button onClick={() => setSummaryOpen(v => !v)}
+                className={cn('-mt-3 flex items-center gap-1 px-1 text-xs font-semibold transition-colors',
+                  summaryOpen ? 'text-[var(--yt-accent-fg)]' : 'text-muted-foreground hover:text-foreground')}>
+                <Sparkles className="size-3" /> {summaryOpen ? 'Hide AI summary' : 'AI summary'}
+              </button>
+              {summaryOpen && (
+                <div className="rounded-card bg-white/[0.04] p-4 ring-1 ring-white/10">
+                  <SummaryTab videoId={id} initial={null} source={source} />
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         <CreatePodcastDialog open={podcastOpen} onClose={() => setPodcastOpen(false)}
@@ -1322,7 +1355,6 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
-          {tab === 'summary' && <SummaryTab videoId={id} initial={null} source={source} />}
           {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
         </SidePanelShell>
       </aside>

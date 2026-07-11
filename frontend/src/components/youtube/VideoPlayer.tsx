@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock, thumbUrl } from '@/lib/youtube/format'
@@ -97,7 +97,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   aspect?: 'video' | 'short'
   /** Square corners for full-bleed cinema surfaces (the watch hero); default keeps rounded-card. */
   frameless?: boolean
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video', frameless = false }, ref) {
+  // Page-level playback modes surfaced INSIDE the player's settings menu (Plex-style),
+  // so the page chrome stays calm. Provided only where toggling makes sense (online).
+  onTogglePrivacy?: () => void
+  onToggleAudioOnly?: () => void
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video', frameless = false, onTogglePrivacy, onToggleAudioOnly }, ref) {
   const stripVariant = useVisualizerPref()
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -118,6 +122,41 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const [rate, setRate] = useState(1)
   // Settings popover: which sub-menu is open (null = closed).
   const [menu, setMenu] = useState<null | 'main' | 'speed' | 'quality'>(null)
+  // Captions: OUR toggle, persisted per device, default OFF. The YouTube embed otherwise
+  // honors Google's sticky caption preference with no way to turn it off from our chrome
+  // (controls: 0) - "it always shows subtitles". The embed is forced to match on ready;
+  // the private-stream <video> gets the transcript VTT as a real subtitle track.
+  const [ccOn, setCcOn] = useState(() => { try { return localStorage.getItem('yt.captions') === '1' } catch { return false } })
+  // The embed re-applies Google's sticky caption preference when playback starts, so a
+  // single unload at onReady is not enough - this must be re-enforced on every PLAYING
+  // transition. Read the preference through a ref: the player's event closures are
+  // created once and would otherwise see the mount-time value forever.
+  const ccOnRef = useRef(ccOn)
+  const enforceEmbedCc = (y: any, on: boolean) => {
+    // Both module names: 'captions' is the HTML5 player's, 'cc' the legacy one - YouTube
+    // answers to whichever the current build uses. Clearing the active track via
+    // setOption is what actually turns captions OFF; unloadModule alone gets overridden.
+    try {
+      if (on) { y.loadModule?.('captions'); y.loadModule?.('cc') }
+      else {
+        y.unloadModule?.('captions'); y.unloadModule?.('cc')
+        y.setOption?.('captions', 'track', {}); y.setOption?.('cc', 'track', {})
+      }
+    } catch { /* embed not ready */ }
+  }
+  const applyCcToPlayers = (on: boolean) => {
+    const y = ytRef.current
+    if (y) enforceEmbedCc(y, on)
+    const m = mediaRef.current
+    if (m instanceof HTMLVideoElement) { for (const t of Array.from(m.textTracks)) t.mode = on ? 'showing' : 'hidden' }
+  }
+  const toggleCc = () => setCcOn(on => {
+    const next = !on
+    try { localStorage.setItem('yt.captions', next ? '1' : '0') } catch { /* quota */ }
+    ccOnRef.current = next
+    applyCcToPlayers(next)
+    return next
+  })
   const [boostOpen, setBoostOpen] = useState(false)
   // Privacy-proxy quality (re-requests the stream); embed quality is a best-effort hint.
   const [proxyQuality, setProxyQuality] = useState<StreamQuality>('auto')
@@ -224,7 +263,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     togglePlay: () => {
       const m = mediaRef.current, y = ytRef.current
       if (m) { try { m.paused ? void m.play()?.catch(() => {}) : m.pause() } catch { /* noop */ } }
-      else if (y) { try { (y.getPlayerState?.() === 1 ? y.pauseVideo : y.playVideo)?.() } catch { /* noop */ } }
+      else if (y) {
+        try {
+          // Optimistic, matching toggle(): the paused-poster cover must mount instantly.
+          if (y.getPlayerState?.() === 1) { y.pauseVideo?.(); setPlaying(false) }
+          else { y.playVideo?.(); setPlaying(true) }
+        } catch { /* noop */ }
+      }
     },
     pause: () => {
       const m = mediaRef.current, y = ytRef.current
@@ -257,6 +302,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
               e.target.playVideo?.(); setDuration(e.target.getDuration?.() || 0)
               e.target.setPlaybackRate?.(rate)
               setEmbedLevels(e.target.getAvailableQualityLevels?.() ?? [])
+              // Force the embed to OUR caption preference: Google's sticky captions-on
+              // state otherwise wins and our chrome has no native toggle (controls: 0).
+              enforceEmbedCc(e.target, ccOnRef.current)
             } catch { /* noop */ }
           },
           onPlaybackQualityChange: (e: any) => setEmbedQuality(e.data ?? 'auto'),
@@ -264,6 +312,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             setPlaying(e.data === 1)
             setBuffering(e.data === 3) // 3 = BUFFERING
             if (e.data === 1 || e.data === 2) setBuffering(false)
+            // Re-enforce OUR caption preference every time playback (re)starts - YouTube
+            // re-applies its sticky captions-on state at play, overriding the onReady set.
+            if (e.data === 1) enforceEmbedCc(e.target, ccOnRef.current)
             if (e.data === YT.PlayerState?.ENDED) { persist(true); onEnded?.() }
           },
         },
@@ -329,7 +380,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     if (m) { m.paused ? void m.play()?.catch(() => {}) : m.pause() }
     // Call the IFrame API methods *on* the player; pulling them off into a ternary
     // loses `this` and the postMessage silently throws, so play/pause would no-op.
-    else if (y) { try { if (y.getPlayerState?.() === 1) y.pauseVideo?.(); else y.playVideo?.() } catch { /* noop */ } }
+    // Set `playing` optimistically too: the embed's state event arrives a beat later,
+    // and the paused-poster cover must mount the INSTANT the user pauses so YouTube's
+    // built-in pause overlays ("More videos", title bar) never get a frame to show.
+    else if (y) {
+      try {
+        if (y.getPlayerState?.() === 1) { y.pauseVideo?.(); setPlaying(false) }
+        else { y.playVideo?.(); setPlaying(true) }
+      } catch { /* noop */ }
+    }
   }
   const toggleMute = () => {
     const m = mediaRef.current, y = ytRef.current
@@ -469,7 +528,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             }}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
             onError={() => { if (privacyProxy && !localKind) void handleStreamError('video', nativeVideoSrc) }}
-            onEnded={() => { persist(true); onEnded?.() }} />
+            onEnded={() => { persist(true); onEnded?.() }}>
+            {/* Subtitles for the native paths (private stream / offline): the transcript VTT
+                as a real track, shown only when our CC toggle is on. */}
+            <track kind="subtitles" srcLang="en" label="Subtitles" src={`/api/youtube/transcript/${videoId}`} default={ccOn} />
+          </video>
         ) : nativeAudioSrc ? (
           <div className="relative flex size-full items-center justify-center bg-black">
             {/* Keep the video's thumbnail as a poster while only the audio plays - in BOTH
@@ -557,7 +620,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           {currentChapter && <span className="hidden truncate text-xs font-medium text-white/70 sm:block max-w-[40%]">· {currentChapter}</span>}
           <div className="flex-1" />
 
-          {/* Settings: playback speed + quality */}
+          {/* Captions: OUR toggle (persisted, default off) - the embed otherwise honors
+              Google's sticky captions-on state with no way back from our chrome. */}
+          <button onClick={toggleCc} aria-label={ccOn ? 'Turn captions off' : 'Turn captions on'}
+            title={ccOn ? 'Captions on' : 'Captions off'}
+            className={cn('transition', ccOn && 'text-[var(--yt-accent-fg)]')}>
+            <Captions className="size-5" />
+          </button>
+
+          {/* Settings: playback speed + quality + playback modes */}
           <div className="relative">
             <button onClick={() => setMenu(m => (m ? null : 'main'))} aria-label="Settings"
               className={cn('flex items-center gap-1.5 transition', menu && 'text-[var(--yt-accent-fg)]')}>
@@ -567,11 +638,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 
             {menu && (
               // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): theme-invariant dark settings menu floating over the video surface
-              <div className="absolute bottom-full right-0 mb-3 w-44 overflow-hidden rounded-card border border-white/10 bg-zinc-900/95 text-sm text-white shadow-xl backdrop-blur">
+              <div className="absolute bottom-full right-0 mb-3 w-52 overflow-hidden rounded-card border border-white/10 bg-zinc-900/95 text-sm text-white shadow-xl backdrop-blur">
                 {menu === 'main' && (
                   <>
                     <MenuRow label="Playback speed" value={rate === 1 ? 'Normal' : `${rate}×`} onClick={() => setMenu('speed')} />
                     {qualityLabel != null && <MenuRow label="Quality" value={qualityLabel} onClick={() => setMenu('quality')} />}
+                    {/* Playback modes live IN the player (Plex-style), not in page chrome. */}
+                    {onTogglePrivacy && (
+                      <OptionRow label="Private stream" active={privacyProxy}
+                        onClick={() => { onTogglePrivacy(); setMenu(null) }} />
+                    )}
+                    {onToggleAudioOnly && (
+                      <OptionRow label="Audio only" active={audioOnly}
+                        onClick={() => { onToggleAudioOnly(); setMenu(null) }} />
+                    )}
                   </>
                 )}
                 {menu === 'speed' && (
@@ -648,9 +728,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           only captures pointer events on hover, so taps on the video always toggle. */}
       <button onClick={() => { if (menu) { setMenu(null); return } toggle() }} aria-label={playing ? 'Pause' : 'Play'}
         className="absolute inset-0 z-10 flex items-center justify-center">
+        {/* Idle embed: whenever the iframe isn't actively playing (paused, loading, ended),
+            cover it with our own poster so YouTube's built-in overlays - "More videos",
+            title bar, share/watch-later, logo - never show. The buffering spinner (z-20)
+            sits above this cover. Native paths have no such chrome. */}
+        {useIframe && !playing && (
+          <span aria-hidden className="absolute inset-0">
+            <VideoThumb videoId={videoId} title="" quality="hq"
+              overrideSrc={ytImageProxy(thumbUrl(videoId, 'maxres'))}
+              className="size-full object-cover" />
+            <span className="absolute inset-0 bg-black/40" />
+          </span>
+        )}
         {!playing && !buffering && (
           // design-ok(backdrop-blur-outside-chrome): play badge floats over the video surface
-          <span className="flex size-16 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur">
+          <span className="relative flex size-16 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur">
             <Play className="size-7 fill-current" />
           </span>
         )}
