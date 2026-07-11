@@ -194,11 +194,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   })
   const pickProxyQuality = (q: StreamQuality) => {
     try { localStorage.setItem(PROXY_QUALITY_KEY, q) } catch { /* quota */ }
-    // Entering/leaving the remux tier swaps the src; carry the position across via the
-    // remux offset (into 1080) or posRef + startLocalAt (out of it).
+    // Entering/leaving a remux tier swaps the src; carry the position across via the
+    // remux offset (into remux) or posRef + startLocalAt (out of it). Remux targets then
+    // refine to the exact keyframe so A/V stay in sync.
     remuxOffsetRef.current = posRef.current
     setRemuxStart(posRef.current)
     setProxyQuality(q)
+    if (REMUX_QUALITIES.has(q) && posRef.current > 0.25) requestRemuxSeek(posRef.current, q)
   }
   const [embedLevels, setEmbedLevels] = useState<string[]>([])
   const [embedQuality, setEmbedQuality] = useState('auto')
@@ -224,6 +226,36 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const remux = usingProxy && REMUX_QUALITIES.has(proxyQuality)
   const [remuxStart, setRemuxStart] = useState(() => Math.max(0, resumeSec))
   const remuxOffsetRef = useRef(Math.max(0, resumeSec))
+  // Remux seeks go through the align endpoint first: starting both tracks on the exact
+  // video keyframe is what keeps A/V in sync (a bare offset snaps video back to the
+  // previous keyframe while audio lands exactly, drifting them by up to a GOP). The
+  // position adopts the aligned timestamp - that's where content truly resumes.
+  const remuxSeekGen = useRef(0)
+  const requestRemuxSeek = (sec: number, quality: StreamQuality = proxyQuality) => {
+    const gen = ++remuxSeekGen.current
+    setBuffering(true)
+    remuxOffsetRef.current = sec
+    posRef.current = sec
+    setPosition(sec)
+    void fetch(`/api/youtube/stream/${videoId}/align?t=${sec.toFixed(3)}&q=${quality}`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null)
+      .then((d: { start?: number } | null) => {
+        if (gen !== remuxSeekGen.current) return   // a newer seek superseded this one
+        const aligned = d && typeof d.start === 'number' && Number.isFinite(d.start) ? Math.max(0, d.start) : sec
+        remuxOffsetRef.current = aligned
+        posRef.current = aligned
+        setPosition(aligned)
+        setRemuxStart(aligned)
+      })
+  }
+  // A resume (initial offset > 0) is a seek too - align it before real playback settles.
+  const remuxInitAligned = useRef(false)
+  useEffect(() => {
+    if (!remux || remuxInitAligned.current) return
+    remuxInitAligned.current = true
+    if (remuxOffsetRef.current > 0.25) requestRemuxSeek(remuxOffsetRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remux])
   // Native <video>/<audio> source: an offline file, the privacy proxy, audio-only, or (once
   // the last-resort download lands) the freshly-saved offline file.
   const nativeVideoSrc =
@@ -296,13 +328,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     const m = mediaRef.current, y = ytRef.current
     if (m) {
       if (remux) {
-        // The pipe isn't byte-seekable: re-request the stream from the new offset
-        // (ffmpeg does an input-side keyframe seek server-side).
-        remuxOffsetRef.current = sec
-        posRef.current = sec
-        setPosition(sec)
-        setBuffering(true)
-        setRemuxStart(sec)
+        // The pipe isn't byte-seekable: re-request the stream from the new offset,
+        // keyframe-aligned so audio and video start on the same timestamp.
+        requestRemuxSeek(sec)
         return
       }
       try { m.currentTime = sec } catch { /* not seekable */ }

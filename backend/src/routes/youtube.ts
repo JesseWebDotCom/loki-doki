@@ -24,7 +24,7 @@ import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblo
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
-import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
+import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, probeKeyframeBefore, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
 import { ensureFfmpeg, ffmpegBin } from '@/lib/ffmpeg'
 import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot, getCookiesStatus, saveCookiesFile, clearCookiesFile } from '@/lib/ytdlp'
 import {
@@ -1743,6 +1743,23 @@ youtubeRoute.get('/stream/:videoId/prewarm', async (c) => {
   if (kind === 'video' && REMUX_QUALITIES.has(quality)) void resolveSplitStreamUrls(videoId, Number(quality))
   else void resolveStreamUrl(videoId, kind, REMUX_QUALITIES.has(quality) ? 'auto' : quality)
   return c.body(null, 204)
+})
+
+// Remux seek alignment: the player asks where the video keyframe at-or-before `t`
+// actually sits, then requests the stream from THAT timestamp - starting both tracks on
+// the same keyframe is what keeps audio and video in sync across seeks (a bare -ss snaps
+// video back to the previous keyframe while audio seeks exactly). Falls back to the raw
+// `t` when anything fails, which merely reintroduces the up-to-a-GOP offset.
+youtubeRoute.get('/stream/:videoId/align', async (c) => {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const quality = parseQuality(c.req.query('q'))
+  const t = Math.max(0, Number.parseFloat(c.req.query('t') ?? '0') || 0)
+  if (!REMUX_QUALITIES.has(quality) || t <= 0.25) return c.json({ start: t })
+  const urls = await resolveSplitStreamUrls(videoId, Number(quality))
+  if (!urls) return c.json({ start: t })
+  const kf = await probeKeyframeBefore(urls.video, t)
+  return c.json({ start: kf ?? t })
 })
 
 // Card hover-preview support: cache hit is free, otherwise one InnerTube HTTP call (no

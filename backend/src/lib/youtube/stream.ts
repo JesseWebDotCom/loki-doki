@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { logger } from '@/lib/logger'
 import { ytDlpBin, withYtDlpSlot, YT_PLAYER_CLIENTS } from '@/lib/ytdlp'
+import { ffprobeBin } from '@/lib/ffmpeg'
 import { innertubePlayerStreams, type ItStreams } from '@/lib/youtube/innertube'
 
 const execFileAsync = promisify(execFile)
@@ -308,6 +309,30 @@ async function doResolveSplit(videoId: string, maxHeight: number, key: string, n
 /** Drop a cached split pair (e.g. after ffmpeg dies on a rotated/expired URL). */
 export function invalidateSplitStreamUrls(videoId: string, maxHeight = 1080): void {
   splitCache.delete(splitKey(videoId, maxHeight))
+}
+
+/** The video keyframe at-or-before `t` seconds. Remux seeks MUST start both tracks on
+ *  this exact timestamp: a bare input-side -ss snaps the video to the previous keyframe
+ *  while the audio seeks (near-)exactly, leaving them out of sync by up to a whole GOP.
+ *  ffprobe range-reads just the index + one GOP, so this is a sub-second probe. */
+export async function probeKeyframeBefore(url: string, t: number): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync(ffprobeBin(), [
+      '-v', 'error',
+      '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      '-select_streams', 'v:0',
+      '-skip_frame', 'nokey',
+      '-read_intervals', `${Math.max(0, t).toFixed(3)}%+#1`,
+      '-show_entries', 'frame=pts_time',
+      '-of', 'csv=p=0',
+      url,
+    ], { timeout: 10_000, maxBuffer: 1024 * 1024, windowsHide: true })
+    const v = Number.parseFloat(stdout.trim().split('\n').find(Boolean) ?? '')
+    return Number.isFinite(v) && v >= 0 ? v : null
+  } catch (err) {
+    logger.warn(`[youtube/stream] keyframe probe failed: ${err}`)
+    return null
+  }
 }
 
 /** Cache-or-fast-path resolve for card hover-preview: a cache hit is free, otherwise this
