@@ -53,7 +53,7 @@ Prefer building it yourself? From the repo: `cd desktop && bun install`, then
 
 ## First-run setup
 
-1. **Point it at your server.** On first launch the app asks for your server address —
+1. **Point it at your server.** On first launch Doki Dock asks for your server address —
    e.g. `http://192.168.1.10:3000` — and checks it's reachable before continuing.
 2. **Sign in once.** Pick your profile like you would in the browser. The session
    sticks for 7 days at a time.

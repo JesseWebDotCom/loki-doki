@@ -53,6 +53,7 @@ Everything that can run locally does. Chat, image and video generation, voice, m
 - **[Generate images and video](../features/image-generation/)** using Stable Diffusion: no refusals, no restrictions for adults
 - **[Talk hands-free](../features/voice/)** with a wakeword: speech recognition and speech all run on your machine
 - **[Meet your companion](../features/companions/)**: a buddy with its own personality, voice, and animated avatar that lives alongside you in the app
+- **[Dock it on your desktop](../features/desktop/)**: Doki Dock, the desktop app for Mac and Windows, pins your companion to the top of your screen with the wake word armed
 - **[Write and edit with Canvas](../features/canvas/)**: an editable side pane your companion writes code, documents, and HTML into, live
 - **[Read and listen to books](../features/books/)**: a storefront of ebooks and audiobooks, offline downloads, and an AI tool that can draft an original book with you
 - **[Look things up offline](../features/reference/)**: full Wikipedia, a dictionary, medical references, and more, no internet required

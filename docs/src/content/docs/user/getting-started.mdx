@@ -20,10 +20,11 @@ All you need is a computer with a reasonably modern GPU running Windows, macOS, 
    ```sh
    git clone https://github.com/JesseWebDotCom/loki-doki.git
    cd loki-doki
-   ./run.sh
+   ./run.sh     # macOS / Linux
+   .\run.ps1    # Windows
    ```
 
-   `run.sh` installs the [Bun](https://bun.sh) runtime if it's missing, starts the app, and opens your browser at `http://localhost:5173`.
+   The launcher installs the [Bun](https://bun.sh) runtime if it's missing, starts the app, and opens your browser at `http://localhost:3000`.
 
 2. **Create your admin account.** On first launch the setup wizard walks you through a name, a PIN, and your locale. This first account is the **admin**: it controls the whole server.
 
@@ -51,7 +52,7 @@ For everyone else in the household, once the admin has created your account:
 
 <Steps>
 
-1. **Open the app** at the address your admin gave you: the server's name or IP on your home network (something like `http://loki-doki.local:5173`).
+1. **Open the app** at the address your admin gave you: the server's name or IP on your home network (something like `http://loki-doki.local:3000`).
 
 2. **Log in** with the username and PIN your admin set up for you.
 
@@ -62,6 +63,8 @@ For everyone else in the household, once the admin has created your account:
 5. **Try image generation**: open the Imaging page, type a description, and tap Generate.
 
 </Steps>
+
+Any browser on your home network works — phones, tablets, and laptops with nothing to install. On a Mac or Windows machine you can also install [Doki Dock](../features/desktop/), the desktop app that pins your companion to the top of your screen with the wake word armed.
 
 ## Main Areas
 
