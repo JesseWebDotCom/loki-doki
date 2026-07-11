@@ -16,9 +16,15 @@ const PROFILES_BLOCK = `  profiles:
   graph.encoded_values: car_access, car_average_speed, bike_priority, mtb_rating, hike_rating, bike_access, roundabout, bike_average_speed, foot_access, foot_priority, foot_average_speed`
 
 function baseBlock(pbfPath: string, graphDir: string): string {
+  // In DOUBLE-quoted YAML, backslashes are escape sequences, so a Windows path like
+  // C:\Users\… gets mangled (\U, \d… are invalid escapes → SnakeYAML rejects it and the graph
+  // import/server can't find the PBF/graph dir). Java/GraphHopper accept forward slashes on
+  // Windows, so normalize before interpolating.
+  const pbf = pbfPath.replace(/\\/g, '/')
+  const graph = graphDir.replace(/\\/g, '/')
   return `graphhopper:
-  datareader.file: "${pbfPath}"
-  graph.location: "${graphDir}"
+  datareader.file: "${pbf}"
+  graph.location: "${graph}"
   import.osm.ignored_highways: ''
   graph.dataaccess.default_type: RAM_STORE
 ${PROFILES_BLOCK}`

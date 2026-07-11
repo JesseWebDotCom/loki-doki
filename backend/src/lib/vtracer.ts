@@ -17,6 +17,7 @@ import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { dataDir } from '@/lib/download'
+import { extractArchive } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -100,11 +101,10 @@ async function downloadManaged(onStatus?: (msg: string) => void, signal?: AbortS
 
     onStatus?.('Extracting Vector Tracer…')
     await mkdir(workDir, { recursive: true })
-    if (asset.endsWith('.zip')) {
-      await execFileAsync('unzip', ['-o', archivePath, '-d', workDir], { timeout: 120_000, windowsHide: true })
-    } else {
-      await execFileAsync('tar', ['-xzf', archivePath, '-C', workDir], { timeout: 120_000, windowsHide: true })
-    }
+    // extractArchive picks the right extractor per-OS (PowerShell Expand-Archive / tar on
+    // Windows). The old `unzip` shell-out doesn't exist on Windows, so the .zip asset — which is
+    // exactly the Windows one — could never extract there.
+    await extractArchive(archivePath, workDir, 120_000)
 
     const extracted = await findBinary(workDir)
     if (!extracted) throw new Error('vtracer binary not found inside release archive')

@@ -1581,7 +1581,9 @@ export async function installFaceRestoreNode(
       await rm(nodeDir, { recursive: true, force: true })
     }
     onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Installing FaceRestore node…' })
-    await runCmd('git', ['clone', '--depth', '1', FACERESTORE_NODE_URL], nodesDir, onProgress, signal)
+    const { ensureGit, gitBin } = await import('@/lib/git')
+    await ensureGit((msg) => onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: msg }))
+    await runCmd(gitBin(), ['clone', '--depth', '1', FACERESTORE_NODE_URL], nodesDir, onProgress, signal)
   }
 
   const reqFile = join(nodeDir, 'requirements.txt')
@@ -1708,7 +1710,9 @@ export async function setupComfyUIBase(
       await rm(comfyDir, { recursive: true, force: true })
     }
     onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Cloning ComfyUI…' })
-    await runCmd('git', ['clone', '--depth', '1', COMFYUI_REPO, comfyDir], dataDir, onProgress, signal)
+    const { ensureGit, gitBin } = await import('@/lib/git')
+    await ensureGit((msg) => onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: msg }))
+    await runCmd(gitBin(), ['clone', '--depth', '1', COMFYUI_REPO, comfyDir], dataDir, onProgress, signal)
   }
 
   // 3. Install PyTorch (platform-specific)
@@ -1755,7 +1759,9 @@ export async function installComfyUINodes(
         await rm(nodeDir, { recursive: true, force: true })
       }
       onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Installing ${node.label}…` })
-      await runCmd('git', ['clone', '--depth', '1', node.url], nodesDir, onProgress, signal)
+      const { ensureGit, gitBin } = await import('@/lib/git')
+      await ensureGit((msg) => onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: msg }))
+      await runCmd(gitBin(), ['clone', '--depth', '1', node.url], nodesDir, onProgress, signal)
     }
 
     // Install node-specific requirements if present.

@@ -22,6 +22,7 @@ import { promisify } from 'node:util'
 import { dataDir } from '@/lib/download'
 import { ensurePython } from '@/lib/python'
 import { IS_WIN, spawnDetachedHidden } from '@/lib/platform'
+import { ensureGit, gitBin } from '@/lib/git'
 import { logger } from '@/lib/logger'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 
@@ -282,6 +283,8 @@ export async function installSearXNG(onStatus: StatusFn = () => {}, signal?: Abo
         rmSync(SEARXNG_DIR, { recursive: true, force: true })
       }
       onStatus('Cloning SearXNG…')
+      await ensureGit(onStatus)
+      const git = gitBin()
       if (IS_WIN) {
         // The searxng repo ships deploy templates whose filenames contain a colon, e.g.
         // `utils/templates/etc/nginx/default.apps-available/searxng.conf:socket`. A colon
@@ -290,10 +293,10 @@ export async function installSearXNG(onStatus: StatusFn = () => {}, signal?: Abo
         // usable. Clone without checking out, then `git restore` the working tree: restore
         // writes every valid file and merely warns-and-skips the handful of colon paths
         // (which we never use - SearXNG runs via `python -m searx.webapp`), exiting 0.
-        await run('git', ['clone', '--no-checkout', '--depth', '1', SEARXNG_REPO, SEARXNG_DIR], { signal, onStatus })
-        await run('git', ['-C', SEARXNG_DIR, 'restore', '--source=HEAD', ':/'], { signal, onStatus })
+        await run(git, ['clone', '--no-checkout', '--depth', '1', SEARXNG_REPO, SEARXNG_DIR], { signal, onStatus })
+        await run(git, ['-C', SEARXNG_DIR, 'restore', '--source=HEAD', ':/'], { signal, onStatus })
       } else {
-        await run('git', ['clone', '--depth', '1', SEARXNG_REPO, SEARXNG_DIR], { signal, onStatus })
+        await run(git, ['clone', '--depth', '1', SEARXNG_REPO, SEARXNG_DIR], { signal, onStatus })
       }
     }
 
@@ -491,7 +494,9 @@ function startHealthPoll(): void {
 const GIT_SAFE_ARGS = ['-c', `safe.directory=${SEARXNG_DIR.replace(/\\/g, '/')}`]
 
 function execGit(args: string[]): string {
-  return execSync(`git ${[...GIT_SAFE_ARGS, ...args].map(a => `"${a}"`).join(' ')}`, { cwd: SEARXNG_DIR, encoding: 'utf8', timeout: 60_000, windowsHide: true }).trim()
+  // gitBin() is 'git' until ensureGit() has resolved a managed/portable copy; quoted so a Windows
+  // portable-git path containing spaces still works. Callers wrap this in try/catch fallbacks.
+  return execSync(`"${gitBin()}" ${[...GIT_SAFE_ARGS, ...args].map(a => `"${a}"`).join(' ')}`, { cwd: SEARXNG_DIR, encoding: 'utf8', timeout: 60_000, windowsHide: true }).trim()
 }
 
 /** Current checkout version: `git describe` (tag-ish), falling back to the short SHA. */
@@ -513,13 +518,18 @@ export async function maybeUpdateSearXNG(force = false): Promise<void> {
     const due = force || !last || Date.now() - last > CHECK_INTERVAL_MS
     if (!due) return
 
+    // Re-resolve git (a restart resets the in-process handle to 'git'; on Windows this repoints
+    // to the portable copy). If git truly can't be resolved, skip the update rather than throw.
+    let git: string
+    try { git = await ensureGit() } catch { logger.info('[searxng] update skipped — git unavailable'); return }
+
     const before = (() => { try { return execGit(['rev-parse', 'HEAD']) } catch { return '' } })()
     const branch = (() => { try { return execGit(['rev-parse', '--abbrev-ref', 'HEAD']) } catch { return 'master' } })()
     logger.info(`[searxng] checking for updates (branch ${branch})…`)
     // Shallow checkout → fetch the tip and hard-reset (a normal `pull` can't fast-forward
     // a depth-1 clone). Use the async run() helper so the event loop stays unblocked
     // during the network fetch — execSync here would stall health probes for up to 60s.
-    await run('git', [...GIT_SAFE_ARGS, 'fetch', '--depth', '1', 'origin', branch], { cwd: SEARXNG_DIR })
+    await run(git, [...GIT_SAFE_ARGS, 'fetch', '--depth', '1', 'origin', branch], { cwd: SEARXNG_DIR })
     if (IS_WIN) {
       // `git reset --hard` aborts the ENTIRE update on Windows: SearXNG ships deploy
       // templates whose filenames contain a colon (e.g. `searxng.conf:socket`), illegal on
@@ -529,10 +539,10 @@ export async function maybeUpdateSearXNG(force = false): Promise<void> {
       // valid file and skips the colon paths with an "invalid path" warning, exiting 0
       // (a hard-reset never gets that far). The index is left untouched — cosmetic only;
       // every consumer reads commit/ref state, never the index.
-      await run('git', [...GIT_SAFE_ARGS, 'update-ref', `refs/heads/${branch}`, 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
-      await run('git', [...GIT_SAFE_ARGS, 'restore', '--source', branch, '--worktree', '--', ':/'], { cwd: SEARXNG_DIR })
+      await run(git, [...GIT_SAFE_ARGS, 'update-ref', `refs/heads/${branch}`, 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+      await run(git, [...GIT_SAFE_ARGS, 'restore', '--source', branch, '--worktree', '--', ':/'], { cwd: SEARXNG_DIR })
     } else {
-      await run('git', [...GIT_SAFE_ARGS, 'reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
+      await run(git, [...GIT_SAFE_ARGS, 'reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
     }
     const after = (() => { try { return execGit(['rev-parse', 'HEAD']) } catch { return '' } })()
 
