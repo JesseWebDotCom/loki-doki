@@ -24,7 +24,8 @@ function Grid({ stations }: { stations: Station[] }) {
 
 /** Offline mode: only the stations you've actually downloaded, with download/DJ readiness. */
 function OfflineStations() {
-  const { data } = useQuery({ queryKey: ['music-offline-stations'], queryFn: listOfflineStations, refetchInterval: 5000 })
+  // Poll only while a station save is in progress (matches useOffline.ts) — not every 5s forever.
+  const { data } = useQuery({ queryKey: ['music-offline-stations'], queryFn: listOfflineStations, refetchInterval: q => (q.state.data?.stations.some(s => s.offline.status === 'pending' || s.offline.status === 'partial') ? 4000 : false) })
   const stations = data?.stations ?? []
   return (
     <PageContainer width="wide" className="pb-10">

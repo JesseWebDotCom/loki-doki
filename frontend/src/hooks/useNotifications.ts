@@ -87,9 +87,16 @@ export function useNotifications(): UseNotificationsReturn {
 
   useEffect(() => {
     void fetchUnreadCount();
-    intervalRef.current = setInterval(() => { void fetchUnreadCount(); }, 30_000);
+    // Skip the poll while the tab is hidden (a background tab kept hitting the 2-query
+    // /unread-count endpoint every 30s forever), and refresh once when it becomes visible again.
+    intervalRef.current = setInterval(() => {
+      if (!document.hidden) void fetchUnreadCount();
+    }, 30_000);
+    const onVisible = () => { if (!document.hidden) void fetchUnreadCount(); };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
