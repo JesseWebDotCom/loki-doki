@@ -156,7 +156,7 @@ function JokeText({ light }: { light?: boolean }) {
   const [joke, setJoke] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/joke", { credentials: "include" })
+    fetch("/api/jokes", { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((d: { joke?: string | null } | null) => { setJoke(d?.joke ?? null); })
       .catch(() => {});
@@ -601,7 +601,7 @@ function WidgetJokes() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/joke", { credentials: "include" })
+    fetch("/api/jokes", { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((d: { joke?: string | null } | null) => { setJoke(d?.joke ?? null); })
       .catch(() => {})

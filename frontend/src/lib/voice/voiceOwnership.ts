@@ -175,6 +175,13 @@ export function getIsVoiceOwner(): boolean {
   return isOwner
 }
 
+/** Whether this tab currently wants voice (hands-free or read-aloud armed). Used by the
+ *  browser-session stream's keepWhenHidden so a hidden hands-free tab stays connected and
+ *  hears dock arbitration changes (it needs connectivity for STT anyway). */
+export function getVoiceWants(): boolean {
+  return wantsVoice
+}
+
 /** Subscribe to ownership changes; fires immediately with the current value. */
 export function onOwnershipChange(fn: (owner: boolean) => void): () => void {
   start()

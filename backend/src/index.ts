@@ -85,7 +85,6 @@ import { adminNews } from '@/routes/adminNews'
 import { onThisDayRoute } from '@/routes/onThisDay'
 import { sportsTodayRoute } from '@/routes/sportsToday'
 import { sportsRoute } from '@/routes/sports'
-import { jokeRoute } from '@/routes/joke'
 import { jokesDedicatedRoute } from '@/routes/jokes'
 import { tvShowsRoute } from '@/routes/tvShows'
 import { showsRoute } from '@/routes/shows'
@@ -556,7 +555,6 @@ app.route('/api/feeds', feedsRoute)
 app.route('/api/on-this-day', onThisDayRoute)
 app.route('/api/sports/today', sportsTodayRoute)
 app.route('/api/sports', sportsRoute)
-app.route('/api/joke', jokeRoute)
 app.route('/api/jokes', jokesDedicatedRoute)
 app.route('/api/tv-shows', tvShowsRoute)
 app.route('/api/shows', showsRoute)
