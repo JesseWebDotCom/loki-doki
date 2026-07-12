@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { ThemeProvider } from '@/context/ThemeContext'
@@ -336,7 +336,6 @@ export default function App() {
           <FrigateAnnounceProvider>
           <MonitoringAnnounceProvider>
           <ChatProvider>
-          <Suspense fallback={<AppLoading />}>
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
             <Route path="/setup" element={<SetupGuard />} />
@@ -564,7 +563,6 @@ export default function App() {
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          </Suspense>
           </ChatProvider>
           </MonitoringAnnounceProvider>
           </FrigateAnnounceProvider>

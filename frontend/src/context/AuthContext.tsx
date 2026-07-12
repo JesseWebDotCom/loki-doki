@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { clearPersistedCache } from '@/lib/prefetch/persist'
+import { clearCachedUserPreferences } from '@/hooks/useUserPreferences'
 
 export interface AuthUser {
   id: string
@@ -79,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (IndexedDB) copy that PersistQueryClientProvider would otherwise rehydrate.
     queryClient.clear()
     void clearPersistedCache()
+    clearCachedUserPreferences()
   }, [queryClient])
 
   useEffect(() => { refetch() }, [refetch])

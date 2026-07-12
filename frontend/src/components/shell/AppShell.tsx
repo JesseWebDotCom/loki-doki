@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import {
@@ -48,6 +48,17 @@ const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: 
   // design-ok(hex-in-tsx): route identity registry data, mirrors getAppByPath() fallback precedent
   "/devtools":   { title: "Dev Tools",  icon: Terminal,    color: "#6b7280" },
 };
+
+// Scoped to the content pane (not the whole screen) so a lazy route chunk loading
+// on a fresh page load only blanks the content area — the sidebar/breadcrumb chrome
+// around it stays mounted the whole time instead of flashing away and back.
+function PageLoading() {
+  return (
+    <div className="flex h-full min-h-[50vh] items-center justify-center">
+      <Spinner size="lg" className="size-8" />
+    </div>
+  );
+}
 
 export function AppShell() {
   // Smart caching: warm pinned + recent apps' data during idle time so they open instantly.
@@ -373,13 +384,17 @@ export function AppShell() {
             painted by the shell (PageShell stays a transparent pass-through there). */}
         {isChat || isPanel || isFullBleed ? (
           <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-            <Outlet key={appReloadKey} />
+            <Suspense fallback={<PageLoading />}>
+              <Outlet key={appReloadKey} />
+            </Suspense>
           </div>
         ) : (
           <div className="relative flex-1 min-h-0">
             {shellBackdrop && <AppBackdrop gradient={pageGradient} GhostIcon={PageIcon ?? undefined} />}
             <div id="main-scroll" className="relative z-10 h-full overflow-y-auto pb-[max(7rem,calc(var(--bottom-chrome,0px)+1.5rem))] md:pb-[max(8rem,calc(var(--bottom-chrome,0px)+2rem))]">
-              <Outlet key={appReloadKey} />
+              <Suspense fallback={<PageLoading />}>
+                <Outlet key={appReloadKey} />
+              </Suspense>
             </div>
           </div>
         )}
