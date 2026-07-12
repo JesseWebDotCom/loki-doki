@@ -4,42 +4,18 @@
 // double-checks rather than trusting navigation guards.
 
 const { ipcMain, desktopCapturer, screen, shell } = require('electron')
-const { execFile } = require('node:child_process')
-const { promisify } = require('node:util')
 const { getMacScreenAccessStatus } = require('./permissions')
-
-const execFileAsync = promisify(execFile)
-
-// Battery snapshot, 60s cache. darwin only for now (pmset); Windows could use
-// powershell WMI later. null = no battery / unsupported / error.
-const batteryCache = { ts: 0, value: null }
-async function readBattery() {
-  if (Date.now() - batteryCache.ts < 60_000) return batteryCache.value
-  batteryCache.ts = Date.now()
-  if (process.platform !== 'darwin') {
-    batteryCache.value = null
-    return null
-  }
-  try {
-    const { stdout } = await execFileAsync('pmset', ['-g', 'batt'])
-    const pct = /(\d+)%/.exec(stdout)
-    if (!pct) {
-      batteryCache.value = null
-      return null
-    }
-    const charging = /'AC Power'/.test(stdout) || /;\s*charging/.test(stdout)
-    batteryCache.value = { percent: Number(pct[1]), charging }
-  } catch {
-    batteryCache.value = null
-  }
-  return batteryCache.value
-}
+const resources = require('./resources')
+const fileAccess = require('./fileAccess')
 
 // Last engine state reported by the /hud page; drives the tray label and the
 // hide rules ("never hide a live mic").
 const hudState = { listening: false, busy: false, sleeping: false, handsFreeOn: false }
 
-function init({ getHud, getMain, getServerUrl, getSettings, onHudStateChanged, applyShellSettings, openSetup, quitApp }) {
+function init({ getHud, getMain, getServerUrl, getSettings, onHudStateChanged, applyShellSettings, saveFileAccessRoots, openSetup, quitApp }) {
+  // Roots persist through main.js (single owner of currentSettings), never via
+  // the page-writable settings surface.
+  const applyRootsUpdate = (roots) => saveFileAccessRoots(roots)
   const fromServer = (event) => {
     try {
       return new URL(event.senderFrame.url).origin === new URL(getServerUrl()).origin
@@ -126,7 +102,47 @@ function init({ getHud, getMain, getServerUrl, getSettings, onHudStateChanged, a
 
   ipcMain.handle('system:battery', async (event) => {
     if (!fromServer(event)) return null
-    return readBattery()
+    return resources.readBattery()
+  })
+
+  // Local machine stats + threshold-alert events (see resources.js). The HUD
+  // page polls this for the island System tab and forwards pendingEvents to the
+  // server, acking them here once the report POST succeeds.
+  ipcMain.handle('system:resources', (event) => {
+    if (!fromServer(event)) return null
+    return resources.getState()
+  })
+
+  ipcMain.handle('system:resources-ack', (event, ids) => {
+    if (!fromServer(event)) return
+    resources.ackEvents(ids)
+  })
+
+  // Read-only file access for the companion (see fileAccess.js — main process is
+  // the trust boundary; every call re-checks the enable flag + allowed roots).
+  ipcMain.handle('fs:request', (event, req) => {
+    if (!fromServer(event)) return { ok: false, error: 'denied' }
+    return fileAccess.handleRequest(getSettings(), req)
+  })
+
+  // Allowed roots are granted ONLY through this native picker — settings:set-shell
+  // deliberately refuses root strings from the (server-controlled) page.
+  ipcMain.handle('fs:pick-folder', async (event) => {
+    if (!fromServer(event)) return null
+    return fileAccess.pickFolder(getSettings, (roots) => applyRootsUpdate(roots))
+  })
+
+  ipcMain.handle('fs:remove-root', (event, root) => {
+    if (!fromServer(event)) return null
+    if (typeof root !== 'string') return getSettings().fileAccessRoots ?? []
+    const roots = (getSettings().fileAccessRoots ?? []).filter((r) => r !== root)
+    applyRootsUpdate(roots)
+    return roots
+  })
+
+  ipcMain.handle('fs:recent-accesses', (event) => {
+    if (!fromServer(event)) return []
+    return fileAccess.recentAccesses()
   })
 
   // Shell settings for the island's Settings page (tray keeps working too; both
@@ -137,11 +153,23 @@ function init({ getHud, getMain, getServerUrl, getSettings, onHudStateChanged, a
     const s = getSettings()
     let serverHost = ''
     try { serverHost = new URL(s.serverUrl).host } catch { /* unset */ }
+    const rm = s.resourceMonitor && typeof s.resourceMonitor === 'object' ? s.resourceMonitor : {}
     return {
       hotkey: s.hotkey,
       launchAtLogin: !!s.launchAtLogin,
       alwaysListening: s.alwaysListening !== false,
       serverHost,
+      resourceMonitor: {
+        enabled: rm.enabled !== false,
+        announce: rm.announce === true,
+        cpuPct: rm.cpuPct ?? 90,
+        cpuSustainMin: rm.cpuSustainMin ?? 5,
+        memPct: rm.memPct ?? 90,
+        diskFreePct: rm.diskFreePct ?? 10,
+        batteryPct: rm.batteryPct ?? 15,
+      },
+      fileAccessEnabled: s.fileAccessEnabled === true,
+      fileAccessRoots: Array.isArray(s.fileAccessRoots) ? s.fileAccessRoots : [],
     }
   })
 

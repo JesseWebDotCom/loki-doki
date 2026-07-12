@@ -236,7 +236,7 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
       <button
         type="button"
         aria-label="Companion menu"
-        title={engine.otherTabOwner ? 'Voice is active in another tab. Click this tab to take over.' : 'Companion menu'}
+        title={engine.dockYield ? 'Voice is on Doki Dock.' : engine.otherTabOwner ? 'Voice is active in another tab. Click this tab to take over.' : 'Companion menu'}
         onClick={() => setMenuOpen(true)}
         onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true) }}
         style={{ width: px, height: px }}
@@ -269,14 +269,21 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
                 <Indicator icon={Volume2} label="Voice (read aloud)" state={engine.talkState} onClick={() => engine.setVoice(!engine.voiceOn)} />
                 <CaptionsOrStop busy={engine.busy} karaokeState={engine.karaokeState} captions={engine.captions} setCaptions={engine.setCaptions} onStop={engine.onStop} />
               </div>
-              {engine.otherTabOwner && (
+              {engine.dockYield ? (
+                <p
+                  className="mt-1 truncate text-caption text-muted-foreground"
+                  title="The Doki Dock app on this computer is handling voice and speech."
+                >
+                  Voice is on Doki Dock
+                </p>
+              ) : engine.otherTabOwner ? (
                 <p
                   className="mt-1 truncate text-caption text-warning"
                   title="Another open tab is holding the mic and voice. Click this tab to take over."
                 >
                   active in another tab
                 </p>
-              )}
+              ) : null}
             </div>
           </div>
         )}

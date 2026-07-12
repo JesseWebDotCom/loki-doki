@@ -15,6 +15,7 @@ import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
 import { uuid } from '@/lib/uuid'
 import { speak } from '@/lib/voice/voicePlaybackStore'
+import { shouldSpeakProactively } from '@/lib/voice/dockYield'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
 import { startRinging, type RingHandle } from '@/lib/time/tones'
 import * as api from '@/lib/time/api'
@@ -262,7 +263,10 @@ export function TimeAlarmProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!ringing) return
     ringHandleRef.current = startRinging(ringing.tone)
-    if (ringing.announce) {
+    // The tone rings on every surface (an alarm must never be silently missed), but the
+    // spoken line is deduped per machine: a tab yielded to Doki Dock stays quiet (the
+    // dock's HUD announces), and within the dock only the HUD window speaks.
+    if (ringing.announce && shouldSpeakProactively()) {
       const generic = !ringing.label || /^(alarm|timer)$/i.test(ringing.label.trim())
       const text = ringing.kind === 'alarm'
         ? (generic ? `It's ${ringing.subtitle}. Your alarm is going off.` : `It's ${ringing.subtitle}. Your alarm, ${ringing.label}, is going off.`)

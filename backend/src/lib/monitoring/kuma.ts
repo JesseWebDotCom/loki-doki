@@ -44,14 +44,16 @@ export function claimMonitoringAnnouncement(id: string): boolean {
   return true
 }
 
-function enqueueAnnouncement(text: string): void {
+// Exported: dock resource alerts (lib/monitoring/resources.ts) ride this same
+// queue so the existing pending/claim endpoints + announce provider speak them.
+export function enqueueAnnouncement(text: string): void {
   announceQueue.push({ id: crypto.randomUUID(), text, createdAt: Date.now() })
   if (announceQueue.length > 50) announceQueue.shift()
 }
 
 // The person the companion is talking to (household admin). Cached briefly.
 let cachedName: { name: string | null; at: number } | null = null
-async function adminDisplayName(): Promise<string | null> {
+export async function adminDisplayName(): Promise<string | null> {
   if (cachedName && Date.now() - cachedName.at < 300_000) return cachedName.name
   let name: string | null = null
   try {

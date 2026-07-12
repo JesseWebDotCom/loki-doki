@@ -12,6 +12,7 @@ const windows = require('./windows')
 const tray = require('./tray')
 const ipc = require('./ipc')
 const permissions = require('./permissions')
+const resources = require('./resources')
 const { ipcMain } = require('electron')
 
 let hud = null
@@ -194,6 +195,21 @@ function applyShellSettings(patch) {
   if (typeof patch.launchAtLogin === 'boolean') next.launchAtLogin = patch.launchAtLogin
   if (typeof patch.alwaysListening === 'boolean') next.alwaysListening = patch.alwaysListening
   if (typeof patch.hotkey === 'string' && patch.hotkey.trim()) next.hotkey = patch.hotkey.trim()
+  // Resource monitoring thresholds/toggles (numbers are clamped in resources.js).
+  if (patch.resourceMonitor && typeof patch.resourceMonitor === 'object') {
+    const rm = { ...currentSettings.resourceMonitor }
+    for (const k of ['enabled', 'announce']) {
+      if (typeof patch.resourceMonitor[k] === 'boolean') rm[k] = patch.resourceMonitor[k]
+    }
+    for (const k of ['cpuPct', 'cpuSustainMin', 'memPct', 'diskFreePct', 'batteryPct']) {
+      if (Number.isFinite(Number(patch.resourceMonitor[k]))) rm[k] = Number(patch.resourceMonitor[k])
+    }
+    next.resourceMonitor = rm
+  }
+  // File access: the page may flip ONLY the boolean. Allowed roots are added
+  // exclusively through the native folder picker (fs:pick-folder) — a
+  // server-controlled page must never be able to grant itself new paths.
+  if (typeof patch.fileAccessEnabled === 'boolean') next.fileAccessEnabled = patch.fileAccessEnabled
 
   if (next.hotkey && next.hotkey !== currentSettings.hotkey) {
     if (!tryRegisterHotkey(next.hotkey)) {
@@ -203,6 +219,7 @@ function applyShellSettings(patch) {
   }
 
   currentSettings = settings.save(next)
+  if ('resourceMonitor' in next) resources.applyConfig()
   if ('launchAtLogin' in next) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin })
   if ('alwaysListening' in next) {
     sendSetListening(next.alwaysListening)
@@ -305,12 +322,20 @@ function bootWindows({ showMainWindow = false } = {}) {
     getSettings: () => currentSettings,
     onHudStateChanged: () => refreshTray(),
     applyShellSettings,
+    saveFileAccessRoots: (roots) => {
+      currentSettings = settings.save({ fileAccessRoots: roots })
+    },
     openSetup,
     quitApp: () => trayActions.quit(),
   })
 
   registerHotkey(currentSettings.hotkey)
   refreshTray()
+
+  resources.start(
+    () => currentSettings,
+    (machineId) => { currentSettings = settings.save({ machineId }) },
+  )
 }
 
 app.whenReady().then(async () => {

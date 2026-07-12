@@ -18,6 +18,7 @@ import { IslandPageWeather } from './pages/IslandPageWeather'
 import { IslandPageCalendar } from './pages/IslandPageCalendar'
 import { IslandPageShelf } from './pages/IslandPageShelf'
 import { IslandPageFocus } from './pages/IslandPageFocus'
+import { IslandPageStats } from './pages/IslandPageStats'
 import { IslandPageSettings } from './pages/IslandPageSettings'
 import type { NowPlayingInfo } from './useNowPlaying'
 
@@ -102,6 +103,7 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
           {tab === 'calendar' && <IslandPageCalendar />}
           {tab === 'shelf' && <IslandPageShelf />}
           {tab === 'focus' && <IslandPageFocus />}
+          {tab === 'stats' && <IslandPageStats />}
           {tab === 'settings' && <IslandPageSettings />}
         </div>
       </div>

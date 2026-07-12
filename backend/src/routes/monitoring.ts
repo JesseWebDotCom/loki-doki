@@ -8,13 +8,25 @@ import type { AppEnv } from '@/types'
 import { requireAuth } from '@/middleware/auth'
 import { getMonitoringConfig, isMonitoringConfigured } from '@/lib/monitoring/config'
 import { handleKumaWebhook, pendingMonitoringAnnouncements, claimMonitoringAnnouncement } from '@/lib/monitoring/kuma'
+import { handleResourceReport, hasFreshDockSnapshots, type ResourceReportBody } from '@/lib/monitoring/resources'
 
 const monitoring = new Hono<AppEnv>()
 
 // Lightweight gate: is monitoring configured? Clients use this to avoid polling for
-// spoken announcements when the integration is off.
+// spoken announcements when the integration is off. Dock resource alerts ride the
+// same announce queue, so a household with a reporting dock counts as enabled even
+// without Uptime Kuma.
 monitoring.get('/status', requireAuth, async (c) => {
-  return c.json({ enabled: isMonitoringConfigured(await getMonitoringConfig()) })
+  return c.json({ enabled: isMonitoringConfigured(await getMonitoringConfig()) || hasFreshDockSnapshots() })
+})
+
+// Doki Dock's HUD posts local machine snapshots + threshold-alert events here
+// (authed with its own logged-in session — see desktop/src/resources.js).
+monitoring.post('/resources/report', requireAuth, async (c) => {
+  const user = c.get('user')
+  let body: ResourceReportBody
+  try { body = await c.req.json() as ResourceReportBody } catch { return c.json({ ok: false, ackIds: [] }, 400) }
+  return c.json(await handleResourceReport(user.id, body))
 })
 
 // Browser clients poll this and speak any pending line through the active companion.

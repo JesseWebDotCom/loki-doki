@@ -116,6 +116,10 @@ export default defineConfig({
         proxyTimeout: 0,
         timeout: 0,
         agent: false,
+        // Voice arbitration compares client IPs to decide "same machine as the dock".
+        // Through this proxy every client would look like 127.0.0.1; xfwd forwards the
+        // real source IP (the backend trusts XFF only from loopback peers, i.e. us).
+        xfwd: true,
       },
       '/api/system/boot': {
         target: 'http://localhost:3000',

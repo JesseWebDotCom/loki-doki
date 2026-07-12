@@ -19,16 +19,78 @@ export type ScreenCaptureResult =
   | { ok: true; imageBase64: string; width: number; height: number }
   | { ok: false; reason: 'permission' | 'no-source' | 'error' }
 
+export interface ResourceMonitorSettings {
+  enabled: boolean
+  /** The companion also speaks alerts aloud (routed through the server). */
+  announce: boolean
+  cpuPct: number
+  cpuSustainMin: number
+  memPct: number
+  diskFreePct: number
+  batteryPct: number
+}
+
 export interface ShellSettings {
   hotkey: string
   launchAtLogin: boolean
   alwaysListening: boolean
   serverHost: string
+  /** Newer shells only. */
+  resourceMonitor?: ResourceMonitorSettings
+  fileAccessEnabled?: boolean
+  fileAccessRoots?: string[]
 }
 
 export interface BatteryStatus {
   percent: number
   charging: boolean
+}
+
+export interface ResourceSnapshot {
+  at: number
+  cpuPct: number | null
+  cpuCount: number
+  loadAvg1m: number
+  memUsedPct: number | null
+  memTotalGb: number
+  memFreeGb: number
+  diskFreePct: number | null
+  diskFreeGb: number | null
+  diskTotalGb: number | null
+  battery: BatteryStatus | null
+}
+
+export interface ResourceEvent {
+  id: string
+  metric: 'cpu' | 'memory' | 'disk' | 'battery'
+  state: 'firing' | 'recovered'
+  value: number
+  threshold: number
+  message: string
+  at: number
+}
+
+export interface ResourceState {
+  machineId: string
+  hostname: string
+  platform: string
+  enabled: boolean
+  announce: boolean
+  snapshot: ResourceSnapshot | null
+  firing: string[]
+  recentAlerts: ResourceEvent[]
+  pendingEvents: ResourceEvent[]
+}
+
+export type FsRequestResult =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string }
+
+export interface FsAccessEntry {
+  action: string
+  path: string
+  ok: boolean
+  at: number
 }
 
 export interface LokiDesktopBridge {
@@ -53,8 +115,17 @@ export interface LokiDesktopBridge {
   getStartupPrefs: () => Promise<StartupPrefs>
   /** Island Settings page surface. */
   getShellSettings?: () => Promise<ShellSettings | null>
-  setShellSettings?: (patch: Partial<Pick<ShellSettings, 'hotkey' | 'launchAtLogin' | 'alwaysListening'>>) => Promise<{ ok: boolean; error?: string }>
+  setShellSettings?: (patch: Partial<Pick<ShellSettings, 'hotkey' | 'launchAtLogin' | 'alwaysListening' | 'fileAccessEnabled'>> & { resourceMonitor?: Partial<ResourceMonitorSettings> }) => Promise<{ ok: boolean; error?: string }>
   getBattery?: () => Promise<BatteryStatus | null>
+  /** Local machine stats + threshold alerts (island System tab / server reporter). */
+  getResources?: () => Promise<ResourceState | null>
+  ackResourceEvents?: (ids: string[]) => Promise<void>
+  /** Read-only file access - enforced in the Electron main process. */
+  fsRequest?: (req: { action: string; path: string }) => Promise<FsRequestResult>
+  /** Native folder picker; returns the updated allowed roots. */
+  fsPickFolder?: () => Promise<string[] | null>
+  fsRemoveRoot?: (root: string) => Promise<string[] | null>
+  fsRecentAccesses?: () => Promise<FsAccessEntry[]>
   openServerSetup?: () => void
   quitApp?: () => void
 }

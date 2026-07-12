@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/context/AuthContext'
 import { speak } from '@/lib/voice/voicePlaybackStore'
+import { shouldSpeakProactively, isDockHudSurface } from '@/lib/voice/dockYield'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
 import {
   getMonitoringStatus, listPendingMonitoringAnnouncements, claimMonitoringAnnouncement,
@@ -35,7 +36,11 @@ export function MonitoringAnnounceProvider({ children }: { children: React.React
     let cancelled = false
 
     const tick = async () => {
-      if (document.visibilityState !== 'visible') return
+      // A tab yielded to Doki Dock (and the dock's main window) must not claim -
+      // the dock's HUD is the machine's announcer. The HUD itself polls even while
+      // its window is hidden (visibilityState is 'hidden' but it must still speak).
+      if (!shouldSpeakProactively()) return
+      if (document.visibilityState !== 'visible' && !isDockHudSurface()) return
       let items: MonitoringAnnouncement[]
       try { items = await listPendingMonitoringAnnouncements() } catch { return }
       if (cancelled) return

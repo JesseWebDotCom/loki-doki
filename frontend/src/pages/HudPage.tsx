@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import { CompanionEngineProvider } from '@/components/shell/CompanionEngineContext'
 import { IslandShell } from '@/components/hud/IslandShell'
 import { useHoverIntercept } from '@/hooks/useHudMouseIntercept'
+import { useBrowserSession } from '@/hooks/useBrowserSession'
 
 // Desktop HUD: a SuperIsland-style Dynamic Island pinned over the notch by the
 // Electron shell (desktop/). The window is one fixed size, transparent, and
@@ -40,9 +41,20 @@ export function HudPage() {
 
   return (
     <CompanionEngineProvider>
+      <HudSessionRegistration />
       <IslandShell />
     </CompanionEngineProvider>
   )
+}
+
+// The HUD's browser-session registration IS the dock's presence signal: while this
+// stream is connected the server tells same-machine web tabs to yield companion voice
+// to the dock, and routes companion file-op requests here. Mounted only when authed -
+// a signed-out dock must not silence anyone. (Hooks can't be conditional, hence the
+// tiny component instead of a call in HudPage itself.)
+function HudSessionRegistration() {
+  useBrowserSession({ surface: 'hud' })
+  return null
 }
 
 function SignedOutIsland() {

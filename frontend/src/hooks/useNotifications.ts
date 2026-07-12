@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export interface AppNotification {
   id: string;
   userId: string | null;
-  type: "install_request" | "install_complete" | "download_complete" | "system" | "frigate_event" | "companion_checkin" | "watcher_alert" | "price_alert";
+  type: "install_request" | "install_complete" | "download_complete" | "system" | "frigate_event" | "companion_checkin" | "watcher_alert" | "price_alert" | "file_drop" | "service_alert" | "resource_alert";
   payload: string; // JSON string
   priority?: "info" | "normal" | "urgent";
   readAt: number | null;

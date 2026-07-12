@@ -1,4 +1,4 @@
-// "Dock wins" voice arbitration — the server-backed sibling of voiceOwnership.ts.
+// "Dock wins" voice arbitration - the server-backed sibling of voiceOwnership.ts.
 //
 // voiceOwnership's BroadcastChannel election only spans same-origin pages in ONE
 // browser profile; the Doki Dock desktop app runs on its own Electron partition, so
@@ -8,7 +8,7 @@
 // web tab whether a dock is connected from the same machine. Yielded tabs release
 // the mic and mute TTS/lip-sync via the same chokepoints voiceOwnership gates.
 //
-// The dock itself never yields — the flag is force-cleared where window.lokiDesktop
+// The dock itself never yields - the flag is force-cleared where window.lokiDesktop
 // exists, belt-and-suspenders on top of the server never sending yield:true to
 // dock-flagged sessions.
 
@@ -43,13 +43,19 @@ export function useDockYield(): boolean {
   return y
 }
 
+/** True in the Doki Dock HUD island window - the desktop app's always-running,
+ *  designated announcer surface. */
+export function isDockHudSurface(): boolean {
+  return isDesktopShell() && window.location.pathname === '/hud'
+}
+
 /** Gate for proactive speech (alarms, camera/monitoring announcements): false when this
- *  session yielded to a dock, and false in the dock's MAIN window — within the desktop
+ *  session yielded to a dock, and false in the dock's MAIN window - within the desktop
  *  app only the always-running HUD island announces, otherwise the two dock windows
  *  would speak the same line twice. (Both windows share the session, and the shell
  *  always creates the HUD, so the HUD is a safe sole announcer.) */
 export function shouldSpeakProactively(): boolean {
   if (dockYield) return false
-  if (isDesktopShell() && window.location.pathname !== '/hud') return false
+  if (isDesktopShell() && !isDockHudSurface()) return false
   return true
 }

@@ -178,6 +178,8 @@ import { codingTool } from './coding'
 import { canvasTool } from './canvas'
 import { narrateTool } from './narrate'
 import { confirmPendingTool } from './confirmPending'
+import { machineStatusTool } from './machineStatus'
+import { dockFilesTool } from './dockFiles'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -228,4 +230,6 @@ export const toolRegistry: Tool[] = [
   canvasTool,
   narrateTool,
   confirmPendingTool,
+  machineStatusTool,
+  dockFilesTool,
 ]

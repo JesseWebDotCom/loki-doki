@@ -7,7 +7,7 @@
 
 import { setUserAlert } from '@/lib/pod/presence'
 
-type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert' | 'price_alert' | 'file_drop' | 'service_alert'
+type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert' | 'price_alert' | 'file_drop' | 'service_alert' | 'resource_alert'
 
 interface Spec {
   emoji: string
@@ -64,6 +64,17 @@ function specFor(type: NotifType, payload: Record<string, unknown>): Spec | null
         message: down ? `${monitor} is down` : `${monitor} recovered`,
         color: down ? '#dc2626' : '#16a34a',
         ttlSec: down ? 30 : 20,
+      }
+    }
+    case 'resource_alert': {
+      const label = String(payload['label'] ?? 'A computer')
+      const firing = payload['state'] === 'firing'
+      const msg = String(payload['message'] ?? '')
+      return {
+        emoji: firing ? '🖥️' : '🟢',
+        message: msg ? `${label}: ${msg}` : `${label}: ${firing ? 'resource alert' : 'back to normal'}`,
+        color: firing ? '#dc2626' : '#16a34a',
+        ttlSec: firing ? 30 : 20,
       }
     }
     default:

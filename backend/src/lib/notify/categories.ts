@@ -14,6 +14,7 @@ export type NotifType =
   | 'price_alert'
   | 'file_drop'
   | 'service_alert'
+  | 'resource_alert'
 
 export type NotifPriority = 'info' | 'normal' | 'urgent'
 export type NotifCategory = 'camera' | 'downloads' | 'installs' | 'system' | 'companion' | 'watchers' | 'shopping' | 'drops' | 'monitoring'
@@ -23,7 +24,7 @@ export type DeliveryMode = 'off' | 'instant' | 'digest'
 export const NOTIF_TYPES: readonly NotifType[] = [
   'install_request', 'install_complete', 'download_complete', 'system',
   'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert', 'file_drop',
-  'service_alert',
+  'service_alert', 'resource_alert',
 ]
 
 export const CHANNELS: readonly Channel[] = ['push', 'telegram', 'email']
@@ -43,7 +44,7 @@ export const CATEGORY_META: readonly CategoryMeta[] = [
   { key: 'installs', label: 'App installs', description: 'Install requests and completed installs', types: ['install_request', 'install_complete'] },
   { key: 'companion', label: 'Companion check-ins', description: 'Your companion reaching out about things you shared', types: ['companion_checkin'] },
   { key: 'drops', label: 'Device drops', description: 'Files and links sent between your devices', types: ['file_drop'] },
-  { key: 'monitoring', label: 'Service monitoring', description: 'A service or server going down or recovering (Uptime Kuma)', types: ['service_alert'] },
+  { key: 'monitoring', label: 'Service monitoring', description: 'A service or server going down or recovering, or a computer running low on resources', types: ['service_alert', 'resource_alert'] },
   { key: 'system', label: 'System', description: 'Everything else — maintenance, warnings, admin messages', types: ['system'] },
 ]
 
@@ -56,6 +57,7 @@ export function defaultPriorityFor(type: NotifType): NotifPriority {
   switch (type) {
     case 'frigate_event': return 'urgent'
     case 'service_alert': return 'urgent'
+    case 'resource_alert': return 'urgent'
     case 'install_request': return 'info'
     default: return 'normal'
   }
@@ -109,6 +111,22 @@ export function deriveMessage(type: NotifType, payload: Record<string, unknown>)
         title: down ? `${monitor} is down` : `${monitor} recovered`,
         body: payload['message'] ? String(payload['message']) : undefined,
         url: '/admin/monitoring',
+      }
+    }
+    case 'resource_alert': {
+      const label = String(payload['label'] ?? 'A computer')
+      const metric = String(payload['metric'] ?? '')
+      const firing = payload['state'] === 'firing'
+      const phrase =
+        metric === 'cpu' ? 'processor overloaded'
+        : metric === 'memory' ? 'memory almost full'
+        : metric === 'disk' ? 'disk almost full'
+        : metric === 'battery' ? 'battery low'
+        : 'resource alert'
+      return {
+        title: firing ? `${label}: ${phrase}` : `${label}: back to normal`,
+        body: payload['message'] ? String(payload['message']) : undefined,
+        url: '/',
       }
     }
     case 'system':

@@ -14,6 +14,25 @@ const DEFAULTS = {
   // the wake word armed, so you can just start talking. Turn off to make the
   // HUD summon-on-hotkey only.
   alwaysListening: true,
+  // Stable per-install id stamped on resource snapshots/alerts so a household
+  // with several docks dedupes per machine. Generated on first collector start.
+  machineId: '',
+  // Local resource monitoring (CPU/memory/disk/battery) with threshold alerts.
+  // announce = the companion also speaks alerts aloud (via the server).
+  resourceMonitor: {
+    enabled: true,
+    announce: false,
+    cpuPct: 90,
+    cpuSustainMin: 5,
+    memPct: 90,
+    diskFreePct: 10,
+    batteryPct: 15,
+  },
+  // Read-only file access for the companion (list/read inside user-picked folders
+  // only). Off by default; roots are added exclusively via the native folder
+  // picker — never by the server-loaded page.
+  fileAccessEnabled: false,
+  fileAccessRoots: [],
 }
 
 function settingsPath() {

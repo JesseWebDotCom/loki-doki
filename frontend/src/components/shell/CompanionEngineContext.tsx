@@ -16,6 +16,7 @@ import { useMood } from '@/lib/voice/moodStore'
 import { useHandsFree, isStopCommand } from '@/hooks/useHandsFree'
 import { useVoicePlaying, useCharacterCaption, useStreamingSentenceCaption, stopSpeech, getVoicePlayback } from '@/lib/voice/voicePlaybackStore'
 import { useVoiceOwner, setVoiceWants } from '@/lib/voice/voiceOwnership'
+import { useDockYield } from '@/lib/voice/dockYield'
 import { toast } from '@/lib/toast'
 import { matchesScreenIntent } from '@/lib/screenIntent'
 import { fetchVisionStatus } from '@/hooks/useVisionStatus'
@@ -81,6 +82,8 @@ export interface CompanionEngine {
   handsFreePartial: string
   /** This tab wants voice but another open tab currently owns mic + audio. */
   otherTabOwner: boolean
+  /** The Doki Dock desktop app on this machine owns companion speech; this tab yields. */
+  dockYield: boolean
   handleSend: (text: string, attachments?: File[]) => void
   /** Escape hatch from the ephemeral quick-ask: jump to /chat and re-run the given
    *  question there so it lands in a persisted conversation. */
@@ -167,13 +170,17 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const wantsVoice = !!voiceCharacter && (handsFreeOn || voiceOn)
   useEffect(() => { setVoiceWants(wantsVoice) }, [wantsVoice])
   const isVoiceOwner = useVoiceOwner()
+  // Server-arbitrated "dock wins": when the Doki Dock desktop app is connected from
+  // this same machine, every web tab here yields speech + mic to it (dockYield can
+  // never be true inside the dock itself). See lib/voice/dockYield.ts.
+  const dockYield = useDockYield()
 
   // Hands-free uses the latest handleSend (defined below) via a ref so the hook
   // can be declared here with a stable submit callback.
   const handleSendRef = useRef<(text: string, attachments?: File[]) => void>(() => {})
   const hfSubmit = useCallback((text: string) => handleSendRef.current(text), [])
   const handsFree = useHandsFree({
-    enabled: handsFreeOn && !!voiceCharacter && isVoiceOwner,
+    enabled: handsFreeOn && !!voiceCharacter && isVoiceOwner && !dockYield,
     characterId: voiceCharacter?.id,
     wakeWordModelId: voiceCharacter?.wakeWordModelId ?? null,
     wakeWordPhrase: voiceCharacter?.wakeWordPhrase ?? null,
@@ -229,11 +236,12 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   // Read-aloud: stream completed sentences to TTS when Voice OR hands-free is on
   // (hands-free always speaks its replies so the loop can advance on playback end).
   // Only the owning tab speaks; a non-owner stays silent even if it generated text.
-  const voiceMode = (voiceOn || handsFreeOn) && !!voiceCharacter && isVoiceOwner
+  const voiceMode = (voiceOn || handsFreeOn) && !!voiceCharacter && isVoiceOwner && !dockYield
   useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode, expressiveness: voiceCharacter?.expressiveness })
-  // Losing ownership mid-utterance (user switched to another tab) cuts the audio
-  // here so the handoff is clean and the new owner is the only one talking.
-  useEffect(() => { if (!isVoiceOwner) stopSpeech() }, [isVoiceOwner])
+  // Losing ownership mid-utterance (user switched to another tab, or a Doki Dock
+  // appeared on this machine) cuts the audio here so the handoff is clean and the
+  // new owner is the only one talking.
+  useEffect(() => { if (!isVoiceOwner || dockYield) stopSpeech() }, [isVoiceOwner, dockYield])
   // Emote > mood overlay (animates eyes/brows while speaking). Visual only, so it
   // runs regardless of whether voice is on.
   useEmoteMood({ text: replyText, streaming })
@@ -470,6 +478,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     handsFreeState: handsFree.state,
     handsFreePartial: handsFree.partial ?? '',
     otherTabOwner: wantsVoice && !isVoiceOwner,
+    dockYield,
     handleSend: (text, attachments) => { void handleSend(text, attachments) },
     promoteToChat,
     onStop,

@@ -1,4 +1,4 @@
-import { Bell, Camera, CheckCircle2, Download, Eye, HardDrive, MessageCircleHeart, Tag } from 'lucide-react'
+import { Activity, Bell, Camera, CheckCircle2, Cpu, Download, Eye, HardDrive, MessageCircleHeart, Send, Tag } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AppNotification } from '@/hooks/useNotifications'
 
@@ -14,6 +14,9 @@ export function notifIcon(type: NotifType): LucideIcon {
     case 'companion_checkin': return MessageCircleHeart
     case 'watcher_alert':     return Eye
     case 'price_alert':       return Tag
+    case 'file_drop':         return Send
+    case 'service_alert':     return Activity
+    case 'resource_alert':    return Cpu
     default:                  return Bell
   }
 }
@@ -35,6 +38,12 @@ export function notifLabel(n: AppNotification): string {
         return p.message ?? 'A watched page changed'
       case 'price_alert':
         return p.message ?? 'A tracked product changed price'
+      case 'file_drop':
+        return `${p.senderLabel ?? 'Another device'} sent ${p.fileName ?? (p.kind === 'text' ? 'a message' : 'a file')}`
+      case 'service_alert':
+        return `${p.monitor ?? 'A service'} ${p.state === 'down' ? 'is down' : 'recovered'}`
+      case 'resource_alert':
+        return p.message ? `${p.label ?? 'A computer'}: ${p.message}` : `${p.label ?? 'A computer'} resource alert`
       default:
         return p.message ?? 'System notification'
     }
@@ -77,6 +86,8 @@ export const NOTIF_CATEGORIES: NotifCategory[] = [
   { key: 'installs',  label: 'App install updates',    description: 'Install requests and completed installs',      types: ['install_request', 'install_complete'], Icon: CheckCircle2 },
   { key: 'system',    label: 'System messages',        description: 'Maintenance notices and general messages',     types: ['system'],                             Icon: Bell         },
   { key: 'companion', label: 'Companion check-ins',    description: 'Your companion occasionally asks about things you shared — at most once a day', types: ['companion_checkin'], Icon: MessageCircleHeart },
+  { key: 'drops',     label: 'Device drops',           description: 'Files and links sent between your devices',    types: ['file_drop'],                          Icon: Send         },
+  { key: 'monitoring', label: 'Service & computer monitoring', description: 'Services going down or recovering, and computers running low on resources', types: ['service_alert', 'resource_alert'], Icon: Activity },
 ]
 
 // Delivery matrix types (Settings → Notifications "What to send where").

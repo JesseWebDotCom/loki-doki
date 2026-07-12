@@ -1,4 +1,4 @@
-import { AppWindow, Bell, CalendarDays, CloudSun, FolderUp, Home, Music, Settings, Timer, Zap } from 'lucide-react'
+import { Activity, AppWindow, Bell, CalendarDays, CloudSun, FolderUp, Home, Music, Settings, Timer, Zap } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { useNotifications } from '@/hooks/useNotifications'
@@ -11,10 +11,10 @@ import { NOTCH_CORE_W } from './IslandCompact'
 // RIGHT shoulder, and a dead center gap where the physical notch cuts the
 // screen. Content below the bar is therefore always notch-safe.
 
-export type IslandTab = 'home' | 'music' | 'weather' | 'calendar' | 'shelf' | 'focus' | 'settings'
+export type IslandTab = 'home' | 'music' | 'weather' | 'calendar' | 'shelf' | 'focus' | 'stats' | 'settings'
 
 /** Cycle order for the side chevrons; settings is gear-only by design. */
-export const ISLAND_TABS: IslandTab[] = ['home', 'music', 'weather', 'calendar', 'shelf', 'focus']
+export const ISLAND_TABS: IslandTab[] = ['home', 'music', 'weather', 'calendar', 'shelf', 'focus', 'stats']
 
 const TAB_META: { tab: IslandTab; icon: typeof Home; label: string }[] = [
   { tab: 'home', icon: Home, label: 'Home' },
@@ -23,6 +23,7 @@ const TAB_META: { tab: IslandTab; icon: typeof Home; label: string }[] = [
   { tab: 'calendar', icon: CalendarDays, label: 'Calendar' },
   { tab: 'shelf', icon: FolderUp, label: 'Shelf' },
   { tab: 'focus', icon: Timer, label: 'Focus' },
+  { tab: 'stats', icon: Activity, label: 'System' },
 ]
 
 // Colored battery glyph, TheBoringNotch style: green when healthy/charging,

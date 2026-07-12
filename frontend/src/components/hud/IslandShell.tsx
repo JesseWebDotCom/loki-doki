@@ -10,6 +10,7 @@ import { IslandCompact, NOTCH_CORE_W, WING_L, WING_R } from './IslandCompact'
 import { IslandExpanded } from './IslandExpanded'
 import { IslandFullExpanded } from './IslandFullExpanded'
 import { useNowPlaying } from './useNowPlaying'
+import { useResourceReporter } from './useResourceReporter'
 import type { IslandTab } from './IslandTopBar'
 
 // The island itself: one black container pinned to the top of the transparent
@@ -29,6 +30,9 @@ export function IslandShell() {
   const engine = useCompanionEngine()
   const { size } = useCompanionState()
   const nowPlaying = useNowPlaying()
+  // Forward local machine stats + threshold alerts to the server (independent of
+  // which island tab is open; no-op outside the desktop shell).
+  useResourceReporter()
 
   const [topInset, setTopInset] = useState(36)
   const [tab, setTab] = useState<IslandTab>('home')

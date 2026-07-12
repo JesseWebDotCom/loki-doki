@@ -6,18 +6,29 @@ import { useServerHealth } from '@/context/ServerHealthContext'
 import { djStationById } from '@/lib/music/catalogApi'
 import { dispatchTransport, hasActiveMedia } from '@/lib/mediaCoordinator'
 import { manageEventSource } from '@/lib/managedEventSource'
+import { setDockYieldFromServer } from '@/lib/voice/dockYield'
+import { getVoiceWants } from '@/lib/voice/voiceOwnership'
 
 // Receives commands pushed from a controller device (a Tab5 button press → server →
 // here) and acts on them in THIS browser session: navigate, open a URL, or drive the
 // radio player (play/pause/next/prev/play a station). This is how the physical controller
 // remote-controls the app open in the browser.
 //
+// The registration also carries voice-arbitration metadata: the Doki Dock desktop app
+// registers with dock=1 (surface 'hud' for the island window), and the server pushes
+// `voice` events telling web tabs on the same machine to yield companion speech to the
+// dock (see lib/voice/dockYield.ts). Dock sessions receive `dock` events - server→dock
+// requests (read-only file ops) relayed to the Electron main process over the preload
+// bridge, with the result POSTed back.
+//
 // The stream is visibility-managed (see managedEventSource.ts): hidden tabs release
 // their connection so multiple tabs can't exhaust the browser's per-origin pool -
 // EXCEPT a hidden tab that's playing media, which stays connected so a device remote
 // can still drive it. Reconnecting on focus also means the backend's most-recent-tab
-// command routing follows the tab the user is actually looking at.
-export function useBrowserSession() {
+// command routing follows the tab the user is actually looking at. The dock HUD keeps
+// its stream open even hidden - its registration IS the dock's presence signal - and a
+// hidden hands-free tab stays connected so it hears the dock start/stop.
+export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud' } = {}) {
   const navigate = useNavigate()
   const radio = useRadio()
   const podcast = usePodcastPlayback()
@@ -37,7 +48,8 @@ export function useBrowserSession() {
 
   useEffect(() => {
     return manageEventSource(() => {
-      const es = new EventSource('/api/browser-session', { withCredentials: true })
+      const isDock = !!window.lokiDesktop
+      const es = new EventSource(`/api/browser-session?dock=${isDock ? 1 : 0}&surface=${surface}`, { withCredentials: true })
 
       // Every SSE ping proves the backend is up. This stream is also exactly what starves
       // the /api/health probe when the connection pool fills, so without this signal the
@@ -117,10 +129,48 @@ export function useBrowserSession() {
         })()
       })
 
+      // Server-arbitrated "dock wins" voice signal: {yield: true} means a Doki Dock on
+      // this machine owns companion speech and this tab must go quiet.
+      es.addEventListener('voice', (e: MessageEvent) => {
+        try {
+          const state = JSON.parse(e.data as string) as { yield?: unknown }
+          setDockYieldFromServer(state.yield === true)
+        } catch { /* malformed */ }
+      })
+
+      // Server → dock requests (read-only file ops for the companion). Only the desktop
+      // shell can serve these; older shells without the bridge report back immediately
+      // so the awaiting tool call fails fast instead of timing out.
+      es.addEventListener('dock', (e: MessageEvent) => {
+        void (async () => {
+          let requestId: string | undefined
+          try {
+            const req = JSON.parse(e.data as string) as { requestId?: string; type?: string; action?: string; path?: string }
+            if (typeof req.requestId !== 'string') return
+            requestId = req.requestId
+            let result: { ok: boolean; error?: string; data?: unknown }
+            if (req.type !== 'files') result = { ok: false, error: 'unsupported_request' }
+            else if (!window.lokiDesktop?.fsRequest) result = { ok: false, error: 'shell_outdated' }
+            else result = await window.lokiDesktop.fsRequest({ action: String(req.action ?? ''), path: String(req.path ?? '') })
+            await fetch('/api/browser-session/dock-result', {
+              method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ requestId, result }),
+            })
+          } catch {
+            if (requestId) {
+              void fetch('/api/browser-session/dock-result', {
+                method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requestId, result: { ok: false, error: 'dock_error' } }),
+              }).catch(() => {})
+            }
+          }
+        })()
+      })
+
       es.onerror = () => {} // EventSource auto-reconnects
 
       return es
-    }, { keepWhenHidden: hasActiveMedia })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- radio/podcast/navigate read via refs
+    }, { keepWhenHidden: () => surface === 'hud' || hasActiveMedia() || getVoiceWants() })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- radio/podcast/navigate read via refs; surface is fixed per mount
   }, [])
 }

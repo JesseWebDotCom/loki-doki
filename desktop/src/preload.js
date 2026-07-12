@@ -63,6 +63,28 @@ contextBridge.exposeInMainWorld('lokiDesktop', {
   getBattery() {
     return ipcRenderer.invoke('system:battery')
   },
+  // Local machine stats + threshold-alert events for the island System tab and
+  // the HUD's server reporter.
+  getResources() {
+    return ipcRenderer.invoke('system:resources')
+  },
+  ackResourceEvents(ids) {
+    return ipcRenderer.invoke('system:resources-ack', Array.isArray(ids) ? ids : [])
+  },
+  // Read-only file access (companion file ops + island settings management).
+  // All enforcement happens in the main process; see desktop/src/fileAccess.js.
+  fsRequest(req) {
+    return ipcRenderer.invoke('fs:request', req ?? {})
+  },
+  fsPickFolder() {
+    return ipcRenderer.invoke('fs:pick-folder')
+  },
+  fsRemoveRoot(root) {
+    return ipcRenderer.invoke('fs:remove-root', root)
+  },
+  fsRecentAccesses() {
+    return ipcRenderer.invoke('fs:recent-accesses')
+  },
   openServerSetup() {
     ipcRenderer.send('settings:open-setup')
   },
