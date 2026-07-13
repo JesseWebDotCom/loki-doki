@@ -7,6 +7,8 @@ import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { Backdrop } from '@/components/media/Backdrop'
+import { DetailHero } from '@/components/media/DetailHero'
+import { ArtAccentScope } from '@/components/shared/ArtAccentScope'
 import { SectionHeading } from '@/components/media/TitleCard'
 import { MediaStationButton, ParentsGuideSection, ReviewsSection, SoundtrackAlbums, StreamingChips, TriviaSection, VideoRow } from '@/components/media/sections'
 import { ShowtimesPanel } from '@/components/media/Showtimes'
@@ -24,57 +26,9 @@ import {
   getMovieReviews,
   getMovieTrivia,
   getMoviePodcastApi,
-  type MovieCore,
 } from '@/lib/movies/api'
 import { mediaImg } from '@/lib/shows/api'
 import { fetchShowSoundtrack } from '@/lib/music/musicInfo'
-
-function Hero({ bundle, actions }: { bundle: MovieCore; actions?: React.ReactNode }) {
-  const d = bundle.details
-  const [ok, setOk] = useState(true)
-  return (
-    // Detail-hero idiom: calm bg-card sheet over the backdrop artwork, with a soft brand glow.
-    <div className="relative overflow-hidden rounded-sheet border border-border bg-card">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{ background: 'radial-gradient(640px circle at 0% 0%, color-mix(in oklch, var(--brand) 18%, transparent), transparent 62%)' }}
-      />
-      <div className="relative flex flex-col gap-5 p-6 sm:flex-row sm:p-8">
-        <div className="mx-auto w-[160px] shrink-0 sm:mx-0">
-          <div className="aspect-[2/3] overflow-hidden rounded-card bg-muted shadow-lg ring-1 ring-border/40">
-            {d.poster && ok ? (
-              <img src={mediaImg(d.poster)} alt={d.title} className="size-full object-cover" onError={() => setOk(false)} />
-            ) : (
-              <div className="flex size-full items-center justify-center">
-                <Clapperboard className="size-8 text-muted-foreground/40" />
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div>
-            {/* design-ok(raw-h1-in-pages): bespoke detail hero (poster + badges + actions) that PageHeader can't host; title uses the sanctioned text-display style */}
-            <h1 className="text-display">{d.title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {[d.year, d.runtimeMinutes ? `${d.runtimeMinutes} min` : null].filter(Boolean).join(' · ')}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {d.ageCertification && <Badge variant="outline">{d.ageCertification}</Badge>}
-            {bundle.inTheaters && <Badge className="border-0 bg-brand/15 text-brand">In Theaters</Badge>}
-          </div>
-
-          {d.summary && <p className="text-sm leading-relaxed text-muted-foreground">{d.summary}</p>}
-
-          {actions && <div className="mt-auto pt-2">{actions}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -285,7 +239,18 @@ function DetailBody({ title, year }: { title: string; year: number | null }) {
 
   return (
     <div className="relative z-10 space-y-6 pb-16">
-      <Hero bundle={bundle} actions={actions} />
+      <DetailHero
+        poster={bundle.details.poster}
+        title={bundle.details.title}
+        meta={[bundle.details.year, bundle.details.runtimeMinutes ? `${bundle.details.runtimeMinutes} min` : null].filter(Boolean).join(' \u00b7 ')}
+        badges={<>
+          {bundle.details.ageCertification && <Badge variant="outline">{bundle.details.ageCertification}</Badge>}
+          {bundle.inTheaters && <Badge className="border-0 bg-brand/15 text-brand">In Theaters</Badge>}
+        </>}
+        summary={bundle.details.summary}
+        actions={actions}
+        FallbackIcon={Clapperboard}
+      />
 
       <MediaTabs
         active={tab ?? 'about'}
@@ -326,10 +291,13 @@ export function MovieDetailPage() {
     staleTime: 60 * 60 * 1000,
   })
 
-  // No PageShell: MediaLayout owns the dark cinema backdrop.
+  // No PageShell: MediaLayout owns the dark cinema backdrop. ArtAccentScope retints
+  // --brand across the whole detail page (hero glow, action bar, tab underlines) to the
+  // palette of the artwork on screen.
+  const art = betterBackdrop ?? core?.backdrop ?? null
   return (
-    <div className="relative min-h-full">
-      <Backdrop url={betterBackdrop ?? core?.backdrop} />
+    <ArtAccentScope art={art ? mediaImg(art) : null} className="relative min-h-full">
+      <Backdrop url={art} />
       <div className="relative px-5 pb-12 pt-4">
         <button
           type="button"
@@ -340,6 +308,6 @@ export function MovieDetailPage() {
         </button>
         <DetailBody title={title} year={year} />
       </div>
-    </div>
+    </ArtAccentScope>
   )
 }

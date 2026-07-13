@@ -8,6 +8,8 @@ import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { cn } from '@/lib/cn'
 import { Backdrop } from '@/components/media/Backdrop'
+import { DetailHero } from '@/components/media/DetailHero'
+import { ArtAccentScope } from '@/components/shared/ArtAccentScope'
 import { MediaTabs } from '@/components/media/MediaTabs'
 import { ActionBar, ActionButton, ActionIcon } from '@/components/media/ActionBar'
 import { SectionHeading } from '@/components/media/TitleCard'
@@ -38,7 +40,6 @@ import {
   getShowTrivia,
   getShowPodcast,
   mediaImg,
-  type ShowCore,
 } from '@/lib/shows/api'
 import { fetchShowSoundtrack } from '@/lib/music/musicInfo'
 
@@ -46,63 +47,6 @@ function statusClass(status: string | null): string {
   if (status === 'Running') return 'bg-success/15 text-success'
   if (status === 'Ended') return 'bg-foreground/10 text-muted-foreground'
   return 'bg-foreground/10 text-muted-foreground'
-}
-
-function Hero({ bundle, actions }: { bundle: ShowCore; actions?: React.ReactNode }) {
-  const d = bundle.details
-  const [ok, setOk] = useState(true)
-  return (
-    // Detail-hero idiom: calm bg-card sheet over the backdrop artwork, with a soft brand glow.
-    <div className="relative overflow-hidden rounded-sheet border border-border bg-card">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{ background: 'radial-gradient(640px circle at 0% 0%, color-mix(in oklch, var(--brand) 18%, transparent), transparent 62%)' }}
-      />
-      <div className="relative flex flex-col gap-5 p-6 sm:flex-row sm:p-8">
-        <div className="mx-auto w-[160px] shrink-0 sm:mx-0">
-          <div className="aspect-[2/3] overflow-hidden rounded-card bg-muted shadow-lg ring-1 ring-border/40">
-            {d.poster && ok ? (
-              <img src={mediaImg(d.poster)} alt={d.name} className="size-full object-cover" onError={() => setOk(false)} />
-            ) : (
-              <div className="flex size-full items-center justify-center">
-                <Tv className="size-8 text-muted-foreground/40" />
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div>
-            {/* design-ok(raw-h1-in-pages): bespoke detail hero (poster + badges + actions) that PageHeader can't host; title uses the sanctioned text-display style */}
-            <h1 className="text-display">{d.name}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {[d.network, d.year, d.runtime ? `${d.runtime} min` : null].filter(Boolean).join(' · ')}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {d.status && <Badge className={cn('border-0', statusClass(d.status))}>{d.status}</Badge>}
-            {d.rating != null && d.rating > 0 && (
-              <span className="inline-flex items-center gap-1 text-sm font-medium text-warning">
-                <Star className="size-3.5 fill-current" />
-                {d.rating.toFixed(1)}
-              </span>
-            )}
-            {d.genres.map((g) => (
-              <Badge key={g} variant="outline" className="font-normal">
-                {g}
-              </Badge>
-            ))}
-          </div>
-
-          {d.summary && <p className="text-sm leading-relaxed text-muted-foreground">{d.summary}</p>}
-
-          {actions && <div className="mt-auto pt-2">{actions}</div>}
-        </div>
-      </div>
-    </div>
-  )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -360,7 +304,26 @@ function DetailBody({ id }: { id: string }) {
 
   return (
     <div className="relative z-10 space-y-6 pb-16">
-      <Hero bundle={bundle} actions={actions} />
+      <DetailHero
+        poster={bundle.details.poster}
+        title={bundle.details.name}
+        meta={[bundle.details.network, bundle.details.year, bundle.details.runtime ? `${bundle.details.runtime} min` : null].filter(Boolean).join(' \u00b7 ')}
+        badges={<>
+          {bundle.details.status && <Badge className={cn('border-0', statusClass(bundle.details.status))}>{bundle.details.status}</Badge>}
+          {bundle.details.rating != null && bundle.details.rating > 0 && (
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-warning">
+              <Star className="size-3.5 fill-current" />
+              {bundle.details.rating.toFixed(1)}
+            </span>
+          )}
+          {bundle.details.genres.map((g) => (
+            <Badge key={g} variant="outline" className="font-normal">{g}</Badge>
+          ))}
+        </>}
+        summary={bundle.details.summary}
+        actions={actions}
+        FallbackIcon={Tv}
+      />
 
       <MediaTabs
         active={tab ?? 'about'}
@@ -407,10 +370,13 @@ export function ShowDetailPage() {
     staleTime: 60 * 60 * 1000,
   })
 
-  // No PageShell: MediaLayout owns the dark cinema backdrop.
+  // No PageShell: MediaLayout owns the dark cinema backdrop. ArtAccentScope retints
+  // --brand across the whole detail page (hero glow, action bar, tab underlines,
+  // episode progress) to the palette of the artwork on screen.
+  const art = betterBackdrop ?? core?.backdrop ?? null
   return (
-    <div className="relative min-h-full">
-      <Backdrop url={betterBackdrop ?? core?.backdrop} />
+    <ArtAccentScope art={art ? mediaImg(art) : null} className="relative min-h-full">
+      <Backdrop url={art} />
       <div className="relative px-5 pb-12 pt-4">
         <button
           type="button"
@@ -421,6 +387,6 @@ export function ShowDetailPage() {
         </button>
         <DetailBody id={id} />
       </div>
-    </div>
+    </ArtAccentScope>
   )
 }
