@@ -20,7 +20,6 @@ import { useSearchParams } from 'react-router-dom'
 import { BookOpen } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { ArtBillboard, type ArtBillboardItem } from '@/components/shared/ArtBillboard'
-import { PageHeader } from '@/components/shared/PageHeader'
 import { Spinner } from '@/components/ui/spinner'
 import { BookResultTile } from '@/components/books/BookResultTile'
 import { BookSearchCard } from '@/components/books/BookSearchCard'
@@ -74,9 +73,8 @@ export function BooksDiscoverPage() {
 
   return (
     <div className="h-full overflow-y-auto">
+      {/* No PageHeader: the rail states where we are and the billboard is the focal point. */}
       <PageContainer width="wide" className="space-y-9 py-6 pb-24">
-        <PageHeader title="Book Store" subtitle="Books, comics, manga, activity books, and previews from every enabled source." className="pt-0 pb-0" />
-
         {query ? (
           searching ? (
             <div className="flex justify-center py-16"><Spinner size="lg" /></div>

@@ -11,7 +11,6 @@ import { ArtBillboard, type ArtBillboardItem } from '@/components/shared/ArtBill
 import { fmtTime } from '@/lib/podcast/format'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { PageContainer } from '@/components/shared/PageContainer'
-import { PageHeader } from '@/components/shared/PageHeader'
 import { getAppByPath } from '@/lib/appCategories'
 
 export function ListenNowPage() {
@@ -22,9 +21,9 @@ export function ListenNowPage() {
   const fresh = data ? newEpisodes(data.all) : []
   const shows = data?.shows ?? []
 
+  // No PageHeader: the rail states where we are and the billboard is the focal point.
   return (
     <PageContainer width="wide" className="space-y-9 py-6 pb-24">
-      <PageHeader title="Listen Now" className="pt-0 pb-0" />
       {isLoading ? (
         <CardGridSkeleton count={4} />
       ) : data && data.all.length === 0 ? (
