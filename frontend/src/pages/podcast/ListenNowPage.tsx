@@ -6,7 +6,8 @@ import { usePodcastFeed, continueListening, newEpisodes, type FeedEpisode } from
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { EpisodeRow } from '@/components/podcast/EpisodeRow'
 import { SectionHead, CardGridSkeleton } from '@/components/store/SectionHead'
-import { toTrack } from '@/lib/podcast/api'
+import { coverUrl, toTrack } from '@/lib/podcast/api'
+import { ArtBillboard, type ArtBillboardItem } from '@/components/shared/ArtBillboard'
 import { fmtTime } from '@/lib/podcast/format'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -49,6 +50,30 @@ export function ListenNowPage() {
         />
       ) : (
         <>
+          {/* Billboard: resume where you left off, else spotlight your shows. */}
+          <ArtBillboard
+            eyebrow={cont.length > 0 ? 'Continue listening' : 'Your shows'}
+            items={cont.length > 0
+              ? cont.slice(0, 5).map((x): ArtBillboardItem => ({
+                  key: x.episode.id,
+                  title: x.episode.title,
+                  subtitle: x.show.name,
+                  art: coverUrl(x.show.id),
+                  onClick: () => play(toTrack(x.episode, x.show), x.episode.watchState?.positionSec ?? 0),
+                  pillLabel: 'Resume',
+                  PillIcon: Play,
+                }))
+              : shows.slice(0, 5).map((s): ArtBillboardItem => ({
+                  key: s.id,
+                  title: s.name,
+                  subtitle: s.isOwn ? 'Your show' : `by ${s.ownerName}`,
+                  art: coverUrl(s.id),
+                  to: `/podcasts/show/${s.id}`,
+                  pillLabel: 'Open show',
+                  PillIcon: Headphones,
+                }))}
+          />
+
           {cont.length > 0 && (
             <section>
               <SectionHead title="Continue Listening" />

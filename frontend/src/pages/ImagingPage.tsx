@@ -2169,11 +2169,11 @@ export function ImagingPage() {
           </div>
         </div>
 
-        {/* ── Canvas ───────────────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col min-h-0">
+        {/* ── Canvas: always-dark studio pane, tinted by the current result ── */}
+        <div data-theme="dark" className="flex-1 flex flex-col min-h-0 bg-black text-foreground"
+          style={canvasArt && canvasPalette !== DEFAULT_PALETTE ? accentVars(canvasPalette) : undefined}>
 
-          <div className="flex-1 relative p-4 min-h-0"
-            style={canvasArt && canvasPalette !== DEFAULT_PALETTE ? accentVars(canvasPalette) : undefined}>
+          <div className="flex-1 relative p-4 min-h-0">
             <div
               className={cn(
                 'relative w-full h-full rounded-sheet overflow-hidden bg-muted border transition-colors',

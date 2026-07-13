@@ -17,7 +17,9 @@
 
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { BookOpen } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
+import { ArtBillboard, type ArtBillboardItem } from '@/components/shared/ArtBillboard'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Spinner } from '@/components/ui/spinner'
 import { BookResultTile } from '@/components/books/BookResultTile'
@@ -110,6 +112,25 @@ export function BooksDiscoverPage() {
           <div className="flex justify-center py-16"><Spinner size="lg" /></div>
         ) : (
           <>
+            {/* Featured billboard: top covers of the first stocked genre shelf. */}
+            {(() => {
+              const featured = shelves.find((sh) => sh.results.some((r) => r.coverUrl))
+              if (!featured) return null
+              const items = featured.results.filter((r) => r.coverUrl).slice(0, 5).map((r): ArtBillboardItem => {
+                const link = previewLink(r)
+                return {
+                  key: resultKey(r),
+                  title: r.title,
+                  subtitle: r.author,
+                  art: r.coverUrl ? proxyImg(r.coverUrl) : null,
+                  to: link.to,
+                  state: link.state,
+                  pillLabel: 'Preview',
+                  PillIcon: BookOpen,
+                }
+              })
+              return <ArtBillboard items={items} eyebrow={featured.category.label} />
+            })()}
             {bookShelves.map((shelf) => (
               <BookShelf key={shelf.key} title={shelf.label}
                 empty={shelf.results.length === 0 ? `No ${shelf.label.toLowerCase()} are available from enabled sources right now.` : undefined}>

@@ -660,6 +660,19 @@ in `src/lib/routeChrome.ts`, and pages inside must not use `PageShell` (it would
 `AppBackdrop`). Reference implementations: `MusicLayout.tsx`, `VideosLayout.tsx`,
 `media/MediaLayout.tsx`.
 
+### `ArtBillboard` - `src/components/shared/ArtBillboard.tsx`
+
+Generic editorial billboard for app hubs: up to six featured items in an auto-rotating
+scroll-snap carousel, each slide's art dissolving into its own extracted accent via
+`BlendedHeroBackdrop`. App-neutral sibling of the Videos billboard and `media/MediaBillboard`
+(those stay specialized). Items carry same-origin `art`, a `to`/`state` link or `onClick`,
+and a pill label + icon. Used by the Podcasts Listen Now hub and the Book Store hub.
+
+```ts
+{ items: ArtBillboardItem[]; eyebrow: string; className?: string }
+// ArtBillboardItem: { key, title, subtitle?, art, to?, state?, onClick?, pillLabel, PillIcon }
+```
+
 ### `ViewToggle` - `src/components/shared/ViewToggle.tsx`
 
 Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a page offers both a grid and a list layout instead of hand-rolling the two-button group. Pair it with `useViewPreference(key, fallback)` (`src/hooks/useViewPreference.ts`) to persist the choice per-user in `user_preferences` (dotted key, e.g. `youtube.channel_view`) so it survives reloads and syncs across devices.
@@ -704,9 +717,10 @@ gradient on a precise mark. Build the rest of the UI toward that, not toward "mo
 - **Sanctioned dynamic-palette surfaces.** Art-derived accents (`ArtAccentScope`,
   `useArtPalette`, `UltraBlur`) are allowed only where one artwork dominates the surface:
   Videos = watch page, channel pages, home billboard. Music = players and station surfaces.
-  Movies/Shows = hub billboard and detail pages. Podcasts = show hero, Now Playing, player
-  bar. Books = book detail hero and audiobook player, never the reader views. Imaging = the
-  current result and lightbox, not the history grid. Shopping = the buy box only. Everywhere
+  Movies/Shows = hub billboard and detail pages. Podcasts = hub billboard, show hero, Now
+  Playing, player bar. Books = hub billboard, book detail hero, audiobook player, never the
+  reader views. Imaging = the canvas pane (an always-dark studio, tinted by the current
+  result) and lightbox, not per history tile. Shopping = the buy box only. Everywhere
   else keeps the app's static accent. Never extract per-card in grids or lists.
 - **No floating UI parked on top of content.** A persistent overlay (the companion, a mini
   player) defaults to a corner dock, not dead-center, so it never guarantees an overlap with
