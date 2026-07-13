@@ -35,7 +35,7 @@ function BillboardSlide({ item, eyebrow }: { item: ArtBillboardItem; eyebrow: st
   const body = (
     <>
       {/* Taller on phones: eyebrow + 2-line title + meta + pill need the extra height. */}
-      <div className="relative aspect-[5/3] w-full overflow-hidden sm:aspect-[21/6]">
+      <div className="relative aspect-[5/3] w-full overflow-hidden sm:aspect-auto sm:h-64 lg:h-72 xl:h-80">
         <BlendedHeroBackdrop art={item.art} color={accent} colorDark={palette.dark} />
       </div>
       <div className="absolute inset-y-0 left-0 flex max-w-xl flex-col justify-center gap-2 p-5 sm:p-9">

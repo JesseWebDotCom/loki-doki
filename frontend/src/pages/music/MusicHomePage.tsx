@@ -39,7 +39,7 @@ function StationBillboard({ stations }: { stations: Station[] }) {
   return (
     <button onClick={() => navigate(`/music/station/${station.id}`)}
       className="group relative mb-8 block w-full overflow-hidden rounded-sheet text-left shadow-xl">
-      <div className="relative aspect-[21/8] w-full overflow-hidden sm:aspect-[21/6]">
+      <div className="relative aspect-[21/8] w-full overflow-hidden sm:aspect-auto sm:h-64 lg:h-72 xl:h-80">
         <BlendedHeroBackdrop art={coverArt} color={dj.color} colorDark={dj.colorDark}
           fallback={<StationArt station={station} />} />
       </div>

@@ -673,6 +673,12 @@ and a pill label + icon. Used by the Podcasts Listen Now hub and the Book Store 
 // ArtBillboardItem: { key, title, subtitle?, art, to?, state?, onClick?, pillLabel, PillIcon }
 ```
 
+Sizing rule for ALL hub billboards (ArtBillboard, media/MediaBillboard, Music's
+StationBillboard): desktop height is capped at `sm:h-64 lg:h-72 xl:h-80`, phones keep a
+tall aspect ratio. A hub must show the hero plus roughly two rows of content below the
+fold. Width-driven aspect ratios (21:6) are only acceptable beside a rail that narrows
+the content column (the Videos hub); on rail-less hubs they balloon.
+
 ### `ViewToggle` - `src/components/shared/ViewToggle.tsx`
 
 Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a page offers both a grid and a list layout instead of hand-rolling the two-button group. Pair it with `useViewPreference(key, fallback)` (`src/hooks/useViewPreference.ts`) to persist the choice per-user in `user_preferences` (dotted key, e.g. `youtube.channel_view`) so it survives reloads and syncs across devices.
