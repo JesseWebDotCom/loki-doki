@@ -7,23 +7,40 @@ import { formatRelativeTime } from '@/lib/relativeTime'
 /** A full-width conversation row used by the project landing page and the Chats browse page. */
 export function ChatListRow({
   title, projectName, updatedAt, onSelect, onDelete,
+  selectMode = false, selected = false, onToggleSelect,
 }: {
   title: string
   projectName?: string | null
   updatedAt: Date
   onSelect: () => void
   onDelete: () => void
+  selectMode?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
 }) {
   const [hovered, setHovered] = useState(false)
 
   return (
     <div
-      className="group relative flex items-center border-b border-border/15 transition-colors last:border-0 hover:bg-foreground/[0.03]"
+      className={cn(
+        'group relative flex items-center border-b border-border/15 transition-colors last:border-0 hover:bg-foreground/[0.03]',
+        selectMode && selected && 'bg-brand/5',
+      )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {selectMode && (
+        /* design-ok(raw-input-element): native checkbox for bulk-select, no ui/ Checkbox primitive (same pattern as AdminUsersTab) */
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect?.()}
+          aria-label={`Select "${title}"`}
+          className="ml-1 size-4 shrink-0 rounded border-border accent-brand"
+        />
+      )}
       <button
-        onClick={onSelect}
+        onClick={selectMode ? onToggleSelect : onSelect}
         className="flex flex-1 min-w-0 items-center gap-3 py-3 pl-1 pr-2 text-left"
       >
         <span className="flex-1 min-w-0 truncate text-sm text-foreground">{title}</span>
@@ -34,13 +51,13 @@ export function ChatListRow({
         )}
         <span className={cn(
           'shrink-0 text-xs text-muted-foreground/50 transition-opacity',
-          hovered ? 'opacity-0' : 'opacity-100',
+          hovered && !selectMode ? 'opacity-0' : 'opacity-100',
         )}>
           {formatRelativeTime(updatedAt)}
         </span>
       </button>
 
-      {hovered && (
+      {hovered && !selectMode && (
         <Button
           variant="ghost"
           size="icon-sm"

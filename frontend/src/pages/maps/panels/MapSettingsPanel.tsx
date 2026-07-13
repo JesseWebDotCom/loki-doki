@@ -1,10 +1,10 @@
 // Map settings panel — POI visibility + preferences.
 // Phase maps-discovery chunk-11.
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { useAuth } from "@/context/AuthContext";
-import { MapsRegionSection } from "@/components/admin/MapsRegionSection";
 import { EXPLORE_CATEGORIES } from "../explore-categories";
 import { isCategoryVisible, type MapPrefs } from "../use-map-prefs";
 
@@ -25,14 +25,15 @@ export function MapSettingsPanel({
   prefs,
   onChangePref,
   onReset,
+  variant = "dock",
 }: {
   prefs: MapPrefs;
   onChangePref: <K extends keyof MapPrefs>(key: K, value: MapPrefs[K]) => void;
   onReset: () => void;
+  /** "dock" = the in-map rail panel (heading + link to the full settings page); "page" = embedded in /maps/settings. */
+  variant?: "dock" | "page";
 }): JSX.Element {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
 
   function toggleCategory(slug: string) {
     const next = { ...prefs.poiVisibility, [slug]: !isCategoryVisible(prefs, slug) };
@@ -51,8 +52,17 @@ export function MapSettingsPanel({
 
   return (
     <section className="grid gap-4">
-      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Map settings</h2>
-      {isAdmin && <MapsRegionSection />}
+      {variant === "dock" && (
+        <>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Map settings</h2>
+          <Button asChild variant="outline" size="sm" className="justify-start">
+            <Link to="/maps/settings">
+              <Settings2 className="size-3.5" />
+              All Maps settings & offline regions
+            </Link>
+          </Button>
+        </>
+      )}
       <div className="grid gap-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-foreground/50">POI categories</p>
         {POI_GROUPS.map((group) => {

@@ -152,7 +152,7 @@ export function MapsPage(): JSX.Element {
     query: searchQuery,
     setQuery: (q) => { setSearchQuery(q); if (q) setBrowseCategory(null); },
     placeholder: "Search places, addresses, ZIP…",
-    settingsHref: "/apps/maps/settings",
+    settingsHref: "/maps/settings",
   });
   const { theme } = useMapTheme();
   const userLocation = useUserLocation();

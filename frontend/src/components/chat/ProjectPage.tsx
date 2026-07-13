@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, FolderIcon, MoreHorizontal, Pencil, Plus, Trash2,
+  ArrowLeft, FolderIcon, ListChecks, MoreHorizontal, Pencil, Plus, Trash2,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -38,6 +39,9 @@ export function ProjectPage() {
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteConvTarget, setDeleteConvTarget] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmBulk, setConfirmBulk] = useState(false)
 
   // Make this project the active one (so new chats are filed under it) and clear
   // any open conversation. Re-runs when the project changes.
@@ -89,6 +93,30 @@ export function ProjectPage() {
     if (!deleteConvTarget) return
     await deleteConversation(deleteConvTarget)
     setDeleteConvTarget(null)
+    toast.success('Chat deleted')
+  }
+
+  function toggleSelectMode() {
+    setSelectMode((on) => !on)
+    setSelected(new Set())
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleConfirmBulkDelete() {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    await Promise.all(ids.map((id) => deleteConversation(id)))
+    setSelected(new Set())
+    setSelectMode(false)
+    toast.success(ids.length === 1 ? 'Chat deleted' : `${ids.length} chats deleted`)
   }
 
   return (
@@ -159,9 +187,50 @@ export function ProjectPage() {
 
         {/* Conversations */}
         <div className="mt-6">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-            {projConvs.length} {projConvs.length === 1 ? 'chat' : 'chats'}
-          </p>
+          <div className="mb-1 flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+              {projConvs.length} {projConvs.length === 1 ? 'chat' : 'chats'}
+            </p>
+            {projConvs.length > 0 && (
+              <Button
+                variant={selectMode ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={toggleSelectMode}
+                className="h-7 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ListChecks className="size-3.5" />
+                {selectMode ? 'Done' : 'Select'}
+              </Button>
+            )}
+          </div>
+          {selectMode && (
+            <div className="mb-2 flex items-center gap-3 rounded-control border border-border/40 bg-card px-3 py-2">
+              {/* design-ok(raw-input-element): native checkbox for bulk-select, no ui/ Checkbox primitive (same pattern as AdminUsersTab) */}
+              <input
+                type="checkbox"
+                checked={projConvs.length > 0 && projConvs.every((c) => selected.has(c.id))}
+                onChange={() => {
+                  if (projConvs.every((c) => selected.has(c.id))) setSelected(new Set())
+                  else setSelected(new Set(projConvs.map((c) => c.id)))
+                }}
+                aria-label="Select all chats"
+                className="size-4 rounded border-border accent-brand"
+              />
+              <span className="text-sm text-muted-foreground">
+                {selected.size === 0 ? 'Select chats' : `${selected.size} selected`}
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={selected.size === 0}
+                onClick={() => setConfirmBulk(true)}
+                className="ml-auto"
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </Button>
+            </div>
+          )}
           {projConvs.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground/50">
               No chats in this project yet.
@@ -175,6 +244,9 @@ export function ProjectPage() {
                   updatedAt={conv.updatedAt}
                   onSelect={() => navigate(`/chat/${conv.id}`)}
                   onDelete={() => setDeleteConvTarget(conv.id)}
+                  selectMode={selectMode}
+                  selected={selected.has(conv.id)}
+                  onToggleSelect={() => toggleSelected(conv.id)}
                 />
               ))}
             </div>
@@ -205,6 +277,15 @@ export function ProjectPage() {
         confirmLabel="Delete"
         destructive
         onConfirm={handleConfirmDeleteConv}
+      />
+      <ConfirmDialog
+        open={confirmBulk}
+        onOpenChange={setConfirmBulk}
+        title={selected.size === 1 ? 'Delete 1 chat?' : `Delete ${selected.size} chats?`}
+        description="The selected conversations will be permanently deleted."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={handleConfirmBulkDelete}
       />
     </div>
   )

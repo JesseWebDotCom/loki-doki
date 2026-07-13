@@ -66,6 +66,7 @@ import { MedicalPage } from '@/pages/MedicalPage'
 // session opens first — doesn't pay for code it won't run. See agents.md App Header
 // Contract for why routes, not individual widgets, are the split boundary.
 const MapsPage = lazy(() => import('@/pages/MapsPage').then((m) => ({ default: m.MapsPage })))
+const MapsSettingsPage = lazy(() => import('@/pages/MapsSettingsPage').then((m) => ({ default: m.MapsSettingsPage })))
 const ImagingPage = lazy(() => import('@/pages/ImagingPage').then((m) => ({ default: m.ImagingPage })))
 const AdminPage = lazy(() => import('@/pages/AdminPage').then((m) => ({ default: m.AdminPage })))
 
@@ -366,6 +367,7 @@ export default function App() {
                 </Route>
                 <Route path="/apps/:appId/settings/:section?" element={<AppSettingsGenericPage />} />
                 <Route path="/maps" element={<MapsPage />} />
+                <Route path="/maps/settings/:section?" element={<MapsSettingsPage />} />
                 <Route path="/weather" element={<WeatherPage />} />
                 <Route path="/weather/settings" element={<WeatherSettingsPage />} />
                 <Route path="/imaging" element={<ImagingPage />} />

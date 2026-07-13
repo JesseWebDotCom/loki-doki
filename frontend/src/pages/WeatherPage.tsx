@@ -1,21 +1,30 @@
-import { useEffect, useState } from 'react'
-import { Cloud, Locate, MapPin, RefreshCw, Sunrise, Sunset, Sun, Wind, Droplets, Eye, ChevronRight, TriangleAlert, ChevronDown } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Cloud, Locate, MapPin, Plus, RefreshCw, Sunrise, Sunset, Sun, Trash2, Wind, Droplets, Eye, ChevronRight, TriangleAlert, ChevronDown } from 'lucide-react'
+import { toast } from 'sonner'
 import { PageShell } from '@/components/shared/PageShell'
 import { StickyAppBar } from '@/components/shared/StickyAppBar'
-import { useUserLocation } from '@/hooks/useUserLocation'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { useUserLocation, type UserLocation } from '@/hooks/useUserLocation'
+import { useWeatherLocations, sameWeatherLocation } from '@/hooks/useWeatherLocations'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { useAuth } from '@/context/AuthContext'
 import { getAppByPath } from '@/lib/appCategories'
 import { cn } from '@/lib/cn'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 
 // design-ok(hex-in-tsx): registry identity fallback data
 const WEATHER_GRADIENT = getAppByPath('/weather')?.gradient ?? 'linear-gradient(135deg,#0c2a52,#1d6fa8)'
 const celsiusToFahrenheit = (c: number) => c * 9 / 5 + 32
+// Which of the followed cities the user last viewed (per device).
+const ACTIVE_LOCATION_KEY = 'lokidoki.weather.activeLocation'
 import {
   type WeatherData,
   type WeatherAlert,
@@ -190,7 +199,19 @@ const METRIC_LABELS: Record<HourlyMetric, string> = { temp: 'Temp', precip: 'Pre
 
 export function WeatherPage() {
   const { user } = useAuth()
-  const { location, status: locStatus, detect } = useUserLocation()
+  const { status: locStatus, detect } = useUserLocation()
+  const { primary, locations, addLocation, removeLocation } = useWeatherLocations()
+  const [activeKey, setActiveKey] = useState<string | null>(() => {
+    try { return localStorage.getItem(ACTIVE_LOCATION_KEY) } catch { return null }
+  })
+  const location = useMemo(
+    () => locations.find((l) => l.displayName === activeKey) ?? locations[0] ?? null,
+    [locations, activeKey],
+  )
+  const [manageOpen, setManageOpen] = useState(false)
+  const [addQuery, setAddQuery] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState<UserLocation | null>(null)
   const [data, setData] = useState<WeatherData | null>(() => getWeatherCache()?.data ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -215,6 +236,27 @@ export function WeatherPage() {
   }, [user?.id])
 
   useAppHeader({ query: '', setQuery: () => {}, searchable: false, settingsHref: '/weather/settings' })
+
+  function selectLocation(displayName: string) {
+    setActiveKey(displayName)
+    try { localStorage.setItem(ACTIVE_LOCATION_KEY, displayName) } catch { /* ignore */ }
+  }
+
+  async function handleAddLocation() {
+    const q = addQuery.trim()
+    if (!q || adding) return
+    setAdding(true)
+    try {
+      const loc = await addLocation(q)
+      setAddQuery('')
+      selectLocation(loc.displayName)
+      toast.success(`Added ${loc.displayName}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not add that location')
+    } finally {
+      setAdding(false)
+    }
+  }
 
   async function load() {
     if (!location) return
@@ -445,11 +487,28 @@ export function WeatherPage() {
         gradient={WEATHER_GRADIENT}
         icon={Cloud}
         actions={[
-          { icon: MapPin, label: 'Location' },
+          { icon: MapPin, label: 'Locations', onClick: () => setManageOpen(true) },
           // design-ok(adhoc-spinner): spinning refresh icon via StickyAppBar's icon-only action slot, not a loading spinner
           { icon: RefreshCw, label: 'Refresh', onClick: load, iconClassName: loading ? 'animate-spin' : undefined },
         ]}
       />
+
+      {/* Location switcher */}
+      {locations.length > 0 && (
+        <div className="px-4 pt-3">
+          <ChipRow>
+            {locations.map((l) => (
+              <Chip
+                key={l.displayName}
+                label={l.displayName}
+                active={location?.displayName === l.displayName}
+                onClick={() => selectLocation(l.displayName)}
+              />
+            ))}
+            <Chip label="+ Add" onClick={() => setManageOpen(true)} />
+          </ChipRow>
+        </div>
+      )}
 
       {/* No location */}
       {locStatus !== 'loading' && !location && (
@@ -459,10 +518,16 @@ export function WeatherPage() {
             <p className="text-sm font-medium">No location set</p>
             <p className="text-xs text-muted-foreground mt-1">Set your location to see the weather forecast.</p>
           </div>
-          <Button onClick={detect} variant="tinted">
-            <Locate className="size-4" />
-            Detect my location
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button onClick={detect} variant="tinted">
+              <Locate className="size-4" />
+              Detect my location
+            </Button>
+            <Button onClick={() => setManageOpen(true)} variant="outline">
+              <Plus className="size-4" />
+              Add a city
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">or go to Settings → General to set a city</p>
         </div>
       )}
@@ -722,6 +787,74 @@ export function WeatherPage() {
 
         </>
       )}
+
+      {/* ── Manage locations ── */}
+      <Dialog open={manageOpen} onOpenChange={setManageOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Weather locations</DialogTitle>
+            <DialogDescription>
+              Follow the weather in more than one place. Your primary location comes from Settings and is used across the app.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2">
+            <Input
+              value={addQuery}
+              onChange={(e) => setAddQuery(e.target.value)}
+              placeholder="City or US ZIP code…"
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleAddLocation() }}
+            />
+            <Button onClick={() => void handleAddLocation()} disabled={adding || !addQuery.trim()}>
+              {adding ? <Spinner size="sm" /> : <Plus className="size-4" />}
+              Add
+            </Button>
+          </div>
+          <div className="space-y-1.5">
+            {locations.length === 0 && (
+              <p className="text-sm text-muted-foreground">No locations yet. Add a city above.</p>
+            )}
+            {locations.map((l) => {
+              const isPrimary = primary != null && sameWeatherLocation(l, primary)
+              return (
+                <div key={l.displayName} className="flex items-center gap-2.5 rounded-control border border-border/40 px-3 py-2">
+                  <MapPin className="size-4 shrink-0 text-muted-foreground/60" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{l.displayName}</p>
+                    <p className="truncate text-xs text-muted-foreground">{l.country}</p>
+                  </div>
+                  {isPrimary ? (
+                    <Badge variant="secondary">Primary</Badge>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove ${l.displayName}`}
+                      onClick={() => setConfirmRemove(l)}
+                      className="shrink-0 text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={confirmRemove !== null}
+        onOpenChange={(open) => { if (!open) setConfirmRemove(null) }}
+        title={confirmRemove ? `Remove ${confirmRemove.displayName}?` : 'Remove location?'}
+        description="This city will no longer appear in your Weather locations."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          if (confirmRemove) {
+            void removeLocation(confirmRemove)
+            setConfirmRemove(null)
+          }
+        }}
+      />
     </div>
     </PageShell>
   )
