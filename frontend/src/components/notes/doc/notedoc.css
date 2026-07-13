@@ -1,0 +1,110 @@
+/* Outline-style document editor content (ProseMirror). Scoped under .notedoc so
+   these element styles never leak. Colors come from the app theme vars, so light
+   and dark both work with no extra rules. */
+
+.notedoc .ProseMirror {
+  outline: none;
+  min-height: 45vh;
+  font-size: 1rem;            /* 16px: no iOS zoom */
+  line-height: 1.7;
+  color: var(--foreground);
+  padding-bottom: 30vh;       /* generous click-target tail below the last block */
+  caret-color: var(--brand);
+  word-wrap: break-word;
+}
+
+.notedoc .ProseMirror > * + * { margin-top: 0.5em; }
+
+/* Outline's editor type scale: h1 28px / h2 22px / h3 18px at 16px body,
+   weight 600, 1em top margin. */
+.notedoc .ProseMirror h1 { font-size: 1.75em;  font-weight: 600; margin-top: 1em; line-height: 1.25; }
+.notedoc .ProseMirror h2 { font-size: 1.375em; font-weight: 600; margin-top: 1em; line-height: 1.3; }
+.notedoc .ProseMirror h3 { font-size: 1.125em; font-weight: 600; margin-top: 1em; line-height: 1.35; }
+.notedoc .ProseMirror > :first-child { margin-top: 0; }
+
+.notedoc .ProseMirror ul,
+.notedoc .ProseMirror ol { padding-left: 1.4em; }
+.notedoc .ProseMirror ul { list-style: disc; }
+.notedoc .ProseMirror ol { list-style: decimal; }
+.notedoc .ProseMirror li > p { margin: 0; }
+.notedoc .ProseMirror li + li { margin-top: 0.15em; }
+
+/* Task lists */
+.notedoc .ProseMirror ul[data-type='taskList'] { list-style: none; padding-left: 0.1em; }
+.notedoc .ProseMirror ul[data-type='taskList'] li { display: flex; gap: 0.55em; align-items: flex-start; }
+.notedoc .ProseMirror ul[data-type='taskList'] li > label { margin-top: 0.3em; flex-shrink: 0; }
+.notedoc .ProseMirror ul[data-type='taskList'] li > div { flex: 1; min-width: 0; }
+.notedoc .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
+  appearance: none;
+  width: 1em; height: 1em;
+  border: 1.5px solid var(--border);
+  border-radius: 0.25em;
+  background: transparent;
+  cursor: pointer;
+  display: inline-block;
+  position: relative;
+}
+.notedoc .ProseMirror ul[data-type='taskList'] input[type='checkbox']:checked {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+.notedoc .ProseMirror ul[data-type='taskList'] input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-color: var(--primary-foreground);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 70% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 70% no-repeat;
+}
+.notedoc .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div { color: var(--muted-foreground); text-decoration: line-through; }
+
+.notedoc .ProseMirror blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1em;
+  color: var(--muted-foreground);
+}
+
+.notedoc .ProseMirror code {
+  background: var(--accent);
+  border-radius: 0.3em;
+  padding: 0.15em 0.35em;
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.notedoc .ProseMirror pre {
+  background: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 0.5em;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.notedoc .ProseMirror pre code { background: none; padding: 0; font-size: 1em; }
+
+.notedoc .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.notedoc .ProseMirror a {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.notedoc .ProseMirror ::selection { background: color-mix(in oklch, var(--brand) 25%, transparent); }
+
+/* Placeholders (Outline-style): the empty doc invites writing; any other empty
+   paragraph under the caret hints at the "/" menu. TipTap's Placeholder extension
+   decorates the caret's empty node with .is-empty + data-placeholder. */
+.notedoc .ProseMirror p.is-empty::before,
+.notedoc .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

@@ -193,6 +193,7 @@ export default defineConfig({
           if (id.includes("react-syntax-highlighter") || id.includes("refractor") || id.includes("lowlight") || id.includes("highlight.js")) return "vendor-syntax";
           if (id.includes("@xterm")) return "vendor-xterm";
           if (id.includes("@codemirror") || id.includes("@uiw") || id.includes("codemirror")) return "vendor-codemirror";
+          if (id.includes("@tiptap") || id.includes("tiptap-markdown") || id.includes("prosemirror") || id.includes("markdown-it")) return "vendor-tiptap";
           if (id.includes("@coderline/alphatab")) return "vendor-alphatab";
           if (id.includes("@dicebear")) return "vendor-dicebear";
           if (id.includes("katex")) return "vendor-katex";
