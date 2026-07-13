@@ -153,9 +153,8 @@ export function MusicHomePage() {
   if (offline) return <OfflineHome />
 
   return (
-    <PageContainer width="wide" className="pb-10">
-      <PageHeader plain title="Listen" />
-
+    <PageContainer width="wide" className="pb-10 pt-6">
+      {/* No page title: the rail states where we are and the billboard is the focal point. */}
       <StationBillboard stations={buckets?.builtin ?? []} />
 
       {recent.length > 0 && (
