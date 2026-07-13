@@ -7,18 +7,31 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Pause, Play, RotateCcw, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { BookCover } from '@/components/books/BookCover'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { accentOf, DEFAULT_PALETTE, readableOn, useArtPalette } from '@/lib/artPalette'
+import { accentVars } from '@/components/shared/ArtAccentScope'
+import { UltraBlur } from '@/components/shared/UltraBlur'
+import { SeekBar } from '@/components/shared/SeekBar'
 import {
   getBook, getChapters, updateProgress, bookAudioUrl, bookCoverUrl, chapterStreamUrl,
   type BookDetail, type BookChapter,
 } from '@/lib/books/api'
 
 const PROGRESS_SAVE_MS = 5000
+const RATES = [0.75, 1, 1.25, 1.5, 2]
+
+function fmtClock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const r = s % 60
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`
+}
 
 function formatDuration(sec: number | null): string {
   if (!sec || sec <= 0) return ''
@@ -37,6 +50,12 @@ export function AudiobookPlayerPage() {
   const [chapters, setChapters] = useState<BookChapter[]>([])
   const [chapterIdx, setChapterIdx] = useState(0)
   const [loading, setLoading] = useState(true)
+  // Styled-transport state mirroring the hidden <audio> element (which remounts per
+  // chapter via key={src}; the events effect below re-attaches on chapter change).
+  const [playing, setPlaying] = useState(false)
+  const [pos, setPos] = useState(0)
+  const [dur, setDur] = useState(0)
+  const [rate, setRate] = useState(1)
 
   useEffect(() => {
     let cancelled = false
@@ -84,40 +103,81 @@ export function AudiobookPlayerPage() {
     }
 
     const onTimeUpdate = () => {
+      setPos(audio.currentTime)
       if (saveTimerRef.current) return
       saveTimerRef.current = setTimeout(() => { saveTimerRef.current = null; saveProgress(audio) }, PROGRESS_SAVE_MS)
     }
     const onEnded = () => {
       if (multiTrack && chapterIdx < chapters.length - 1) setChapterIdx((i) => i + 1)
     }
+    const onPlay = () => setPlaying(true)
+    const onPause = () => setPlaying(false)
+    const onDuration = () => setDur(audio.duration || 0)
+    audio.playbackRate = rate
+    setPos(audio.currentTime)
+    setDur(audio.duration || 0)
+    setPlaying(!audio.paused)
     audio.addEventListener('timeupdate', onTimeUpdate)
     audio.addEventListener('ended', onEnded)
+    audio.addEventListener('play', onPlay)
+    audio.addEventListener('pause', onPause)
+    audio.addEventListener('loadedmetadata', onDuration)
+    audio.addEventListener('durationchange', onDuration)
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate)
       audio.removeEventListener('ended', onEnded)
+      audio.removeEventListener('play', onPlay)
+      audio.removeEventListener('pause', onPause)
+      audio.removeEventListener('loadedmetadata', onDuration)
+      audio.removeEventListener('durationchange', onDuration)
       if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail, loading, chapterIdx, multiTrack])
 
+  useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = rate }, [rate])
+
+  // Cover palette for the UltraBlur backdrop + accent transport (hooks stay above the
+  // early returns; coverSrc is null until the book loads, which useArtPalette accepts).
+  const hasEbookAsset = detail?.assets.some((a) => a.kind === 'ebook' && a.status === 'ready') ?? false
+  const coverArt = detail ? (hasEbookAsset ? bookCoverUrl(id) : (detail.coverUrl ? proxyImg(detail.coverUrl) : null)) : null
+  const palette = useArtPalette(coverArt)
+  const accent = accentOf(palette)
+
   if (loading) return <div className="flex h-full items-center justify-center"><Spinner size="lg" /></div>
   if (!detail) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Book not found.</div>
 
   const src = multiTrack && currentChapter ? chapterStreamUrl(id, currentChapter.idx) : bookAudioUrl(id)
-  const hasEbook = detail.assets.some((a) => a.kind === 'ebook' && a.status === 'ready')
-  const coverSrc = hasEbook ? bookCoverUrl(id) : (detail.coverUrl ? proxyImg(detail.coverUrl) : null)
+  const toggle = () => {
+    const a = audioRef.current
+    if (!a) return
+    if (a.paused) void a.play()
+    else a.pause()
+  }
+  const skip = (delta: number) => {
+    const a = audioRef.current
+    if (a) a.currentTime = Math.max(0, Math.min(a.duration || Infinity, a.currentTime + delta))
+  }
+  const cycleRate = () => setRate(RATES[(RATES.indexOf(rate) + 1) % RATES.length] ?? 1)
 
+  // Always-dark immersive player (the Books equivalent of Music's Now Playing):
+  // cover through UltraBlur, transport and chapter chrome tinted to the cover palette.
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-4 py-3">
+    <div data-theme="dark" className="relative flex h-full flex-col overflow-hidden bg-black text-foreground"
+      style={palette !== DEFAULT_PALETTE ? accentVars(palette) : undefined}>
+      <UltraBlur artUrl={coverArt} palette={palette} />
+      <div className="relative flex shrink-0 items-center gap-2 px-4 py-3">
         <Button variant="ghost" size="sm" onClick={() => navigate(`/books/detail/${id}`)}>
           <ArrowLeft className="mr-1.5 size-4" />Back
         </Button>
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-6 py-8">
-        <div className="size-40 shrink-0 overflow-hidden rounded-card shadow-lg">
-          <BookCover bookId={id} title={detail.title} author={detail.author} coverSrc={coverSrc} fill size={320} />
+      <div className="relative flex flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-6 py-8">
+        <div className="w-44 shrink-0 sm:w-52">
+          <div className="aspect-[2/3] overflow-hidden rounded-card shadow-2xl ring-1 ring-white/10"
+            style={{ boxShadow: `0 30px 120px -20px ${palette.vibrant}` }}>
+            <BookCover bookId={id} title={detail.title} author={detail.author} coverSrc={coverArt} fill size={320} />
+          </div>
         </div>
         <div className="text-center">
           <h2 className="text-title">{detail.title}</h2>
@@ -125,33 +185,59 @@ export function AudiobookPlayerPage() {
           {currentChapter && <p className="mt-1 text-xs text-muted-foreground">{currentChapter.title}</p>}
         </div>
 
-        {multiTrack && (
-          <div className="flex items-center gap-3">
-            <Button variant="outline" size="icon-sm" disabled={chapterIdx <= 0} onClick={() => setChapterIdx((i) => Math.max(0, i - 1))}>
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="text-xs tabular-nums text-muted-foreground">Chapter {chapterIdx + 1} / {chapters.length}</span>
-            <Button variant="outline" size="icon-sm" disabled={chapterIdx >= chapters.length - 1} onClick={() => setChapterIdx((i) => Math.min(chapters.length - 1, i + 1))}>
-              <ChevronRight className="size-4" />
-            </Button>
+        {/* Styled transport over a hidden <audio>: the element, its remount-per-chapter
+            key, and the progress/resume plumbing are unchanged. */}
+        <div className="w-full max-w-md">
+          <SeekBar pos={pos} total={dur || 0} onSeek={(t) => { const a = audioRef.current; if (a) a.currentTime = t }} accent={accent} />
+          <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
+            <span>{fmtClock(pos)}</span>
+            <span>-{fmtClock(Math.max(0, dur - pos))}</span>
           </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <button onClick={cycleRate} className="w-10 text-sm font-semibold text-muted-foreground hover:text-foreground" title="Playback speed">{rate}x</button>
+          {multiTrack && (
+            <Button variant="ghost" size="icon-sm" disabled={chapterIdx <= 0} onClick={() => setChapterIdx((i) => Math.max(0, i - 1))} aria-label="Previous chapter">
+              <ChevronLeft className="size-5" />
+            </Button>
+          )}
+          <button onClick={() => skip(-15)} className="relative text-muted-foreground hover:text-foreground" aria-label="Back 15 seconds">
+            <RotateCcw className="size-6" />
+          </button>
+          <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}
+            className="flex size-14 items-center justify-center rounded-full shadow-lg transition-transform active:scale-95"
+            style={{ background: accent, color: readableOn(accent) }}>
+            {playing ? <Pause className="size-6 fill-current" /> : <Play className="ml-0.5 size-6 fill-current" />}
+          </button>
+          <button onClick={() => skip(30)} className="relative text-muted-foreground hover:text-foreground" aria-label="Forward 30 seconds">
+            <RotateCw className="size-6" />
+          </button>
+          {multiTrack && (
+            <Button variant="ghost" size="icon-sm" disabled={chapterIdx >= chapters.length - 1} onClick={() => setChapterIdx((i) => Math.min(chapters.length - 1, i + 1))} aria-label="Next chapter">
+              <ChevronRight className="size-5" />
+            </Button>
+          )}
+        </div>
+        {multiTrack && (
+          <span className="-mt-3 text-xs tabular-nums text-muted-foreground">Chapter {chapterIdx + 1} / {chapters.length}</span>
         )}
 
-        <audio key={src} ref={audioRef} src={src} controls autoPlay={multiTrack && chapterIdx > 0} className="w-full max-w-md" />
+        <audio key={src} ref={audioRef} src={src} autoPlay={multiTrack && chapterIdx > 0} className="hidden" />
 
         {multiTrack && (
-          <div className="w-full max-w-md overflow-y-auto rounded-card border border-border/50">
+          <div className="w-full max-w-md overflow-y-auto rounded-card border border-white/10 bg-black/30">
             {chapters.map((c) => (
               <button
                 key={c.idx}
                 type="button"
                 onClick={() => setChapterIdx(c.idx)}
                 className={cn(
-                  'flex w-full items-center gap-2 border-b border-border/30 px-3 py-2 text-left text-sm last:border-0 hover:bg-accent/50',
-                  c.idx === chapterIdx && 'bg-accent/70 font-medium',
+                  'flex w-full items-center gap-2 border-b border-white/5 px-3 py-2 text-left text-sm last:border-0 hover:bg-white/10',
+                  c.idx === chapterIdx && 'bg-white/10 font-medium',
                 )}
               >
-                {c.idx === chapterIdx ? <Check className="size-3.5 shrink-0 text-[var(--books-accent-fg)]" /> : <span className="w-3.5 shrink-0" />}
+                {c.idx === chapterIdx ? <Check className="size-3.5 shrink-0 text-brand" /> : <span className="w-3.5 shrink-0" />}
                 <span className="min-w-0 flex-1 truncate">{c.title}</span>
                 {c.externalAudioDurationSec && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDuration(c.externalAudioDurationSec)}</span>}
               </button>

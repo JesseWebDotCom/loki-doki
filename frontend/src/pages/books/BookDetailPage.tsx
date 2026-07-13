@@ -15,6 +15,7 @@ import {
   retryBookDownload, downloadBookOffline, type BookDetail, type BookChapter,
 } from '@/lib/books/api'
 import { proxyImg } from '@/lib/img'
+import { ArtAccentScope } from '@/components/shared/ArtAccentScope'
 import { toast } from '@/lib/toast'
 
 const TTS_POLL_MS = 3000
@@ -133,7 +134,15 @@ export function BookDetailPage() {
           <ArrowLeft className="mr-1.5 size-4" />Library
         </Button>
 
-        <div className="mt-4 flex flex-col gap-8 sm:flex-row">
+        {/* Cover-driven hero: the glow and every brand/primary control below follow the
+            cover palette via ArtAccentScope; theme-following page around it stays calm. */}
+        <ArtAccentScope art={coverSrc} className="relative mt-4">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -inset-x-6 -inset-y-4"
+            style={{ background: 'radial-gradient(640px circle at 0% 0%, color-mix(in oklch, var(--brand) 14%, transparent), transparent 62%)' }}
+          />
+          <div className="relative flex flex-col gap-8 sm:flex-row">
           <div className="mx-auto w-48 shrink-0 sm:mx-0 sm:w-56">
             <div className="aspect-[2/3] overflow-hidden rounded-card shadow-lg">
               <BookCover bookId={id} title={detail.title} author={detail.author} coverSrc={coverSrc} fill size={320} />
@@ -256,7 +265,8 @@ export function BookDetailPage() {
               </div>
             )}
           </div>
-        </div>
+          </div>
+        </ArtAccentScope>
       </PageContainer>
     </div>
   )
