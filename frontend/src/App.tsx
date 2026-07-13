@@ -109,6 +109,7 @@ const PodcastOfflinePage = lazy(() => import('@/pages/podcast/PodcastOfflinePage
 const ShowDetailPage = lazy(() => import('@/pages/podcast/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
 const PodcastSettingsPage = lazy(() => import('@/pages/podcast/PodcastSettingsPage').then((m) => ({ default: m.PodcastSettingsPage })))
 const DictionaryPage = lazy(() => import('@/pages/DictionaryPage').then((m) => ({ default: m.DictionaryPage })))
+const MediaLayout = lazy(() => import('@/components/media/MediaLayout').then((m) => ({ default: m.MediaLayout })))
 const ShowsHomePage = lazy(() => import('@/pages/shows/ShowsHomePage').then((m) => ({ default: m.ShowsHomePage })))
 const ShowsDetailPage = lazy(() => import('@/pages/shows/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
 const MoviesHomePage = lazy(() => import('@/pages/movies/MoviesHomePage').then((m) => ({ default: m.MoviesHomePage })))
@@ -513,13 +514,16 @@ export default function App() {
                 <Route path="/time" element={<TimePage />} />
                 {/* Dictionary + Medical are now sections of the Reference app. */}
                 <Route path="/dictionary" element={<Navigate to="/reference/dictionary" replace />} />
-                <Route path="/shows" element={<ShowsHomePage />} />
-                <Route path="/shows/:id" element={<ShowsDetailPage />} />
+                {/* Movies + Shows share the always-dark MediaLayout cinema shell. */}
+                <Route element={<MediaLayout />}>
+                  <Route path="/shows" element={<ShowsHomePage />} />
+                  <Route path="/shows/:id" element={<ShowsDetailPage />} />
+                  <Route path="/movies" element={<MoviesHomePage />} />
+                  <Route path="/movies/settings" element={<MoviesSettingsPage />} />
+                  <Route path="/movies/:ref" element={<MovieDetailPage />} />
+                </Route>
                 {/* Renamed from "TV Shows" — keep old links working. */}
                 <Route path="/tv-shows" element={<Navigate to="/shows" replace />} />
-                <Route path="/movies" element={<MoviesHomePage />} />
-                <Route path="/movies/settings" element={<MoviesSettingsPage />} />
-                <Route path="/movies/:ref" element={<MovieDetailPage />} />
                 <Route path="/where-to-watch" element={<WhereToWatchPage />} />
                 <Route path="/medical" element={<Navigate to="/reference/medical" replace />} />
                 <Route path="/reference" element={<ReferencePage />} />

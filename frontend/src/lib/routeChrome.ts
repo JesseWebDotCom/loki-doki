@@ -33,6 +33,10 @@ export function classifyRoute(pathname: string): RouteChrome {
     pathname.startsWith("/music") ||
     pathname.startsWith("/bookmarks") ||
     pathname.startsWith("/books") ||
+    // Movies + Shows live in the always-dark MediaLayout cinema shell (owns its scroller
+    // + backdrop). "/showtimes" is NOT caught: fifth char differs ("/shows" vs "/showt").
+    pathname.startsWith("/movies") ||
+    pathname.startsWith("/shows") ||
     // A real terminal (xterm.js) edge-to-edge: keeps the automatic breadcrumb
     // (not isReader, that suppresses it), just owns its own full-height content.
     pathname.startsWith("/coding");

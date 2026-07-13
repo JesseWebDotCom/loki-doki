@@ -2,10 +2,9 @@ import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Clapperboard, Search, Bookmark, Headphones, Monitor, Settings } from 'lucide-react'
-import { PageShell } from '@/components/shared/PageShell'
 import { PageContainer } from '@/components/shared/PageContainer'
-import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
+import { MediaBillboard, type BillboardItem } from '@/components/media/MediaBillboard'
 import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
@@ -99,8 +98,20 @@ function HomeShelves() {
     )
   }
 
+  // Billboard: the top of the first discover shelf, upgraded to widescreen backdrops.
+  const featured = shelves?.[0]
+  const billboard: BillboardItem[] = (featured?.items ?? []).slice(0, 5).map((m) => ({
+    kind: 'movie',
+    year: m.year ?? null,
+    to: movieTo(m),
+    title: m.title,
+    subtitle: [m.genre, m.year].filter(Boolean).join(' · ') || null,
+    poster: m.poster,
+  }))
+
   return (
     <div className="space-y-8">
+      {billboard.length > 0 && <MediaBillboard items={billboard} eyebrow={featured?.title ?? 'Featured'} />}
       {watchlistPosters.length > 0 && <MediaShelfRow title="Your Watchlist" items={watchlistPosters} />}
       <PlexShelves type="movie" />
       {shelves?.map((shelf) => (
@@ -145,12 +156,11 @@ export function MoviesHomePage() {
     rightSlot,
   })
 
+  // No PageShell/PageHeader: MediaLayout owns the dark cinema backdrop, the breadcrumb
+  // carries the app identity, and the billboard is the page's focal point.
   return (
-    <PageShell>
-      <PageContainer width="wide" className="pb-12">
-        <PageHeader className="pt-5 pb-6" />
-        {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
-      </PageContainer>
-    </PageShell>
+    <PageContainer width="wide" className="pb-12 pt-5">
+      {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
+    </PageContainer>
   )
 }

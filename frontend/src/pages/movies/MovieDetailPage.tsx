@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Clapperboard, ExternalLink, Mic, Music, Play } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
-import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { Backdrop } from '@/components/media/Backdrop'
@@ -327,8 +326,9 @@ export function MovieDetailPage() {
     staleTime: 60 * 60 * 1000,
   })
 
+  // No PageShell: MediaLayout owns the dark cinema backdrop.
   return (
-    <PageShell>
+    <div className="relative min-h-full">
       <Backdrop url={betterBackdrop ?? core?.backdrop} />
       <div className="relative px-5 pb-12 pt-4">
         <button
@@ -340,6 +340,6 @@ export function MovieDetailPage() {
         </button>
         <DetailBody title={title} year={year} />
       </div>
-    </PageShell>
+    </div>
   )
 }

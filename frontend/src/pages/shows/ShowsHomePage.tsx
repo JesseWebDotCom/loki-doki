@@ -1,10 +1,9 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Tv, Search, BookOpen, Bookmark, Headphones } from 'lucide-react'
-import { PageShell } from '@/components/shared/PageShell'
 import { PageContainer } from '@/components/shared/PageContainer'
-import { PageHeader } from '@/components/shared/PageHeader'
 import { Spinner } from '@/components/ui/spinner'
+import { MediaBillboard, type BillboardItem } from '@/components/media/MediaBillboard'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
@@ -132,8 +131,20 @@ function HomeShelves() {
       />
     )
   }
+  // Billboard: the top of the first discover shelf, upgraded to widescreen backdrops.
+  const featured = shelves[0]
+  const billboard: BillboardItem[] = (featured?.items ?? []).slice(0, 5).map((s) => ({
+    kind: 'show',
+    id: s.id,
+    to: `/shows/${s.id}`,
+    title: s.name,
+    subtitle: [s.network, s.year].filter(Boolean).join(' · ') || null,
+    poster: s.poster,
+  }))
+
   return (
     <div className="space-y-8">
+      {billboard.length > 0 && <MediaBillboard items={billboard} eyebrow={featured?.title ?? 'Featured'} />}
       <PersonalShelves />
       <PlexShelves type="show" />
       {shelves.map((shelf) => (
@@ -161,12 +172,11 @@ export function ShowsHomePage() {
     settingsHref: '/apps/shows/settings',
   })
 
+  // No PageShell/PageHeader: MediaLayout owns the dark cinema backdrop, the breadcrumb
+  // carries the app identity, and the billboard is the page's focal point.
   return (
-    <PageShell>
-      <PageContainer width="wide" className="pb-12">
-        <PageHeader className="pt-5 pb-6" />
-        {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
-      </PageContainer>
-    </PageShell>
+    <PageContainer width="wide" className="pb-12 pt-5">
+      {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
+    </PageContainer>
   )
 }
