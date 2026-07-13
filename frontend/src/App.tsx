@@ -49,8 +49,11 @@ import { CategoryPage } from '@/pages/CategoryPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
 import { BookmarksLayout } from '@/components/bookmarks/BookmarksLayout'
 import { BookmarksLibraryPage } from '@/pages/bookmarks/BookmarksLibraryPage'
+import { BookmarksHomePage } from '@/pages/bookmarks/BookmarksHomePage'
+import { BookmarksTagsPage } from '@/pages/bookmarks/BookmarksTagsPage'
 import { BookmarkReadPage } from '@/pages/bookmarks/BookmarkReadPage'
 import { BookmarksSettingsPage } from '@/pages/bookmarks/BookmarksSettingsPage'
+import { PublicCollectionPage } from '@/pages/bookmarks/PublicCollectionPage'
 import { NewsReadPage } from '@/pages/news/NewsReadPage'
 import { SavePage } from '@/pages/SavePage'
 import { BoredPage } from '@/pages/BoredPage'
@@ -413,8 +416,10 @@ export default function App() {
                 <Route path="/categories" element={<CategoriesPage />} />
                 <Route path="/category/:category" element={<CategoryPage />} />
                 <Route path="/bookmarks" element={<BookmarksLayout />}>
-                  <Route index element={<BookmarksLibraryPage />} />
+                  <Route index element={<BookmarksHomePage />} />
+                  <Route path="all" element={<BookmarksLibraryPage />} />
                   <Route path="collection/:id" element={<BookmarksLibraryPage />} />
+                  <Route path="tags" element={<BookmarksTagsPage />} />
                   <Route path="read/:id" element={<BookmarkReadPage />} />
                   <Route path="settings" element={<BookmarksSettingsPage />} />
                 </Route>
@@ -570,6 +575,9 @@ export default function App() {
                 (a <Navigate> to /login would render the full profile picker in a 480px
                 transparent overlay). */}
             <Route path="/hud" element={<HudPage />} />
+
+            {/* Public shared bookmark collection: no auth, read-only view by slug. */}
+            <Route path="/b/:slug" element={<PublicCollectionPage />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />

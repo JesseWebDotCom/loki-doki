@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,7 +14,18 @@ import { ColorPicker } from '@/components/shared/ColorPicker'
 import { IconPicker } from '@/components/shared/IconPicker'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
-import { updateCollection, deleteCollection, type BookmarkCollection } from '@/lib/bookmarks/api'
+import { updateCollection, deleteCollection, listCollections, type BookmarkCollection } from '@/lib/bookmarks/api'
+
+// Collection ids that are `id` or a descendant of it: invalid parents (would loop).
+function descendantsOf(id: string, all: BookmarkCollection[]): Set<string> {
+  const out = new Set([id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const c of all) if (c.parentId && out.has(c.parentId) && !out.has(c.id)) { out.add(c.id); grew = true }
+  }
+  return out
+}
 
 interface CollectionEditorProps {
   open: boolean
@@ -28,14 +39,24 @@ export function CollectionEditor({ open, collection, onOpenChange, onDeleted }: 
   const [name, setName] = useState('')
   const [icon, setIcon] = useState<string | null>(null)
   const [color, setColor] = useState<string | null>(null)
+  const [parentId, setParentId] = useState<string>('')
   const [pending, setPending] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const { data: collections = [] } = useQuery({ queryKey: ['bookmark-collections'], queryFn: listCollections, enabled: open })
+  // Valid parents: my own collections, excluding this one + its descendants.
+  const parentOptions = useMemo(() => {
+    if (!collection) return []
+    const banned = descendantsOf(collection.id, collections)
+    return collections.filter(c => c.role === 'owner' && !banned.has(c.id))
+  }, [collection, collections])
 
   useEffect(() => {
     if (open && collection) {
       setName(collection.name)
       setIcon(collection.icon)
       setColor(collection.color)
+      setParentId(collection.parentId ?? '')
     }
   }, [open, collection])
 
@@ -45,7 +66,7 @@ export function CollectionEditor({ open, collection, onOpenChange, onDeleted }: 
     if (!trimmed) { toast.error('Name is required'); return }
     setPending(true)
     try {
-      await updateCollection(collection.id, { name: trimmed, icon, color })
+      await updateCollection(collection.id, { name: trimmed, icon, color, parentId: parentId || null })
       qc.invalidateQueries({ queryKey: ['bookmark-collections'] })
       toast.success('Collection updated')
       onOpenChange(false)
@@ -104,6 +125,15 @@ export function CollectionEditor({ open, collection, onOpenChange, onDeleted }: 
                 <span className="text-sm font-medium">Color</span>
                 <ColorPicker value={color} onChange={setColor} />
               </div>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label htmlFor="coll-parent" className="text-sm font-medium">Parent collection</label>
+              <select id="coll-parent" value={parentId} onChange={(e) => setParentId(e.target.value)}
+                className="h-9 rounded-control border border-border bg-background px-2.5 text-sm outline-none focus:border-primary">
+                <option value="">None (top level)</option>
+                {parentOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
           </div>
 

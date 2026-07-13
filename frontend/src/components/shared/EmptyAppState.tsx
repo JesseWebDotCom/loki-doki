@@ -14,7 +14,7 @@ export function EmptyAppState({
   icon: Icon,
   title,
   tagline,
-  features,
+  features = [],
   // design-ok(hex-in-tsx): registry identity fallback data
   gradient = 'linear-gradient(135deg,#1e3a5f,#0f766e)',
   actions,
@@ -23,7 +23,7 @@ export function EmptyAppState({
   icon: LucideIcon
   title: string
   tagline: string
-  features: AppFeature[]
+  features?: AppFeature[]
   gradient?: string
   actions?: ReactNode
   footnote?: ReactNode
@@ -38,7 +38,7 @@ export function EmptyAppState({
 
       {actions && <div className="mt-6 flex flex-wrap items-center justify-center gap-2">{actions}</div>}
 
-      <div className="mt-10 grid w-full gap-3 sm:grid-cols-2">
+      {features.length > 0 && <div className="mt-10 grid w-full gap-3 sm:grid-cols-2">
         {features.map((f) => (
           <div key={f.title} className="flex items-start gap-3 rounded-card bg-secondary/50 p-4 text-left">
             <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-control bg-muted/60">
@@ -50,7 +50,7 @@ export function EmptyAppState({
             </div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {footnote && <p className="mt-6 text-xs text-muted-foreground">{footnote}</p>}
     </div>

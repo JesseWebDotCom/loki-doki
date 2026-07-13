@@ -1,70 +1,38 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Globe, FileText, Bookmark, Trash2, Archive, ExternalLink, AlertTriangle, FolderOpen, Check, Pencil, BookOpen, Download, History, Upload, Plus } from 'lucide-react'
+import { Globe, FileText, Bookmark, Download, History, Upload, Plus, ArrowDownUp, X, Archive, Trash2, FolderOpen, Pin, CheckCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { ViewToggle } from '@/components/shared/ViewToggle'
+import { useViewPreference } from '@/hooks/useViewPreference'
 import { getAppByPath } from '@/lib/appCategories'
 import { useBookmarkUI } from '@/components/bookmarks/BookmarksLayout'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { BookmarkEditDialog } from '@/components/bookmarks/BookmarkEditDialog'
-import { getIconChoice } from '@/components/shared/IconPicker'
-import { resolveProjectColor } from '@/components/shared/ColorPicker'
-import { listItems, deleteItem, updateItem, listCollections, type BookmarkItem, type BookmarkCollection, type ListParams } from '@/lib/bookmarks/api'
+import { BookmarkCard } from '@/components/bookmarks/BookmarkCard'
+import { CollectionShareDialog } from '@/components/bookmarks/CollectionShareDialog'
+import {
+  listItems, deleteItem, updateItem, listCollections, bulkAction,
+  type BookmarkItem, type ListParams, type BookmarkSort,
+} from '@/lib/bookmarks/api'
 
-function Favicon({ item }: { item: BookmarkItem }) {
-  if (item.faviconUrl) {
-    return <img src={proxyImg(item.faviconUrl)} alt="" className="size-4 shrink-0 rounded-[3px] object-contain"
-      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-  }
-  return <Globe className="size-4 shrink-0 text-muted-foreground" />
-}
-
-function host(url: string) {
-  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
-}
-
-// Locally-archived page thumbnail (og:image / first article image), served from the
-// snapshot dir. Null for items without a saved snapshot.
-function thumbUrl(item: BookmarkItem): string | null {
-  return item.ogImagePath ? `/api/bookmarks/${item.id}/archive/${item.ogImagePath}` : null
-}
-
-function ArchiveBadge({ item }: { item: BookmarkItem }) {
-  if (item.type === 'live') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success"><Bookmark className="size-3" />Live</span>
-  }
-  if (item.archiveState === 'pending' || item.archiveState === 'fetching') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning"><Spinner className="size-3 text-warning" />Saving</span>
-  }
-  if (item.archiveState === 'failed') {
-    return <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive"><AlertTriangle className="size-3" />Failed</span>
-  }
-  return <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-medium text-brand"><FileText className="size-3" />{item.readingMins || 1} min</span>
-}
-
-// The collection an item belongs to, rendered with the collection's chosen icon/color.
-function CollectionChip({ collection }: { collection: BookmarkCollection }) {
-  const Icon = getIconChoice(collection.icon)?.Icon ?? FolderOpen
-  const color = collection.color ? resolveProjectColor(collection.color) : undefined
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-accent/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-      <Icon className="size-3" style={color ? { color } : undefined} />
-      {collection.name}
-    </span>
-  )
-}
+const SORTS: { value: BookmarkSort; label: string }[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'title', label: 'Title A → Z' },
+  { value: '-title', label: 'Title Z → A' },
+  { value: 'updated', label: 'Recently updated' },
+]
 
 export function BookmarksLibraryPage() {
   const navigate = useNavigate()
@@ -73,23 +41,29 @@ export function BookmarksLibraryPage() {
   const [params] = useSearchParams()
   const { id: collectionParam } = useParams()
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<BookmarkSort>('newest')
+  const [view, setView] = useViewPreference('bookmarks.view', 'grid')
   const [confirmDel, setConfirmDel] = useState<BookmarkItem | null>(null)
   const [editItem, setEditItem] = useState<BookmarkItem | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [shareCollection, setShareCollection] = useState(false)
 
-  // The default Library view (no filter/search) → show the app pitch when empty; a filtered
-  // view that happens to be empty just gets a short line.
-  const isRootView = !collectionParam && !params.get('status') && !params.get('type') && !params.get('tag') && !search.trim()
+  const isRootView = !collectionParam && !params.get('status') && !params.get('type') && !params.get('tag') && !params.get('pinned') && !search.trim()
 
   const filters: ListParams = useMemo(() => ({
     status: (params.get('status') as ListParams['status']) || undefined,
     type: (params.get('type') as ListParams['type']) || undefined,
     tag: params.get('tag') || undefined,
+    pinned: params.get('pinned') === '1' ? '1' : undefined,
     collectionId: collectionParam || undefined,
     q: params.get('tag') ? undefined : (search.trim() || undefined),
-  }), [params, collectionParam, search])
+    sort,
+  }), [params, collectionParam, search, sort])
 
   const { data: collections = [] } = useQuery({ queryKey: ['bookmark-collections'], queryFn: listCollections })
   const collById = useMemo(() => new Map(collections.map(c => [c.id, c])), [collections])
+  const activeCollection = collectionParam ? collById.get(collectionParam) : undefined
+  const canShareActive = activeCollection?.role === 'owner'
 
   async function moveToCollection(item: BookmarkItem, collectionId: string | null) {
     await updateItem(item.id, { collectionId })
@@ -100,51 +74,116 @@ export function BookmarksLibraryPage() {
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['bookmarks', filters],
     queryFn: () => listItems(filters),
-    // Poll while anything is mid-archive so the badge flips to "ready" without a refresh.
     refetchInterval: (q) => (q.state.data ?? []).some(i => i.archiveState === 'pending' || i.archiveState === 'fetching') ? 3000 : false,
   })
 
-  const heading = collectionParam ? 'Collection'
+  const heading = activeCollection ? activeCollection.name
     : params.get('tag') ? `#${params.get('tag')}`
+    : params.get('pinned') === '1' ? 'Pinned'
     : params.get('status') ? params.get('status')!.replace(/^\w/, (m) => m.toUpperCase())
     : params.get('type') === 'live' ? 'Live links'
     : params.get('type') === 'offline' ? 'Offline articles'
-    : 'Library'
+    : 'All bookmarks'
 
-  // Standard breadcrumb row: live search (Settings lives in the rail for all users).
-  useAppHeader({
-    query: search,
-    setQuery: setSearch,
-    placeholder: 'Search your library…',
-  })
+  useAppHeader({ query: search, setQuery: setSearch, placeholder: 'Search your library…' })
 
   function openItem(item: BookmarkItem) {
-    if (item.type === 'live' && !item.useEmbed) { window.open(item.url, '_blank', 'noopener'); return }
+    if (item.type === 'live' && !item.useEmbed && item.contentKind === 'link') { window.open(item.url, '_blank', 'noopener'); return }
     navigate(`/bookmarks/read/${item.id}`)
   }
-
   async function archive(item: BookmarkItem) {
     await updateItem(item.id, { status: item.status === 'archived' ? 'unread' : 'archived' })
     qc.invalidateQueries({ queryKey: ['bookmarks'] })
+  }
+  async function togglePin(item: BookmarkItem) {
+    await updateItem(item.id, { isPinned: !item.isPinned })
+    qc.invalidateQueries({ queryKey: ['bookmarks'] }); qc.invalidateQueries({ queryKey: ['bookmark-home'] })
   }
   async function doDelete(item: BookmarkItem) {
     try { await deleteItem(item.id); toast.success('Deleted'); qc.invalidateQueries({ queryKey: ['bookmarks'] }) }
     catch { toast.error('Failed to delete') }
   }
 
+  // ── Multi-select ──
+  function toggleSelect(id: string) {
+    setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+  }
+  function clearSelection() { setSelected(new Set()) }
+  async function runBulk(action: Parameters<typeof bulkAction>[1], extra?: { collectionId?: string | null; tags?: string[] }) {
+    const ids = [...selected]
+    if (!ids.length) return
+    try {
+      const n = await bulkAction(ids, action, extra)
+      toast.success(`${action === 'delete' ? 'Deleted' : 'Updated'} ${n} item${n === 1 ? '' : 's'}`)
+      clearSelection()
+      qc.invalidateQueries({ queryKey: ['bookmarks'] }); qc.invalidateQueries({ queryKey: ['bookmark-home'] })
+    } catch { toast.error('Bulk action failed') }
+  }
+
+  const gridClass = view === 'list' ? 'flex flex-col gap-2'
+    : view === 'big' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4'
+    : 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'
+
   return (
     <PageContainer width="wide" className="py-6">
-      <PageHeader title={heading} className="pt-0 pb-5" />
+      <PageHeader title={heading} className="pt-0 pb-4" actions={
+        <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set(items.map(i => i.id)))} className="gap-1.5 text-muted-foreground">
+              <CheckCheck className="size-4" /> Select all
+            </Button>
+          )}
+          {canShareActive && (
+            <Button variant="outline" size="sm" onClick={() => setShareCollection(true)} className="gap-1.5">
+              <Globe className="size-4" /> Share
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5"><ArrowDownUp className="size-4" />{SORTS.find(s => s.value === sort)?.label}</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {SORTS.map(s => (
+                <DropdownMenuCheckboxItem key={s.value} checked={sort === s.value} onCheckedChange={() => setSort(s.value)}>{s.label}</DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ViewToggle value={view} onChange={setView} />
+        </div>
+      } />
+
+      {selected.size > 0 && (
+        <div className="sticky top-0 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-control border border-border bg-popover p-2 shadow-sm">
+          <span className="px-1 text-sm font-medium">{selected.size} selected</span>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Button variant="ghost" size="sm" onClick={() => runBulk('pin')} className="gap-1.5"><Pin className="size-4" />Pin</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="gap-1.5"><FolderOpen className="size-4" />Move</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-72 w-52 overflow-y-auto">
+                <DropdownMenuLabel>Move to collection</DropdownMenuLabel><DropdownMenuSeparator />
+                {collections.map(col => <DropdownMenuItem key={col.id} onClick={() => runBulk('move', { collectionId: col.id })}><FolderOpen className="size-4" /><span className="truncate">{col.name}</span></DropdownMenuItem>)}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => runBulk('move', { collectionId: null })}>Remove from collection</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="ghost" size="sm" onClick={() => runBulk('archive')} className="gap-1.5"><Archive className="size-4" />Archive</Button>
+            <Button variant="ghost" size="sm" onClick={() => runBulk('delete')} className="gap-1.5 text-destructive hover:text-destructive"><Trash2 className="size-4" />Delete</Button>
+            <Button variant="ghost" size="icon-sm" onClick={clearSelection} aria-label="Clear selection"><X className="size-4" /></Button>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : items.length === 0 ? (
         isRootView ? (
           <EmptyAppState
-            icon={BookOpen}
+            icon={Bookmark}
             gradient={getAppByPath('/bookmarks')?.gradient}
             title="Your private read-it-later & web archive"
-            tagline="Save any link, read it later distraction-free, and keep a full offline copy that's yours forever - searchable, taggable, and never disappears when the web does."
+            tagline="Save any link, read it later distraction-free, and keep a full offline copy that's yours forever. Searchable, taggable, and never disappears when the web does."
             actions={
               <>
                 <Button onClick={openSave}><Plus className="mr-1.5 size-4" /> Save your first link</Button>
@@ -152,14 +191,14 @@ export function BookmarksLibraryPage() {
               </>
             }
             features={[
-              { icon: Bookmark, title: 'Live links & dashboards', desc: 'Pin services and sites - open them in a tab or embedded right here.' },
+              { icon: Bookmark, title: 'Live links & dashboards', desc: 'Pin services and sites. Open them in a tab or embedded right here.' },
               { icon: FileText, title: 'Read it later', desc: 'A clean, distraction-free reader view for any article you save.' },
               { icon: Download, title: 'Offline archives + PDF', desc: 'Full-page snapshots and a printed PDF you can read with no connection.' },
-              { icon: History, title: 'Versioned captures', desc: 'Re-archive to track how a page changes - old versions stay readable.' },
+              { icon: History, title: 'Versioned captures', desc: 'Re-archive to track how a page changes. Old versions stay readable.' },
               { icon: Upload, title: 'Import your stuff', desc: 'Bring bookmarks from Pocket, Pinboard, or your browser (HTML / JSON / CSV).' },
               { icon: Globe, title: 'Save from anywhere', desc: 'Drag the Save-to-Loki bookmarklet to your bar and clip any page in a click.' },
             ]}
-            footnote="Everything stays on your hardware - nothing is sent to the cloud."
+            footnote="Everything stays on your hardware. Nothing is sent to the cloud."
           />
         ) : (
           <div className="py-20 text-center text-muted-foreground">
@@ -167,87 +206,35 @@ export function BookmarksLibraryPage() {
           </div>
         )
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className={gridClass}>
           {items.map(item => (
-            <Card key={item.id}
-              className="group relative flex flex-col border-border/60 p-4 hover:border-border">
-              <button onClick={() => openItem(item)} className="flex-1 text-left">
-                {thumbUrl(item) && (
-                  <div className="relative -mx-4 -mt-4 mb-3 aspect-video overflow-hidden rounded-t-2xl border-b border-border/40 bg-muted/40">
-                    <img src={thumbUrl(item)!} alt="" loading="lazy"
-                      className="size-full object-cover"
-                      onError={(e) => { const el = e.currentTarget.parentElement; if (el) el.style.display = 'none' }} />
-                    {item.faviconUrl && (
-                      <img src={proxyImg(item.faviconUrl)} alt="" loading="lazy"
-                        className="absolute bottom-2 left-2 size-6 rounded-control border border-border/40 bg-background/90 p-0.5 shadow-sm"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-                    )}
-                  </div>
-                )}
-                <div className="mb-2 flex items-center gap-2">
-                  <Favicon item={item} />
-                  <span className="truncate text-xs text-muted-foreground">{item.siteName || host(item.url)}</span>
-                </div>
-                <p className="mb-2 line-clamp-2 font-semibold leading-snug">{item.title || item.url}</p>
-                {item.excerpt && <p className="mb-3 line-clamp-2 text-sm text-muted-foreground">{item.excerpt}</p>}
-                <div className="flex flex-wrap items-center gap-2">
-                  <ArchiveBadge item={item} />
-                  {item.isGlobal && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-medium text-info" title="Shared with everyone">
-                      <Globe className="size-3" />Shared
-                    </span>
-                  )}
-                  {item.collectionId && item.collectionId !== collectionParam && collById.has(item.collectionId) && (
-                    <CollectionChip collection={collById.get(item.collectionId)!} />
-                  )}
-                  {item.tags.slice(0, 2).map(t => <span key={t} className="rounded-full bg-accent/60 px-2 py-0.5 text-[10px] text-muted-foreground">{t}</span>)}
-                </div>
-              </button>
-              {item.canEdit && (
-                <div className="absolute right-2 top-2 flex gap-1 rounded-control bg-popover p-0.5 opacity-0 shadow-md ring-1 ring-border/60 transition-opacity group-hover:opacity-100">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-sm" title="Move to collection" aria-label="Move to collection"
-                        className="text-foreground/80 hover:text-foreground"><FolderOpen className="size-4" /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-52">
-                      <DropdownMenuLabel>Move to collection</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {collections.length === 0 && (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No collections yet - create one in the sidebar.</div>
-                      )}
-                      {collections.map(col => (
-                        <DropdownMenuItem key={col.id} onClick={() => moveToCollection(item, col.id)}>
-                          <FolderOpen className="size-4" />
-                          <span className="flex-1 truncate">{col.name}</span>
-                          {item.collectionId === col.id && <Check className="size-4" />}
-                        </DropdownMenuItem>
-                      ))}
-                      {item.collectionId && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => moveToCollection(item, null)}>Remove from collection</DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button variant="ghost" size="icon-sm" onClick={() => setEditItem(item)} title="Edit" aria-label="Edit"
-                    className="text-foreground/80 hover:text-foreground"><Pencil className="size-4" /></Button>
-                  <Button asChild variant="ghost" size="icon-sm" className="text-foreground/80 hover:text-foreground">
-                    <a href={item.url} target="_blank" rel="noopener noreferrer" title="Open original" aria-label="Open original"><ExternalLink className="size-4" /></a>
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" onClick={() => archive(item)} title="Archive" aria-label="Archive"
-                    className="text-foreground/80 hover:text-foreground"><Archive className="size-4" /></Button>
-                  <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDel(item)} title="Delete" aria-label="Delete"
-                    className="text-foreground/80 hover:text-destructive"><Trash2 className="size-4" /></Button>
-                </div>
-              )}
-            </Card>
+            <BookmarkCard
+              key={item.id}
+              item={item}
+              collById={collById}
+              view={view}
+              activeCollectionId={collectionParam}
+              selectable
+              selected={selected.has(item.id)}
+              onToggleSelect={() => toggleSelect(item.id)}
+              actions={{
+                onOpen: openItem,
+                onMove: moveToCollection,
+                onEdit: setEditItem,
+                onArchive: archive,
+                onDelete: setConfirmDel,
+                onTogglePin: togglePin,
+                collections,
+              }}
+            />
           ))}
         </div>
       )}
 
       <BookmarkEditDialog item={editItem} open={!!editItem} onClose={() => setEditItem(null)} />
+      {activeCollection && (
+        <CollectionShareDialog collection={activeCollection} open={shareCollection} onOpenChange={setShareCollection} />
+      )}
 
       <ConfirmDialog
         open={!!confirmDel}
