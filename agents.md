@@ -627,6 +627,39 @@ Videos billboard/heroes.
 { art: string | null; color: string; colorDark: string; fallback?: ReactNode }
 ```
 
+### `ArtAccentScope` / `accentVars` - `src/components/shared/ArtAccentScope.tsx`
+
+The app-neutral "retint this subtree from artwork" mechanism (generalized from the Videos
+`AccentScope`). `accentVars(palette)` returns inline CSS-var overrides for the GLOBAL chrome
+vars every control already reads: `--brand`, `--brand-hover`, `--brand-foreground`, `--ring`,
+plus `--accent-soft` (15% color-mix). `ArtAccentScope` wraps a surface, extracts the palette
+from `art` via `useArtPalette`, and applies the vars only when art is non-null, so buttons,
+tab underlines, and progress bars follow the content with zero per-control edits.
+
+```ts
+accentVars(palette: Palette): CSSProperties
+<ArtAccentScope art={string | null} className? style?>...</ArtAccentScope>
+```
+
+Notes:
+- Art must be same-origin (proxied via `proxyImg`/`mediaImg`/`coverUrl` etc.) or extraction
+  silently falls back to `DEFAULT_PALETTE`.
+- Only use on sanctioned palette surfaces (see Visual Language). Never per-card in a grid:
+  one extraction per hero/player/detail surface.
+- Videos' `videoAccentVars` composes this and adds the `--yt-accent*` aliases; new apps
+  should consume the global vars directly instead of minting app-prefixed ones.
+
+**Dark-shell recipe** (how Music/Videos/media hubs force cinema styling; a documented recipe,
+deliberately not a shared layout component since rails/search/mode logic differ per app):
+wrap the app's `<Outlet/>` in `<div data-theme="dark" className="... bg-black text-foreground"
+style={modeAccentVars}>` where `modeAccentVars` sets the app's static identity accent into
+`--brand*`/`--ring` (hexes carry `design-ok(hex-in-tsx)` waivers) plus a faint 4% color-mix
+background wash. The layout owns its scroller (route-change scroll reset) and bottom padding
+`pb-[max(7rem, ...var(--bottom-chrome)...)]`. The route prefix must be added to `isFullBleed`
+in `src/lib/routeChrome.ts`, and pages inside must not use `PageShell` (it would double-paint
+`AppBackdrop`). Reference implementations: `MusicLayout.tsx`, `VideosLayout.tsx`,
+`media/MediaLayout.tsx`.
+
 ### `ViewToggle` - `src/components/shared/ViewToggle.tsx`
 
 Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a page offers both a grid and a list layout instead of hand-rolling the two-button group. Pair it with `useViewPreference(key, fallback)` (`src/hooks/useViewPreference.ts`) to persist the choice per-user in `user_preferences` (dotted key, e.g. `youtube.channel_view`) so it survives reloads and syncs across devices.
@@ -668,6 +701,13 @@ gradient on a precise mark. Build the rest of the UI toward that, not toward "mo
   action, `cardVariants` (`surface`/`interactive`/`gradient`/`dashed`) for cards. These are not
   optional patterns among several, they are the only pattern. Do not hand-roll a "Saving.../
   Saved" label, a second confirm-button component, or a bespoke "nothing here" block.
+- **Sanctioned dynamic-palette surfaces.** Art-derived accents (`ArtAccentScope`,
+  `useArtPalette`, `UltraBlur`) are allowed only where one artwork dominates the surface:
+  Videos = watch page, channel pages, home billboard. Music = players and station surfaces.
+  Movies/Shows = hub billboard and detail pages. Podcasts = show hero, Now Playing, player
+  bar. Books = book detail hero and audiobook player, never the reader views. Imaging = the
+  current result and lightbox, not the history grid. Shopping = the buy box only. Everywhere
+  else keeps the app's static accent. Never extract per-card in grids or lists.
 - **No floating UI parked on top of content.** A persistent overlay (the companion, a mini
   player) defaults to a corner dock, not dead-center, so it never guarantees an overlap with
   whatever the page happens to render there.

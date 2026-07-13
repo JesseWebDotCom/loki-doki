@@ -5,19 +5,21 @@
 // Art must be same-origin (proxied) or extraction silently falls back to the mode accent.
 
 import type { CSSProperties, ReactNode } from 'react'
+import { accentVars } from '@/components/shared/ArtAccentScope'
 import { accentOf, readableOn, useArtPalette, type Palette } from '@/lib/artPalette'
 
-/** The CSS-var override for one extracted palette (inline vars beat VideosLayout's). */
+/** The CSS-var override for one extracted palette (inline vars beat VideosLayout's).
+ *  Composes the shared global override (accentVars) with the Videos-only --yt-accent*
+ *  aliases that this app's chrome reads. */
 export function videoAccentVars(palette: Palette): CSSProperties {
   const accent = accentOf(palette)
   return {
+    ...accentVars(palette),
     '--yt-accent': accent,
     '--yt-accent-hover': accent,
     '--yt-accent-fg': accent,
     '--yt-accent-soft': `color-mix(in oklab, ${accent} 15%, transparent)`,
     '--yt-accent-contrast': readableOn(accent),
-    '--brand': accent,
-    '--ring': accent,
   } as CSSProperties
 }
 
