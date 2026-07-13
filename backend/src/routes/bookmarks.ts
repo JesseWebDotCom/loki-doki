@@ -1,20 +1,22 @@
 import { Hono } from 'hono'
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import {
   bookmarks,
   bookmarkCollections,
+  bookmarkCollectionMembers,
   bookmarkTags,
   bookmarkItemTags,
   bookmarkSnapshots,
   bookmarkHighlights,
+  users,
   userPreferences,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { safeFetch } from '@/lib/ssrfGuard'
 import { enqueueArchiveArticle, enqueueBookmarkThumbnail } from '@/lib/downloadJobs'
 import { stripHtml } from '@/lib/content/extract'
-import { summarizeArticle, askArticle } from '@/lib/bookmarks/ai'
+import { summarizeArticle, askArticle, autoTagArticle, type AutoTagMode } from '@/lib/bookmarks/ai'
 import { dataDir } from '@/lib/download'
 import { BOOKMARK_ARCHIVE_ROOT } from '@/lib/bookmarks/snapshot'
 import { renderedHtmlPath } from '@/lib/bookmarks/archive'
@@ -94,6 +96,28 @@ async function findCollectionId(ownerId: string, name: string): Promise<string> 
   const id = crypto.randomUUID()
   await db.insert(bookmarkCollections).values({ id, ownerId, name: trimmed, sortOrder: 0, createdAt: new Date() })
   return id
+}
+
+// Collection ids this user can SEE because they're a collaborator (any role).
+async function memberCollectionIds(userId: string): Promise<string[]> {
+  const rows = await db.select({ id: bookmarkCollectionMembers.collectionId })
+    .from(bookmarkCollectionMembers).where(eq(bookmarkCollectionMembers.userId, userId))
+  return rows.map((r) => r.id)
+}
+
+// Resolve a user's access to a collection: 'owner' | 'editor' | 'viewer' | null.
+async function collectionRole(collectionId: string, userId: string, isAdmin = false): Promise<'owner' | 'editor' | 'viewer' | null> {
+  const col = await db.select().from(bookmarkCollections).where(eq(bookmarkCollections.id, collectionId)).then((r) => r[0])
+  if (!col) return null
+  if (col.ownerId === userId || (isAdmin && col.ownerId === null)) return 'owner'
+  const m = await db.select().from(bookmarkCollectionMembers)
+    .where(and(eq(bookmarkCollectionMembers.collectionId, collectionId), eq(bookmarkCollectionMembers.userId, userId))).then((r) => r[0])
+  return m ? m.role : null
+}
+
+// Mint a short url-safe slug for public collection share links.
+function mintSlug(): string {
+  return crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 }
 
 /** Promote a saved feed item into the user's Reader library (source='feed'). Called by
@@ -202,38 +226,164 @@ bookmarksRouter.get('/probe', requireAuth, async (c) => {
 
 bookmarksRouter.get('/collections', requireAuth, async (c) => {
   const user = c.get('user')
-  const rows = await db.select().from(bookmarkCollections).where(eq(bookmarkCollections.ownerId, user.id))
-  return c.json({ collections: rows })
+  // Own collections + collections shared with me (as a collaborator). Each row carries
+  // my role, live link count, and (for shared ones) the owner's name.
+  const memberRows = await db.select({ collectionId: bookmarkCollectionMembers.collectionId, role: bookmarkCollectionMembers.role })
+    .from(bookmarkCollectionMembers).where(eq(bookmarkCollectionMembers.userId, user.id))
+  const memberRole = new Map(memberRows.map((m) => [m.collectionId, m.role]))
+  const own = await db.select().from(bookmarkCollections).where(eq(bookmarkCollections.ownerId, user.id))
+  const sharedIds = memberRows.map((m) => m.collectionId).filter((cid) => !own.some((o) => o.id === cid))
+  const shared = sharedIds.length
+    ? await db.select().from(bookmarkCollections).where(inArray(bookmarkCollections.id, sharedIds))
+    : []
+  const all = [...own, ...shared]
+  // Per-collection link counts in one pass.
+  const counts = new Map<string, number>()
+  if (all.length) {
+    const cRows = await db.select({ cid: bookmarks.collectionId, n: sql<number>`count(*)` })
+      .from(bookmarks).where(inArray(bookmarks.collectionId, all.map((c) => c.id))).groupBy(bookmarks.collectionId)
+    for (const r of cRows) if (r.cid) counts.set(r.cid, Number(r.n))
+  }
+  // Owner display names for shared collections.
+  const ownerNames = new Map<string, string>()
+  const ownerIds = [...new Set(shared.map((s) => s.ownerId).filter((x): x is string => !!x))]
+  if (ownerIds.length) {
+    for (const u of await db.select({ id: users.id, name: users.nickname }).from(users).where(inArray(users.id, ownerIds))) ownerNames.set(u.id, u.name)
+  }
+  return c.json({
+    collections: all.map((col) => ({
+      ...col,
+      role: col.ownerId === user.id ? 'owner' : (memberRole.get(col.id) ?? 'viewer'),
+      linkCount: counts.get(col.id) ?? 0,
+      ownerName: col.ownerId && col.ownerId !== user.id ? (ownerNames.get(col.ownerId) ?? null) : null,
+    })),
+  })
 })
 
 bookmarksRouter.post('/collections', requireAuth, async (c) => {
   const user = c.get('user')
-  const { name } = await c.req.json<{ name: string }>()
+  const { name, parentId } = await c.req.json<{ name: string; parentId?: string | null }>()
   if (!name?.trim()) return c.json({ error: 'name required' }, 400)
   const id = await findCollectionId(user.id, name)
+  if (parentId) {
+    // Only nest under a collection the user owns.
+    const parent = await db.select().from(bookmarkCollections)
+      .where(and(eq(bookmarkCollections.id, parentId), eq(bookmarkCollections.ownerId, user.id))).then((r) => r[0])
+    if (parent) await db.update(bookmarkCollections).set({ parentId }).where(eq(bookmarkCollections.id, id))
+  }
   return c.json({ id })
 })
+
+// Would setting collection `id`'s parent to `parentId` create a cycle? Walks up the
+// ancestor chain from the proposed parent looking for `id` itself.
+async function wouldCycle(id: string, parentId: string): Promise<boolean> {
+  let cur: string | null = parentId
+  const seen = new Set<string>()
+  while (cur) {
+    if (cur === id) return true
+    if (seen.has(cur)) return true
+    seen.add(cur)
+    cur = await db.select({ parentId: bookmarkCollections.parentId }).from(bookmarkCollections)
+      .where(eq(bookmarkCollections.id, cur)).then((r) => r[0]?.parentId ?? null)
+  }
+  return false
+}
 
 bookmarksRouter.patch('/collections/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const body = await c.req.json<Partial<{ name: string; icon: string | null; color: string | null; sortOrder: number }>>()
+  const body = await c.req.json<Partial<{
+    name: string; icon: string | null; color: string | null; sortOrder: number
+    parentId: string | null; isPublic: boolean; rssUrl: string | null; rssAutoTag: boolean
+  }>>()
   const existing = await db.select().from(bookmarkCollections)
     .where(and(eq(bookmarkCollections.id, id), eq(bookmarkCollections.ownerId, user.id))).then((r) => r[0])
   if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  // Reparent: reject self-parenting and cycles; only allow parents the user owns.
+  let parentId = existing.parentId
+  if (body.parentId !== undefined) {
+    if (!body.parentId) parentId = null
+    else if (body.parentId === id) return c.json({ error: 'A collection cannot be its own parent' }, 400)
+    else {
+      const parent = await db.select().from(bookmarkCollections)
+        .where(and(eq(bookmarkCollections.id, body.parentId), eq(bookmarkCollections.ownerId, user.id))).then((r) => r[0])
+      if (!parent) return c.json({ error: 'Parent not found' }, 400)
+      if (await wouldCycle(id, body.parentId)) return c.json({ error: 'That would create a loop' }, 400)
+      parentId = body.parentId
+    }
+  }
+  // Publish/unpublish: mint a slug on first publish, keep it on republish.
+  let isPublic = existing.isPublic
+  let publicSlug = existing.publicSlug
+  if (body.isPublic !== undefined) {
+    isPublic = body.isPublic
+    if (isPublic && !publicSlug) publicSlug = mintSlug()
+  }
   await db.update(bookmarkCollections).set({
     name: body.name !== undefined ? body.name.trim() : existing.name,
     icon: body.icon !== undefined ? body.icon : existing.icon,
     color: body.color !== undefined ? body.color : existing.color,
     sortOrder: body.sortOrder !== undefined ? body.sortOrder : existing.sortOrder,
+    parentId,
+    isPublic, publicSlug,
+    rssUrl: body.rssUrl !== undefined ? (body.rssUrl?.trim() || null) : existing.rssUrl,
+    rssAutoTag: body.rssAutoTag !== undefined ? body.rssAutoTag : existing.rssAutoTag,
   }).where(eq(bookmarkCollections.id, id))
-  return c.json({ ok: true })
+  // Newly set/changed feed → pull it immediately (don't wait for the poller).
+  const newRss = body.rssUrl !== undefined ? (body.rssUrl?.trim() || null) : existing.rssUrl
+  if (newRss && newRss !== existing.rssUrl) {
+    import('@/lib/bookmarks/collectionRss').then((m) => m.ingestCollectionNow(id)).catch(() => {})
+  }
+  return c.json({ ok: true, publicSlug })
 })
 
 bookmarksRouter.delete('/collections/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  await db.delete(bookmarkCollections).where(and(eq(bookmarkCollections.id, id), eq(bookmarkCollections.ownerId, user.id)))
+  const existing = await db.select().from(bookmarkCollections)
+    .where(and(eq(bookmarkCollections.id, id), eq(bookmarkCollections.ownerId, user.id))).then((r) => r[0])
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+  // Re-parent children up to this collection's parent (don't cascade-delete a subtree).
+  await db.update(bookmarkCollections).set({ parentId: existing.parentId }).where(eq(bookmarkCollections.parentId, id))
+  await db.delete(bookmarkCollections).where(eq(bookmarkCollections.id, id))
+  return c.json({ ok: true })
+})
+
+// ── Collection collaborators (share a collection with other household users) ─────
+
+bookmarksRouter.get('/collections/:id/members', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  if ((await collectionRole(id, user.id, user.role === 'admin')) !== 'owner') return c.json({ error: 'Not found' }, 404)
+  const rows = await db.select({ id: bookmarkCollectionMembers.id, userId: bookmarkCollectionMembers.userId, role: bookmarkCollectionMembers.role, name: users.nickname })
+    .from(bookmarkCollectionMembers).innerJoin(users, eq(bookmarkCollectionMembers.userId, users.id))
+    .where(eq(bookmarkCollectionMembers.collectionId, id))
+  return c.json({ members: rows })
+})
+
+bookmarksRouter.post('/collections/:id/members', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  if ((await collectionRole(id, user.id, user.role === 'admin')) !== 'owner') return c.json({ error: 'Not found' }, 404)
+  const { userId, role } = await c.req.json<{ userId: string; role?: 'viewer' | 'editor' }>()
+  if (!userId || userId === user.id) return c.json({ error: 'Invalid user' }, 400)
+  const target = await db.select().from(users).where(eq(users.id, userId)).then((r) => r[0])
+  if (!target) return c.json({ error: 'User not found' }, 404)
+  const r: 'viewer' | 'editor' = role === 'editor' ? 'editor' : 'viewer'
+  const existing = await db.select().from(bookmarkCollectionMembers)
+    .where(and(eq(bookmarkCollectionMembers.collectionId, id), eq(bookmarkCollectionMembers.userId, userId))).then((x) => x[0])
+  if (existing) await db.update(bookmarkCollectionMembers).set({ role: r }).where(eq(bookmarkCollectionMembers.id, existing.id))
+  else await db.insert(bookmarkCollectionMembers).values({ id: crypto.randomUUID(), collectionId: id, userId, role: r, createdAt: new Date() })
+  return c.json({ ok: true })
+})
+
+bookmarksRouter.delete('/collections/:id/members/:userId', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  if ((await collectionRole(id, user.id, user.role === 'admin')) !== 'owner') return c.json({ error: 'Not found' }, 404)
+  await db.delete(bookmarkCollectionMembers)
+    .where(and(eq(bookmarkCollectionMembers.collectionId, id), eq(bookmarkCollectionMembers.userId, c.req.param('userId'))))
   return c.json({ ok: true })
 })
 
@@ -242,7 +392,71 @@ bookmarksRouter.delete('/collections/:id', requireAuth, async (c) => {
 bookmarksRouter.get('/tags', requireAuth, async (c) => {
   const user = c.get('user')
   const rows = await db.select().from(bookmarkTags).where(eq(bookmarkTags.ownerId, user.id))
-  return c.json({ tags: rows })
+  // Attach a per-tag item count so the tag manager can show usage + sort by it.
+  const counts = new Map<string, number>()
+  if (rows.length) {
+    const cRows = await db.select({ tagId: bookmarkItemTags.tagId, n: sql<number>`count(*)` })
+      .from(bookmarkItemTags).where(inArray(bookmarkItemTags.tagId, rows.map((t) => t.id))).groupBy(bookmarkItemTags.tagId)
+    for (const r of cRows) counts.set(r.tagId, Number(r.n))
+  }
+  return c.json({ tags: rows.map((t) => ({ ...t, count: counts.get(t.id) ?? 0 })) })
+})
+
+// Rename a tag. If the new name collides with another of the user's tags, merge into it.
+bookmarksRouter.patch('/tags/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { name } = await c.req.json<{ name: string }>()
+  const clean = name?.trim()
+  if (!clean) return c.json({ error: 'name required' }, 400)
+  const tag = await db.select().from(bookmarkTags)
+    .where(and(eq(bookmarkTags.id, id), eq(bookmarkTags.ownerId, user.id))).then((r) => r[0])
+  if (!tag) return c.json({ error: 'Not found' }, 404)
+  const collision = await db.select().from(bookmarkTags)
+    .where(and(eq(bookmarkTags.ownerId, user.id), eq(bookmarkTags.name, clean))).then((r) => r[0])
+  if (collision && collision.id !== id) {
+    await mergeTags(user.id, [id], collision.id)
+    return c.json({ ok: true, mergedInto: collision.id })
+  }
+  await db.update(bookmarkTags).set({ name: clean }).where(eq(bookmarkTags.id, id))
+  return c.json({ ok: true })
+})
+
+bookmarksRouter.delete('/tags/:id', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const tag = await db.select().from(bookmarkTags)
+    .where(and(eq(bookmarkTags.id, id), eq(bookmarkTags.ownerId, user.id))).then((r) => r[0])
+  if (!tag) return c.json({ error: 'Not found' }, 404)
+  await db.delete(bookmarkTags).where(eq(bookmarkTags.id, id)) // item_tags cascade
+  return c.json({ ok: true })
+})
+
+// Fold several source tags into one target: repoint memberships (dedup), then drop sources.
+async function mergeTags(ownerId: string, sourceIds: string[], targetId: string): Promise<void> {
+  const sources = sourceIds.filter((s) => s !== targetId)
+  if (!sources.length) return
+  const existing = new Set(
+    (await db.select({ itemId: bookmarkItemTags.itemId }).from(bookmarkItemTags).where(eq(bookmarkItemTags.tagId, targetId))).map((r) => r.itemId),
+  )
+  const links = await db.select().from(bookmarkItemTags).where(inArray(bookmarkItemTags.tagId, sources))
+  for (const l of links) {
+    if (!existing.has(l.itemId)) { await db.insert(bookmarkItemTags).values({ itemId: l.itemId, tagId: targetId }); existing.add(l.itemId) }
+  }
+  await db.delete(bookmarkItemTags).where(inArray(bookmarkItemTags.tagId, sources))
+  await db.delete(bookmarkTags).where(and(eq(bookmarkTags.ownerId, ownerId), inArray(bookmarkTags.id, sources)))
+}
+
+bookmarksRouter.post('/tags/merge', requireAuth, async (c) => {
+  const user = c.get('user')
+  const { sourceIds, targetId } = await c.req.json<{ sourceIds: string[]; targetId: string }>()
+  if (!Array.isArray(sourceIds) || !targetId) return c.json({ error: 'sourceIds + targetId required' }, 400)
+  const owned = await db.select({ id: bookmarkTags.id }).from(bookmarkTags)
+    .where(and(eq(bookmarkTags.ownerId, user.id), inArray(bookmarkTags.id, [...sourceIds, targetId])))
+  const ownedIds = new Set(owned.map((t) => t.id))
+  if (!ownedIds.has(targetId)) return c.json({ error: 'Target not found' }, 404)
+  await mergeTags(user.id, sourceIds.filter((s) => ownedIds.has(s)), targetId)
+  return c.json({ ok: true })
 })
 
 // ── Netscape bookmarks.html import / export (Shiori-style) ──────────────────────
@@ -260,6 +474,45 @@ bookmarksRouter.get('/export/html', requireAuth, async (c) => {
   c.header('Content-Type', 'text/html; charset=utf-8')
   c.header('Content-Disposition', 'attachment; filename="loki-bookmarks.html"')
   return c.body(html)
+})
+
+// JSON export — the whole library (live + offline), with tags/collection/notes metadata.
+// Round-trips through POST /import (which reads a top-level array or {bookmarks}).
+bookmarksRouter.get('/export/json', requireAuth, async (c) => {
+  const user = c.get('user')
+  const rows = await db.select().from(bookmarks).where(eq(bookmarks.ownerId, user.id)).orderBy(desc(bookmarks.createdAt))
+  const tagMap = await tagsByItem(rows.map((r) => r.id))
+  const cols = await db.select().from(bookmarkCollections).where(eq(bookmarkCollections.ownerId, user.id))
+  const colName = new Map(cols.map((x) => [x.id, x.name]))
+  const out = rows.map((b) => ({
+    url: b.url, title: b.title, excerpt: b.excerpt, siteName: b.siteName,
+    type: b.type, status: b.status, tags: tagMap.get(b.id) ?? [],
+    folder: b.collectionId ? colName.get(b.collectionId) ?? null : null,
+    createdAt: b.createdAt?.toISOString() ?? null,
+  }))
+  c.header('Content-Type', 'application/json; charset=utf-8')
+  c.header('Content-Disposition', 'attachment; filename="loki-bookmarks.json"')
+  return c.body(JSON.stringify({ bookmarks: out }, null, 2))
+})
+
+// CSV export — url,title,tags,folder,created (Pocket/Pinboard-compatible header row).
+bookmarksRouter.get('/export/csv', requireAuth, async (c) => {
+  const user = c.get('user')
+  const rows = await db.select().from(bookmarks).where(eq(bookmarks.ownerId, user.id)).orderBy(desc(bookmarks.createdAt))
+  const tagMap = await tagsByItem(rows.map((r) => r.id))
+  const cols = await db.select().from(bookmarkCollections).where(eq(bookmarkCollections.ownerId, user.id))
+  const colName = new Map(cols.map((x) => [x.id, x.name]))
+  const cell = (s: string) => `"${(s ?? '').replace(/"/g, '""')}"`
+  const lines = ['url,title,tags,folder,created']
+  for (const b of rows) {
+    lines.push([
+      cell(b.url), cell(b.title || b.url), cell((tagMap.get(b.id) ?? []).join(' ')),
+      cell(b.collectionId ? colName.get(b.collectionId) ?? '' : ''), cell(b.createdAt?.toISOString() ?? ''),
+    ].join(','))
+  }
+  c.header('Content-Type', 'text/csv; charset=utf-8')
+  c.header('Content-Disposition', 'attachment; filename="loki-bookmarks.csv"')
+  return c.body(lines.join('\n'))
 })
 
 bookmarksRouter.post('/import/html', requireAuth, async (c) => {
@@ -448,11 +701,16 @@ bookmarksRouter.post('/import', requireAuth, async (c) => {
 
 bookmarksRouter.get('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const { status, collectionId, tag, q, type } = c.req.query()
+  const { status, collectionId, tag, q, type, sort, pinned } = c.req.query()
 
-  const conds = [or(isNull(bookmarks.ownerId), eq(bookmarks.ownerId, user.id))]
+  // Visible = own + global + any collection I collaborate on.
+  const memberCols = await memberCollectionIds(user.id)
+  const visible = [isNull(bookmarks.ownerId), eq(bookmarks.ownerId, user.id)]
+  if (memberCols.length) visible.push(inArray(bookmarks.collectionId, memberCols))
+  const conds = [or(...visible)]
   if (status) conds.push(eq(bookmarks.status, status as 'unread' | 'reading' | 'archived'))
   if (type) conds.push(eq(bookmarks.type, type as 'live' | 'offline'))
+  if (pinned === '1') conds.push(eq(bookmarks.isPinned, true))
   if (collectionId) conds.push(eq(bookmarks.collectionId, collectionId))
 
   if (tag) {
@@ -472,7 +730,13 @@ bookmarksRouter.get('/', requireAuth, async (c) => {
     conds.push(sql`bookmarks.rowid IN (SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ${match})`)
   }
 
-  const rows = await db.select().from(bookmarks).where(and(...conds)).orderBy(desc(bookmarks.createdAt))
+  // Sort (pinned always float to the top so the "Pinned" idea survives any sort).
+  const order = sort === 'oldest' ? asc(bookmarks.createdAt)
+    : sort === 'title' ? asc(bookmarks.title)
+    : sort === '-title' ? desc(bookmarks.title)
+    : sort === 'updated' ? desc(bookmarks.updatedAt)
+    : desc(bookmarks.createdAt)
+  const rows = await db.select().from(bookmarks).where(and(...conds)).orderBy(desc(bookmarks.isPinned), order)
   const hidden = await hiddenIdsFor(user.id)
   const tagMap = await tagsByItem(rows.map((r) => r.id))
 
@@ -526,6 +790,163 @@ bookmarksRouter.post('/', requireAuth, async (c) => {
   })
   if (body.tags?.length) await setItemTags(item.id, await resolveTagIds(user.id, body.tags))
   return c.json({ item })
+})
+
+// ── Home / dashboard (stats + pinned + recent) ───────────────────────────────────
+// Registered before /:id so "home" isn't read as an id.
+
+bookmarksRouter.get('/home', requireAuth, async (c) => {
+  const user = c.get('user')
+  const visCond = or(isNull(bookmarks.ownerId), eq(bookmarks.ownerId, user.id))
+  const own = eq(bookmarks.ownerId, user.id)
+  const [totalRow] = await db.select({ n: sql<number>`count(*)` }).from(bookmarks).where(visCond)
+  const [liveRow] = await db.select({ n: sql<number>`count(*)` }).from(bookmarks).where(and(visCond, eq(bookmarks.type, 'live')))
+  const [colRow] = await db.select({ n: sql<number>`count(*)` }).from(bookmarkCollections).where(eq(bookmarkCollections.ownerId, user.id))
+  const [tagRow] = await db.select({ n: sql<number>`count(*)` }).from(bookmarkTags).where(eq(bookmarkTags.ownerId, user.id))
+  const total = Number(totalRow?.n ?? 0), live = Number(liveRow?.n ?? 0)
+
+  const pinnedRows = await db.select().from(bookmarks).where(and(own, eq(bookmarks.isPinned, true))).orderBy(desc(bookmarks.updatedAt)).limit(12)
+  const recentRows = await db.select().from(bookmarks).where(visCond).orderBy(desc(bookmarks.createdAt)).limit(16)
+  const tagMap = await tagsByItem([...pinnedRows, ...recentRows].map((r) => r.id))
+  const shape = (r: typeof bookmarks.$inferSelect) => ({
+    ...r, contentHtml: undefined, contentText: undefined,
+    tags: tagMap.get(r.id) ?? [], isGlobal: r.ownerId === null, canEdit: r.ownerId === user.id || user.role === 'admin', isHidden: false,
+  })
+  return c.json({
+    stats: { total, live, offline: total - live, collections: Number(colRow?.n ?? 0), tags: Number(tagRow?.n ?? 0) },
+    pinned: pinnedRows.map(shape),
+    recent: recentRows.map(shape),
+  })
+})
+
+// ── Bulk actions on the current user's own items ─────────────────────────────────
+
+bookmarksRouter.post('/bulk', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json<{
+    ids: string[]
+    action: 'archive' | 'unarchive' | 'delete' | 'pin' | 'unpin' | 'move' | 'addTags'
+    collectionId?: string | null
+    tags?: string[]
+  }>()
+  if (!Array.isArray(body.ids) || !body.ids.length) return c.json({ error: 'ids required' }, 400)
+  // Restrict to the user's own items (bulk edits never touch shared/global rows).
+  const owned = await db.select({ id: bookmarks.id }).from(bookmarks)
+    .where(and(inArray(bookmarks.id, body.ids), eq(bookmarks.ownerId, user.id)))
+  const ids = owned.map((r) => r.id)
+  if (!ids.length) return c.json({ affected: 0 })
+  const now = new Date()
+  switch (body.action) {
+    case 'delete':
+      await db.delete(bookmarks).where(inArray(bookmarks.id, ids)); break
+    case 'archive':
+      await db.update(bookmarks).set({ status: 'archived', updatedAt: now }).where(inArray(bookmarks.id, ids)); break
+    case 'unarchive':
+      await db.update(bookmarks).set({ status: 'unread', updatedAt: now }).where(inArray(bookmarks.id, ids)); break
+    case 'pin':
+      await db.update(bookmarks).set({ isPinned: true, updatedAt: now }).where(inArray(bookmarks.id, ids)); break
+    case 'unpin':
+      await db.update(bookmarks).set({ isPinned: false, updatedAt: now }).where(inArray(bookmarks.id, ids)); break
+    case 'move':
+      await db.update(bookmarks).set({ collectionId: body.collectionId ?? null, updatedAt: now }).where(inArray(bookmarks.id, ids)); break
+    case 'addTags': {
+      const tagIds = await resolveTagIds(user.id, body.tags ?? [])
+      for (const itemId of ids) {
+        const have = new Set((await db.select({ tagId: bookmarkItemTags.tagId }).from(bookmarkItemTags).where(eq(bookmarkItemTags.itemId, itemId))).map((r) => r.tagId))
+        for (const tid of tagIds) if (!have.has(tid)) await db.insert(bookmarkItemTags).values({ itemId, tagId: tid })
+      }
+      break
+    }
+    default: return c.json({ error: 'Unknown action' }, 400)
+  }
+  return c.json({ affected: ids.length })
+})
+
+// ── Upload a PDF or image as a bookmark (Linkwarden's file content types) ─────────
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+bookmarksRouter.post('/upload', requireAuth, async (c) => {
+  const user = c.get('user')
+  const form = await c.req.parseBody()
+  const file = form['file']
+  if (!(file instanceof File)) return c.json({ error: 'file required' }, 400)
+  const buf = Buffer.from(await file.arrayBuffer())
+  if (!buf.length || buf.length > MAX_UPLOAD_BYTES) return c.json({ error: 'File too large (50MB max)' }, 400)
+  const isPdf = buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 // %PDF
+  const kind: 'pdf' | 'image' = isPdf ? 'pdf' : 'image'
+  if (!isPdf && !sniffContentType(buf)) return c.json({ error: 'Only PDF or image files are supported' }, 400)
+  const ext = isPdf ? 'pdf' : (file.name.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || 'bin')
+  const title = (typeof form['title'] === 'string' && form['title'].trim()) || file.name || 'Uploaded file'
+  const collectionId = (typeof form['collectionId'] === 'string' && form['collectionId']) || null
+
+  const id = crypto.randomUUID()
+  const dir = join(dataDir, BOOKMARK_ARCHIVE_ROOT, id)
+  await mkdir(dir, { recursive: true })
+  const rel = `upload.${ext}`
+  await writeFile(join(dir, rel), buf)
+  const now = new Date()
+  await db.insert(bookmarks).values({
+    id, ownerId: user.id, source: 'bookmark', sourceRef: null, type: 'offline',
+    url: `file://${title}`, title, byline: null, siteName: null, faviconUrl: null, excerpt: null,
+    contentHtml: null, contentText: null, wordCount: 0, readingMins: 0,
+    status: 'unread', archiveState: 'ready', archiveError: null, readAt: null,
+    useProxy: false, useEmbed: false, category: 'Uploads', collectionId, sortOrder: 0,
+    screenshotPath: null, snapshotPath: null,
+    ogImagePath: kind === 'image' ? rel : null, // image previews itself as the card thumb
+    pdfPath: kind === 'pdf' ? rel : null, mediaPath: null, captureMedia: false, archiveOrgUrl: null,
+    contentKind: kind, uploadPath: rel, isPinned: false, isAdult: false,
+    createdAt: now, updatedAt: now,
+  })
+  const item = await db.select().from(bookmarks).where(eq(bookmarks.id, id)).then((r) => r[0])
+  return c.json({ item })
+})
+
+// ── Public (unauthenticated) collection view + RSS ───────────────────────────────
+// A published collection is readable by slug with no session. Only Live/ready items are
+// exposed, and only URL/title/excerpt metadata (never the owner's notes or highlights).
+
+async function publicCollection(slug: string) {
+  return db.select().from(bookmarkCollections)
+    .where(and(eq(bookmarkCollections.publicSlug, slug), eq(bookmarkCollections.isPublic, true))).then((r) => r[0])
+}
+
+bookmarksRouter.get('/public/:slug', async (c) => {
+  const col = await publicCollection(c.req.param('slug'))
+  if (!col) return c.json({ error: 'Not found' }, 404)
+  const rows = await db.select().from(bookmarks)
+    .where(and(eq(bookmarks.collectionId, col.id), or(eq(bookmarks.type, 'live'), eq(bookmarks.archiveState, 'ready'))))
+    .orderBy(desc(bookmarks.createdAt)).limit(500)
+  return c.json({
+    collection: { name: col.name, icon: col.icon, color: col.color },
+    items: rows.map((r) => ({ id: r.id, url: r.url, title: r.title, excerpt: r.excerpt, siteName: r.siteName, faviconUrl: r.faviconUrl, createdAt: r.createdAt?.toISOString() ?? null })),
+  })
+})
+
+bookmarksRouter.get('/public/:slug/rss', async (c) => {
+  const col = await publicCollection(c.req.param('slug'))
+  if (!col) return c.json({ error: 'Not found' }, 404)
+  const rows = await db.select().from(bookmarks)
+    .where(and(eq(bookmarks.collectionId, col.id), or(eq(bookmarks.type, 'live'), eq(bookmarks.archiveState, 'ready'))))
+    .orderBy(desc(bookmarks.createdAt)).limit(100)
+  const esc = (s: string) => (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const base = new URL(c.req.url).origin
+  const items = rows.map((r) => `    <item>
+      <title>${esc(r.title || r.url)}</title>
+      <link>${esc(r.url)}</link>
+      <guid isPermaLink="false">${esc(r.id)}</guid>
+      ${r.excerpt ? `<description>${esc(r.excerpt)}</description>` : ''}
+      <pubDate>${(r.createdAt ?? new Date()).toUTCString()}</pubDate>
+    </item>`).join('\n')
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+    <title>${esc(col.name)}</title>
+    <link>${base}/b/${esc(col.publicSlug ?? '')}</link>
+    <description>Shared bookmarks collection</description>
+${items}
+</channel></rss>`
+  c.header('Content-Type', 'application/rss+xml; charset=utf-8')
+  return c.body(xml)
 })
 
 // ── Get one (full content) ──────────────────────────────────────────────────────
@@ -689,14 +1110,17 @@ bookmarksRouter.patch('/:id', requireAuth, async (c) => {
     title: string; status: 'unread' | 'reading' | 'archived'; collectionId: string | null
     tags: string[]; category: string; useProxy: boolean; useEmbed: boolean; sortOrder: number
     autoUpdate: boolean; autoUpdateIntervalMins: number | null; alertOnChange: boolean
-    captureMedia: boolean; makeGlobal: boolean
+    captureMedia: boolean; makeGlobal: boolean; isPinned: boolean
     watchSelector: string | null; watchMode: WatchMode; watchKeyword: string | null; watchThreshold: number | null
   }>>()
   const isAdmin = user.role === 'admin'
-  // Owners edit their own items; admins may edit anyone's (incl. global items, ownerId null).
-  const existing = await db.select().from(bookmarks)
-    .where(and(eq(bookmarks.id, id), isAdmin ? undefined : eq(bookmarks.ownerId, user.id))).then((r) => r[0])
+  // Owners + admins edit freely; a collection editor may also edit items inside a collection
+  // they collaborate on (Linkwarden's editor role).
+  const existing = await db.select().from(bookmarks).where(eq(bookmarks.id, id)).then((r) => r[0])
   if (!existing) return c.json({ error: 'Not found' }, 404)
+  const owns = existing.ownerId === user.id || (isAdmin && existing.ownerId === null)
+  const editor = !owns && !!existing.collectionId && (await collectionRole(existing.collectionId, user.id, isAdmin)) === 'editor'
+  if (!owns && !isAdmin && !editor) return c.json({ error: 'Not found' }, 404)
   // Scope change is admin-only: makeGlobal=true → global (ownerId null); false → owned by the
   // editing admin. Undefined leaves ownership untouched.
   const ownerId = (isAdmin && body.makeGlobal !== undefined)
@@ -718,6 +1142,7 @@ bookmarksRouter.patch('/:id', requireAuth, async (c) => {
     useProxy: body.useProxy !== undefined ? body.useProxy : existing.useProxy,
     useEmbed: body.useEmbed !== undefined ? body.useEmbed : existing.useEmbed,
     sortOrder: body.sortOrder !== undefined ? body.sortOrder : existing.sortOrder,
+    isPinned: body.isPinned !== undefined ? body.isPinned : existing.isPinned,
     autoUpdate,
     autoUpdateIntervalMins: body.autoUpdateIntervalMins !== undefined ? body.autoUpdateIntervalMins : existing.autoUpdateIntervalMins,
     alertOnChange: body.alertOnChange !== undefined ? body.alertOnChange : existing.alertOnChange,
@@ -737,7 +1162,7 @@ bookmarksRouter.patch('/:id', requireAuth, async (c) => {
     updatedAt: new Date(),
   }).where(eq(bookmarks.id, id))
 
-  if (body.tags !== undefined) await setItemTags(id, await resolveTagIds(user.id, body.tags))
+  if (body.tags !== undefined) await setItemTags(id, await resolveTagIds(existing.ownerId ?? user.id, body.tags))
   if (needsBaseline) await enqueueArchiveArticle(id, existing.title || existing.url, { force: true })
   return c.json({ ok: true })
 })
@@ -795,6 +1220,34 @@ bookmarksRouter.post('/:id/summarize', requireAuth, async (c) => {
     return c.json({ summary, tags })
   } catch (err) {
     return c.json({ error: 'Summarization failed', detail: String(err) }, 503)
+  }
+})
+
+// AI auto-tag with a chosen strategy (generate / existing / predefined). Persists the
+// resulting tags on the item (own items only). 'existing' pulls the user's current tags
+// as candidates; 'predefined' uses the supplied allow-list.
+bookmarksRouter.post('/:id/autotag', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { mode = 'generate', candidates } = await c.req.json<{ mode?: AutoTagMode; candidates?: string[] }>().catch(() => ({} as { mode?: AutoTagMode; candidates?: string[] }))
+  const item = await db.select().from(bookmarks)
+    .where(and(eq(bookmarks.id, id), or(isNull(bookmarks.ownerId), eq(bookmarks.ownerId, user.id)))).then((r) => r[0])
+  if (!item) return c.json({ error: 'Not found' }, 404)
+  if (!item.contentText) return c.json({ error: 'No readable text to tag' }, 422)
+  let cands = candidates
+  if (mode === 'existing' && !cands) {
+    cands = (await db.select({ name: bookmarkTags.name }).from(bookmarkTags).where(eq(bookmarkTags.ownerId, user.id))).map((t) => t.name)
+  }
+  try {
+    const tags = await autoTagArticle(item.title, item.contentText, { mode, candidates: cands })
+    if (tags.length && item.ownerId === user.id) {
+      const tagIds = await resolveTagIds(user.id, tags)
+      const have = new Set((await db.select({ tagId: bookmarkItemTags.tagId }).from(bookmarkItemTags).where(eq(bookmarkItemTags.itemId, id))).map((t) => t.tagId))
+      for (const tid of tagIds) if (!have.has(tid)) await db.insert(bookmarkItemTags).values({ itemId: id, tagId: tid })
+    }
+    return c.json({ tags })
+  } catch (err) {
+    return c.json({ error: 'Auto-tag failed', detail: String(err) }, 503)
   }
 })
 

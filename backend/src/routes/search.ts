@@ -6,6 +6,7 @@ import {
   ytDownloads, ytCollections, ytVideos, ytSubscriptions,
   feedItems, feeds, podcastEpisodes, podcastShows, clips,
   videoSaves, videoItems, videoFollows,
+  books, bookLibrary,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
@@ -21,7 +22,7 @@ const searchRouter = new Hono<AppEnv>()
 // libraries stay client-side in SpotlightSearch — this covers everything that lives in the DB.
 
 export interface SearchHit {
-  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video' | 'note'
+  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video' | 'note' | 'book'
   id: string
   title: string
   subtitle: string | null
@@ -379,8 +380,38 @@ const notesProvider: Provider = async (userId, q) => {
   return hits
 }
 
+// Books in the user's library, FTS over title/author/description. Opens the book's
+// detail page. Cover comes from the catalog coverUrl (remote sources) — the local
+// /:id/cover endpoint needs no auth-less URL, so fall back to a glyph for those.
+const booksProvider: Provider = async (userId, q) => {
+  const match = buildMatch(q)
+  if (!match) return []
+  const rows = await db.select({
+    id: books.id, title: books.title, author: books.author, coverUrl: books.coverUrl,
+    contentType: books.contentType, addedAt: bookLibrary.addedAt,
+  })
+    .from(bookLibrary)
+    .innerJoin(books, eq(bookLibrary.bookId, books.id))
+    .where(and(
+      eq(bookLibrary.userId, userId),
+      sql`books.rowid IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ${match})`,
+    ))
+    .orderBy(desc(bookLibrary.addedAt))
+    .limit(PER_PROVIDER)
+  return rows.map((r) => ({
+    type: 'book' as const,
+    id: r.id,
+    title: r.title,
+    subtitle: [r.author, r.contentType !== 'book' ? r.contentType : null].filter(Boolean).join(' · ') || null,
+    icon: r.coverUrl,
+    route: `/books/${r.id}`,
+    group: 'Books',
+  }))
+}
+
 const PROVIDERS: Provider[] = [
   bookmarksProvider,
+  booksProvider,
   notesProvider,
   highlightsProvider,
   newsProvider,

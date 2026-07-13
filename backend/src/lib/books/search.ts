@@ -18,6 +18,24 @@ import { browseArchiveVisualBooks } from './archiveOrg'
 import type { BookContentType } from './types'
 import { searchGoogleBooks } from './googleBooks'
 import { searchOpenLibrary } from './openLibrary'
+import { createTtlCache } from '@/lib/ttlCache'
+
+// Search results are the hot path (every submitted query pays the full remote
+// fan-out) but the corpus doesn't change minute-to-minute, so memoize per
+// normalized query for a short window. The first query after boot/expiry pays
+// the live fetch; repeats (pagination, back-navigation, two users searching the
+// same title) are instant.
+const SEARCH_TTL_MS = 60 * 1000
+const booksCache = createTtlCache<BookSearchResult[]>(SEARCH_TTL_MS)
+const catalogCache = createTtlCache<BookCatalogSearch>(SEARCH_TTL_MS)
+const normalizeKey = (q: string) => q.trim().toLowerCase().replace(/\s+/g, ' ')
+
+// Open Library enrichment only fills sparse fields, so it must never dominate
+// latency — cap it and fall back to the un-enriched results if it's slow.
+const ENRICH_CAP_MS = 2500
+function withCap<T>(promise: Promise<T>, fallback: T, capMs: number): Promise<T> {
+  return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), capMs))])
+}
 
 function visualTypeForQuery(query: string): Exclude<BookContentType, 'book'> | null {
   if (/\b(magazine|magazines|periodical|periodicals|journal|journals)\b/i.test(query)) return 'magazine'
@@ -51,6 +69,10 @@ function blendResults<T extends { source: string; sourceRef: string }>(groups: T
 export async function searchBooks(query: string): Promise<BookSearchResult[]> {
   const q = query.trim()
   if (!q) return []
+  return booksCache.getOrCompute(normalizeKey(q), () => searchBooksUncached(q))
+}
+
+async function searchBooksUncached(q: string): Promise<BookSearchResult[]> {
   const toggles = await getBuiltinSourceToggles()
   const [gutenberg, archiveOrg, wikisource, googleBooks, openLibrary, indexer] = await Promise.all([
     toggles.gutenberg ? searchGutenberg(q).catch(() => []) : Promise.resolve([]),
@@ -72,6 +94,10 @@ export interface BookCatalogSearch {
 export async function searchBookCatalog(query: string): Promise<BookCatalogSearch> {
   const q = query.trim()
   if (!q) return { ebooks: [], audiobooks: [], web: [] }
+  return catalogCache.getOrCompute(normalizeKey(q), () => searchBookCatalogUncached(q))
+}
+
+async function searchBookCatalogUncached(q: string): Promise<BookCatalogSearch> {
   const toggles = await getBuiltinSourceToggles()
   const visualType = visualTypeForQuery(q)
   const [ebooks, visualBooks, audiobooks, web] = await Promise.all([
@@ -90,9 +116,10 @@ export async function searchBookCatalog(query: string): Promise<BookCatalogSearc
     toggles.web ? searchWebBooks(q).catch(() => []) : Promise.resolve([]),
   ])
   const uniqueEbooks = [...new Map([...visualBooks, ...ebooks].map((item) => [`${item.source}:${item.sourceRef}`, item])).values()]
+  // Best-effort: enrich if Open Library answers within the cap, else return base.
   const [enrichedEbooks, enrichedAudiobooks] = await Promise.all([
-    enrichCatalogMetadata(q, uniqueEbooks),
-    enrichCatalogMetadata(q, audiobooks),
+    withCap(enrichCatalogMetadata(q, uniqueEbooks), uniqueEbooks, ENRICH_CAP_MS),
+    withCap(enrichCatalogMetadata(q, audiobooks), audiobooks, ENRICH_CAP_MS),
   ])
   return { ebooks: enrichedEbooks, audiobooks: enrichedAudiobooks, web }
 }

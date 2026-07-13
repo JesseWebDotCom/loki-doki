@@ -8,9 +8,8 @@ import { and, eq } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import {
   uploadBookFile, listLibrary, listLibraryIndex, getBook, getChapters, upsertProgress, getReadyAssetBlobHash, addLibrivoxAudiobook,
-  removeFromLibrary,
+  removeFromLibrary, getOrExtractBookCover,
 } from '@/lib/books/library'
-import { openEpub, readMetadata } from '@/lib/epub/parse'
 import { acquireRead, blobAbsPath, releaseRead } from '@/lib/content/store'
 import { searchBookCatalog, searchBooks } from '@/lib/books/search'
 import { getBookSample } from '@/lib/books/preview'
@@ -393,33 +392,15 @@ books.get('/:id/chapters/:idx/stream', async (c) => {
   return new Response(upstream.body, { status: upstream.status, headers })
 })
 
-const COVER_MIME: Record<string, string> = {
-  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
-}
-
-// Re-opens the EPUB and extracts the manifest's cover-image item. Cheap enough
-// (single in-memory unzip) to do per-request for v1; revisit with a cached
-// extraction-on-upload if book covers become a hot path. Only EPUB has this
-// concept server-side — PDF/CBZ covers are just "the first page", which the
-// client-side readers already show without a dedicated endpoint.
+// Serves the EPUB's cover image. Extraction happens once (at ingest/download, or
+// lazily on the first request for books added before covers were cached) and is
+// stored as a kind:'cover' media-asset blob — see lib/books/library.ts. Only EPUB
+// has this concept server-side; PDF/CBZ covers are just "the first page", which
+// the client-side readers already show without a dedicated endpoint.
 books.get('/:id/cover', async (c) => {
-  const asset = await getReadyAssetBlobHash(c.req.param('id'), 'ebook')
-  if (!asset || asset.format !== 'epub') return c.json({ code: 'no_cover' }, 404)
-  const absPath = await blobAbsPath(asset.hash)
-  acquireRead(asset.hash)
-  try {
-    const handle = await openEpub(absPath)
-    const meta = readMetadata(handle)
-    if (!meta.coverHref) return c.json({ code: 'no_cover' }, 404)
-    const bytes = handle.entries[meta.coverHref]
-    if (!bytes) return c.json({ code: 'no_cover' }, 404)
-    const ext = meta.coverHref.split('.').pop()?.toLowerCase() ?? ''
-    c.header('Content-Type', COVER_MIME[ext] ?? 'image/jpeg')
-    c.header('Cache-Control', 'private, max-age=86400')
-    return c.body(bytes as any)
-  } catch {
-    return c.json({ code: 'no_cover' }, 404)
-  } finally {
-    releaseRead(asset.hash)
-  }
+  const cover = await getOrExtractBookCover(c.req.param('id'))
+  if (!cover) return c.json({ code: 'no_cover' }, 404)
+  c.header('Content-Type', cover.mime)
+  c.header('Cache-Control', 'private, max-age=86400')
+  return c.body(cover.bytes as any)
 })

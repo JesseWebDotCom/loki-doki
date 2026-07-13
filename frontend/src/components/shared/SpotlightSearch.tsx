@@ -12,6 +12,7 @@ import {
   Newspaper,
   Mic,
   StickyNote,
+  BookMarked,
   type LucideIcon,
 } from "lucide-react";
 import { Dialog, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
@@ -45,7 +46,7 @@ interface LibraryItem {
 // Mirrors backend SearchHit (routes/search.ts).
 interface ContentHit {
   kind: "content";
-  type: "bookmark" | "news" | "companion" | "device" | "youtube" | "podcast" | "clip" | "video" | "note";
+  type: "bookmark" | "news" | "companion" | "device" | "youtube" | "podcast" | "clip" | "video" | "note" | "book";
   id: string;
   title: string;
   subtitle: string | null;
@@ -94,6 +95,7 @@ const CONTENT_ICON: Record<ContentHit["type"], LucideIcon> = {
   clip: Play,
   video: Play,
   note: StickyNote,
+  book: BookMarked,
 };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);

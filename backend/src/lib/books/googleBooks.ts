@@ -1,6 +1,7 @@
 import { safeFetch } from '@/lib/ssrfGuard'
 import type { BookContentType, BookSearchResult } from './types'
 import { getGoogleBooksApiKey } from './sourceToggles'
+import { createTtlCache } from '@/lib/ttlCache'
 
 interface GoogleVolume {
   id: string
@@ -60,6 +61,12 @@ export function searchGoogleBooks(query: string, contentType: BookContentType = 
   return queryGoogleBooks(query, contentType, 'relevance')
 }
 
+// The Book Store landing's visual shelves re-render on every visit but the
+// "newest" feeds barely move day-to-day — cache each section for a while so only
+// the first visit after boot/expiry pays the live fetch.
+const BROWSE_TTL_MS = 30 * 60 * 1000
+const browseCache = createTtlCache<BookSearchResult[]>(BROWSE_TTL_MS)
+
 export function browseGoogleBooks(type: Exclude<BookContentType, 'book'>): Promise<BookSearchResult[]> {
-  return queryGoogleBooks(SECTION_QUERY[type], type, 'newest')
+  return browseCache.getOrCompute(type, () => queryGoogleBooks(SECTION_QUERY[type], type, 'newest'))
 }

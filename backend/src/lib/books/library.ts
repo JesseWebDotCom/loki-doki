@@ -7,15 +7,86 @@
 import { randomUUID } from 'node:crypto'
 import { writeFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { eq, and, desc, isNotNull } from 'drizzle-orm'
+import { eq, and, desc, isNotNull, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { books, bookChapters, bookLibrary, bookProgress, mediaAssets } from '@/db/schema'
-import { contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/content/store'
+import { blobAbsPath, contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/content/store'
 import { openEpub, readMetadata, readSpineChapters, type EpubHandle } from '@/lib/epub/parse'
 import { convertCbrToCbz } from './comic'
 import { getLibrivoxAudiobook } from './librivox'
 
 const lockKey = (bookId: string) => `book:${bookId}:ebook`
+const coverLockKey = (bookId: string) => `book:${bookId}:cover`
+
+const COVER_MIME: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
+}
+
+/** Persist an EPUB's cover as a `kind:'cover'` media-asset blob so /:id/cover never
+ *  has to re-unzip the book per request. Extracted once at ingest/download (callers
+ *  already have the EPUB open) or lazily on the first cover request (see
+ *  getOrExtractBookCover). Dedups + GC's through the shared blob store like any
+ *  other rendition. Best-effort: a cover failure never blocks ingestion. */
+async function storeCoverAsset(bookId: string, handle: EpubHandle, coverHref: string | null): Promise<{ format: string; mime: string } | null> {
+  if (!coverHref) return null
+  const bytes = handle.entries[coverHref]
+  if (!bytes) return null
+  const ext = coverHref.split('.').pop()?.toLowerCase() ?? 'jpg'
+  const format = ext in COVER_MIME ? ext : 'jpg'
+  const mime = COVER_MIME[format] ?? 'image/jpeg'
+  return withLock(coverLockKey(bookId), async () => {
+    const [existing] = await db.select({ id: mediaAssets.id, status: mediaAssets.status }).from(mediaAssets)
+      .where(and(eq(mediaAssets.sourceType, 'book'), eq(mediaAssets.sourceId, bookId), eq(mediaAssets.kind, 'cover'), eq(mediaAssets.format, format))).limit(1)
+    if (existing?.status === 'ready') return { format, mime }
+    const tmpPath = join(await contentTmpDir(), `book-cover-${bookId}-${randomUUID()}.${format}`)
+    await writeFile(tmpPath, bytes)
+    const put = await putBlobFromFile(tmpPath, { mime })
+    const now = new Date()
+    if (existing) {
+      await db.update(mediaAssets).set({ blobHash: put.hash, sizeBytes: put.sizeBytes, status: 'ready', updatedAt: now }).where(eq(mediaAssets.id, existing.id))
+    } else {
+      await db.insert(mediaAssets).values({
+        id: randomUUID(), sourceType: 'book', sourceId: bookId, kind: 'cover', format,
+        blobHash: put.hash, sizeBytes: put.sizeBytes, status: 'ready', createdAt: now, updatedAt: now,
+      }).onConflictDoNothing()
+    }
+    await markBlobLive(put.hash)
+    return { format, mime }
+  }).catch(() => null)
+}
+
+export async function cacheBookCoverFromEpub(bookId: string, handle: EpubHandle, coverHref: string | null): Promise<void> {
+  await storeCoverAsset(bookId, handle, coverHref)
+}
+
+/** Serve-path helper for /:id/cover: return the cached cover bytes, extracting +
+ *  caching them on the first request for books ingested before covers were cached.
+ *  Returns null when the book has no EPUB cover. */
+export async function getOrExtractBookCover(bookId: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  // Fast path: a ready cover asset already exists.
+  const [cover] = await db.select({ blobHash: mediaAssets.blobHash, format: mediaAssets.format, status: mediaAssets.status })
+    .from(mediaAssets)
+    .where(and(eq(mediaAssets.sourceType, 'book'), eq(mediaAssets.sourceId, bookId), eq(mediaAssets.kind, 'cover'))).limit(1)
+  if (cover?.status === 'ready' && cover.blobHash) {
+    const abs = await blobAbsPath(cover.blobHash)
+    try {
+      const bytes = await Bun.file(abs).bytes()
+      return { bytes, mime: COVER_MIME[cover.format] ?? 'image/jpeg' }
+    } catch { /* blob missing — fall through to re-extract */ }
+  }
+  // Lazy backfill: extract from the EPUB blob, cache for next time, return bytes.
+  const ebook = await getReadyAssetBlobHash(bookId, 'ebook')
+  if (!ebook || ebook.format !== 'epub') return null
+  const abs = await blobAbsPath(ebook.hash)
+  const handle = await openEpub(abs)
+  const meta = readMetadata(handle)
+  if (!meta.coverHref) return null
+  const bytes = handle.entries[meta.coverHref]
+  if (!bytes) return null
+  await storeCoverAsset(bookId, handle, meta.coverHref)
+  const ext = meta.coverHref.split('.').pop()?.toLowerCase() ?? 'jpg'
+  return { bytes, mime: COVER_MIME[ext] ?? 'image/jpeg' }
+}
 
 export interface BookListItem {
   id: string
@@ -117,6 +188,9 @@ async function uploadEbookFile(userId: string, filename: string, bytes: Uint8Arr
     await db.insert(bookLibrary).values({ id: randomUUID(), userId, bookId, status: 'ready', addedAt: now })
   })
 
+  // Cache the cover now while the EPUB is already parsed, so /:id/cover never unzips.
+  if (handle && coverHref) await cacheBookCoverFromEpub(bookId, handle, coverHref)
+
   return { bookId }
 }
 
@@ -199,28 +273,29 @@ export async function listLibrary(userId: string): Promise<BookListItem[]> {
   const bookIds = rows.map((r) => r.id)
 
   // Only a READY asset counts as "available" — a book mid-download shouldn't
-  // claim to have an ebook/audio yet.
-  const assets = await db.select({ sourceId: mediaAssets.sourceId, kind: mediaAssets.kind })
-    .from(mediaAssets).where(and(eq(mediaAssets.sourceType, 'book'), eq(mediaAssets.status, 'ready')))
+  // claim to have an ebook/audio yet. Scope the scan to this user's books
+  // (was a global sweep of every household book asset, filtered in JS).
+  // Multi-track (LibriVox) audiobooks have no mediaAssets row at all — their
+  // chapters stream directly from an external URL — so "has audio" also needs to
+  // check bookChapters for at least one externalAudioUrl. Both run in parallel
+  // with the per-user progress read.
+  const [assets, progressRows, externalAudioRows] = await Promise.all([
+    db.select({ sourceId: mediaAssets.sourceId, kind: mediaAssets.kind })
+      .from(mediaAssets)
+      .where(and(eq(mediaAssets.sourceType, 'book'), eq(mediaAssets.status, 'ready'), inArray(mediaAssets.sourceId, bookIds))),
+    db.select().from(bookProgress).where(eq(bookProgress.userId, userId)),
+    db.selectDistinct({ bookId: bookChapters.bookId }).from(bookChapters)
+      .where(and(isNotNull(bookChapters.externalAudioUrl), inArray(bookChapters.bookId, bookIds))),
+  ])
+
   const kindsByBook = new Map<string, Set<string>>()
   for (const a of assets) {
-    if (!bookIds.includes(a.sourceId)) continue
     if (!kindsByBook.has(a.sourceId)) kindsByBook.set(a.sourceId, new Set())
     kindsByBook.get(a.sourceId)!.add(a.kind)
   }
 
-  const progressRows = await db.select().from(bookProgress).where(eq(bookProgress.userId, userId))
   const progressByBook = new Map(progressRows.map((p) => [p.bookId, p]))
-
-  // Multi-track (LibriVox) audiobooks have no mediaAssets row at all — their
-  // chapters stream directly from an external URL — so "has audio" also needs to
-  // check bookChapters for at least one externalAudioUrl.
-  const externalAudioBookIds = new Set(
-    (await db.selectDistinct({ bookId: bookChapters.bookId }).from(bookChapters)
-      .where(isNotNull(bookChapters.externalAudioUrl)))
-      .map((r) => r.bookId)
-      .filter((id) => bookIds.includes(id)),
-  )
+  const externalAudioBookIds = new Set(externalAudioRows.map((r) => r.bookId))
 
   return rows.map((r) => {
     const kinds = kindsByBook.get(r.id)
@@ -252,14 +327,16 @@ export async function listLibraryIndex(userId: string): Promise<LibraryIndexEntr
 }
 
 export async function getBook(bookId: string, userId: string) {
-  const [book] = await db.select().from(books).where(eq(books.id, bookId)).limit(1)
+  const [[book], [progress], [libraryRef], assets] = await Promise.all([
+    db.select().from(books).where(eq(books.id, bookId)).limit(1),
+    db.select().from(bookProgress)
+      .where(and(eq(bookProgress.userId, userId), eq(bookProgress.bookId, bookId))).limit(1),
+    db.select({ status: bookLibrary.status }).from(bookLibrary)
+      .where(and(eq(bookLibrary.userId, userId), eq(bookLibrary.bookId, bookId))).limit(1),
+    db.select({ kind: mediaAssets.kind, format: mediaAssets.format, status: mediaAssets.status, error: mediaAssets.error })
+      .from(mediaAssets).where(and(eq(mediaAssets.sourceType, 'book'), eq(mediaAssets.sourceId, bookId))),
+  ])
   if (!book) return null
-  const [progress] = await db.select().from(bookProgress)
-    .where(and(eq(bookProgress.userId, userId), eq(bookProgress.bookId, bookId))).limit(1)
-  const [libraryRef] = await db.select({ status: bookLibrary.status }).from(bookLibrary)
-    .where(and(eq(bookLibrary.userId, userId), eq(bookLibrary.bookId, bookId))).limit(1)
-  const assets = await db.select({ kind: mediaAssets.kind, format: mediaAssets.format, status: mediaAssets.status, error: mediaAssets.error })
-    .from(mediaAssets).where(and(eq(mediaAssets.sourceType, 'book'), eq(mediaAssets.sourceId, bookId)))
 
   // Multi-track (LibriVox) audiobooks have no mediaAssets row — synthesize one so
   // callers that check `assets.find(a => a.kind === 'audio' && a.status === 'ready')`

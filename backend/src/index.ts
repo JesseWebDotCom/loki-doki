@@ -395,6 +395,8 @@ if (firstBoot) {
   // Bookmarks auto-update: periodically re-archive items the user marked for monitoring, and alert
   // on content changes. Rides the download queue, so it's bounded the same way archiving is.
   import('@/lib/bookmarks/autoUpdate').then((m) => m.startBookmarkAutoUpdatePoller()).catch(() => {})
+  // Collection RSS ingest: auto-save new items from feeds a collection subscribes to.
+  import('@/lib/bookmarks/collectionRss').then((m) => m.startBookmarkCollectionRssPoller()).catch(() => {})
   // Shopping price tracker: re-check tracked listings on a jittered ~4h cadence and fire
   // price-drop/back-in-stock alerts through the notification matrix.
   import('@/lib/shopping/poller').then((m) => m.startShoppingPoller()).catch(() => {})

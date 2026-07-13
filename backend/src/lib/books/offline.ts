@@ -14,7 +14,8 @@ import { db } from '@/db'
 import { books, bookChapters, bookLibrary, downloadJobs, mediaAssets } from '@/db/schema'
 import { contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/content/store'
 import { safeFetch } from '@/lib/ssrfGuard'
-import { openEpub, readSpineChapters } from '@/lib/epub/parse'
+import { openEpub, readMetadata, readSpineChapters } from '@/lib/epub/parse'
+import { cacheBookCoverFromEpub } from './library'
 import { resolveGutenbergDownload } from './gutenberg'
 import { resolveArchiveOrgDownload } from './archiveOrg'
 import { resolveIndexerDownload } from './indexer'
@@ -233,7 +234,9 @@ export async function runBookDownloadJob(
     }
     if (completed === 0) throw new Error('Download returned no data')
 
-    const chapters = format === 'epub' ? readSpineChapters(await openEpub(tmpPath)) : []
+    const epubHandle = format === 'epub' ? await openEpub(tmpPath) : null
+    const chapters = epubHandle ? readSpineChapters(epubHandle) : []
+    const coverHref = epubHandle ? readMetadata(epubHandle).coverHref : null
     const mime = format === 'epub' ? 'application/epub+zip'
       : format === 'pdf' ? 'application/pdf' : 'application/vnd.comicbook+zip'
 
@@ -253,6 +256,8 @@ export async function runBookDownloadJob(
       }
       await linkReady(bookId)
     })
+    // Cache the cover while the EPUB is already parsed, so /:id/cover never unzips.
+    if (epubHandle && coverHref) await cacheBookCoverFromEpub(bookId, epubHandle, coverHref)
     logger.info(`[books] downloaded "${book.title}" from ${book.sourceType} (${(put.sizeBytes / 1e6).toFixed(1)} MB${put.deduped ? ', deduped' : ''})`)
   } catch (err) {
     await unlink(tmpPath).catch(() => {})

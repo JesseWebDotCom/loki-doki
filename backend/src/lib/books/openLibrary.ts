@@ -1,5 +1,6 @@
 import { safeFetch } from '@/lib/ssrfGuard'
 import type { BookContentType, BookSearchResult } from './types'
+import { createTtlCache } from '@/lib/ttlCache'
 
 interface OpenLibraryDoc {
   key?: string; title?: string; author_name?: string[]; cover_i?: number
@@ -62,6 +63,11 @@ export function searchOpenLibrary(query: string, contentType: BookContentType = 
   return queryOpenLibrary(new URLSearchParams({ q: query }), contentType)
 }
 
+// Landing-page visual shelves: cache each section (see googleBooks.ts for the
+// same rationale — hot render path, slow-moving "new" feed).
+const BROWSE_TTL_MS = 30 * 60 * 1000
+const browseCache = createTtlCache<BookSearchResult[]>(BROWSE_TTL_MS)
+
 export function browseOpenLibrary(type: Exclude<BookContentType, 'book'>): Promise<BookSearchResult[]> {
-  return queryOpenLibrary(new URLSearchParams({ subject: SECTION_SUBJECT[type], sort: 'new' }), type)
+  return browseCache.getOrCompute(type, () => queryOpenLibrary(new URLSearchParams({ subject: SECTION_SUBJECT[type], sort: 'new' }), type))
 }

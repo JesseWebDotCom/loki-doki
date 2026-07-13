@@ -1,6 +1,7 @@
 import { searchArchiveOrg } from './archiveOrg'
 import { searchOpenLibrary } from './openLibrary'
 import type { BookSearchResult } from './types'
+import { createTtlCache } from '@/lib/ttlCache'
 
 export interface MagazineCategory {
   label: string
@@ -118,7 +119,16 @@ function isMagazine(item: BookSearchResult): boolean {
   return item.contentType === 'magazine'
 }
 
-async function magazineSearch(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}): Promise<BookSearchResult[]> {
+// Magazine shelves fan out to IA + Open Library on every landing visit; the feeds
+// barely move, so cache each (topic, source-toggle) combination for a while.
+const BROWSE_TTL_MS = 30 * 60 * 1000
+const browseCache = createTtlCache<BookSearchResult[]>(BROWSE_TTL_MS)
+
+function magazineSearch(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}): Promise<BookSearchResult[]> {
+  return browseCache.getOrCompute(`${topic}:${opts.archive !== false}:${opts.openLibrary !== false}`, () => magazineSearchUncached(topic, opts))
+}
+
+async function magazineSearchUncached(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}): Promise<BookSearchResult[]> {
   const category = categoryForTopic(topic)
   // A named-title IA query for the shelf, plus a plain keyword query for Open Library.
   const iaQuery = category?.query ?? `(${topic}) AND (magazine OR periodical OR journal)`

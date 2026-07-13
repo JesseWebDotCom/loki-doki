@@ -1984,6 +1984,32 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS bookmark_highlights_bookmark_idx ON bookmark_highlights(bookmark_id, user_id);
   `)
 
+  // ── Linkwarden-parity columns (nesting, sharing, RSS, pinned, uploads) ──────────
+  // Nested sub-collections + public sharing + RSS auto-ingest on collections.
+  addColumn('bookmark_collections', 'parent_id', 'TEXT')
+  addColumn('bookmark_collections', 'is_public', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('bookmark_collections', 'public_slug', 'TEXT')
+  addColumn('bookmark_collections', 'rss_url', 'TEXT')
+  addColumn('bookmark_collections', 'rss_auto_tag', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('bookmark_collections', 'rss_last_fetch', 'INTEGER')
+  // Pinned + uploaded-file (pdf/image) bookmarks.
+  addColumn('bookmarks', 'is_pinned', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('bookmarks', 'content_kind', `TEXT NOT NULL DEFAULT 'link'`)
+  addColumn('bookmarks', 'upload_path', 'TEXT')
+
+  // Collection collaborators (schema.ts bookmarkCollectionMembers).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS bookmark_collection_members (
+      id TEXT NOT NULL PRIMARY KEY,
+      collection_id TEXT NOT NULL REFERENCES bookmark_collections(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS bookmark_collection_members_idx ON bookmark_collection_members(collection_id, user_id);
+    CREATE INDEX IF NOT EXISTS bookmark_collection_members_user_idx ON bookmark_collection_members(user_id);
+  `)
+
   // Multi-voice narration (schema.ts narrationSessions/narrationSpeakers/narrationTurns).
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS narration_sessions (
@@ -2133,6 +2159,41 @@ export function runMigrations() {
   addColumn('books', 'content_type', "TEXT NOT NULL DEFAULT 'book'")
   addColumn('book_chapters', 'external_audio_duration_sec', 'REAL')
   addColumn('book_progress', 'audio_chapter_idx', 'INTEGER')
+
+  // FTS5 over the shared books catalog (external-content), kept in sync by triggers.
+  // Powers the global-search books provider (Cmd+K) — title/author/description of any
+  // catalog title someone in the household has saved.
+  sqlite.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
+      title, author, description,
+      content='books', content_rowid='rowid'
+    );
+    CREATE TRIGGER IF NOT EXISTS books_ai AFTER INSERT ON books BEGIN
+      INSERT INTO books_fts(rowid, title, author, description)
+        VALUES (new.rowid, new.title, new.author, new.description);
+    END;
+    CREATE TRIGGER IF NOT EXISTS books_ad AFTER DELETE ON books BEGIN
+      INSERT INTO books_fts(books_fts, rowid, title, author, description)
+        VALUES ('delete', old.rowid, old.title, old.author, old.description);
+    END;
+    CREATE TRIGGER IF NOT EXISTS books_au AFTER UPDATE ON books BEGIN
+      INSERT INTO books_fts(books_fts, rowid, title, author, description)
+        VALUES ('delete', old.rowid, old.title, old.author, old.description);
+      INSERT INTO books_fts(rowid, title, author, description)
+        VALUES (new.rowid, new.title, new.author, new.description);
+    END;
+  `)
+  // Backfill books_fts — triggers only fire on FUTURE writes. Guarded/idempotent.
+  try {
+    const booksFtsCount = (sqlite.query(`SELECT count(*) AS c FROM books_fts`).get() as { c: number }).c
+    const booksRowCount = (sqlite.query(`SELECT count(*) AS c FROM books`).get() as { c: number }).c
+    if (booksFtsCount === 0 && booksRowCount > 0) {
+      sqlite.exec(`INSERT INTO books_fts(books_fts) VALUES('rebuild');`)
+      console.warn(`[migrations] backfilled books_fts (${booksRowCount} rows)`)
+    }
+  } catch (err) {
+    console.warn('[migrations] books_fts backfill failed:', err instanceof Error ? err.message : err)
+  }
 
   // News categories: feed_folders doubles as the News category table. Back-fill slug/locked
   // for existing DBs, and relax user_id to nullable (shared/built-in categories have userId=null).

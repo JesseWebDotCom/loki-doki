@@ -10,6 +10,7 @@
 
 import { safeFetch } from '@/lib/ssrfGuard'
 import type { BookContentType, BookSearchResult, DownloadableBookFormat, ResolvedDownload } from './types'
+import { createTtlCache } from '@/lib/ttlCache'
 
 interface IaSearchDoc {
   identifier: string
@@ -171,7 +172,18 @@ function bestFormat(type: Exclude<BookContentType, 'book'>, formats: string[]): 
   return null
 }
 
-export async function browseArchiveVisualBooks(type: Exclude<BookContentType, 'book'>, limit = 12, titleQuery?: string): Promise<BookSearchResult[]> {
+// Cache the landing-page browse (no titleQuery) — the search-scoped variant
+// (titleQuery set, called from search.ts) is already covered by the query cache
+// there, so it stays a live pass-through.
+const BROWSE_TTL_MS = 30 * 60 * 1000
+const browseCache = createTtlCache<BookSearchResult[]>(BROWSE_TTL_MS)
+
+export function browseArchiveVisualBooks(type: Exclude<BookContentType, 'book'>, limit = 12, titleQuery?: string): Promise<BookSearchResult[]> {
+  if (titleQuery) return browseArchiveVisualBooksUncached(type, limit, titleQuery)
+  return browseCache.getOrCompute(`${type}:${limit}`, () => browseArchiveVisualBooksUncached(type, limit))
+}
+
+async function browseArchiveVisualBooksUncached(type: Exclude<BookContentType, 'book'>, limit = 12, titleQuery?: string): Promise<BookSearchResult[]> {
   const params = new URLSearchParams({
     q: `${titleQuery ? `${titleQuery} AND ` : ''}${VISUAL_QUERY[type]} AND mediatype:(texts) AND NOT access-restricted-item:(true)`,
     rows: String(limit * 2), page: '1', output: 'json', sort: 'date desc',

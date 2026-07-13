@@ -1547,8 +1547,8 @@ export const mediaAssets = sqliteTable('media_assets', {
   id: text('id').primaryKey(),
   sourceType: text('source_type').notNull().default('youtube'),
   sourceId: text('source_id').notNull(),           // e.g. the YouTube videoId
-  kind: text('kind', { enum: ['audio', 'video', 'ebook'] }).notNull(),
-  format: text('format').notNull(),                // container (m4a | mp3 | mp4 | epub) — part of identity
+  kind: text('kind', { enum: ['audio', 'video', 'ebook', 'cover'] }).notNull(),
+  format: text('format').notNull(),                // container (m4a | mp3 | mp4 | epub | jpg/png for cover) — part of identity
   height: integer('height'),                       // actual stored pixel height (null for audio)
   blobHash: text('blob_hash'),                     // → blobs.hash; null until first download lands
   status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('pending'),
@@ -2021,12 +2021,42 @@ export const feedItemScores = sqliteTable('feed_item_scores', {
 export const bookmarkCollections = sqliteTable('bookmark_collections', {
   id: text('id').primaryKey(),
   ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  // parentId → nested sub-collections (Linkwarden-style folder tree). Plain self-ref
+  // (no FK) so we can re-parent orphans in the delete handler rather than cascade-wipe
+  // a whole subtree. null = a top-level collection.
+  parentId: text('parent_id'),
   name: text('name').notNull(),
   icon: text('icon'),
   color: text('color'),
+  // ── Public sharing ──
+  // isPublic exposes a read-only view at /b/:publicSlug (no auth) with the collection's
+  // links + a matching RSS feed. publicSlug is a short random token minted on first publish.
+  isPublic: integer('is_public', { mode: 'boolean' }).notNull().default(false),
+  publicSlug: text('public_slug'),
+  // ── RSS auto-ingest ──
+  // rssUrl: a feed this collection subscribes to; the poller auto-saves new items as Live
+  // bookmarks into this collection. rssAutoTag opts those into AI tagging. null = no feed.
+  rssUrl: text('rss_url'),
+  rssAutoTag: integer('rss_auto_tag', { mode: 'boolean' }).notNull().default(false),
+  rssLastFetch: integer('rss_last_fetch', { mode: 'timestamp' }),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ─── Bookmark collection members (collaboration / shared collections) ──────────
+// A collection's owner can invite other household users as collaborators. role='viewer'
+// sees the links; role='editor' can add/move/remove links too. The owner is implicit
+// (not stored here). Mirrors Linkwarden's UsersAndCollections permission model.
+export const bookmarkCollectionMembers = sqliteTable('bookmark_collection_members', {
+  id: text('id').primaryKey(),
+  collectionId: text('collection_id').notNull().references(() => bookmarkCollections.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role', { enum: ['viewer', 'editor'] }).notNull().default('viewer'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  memberIdx: index('bookmark_collection_members_idx').on(t.collectionId, t.userId),
+  userIdx: index('bookmark_collection_members_user_idx').on(t.userId),
+}))
 
 export const bookmarkTags = sqliteTable('bookmark_tags', {
   id: text('id').primaryKey(),
@@ -2059,6 +2089,14 @@ export const bookmarks = sqliteTable('bookmarks', {
   category: text('category').notNull().default('Other'),
   collectionId: text('collection_id').references(() => bookmarkCollections.id, { onDelete: 'set null' }),
   sortOrder: integer('sort_order').notNull().default(0),
+  // ── Pinned + uploaded-file bookmarks ──
+  // isPinned: surface on the Bookmarks home "Pinned" shelf. contentKind: 'link' is a normal
+  // web bookmark; 'pdf'/'image' is a user-uploaded file saved under the archive dir and served
+  // via /:id/archive/<uploadPath> (Linkwarden's PDF/image content types). uploadPath is the
+  // archive-relative filename of that upload (null for plain links).
+  isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
+  contentKind: text('content_kind', { enum: ['link', 'pdf', 'image'] }).notNull().default('link'),
+  uploadPath: text('upload_path'),
   // ── Auto-update / change monitoring ──
   // autoUpdate: periodically re-archive this item on a schedule (see lib/bookmarks/autoUpdate.ts).
   // intervalMins null → default cadence. alertOnChange: notify the owner when a refresh detects

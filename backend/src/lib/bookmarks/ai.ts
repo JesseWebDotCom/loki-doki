@@ -18,6 +18,35 @@ export async function summarizeArticle(title: string, text: string): Promise<{ s
   return { summary: String(out.summary ?? '').trim(), tags: Array.isArray(out.tags) ? out.tags.map((t) => String(t).toLowerCase().trim()).filter(Boolean).slice(0, 5) : [] }
 }
 
+export type AutoTagMode = 'generate' | 'existing' | 'predefined'
+
+// Auto-tag an article by one of three strategies (Linkwarden's autoTagLink model):
+//   generate   — invent fresh topic tags from the content
+//   existing   — pick only from the tags the user already uses (candidates)
+//   predefined — pick only from an admin/user-supplied allow-list (candidates)
+// 'existing'/'predefined' with no candidates degrade to 'generate'.
+export async function autoTagArticle(
+  title: string,
+  text: string,
+  opts: { mode: AutoTagMode; candidates?: string[] } = { mode: 'generate' },
+): Promise<string[]> {
+  const model = await getFastModel()
+  const body = text.slice(0, MAX_CHARS)
+  const cands = [...new Set((opts.candidates ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean))]
+  const constrained = (opts.mode === 'existing' || opts.mode === 'predefined') && cands.length > 0
+  const instruction = constrained
+    ? `Choose the 1-5 tags from this list that best match the article (return an EMPTY array if none fit; do NOT invent tags): ${cands.join(', ')}.`
+    : `Return 3-5 short lowercase topic tags that categorize the article.`
+  const out = await structuredCall<{ tags: string[] }>(
+    model,
+    `Title: ${title}\n\nArticle:\n${body}\n\n${instruction}\nReturn JSON: { "tags": string[] }.`,
+    'You tag articles by topic. Tags are short, lowercase, and specific.',
+  )
+  let tags = Array.isArray(out.tags) ? out.tags.map((t) => String(t).toLowerCase().trim()).filter(Boolean) : []
+  if (constrained) { const allow = new Set(cands); tags = tags.filter((t) => allow.has(t)) }
+  return [...new Set(tags)].slice(0, 5)
+}
+
 export async function askArticle(title: string, text: string, question: string): Promise<string> {
   const model = await getModel()
   const body = text.slice(0, MAX_CHARS)
