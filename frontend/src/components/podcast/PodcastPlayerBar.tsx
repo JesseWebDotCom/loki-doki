@@ -4,6 +4,8 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
+import { coverUrl } from '@/lib/podcast/api'
+import { accentOf, readableOn, useArtPalette } from '@/lib/artPalette'
 import { NowPlaying } from '@/components/podcast/NowPlaying'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { fmtTime } from '@/lib/podcast/format'
@@ -30,6 +32,12 @@ export function PodcastPlayerBar() {
   const drag = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
 
   useEffect(() => { if (!track) { setPopped(false); setWin(null); setSheetOpen(false) } }, [track])
+
+  // Cover palette: a whisper of the show's colours across the glass bar plus an
+  // accent-tinted play control, so the bar carries the show's persona
+  // (mirrors YoutubeMiniBar/RadioMiniBar).
+  const palette = useArtPalette(track?.showId ? coverUrl(track.showId) : null)
+  const accent = accentOf(palette)
 
   if (!track) return null
   const total = track.durationSec || duration || 0
@@ -75,7 +83,10 @@ export function PodcastPlayerBar() {
         </div>
       )}
 
-      <div className="glass-chrome relative border-t border-border/60 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+      <div className="glass-chrome relative overflow-hidden border-t border-border/60 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+        {/* UltraBlur wash: the cover's corner colours at whisper opacity. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 opacity-[0.16] dark:opacity-25"
+          style={{ background: `linear-gradient(90deg, ${palette.corners[0]}, ${palette.corners[1]} 35%, transparent 60%, ${palette.corners[3]})` }} />
         {/* Scrubber */}
         <div
           className="group absolute -top-1 left-0 h-2 w-full cursor-pointer"
@@ -85,7 +96,7 @@ export function PodcastPlayerBar() {
           }}
         >
           <div className="absolute top-1 h-0.5 w-full bg-muted" />
-          <div className="absolute top-1 h-0.5 bg-brand" style={{ width: `${pct}%` }} />
+          <div className="absolute top-1 h-0.5" style={{ width: `${pct}%`, background: accent }} />
         </div>
 
         {/* Phone: shared compact row; tap opens the full Now Playing sheet. */}
@@ -94,6 +105,8 @@ export function PodcastPlayerBar() {
           title={track.title}
           subtitle={<span className="truncate">{track.showName}</span>}
           playing={playing}
+          accent={accent}
+          accentText={readableOn(accent)}
           onToggle={playing ? pause : resume}
           onNext={next}
           onClose={close}
@@ -115,7 +128,8 @@ export function PodcastPlayerBar() {
 
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon-sm" onClick={prev} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Previous"><SkipBack className="size-4" /></Button>
-            <Button size="icon" onClick={playing ? pause : resume} aria-label={playing ? 'Pause' : 'Play'}>
+            <Button size="icon" onClick={playing ? pause : resume} aria-label={playing ? 'Pause' : 'Play'}
+              style={{ background: accent, color: readableOn(accent) }}>
               {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current ml-0.5" />}
             </Button>
             <Button variant="ghost" size="icon-sm" onClick={next} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Next"><SkipForward className="size-4" /></Button>

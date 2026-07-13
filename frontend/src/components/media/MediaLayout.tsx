@@ -28,6 +28,9 @@ export function MediaLayout() {
     '--brand': a.fg,
     '--brand-hover': a.hover,
     '--brand-foreground': a.contrast,
+    // --primary resolves at the root (see ArtAccentScope), so filled Buttons need it set here too.
+    '--primary': a.fg,
+    '--primary-foreground': a.contrast,
     '--ring': a.fg,
     // A faint identity wash over the near-black base, same recipe as Videos/Music.
     backgroundImage: `linear-gradient(color-mix(in oklab, ${a.base} 4%, transparent), color-mix(in oklab, ${a.base} 4%, transparent))`,

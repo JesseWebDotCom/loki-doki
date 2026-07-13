@@ -5,7 +5,11 @@ import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
-import { getEpisodeDetail, type EpisodeDetail } from '@/lib/podcast/api'
+import { coverUrl, getEpisodeDetail, type EpisodeDetail } from '@/lib/podcast/api'
+import { accentOf, DEFAULT_PALETTE, useArtPalette } from '@/lib/artPalette'
+import { accentVars } from '@/components/shared/ArtAccentScope'
+import { UltraBlur } from '@/components/shared/UltraBlur'
+import { SeekBar } from '@/components/shared/SeekBar'
 import { fmtTime, fmtDate } from '@/lib/podcast/format'
 
 type Tab = 'chapters' | 'transcript' | 'details'
@@ -21,6 +25,13 @@ export function NowPlaying() {
   const [detail, setDetail] = useState<EpisodeDetail | null>(null)
   const [sleepMin, setSleepMin] = useState(0)
   const sleepTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Immersive backdrop: the show cover through UltraBlur, with the whole panel's
+  // chrome (play button, tabs, links) retinted to the cover palette. Always-dark,
+  // matching the Music player posture, regardless of the app theme.
+  const art = track?.showId ? coverUrl(track.showId) : null
+  const palette = useArtPalette(art)
+  const accent = accentOf(palette)
 
   useEffect(() => {
     setDetail(null)
@@ -53,9 +64,13 @@ export function NowPlaying() {
   const cycleSleep = () => setSleepMin(SLEEP_OPTIONS[(SLEEP_OPTIONS.indexOf(sleepMin) + 1) % SLEEP_OPTIONS.length] ?? 0)
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto p-5">
+    <div data-theme="dark" className="relative flex h-full flex-col overflow-hidden rounded-[inherit] bg-black text-foreground"
+      style={palette !== DEFAULT_PALETTE ? accentVars(palette) : undefined}>
+      <UltraBlur artUrl={art} palette={palette} />
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-5">
+      <div className="mx-auto w-full max-w-xl">
       {/* Cover + meta */}
-      <ShowCover showId={track.showId ?? ''} title={track.showName} size={248} fill rounded="rounded-card" className="mx-auto aspect-square w-full max-w-[248px]" />
+      <ShowCover showId={track.showId ?? ''} title={track.showName} size={248} rounded="rounded-card" className="mx-auto shadow-2xl" />
       <div className="mt-4">
         {track.showId
           ? <Link to={`/podcasts/show/${track.showId}`} className="text-xs font-semibold text-brand hover:underline">{track.showName}</Link>
@@ -66,11 +81,7 @@ export function NowPlaying() {
 
       {/* Scrubber */}
       <div className="mt-4">
-        <input
-          type="range" min={0} max={total || 100} step={1} value={positionSec}
-          onChange={e => seek(Number(e.target.value))}
-          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-brand"
-        />
+        <SeekBar pos={positionSec} total={total || 100} onSeek={seek} accent={accent} />
         <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
           <span>{fmtTime(positionSec)}</span>
           <span>-{fmtTime(Math.max(0, total - positionSec))}</span>
@@ -217,6 +228,8 @@ export function NowPlaying() {
           )}
         </div>
       )}
+      </div>
+      </div>
     </div>
   )
 }

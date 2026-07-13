@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Switch } from '@/components/ui/switch'
 import {
-  getEpisodes, toTrack, refreshSubscription, unsubscribePodcast, updateSubscription,
+  coverUrl, getEpisodes, toTrack, refreshSubscription, unsubscribePodcast, updateSubscription,
   downloadEpisode, removeEpisodeDownload,
   type Episode, type Show,
 } from '@/lib/podcast/api'
@@ -128,6 +128,7 @@ export function RssShowDetail({ show }: { show: Show }) {
 
       {/* ── Hero ── */}
       <ShowHero
+        art={coverUrl(show.id)}
         cover={<ShowCover showId={show.id} title={show.name} size={176} rounded="rounded-card" />}
         badges={show.categories}
         title={show.name}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowUpDown, ChevronDown, Radio, Search } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { ArtAccentScope } from '@/components/shared/ArtAccentScope'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -12,8 +13,11 @@ export const EPISODE_PAGE_SIZE = 50
 
 /** Hero panel: cover on the left; badges, title, author, meta line, clamped
  *  description, and the action row on the right - on a rounded-sheet card with
- *  a soft brand radial glow (the swept detail-page idiom). */
-export function ShowHero({ cover, badges, title, author, meta, description, warning, actions }: {
+ *  a soft radial glow. Pass `art` (same-origin cover URL) and the glow, author
+ *  link, and action chrome retint to the show's own palette via ArtAccentScope;
+ *  without art (or while it loads) the app brand glow stays. */
+export function ShowHero({ art, cover, badges, title, author, meta, description, warning, actions }: {
+  art?: string | null
   cover: React.ReactNode
   badges?: string[]
   title: string
@@ -24,8 +28,8 @@ export function ShowHero({ cover, badges, title, author, meta, description, warn
   actions?: React.ReactNode
 }) {
   return (
-    <div className="relative overflow-hidden rounded-sheet border border-border bg-card p-6">
-      {/* App identity as atmosphere: soft brand glow, not a paint-bucket fill. */}
+    <ArtAccentScope art={art ?? null} className="relative overflow-hidden rounded-sheet border border-border bg-card p-6">
+      {/* Show identity as atmosphere: soft glow off the cover palette, not a paint-bucket fill. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
@@ -56,7 +60,7 @@ export function ShowHero({ cover, badges, title, author, meta, description, warn
           {actions && <div className="mt-4 flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
       </div>
-    </div>
+    </ArtAccentScope>
   )
 }
 

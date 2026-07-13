@@ -7,7 +7,7 @@
 // never per-card in grids.
 
 import type { CSSProperties, ReactNode } from 'react'
-import { accentOf, readableOn, useArtPalette, type Palette } from '@/lib/artPalette'
+import { accentOf, DEFAULT_PALETTE, readableOn, useArtPalette, type Palette } from '@/lib/artPalette'
 
 /** Global accent override for one extracted palette (inline vars beat any layout's). */
 export function accentVars(palette: Palette): CSSProperties {
@@ -16,12 +16,19 @@ export function accentVars(palette: Palette): CSSProperties {
     '--brand': accent,
     '--brand-hover': `color-mix(in oklab, ${accent} 85%, white)`,
     '--brand-foreground': readableOn(accent),
+    // --primary is declared as var(--brand) at the root, so it resolves THERE and
+    // inherits the resolved value; scoped --brand overrides never reach it. Set it
+    // explicitly so filled Buttons (bg-primary) follow the artwork too.
+    '--primary': accent,
+    '--primary-foreground': readableOn(accent),
     '--ring': accent,
     '--accent-soft': `color-mix(in oklab, ${accent} 15%, transparent)`,
   } as CSSProperties
 }
 
-/** Wrap a hero/player/detail surface so its chrome tints to the artwork's palette. */
+/** Wrap a hero/player/detail surface so its chrome tints to the artwork's palette.
+ *  While extraction is pending, and when it fails (404 cover, tainted canvas), the
+ *  surrounding accent is left untouched instead of flashing the fallback palette. */
 export function ArtAccentScope({ art, className, style, children }: {
   art: string | null
   className?: string
@@ -29,8 +36,9 @@ export function ArtAccentScope({ art, className, style, children }: {
   children: ReactNode
 }) {
   const palette = useArtPalette(art)
+  const active = !!art && palette !== DEFAULT_PALETTE
   return (
-    <div className={className} style={art ? { ...accentVars(palette), ...style } : style}>
+    <div className={className} style={active ? { ...accentVars(palette), ...style } : style}>
       {children}
     </div>
   )

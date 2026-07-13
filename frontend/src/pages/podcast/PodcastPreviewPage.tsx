@@ -124,6 +124,7 @@ export function PodcastPreviewPage() {
       {/* ── Hero - seed-painted while the feed loads ── */}
       {title ? (
         <ShowHero
+          art={artwork ? proxyImg(artwork) : null}
           cover={<PreviewCover url={artwork} title={title} />}
           badges={badges}
           title={title}
