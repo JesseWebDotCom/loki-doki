@@ -32,6 +32,8 @@ export function classifyRoute(pathname: string): RouteChrome {
     pathname.startsWith("/youtube") ||
     pathname.startsWith("/music") ||
     pathname.startsWith("/bookmarks") ||
+    // Notes is a rail+scroller layout app like Bookmarks: it owns its full height.
+    pathname.startsWith("/notes") ||
     pathname.startsWith("/books") ||
     // Movies + Shows live in the always-dark MediaLayout cinema shell (owns its scroller
     // + backdrop). "/showtimes" is NOT caught: fifth char differs ("/shows" vs "/showt").
