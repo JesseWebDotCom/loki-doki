@@ -95,7 +95,7 @@ export function applyDsp(next: DspSettings): void {
   for (const ref of liveGraphs) {
     const g = ref.deref()
     if (g) applyToGraph(g)
-    else liveGraphs.delete(ref)   // element was GC'd — drop the dead ref
+    else liveGraphs.delete(ref)   // element was GC'd; drop the dead ref
   }
 }
 

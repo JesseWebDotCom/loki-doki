@@ -1,4 +1,4 @@
-// AUTO-GENERATED from @mdi/js — the specific icon paths HAIcon.defaultPath and DeviceCard
+// AUTO-GENERATED from @mdi/js: the specific icon paths HAIcon.defaultPath and DeviceCard
 // render synchronously. Kept as inline strings so these eager components do NOT statically
 // import @mdi/js (a single ~2.8MB module): that import used to weld the whole MDI set onto
 // the first-paint path. The full set is still dynamically imported by HAIcon for custom

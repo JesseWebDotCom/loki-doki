@@ -50,7 +50,7 @@ const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: 
 };
 
 // Scoped to the content pane (not the whole screen) so a lazy route chunk loading
-// on a fresh page load only blanks the content area — the sidebar/breadcrumb chrome
+// on a fresh page load only blanks the content area; the sidebar/breadcrumb chrome
 // around it stays mounted the whole time instead of flashing away and back.
 function PageLoading() {
   return (

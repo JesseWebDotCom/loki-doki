@@ -496,7 +496,7 @@ function Label({ children }: { children: React.ReactNode }) {
 }
 
 function parseOtdYear(title: string): { year: string; text: string } {
-  const m = title.match(/^(\d{1,4})\s*[—–]\s*(.+)$/);
+  const m = title.match(/^(\d{1,4})\s*[—–]\s*(.+)$/); // design-ok(em-dash): regex parses dash separators in external titles
   return m ? { year: m[1]!, text: m[2]! } : { year: "", text: title };
 }
 

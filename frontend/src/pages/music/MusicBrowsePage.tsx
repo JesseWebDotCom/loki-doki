@@ -76,7 +76,7 @@ function OfflineBrowse({ q }: { q: string }) {
   const radio = useRadio()
   const [term, setTerm] = useState(q)
   useEffect(() => { setTerm(q) }, [q])
-  // Poll only while a save is actually in progress (matches useOffline.ts) — the pages used to
+  // Poll only while a save is actually in progress (matches useOffline.ts); the pages used to
   // hit these ~4-query-per-station endpoints every 5s for the whole time they were open.
   const { data: stationData } = useQuery({ queryKey: ['music-offline-stations'], queryFn: listOfflineStations, refetchInterval: q => (q.state.data?.stations.some(s => s.offline.status === 'pending' || s.offline.status === 'partial') ? 4000 : false) })
   const { data: offlineData } = useQuery({ queryKey: ['music-offline'], queryFn: listOffline, refetchInterval: q => (q.state.data?.offline.some(t => t.status === 'pending' || t.status === 'downloading') ? 4000 : false) })

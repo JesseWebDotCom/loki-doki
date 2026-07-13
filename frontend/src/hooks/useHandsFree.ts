@@ -25,7 +25,7 @@ import { getSileroVad, type SileroVadStream } from '@/lib/voice/silero-vad'
 //
 // Wakeword precedence: a trained ONNX model (wakeWordModelId) always takes
 // priority. WhisperWakewordLoop (wakeWordPhrase) is only a fallback when no
-// usable model is assigned — so any arbitrary text can be a wake word with no
+// usable model is assigned; so any arbitrary text can be a wake word with no
 // training, but a leftover phrase can never shadow a trained model.
 
 const TTS_MUTE_GRACE_MS = 400

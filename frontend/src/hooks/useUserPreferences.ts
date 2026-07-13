@@ -35,7 +35,7 @@ function writeCachedPreferences(userId: string, prefs: UserPreferences): void {
   try {
     localStorage.setItem(LOCAL_CACHE_PREFIX + userId, JSON.stringify(prefs))
   } catch {
-    // storage full/unavailable — the network fetch remains the source of truth
+    // storage full/unavailable; the network fetch remains the source of truth
   }
 }
 

@@ -74,7 +74,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
 
   const pendingStart = useRef(0)
   const lastSaved = useRef(0)
-  // Id for the current play session — freshly minted on every playTrackAt (play/playQueue/
+  // Id for the current play session; freshly minted on every playTrackAt (play/playQueue/
   // next/prev alike), sent with now-playing reports and the stop/clear signal. See
   // nowPlaying.ts for why: it's what lets the device re-show a dismissed bar on a fresh
   // play and keeps a lagging clear from wiping out a session that's since moved on.

@@ -37,7 +37,7 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
   reportAliveRef.current = reportAlive
   // useRadio()/usePodcastPlayback() return a fresh value every second while media plays (the
   // engine's positionSec ticks). Read them through refs so the SSE-opening effect can depend on
-  // [] — depending on `radio` tore down and reopened the EventSource once per second, dropping
+  // []; depending on `radio` tore down and reopened the EventSource once per second, dropping
   // any command that landed in a reconnect gap.
   const navigateRef = useRef(navigate)
   navigateRef.current = navigate

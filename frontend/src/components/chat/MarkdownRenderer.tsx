@@ -5,7 +5,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-// PrismLight ships no languages by default — register only the ones chat code blocks actually
+// PrismLight ships no languages by default; register only the ones chat code blocks actually
 // use, instead of the full Prism build (all ~300 grammars) that was bloating the entry chunk.
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
