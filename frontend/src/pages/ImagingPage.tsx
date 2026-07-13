@@ -15,6 +15,9 @@ import { StatusDot } from '@/components/shared/StatusDot'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { DEFAULT_PALETTE, useArtPalette } from '@/lib/artPalette'
+import { accentVars } from '@/components/shared/ArtAccentScope'
+import { UltraBlur } from '@/components/shared/UltraBlur'
 import { useGenerationContext } from '@/context/GenerationContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { usePrivacy } from '@/context/PrivacyContext'
@@ -141,7 +144,7 @@ function GenProgress({ step, total, elapsedMs }: { step: number; total: number; 
             className="h-full rounded-full transition-all duration-500"
             style={{
               width: `${Math.max(4, pct)}%`,
-              background: 'linear-gradient(90deg, #6366f1, #ec4899)',
+              background: 'linear-gradient(90deg, var(--brand), color-mix(in oklab, var(--brand) 55%, white))',
             }}
           />
         </div>
@@ -158,6 +161,7 @@ function GenProgress({ step, total, elapsedMs }: { step: number; total: number; 
 // ── Fullscreen lightbox ───────────────────────────────────────────────────────
 
 function Lightbox({ src, prompt, onClose }: { src: string; prompt?: string; onClose: () => void }) {
+  const palette = useArtPalette(src)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -170,10 +174,11 @@ function Lightbox({ src, prompt, onClose }: { src: string; prompt?: string; onCl
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
       onClick={onClose}
     >
+      <UltraBlur artUrl={src} palette={palette} scrim="heavy" />
       <img
         src={src}
         alt={prompt ?? ''}
-        className="max-w-full max-h-full object-contain select-none"
+        className="relative max-w-full max-h-full object-contain select-none"
         onClick={e => e.stopPropagation()}
       />
       <Button
@@ -1290,6 +1295,10 @@ export function ImagingPage() {
 
   // Edit panel: result → gallery selection → history source → uploaded preview
   const editResultSrc = edit.imageId ? `/api/image/artifacts/${edit.imageId}` : null
+  // Sanctioned palette surface: the CURRENT result tints the canvas pane's chrome
+  // (progress bar, selection rings via --brand). One extraction, never per history tile.
+  const canvasArt = activeTab === 'generate' ? genDisplaySrc : activeTab === 'edit' ? editResultSrc : null
+  const canvasPalette = useArtPalette(canvasArt)
   const editDisplaySrc = editResultSrc
     ?? (selectedEditHistoryId ? `/api/image/artifacts/${selectedEditHistoryId}` : null)
     ?? (editSourceId ? `/api/image/artifacts/${editSourceId}` : null)
@@ -2163,7 +2172,8 @@ export function ImagingPage() {
         {/* ── Canvas ───────────────────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-h-0">
 
-          <div className="flex-1 relative p-4 min-h-0">
+          <div className="flex-1 relative p-4 min-h-0"
+            style={canvasArt && canvasPalette !== DEFAULT_PALETTE ? accentVars(canvasPalette) : undefined}>
             <div
               className={cn(
                 'relative w-full h-full rounded-sheet overflow-hidden bg-muted border transition-colors',

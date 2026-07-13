@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { ArtAccentScope } from '@/components/shared/ArtAccentScope'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { VideoThumb } from '@/components/youtube/media'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
@@ -172,9 +173,17 @@ function BuyBox({
   const priceCents = best?.effective?.effectiveCents ?? best?.priceCents ?? null
   const savedCents = best?.effective ? best.effective.applied.reduce((s, a) => s + a.savedCents, 0) : 0
 
+  // Accent-only palette pass: the CTA, price emphasis, and focus rings inside the
+  // buy box follow the product image; the rest of the page keeps the app accent.
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="grid gap-6 p-6 sm:grid-cols-[minmax(0,280px)_1fr] sm:p-8">
+    <ArtAccentScope art={data.imageUrl ? proxyImg(data.imageUrl) : null}
+      className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'radial-gradient(560px circle at 0% 0%, color-mix(in oklch, var(--brand) 8%, transparent), transparent 60%)' }}
+      />
+      <div className="relative grid gap-6 p-6 sm:grid-cols-[minmax(0,280px)_1fr] sm:p-8">
         <div className="relative flex aspect-square items-center justify-center rounded-xl bg-white p-6 shadow-inner ring-1 ring-border/40">
           {deal && (
             <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">
@@ -288,7 +297,7 @@ function BuyBox({
           </div>
         </div>
       </div>
-    </div>
+    </ArtAccentScope>
   )
 }
 
