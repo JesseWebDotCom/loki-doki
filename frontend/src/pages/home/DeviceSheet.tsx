@@ -11,11 +11,13 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Pencil, Trash2, RefreshCw, ExternalLink, Phone, FileText, Upload,
   Send, Plus, X, CheckCircle2, WifiOff, Star, Sparkles, Link2,
-  ChevronDown, ScanText,
+  ChevronDown, ScanText, StickyNote,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { notesByTarget, createNote as createLinkedNote } from '@/lib/notes/api'
 import type { HomeDevice, DeviceCategory } from '../HomeInventoryPage'
 
 interface ServiceEntry {
@@ -1195,17 +1197,71 @@ function InsightsTab({ device }: { device: HomeDevice }) {
 
 // ── Main Sheet ────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'links' | 'photos' | 'specs' | 'service' | 'files' | 'ask' | 'insights'
+type TabId = 'overview' | 'links' | 'photos' | 'specs' | 'service' | 'notes' | 'files' | 'ask' | 'insights'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'links', label: 'Links' },
   { id: 'photos', label: 'Photos' },
   { id: 'specs', label: 'Specs' },
   { id: 'service', label: 'Service' },
+  { id: 'notes', label: 'Notes' },
   { id: 'files', label: 'Files' },
   { id: 'insights', label: 'Insights' },
   { id: 'ask', label: 'Ask AI' },
 ]
+
+// ── Notes tab ────────────────────────────────────────────────────────────────────
+// A window into the central Notes app: notes linked to this device via note_links.
+// Content is stored ONLY in Notes (single editor there); "Add note" creates a note
+// pre-linked to the device and jumps straight into it. The Overview tab's freeform
+// `device.notes` field stays for quick one-liners; anything document-shaped
+// (procedures, gotchas, research) belongs here.
+function NotesTab({ device, onNavigate }: { device: HomeDevice; onNavigate: () => void }) {
+  const navigate = useNavigate()
+  const { data: linked = [], isLoading } = useQuery({
+    queryKey: ['notes-by-target', 'device', device.id],
+    queryFn: () => notesByTarget('device', device.id),
+  })
+
+  async function addNote() {
+    try {
+      const note = await createLinkedNote({
+        title: `${device.name} notes`,
+        links: [{ targetType: 'device', targetId: device.id }],
+      })
+      onNavigate()
+      navigate(`/notes/${note.id}?new=1`)
+    } catch { /* toast is overkill inside the sheet; the button just stays */ }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {isLoading ? (
+        <div className="flex justify-center py-8"><Spinner /></div>
+      ) : linked.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No notes linked to this device yet. Keep install gotchas, fixes, and how-tos here.
+        </p>
+      ) : (
+        linked.map((n) => (
+          <button key={n.id} type="button"
+            onClick={() => { onNavigate(); navigate(`/notes/${n.id}`) }}
+            className="flex flex-col gap-1 rounded-card border border-border/50 px-4 py-3 text-left transition-colors hover:border-border hover:bg-accent/30">
+            <span className="flex items-center gap-2">
+              <StickyNote className="size-4 shrink-0 text-muted-foreground" />
+              <span className="truncate text-sm font-semibold">{n.title || 'Untitled note'}</span>
+              {n.isShared && <Badge variant="secondary" className="ml-auto shrink-0 text-[10px]">Household</Badge>}
+            </span>
+            {n.excerpt && <span className="line-clamp-2 text-xs text-muted-foreground">{n.excerpt}</span>}
+          </button>
+        ))
+      )}
+      <Button size="sm" variant="outline" onClick={addNote} className="self-start">
+        <Plus className="size-3 mr-1" />Add note
+      </Button>
+    </div>
+  )
+}
 
 export function DeviceSheet({ device, open, onOpenChange, onUpdated, onDeleted }: DeviceSheetProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -1260,6 +1316,7 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdated, onDeleted }
             {activeTab === 'photos'   && <PhotosTab device={device} onUpdated={onUpdated} />}
             {activeTab === 'specs'    && <SpecsTab device={device} onUpdated={onUpdated} />}
             {activeTab === 'service'  && <ServiceTab deviceId={device.id} />}
+            {activeTab === 'notes'    && <NotesTab device={device} onNavigate={() => onOpenChange(false)} />}
             {activeTab === 'files'    && <FilesTab deviceId={device.id} />}
             {activeTab === 'insights' && <InsightsTab device={device} />}
             {activeTab === 'ask'      && <AskAITab device={device} />}

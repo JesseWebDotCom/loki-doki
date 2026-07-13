@@ -21,6 +21,7 @@ import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
 import { buildBlock, extractSources } from '@/lib/blockBuilder'
 import { recallMemories, formatMemoriesForPrompt, matchPromptEntities } from '@/memory/recall'
+import { recallNotesBlock } from '@/lib/notes/recall'
 import { getCachedMemoryBlock, setCachedMemoryBlock } from '@/memory/blockCache'
 import { embed } from '@/llm/embed'
 import { buildInteractionFragment, ProfanityStreamBuffer, getProtections, getInteractionStyle } from '@/lib/protections'
@@ -294,11 +295,13 @@ export async function runCompanionTurn(
     matchPromptEntities(p.message, p.userId, p.characterId).catch(() => new Set<string>()),
   ])
 
-  // ── Memory block (cached per conversation; entity-aware staleness) ─────────
+  // ── Memory + notes blocks (cached per conversation; entity-aware staleness) ─
   let memoryBlock: string | null = null
+  let notesBlock: string | null = null
   const cachedMem = getCachedMemoryBlock(p.convId, promptEntityIds)
   if (cachedMem) {
     memoryBlock = cachedMem.memoryBlock
+    notesBlock = cachedMem.notesBlock
     _lap('memory-done(cached)')
   }
 
@@ -317,14 +320,20 @@ export async function runCompanionTurn(
           allowedToolIds,
         }),
     cachedMem
-      ? Promise.resolve(null as string | null)
+      ? Promise.resolve(null as { memory: string | null; notes: string | null } | null)
       : embed(p.message)
           .then(async (embedding) => {
             _lap('embed-done')
-            const recalled = await recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds)
-            return formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding)
+            // Memory recall and notes recall share the message embedding; notes
+            // failures never cost the turn its memory block.
+            const [memory, notes] = await Promise.all([
+              recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds)
+                .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding)),
+              recallNotesBlock(p.message, p.userId, embedding).catch(() => null),
+            ])
+            return { memory, notes }
           })
-          .catch(() => null as string | null),
+          .catch(() => null as { memory: string | null; notes: string | null } | null),
     isOffline(p.userId).catch(() => false),
     includeSkills
       ? activeSkillsBlock(p.userId).catch((e) => { logger.warn(`[skills] active-skills block failed: ${e}`); return null })
@@ -338,10 +347,11 @@ export async function runCompanionTurn(
   ])
 
   if (!cachedMem) {
-    memoryBlock = computedMemory
+    memoryBlock = computedMemory?.memory ?? null
+    notesBlock = computedMemory?.notes ?? null
     // A prime's block was recalled for '' — caching it would hand the real turn a
     // block with no message-specific vector hits (quality loss beats the KV win).
-    if (!p.primeOnly) setCachedMemoryBlock(p.convId, memoryBlock, { entityIds: promptEntityIds, userId: p.userId })
+    if (!p.primeOnly) setCachedMemoryBlock(p.convId, memoryBlock, { entityIds: promptEntityIds, userId: p.userId, notesBlock })
     _lap('memory-done(computed)')
   }
 
@@ -782,6 +792,7 @@ export async function runCompanionTurn(
     // sits after the stable prefix. Bonus: end-of-prompt recency bias gives the
     // recalled memories MORE attentional weight, not less.
     if (memoryBlock) systemParts.push(memoryBlock)
+    if (notesBlock) systemParts.push(notesBlock)
     // Older conversation content the trimmed history window no longer carries.
     if (p.conversationSummary) {
       systemParts.push(`## Earlier in this conversation\n${p.conversationSummary}`)

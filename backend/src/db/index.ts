@@ -3110,4 +3110,94 @@ export function runMigrations() {
   addColumn('studio_media', 'description', 'TEXT')
   addColumn('generated_images', 'title', 'TEXT')
   addColumn('generated_images', 'description', 'TEXT')
+
+  // Notes app (see schema.ts notebooks/notes/noteTags/noteItemTags/noteLinks/noteChunks).
+  // owner_id NULL = household-shared (admin-managed), same convention as bookmarks.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS notebooks (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      icon TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS notes (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      notebook_id TEXT REFERENCES notebooks(id) ON DELETE SET NULL,
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      tags_text TEXT NOT NULL DEFAULT '',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'user',
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS notes_owner_updated_idx ON notes(owner_id, updated_at);
+    CREATE TABLE IF NOT EXISTS note_tags (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS note_item_tags (
+      note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES note_tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (note_id, tag_id)
+    );
+    CREATE TABLE IF NOT EXISTS note_links (
+      id TEXT NOT NULL PRIMARY KEY,
+      note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS note_links_target_idx ON note_links(target_type, target_id);
+    CREATE INDEX IF NOT EXISTS note_links_note_idx ON note_links(note_id);
+    CREATE TABLE IF NOT EXISTS note_chunks (
+      id TEXT NOT NULL PRIMARY KEY,
+      note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      embedding TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS note_chunks_note_idx ON note_chunks(note_id);
+
+    -- FTS5 over notes (external-content), kept in sync by triggers. tags_text is the
+    -- denormalized tag names column so tag words match without joining note_item_tags.
+    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+      title, body, tags_text,
+      content='notes', content_rowid='rowid'
+    );
+    CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+      INSERT INTO notes_fts(rowid, title, body, tags_text)
+        VALUES (new.rowid, new.title, new.body, new.tags_text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+      INSERT INTO notes_fts(notes_fts, rowid, title, body, tags_text)
+        VALUES ('delete', old.rowid, old.title, old.body, old.tags_text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+      INSERT INTO notes_fts(notes_fts, rowid, title, body, tags_text)
+        VALUES ('delete', old.rowid, old.title, old.body, old.tags_text);
+      INSERT INTO notes_fts(rowid, title, body, tags_text)
+        VALUES (new.rowid, new.title, new.body, new.tags_text);
+    END;
+  `)
+
+  // Backfill notes_fts from existing rows — triggers only fire on FUTURE writes, so a
+  // mirror created against a populated table starts empty. Guarded/idempotent.
+  try {
+    const notesFtsCount = (sqlite.query(`SELECT count(*) AS c FROM notes_fts`).get() as { c: number }).c
+    const notesRowCount = (sqlite.query(`SELECT count(*) AS c FROM notes`).get() as { c: number }).c
+    if (notesFtsCount === 0 && notesRowCount > 0) {
+      sqlite.exec(`INSERT INTO notes_fts(notes_fts) VALUES('rebuild');`)
+      console.warn(`[migrations] backfilled notes_fts (${notesRowCount} rows)`)
+    }
+  } catch (err) {
+    console.warn('[migrations] notes_fts backfill failed:', err instanceof Error ? err.message : err)
+  }
 }

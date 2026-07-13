@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import {
-  bookmarks, bookmarkHighlights, characters, homeDevices,
+  bookmarks, bookmarkHighlights, characters, homeDevices, notes,
   ytDownloads, ytCollections, ytVideos, ytSubscriptions,
   feedItems, feeds, podcastEpisodes, podcastShows, clips,
   videoSaves, videoItems, videoFollows,
@@ -21,7 +21,7 @@ const searchRouter = new Hono<AppEnv>()
 // libraries stay client-side in SpotlightSearch — this covers everything that lives in the DB.
 
 export interface SearchHit {
-  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video'
+  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video' | 'note'
   id: string
   title: string
   subtitle: string | null
@@ -330,8 +330,58 @@ const videosProvider: Provider = async (userId, q) => {
   return [...byKey.values()].slice(0, PER_PROVIDER)
 }
 
+// Notes: FTS over title/body/tags, own + household-shared. Thin results → semantic
+// fallback over embedded note chunks (paraphrase queries), mirroring bookmarks.
+const notesProvider: Provider = async (userId, q) => {
+  const match = buildMatch(q)
+  if (!match) return []
+  const visible = or(isNull(notes.ownerId), eq(notes.ownerId, userId))
+  const rows = await db.select().from(notes)
+    .where(and(visible, sql`notes.rowid IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ${match})`))
+    .orderBy(desc(notes.updatedAt))
+    .limit(PER_PROVIDER)
+
+  const subtitleOf = (r: typeof rows[number], suffix?: string) => {
+    const scope = r.ownerId === null ? 'Household' : 'Personal'
+    const firstLine = r.body.replace(/[#*`>\-\[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
+    return [scope, firstLine, suffix].filter(Boolean).join(' · ')
+  }
+  const hits = rows.map((r) => ({
+    type: 'note' as const,
+    id: r.id,
+    title: r.title || 'Untitled note',
+    subtitle: subtitleOf(r),
+    icon: null,
+    route: `/notes/${r.id}`,
+    group: 'Notes',
+  }))
+
+  if (hits.length < 3) {
+    const { retrieveNoteChunks } = await import('@/lib/notes/chunks')
+    const chunkHits = await retrieveNoteChunks(userId, q, 6).catch(() => [])
+    const seen = new Set(hits.map((h) => h.id))
+    const extraIds = [...new Set(chunkHits.map((h) => h.noteId))].filter((id) => !seen.has(id)).slice(0, 3)
+    if (extraIds.length) {
+      const extra = await db.select().from(notes).where(inArray(notes.id, extraIds))
+      for (const r of extra) {
+        hits.push({
+          type: 'note' as const,
+          id: r.id,
+          title: r.title || 'Untitled note',
+          subtitle: subtitleOf(r, 'related'),
+          icon: null,
+          route: `/notes/${r.id}`,
+          group: 'Notes',
+        })
+      }
+    }
+  }
+  return hits
+}
+
 const PROVIDERS: Provider[] = [
   bookmarksProvider,
+  notesProvider,
   highlightsProvider,
   newsProvider,
   youtubeProvider,

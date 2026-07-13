@@ -23,6 +23,9 @@
 
 interface MemCacheEntry {
   memoryBlock: string | null
+  /** Notes recall block (lib/notes/recall.ts) — rides the same entry so entity
+   *  staleness, MAX_TURNS, TTL, and judge-write invalidation cover it too. */
+  notesBlock: string | null
   /** Entity ids the cached block was computed against. */
   entityIds: Set<string>
   /** Owner — lets a judge write invalidate every conversation block for the user. */
@@ -53,7 +56,7 @@ export const MEMORY_BLOCK_MAX_TURNS = 8
 export function getCachedMemoryBlock(
   key: string,
   currentEntityIds?: Set<string>,
-): { memoryBlock: string | null } | null {
+): { memoryBlock: string | null; notesBlock: string | null } | null {
   const entry = cache.get(key)
   if (!entry || entry.expiresAt <= Date.now()) return null
   if (entry.turnsServed >= MEMORY_BLOCK_MAX_TURNS) { cache.delete(key); return null }
@@ -63,16 +66,17 @@ export function getCachedMemoryBlock(
     }
   }
   entry.turnsServed++
-  return { memoryBlock: entry.memoryBlock }
+  return { memoryBlock: entry.memoryBlock, notesBlock: entry.notesBlock }
 }
 
 export function setCachedMemoryBlock(
   key: string,
   memoryBlock: string | null,
-  opts?: { entityIds?: Set<string>; userId?: string },
+  opts?: { entityIds?: Set<string>; userId?: string; notesBlock?: string | null },
 ): void {
   cache.set(key, {
     memoryBlock,
+    notesBlock: opts?.notesBlock ?? null,
     entityIds: opts?.entityIds ?? new Set(),
     userId: opts?.userId ?? null,
     turnsServed: 0,

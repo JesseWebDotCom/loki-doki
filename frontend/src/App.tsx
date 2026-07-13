@@ -70,6 +70,9 @@ const AdminPage = lazy(() => import('@/pages/AdminPage').then((m) => ({ default:
 // CodeMirror, and the podcast/store/companion-store/shows/movies groups are large but rarely
 // the first page a session opens).
 const HomeInventoryPage = lazy(() => import('@/pages/HomeInventoryPage').then((m) => ({ default: m.HomeInventoryPage })))
+const NotesLayout = lazy(() => import('@/components/notes/NotesLayout').then((m) => ({ default: m.NotesLayout })))
+const NotesListPage = lazy(() => import('@/pages/notes/NotesListPage').then((m) => ({ default: m.NotesListPage })))
+const NoteEditorPage = lazy(() => import('@/pages/notes/NoteEditorPage').then((m) => ({ default: m.NoteEditorPage })))
 const CompanionStoreLayout = lazy(() => import('@/components/companions/store/CompanionStoreLayout').then((m) => ({ default: m.CompanionStoreLayout })))
 const CompanionHomePage = lazy(() => import('@/pages/companion-store/CompanionHomePage').then((m) => ({ default: m.CompanionHomePage })))
 const CompanionBrowsePage = lazy(() => import('@/pages/companion-store/CompanionBrowsePage').then((m) => ({ default: m.CompanionBrowsePage })))
@@ -413,6 +416,10 @@ export default function App() {
                   <Route path="collection/:id" element={<BookmarksLibraryPage />} />
                   <Route path="read/:id" element={<BookmarkReadPage />} />
                   <Route path="settings" element={<BookmarksSettingsPage />} />
+                </Route>
+                <Route path="/notes" element={<NotesLayout />}>
+                  <Route index element={<NotesListPage />} />
+                  <Route path=":id" element={<NoteEditorPage />} />
                 </Route>
                 {/* Backward-compat redirects: the app was renamed Reader/Links → Bookmarks. */}
                 <Route path="/reader/*" element={<Navigate to="/bookmarks" replace />} />

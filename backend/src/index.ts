@@ -53,6 +53,7 @@ import { voice } from '@/routes/voice'
 import { createSttRoute } from '@/routes/stt'
 import { bookmarks } from '@/routes/bookmarks'
 import { adminBookmarks } from '@/routes/adminBookmarks'
+import { notesRouter } from '@/routes/notes'
 import { narration } from '@/routes/narration'
 import { books } from '@/routes/books'
 import { booksGenerate } from '@/routes/booksGenerate'
@@ -518,6 +519,7 @@ app.route('/api/pod', deviceStudio)
 app.route('/api/browser-session', browserSessionRoute)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
+app.route('/api/notes', notesRouter)
 app.route('/api/clipper', clipperRoute)
 app.route('/api/narration', narration)
 app.route('/api/books', books)

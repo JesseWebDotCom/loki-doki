@@ -3014,3 +3014,79 @@ export const videoPlexEpisodes = sqliteTable('video_plex_episodes', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userSourceVideoUnique: unique().on(t.userId, t.source, t.videoId) }))
+
+// ─── Notes (household knowledge base) ─────────────────────────────────────────
+// Markdown reference notes: appliance install gotchas, homelab runbooks, project
+// research, measurements. ownerId null = household-shared (visible to everyone,
+// admin-managed — same convention as bookmarks); non-null = personal. Content lives
+// ONLY here; other apps (Home Inventory device sheet) surface notes via note_links.
+// Companion reads notes through note_chunks recall (lib/notes/recall.ts) and writes
+// through the remember tool's capture classification (tools/memory.ts).
+
+export const notebooks = sqliteTable('notebooks', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }), // null = household-shared (admin-managed)
+  name: text('name').notNull(),
+  icon: text('icon'),
+  color: text('color'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const notes = sqliteTable('notes', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }), // null = household-shared
+  notebookId: text('notebook_id').references(() => notebooks.id, { onDelete: 'set null' }),
+  title: text('title').notNull().default(''),
+  body: text('body').notNull().default(''),            // markdown
+  // Denormalized space-joined tag names, maintained by routes/notes.ts on every tag
+  // change purely so the notes_fts triggers index tags without extra FTS plumbing.
+  tagsText: text('tags_text').notNull().default(''),
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  source: text('source', { enum: ['user', 'companion'] }).notNull().default('user'),
+  // Audit only (shared notes must survive their creator's deletion).
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  ownerUpdatedIdx: index('notes_owner_updated_idx').on(t.ownerId, t.updatedAt),
+}))
+
+// ownerId null = shared-scope tag (rendered for every member); non-null = personal.
+export const noteTags = sqliteTable('note_tags', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+})
+
+export const noteItemTags = sqliteTable('note_item_tags', {
+  noteId: text('note_id').notNull().references(() => notes.id, { onDelete: 'cascade' }),
+  tagId: text('tag_id').notNull().references(() => noteTags.id, { onDelete: 'cascade' }),
+}, t => ({ pk: primaryKey({ columns: [t.noteId, t.tagId] }) }))
+
+// Polymorphic link from a note to an app entity (no FK on targetId by design).
+export const noteLinks = sqliteTable('note_links', {
+  id: text('id').primaryKey(),
+  noteId: text('note_id').notNull().references(() => notes.id, { onDelete: 'cascade' }),
+  targetType: text('target_type', { enum: ['device', 'bookmark'] }).notNull(),
+  targetId: text('target_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  targetIdx: index('note_links_target_idx').on(t.targetType, t.targetId),
+  noteIdx: index('note_links_note_idx').on(t.noteId),
+}))
+
+// Embedded chunks of title+body (nomic via Ollama; JSON float array — docChunks
+// convention), rebuilt after each content change. Powers companion recall and the
+// global-search semantic fallback. Rows absent when embeddings were unavailable at
+// save time — consumers degrade to FTS.
+export const noteChunks = sqliteTable('note_chunks', {
+  id: text('id').primaryKey(),
+  noteId: text('note_id').notNull().references(() => notes.id, { onDelete: 'cascade' }),
+  idx: integer('idx').notNull(),
+  text: text('text').notNull(),
+  embedding: text('embedding'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  noteIdx: index('note_chunks_note_idx').on(t.noteId),
+}))

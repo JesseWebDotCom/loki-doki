@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Film, Gauge, Gift, Home, Image as ImageIcon, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package,
-  Search, Settings2, Share2, Smile, Sparkles, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
+  Search, Settings2, Share2, Smile, Sparkles, StickyNote, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
 
 export interface AppItem {
@@ -125,6 +125,7 @@ export const APP_GROUPS: AppGroup[] = [
     apps: [
       { id: "home-assistant", to: "/home-assistant", label: "Home Assistant", description: "Control smart home devices",    gradient: "linear-gradient(135deg,#1c1917,#57534e)", color: "#78716c", icon: Home,    feature: "homeAssistant",  toolId: "homeAssistant" },
       { id: "home-inventory", to: "/home-inventory", label: "Home Inventory", description: "Track devices & appliances",    gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Package, feature: "home-inventory", toolId: "home_inventory" },
+      { id: "notes",          to: "/notes",          label: "Notes",          description: "Household knowledge base & personal notes", gradient: "linear-gradient(135deg,#713f12,#ca8a04)", color: "#ca8a04", icon: StickyNote, feature: "notes" },
       { id: "cameras",        to: "/cameras",        label: "Cameras",        description: "Recent camera activity & clips", gradient: "linear-gradient(135deg,#1c1917,#3f3f46)", color: "#a1a1aa", icon: Camera },
       { id: "drop",           to: "/drop",           label: "Drop",           description: "Send files & links between your devices", gradient: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "#3b82f6", icon: Share2 },
     ],
