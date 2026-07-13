@@ -132,6 +132,7 @@ export const youtubeProvider: VideoProvider = {
       viewsText: meta.views,
       live: meta.isLive,
       description: meta.description,
+      familySafe: meta.familySafe ?? undefined,
     }
   },
 

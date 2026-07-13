@@ -116,6 +116,7 @@ export async function subscribeToFeed(
     author: parsed.author || seed?.author || null,
     link: parsed.link ?? null,
     categoriesJson: JSON.stringify(parsed.categories.length ? parsed.categories : (seed?.genre ? [seed.genre] : [])),
+    explicit: parsed.explicit,
     feedEtag: fetched.etag, feedLastModified: fetched.lastModified, feedFetchedAt: now,
     createdAt: now,
   })
@@ -151,6 +152,7 @@ async function insertEpisodes(showId: string, episodes: ParsedEpisodes): Promise
       enclosureUrl: e.enclosureUrl, enclosureType: e.enclosureType, enclosureBytes: e.enclosureBytes,
       imageUrl: e.imageUrl, link: e.link,
       publishedAt: e.publishedAt ? new Date(e.publishedAt) : null,
+      explicit: e.explicit,
       createdAt: now,
     }))).onConflictDoNothing()
   }

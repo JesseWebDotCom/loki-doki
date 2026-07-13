@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, Star, ShieldAlert, ChevronRight, ChevronLeft, Check } from 'lucide-react'
+import { Plus, Trash2, Star, ShieldAlert, ChevronRight, ChevronLeft, Check, Baby } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Spinner } from '@/components/ui/spinner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ContentDialGroup, MIN_DIALS, normalizeDials, CONTENT_DIALS } from '@/components/shared/contentDials'
@@ -21,6 +22,7 @@ interface Profile {
   dials: ContentDialValues
   isBuiltin: boolean
   sortOrder: number
+  kidSafeMedia: boolean
 }
 
 const opts: RequestInit = { credentials: 'include' }
@@ -72,7 +74,7 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
     try {
       const r = await fetch(`/api/admin/content/profiles/${p.slug}`, {
         ...opts, method: 'PUT', headers: J,
-        body: JSON.stringify({ name: p.name, description: p.description, dials: p.dials }),
+        body: JSON.stringify({ name: p.name, description: p.description, dials: p.dials, kidSafeMedia: p.kidSafeMedia }),
       })
       if (!r.ok) throw new Error()
     } catch { toast.error('Failed to save') } finally { setSaving(false) }
@@ -81,6 +83,13 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
   const setDial = (k: DialKey, v: string) => {
     if (!draft) return
     const next = { ...draft, dials: { ...draft.dials, [k]: v } }
+    setDraft(next)
+    void saveDraft(next)
+  }
+
+  const setKidSafe = (on: boolean) => {
+    if (!draft) return
+    const next = { ...draft, kidSafeMedia: on }
     setDraft(next)
     void saveDraft(next)
   }
@@ -163,6 +172,22 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
                 placeholder="What this profile is for"
                 className="h-9"
               />
+            </div>
+          </div>
+
+          {/* Kid-Safe Media: one master switch for music/videos/podcasts. When on, all three
+              lock to the strictest tier (explicit blocked, mature topics filtered, unrated
+              content hidden, YouTube Restricted Mode) regardless of the dials below. */}
+          <div className="flex items-start gap-3 rounded-card border border-border/60 bg-muted/30 px-3 py-3">
+            <Baby className="size-4 shrink-0 text-brand mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="kid-safe-media" className="text-sm font-medium">Kid-Safe Media</label>
+                <Switch id="kid-safe-media" checked={draft.kidSafeMedia} onCheckedChange={setKidSafe} />
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Filters music, videos, and podcasts for young children: blocks explicit lyrics and mature topics (drugs, sex, violence), hides anything not verified safe, and turns on YouTube Restricted Mode. Leave off to derive protection from the dials below.
+              </p>
             </div>
           </div>
 

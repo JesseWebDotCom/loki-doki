@@ -1067,6 +1067,18 @@ export const musicTrackAdvisory = sqliteTable('music_track_advisory', {
   checkedAt: integer('checked_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Cached topical-classification verdict per media item (videos + podcast episodes),
+// keyed by source + item id. `categoriesJson` is a JSON Record<DialKey, level> using the
+// same level vocabulary as content dials, so a verdict compares directly against a profile
+// ceiling. Written by the fast-model classifier (lib/media/classify.ts); a row that exists
+// with an all-'off' verdict means "checked, clean". See kid-safe media filtering.
+export const mediaClassification = sqliteTable('media_classification', {
+  source: text('source').notNull(),        // 'youtube' | 'tiktok' | 'reddit' | 'vimeo' | 'podcast' | ...
+  itemId: text('item_id').notNull(),
+  categoriesJson: text('categories_json').notNull(),  // JSON Record<DialKey, level>
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.source, t.itemId] }) }))
+
 // ─── LoRA System ──────────────────────────────────────────────────────────────
 
 export const imageLoraCategories = sqliteTable('image_lora_categories', {
@@ -1303,6 +1315,14 @@ export const contentProfiles = sqliteTable('content_profiles', {
   // Music protections: JSON {explicit, unknown, lyrics, maskTitles}; null = defaults
   // derived from the profanity dial (lib/music/advisory.ts).
   musicJson: text('music_json'),
+  // Video protections: JSON {adult, unknown, restrictedMode}; null = defaults derived
+  // from the profile's dials (lib/media/policyTier.ts).
+  videoJson: text('video_json'),
+  // Podcast protections: JSON {explicit, unknown}; null = defaults derived from dials.
+  podcastJson: text('podcast_json'),
+  // Master "Kid-Safe Media" toggle: when true, all three media policies resolve to their
+  // strictest ('kid' tier) regardless of the per-medium JSON. One parent-facing switch.
+  kidSafeMedia: integer('kid_safe_media', { mode: 'boolean' }).notNull().default(false),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -1696,6 +1716,9 @@ export const podcastShows = sqliteTable('podcast_shows', {
   feedLastModified: text('feed_last_modified'),
   feedFetchedAt: integer('feed_fetched_at', { mode: 'timestamp' }),
   feedError: text('feed_error'),
+  // Show-level parental advisory from <itunes:explicit> / collectionExplicitness:
+  // null=unknown, 0=clean, 1=explicit. Feeds kid-safe podcast filtering.
+  explicit: integer('explicit'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   ownerIdx: index('podcast_shows_owner_idx').on(t.ownerUserId),
@@ -1724,6 +1747,9 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
   publishedAt: integer('published_at', { mode: 'timestamp' }),
   // Shared media_assets rendition once any household member downloads this episode.
   assetId: text('asset_id'),
+  // Episode-level parental advisory from <itunes:explicit>/trackExplicitness: null=unknown,
+  // 0=clean, 1=explicit. Combined with the topical classifier for kid-safe filtering.
+  explicit: integer('explicit'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   showIdx: index('podcast_episodes_show_idx').on(t.showId),

@@ -17,11 +17,13 @@ import { logger } from '@/lib/logger'
 
 // ── Advisory rows ────────────────────────────────────────────────────────────────────
 
-export type AdvisorySource = 'tag' | 'deezer' | 'itunes' | 'manual'
+export type AdvisorySource = 'tag' | 'deezer' | 'itunes' | 'manual' | 'llm'
 /** null=unknown, 0=clean, 1=explicit, 2=clean edit of an explicit song. */
 export type AdvisoryValue = number | null
 
-const SOURCE_RANK: Record<AdvisorySource, number> = { manual: 3, tag: 2, deezer: 1, itunes: 1 }
+// 'llm' (lyric-scan derivation) sits at the bottom: any real catalog flag or admin override
+// wins over it, but it beats a bare unknown. See lib/music/lyricsAdvisory.ts.
+const SOURCE_RANK: Record<AdvisorySource, number> = { manual: 3, tag: 2, deezer: 1, itunes: 1, llm: 0 }
 
 export async function upsertAdvisory(
   ref: string, explicit: AdvisoryValue, source: AdvisorySource,

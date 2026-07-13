@@ -1143,11 +1143,30 @@ export function runMigrations() {
       artist TEXT,
       checked_at INTEGER NOT NULL
     );
+
+    -- Kid-safe media: cached topical-classification verdict per media item (videos +
+    -- podcast episodes), keyed by (source, item_id). categories_json is a JSON
+    -- Record<DialKey, level>. See lib/media/classify.ts.
+    CREATE TABLE IF NOT EXISTS media_classification (
+      source TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      categories_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (source, item_id)
+    );
   `)
 
   // Per-profile music protections ({explicit, unknown, lyrics, maskTitles} JSON; null =
   // defaults derived from the profile's profanity dial).
   addColumn('content_profiles', 'music_json', 'TEXT')
+  // Kid-safe media: per-profile video ({adult,unknown,restrictedMode}) and podcast
+  // ({explicit,unknown}) protections (null = derived from dials), plus the master toggle.
+  addColumn('content_profiles', 'video_json', 'TEXT')
+  addColumn('content_profiles', 'podcast_json', 'TEXT')
+  addColumn('content_profiles', 'kid_safe_media', 'INTEGER NOT NULL DEFAULT 0')
+  // Parental-advisory columns on podcasts (null=unknown, 0=clean, 1=explicit).
+  addColumn('podcast_shows', 'explicit', 'INTEGER')
+  addColumn('podcast_episodes', 'explicit', 'INTEGER')
 
   // Offline music: media type a station was downloaded as (audio | video | both).
   addColumn('music_offline_stations', 'media', "TEXT NOT NULL DEFAULT 'audio'")

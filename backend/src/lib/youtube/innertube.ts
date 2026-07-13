@@ -29,7 +29,13 @@ const CHANNEL_TAB_PARAMS = {
   playlists: 'EglwbGF5bGlzdHPyBgQKAkIA',
 } as const
 
-async function call(endpoint: string, body: Record<string, unknown>, timeout = 8000): Promise<any> {
+// `safe` turns on YouTube's Restricted Mode (context.user.enableSafetyMode) for kid/teen
+// profiles — Google filters age-gated/mature results at the source. Coarse, but a real
+// server-side floor beneath our own topical filtering. Callers on shared-cache paths must
+// key their cache by `safe` so restricted and unrestricted variants don't clobber.
+async function call(endpoint: string, body: Record<string, unknown>, timeout = 8000, safe = false): Promise<any> {
+  const context: Record<string, unknown> = { client: CLIENT }
+  if (safe) context.user = { enableSafetyMode: true }
   const res = await fetch(`${BASE}/${endpoint}?key=${WEB_KEY}&prettyPrint=false`, {
     method: 'POST',
     headers: {
@@ -40,7 +46,7 @@ async function call(endpoint: string, body: Record<string, unknown>, timeout = 8
       'X-Youtube-Client-Version': CLIENT.clientVersion,
       Origin: 'https://www.youtube.com',
     },
-    body: JSON.stringify({ context: { client: CLIENT }, ...body }),
+    body: JSON.stringify({ context, ...body }),
     signal: AbortSignal.timeout(timeout),
   })
   if (!res.ok) throw new Error(`innertube ${endpoint} → ${res.status}`)
@@ -430,8 +436,8 @@ function collectChannels(data: any, channelLimit: number): ItChannel[] {
   return channels
 }
 
-export async function innertubeSearch(query: string, limit = 12, channelLimit = 0, timeout = 8000, playlistLimit = 0, params?: string): Promise<ItSearch> {
-  const data = await call('search', params ? { query, params } : { query }, timeout)
+export async function innertubeSearch(query: string, limit = 12, channelLimit = 0, timeout = 8000, playlistLimit = 0, params?: string, safe = false): Promise<ItSearch> {
+  const data = await call('search', params ? { query, params } : { query }, timeout, safe)
   return { videos: collectVideos(data, limit), channels: collectChannels(data, channelLimit), playlists: collectPlaylists(data, playlistLimit), continuation: findContinuation(data) }
 }
 
@@ -707,8 +713,8 @@ export async function innertubeResolveChannel(url: string, timeout = 8000): Prom
 
 // ── Related / "Up next" ──────────────────────────────────────────────────────────
 
-export async function innertubeRelated(videoId: string, limit = 20, timeout = 8000): Promise<ItVideo[]> {
-  const data = await call('next', { videoId }, timeout)
+export async function innertubeRelated(videoId: string, limit = 20, timeout = 8000, safe = false): Promise<ItVideo[]> {
+  const data = await call('next', { videoId }, timeout, safe)
   const results = data?.contents?.twoColumnWatchNextResults?.secondaryResults?.secondaryResults?.results ?? data
   const out: ItVideo[] = []
   const raw: any[] = []
@@ -852,6 +858,9 @@ export interface ItPlayerMeta {
   /** Upload date (unix ms) from the player response's microformat — videoDetails itself
    *  carries no date. Null when microformat is absent (some live/agegated responses). */
   publishedAt: number | null
+  /** Kid-safe media: YouTube's own family-safe verdict (videoDetails.isFamilySafe /
+   *  microformat isFamilySafe). true = safe, false = age-gated/mature, null = not reported. */
+  familySafe: boolean | null
 }
 
 /** Fast video metadata (title/author/description/length) without spawning yt-dlp. */
@@ -860,8 +869,12 @@ export async function innertubePlayerMeta(videoId: string, timeout = 8000): Prom
   const d = data?.videoDetails
   if (!d?.videoId) return null
   const len = parseInt(d.lengthSeconds ?? '', 10)
-  const publishDate = data?.microformat?.playerMicroformatRenderer?.publishDate as string | undefined
+  const mf = data?.microformat?.playerMicroformatRenderer
+  const publishDate = mf?.publishDate as string | undefined
   const publishedMs = publishDate ? Date.parse(publishDate) : NaN
+  // isFamilySafe lives on videoDetails and/or the microformat; either false = not safe.
+  const fsRaw = typeof d.isFamilySafe === 'boolean' ? d.isFamilySafe
+    : typeof mf?.isFamilySafe === 'boolean' ? mf.isFamilySafe : null
   return {
     videoId: d.videoId,
     title: d.title ?? '',
@@ -872,6 +885,7 @@ export async function innertubePlayerMeta(videoId: string, timeout = 8000): Prom
     views: d.viewCount ?? null,
     isLive: !!d.isLive,
     publishedAt: Number.isFinite(publishedMs) ? publishedMs : null,
+    familySafe: fsRaw,
   }
 }
 

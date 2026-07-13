@@ -8,6 +8,7 @@ import { db } from '@/db'
 import { podcastEpisodes, podcastShows, podcastSubscriptions } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { chartPodcasts, lookupItunes, PODCAST_GENRES, podcastIndexConfigured, previewFeed, searchPodcasts } from '@/lib/podcast/directory'
+import { filterDirectoryForUser } from '@/lib/podcast/policy'
 import { refreshPodcastFeed, subscribeToFeed, unsubscribe, runAutoDownloadPass, DEFAULT_AUTO_KEEP } from '@/lib/podcast/feeds'
 import { enqueueEpisodeDownload, removeEpisodeDownload } from '@/lib/podcast/offline'
 import type { AppEnv } from '@/types'
@@ -22,7 +23,7 @@ podcastSubscriptionsRoute.get('/directory/search', async (c) => {
   const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '25', 10) || 25, 50)
   if (!q) return c.json({ results: [] })
   try {
-    return c.json({ results: await searchPodcasts(q, limit) })
+    return c.json({ results: await filterDirectoryForUser(c.get('user').id, await searchPodcasts(q, limit)) })
   } catch (err) {
     return c.json({ results: [], error: String(err) })
   }
@@ -34,7 +35,7 @@ podcastSubscriptionsRoute.get('/directory/charts', async (c) => {
   const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '40', 10) || 40, 100)
   try {
     const { results, provider } = await chartPodcasts(genreId, limit)
-    return c.json({ results, provider, genres: PODCAST_GENRES })
+    return c.json({ results: await filterDirectoryForUser(c.get('user').id, results), provider, genres: PODCAST_GENRES })
   } catch (err) {
     return c.json({ results: [], provider: 'itunes', genres: PODCAST_GENRES, error: String(err) })
   }

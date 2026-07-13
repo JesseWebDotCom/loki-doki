@@ -11,7 +11,7 @@ import { db } from '@/db'
 import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
-import { allowAdultVideos } from '@/lib/videos/policy'
+import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -166,7 +166,11 @@ videosRoute.get('/home', async (c) => {
 
   const hasMore = Object.keys(nextP).length > 0 || nextF != null
   const cursor = hasMore ? Buffer.from(JSON.stringify({ p: nextP, f: nextF }), 'utf8').toString('base64url') : null
-  return c.json({ items: await stampSmartTitles(items, user.id), cursor })
+  // Kid-safe media: full policy pass (adult flags + topical classifier + hide-unknown on a
+  // kid tier) over the merged feed. The per-feed adult filters above are a cheap first cut;
+  // this is the authoritative gate every hub list route shares.
+  const safe = await filterVideosForUser(user.id, items)
+  return c.json({ items: await stampSmartTitles(safe, user.id), cursor })
 })
 
 // ── Universal clipper resolve: provider match first, yt-dlp fallback ───────────
@@ -241,7 +245,7 @@ videosRoute.get('/:source/browse', async (c) => {
     cursor: c.req.query('cursor') ?? null,
     allowAdult,
   }).catch(() => ({ items: [], cursor: null }) as Pager<VideoItem>)
-  page.items = await stampSmartTitles(page.items.filter((it) => allowAdult || !it.isAdult), user.id)
+  page.items = await stampSmartTitles(await filterVideosForUser(user.id, page.items), user.id)
   return c.json(page)
 })
 
@@ -253,7 +257,7 @@ videosRoute.get('/:source/search', async (c) => {
   const user = c.get('user')
   const allowAdult = await allowAdultVideos(user.id)
   const page = await provider.search(q, { cursor: c.req.query('cursor') ?? null, allowAdult })
-  page.items = await stampSmartTitles(page.items.filter((it) => allowAdult || !it.isAdult), user.id)
+  page.items = await stampSmartTitles(await filterVideosForUser(user.id, page.items), user.id)
   return c.json(page)
 })
 
@@ -264,7 +268,7 @@ videosRoute.get('/:source/creator/:id', async (c) => {
   const user = c.get('user')
   const allowAdult = await allowAdultVideos(user.id)
   if (!allowAdult && res.creator.isAdult) return c.json({ error: 'not available' }, 403)
-  res.videos.items = await stampSmartTitles(res.videos.items.filter((it) => allowAdult || !it.isAdult), user.id)
+  res.videos.items = await stampSmartTitles(await filterVideosForUser(user.id, res.videos.items), user.id)
   return c.json(res)
 })
 
@@ -279,9 +283,8 @@ videosRoute.get('/:source/playlist/:id', async (c) => {
   const provider = getProvider(c.req.param('source'))
   if (!provider?.getPlaylistItems) return c.json({ error: 'unknown source' }, 404)
   const user = c.get('user')
-  const allowAdult = await allowAdultVideos(user.id)
   const page = await provider.getPlaylistItems(c.req.param('id'), c.req.query('cursor') ?? null)
-  page.items = page.items.filter((it) => allowAdult || !it.isAdult)
+  page.items = await filterVideosForUser(user.id, page.items)
   return c.json(page)
 })
 
@@ -357,7 +360,10 @@ videosRoute.get('/:source/item/:id', async (c) => {
   const user = c.get('user')
   const item = await provider.getItem(c.req.param('id'), user.id)
   if (!item) return c.json({ error: 'not found' }, 404)
-  if (item.isAdult && !(await allowAdultVideos(user.id))) return c.json({ error: 'not available' }, 403)
+  // Kid-safe media hard gate: a direct link can't play a blocked video for a kid profile even
+  // if a card leaked through. Classifies synchronously here (single item, the watch path
+  // tolerates the ~1s) so the verdict is real rather than a pending "unknown".
+  if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
   // Rewrite playback for the client: upstream URLs (signed, Referer-gated) never leave
   // the server — progressive and yt-dlp-piped sources both play through /stream below,
   // just via a different server-side strategy depending on the provider.
@@ -533,7 +539,7 @@ videosRoute.get('/following-feed', async (c) => {
         isAdult: r.isAdult, vertical: r.source === 'tiktok',
       }
     })
-  return c.json({ items: await stampSmartTitles(items, user.id) })
+  return c.json({ items: await stampSmartTitles(await filterVideosForUser(user.id, items), user.id) })
 })
 
 videosRoute.get('/:source/comments/:id', async (c) => {
@@ -546,8 +552,7 @@ videosRoute.get('/:source/related/:id', async (c) => {
   const provider = getProvider(c.req.param('source'))
   if (!provider?.getRelated) return c.json({ error: 'unknown source' }, 404)
   const items = await provider.getRelated(c.req.param('id')).catch(() => [])
-  const allowAdult = await allowAdultVideos(c.get('user').id)
-  return c.json({ items: allowAdult ? items : items.filter((i) => !i.isAdult) })
+  return c.json({ items: await filterVideosForUser(c.get('user').id, items) })
 })
 
 // Raw WebVTT for the watch page's transcript tab. Provider caption APIs answer fast

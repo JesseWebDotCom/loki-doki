@@ -159,6 +159,24 @@ export function effectiveCeiling(a: ContentDials, b: ContentDials): ContentDials
 }
 export const clampDials = effectiveCeiling
 
+// True if `item` rates ABOVE `ceiling` in any category — i.e. clamping it to the ceiling
+// would lower some dial. Used by the media classifier to decide whether a video/podcast's
+// topical rating exceeds what a profile permits. `level` uses the same dial vocabulary.
+export function dialsExceedCeiling(item: ContentDials, ceiling: ContentDials): boolean {
+  for (const k of DIAL_KEYS) {
+    if (levelIndex(k, item[k]) > levelIndex(k, ceiling[k])) return true
+  }
+  return false
+}
+
+// The ordinal (0-based, low→high) of a dial level — exported so classifiers can map an
+// LLM's 0/1/2 severity onto the category's actual level vocabulary.
+export function dialLevelValue(dial: DialKey, ordinal: number): string {
+  const levels = DIAL_LEVELS[dial]
+  const i = Math.max(0, Math.min(levels.length - 1, Math.round(ordinal)))
+  return levels[i] ?? 'off'
+}
+
 // ── Content profiles ─────────────────────────────────────────────────────────────
 // A profile is a named set of per-category ceilings, assigned to users. Admins
 // create/edit/delete them and pick the default for new accounts.
@@ -170,6 +188,9 @@ export interface ContentProfile {
   dials: ContentDials
   isBuiltin: boolean
   sortOrder: number
+  /** Master "Kid-Safe Media" toggle: forces music/videos/podcasts to their strictest tier
+   *  regardless of dials. See lib/media/policyTier.ts. */
+  kidSafeMedia: boolean
 }
 
 const DEFAULT_PROFILE_KEY = 'content.default_profile'
@@ -177,19 +198,19 @@ const USER_PROFILE_PREF = 'content_profile'
 
 // Built-in starter profiles. Seeded if missing; admins may edit them afterward.
 export const BUILTIN_PROFILES: ContentProfile[] = [
-  { slug: 'locked', name: 'Locked Down', description: 'Everything off. Safe for children and the default for new accounts.', isBuiltin: true, sortOrder: 0, dials: { ...MIN_DIALS } },
-  { slug: 'teen', name: 'Teen', description: 'Mild language and moderate violence; no sexual, drug, or illicit content.', isBuiltin: true, sortOrder: 1,
+  { slug: 'locked', name: 'Locked Down', description: 'Everything off. Safe for children and the default for new accounts.', isBuiltin: true, sortOrder: 0, kidSafeMedia: true, dials: { ...MIN_DIALS } },
+  { slug: 'teen', name: 'Teen', description: 'Mild language and moderate violence; no sexual, drug, or illicit content.', isBuiltin: true, sortOrder: 1, kidSafeMedia: false,
     dials: normalizeDials({ profanity: 'mild', violence: 'moderate', privacy: 'public' }) },
-  { slug: 'adult', name: 'Adult', description: 'Mature expression — strong language, explicit content, graphic violence — with illicit how-to kept conceptual.', isBuiltin: true, sortOrder: 2,
+  { slug: 'adult', name: 'Adult', description: 'Mature expression — strong language, explicit content, graphic violence — with illicit how-to kept conceptual.', isBuiltin: true, sortOrder: 2, kidSafeMedia: false,
     dials: normalizeDials({ profanity: 'unrestricted', sexual: 'unrestricted', violence: 'unrestricted', substances: 'discuss', crime: 'discuss', hate: 'fiction', selfHarm: 'discuss', privacy: 'public' }) },
-  { slug: 'unrestricted', name: 'No Restrictions', description: 'Every category fully open — any and all topics. Only the absolute legal limits (minors, mass-casualty weapons) still apply.', isBuiltin: true, sortOrder: 3, dials: { ...MAX_DIALS } },
+  { slug: 'unrestricted', name: 'No Restrictions', description: 'Every category fully open — any and all topics. Only the absolute legal limits (minors, mass-casualty weapons) still apply.', isBuiltin: true, sortOrder: 3, kidSafeMedia: false, dials: { ...MAX_DIALS } },
 ]
 
 function rowToProfile(r: typeof contentProfiles.$inferSelect): ContentProfile {
   return {
     slug: r.slug, name: r.name, description: r.description ?? '',
     dials: normalizeDials(JSON.parse(r.dials) as Partial<Record<DialKey, unknown>>),
-    isBuiltin: r.isBuiltin, sortOrder: r.sortOrder,
+    isBuiltin: r.isBuiltin, sortOrder: r.sortOrder, kidSafeMedia: !!r.kidSafeMedia,
   }
 }
 
@@ -200,7 +221,7 @@ export async function seedContentProfiles(): Promise<void> {
   const now = new Date()
   for (const p of BUILTIN_PROFILES) {
     await db.insert(contentProfiles)
-      .values({ id: crypto.randomUUID(), slug: p.slug, name: p.name, description: p.description, dials: JSON.stringify(p.dials), isBuiltin: true, sortOrder: p.sortOrder, createdAt: now, updatedAt: now })
+      .values({ id: crypto.randomUUID(), slug: p.slug, name: p.name, description: p.description, dials: JSON.stringify(p.dials), kidSafeMedia: p.kidSafeMedia, isBuiltin: true, sortOrder: p.sortOrder, createdAt: now, updatedAt: now })
       .onConflictDoNothing()
   }
   if (await getAppSetting(DEFAULT_PROFILE_KEY) == null) {
@@ -234,25 +255,26 @@ function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || `profile-${crypto.randomUUID().slice(0, 8)}`
 }
 
-export async function createProfile(name: string, description: string, dials: Partial<Record<DialKey, unknown>>): Promise<ContentProfile> {
+export async function createProfile(name: string, description: string, dials: Partial<Record<DialKey, unknown>>, kidSafeMedia = false): Promise<ContentProfile> {
   const now = new Date()
   let slug = slugify(name)
   if (await getProfile(slug)) slug = `${slug}-${crypto.randomUUID().slice(0, 4)}`
   const maxOrder = (await db.select().from(contentProfiles)).reduce((n, r) => Math.max(n, r.sortOrder), 0)
   await db.insert(contentProfiles).values({
     id: crypto.randomUUID(), slug, name: name.trim() || slug, description: description.trim(),
-    dials: JSON.stringify(normalizeDials(dials)), isBuiltin: false, sortOrder: maxOrder + 1, createdAt: now, updatedAt: now,
+    dials: JSON.stringify(normalizeDials(dials)), kidSafeMedia, isBuiltin: false, sortOrder: maxOrder + 1, createdAt: now, updatedAt: now,
   })
   return (await getProfile(slug))!
 }
 
-export async function updateProfile(slug: string, patch: { name?: string; description?: string; dials?: Partial<Record<DialKey, unknown>> }): Promise<ContentProfile | null> {
+export async function updateProfile(slug: string, patch: { name?: string; description?: string; dials?: Partial<Record<DialKey, unknown>>; kidSafeMedia?: boolean }): Promise<ContentProfile | null> {
   const existing = await getProfile(slug)
   if (!existing) return null
   const set: Partial<typeof contentProfiles.$inferInsert> = { updatedAt: new Date() }
   if (typeof patch.name === 'string' && patch.name.trim()) set.name = patch.name.trim()
   if (typeof patch.description === 'string') set.description = patch.description.trim()
   if (patch.dials) set.dials = JSON.stringify(normalizeDials(patch.dials))
+  if (typeof patch.kidSafeMedia === 'boolean') set.kidSafeMedia = patch.kidSafeMedia
   await db.update(contentProfiles).set(set).where(eq(contentProfiles.slug, slug))
   return getProfile(slug)
 }

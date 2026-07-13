@@ -10,6 +10,8 @@ import { appDefaultVoice } from '@/lib/voice/config'
 import { wikipediaSearch } from '@/lib/wikipediaSearch'
 import { innertubeSearch, SEARCH_FILTERS } from '@/lib/youtube/innertube'
 import { ytmusicRadio } from '@/lib/youtube/ytmusic'
+import { filterTracksForUser } from '@/lib/music/advisory'
+import { ensureLyricAdvisories } from '@/lib/music/lyricsAdvisory'
 import type { AppEnv } from '@/types'
 
 export const musicRadio = new Hono<AppEnv>()
@@ -142,7 +144,23 @@ musicRadio.get('/queue', async (c) => {
       if (seen.has(v.videoId)) continue
       seen.add(v.videoId); tracks.push({ videoId: v.videoId, title: v.title, author: v.author })
     }
-    return c.json({ tracks: tracks.slice(0, 40), source: radio.length ? 'ytmusic' : 'search' })
+    let out = tracks.slice(0, 40)
+
+    // Content protections: this AI-Radio path pulls raw YT-Music mixes that carry no advisory
+    // data, so it was the one music surface bypassing the per-profile filter. Route it through
+    // the same gate (mapping author→artist, which filterTracksForUser keys on); explicit tracks
+    // drop for blocking profiles, unknowns drop only in strict mode and get background-checked.
+    const listener = c.get('user')
+    if (listener) {
+      const keyed = out.map(t => ({ ...t, artist: t.author ?? '' }))
+      const kept = await filterTracksForUser(listener.id, keyed)
+      const keepIds = new Set(kept.map(t => t.videoId))
+      out = out.filter(t => keepIds.has(t.videoId))
+      // Warm lyric-derived advisories for the still-unknown tracks so a later tune-in filters
+      // them correctly even when iTunes/Deezer never knew them (background, fire-and-forget).
+      ensureLyricAdvisories(keyed)
+    }
+    return c.json({ tracks: out, source: radio.length ? 'ytmusic' : 'search' })
   } catch (err) {
     return c.json({ tracks: [], error: String(err) })
   }

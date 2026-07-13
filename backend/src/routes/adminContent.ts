@@ -31,15 +31,15 @@ adminContent.get('/profiles', requireAdmin, async (c) => {
 })
 
 adminContent.post('/profiles', requireAdmin, async (c) => {
-  const body = (await c.req.json()) as { name?: string; description?: string; dials?: Record<string, unknown> }
+  const body = (await c.req.json()) as { name?: string; description?: string; dials?: Record<string, unknown>; kidSafeMedia?: boolean }
   if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400)
-  const profile = await createProfile(body.name, body.description ?? '', body.dials ?? {})
+  const profile = await createProfile(body.name, body.description ?? '', body.dials ?? {}, body.kidSafeMedia === true)
   return c.json({ ok: true, profile })
 })
 
 adminContent.put('/profiles/:slug', requireAdmin, async (c) => {
   const slug = c.req.param('slug')
-  const body = (await c.req.json()) as { name?: string; description?: string; dials?: Record<string, unknown> }
+  const body = (await c.req.json()) as { name?: string; description?: string; dials?: Record<string, unknown>; kidSafeMedia?: boolean }
   const profile = await updateProfile(slug, body)
   if (!profile) return c.json({ error: 'not found' }, 404)
   return c.json({ ok: true, profile })

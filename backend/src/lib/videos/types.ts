@@ -39,6 +39,10 @@ export interface VideoItem {
   /** Compact comment count, e.g. "149" or "1.2K" (getItem only) — feeds the watch page's "Comments (N)" tab label. */
   commentsCount?: string | null
   isAdult?: boolean
+  /** Kid-safe media: known family-safe signal from the source (e.g. YouTube videoDetails
+   *  isFamilySafe). true = source vouches it's safe, false = source flags it mature/age-gated,
+   *  undefined = no signal (treated as "unknown" by the policy filter). */
+  familySafe?: boolean
   live?: boolean
   /** Short-form hint (shorts / TikTok / reels) so mixed grids can pick the 9:16 card. */
   vertical?: boolean

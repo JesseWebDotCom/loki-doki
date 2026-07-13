@@ -18,6 +18,7 @@ export interface DirectoryResult {
   artworkUrl: string | null
   genre: string | null
   episodeCount: number | null
+  explicit: number | null     // 1=explicit, 0=clean, null=unknown — for kid-safe storefront filtering
 }
 
 const CACHE_NS = 'podcast-dir'
@@ -55,6 +56,16 @@ interface ItunesItem {
   artworkUrl100?: string
   primaryGenreName?: string
   trackCount?: number
+  collectionExplicitness?: string
+  contentAdvisoryRating?: string
+}
+
+/** Map iTunes' explicitness fields to 1 (explicit) / 0 (clean) / null (unknown). */
+function itunesExplicit(r: ItunesItem): number | null {
+  const e = (r.collectionExplicitness ?? r.contentAdvisoryRating ?? '').toLowerCase()
+  if (e === 'explicit') return 1
+  if (e === 'cleaned' || e === 'notexplicit' || e === 'clean') return 0
+  return null
 }
 
 function fromItunes(r: ItunesItem): DirectoryResult {
@@ -66,6 +77,7 @@ function fromItunes(r: ItunesItem): DirectoryResult {
     artworkUrl: r.artworkUrl600 ?? r.artworkUrl100 ?? null,
     genre: r.primaryGenreName ?? null,
     episodeCount: r.trackCount ?? null,
+    explicit: itunesExplicit(r),
   }
 }
 
@@ -117,6 +129,7 @@ interface PiFeed {
   artwork?: string
   categories?: Record<string, string> | null
   episodeCount?: number
+  explicit?: boolean | number | null
 }
 
 function fromPi(f: PiFeed): DirectoryResult {
@@ -128,6 +141,7 @@ function fromPi(f: PiFeed): DirectoryResult {
     artworkUrl: f.artwork || f.image || null,
     genre: f.categories ? Object.values(f.categories)[0] ?? null : null,
     episodeCount: f.episodeCount ?? null,
+    explicit: f.explicit == null ? null : (f.explicit ? 1 : 0),
   }
 }
 
@@ -191,6 +205,7 @@ export async function chartPodcasts(genreId: number | null, limit = 40): Promise
       artworkUrl: e['im:image']?.at(-1)?.label ?? null,
       genre: e.category?.attributes?.label ?? null,
       episodeCount: null,
+      explicit: null,  // the toppodcasts RSS feed carries no explicit flag per entry
     })).filter(r => r.title && r.itunesId)
   })
   return { results, provider: 'itunes' }

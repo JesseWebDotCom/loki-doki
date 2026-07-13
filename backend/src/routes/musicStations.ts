@@ -23,6 +23,7 @@ import { join } from 'node:path'
 import { resolveUserPath, getDataRoot } from '@/lib/storage/paths'
 import { getOrFetchMediaImage } from '@/lib/titles/imageProxy'
 import { filterTracksForUser } from '@/lib/music/advisory'
+import { ensureLyricAdvisories } from '@/lib/music/lyricsAdvisory'
 import { featureCount, searchFeatures, sonicAdventurePath } from '@/lib/music/similarity'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
@@ -783,7 +784,12 @@ musicStations_route.post('/queue', async (c) => {
   // Content protections: drop explicit tracks (and unknowns, when the profile is strict)
   // for the listening user. Unknowns get background-checked so the picture sharpens.
   const listener = c.get('user')
-  if (listener) result.tracks = await filterTracksForUser(listener.id, result.tracks)
+  if (listener) {
+    result.tracks = await filterTracksForUser(listener.id, result.tracks)
+    // Warm lyric-derived advisories for tracks the catalog couldn't rate, so the unknown
+    // population shrinks and teen-tier filtering sharpens over time (background).
+    ensureLyricAdvisories(result.tracks)
+  }
 
   return c.json(result)
 })

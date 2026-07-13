@@ -18,6 +18,7 @@ import { cleanAutoTitle, cleanAutoText } from '@/lib/cleanTitle'
 import { createReadStream, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import type { ScriptTurn } from '@/lib/podcast/types'
+import { filterEpisodesForUser, podcastEpisodeAllowed } from '@/lib/podcast/policy'
 import type { AppEnv } from '@/types'
 
 export const podcastsRoute = new Hono<AppEnv>()
@@ -128,13 +129,15 @@ podcastsRoute.get('/feed', async (c) => {
   const shows = await loadVisibleShows(user)
   const showIds = shows.map(s => s.id)
 
-  const episodes = showIds.length
+  const episodesRaw = showIds.length
     ? await db.select().from(podcastEpisodes)
         .where(inArray(podcastEpisodes.showId, showIds))
         // RSS episodes sort by their real publish date; generated ones (null publishedAt)
         // fall through to createdAt (SQLite DESC puts NULLs last).
         .orderBy(desc(podcastEpisodes.publishedAt), desc(podcastEpisodes.createdAt))
     : []
+  // Kid-safe media: drop explicit / mature-topic episodes for the listening profile.
+  const episodes = await filterEpisodesForUser(user.id, episodesRaw)
 
   const epIds = episodes.map(e => e.id)
   const watchRows = epIds.length
@@ -554,10 +557,12 @@ podcastsRoute.get('/shows/:id/episodes', async (c) => {
     .from(podcastShows).where(eq(podcastShows.id, showId))
   if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
 
-  const episodes = await db.select()
+  const episodesRaw = await db.select()
     .from(podcastEpisodes)
     .where(eq(podcastEpisodes.showId, showId))
     .orderBy(desc(podcastEpisodes.publishedAt), desc(podcastEpisodes.createdAt))
+  // Kid-safe media: hide explicit / mature-topic episodes for the listening profile.
+  const episodes = await filterEpisodesForUser(user.id, episodesRaw)
 
   // Attach watch state + this user's offline-download state
   const epIds = episodes.map(e => e.id)
@@ -752,12 +757,18 @@ podcastsRoute.get('/episodes/:id/stream', async (c) => {
   const [episode] = await db.select({
     audioRelPath: podcastEpisodes.audioRelPath, status: podcastEpisodes.status, showId: podcastEpisodes.showId,
     assetId: podcastEpisodes.assetId, enclosureUrl: podcastEpisodes.enclosureUrl, enclosureType: podcastEpisodes.enclosureType,
+    title: podcastEpisodes.title, description: podcastEpisodes.description, explicit: podcastEpisodes.explicit,
   }).from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId))
 
   if (!episode) return c.json({ error: 'Not found' }, 404)
   const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility, source: podcastShows.source })
     .from(podcastShows).where(eq(podcastShows.id, episode.showId))
   if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
+  // Kid-safe media hard gate: a direct link can't play a blocked episode for a kid profile
+  // even if it slipped past the list filters. Classifies synchronously (single episode).
+  if (!(await podcastEpisodeAllowed(user.id, { id: episodeId, title: episode.title, description: episode.description, explicit: episode.explicit }))) {
+    return c.json({ error: 'Not available' }, 403)
+  }
 
   // 1. Generated episode: per-user file.
   if (episode.audioRelPath) {

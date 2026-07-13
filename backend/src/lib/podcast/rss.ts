@@ -16,6 +16,7 @@ export interface ParsedPodcastEpisode {
   imageUrl: string | null      // itunes:image href, episode-level
   durationSec: number | null   // itunes:duration (HH:MM:SS / MM:SS / seconds)
   publishedAt: number | null   // Unix ms
+  explicit: number | null      // <itunes:explicit>: 1=explicit, 0=clean, null=unknown (inherits channel)
 }
 
 export interface ParsedPodcastFeed {
@@ -25,7 +26,18 @@ export interface ParsedPodcastFeed {
   author: string | null
   imageUrl: string | null
   categories: string[]
+  explicit: number | null      // channel-level <itunes:explicit>
   episodes: ParsedPodcastEpisode[]
+}
+
+/** <itunes:explicit> is self-declared by publishers: yes/true/explicit → 1, no/false/clean
+ *  → 0, absent/other → null (unknown). Used for kid-safe podcast filtering. */
+function parseExplicit(raw: string): number | null {
+  const v = raw.trim().toLowerCase()
+  if (!v) return null
+  if (v === 'yes' || v === 'true' || v === 'explicit') return 1
+  if (v === 'no' || v === 'false' || v === 'clean') return 0
+  return null
 }
 
 function tag(block: string, name: string): string {
@@ -89,6 +101,7 @@ export function parsePodcastFeed(xml: string): ParsedPodcastFeed {
     const text = decodeEntities(m.match(/text=["']([^"']+)["']/i)?.[1] ?? '')
     if (text && !categories.includes(text)) categories.push(text)
   }
+  const feedExplicit = parseExplicit(tag(header, 'itunes:explicit'))
 
   const episodes: ParsedPodcastEpisode[] = []
   const blockRe = /<item[\s>]([\s\S]*?)<\/item>/gi
@@ -119,8 +132,11 @@ export function parsePodcastFeed(xml: string): ParsedPodcastFeed {
       imageUrl: decodeEntities(attr(block, 'itunes:image', 'href')) || null,
       durationSec: parseItunesDuration(tag(block, 'itunes:duration')),
       publishedAt: Number.isNaN(ts) ? null : ts,
+      // Episode explicit tag, inheriting the channel's when the item omits its own (common:
+      // publishers often set it once at the channel level).
+      explicit: parseExplicit(tag(block, 'itunes:explicit')) ?? feedExplicit,
     })
   }
 
-  return { title, description, link, author, imageUrl, categories, episodes }
+  return { title, description, link, author, imageUrl, categories, explicit: feedExplicit, episodes }
 }

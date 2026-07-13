@@ -32,6 +32,8 @@ import {
   getUserPreference, DEFAULT_GLOBAL_CAP,
 } from '@/lib/youtube/quality'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { filterYtItemsForUser, videoAllowedForUser } from '@/lib/videos/policy'
+import { videoPolicyFor } from '@/lib/media/policyTier'
 import { logger } from '@/lib/logger'
 import {
   enqueueVideoSave, cancelVideoSaves, createYoutubeEpisode,
@@ -106,7 +108,8 @@ youtubeRoute.get('/search', async (c) => {
       () => innertubeSearchMore(cursor, 24, 8000, cursorType === 'channels' ? 24 : 0, cursorType === 'playlists' ? 30 : 0),
       { videos: [], channels: [], playlists: [], continuation: null })
     const videos = cursorType === 'shorts' ? page.videos.filter(v => v.durationSec == null || v.durationSec <= 90) : page.videos
-    return c.json({ results: videos.map(itVideoResult), channels: page.channels.map(itChannelResult), playlists: page.playlists.map(itPlaylistResult), continuation: page.continuation })
+    const safeVideos = await filterYtItemsForUser(user.id, videos)
+    return c.json({ results: safeVideos.map(itVideoResult), channels: page.channels.map(itChannelResult), playlists: page.playlists.map(itPlaylistResult), continuation: page.continuation })
   }
 
   if (!q) return c.json({ results: [], error: 'Query required' }, 400)
@@ -118,12 +121,16 @@ youtubeRoute.get('/search', async (c) => {
   // uncached live search on every click was a real, avoidable ~0.6-1.2s per category.
   const type = c.req.query('type') as keyof typeof SEARCH_FILTERS | undefined
   if (type && SEARCH_FILTERS[type]) {
-    const page = await cachedLookup('youtube:search', `${type}:${q.toLowerCase()}`, 20 * 60_000, () => tryInnertube('typedSearch',
-      () => innertubeSearch(q, 36, type === 'channels' ? 24 : 0, 8000, type === 'playlists' ? 30 : 0, SEARCH_FILTERS[type]),
+    // Kid-safe: on a kid/teen profile, ask YouTube for Restricted-Mode results. The shared
+    // cache is keyed by the `safe` flag so restricted and unrestricted variants never clobber.
+    const safe = (await videoPolicyFor(user.id)).restrictedMode
+    const page = await cachedLookup('youtube:search', `${type}:${q.toLowerCase()}:${safe ? 's' : 'o'}`, 20 * 60_000, () => tryInnertube('typedSearch',
+      () => innertubeSearch(q, 36, type === 'channels' ? 24 : 0, 8000, type === 'playlists' ? 30 : 0, SEARCH_FILTERS[type], safe),
       { videos: [], channels: [], playlists: [], continuation: null }))
     const videos = type === 'shorts' ? page.videos.filter(v => v.durationSec == null || v.durationSec <= 90) : page.videos
+    const safeVideos = await filterYtItemsForUser(user.id, videos)
     return c.json({
-      results: videos.map(itVideoResult),
+      results: safeVideos.map(itVideoResult),
       channels: page.channels.map(itChannelResult),
       playlists: page.playlists.map(itPlaylistResult),
       continuation: page.continuation,
@@ -138,7 +145,9 @@ youtubeRoute.get('/search', async (c) => {
   if (!result.success) return c.json({ results: [], channels: [], error: result.error ?? 'Search failed' })
 
   const data = result.data as { videos: unknown[]; channels?: unknown[]; playlists?: unknown[]; continuation?: string | null } | undefined
-  return c.json({ results: data?.videos ?? [], channels: data?.channels ?? [], playlists: data?.playlists ?? [], continuation: data?.continuation ?? null })
+  const vids = (data?.videos ?? []) as Array<{ videoId: string; title: string; author?: string | null; channelId?: string | null }>
+  const safeVids = await filterYtItemsForUser(user.id, vids.map(v => ({ ...v, author: v.author ?? null })))
+  return c.json({ results: safeVids, channels: data?.channels ?? [], playlists: data?.playlists ?? [], continuation: data?.continuation ?? null })
 })
 
 // Keep old path alive for the existing frontend
@@ -392,7 +401,8 @@ youtubeRoute.get('/feed', async (c) => {
     watchState: watchMap.get(r.video.videoId) ?? null,
   }))
 
-  return c.json({ videos: result })
+  // Kid-safe: a subscribed channel can still post a mature upload — filter the feed too.
+  return c.json({ videos: await filterYtItemsForUser(user.id, result) })
 })
 
 // Backfill video durations (RSS feeds omit them) so the UI can split Shorts from
@@ -1024,6 +1034,23 @@ youtubeRoute.get('/video/:videoId', async (c) => {
 
   const [v] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
 
+  // Kid-safe media hard gate: the player needs this metadata to start playback, so refusing
+  // it here blocks a direct link even if a card slipped past the list filters. Uses the row's
+  // text when present (feed/saved videos), else one player-meta fetch (cold links); the
+  // classifier verdict is cached so repeat plays are cheap. Fails open for non-kid tiers.
+  {
+    const gate = v?.title
+      ? { title: v.title, channelId: v.channelId, author: v.author }
+      : await tryInnertube('videoGate', () => innertubePlayerMeta(videoId), null)
+    if (gate?.title && !(await videoAllowedForUser(user.id, {
+      source: 'youtube', id: videoId, url: `https://www.youtube.com/watch?v=${videoId}`,
+      title: gate.title,
+      creator: gate.channelId ? { id: gate.channelId, name: gate.author ?? '' } : null,
+    }))) {
+      return c.json({ error: 'not available' }, 403)
+    }
+  }
+
   // Resume position for this user (0 if none / finished).
   const [ws] = await db.select({ positionSec: ytWatchState.positionSec, completed: ytWatchState.completed })
     .from(ytWatchState)
@@ -1356,12 +1383,12 @@ youtubeRoute.post('/digest', async (c) => {
 // tab (Piped, thinner/flakier — may be empty, in which case the UI hides the shelf).
 youtubeRoute.get('/popular', async (c) => {
   const limit = Math.min(50, parseInt(c.req.query('limit') ?? '30', 10))
-  return c.json({ videos: await fetchPopular(limit) })
+  return c.json({ videos: await filterYtItemsForUser(c.get('user').id, await fetchPopular(limit)) })
 })
 
 youtubeRoute.get('/trending', async (c) => {
   const limit = Math.min(50, parseInt(c.req.query('limit') ?? '30', 10))
-  return c.json({ videos: await fetchTrending(limit) })
+  return c.json({ videos: await filterYtItemsForUser(c.get('user').id, await fetchTrending(limit)) })
 })
 
 // A channel's actual uploads, beyond whatever the RSS poller last cached. `cursor` is
@@ -1474,7 +1501,7 @@ youtubeRoute.get('/related/:videoId', async (c) => {
   const videos = await tryInnertube('related',
     () => cachedLookup('youtube:related', `${videoId}:${limit}`, 20 * 60_000, () => innertubeRelated(videoId, limit)),
     [])
-  return c.json({ videos })
+  return c.json({ videos: await filterYtItemsForUser(c.get('user').id, videos) })
 })
 
 // Comments — InnerTube `next` continuation, proxied so the browser never hits Google.
@@ -1534,7 +1561,7 @@ youtubeRoute.get('/recommended', async (c) => {
 
   // Still nothing (brand-new user) → just show what's popular.
   if (!seeds.length) {
-    const videos = await fetchPopular(24)
+    const videos = await filterYtItemsForUser(user.id, await fetchPopular(24))
     return c.json({ videos, seeded: false })
   }
 
@@ -1550,7 +1577,7 @@ youtubeRoute.get('/recommended', async (c) => {
   }
   // Interleave isn't critical; shuffle-light by round-robin would help variety, but a
   // simple merge already mixes seeds since we iterate lists in order.
-  const videos = out.slice(0, 24)
+  const videos = await filterYtItemsForUser(user.id, out.slice(0, 24))
   await enrichChannelThumbs(videos)
   return c.json({ videos, seeded: true })
 })
