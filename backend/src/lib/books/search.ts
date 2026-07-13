@@ -82,6 +82,8 @@ async function searchBooksUncached(q: string): Promise<BookSearchResult[]> {
     toggles.openlibrary ? searchOpenLibrary(q).catch(() => []) : Promise.resolve([]),
     searchIndexer(q).catch(() => []), // custom indexers have their own per-row enabled flag
   ])
+  // Preview-first modern metadata (Google/Open Library) interleaves with
+  // directly downloadable public-domain/open-license sources.
   return blendResults([googleBooks, openLibrary, gutenberg, archiveOrg, wikisource, indexer], 30)
 }
 

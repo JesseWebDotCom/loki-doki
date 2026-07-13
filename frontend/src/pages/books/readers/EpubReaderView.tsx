@@ -7,19 +7,37 @@ import { useNavigate } from 'react-router-dom'
 import ePub from 'epubjs'
 import type Book from 'epubjs/types/book'
 import type Rendition from 'epubjs/types/rendition'
-import { ArrowLeft, BookAudio, ChevronLeft, ChevronRight, List, Moon, Sun } from 'lucide-react'
+import { ArrowLeft, BookAudio, ChevronLeft, ChevronRight, List, Type } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/cn'
 import { bookFileUrl, getChapters, updateProgress, type BookChapter, type BookDetail } from '@/lib/books/api'
 
 const PROGRESS_SAVE_MS = 3000
+const READING_HEARTBEAT_MS = 30_000
 
-// design-ok(hex-in-tsx): epub.js reading-surface theme colors (sepia/dark reading
-// modes), independent of the app's own light/dark chrome theme.
-function applyTheme(rendition: Rendition, mode: 'light' | 'dark') {
-  rendition.themes.default(mode === 'dark'
-    ? { body: { background: '#1a1a1a', color: '#e5e5e5' } }
-    : { body: { background: '#fdfaf3', color: '#1a1a1a' } })
+type ReaderTheme = 'light' | 'sepia' | 'dark'
+// design-ok(hex-in-tsx): epub.js reading-surface theme colors, independent of the
+// app's own light/dark chrome theme.
+const THEME_COLORS: Record<ReaderTheme, { bg: string; fg: string }> = {
+  light: { bg: '#fdfaf3', fg: '#1a1a1a' },
+  sepia: { bg: '#f4ecd8', fg: '#5b4636' },
+  dark: { bg: '#1a1a1a', fg: '#e5e5e5' },
+}
+const FONT_FAMILIES = [
+  { label: 'Original', value: '' },
+  { label: 'Serif', value: 'Georgia, "Times New Roman", serif' },
+  { label: 'Sans', value: 'system-ui, -apple-system, sans-serif' },
+]
+
+interface ReaderStyle { theme: ReaderTheme; fontPct: number; lineHeight: number; fontFamily: string }
+
+function applyReaderStyle(rendition: Rendition, s: ReaderStyle) {
+  const c = THEME_COLORS[s.theme]
+  const body: Record<string, string> = { background: c.bg, color: c.fg, 'line-height': String(s.lineHeight) }
+  if (s.fontFamily) body['font-family'] = `${s.fontFamily} !important`
+  rendition.themes.default({ body, p: s.fontFamily ? { 'font-family': `${s.fontFamily} !important` } : {} })
+  rendition.themes.fontSize(`${s.fontPct}%`)
 }
 
 /** Shortcut to the audiobook player once one exists. Starting the conversion
@@ -46,7 +64,14 @@ export function EpubReaderView({ bookId, detail }: { bookId: string; detail: Boo
   const [error, setError] = useState<string | null>(null)
   const [chapters, setChapters] = useState<BookChapter[]>([])
   const [showToc, setShowToc] = useState(false)
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
+  const [showType, setShowType] = useState(false)
+  const [style, setStyle] = useState<ReaderStyle>(() => {
+    try { return { theme: 'dark', fontPct: 100, lineHeight: 1.5, fontFamily: '', ...JSON.parse(localStorage.getItem('book-reader-style') ?? '{}') } } catch { return { theme: 'dark', fontPct: 100, lineHeight: 1.5, fontFamily: '' } }
+  })
+  const styleRef = useRef(style)
+  styleRef.current = style
+  // Last known position, so the reading-time heartbeat can persist progress + accrued time.
+  const lastLocRef = useRef<{ cfi: string | null; percent: number }>({ cfi: null, percent: 0 })
 
   useEffect(() => {
     let cancelled = false
@@ -70,11 +95,12 @@ export function EpubReaderView({ bookId, detail }: { bookId: string; detail: Boo
         width: '100%', height: '100%', flow: 'scrolled-doc', allowScriptedContent: false,
       })
       renditionRef.current = rendition
-      applyTheme(rendition, theme)
+      applyReaderStyle(rendition, styleRef.current)
 
       rendition.on('relocated', (loc: { start?: { percentage?: number; cfi?: string } }) => {
         const percent = loc?.start?.percentage ?? 0
         const cfi = loc?.start?.cfi ?? null
+        lastLocRef.current = { cfi, percent }
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
         saveTimerRef.current = setTimeout(() => {
           void updateProgress(bookId, { mode: 'reading', epubCfi: cfi, percent, completed: percent >= 0.98 })
@@ -101,13 +127,23 @@ export function EpubReaderView({ bookId, detail }: { bookId: string; detail: Boo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId])
 
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark'
-      if (renditionRef.current) applyTheme(renditionRef.current, next)
-      return next
-    })
-  }, [])
+  // Re-apply and persist the reading style whenever it changes.
+  useEffect(() => {
+    if (renditionRef.current) applyReaderStyle(renditionRef.current, style)
+    try { localStorage.setItem('book-reader-style', JSON.stringify(style)) } catch { /* private mode */ }
+  }, [style])
+
+  // Reading-time heartbeat: count open-and-visible time toward reading stats.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      const loc = lastLocRef.current
+      void updateProgress(bookId, { mode: 'reading', epubCfi: loc.cfi, percent: loc.percent, elapsedDeltaSec: READING_HEARTBEAT_MS / 1000 })
+    }, READING_HEARTBEAT_MS)
+    return () => clearInterval(t)
+  }, [bookId])
+
+  const patchStyle = useCallback((patch: Partial<ReaderStyle>) => setStyle((s) => ({ ...s, ...patch })), [])
 
   const goToChapter = useCallback((href: string | null) => {
     if (href) void renditionRef.current?.display(href)
@@ -121,9 +157,56 @@ export function EpubReaderView({ bookId, detail }: { bookId: string; detail: Boo
         <span className="flex-1 truncate text-sm font-medium">{detail.title}</span>
         <ListenShortcut bookId={bookId} hasAudio={detail.assets.some((a) => a.kind === 'audio' && a.status === 'ready')} />
         <Button variant="ghost" size="icon-sm" onClick={() => setShowToc((v) => !v)} title="Table of contents" className={showToc ? 'text-foreground' : ''}><List className="size-4" /></Button>
-        <Button variant="ghost" size="icon-sm" onClick={toggleTheme} title="Toggle theme">
-          {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-        </Button>
+        <div className="relative">
+          <Button variant="ghost" size="icon-sm" onClick={() => setShowType((v) => !v)} title="Text & theme" className={showType ? 'text-foreground' : ''}><Type className="size-4" /></Button>
+          {showType && (
+            <>
+              {/* design-ok(raw-overlay): click-away layer for the text settings popover */}
+              <div className="fixed inset-0 z-20" onClick={() => setShowType(false)} />
+              <div className="absolute right-0 top-full z-30 mt-2 w-64 space-y-3 rounded-card border border-border bg-popover p-3 shadow-lg">
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">Theme</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['light', 'sepia', 'dark'] as ReaderTheme[]).map((t) => (
+                      <button key={t} onClick={() => patchStyle({ theme: t })}
+                        className={cn('rounded-control border px-2 py-1.5 text-xs capitalize', style.theme === t ? 'border-brand text-foreground' : 'border-border text-muted-foreground')}
+                        style={{ background: THEME_COLORS[t].bg, color: THEME_COLORS[t].fg }}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">Font size</p>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => patchStyle({ fontPct: Math.max(70, style.fontPct - 10) })}>A−</Button>
+                    <span className="flex-1 text-center text-sm tabular-nums">{style.fontPct}%</span>
+                    <Button variant="outline" size="sm" onClick={() => patchStyle({ fontPct: Math.min(200, style.fontPct + 10) })}>A+</Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">Line spacing</p>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => patchStyle({ lineHeight: Math.max(1.2, Math.round((style.lineHeight - 0.1) * 10) / 10) })}>−</Button>
+                    <span className="flex-1 text-center text-sm tabular-nums">{style.lineHeight.toFixed(1)}</span>
+                    <Button variant="outline" size="sm" onClick={() => patchStyle({ lineHeight: Math.min(2.4, Math.round((style.lineHeight + 0.1) * 10) / 10) })}>+</Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">Font</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {FONT_FAMILIES.map((f) => (
+                      <button key={f.label} onClick={() => patchStyle({ fontFamily: f.value })}
+                        className={cn('rounded-control border px-2 py-1.5 text-xs', style.fontFamily === f.value ? 'border-brand text-foreground' : 'border-border text-muted-foreground')}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
       <div className="relative flex min-h-0 flex-1">
         {showToc && (

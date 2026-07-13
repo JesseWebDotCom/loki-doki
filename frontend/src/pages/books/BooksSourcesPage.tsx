@@ -1,7 +1,10 @@
-import { BookAudio, Library, ShieldCheck } from 'lucide-react'
+import { BarChart3, BookAudio, LayoutGrid, Library, RefreshCw, ShieldCheck } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { BookSourceManager } from '@/components/books/BookSourceManager'
 import { IndexerManager } from '@/components/books/IndexerManager'
+import { ReaderSyncSettings } from '@/components/books/ReaderSyncSettings'
+import { ReadingStats } from '@/components/books/ReadingStats'
+import { SmartShelvesManager } from '@/components/books/SmartShelvesManager'
 import { getAppByPath } from '@/lib/appCategories'
 
 const BOOKS_GRADIENT = getAppByPath('/books')!.gradient
@@ -19,6 +22,24 @@ const SECTIONS: AppSettingsSection[] = [
         </p>
       </div>
     ),
+  },
+  {
+    id: 'sync',
+    label: 'Reading Sync',
+    icon: RefreshCw,
+    content: <ReaderSyncSettings />,
+  },
+  {
+    id: 'shelves',
+    label: 'Smart Shelves',
+    icon: LayoutGrid,
+    content: <SmartShelvesManager />,
+  },
+  {
+    id: 'stats',
+    label: 'Reading Stats',
+    icon: BarChart3,
+    content: <ReadingStats />,
   },
   {
     id: 'admin',

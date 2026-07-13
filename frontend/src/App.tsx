@@ -158,6 +158,7 @@ const MusicStudioTutorialsPage = lazy(() => import('@/pages/music/MusicStudioTut
 
 const BooksLayout = lazy(() => import('@/components/books/BooksLayout').then((m) => ({ default: m.BooksLayout })))
 const BooksLibraryPage = lazy(() => import('@/pages/books/BooksLibraryPage').then((m) => ({ default: m.BooksLibraryPage })))
+const BookShelfPage = lazy(() => import('@/pages/books/BookShelfPage').then((m) => ({ default: m.BookShelfPage })))
 const BooksDiscoverPage = lazy(() => import('@/pages/books/BooksDiscoverPage').then((m) => ({ default: m.BooksDiscoverPage })))
 const MagazinesPage = lazy(() => import('@/pages/books/MagazinesPage').then((m) => ({ default: m.MagazinesPage })))
 const BooksUploadPage = lazy(() => import('@/pages/books/BooksUploadPage').then((m) => ({ default: m.BooksUploadPage })))
@@ -395,6 +396,7 @@ export default function App() {
                   <Route index element={<BooksDiscoverPage />} />
                   <Route path="magazines" element={<MagazinesPage />} />
                   <Route path="library" element={<BooksLibraryPage />} />
+                  <Route path="shelf/:id" element={<BookShelfPage />} />
                   <Route path="audiobooks" element={<BooksAudiobooksPage />} />
                   <Route path="archives/:sourceId" element={<ArchiveBrowsePage />} />
                   <Route path="upload" element={<BooksUploadPage />} />

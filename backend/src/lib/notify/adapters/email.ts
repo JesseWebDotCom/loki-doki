@@ -68,6 +68,23 @@ export async function sendEmailRaw(to: string, subject: string, html: string, te
   await t.transporter.sendMail({ from: t.from, to, subject, html, text: text ?? html.replace(/<[^>]+>/g, ' ') })
 }
 
+/** Send an email with a single file attachment (Send-to-Kindle / send-to-eReader).
+ *  Kindle/Kobo email-in accepts EPUB directly. Throws on failure. */
+export async function sendEmailWithAttachment(
+  to: string, subject: string, body: string,
+  attachment: { filename: string; path?: string; content?: Buffer | Uint8Array; contentType?: string },
+): Promise<void> {
+  const t = await getTransporter()
+  if (!t) throw new Error('SMTP not configured')
+  await t.transporter.sendMail({
+    from: t.from, to, subject, text: body,
+    attachments: [{
+      filename: attachment.filename, path: attachment.path,
+      content: attachment.content as Buffer | undefined, contentType: attachment.contentType,
+    }],
+  })
+}
+
 /** Format + send a single notification. */
 export async function sendEmailNotification(to: string, msg: OutboundMessage, appUrl: string | null): Promise<void> {
   const link = msg.url && appUrl ? `${appUrl}${msg.url.startsWith('/') ? msg.url : `/${msg.url}`}` : null

@@ -11,6 +11,7 @@
 import { safeFetch } from '@/lib/ssrfGuard'
 import type { BookContentType, BookSearchResult, DownloadableBookFormat, ResolvedDownload } from './types'
 import { createTtlCache } from '@/lib/ttlCache'
+import { isIaLicenseCheckEnabled } from './sourceToggles'
 
 interface IaSearchDoc {
   identifier: string
@@ -23,6 +24,7 @@ interface IaSearchDoc {
   subject?: string | string[]
   format?: string | string[]
   item_size?: number
+  date?: string | string[]
 }
 
 const SUPPORTED_FORMATS: Array<{ pattern: RegExp; label: string }> = [
@@ -54,16 +56,26 @@ function subjectsOf(v: string | string[] | undefined): string[] {
   return [...new Set(list.map((s) => s.trim()).filter(Boolean))].slice(0, 4)
 }
 
+// IA's `date` is the item's publication date ("1994-05-01T00:00:00Z" or just a
+// year), most useful for periodicals where the issue date matters.
+function publishedOf(v: string | string[] | undefined): { publishedDate: string | null; publishedYear: number | null } {
+  const raw = firstOf(v)
+  if (!raw) return { publishedDate: null, publishedYear: null }
+  const date = raw.slice(0, 10)
+  const year = Number(date.slice(0, 4))
+  return { publishedDate: date, publishedYear: Number.isFinite(year) && year > 0 ? year : null }
+}
+
 function generalFormat(formats: string[]): DownloadableBookFormat {
   if (formats.includes('EPUB')) return 'epub'
   if (formats.includes('PDF')) return 'pdf'
   return 'cbz'
 }
 
-export async function searchArchiveOrg(query: string): Promise<BookSearchResult[]> {
+export async function searchArchiveOrg(query: string, page = 1): Promise<BookSearchResult[]> {
   const q = `${query} AND mediatype:(texts) AND (format:(EPUB) OR format:(PDF) OR format:(CBZ)) AND NOT access-restricted-item:(true)`
   const params = new URLSearchParams({
-    q, rows: '30', page: '1', output: 'json', sort: 'date desc',
+    q, rows: '30', page: String(page), output: 'json', sort: 'date desc',
   })
   params.append('fl[]', 'identifier')
   params.append('fl[]', 'title')
@@ -75,6 +87,7 @@ export async function searchArchiveOrg(query: string): Promise<BookSearchResult[
   params.append('fl[]', 'subject')
   params.append('fl[]', 'format')
   params.append('fl[]', 'item_size')
+  params.append('fl[]', 'date')
 
   try {
     const res = await safeFetch(`https://archive.org/advancedsearch.php?${params.toString()}`, {}, { timeoutMs: 10_000 })
@@ -109,6 +122,7 @@ export async function searchArchiveOrg(query: string): Promise<BookSearchResult[
       mediaType: 'ebook' as const,
       formats,
       sizeBytes: typeof d.item_size === 'number' ? d.item_size : null,
+      ...publishedOf(d.date),
       contentType,
       downloadFormat: generalFormat(formats),
       }]
@@ -132,7 +146,9 @@ export async function resolveArchiveOrgDownload(identifier: string, requestedFor
 
   const restricted = meta.metadata?.['access-restricted-item']
   if (restricted === true || restricted === 'true') throw new Error('This item is lending-restricted, not freely downloadable')
-  if (!meta.metadata?.licenseurl?.includes('publicdomain')) throw new Error('This item is not eligible for direct download')
+  if (await isIaLicenseCheckEnabled() && !meta.metadata?.licenseurl?.includes('publicdomain')) {
+    throw new Error('This item is not eligible for direct download')
+  }
 
   const extension = EXTENSION[requestedFormat]
   const file = (meta.files ?? []).find((f) =>
@@ -151,12 +167,29 @@ export const VISUAL_BOOK_SECTIONS: VisualBookSection[] = [
   { key: 'children', label: "Children's Books" },
 ]
 
+// Comic/manga lean on IA's curated subject facet: a bare keyword query matches
+// "comic" mentions in computer-magazine descriptions and returns almost no actual
+// comics (verified live — keyword-only pulled Compute!'s Gazette et al., the
+// subject-faceted variant pulls real comics).
 const VISUAL_QUERY: Record<Exclude<BookContentType, 'book'>, string> = {
   magazine: '(magazine OR magazines OR periodical OR periodicals OR journal OR journals)',
-  comic: '(comic OR "graphic novel" OR "comic books")',
-  manga: 'manga',
-  coloring_book: '("coloring book" OR coloring)',
-  children: '(juvenile OR children OR "children\'s books")',
+  comic: '("comic book" OR "graphic novel" OR comics) AND subject:(comics)',
+  manga: 'manga AND subject:(manga)',
+  coloring_book: '("coloring book" OR coloring) AND subject:("coloring books" OR coloring)',
+  children: 'subject:("juvenile fiction" OR "juvenile literature" OR "children\'s books")',
+}
+
+// Sort choice matters as much as the query. Publication-date sort drowns comics in
+// AI-generated spam uploads stamped with recent/future dates; upload-date surfaces
+// real recently-added books (verified live). Popularity sort is NOT safe here — it
+// ranks adult comics at the very top. Magazines keep publication date so current
+// issues lead.
+const VISUAL_SORT: Record<Exclude<BookContentType, 'book'>, string> = {
+  magazine: 'date desc',
+  comic: 'addeddate desc',
+  manga: 'addeddate desc',
+  coloring_book: 'addeddate desc',
+  children: 'addeddate desc',
 }
 
 function bestFormat(type: Exclude<BookContentType, 'book'>, formats: string[]): DownloadableBookFormat | null {
@@ -178,17 +211,17 @@ function bestFormat(type: Exclude<BookContentType, 'book'>, formats: string[]): 
 const BROWSE_TTL_MS = 30 * 60 * 1000
 const browseCache = createTtlCache<BookSearchResult[]>(BROWSE_TTL_MS)
 
-export function browseArchiveVisualBooks(type: Exclude<BookContentType, 'book'>, limit = 12, titleQuery?: string): Promise<BookSearchResult[]> {
-  if (titleQuery) return browseArchiveVisualBooksUncached(type, limit, titleQuery)
-  return browseCache.getOrCompute(`${type}:${limit}`, () => browseArchiveVisualBooksUncached(type, limit))
+export function browseArchiveVisualBooks(type: Exclude<BookContentType, 'book'>, limit = 12, titleQuery?: string, page = 1): Promise<BookSearchResult[]> {
+  if (titleQuery) return browseArchiveVisualBooksUncached(type, limit, titleQuery, page)
+  return browseCache.getOrCompute(`${type}:${limit}:${page}`, () => browseArchiveVisualBooksUncached(type, limit, undefined, page))
 }
 
-async function browseArchiveVisualBooksUncached(type: Exclude<BookContentType, 'book'>, limit = 12, titleQuery?: string): Promise<BookSearchResult[]> {
+async function browseArchiveVisualBooksUncached(type: Exclude<BookContentType, 'book'>, limit = 12, titleQuery?: string, page = 1): Promise<BookSearchResult[]> {
   const params = new URLSearchParams({
     q: `${titleQuery ? `${titleQuery} AND ` : ''}${VISUAL_QUERY[type]} AND mediatype:(texts) AND NOT access-restricted-item:(true)`,
-    rows: String(limit * 2), page: '1', output: 'json', sort: 'date desc',
+    rows: String(limit * 2), page: String(page), output: 'json', sort: VISUAL_SORT[type],
   })
-  for (const field of ['identifier', 'title', 'creator', 'language', 'description', 'subject', 'format', 'item_size']) {
+  for (const field of ['identifier', 'title', 'creator', 'language', 'description', 'subject', 'format', 'item_size', 'date']) {
     params.append('fl[]', field)
   }
   try {
@@ -209,6 +242,7 @@ async function browseArchiveVisualBooksUncached(type: Exclude<BookContentType, '
         coverUrl: `https://archive.org/services/img/${doc.identifier}`,
         description: stripDescriptionHtml(doc.description), subjects: subjectsOf(doc.subject),
         mediaType: 'ebook' as const, formats, sizeBytes: typeof doc.item_size === 'number' ? doc.item_size : null,
+        ...publishedOf(doc.date),
         contentType: type, downloadFormat,
       }]
     }).slice(0, limit)

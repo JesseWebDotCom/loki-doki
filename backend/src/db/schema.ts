@@ -2267,7 +2267,7 @@ export const books = sqliteTable('books', {
   publishedYear: integer('published_year'),
   contentType: text('content_type', { enum: ['book', 'magazine', 'children', 'comic', 'manga', 'coloring_book'] }).notNull().default('book'),
   isbn: text('isbn'),
-  sourceType: text('source_type', { enum: ['upload', 'gutenberg', 'standardebooks', 'archiveorg', 'wikisource', 'googlebooks', 'openlibrary', 'indexer', 'librivox', 'manual', 'ai-generated'] }).notNull().default('upload'),
+  sourceType: text('source_type', { enum: ['upload', 'gutenberg', 'standardebooks', 'archiveorg', 'wikisource', 'googlebooks', 'openlibrary', 'indexer', 'librivox', 'manual', 'ai-generated', 'annas', 'libgen', 'feedbooks'] }).notNull().default('upload'),
   sourceRef: text('source_ref'),      // external id/URL — the dedup key for non-upload sources
   metadataJson: text('metadata_json'), // raw payload from Open Library / source API
   addedByUserId: text('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
@@ -2307,7 +2307,13 @@ export const bookLibrary = sqliteTable('book_library', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
-  status: text('status', { enum: ['saved', 'pending', 'downloading', 'ready', 'failed'] }).notNull().default('ready'),
+  // 'requested' = a kid-safe profile asked for this title; an admin must approve
+  // before it downloads (see lib/books/requests.ts). Everything else is the normal
+  // save/download lifecycle.
+  status: text('status', { enum: ['requested', 'saved', 'pending', 'downloading', 'ready', 'failed'] }).notNull().default('ready'),
+  // Set on a 'requested' row; cleared/kept for audit once approved.
+  requestedAt: integer('requested_at', { mode: 'timestamp' }),
+  approvedByUserId: text('approved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   userBookUnique: unique().on(t.userId, t.bookId),
@@ -2328,10 +2334,53 @@ export const bookProgress = sqliteTable('book_progress', {
   // single seekable file, so "position" is (chapterIdx, seconds into that chapter).
   audioChapterIdx: integer('audio_chapter_idx'),
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  // Reading-stats fields: when the user first opened it, when they finished, and
+  // cumulative active time (seconds) accrued from progress heartbeats.
+  startedAt: integer('started_at', { mode: 'timestamp' }),
+  finishedAt: integer('finished_at', { mode: 'timestamp' }),
+  elapsedSec: integer('elapsed_sec').notNull().default(0),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   userBookUnique: unique().on(t.userId, t.bookId),
 }))
+
+// KOReader sync (KOSync protocol): standalone reader accounts + per-document
+// position, so KOReader on any device syncs against this server. Kept separate
+// from bookProgress (which is app-user + app-book) because KOReader identifies
+// books by its own partial-md5 document hash and users by its own credentials.
+export const bookSyncUsers = sqliteTable('book_sync_users', {
+  username: text('username').primaryKey(),
+  keyHash: text('key_hash').notNull(),        // the MD5 key KOReader sends (already client-hashed)
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }), // optional link to an app user
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const bookSyncProgress = sqliteTable('book_sync_progress', {
+  username: text('username').notNull(),
+  document: text('document').notNull(),       // KOReader partial-md5 doc hash
+  progress: text('progress').notNull(),       // opaque KOReader position string (xpointer/page)
+  percentage: real('percentage').notNull().default(0),
+  device: text('device'),
+  deviceId: text('device_id'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userDocUnique: unique().on(t.username, t.document),
+}))
+
+// Smart shelves: saved AND/OR filter rules over the local catalog, pinnable to the
+// Books nav (Kavita smart-filters / BookLore magic-shelves). `rulesJson` is a
+// {match:'all'|'any', rules:[{field,op,value}]} document evaluated at read time.
+export const bookShelves = sqliteTable('book_shelves', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  icon: text('icon'),
+  rulesJson: text('rules_json').notNull(),
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
 
 // Custom self-hosted OPDS indexers (Calibre-Web, Kavita, COPS, etc.) as extra Book
 // Store sources. Admin-managed (Admin > Integrations > Books), multiple allowed —

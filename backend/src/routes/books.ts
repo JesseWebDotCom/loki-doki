@@ -8,12 +8,15 @@ import { and, eq } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import {
   uploadBookFile, listLibrary, listLibraryIndex, getBook, getChapters, upsertProgress, getReadyAssetBlobHash, addLibrivoxAudiobook,
-  removeFromLibrary, getOrExtractBookCover,
+  removeFromLibrary, getOrExtractBookCover, getReadingStats,
 } from '@/lib/books/library'
 import { acquireRead, blobAbsPath, releaseRead } from '@/lib/content/store'
 import { searchBookCatalog, searchBooks } from '@/lib/books/search'
 import { getBookSample } from '@/lib/books/preview'
-import { addAndDownloadBook, downloadBookOffline, enqueueBookDownload, saveBook } from '@/lib/books/offline'
+import { addAndDownloadBook, downloadBookOffline, enqueueBookDownload, resolveDownloadUrl, saveBook } from '@/lib/books/offline'
+import { createBookRequest, requestExistingBook, userMustRequestBooks } from '@/lib/books/requests'
+import { getReaderSyncInfo, setKindleEmail, sendBookToKindle } from '@/lib/books/reader'
+import { listShelves, createShelf, updateShelf, deleteShelf, resolveShelf, type ShelfRules } from '@/lib/books/shelves'
 import { enqueueBookTtsRender } from '@/lib/books/tts'
 import { searchLibrivox, browseLibrivoxByCategory, browseAllLibrivoxCategories, browseLibrivoxByCategoryFull, LIBRIVOX_CATEGORIES } from '@/lib/books/librivox'
 import { browseGutenbergByTopic, browseAllGutenbergCategories, browseGutenbergByTopicFull } from '@/lib/books/gutenberg'
@@ -28,7 +31,7 @@ import type { BookContentType } from '@/lib/books/types'
 import { browseGoogleBooks } from '@/lib/books/googleBooks'
 import { browseOpenLibrary } from '@/lib/books/openLibrary'
 import { browseAllMagazineCategories, browseMagazineByTopic, browseMagazineByTopicFull, MAGAZINE_CATEGORIES } from '@/lib/books/magazines'
-import { mediaAssets, bookChapters } from '@/db/schema'
+import { mediaAssets, bookChapters, books as booksTable } from '@/db/schema'
 import { db } from '@/db'
 import type { AppEnv } from '@/types'
 
@@ -66,7 +69,8 @@ books.get('/library', async (c) => {
 // render Save/Download/Offline state without a lookup per result.
 books.get('/library/index', async (c) => {
   const user = c.get('user')
-  return c.json({ entries: await listLibraryIndex(user.id) })
+  const [entries, mustRequest] = await Promise.all([listLibraryIndex(user.id), userMustRequestBooks(user.id)])
+  return c.json({ entries, mustRequest })
 })
 
 // Bulk-capable from the start (Clear Selected/Clear All on Books' Offline view) —
@@ -127,6 +131,23 @@ books.get('/visual/:type', async (c) => {
   if (results.length) return c.json({ results })
   return c.json({ results: toggles.archiveorg ? await browseArchiveVisualBooks(type) : [] })
 })
+// The full "view all" list behind a visual shelf (Comics/Manga/etc). Page 1
+// blends the same modern-metadata sources the shelf preview uses with a bigger
+// Internet Archive batch (IA items are the downloadable ones); later pages walk
+// IA alone, since Google/Open Library browse endpoints here aren't pageable.
+books.get('/visual/:type/full', async (c) => {
+  const toggles = await getBuiltinSourceToggles()
+  const type = c.req.param('type') as Exclude<BookContentType, 'book'>
+  if (!VISUAL_BOOK_SECTIONS.some((section) => section.key === type)) return c.json({ code: 'bad_request' }, 400)
+  const page = Math.min(20, Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1))
+  const [google, openLibrary, archive] = await Promise.all([
+    page === 1 && toggles.googlebooks ? browseGoogleBooks(type) : Promise.resolve([]),
+    page === 1 && toggles.openlibrary ? browseOpenLibrary(type) : Promise.resolve([]),
+    toggles.archiveorg ? browseArchiveVisualBooks(type, 30, undefined, page) : Promise.resolve([]),
+  ])
+  const results = [...new Map([...archive, ...google, ...openLibrary].map((item) => [`${item.source}:${item.sourceRef}`, item])).values()]
+  return c.json({ results })
+})
 books.get('/magazines/categories', (c) => c.json({ categories: MAGAZINE_CATEGORIES }))
 books.get('/magazines/categories/browse-all', async (c) => {
   const toggles = await getBuiltinSourceToggles()
@@ -136,7 +157,8 @@ books.get('/magazines/categories/browse-all', async (c) => {
 books.get('/magazines/categories/:topic/full', async (c) => {
   const toggles = await getBuiltinSourceToggles()
   if (!toggles.archiveorg && !toggles.openlibrary) return c.json({ results: [] })
-  return c.json({ results: await browseMagazineByTopicFull(c.req.param('topic'), { archive: toggles.archiveorg, openLibrary: toggles.openlibrary }) })
+  const page = Math.min(20, Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1))
+  return c.json({ results: await browseMagazineByTopicFull(c.req.param('topic'), { archive: toggles.archiveorg, openLibrary: toggles.openlibrary }, page) })
 })
 books.get('/magazines/categories/:topic', async (c) => {
   const toggles = await getBuiltinSourceToggles()
@@ -187,6 +209,29 @@ books.get('/librivox/categories/:subject', async (c) => {
   return c.json({ results: await browseLibrivoxByCategory(c.req.param('subject')) })
 })
 
+// Reading-sync settings: the user's OPDS + KOSync URLs and their Send-to-Kindle
+// address, for the Books settings surface.
+books.get('/reader-sync', async (c) => {
+  const user = c.get('user')
+  return c.json(await getReaderSyncInfo(user.id))
+})
+
+books.put('/kindle-email', async (c) => {
+  const user = c.get('user')
+  const body = (await c.req.json().catch(() => null)) as { email?: string } | null
+  const email = body?.email?.trim()
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return c.json({ code: 'bad_email' }, 400)
+  await setKindleEmail(user.id, email)
+  return c.json({ ok: true })
+})
+
+books.post('/:id/send-to-kindle', async (c) => {
+  const user = c.get('user')
+  const result = await sendBookToKindle(user.id, c.req.param('id'))
+  if (!result.ok) return c.json({ code: 'send_failed', error: result.error }, 400)
+  return c.json({ ok: true })
+})
+
 // Read-only source status for the in-app settings page. Mutations are admin-only
 // under /api/admin/books/sources.
 books.get('/sources', async (c) => {
@@ -219,12 +264,18 @@ books.post('/save', async (c) => {
   }
 })
 
-// "Download offline" (Save + Download in one step from a search hit).
+// "Download offline" (Save + Download in one step from a search hit). Kid-safe
+// profiles can't pull bytes directly — their download becomes an admin-approved
+// request instead (see lib/books/requests.ts). Admins are never gated.
 books.post('/download', async (c) => {
   const user = c.get('user')
   const result = (await c.req.json()) as BookSearchResult
   if (!result?.source || !result?.sourceRef || !result?.title) return c.json({ code: 'bad_request' }, 400)
   try {
+    if (user.role !== 'admin' && await userMustRequestBooks(user.id)) {
+      const { bookId, requested } = await createBookRequest(user.id, result)
+      return c.json({ bookId, requested, jobId: null, ready: false })
+    }
     const { bookId, jobId } = await addAndDownloadBook(user.id, result)
     return c.json({ bookId, jobId, ready: jobId === null })
   } catch (err) {
@@ -232,15 +283,109 @@ books.post('/download', async (c) => {
   }
 })
 
+// "Download" (to this device): serve the raw file as a browser attachment for use
+// outside the app. Prefers an already-downloaded local blob for the same
+// source/ref; otherwise resolves the source URL live and proxies it through.
+// Registered before the /:id routes so the static segment wins. Kid-safe profiles
+// are gated the same way /download is (no bytes without approval).
+const FILE_DOWNLOAD_SOURCES = ['gutenberg', 'archiveorg', 'indexer', 'wikisource', 'standardebooks'] as const
+books.get('/download-file', async (c) => {
+  const user = c.get('user')
+  const source = c.req.query('source') as (typeof FILE_DOWNLOAD_SOURCES)[number]
+  const ref = c.req.query('ref')
+  const format = (c.req.query('format') ?? 'epub') as 'epub' | 'pdf' | 'cbz'
+  if (!FILE_DOWNLOAD_SOURCES.includes(source) || !ref || !EBOOK_CONTENT_TYPE[format]) return c.json({ code: 'bad_request' }, 400)
+  if (user.role !== 'admin' && await userMustRequestBooks(user.id)) {
+    return c.json({ code: 'approval_required', error: 'Downloads need an admin approval on this profile' }, 403)
+  }
+
+  const [book] = await db.select({ id: booksTable.id, title: booksTable.title }).from(booksTable)
+    .where(and(eq(booksTable.sourceType, source), eq(booksTable.sourceRef, ref))).limit(1)
+  const title = (c.req.query('title') || book?.title || ref).slice(0, 120)
+  const asFilename = (ext: string) => `${title.replace(/[/\\:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'book'}.${ext}`
+  const disposition = (name: string) => `attachment; filename="${name.replace(/[^\x20-\x7e]+/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`
+
+  // Already downloaded for someone's offline library — serve the local blob.
+  const asset = book ? await getReadyAssetBlobHash(book.id, 'ebook') : null
+  if (asset) {
+    const absPath = await blobAbsPath(asset.hash)
+    const response = streamBlob(c, absPath, EBOOK_CONTENT_TYPE[asset.format] ?? 'application/octet-stream', asset.hash)
+    response.headers.set('Content-Disposition', disposition(asFilename(asset.format)))
+    return response
+  }
+
+  // No local copy: resolve the source's direct URL and pass the bytes through.
+  try {
+    const resolved = await resolveDownloadUrl(source, ref, format)
+    const headers = { 'User-Agent': 'LokiDoki/3.0 books', Accept: '*/*', 'Accept-Encoding': 'identity', ...resolved.headers }
+    const upstream = source === 'indexer'
+      ? await fetch(resolved.url, { headers, signal: AbortSignal.timeout(30_000) })
+      : await safeFetch(resolved.url, { headers }, { timeoutMs: 30_000, maxRedirects: 8 })
+    if (!upstream.ok || !upstream.body) {
+      upstream.body?.cancel().catch(() => {})
+      return c.json({ code: 'upstream_error', error: `Source responded ${upstream.status}` }, 502)
+    }
+    const responseHeaders = new Headers({
+      'Content-Type': EBOOK_CONTENT_TYPE[resolved.format] ?? 'application/octet-stream',
+      'Content-Disposition': disposition(asFilename(resolved.format)),
+    })
+    const length = upstream.headers.get('content-length')
+    if (length) responseHeaders.set('Content-Length', length)
+    return new Response(upstream.body, { headers: responseHeaders })
+  } catch (err) {
+    return c.json({ code: 'download_failed', error: err instanceof Error ? err.message : String(err) }, 400)
+  }
+})
+
 // "Download offline" for a book already saved in the library (by bookId).
 books.post('/:id/download-offline', async (c) => {
   const user = c.get('user')
   try {
+    if (user.role !== 'admin' && await userMustRequestBooks(user.id)) {
+      const { requested } = await requestExistingBook(user.id, c.req.param('id'))
+      return c.json({ requested, jobId: null, ready: false })
+    }
     const { jobId } = await downloadBookOffline(user.id, c.req.param('id'))
     return c.json({ jobId, ready: jobId === null })
   } catch (err) {
     return c.json({ code: 'download_failed', error: err instanceof Error ? err.message : String(err) }, 400)
   }
+})
+
+// Personal reading stats (finished count, time read, recent finishes).
+books.get('/stats', async (c) => {
+  const user = c.get('user')
+  return c.json(await getReadingStats(user.id))
+})
+
+// Smart shelves: saved AND/OR filters over the user's library.
+books.get('/shelves', async (c) => c.json({ shelves: await listShelves(c.get('user').id) }))
+
+books.post('/shelves', async (c) => {
+  const user = c.get('user')
+  const body = (await c.req.json().catch(() => null)) as { name?: string; icon?: string | null; rules?: ShelfRules; pinned?: boolean } | null
+  if (!body?.name?.trim() || !body.rules) return c.json({ code: 'bad_request' }, 400)
+  return c.json({ shelf: await createShelf(user.id, { name: body.name, icon: body.icon, rules: body.rules, pinned: body.pinned }) })
+})
+
+books.put('/shelves/:id', async (c) => {
+  const user = c.get('user')
+  const body = (await c.req.json().catch(() => null)) as { name?: string; icon?: string | null; rules?: ShelfRules; pinned?: boolean } | null
+  if (!body) return c.json({ code: 'bad_request' }, 400)
+  const shelf = await updateShelf(user.id, c.req.param('id'), body)
+  if (!shelf) return c.json({ code: 'not_found' }, 404)
+  return c.json({ shelf })
+})
+
+books.delete('/shelves/:id', async (c) => {
+  await deleteShelf(c.get('user').id, c.req.param('id'))
+  return c.json({ ok: true })
+})
+
+books.get('/shelves/:id/items', async (c) => {
+  const resolved = await resolveShelf(c.get('user').id, c.req.param('id'))
+  if (!resolved) return c.json({ code: 'not_found' }, 404)
+  return c.json({ shelf: resolved.shelf, books: resolved.items })
 })
 
 books.get('/:id', async (c) => {
@@ -291,7 +436,7 @@ books.put('/:id/progress', async (c) => {
   const bookId = c.req.param('id')
   const body = await c.req.json() as {
     mode?: 'reading' | 'listening'; epubCfi?: string | null; percent?: number
-    audioPositionSec?: number | null; audioChapterIdx?: number | null; completed?: boolean
+    audioPositionSec?: number | null; audioChapterIdx?: number | null; completed?: boolean; elapsedDeltaSec?: number
   }
   if (body.mode !== 'reading' && body.mode !== 'listening') return c.json({ code: 'bad_mode' }, 400)
   await upsertProgress(user.id, bookId, {
@@ -301,6 +446,7 @@ books.put('/:id/progress', async (c) => {
     audioPositionSec: body.audioPositionSec ?? null,
     audioChapterIdx: body.audioChapterIdx ?? null,
     completed: body.completed ?? false,
+    elapsedDeltaSec: typeof body.elapsedDeltaSec === 'number' ? body.elapsedDeltaSec : 0,
   })
   return c.json({ ok: true })
 })
@@ -399,8 +545,16 @@ books.get('/:id/chapters/:idx/stream', async (c) => {
 // the client-side readers already show without a dedicated endpoint.
 books.get('/:id/cover', async (c) => {
   const cover = await getOrExtractBookCover(c.req.param('id'))
-  if (!cover) return c.json({ code: 'no_cover' }, 404)
-  c.header('Content-Type', cover.mime)
-  c.header('Cache-Control', 'private, max-age=86400')
-  return c.body(cover.bytes as any)
+  if (cover) {
+    c.header('Content-Type', cover.mime)
+    c.header('Cache-Control', 'private, max-age=86400')
+    return c.body(cover.bytes as any)
+  }
+  // Covers only extract from EPUBs — a downloaded PDF/CBZ still has the catalog's
+  // remote cover art, so bounce those to the cached image proxy instead of 404ing
+  // (the Offline/Library pages always ask here when an ebook asset exists).
+  const [book] = await db.select({ coverUrl: booksTable.coverUrl }).from(booksTable)
+    .where(eq(booksTable.id, c.req.param('id'))).limit(1)
+  if (book?.coverUrl) return c.redirect(`/api/img?u=${encodeURIComponent(book.coverUrl)}`, 302)
+  return c.json({ code: 'no_cover' }, 404)
 })

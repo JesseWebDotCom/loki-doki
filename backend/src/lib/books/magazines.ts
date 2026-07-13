@@ -124,18 +124,20 @@ function isMagazine(item: BookSearchResult): boolean {
 const BROWSE_TTL_MS = 30 * 60 * 1000
 const browseCache = createTtlCache<BookSearchResult[]>(BROWSE_TTL_MS)
 
-function magazineSearch(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}): Promise<BookSearchResult[]> {
-  return browseCache.getOrCompute(`${topic}:${opts.archive !== false}:${opts.openLibrary !== false}`, () => magazineSearchUncached(topic, opts))
+function magazineSearch(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}, page = 1): Promise<BookSearchResult[]> {
+  return browseCache.getOrCompute(`${topic}:${opts.archive !== false}:${opts.openLibrary !== false}:${page}`, () => magazineSearchUncached(topic, opts, page))
 }
 
-async function magazineSearchUncached(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}): Promise<BookSearchResult[]> {
+async function magazineSearchUncached(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}, page = 1): Promise<BookSearchResult[]> {
   const category = categoryForTopic(topic)
   // A named-title IA query for the shelf, plus a plain keyword query for Open Library.
   const iaQuery = category?.query ?? `(${topic}) AND (magazine OR periodical OR journal)`
   const olQuery = `${category?.olQuery ?? topic} magazine`
+  // Pages past the first are IA-only: searchOpenLibrary has no page parameter, and
+  // re-blending its same top hits would just produce duplicates.
   const [archive, openLibrary] = await Promise.all([
-    opts.archive === false ? Promise.resolve([]) : searchArchiveOrg(iaQuery).catch(() => []),
-    opts.openLibrary === false ? Promise.resolve([]) : searchOpenLibrary(olQuery, 'magazine').catch(() => []),
+    opts.archive === false ? Promise.resolve([]) : searchArchiveOrg(iaQuery, page).catch(() => []),
+    opts.openLibrary === false || page > 1 ? Promise.resolve([]) : searchOpenLibrary(olQuery, 'magazine').catch(() => []),
   ])
   // The IA query is already magazine-scoped by named titles, so we trust it rather
   // than re-filtering on the `contentType` heuristic — that heuristic drops current
@@ -154,6 +156,6 @@ export async function browseAllMagazineCategories(opts: { archive?: boolean; ope
   )
 }
 
-export async function browseMagazineByTopicFull(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}): Promise<BookSearchResult[]> {
-  return magazineSearch(topic, opts)
+export async function browseMagazineByTopicFull(topic: string, opts: { archive?: boolean; openLibrary?: boolean } = {}, page = 1): Promise<BookSearchResult[]> {
+  return magazineSearch(topic, opts, page)
 }

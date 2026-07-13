@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { NavLink, Link, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { BookAudio, Compass, Download, Library, Newspaper, Settings, Sparkles, Upload } from 'lucide-react'
+import { BookAudio, Compass, Download, LayoutGrid, Library, Newspaper, Settings, Sparkles, Upload } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { cn } from '@/lib/cn'
+import { listShelves } from '@/lib/books/api'
 
 export type BooksMode = 'online' | 'offline'
 
@@ -78,6 +80,15 @@ function OfflineLink() {
   )
 }
 
+// Pinned smart shelves surface right under My Library. Cached via React Query so
+// the rail doesn't refetch on every navigation.
+function PinnedShelves() {
+  const { data: shelves = [] } = useQuery({ queryKey: ['books-shelves'], queryFn: listShelves, staleTime: 5 * 60 * 1000 })
+  const pinned = shelves.filter((s) => s.pinned)
+  if (!pinned.length) return null
+  return <>{pinned.map((s) => <RailLink key={s.id} to={`/books/shelf/${s.id}`} icon={LayoutGrid} label={s.name} />)}</>
+}
+
 // The Books sub-nav. Rendered inline as the desktop rail (lg+) and, via the header
 // `rail` slot, inside the mobile top bar's drawer. `mode` is passed explicitly because
 // the drawer renders outside the BooksModeCtx provider.
@@ -98,6 +109,7 @@ function BooksRail({ variant, mode }: { variant: 'sidebar' | 'drawer'; mode: Boo
       )}
       <RailLink to="/books/library" icon={Library} label="My Library" end={mode === 'offline'} />
       <OfflineLink />
+      <PinnedShelves />
       <RailLink to="/books/upload" icon={Upload} label="Upload" />
       <RailLink to="/books/generate" icon={Sparkles} label="Create with AI" />
       <RailLink to="/books/sources" icon={Settings} label="Sources" />

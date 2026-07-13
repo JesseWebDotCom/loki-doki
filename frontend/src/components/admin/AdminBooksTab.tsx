@@ -4,6 +4,7 @@
 import { BookAudio } from 'lucide-react'
 import { IndexerManager } from '@/components/books/IndexerManager'
 import { BookSourceManager } from '@/components/books/BookSourceManager'
+import { BookRequestsManager } from '@/components/books/BookRequestsManager'
 
 export function AdminBooksTab() {
   return (
@@ -19,6 +20,9 @@ export function AdminBooksTab() {
       </div>
 
       <BookSourceManager />
+      <div className="border-t border-border pt-6">
+        <BookRequestsManager />
+      </div>
       <div className="border-t border-border pt-6">
         <IndexerManager />
       </div>

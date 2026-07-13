@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Pause, Play, RotateCcw, RotateCw } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkPlus, Check, ChevronLeft, ChevronRight, Moon, Pause, Play, RotateCcw, RotateCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { BookCover } from '@/components/books/BookCover'
@@ -24,6 +24,17 @@ import {
 
 const PROGRESS_SAVE_MS = 5000
 const RATES = [0.75, 1, 1.25, 1.5, 2]
+// Sleep-timer cycle: off → minute presets → end-of-chapter → off.
+const SLEEP_OPTIONS: (number | 'chapter' | null)[] = [null, 15, 30, 45, 60, 'chapter']
+
+interface AudioBookmark { chapterIdx: number; positionSec: number; label: string; createdAt: number }
+
+function loadBookmarks(bookId: string): AudioBookmark[] {
+  try { return JSON.parse(localStorage.getItem(`book-audio-bm:${bookId}`) ?? '[]') as AudioBookmark[] } catch { return [] }
+}
+function saveBookmarks(bookId: string, list: AudioBookmark[]): void {
+  try { localStorage.setItem(`book-audio-bm:${bookId}`, JSON.stringify(list)) } catch { /* quota / private mode */ }
+}
 
 function fmtClock(sec: number): string {
   const s = Math.max(0, Math.floor(sec))
@@ -56,6 +67,23 @@ export function AudiobookPlayerPage() {
   const [pos, setPos] = useState(0)
   const [dur, setDur] = useState(0)
   const [rate, setRate] = useState(1)
+  const [sleep, setSleep] = useState<number | 'chapter' | null>(null)
+  const [bookmarks, setBookmarks] = useState<AudioBookmark[]>([])
+  // Seek target to apply once the (possibly newly-mounted) audio element is ready,
+  // used when jumping to a bookmark in a different chapter.
+  const pendingSeekRef = useRef<number | null>(null)
+
+  useEffect(() => { setBookmarks(loadBookmarks(id)) }, [id])
+
+  // Sleep timer. Minute presets pause after a fixed delay; 'chapter' pauses at the
+  // next chapter end (handled in the audio 'ended' handler via sleepRef).
+  const sleepRef = useRef<number | 'chapter' | null>(null)
+  sleepRef.current = sleep
+  useEffect(() => {
+    if (sleep === null || sleep === 'chapter' || !playing) return
+    const t = setTimeout(() => { audioRef.current?.pause(); setSleep(null) }, sleep * 60_000)
+    return () => clearTimeout(t)
+  }, [sleep, playing])
 
   useEffect(() => {
     let cancelled = false
@@ -82,12 +110,14 @@ export function AudiobookPlayerPage() {
       void updateProgress(id, {
         mode: 'listening', audioPositionSec: audio.currentTime, audioChapterIdx: chapterIdx,
         percent, completed: chapterIdx >= chapters.length - 1 && dur > 0 && audio.currentTime / dur >= 0.98,
+        elapsedDeltaSec: PROGRESS_SAVE_MS / 1000,
       })
     } else {
       void updateProgress(id, {
         mode: 'listening', audioPositionSec: audio.currentTime,
         percent: dur > 0 ? audio.currentTime / dur : 0,
         completed: dur > 0 && audio.currentTime / dur >= 0.98,
+        elapsedDeltaSec: PROGRESS_SAVE_MS / 1000,
       })
     }
   }, [id, multiTrack, chapters, chapterIdx])
@@ -95,10 +125,13 @@ export function AudiobookPlayerPage() {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !detail || loading) return
-    const resumeAt = detail.progress?.mode === 'listening' && (!multiTrack || detail.progress.audioChapterIdx === chapterIdx)
-      ? detail.progress.audioPositionSec ?? 0 : 0
+    const pending = pendingSeekRef.current
+    pendingSeekRef.current = null
+    const resumeAt = pending != null ? pending
+      : (detail.progress?.mode === 'listening' && (!multiTrack || detail.progress.audioChapterIdx === chapterIdx)
+          ? detail.progress.audioPositionSec ?? 0 : 0)
     if (resumeAt > 1) {
-      const onLoaded = () => { audio.currentTime = resumeAt }
+      const onLoaded = () => { audio.currentTime = resumeAt; if (pending != null) void audio.play() }
       audio.addEventListener('loadedmetadata', onLoaded, { once: true })
     }
 
@@ -108,6 +141,7 @@ export function AudiobookPlayerPage() {
       saveTimerRef.current = setTimeout(() => { saveTimerRef.current = null; saveProgress(audio) }, PROGRESS_SAVE_MS)
     }
     const onEnded = () => {
+      if (sleepRef.current === 'chapter') { audio.pause(); setSleep(null); return }
       if (multiTrack && chapterIdx < chapters.length - 1) setChapterIdx((i) => i + 1)
     }
     const onPlay = () => setPlaying(true)
@@ -159,6 +193,23 @@ export function AudiobookPlayerPage() {
     if (a) a.currentTime = Math.max(0, Math.min(a.duration || Infinity, a.currentTime + delta))
   }
   const cycleRate = () => setRate(RATES[(RATES.indexOf(rate) + 1) % RATES.length] ?? 1)
+  const cycleSleep = () => setSleep(SLEEP_OPTIONS[(SLEEP_OPTIONS.indexOf(sleep) + 1) % SLEEP_OPTIONS.length] ?? null)
+  const sleepLabel = sleep === null ? 'Sleep' : sleep === 'chapter' ? 'End of chapter' : `${sleep}m`
+  const addBookmark = () => {
+    const a = audioRef.current
+    if (!a) return
+    const label = currentChapter ? `${currentChapter.title} · ${fmtClock(a.currentTime)}` : fmtClock(a.currentTime)
+    const next = [...bookmarks, { chapterIdx, positionSec: a.currentTime, label, createdAt: Date.now() }].slice(-50)
+    setBookmarks(next); saveBookmarks(id, next)
+  }
+  const jumpBookmark = (bm: AudioBookmark) => {
+    if (multiTrack && bm.chapterIdx !== chapterIdx) { pendingSeekRef.current = bm.positionSec; setChapterIdx(bm.chapterIdx) }
+    else { const a = audioRef.current; if (a) { a.currentTime = bm.positionSec; void a.play() } }
+  }
+  const deleteBookmark = (createdAt: number) => {
+    const next = bookmarks.filter((b) => b.createdAt !== createdAt)
+    setBookmarks(next); saveBookmarks(id, next)
+  }
 
   // Always-dark immersive player (the Books equivalent of Music's Now Playing):
   // cover through UltraBlur, transport and chapter chrome tinted to the cover palette.
@@ -223,7 +274,38 @@ export function AudiobookPlayerPage() {
           <span className="-mt-3 text-xs tabular-nums text-muted-foreground">Chapter {chapterIdx + 1} / {chapters.length}</span>
         )}
 
+        {/* Secondary controls: sleep timer + add bookmark */}
+        <div className="flex items-center gap-2">
+          <button onClick={cycleSleep}
+            className={cn('flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition',
+              sleep !== null ? 'border-white/30 bg-white/15 text-foreground' : 'border-white/10 text-muted-foreground hover:text-foreground')}
+            title="Sleep timer">
+            <Moon className="size-3.5" />{sleepLabel}
+          </button>
+          <button onClick={addBookmark}
+            className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+            title="Bookmark this spot">
+            <BookmarkPlus className="size-3.5" />Bookmark
+          </button>
+        </div>
+
         <audio key={src} ref={audioRef} src={src} autoPlay={multiTrack && chapterIdx > 0} className="hidden" />
+
+        {bookmarks.length > 0 && (
+          <div className="w-full max-w-md">
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground"><Bookmark className="size-3.5" />Bookmarks</p>
+            <div className="overflow-hidden rounded-card border border-white/10 bg-black/30">
+              {[...bookmarks].sort((a, b) => b.createdAt - a.createdAt).map((bm) => (
+                <div key={bm.createdAt} className="flex items-center gap-2 border-b border-white/5 px-3 py-2 text-sm last:border-0">
+                  <button type="button" onClick={() => jumpBookmark(bm)} className="min-w-0 flex-1 truncate text-left hover:text-brand">{bm.label}</button>
+                  <button type="button" onClick={() => deleteBookmark(bm.createdAt)} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Delete bookmark">
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {multiTrack && (
           <div className="w-full max-w-md overflow-y-auto rounded-card border border-white/10 bg-black/30">

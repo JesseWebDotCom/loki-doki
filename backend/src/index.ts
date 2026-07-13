@@ -58,6 +58,8 @@ import { narration } from '@/routes/narration'
 import { books } from '@/routes/books'
 import { booksGenerate } from '@/routes/booksGenerate'
 import { adminBooks } from '@/routes/adminBooks'
+import { kosync } from '@/routes/kosync'
+import { opds } from '@/routes/opds'
 import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
@@ -400,6 +402,9 @@ if (firstBoot) {
   // Shopping price tracker: re-check tracked listings on a jittered ~4h cadence and fire
   // price-drop/back-in-stock alerts through the notification matrix.
   import('@/lib/shopping/poller').then((m) => m.startShoppingPoller()).catch(() => {})
+  // Books: warm the Discover/Magazines/Audiobooks browse caches so the first visit
+  // after a restart is instant instead of a multi-second remote fan-out.
+  import('@/lib/books/warm').then((m) => m.warmBookCaches()).catch(() => {})
 } else {
   // Hot reload: module-level caches reset with the new graph even though the old
   // timers/sockets keep running. Re-seed the cheap ones the request path depends on.
@@ -527,6 +532,12 @@ app.route('/api/narration', narration)
 app.route('/api/books', books)
 app.route('/api/books', booksGenerate)
 app.route('/api/admin/books', adminBooks)
+// KOReader progress-sync server (header-authed, no app session) — point KOReader's
+// custom sync server at /api/kosync. See routes/kosync.ts.
+app.route('/api/kosync', kosync)
+// OPDS 1.2 catalog server (per-user token in the URL, no app session) — add
+// /api/opds/<token> to any OPDS reader. See routes/opds.ts.
+app.route('/api/opds', opds)
 // Deprecated alias: archives captured before the Reader→Bookmarks rename baked
 // `/api/reader/<id>/archive/*` asset URLs into their saved HTML. Keep serving them.
 app.route('/api/reader', bookmarks)

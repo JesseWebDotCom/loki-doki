@@ -7,9 +7,9 @@
 import { randomUUID } from 'node:crypto'
 import { writeFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { eq, and, desc, isNotNull, inArray } from 'drizzle-orm'
+import { eq, and, desc, isNotNull, inArray, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { books, bookChapters, bookLibrary, bookProgress, mediaAssets } from '@/db/schema'
+import { books, bookChapters, bookLibrary, bookProgress, downloadJobs, mediaAssets } from '@/db/schema'
 import { blobAbsPath, contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/content/store'
 import { openEpub, readMetadata, readSpineChapters, type EpubHandle } from '@/lib/epub/parse'
 import { convertCbrToCbz } from './comic'
@@ -311,11 +311,12 @@ export async function listLibrary(userId: string): Promise<BookListItem[]> {
   })
 }
 
-export interface LibraryIndexEntry { source: string; sourceRef: string; bookId: string; status: string }
+export interface LibraryIndexEntry { source: string; sourceRef: string; bookId: string; status: string; progress: number | null }
 
 /** A lightweight map of the user's library keyed by external source ref, so
  *  storefront tiles/cards (which only hold a `source:sourceRef`, not a bookId)
- *  can show the right Save/Download/Offline state without a per-tile lookup. */
+ *  can show the right Save/Download/Offline state without a per-tile lookup.
+ *  Entries mid-download carry the job's byte progress as a 0..1 fraction. */
 export async function listLibraryIndex(userId: string): Promise<LibraryIndexEntry[]> {
   const rows = await db.select({
     source: books.sourceType, sourceRef: books.sourceRef, bookId: books.id, status: bookLibrary.status,
@@ -323,7 +324,23 @@ export async function listLibraryIndex(userId: string): Promise<LibraryIndexEntr
     .from(bookLibrary)
     .innerJoin(books, eq(bookLibrary.bookId, books.id))
     .where(eq(bookLibrary.userId, userId))
-  return rows.flatMap((r) => (r.sourceRef ? [{ source: r.source, sourceRef: r.sourceRef, bookId: r.bookId, status: r.status }] : []))
+
+  const progressByBook = new Map<string, number>()
+  if (rows.some((r) => r.status === 'pending' || r.status === 'downloading')) {
+    const jobs = await db.select({ refId: downloadJobs.refId, progress: downloadJobs.progress }).from(downloadJobs)
+      .where(and(eq(downloadJobs.type, 'book-download'), inArray(downloadJobs.status, ['pending', 'running'])))
+    for (const job of jobs) {
+      try {
+        const { bookId } = JSON.parse(job.refId) as { bookId?: string }
+        const { completed, total } = JSON.parse(job.progress ?? '{}') as { completed?: number; total?: number }
+        if (bookId && completed && total) progressByBook.set(bookId, Math.min(1, completed / total))
+      } catch { /* malformed job rows just show no percent */ }
+    }
+  }
+
+  return rows.flatMap((r) => (r.sourceRef
+    ? [{ source: r.source, sourceRef: r.sourceRef, bookId: r.bookId, status: r.status, progress: progressByBook.get(r.bookId) ?? null }]
+    : []))
 }
 
 export async function getBook(bookId: string, userId: string) {
@@ -361,13 +378,20 @@ export async function upsertProgress(userId: string, bookId: string, update: {
   audioPositionSec?: number | null
   audioChapterIdx?: number | null
   completed?: boolean
+  /** Active reading/listening seconds since the last heartbeat (capped, best-effort). */
+  elapsedDeltaSec?: number
 }): Promise<void> {
   const now = new Date()
+  const completed = update.completed ?? false
+  // Cap the per-update delta so a client bug / long-idle tab can't inflate stats.
+  const delta = Math.max(0, Math.min(update.elapsedDeltaSec ?? 0, 600))
   await db.insert(bookProgress).values({
     id: randomUUID(), userId, bookId,
     mode: update.mode, epubCfi: update.epubCfi ?? null, percent: update.percent ?? 0,
     audioPositionSec: update.audioPositionSec ?? null, audioChapterIdx: update.audioChapterIdx ?? null,
-    completed: update.completed ?? false,
+    completed,
+    // Stats: first touch starts the clock; finishing stamps the finish date.
+    startedAt: now, finishedAt: completed ? now : null, elapsedSec: delta,
     updatedAt: now,
   }).onConflictDoUpdate({
     target: [bookProgress.userId, bookProgress.bookId],
@@ -377,10 +401,50 @@ export async function upsertProgress(userId: string, bookId: string, update: {
       percent: update.percent ?? 0,
       audioPositionSec: update.audioPositionSec ?? null,
       audioChapterIdx: update.audioChapterIdx ?? null,
-      completed: update.completed ?? false,
+      completed,
+      // Keep the original startedAt; stamp finishedAt only when finishing; accrue time.
+      startedAt: sql`COALESCE(${bookProgress.startedAt}, ${now.getTime()})`,
+      finishedAt: completed ? now : sql`${bookProgress.finishedAt}`,
+      elapsedSec: sql`${bookProgress.elapsedSec} + ${delta}`,
       updatedAt: now,
     },
   })
+}
+
+export interface ReadingStats {
+  finishedCount: number
+  inProgressCount: number
+  totalMinutes: number
+  finishedThisYear: number
+  recentFinished: { bookId: string; title: string; author: string | null; coverUrl: string | null; finishedAt: number }[]
+}
+
+/** Aggregate reading stats for the user's own progress rows. */
+export async function getReadingStats(userId: string): Promise<ReadingStats> {
+  const rows = await db.select({
+    bookId: bookProgress.bookId, completed: bookProgress.completed, elapsedSec: bookProgress.elapsedSec,
+    finishedAt: bookProgress.finishedAt, percent: bookProgress.percent,
+    title: books.title, author: books.author, coverUrl: books.coverUrl,
+  })
+    .from(bookProgress)
+    .innerJoin(books, eq(bookProgress.bookId, books.id))
+    .where(eq(bookProgress.userId, userId))
+
+  const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime()
+  const finished = rows.filter((r) => r.completed || r.percent >= 0.98)
+  const totalSec = rows.reduce((sum, r) => sum + (r.elapsedSec ?? 0), 0)
+  const recentFinished = finished
+    .filter((r) => r.finishedAt)
+    .sort((a, b) => (b.finishedAt!.getTime()) - (a.finishedAt!.getTime()))
+    .slice(0, 12)
+    .map((r) => ({ bookId: r.bookId, title: r.title, author: r.author, coverUrl: r.coverUrl, finishedAt: r.finishedAt!.getTime() }))
+  return {
+    finishedCount: finished.length,
+    inProgressCount: rows.filter((r) => !r.completed && r.percent > 0 && r.percent < 0.98).length,
+    totalMinutes: Math.round(totalSec / 60),
+    finishedThisYear: finished.filter((r) => r.finishedAt && r.finishedAt.getTime() >= yearStart).length,
+    recentFinished,
+  }
 }
 
 /** Removes a book from ONE user's library — this is a shared household catalog

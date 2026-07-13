@@ -5,14 +5,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, BookOpen, Download, Headphones, RotateCw, Sparkles } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, BookOpen, Download, Headphones, RotateCw, Send, Sparkles } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { BookCover } from '@/components/books/BookCover'
 import {
   getBook, getChapters, bookCoverUrl, bookFileUrl, bookAudioUrl, enqueueBookTts, getBookTtsStatus,
-  retryBookDownload, downloadBookOffline, type BookDetail, type BookChapter,
+  retryBookDownload, downloadBookOffline, sendBookToKindle, type BookDetail, type BookChapter,
 } from '@/lib/books/api'
 import { proxyImg } from '@/lib/img'
 import { ArtAccentScope } from '@/components/shared/ArtAccentScope'
@@ -40,6 +40,7 @@ export function BookDetailPage() {
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'rendering' | 'ready' | 'failed'>('idle')
   const [retrying, setRetrying] = useState(false)
   const [startingDownload, setStartingDownload] = useState(false)
+  const [sendingKindle, setSendingKindle] = useState(false)
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const downloadPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -94,6 +95,19 @@ export function BookDetailPage() {
       setRetrying(false)
     }
   }, [id, load])
+
+  const onSendToKindle = useCallback(async () => {
+    setSendingKindle(true)
+    try {
+      await sendBookToKindle(id)
+      toast.success('Sent to your device')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not send'
+      toast.error(msg.includes('email') ? 'Add your Send-to-Kindle email in Books → Settings → Reading Sync first' : msg)
+    } finally {
+      setSendingKindle(false)
+    }
+  }, [id])
 
   const startOfflineDownload = useCallback(async () => {
     setStartingDownload(true)
@@ -196,6 +210,9 @@ export function BookDetailPage() {
                     <a href={bookFileUrl(id)} download={safeFilename(detail.title, ebookAsset.format)} title="Download a copy to your device">
                       <Download className="mr-2 size-4" />Download
                     </a>
+                  </Button>
+                  <Button size="lg" variant="outline" disabled={sendingKindle} onClick={() => void onSendToKindle()} title="Email this book to your Kindle/Kobo">
+                    {sendingKindle ? <Spinner size="sm" className="mr-2" /> : <Send className="mr-2 size-4" />}Send to Kindle
                   </Button>
                 </>
               )}

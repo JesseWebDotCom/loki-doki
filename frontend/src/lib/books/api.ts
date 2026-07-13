@@ -15,7 +15,7 @@ export interface BookListItem {
 }
 
 export interface BookSearchResult {
-  source: 'gutenberg' | 'archiveorg' | 'indexer' | 'wikisource' | 'googlebooks' | 'openlibrary'
+  source: 'gutenberg' | 'archiveorg' | 'standardebooks' | 'indexer' | 'wikisource' | 'googlebooks' | 'openlibrary'
   sourceRef: string
   title: string
   author: string | null
@@ -41,7 +41,7 @@ export type BookContentType = 'book' | 'magazine' | 'children' | 'comic' | 'mang
 
 // 'saved' = in your library, metadata only (no local copy). 'ready' = downloaded
 // offline. pending/downloading = an offline download in flight.
-export type BookLibraryStatus = 'saved' | 'pending' | 'downloading' | 'ready' | 'failed'
+export type BookLibraryStatus = 'requested' | 'saved' | 'pending' | 'downloading' | 'ready' | 'failed'
 
 export interface GutenbergCategory { label: string; topic: string }
 export interface LibrivoxCategory { label: string; subject: string }
@@ -149,6 +149,7 @@ export async function updateProgress(bookId: string, update: {
   audioPositionSec?: number | null
   audioChapterIdx?: number | null
   completed?: boolean
+  elapsedDeltaSec?: number
 }): Promise<void> {
   await fetch(`/api/books/${bookId}/progress`, {
     method: 'PUT',
@@ -185,7 +186,7 @@ export async function searchBookCatalog(query: string): Promise<BookCatalogSearc
   return r.json()
 }
 
-export async function downloadBook(result: BookSearchResult): Promise<{ bookId: string; jobId: string | null; ready: boolean }> {
+export async function downloadBook(result: BookSearchResult): Promise<{ bookId: string; jobId: string | null; ready: boolean; requested?: boolean }> {
   const r = await fetch('/api/books/download', {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -213,7 +214,7 @@ export async function saveBook(result: BookSearchResult): Promise<{ bookId: stri
 }
 
 /** Pull a local (offline) copy of a book already saved in the library. */
-export async function downloadBookOffline(bookId: string): Promise<{ jobId: string | null; ready: boolean }> {
+export async function downloadBookOffline(bookId: string): Promise<{ jobId: string | null; ready: boolean; requested?: boolean }> {
   const r = await fetch(`/api/books/${bookId}/download-offline`, { method: 'POST', credentials: 'include' })
   if (!r.ok) {
     const d = await r.json().catch(() => ({})) as { error?: string }
@@ -232,14 +233,23 @@ export async function getBookSample(source: string, ref: string): Promise<BookSa
   return r.json()
 }
 
-export interface LibraryIndexEntry { source: string; sourceRef: string; bookId: string; status: BookLibraryStatus }
+export interface LibraryIndexEntry { source: string; sourceRef: string; bookId: string; status: BookLibraryStatus; progress?: number | null }
 
-/** Lightweight source-ref → library-state map for storefront tiles/cards. */
-export async function listLibraryIndex(): Promise<LibraryIndexEntry[]> {
+/** Lightweight source-ref → library-state map for storefront tiles/cards.
+ *  `mustRequest` = kid-safe profile whose downloads become approval requests. */
+export async function listLibraryIndex(): Promise<{ entries: LibraryIndexEntry[]; mustRequest: boolean }> {
   const r = await fetch('/api/books/library/index', { credentials: 'include' })
-  if (!r.ok) return []
-  const d = (await r.json()) as { entries?: LibraryIndexEntry[] }
-  return d.entries ?? []
+  if (!r.ok) return { entries: [], mustRequest: false }
+  const d = (await r.json()) as { entries?: LibraryIndexEntry[]; mustRequest?: boolean }
+  return { entries: d.entries ?? [], mustRequest: d.mustRequest === true }
+}
+
+/** "Download to this device" URL — serves the raw ebook file as a browser
+ *  attachment (local blob when already offline, live source proxy otherwise). */
+export function bookDeviceDownloadUrl(result: BookSearchResult): string {
+  const params = new URLSearchParams({ source: result.source, ref: result.sourceRef, title: result.title })
+  if (result.downloadFormat) params.set('format', result.downloadFormat)
+  return `/api/books/download-file?${params.toString()}`
 }
 
 /** Re-enqueues a stuck/failed download for a book already in the library. */
@@ -343,8 +353,8 @@ export async function browseAllMagazineCategories(): Promise<{ category: Magazin
   return d.shelves ?? []
 }
 
-export async function browseMagazineCategoryFull(topic: string): Promise<BookSearchResult[]> {
-  const r = await fetch(`/api/books/magazines/categories/${encodeURIComponent(topic)}/full`, { credentials: 'include' })
+export async function browseMagazineCategoryFull(topic: string, page = 1): Promise<BookSearchResult[]> {
+  const r = await fetch(`/api/books/magazines/categories/${encodeURIComponent(topic)}/full?page=${page}`, { credentials: 'include' })
   if (!r.ok) return []
   const d = (await r.json()) as { results?: BookSearchResult[] }
   return d.results ?? []
@@ -359,6 +369,16 @@ export async function browseVisualBookShelves(): Promise<VisualBookShelf[]> {
     const data = response.ok ? await response.json() as { results?: BookSearchResult[] } : {}
     return { ...section, results: data.results ?? [] }
   }))
+}
+
+/** The full "view all" list behind a visual shelf (Comics/Manga/Children's/
+ *  Coloring Books). Page 1 blends all enabled sources; later pages walk
+ *  Internet Archive alone. */
+export async function browseVisualBooksFull(type: Exclude<BookContentType, 'book'>, page = 1): Promise<BookSearchResult[]> {
+  const r = await fetch(`/api/books/visual/${type}/full?page=${page}`, { credentials: 'include' })
+  if (!r.ok) return []
+  const d = (await r.json()) as { results?: BookSearchResult[] }
+  return d.results ?? []
 }
 
 /** The full "view all" list behind a Book Store shelf's title (a few pages, not
@@ -408,6 +428,20 @@ export async function setBookSourceToggle(source: BuiltinSource, enabled: boolea
   if (!r.ok) throw new Error('Could not update the book source')
 }
 
+/** Admin debug switch: the Internet Archive publicdomain-license download gate. */
+export async function getIaLicenseCheck(): Promise<boolean> {
+  const r = await fetch('/api/admin/books/ia-license-check', { credentials: 'include' })
+  if (!r.ok) return true
+  return ((await r.json()) as { enabled?: boolean }).enabled !== false
+}
+
+export async function setIaLicenseCheck(enabled: boolean): Promise<void> {
+  const r = await fetch('/api/admin/books/ia-license-check', {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
+  })
+  if (!r.ok) throw new Error('Could not update the license check')
+}
+
 export async function getGoogleBooksKeyStatus(): Promise<boolean> {
   const response = await fetch('/api/admin/books/google-books-key', { credentials: 'include' })
   if (!response.ok) return false
@@ -419,6 +453,107 @@ export async function setGoogleBooksApiKey(apiKey: string): Promise<void> {
     method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey }),
   })
   if (!response.ok) throw new Error('Could not save the Google Books API key')
+}
+
+// ── Kid-safe acquisition requests (admin) ────────────────────────────────────────
+export interface BookRequest {
+  bookId: string; userId: string; userName: string | null
+  title: string; author: string | null; coverUrl: string | null; sourceType: string; requestedAt: number | null
+}
+
+export async function listBookRequests(): Promise<BookRequest[]> {
+  const r = await fetch('/api/admin/books/requests', { credentials: 'include' })
+  if (!r.ok) return []
+  return ((await r.json()) as { requests?: BookRequest[] }).requests ?? []
+}
+
+export async function approveBookRequest(userId: string, bookId: string): Promise<void> {
+  const r = await fetch('/api/admin/books/requests/approve', {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, bookId }),
+  })
+  if (!r.ok) throw new Error('Could not approve the request')
+}
+
+export async function denyBookRequest(userId: string, bookId: string): Promise<void> {
+  const r = await fetch('/api/admin/books/requests/deny', {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, bookId }),
+  })
+  if (!r.ok) throw new Error('Could not decline the request')
+}
+
+// ── Reading sync (OPDS / KOReader / Send-to-Kindle) ──────────────────────────────
+export interface ReaderSyncInfo { opdsPath: string; kosyncPath: string; kindleEmail: string | null }
+
+export async function getReaderSync(): Promise<ReaderSyncInfo> {
+  const r = await fetch('/api/books/reader-sync', { credentials: 'include' })
+  if (!r.ok) return { opdsPath: '', kosyncPath: '/api/kosync', kindleEmail: null }
+  return r.json()
+}
+
+export async function setKindleEmail(email: string): Promise<void> {
+  const r = await fetch('/api/books/kindle-email', {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+  })
+  if (!r.ok) throw new Error('Could not save the email address')
+}
+
+export async function sendBookToKindle(bookId: string): Promise<void> {
+  const r = await fetch(`/api/books/${bookId}/send-to-kindle`, { method: 'POST', credentials: 'include' })
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Could not send the book')
+  }
+}
+
+// ── Reading stats ────────────────────────────────────────────────────────────────
+export interface ReadingStats {
+  finishedCount: number; inProgressCount: number; totalMinutes: number; finishedThisYear: number
+  recentFinished: { bookId: string; title: string; author: string | null; coverUrl: string | null; finishedAt: number }[]
+}
+
+export async function getReadingStats(): Promise<ReadingStats> {
+  const r = await fetch('/api/books/stats', { credentials: 'include' })
+  if (!r.ok) return { finishedCount: 0, inProgressCount: 0, totalMinutes: 0, finishedThisYear: 0, recentFinished: [] }
+  return r.json()
+}
+
+// ── Smart shelves ────────────────────────────────────────────────────────────────
+export type ShelfField = 'title' | 'author' | 'contentType' | 'sourceType' | 'status' | 'format' | 'finished'
+export type ShelfOp = 'contains' | 'is' | 'isNot'
+export interface ShelfRule { field: ShelfField; op: ShelfOp; value: string }
+export interface ShelfRules { match: 'all' | 'any'; rules: ShelfRule[] }
+export interface Shelf { id: string; name: string; icon: string | null; rules: ShelfRules; pinned: boolean; sortOrder: number }
+
+export async function listShelves(): Promise<Shelf[]> {
+  const r = await fetch('/api/books/shelves', { credentials: 'include' })
+  if (!r.ok) return []
+  return ((await r.json()) as { shelves?: Shelf[] }).shelves ?? []
+}
+
+export async function createShelf(input: { name: string; icon?: string | null; rules: ShelfRules; pinned?: boolean }): Promise<Shelf> {
+  const r = await fetch('/api/books/shelves', {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  if (!r.ok) throw new Error('Could not create the shelf')
+  return ((await r.json()) as { shelf: Shelf }).shelf
+}
+
+export async function updateShelf(id: string, patch: { name?: string; icon?: string | null; rules?: ShelfRules; pinned?: boolean }): Promise<void> {
+  const r = await fetch(`/api/books/shelves/${id}`, {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+  })
+  if (!r.ok) throw new Error('Could not update the shelf')
+}
+
+export async function deleteShelf(id: string): Promise<void> {
+  const r = await fetch(`/api/books/shelves/${id}`, { method: 'DELETE', credentials: 'include' })
+  if (!r.ok) throw new Error('Could not delete the shelf')
+}
+
+export async function getShelfItems(id: string): Promise<{ shelf: Shelf; books: BookListItem[] }> {
+  const r = await fetch(`/api/books/shelves/${id}/items`, { credentials: 'include' })
+  if (!r.ok) throw new Error('Shelf not found')
+  return r.json()
 }
 
 export async function listBookIndexers(): Promise<BookIndexer[]> {

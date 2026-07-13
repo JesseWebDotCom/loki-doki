@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -9,12 +10,14 @@ import { BookShelf, ShelfSlot } from '@/components/books/BookShelf'
 import { proxyImg } from '@/lib/img'
 import {
   browseAllMagazineCategories, searchBookCatalog,
-  type BookSearchResult, type MagazineCategory,
+  type BookSearchResult,
 } from '@/lib/books/api'
+import { publishedLabel } from '@/lib/books/format'
 
 const SOURCE_LABEL: Record<BookSearchResult['source'], string> = {
   archiveorg: 'Internet Archive', gutenberg: 'Project Gutenberg', indexer: 'Indexer',
   wikisource: 'Wikisource', googlebooks: 'Google Books', openlibrary: 'Open Library',
+  standardebooks: 'Standard Ebooks',
 }
 
 function resultKey(r: BookSearchResult): string {
@@ -31,9 +34,16 @@ export function MagazinesPage() {
   const query = params.get('q') ?? ''
   const [results, setResults] = useState<BookSearchResult[]>([])
   const [searching, setSearching] = useState(false)
-  const [shelves, setShelves] = useState<{ category: MagazineCategory; results: BookSearchResult[] }[] | null>(null)
-
-  useEffect(() => { void browseAllMagazineCategories().then(setShelves) }, [])
+  // React Query so navigating away and back is instant (in-memory + IDB-persisted),
+  // and the slow first fan-out to remote sources only happens once per stale window.
+  const { data: shelves = null } = useQuery({
+    // v2: cache-busted when results gained publish dates (IDB-persisted queries
+    // would otherwise show the old date-less payload for up to the stale window).
+    queryKey: ['books-magazine-shelves-v2'],
+    queryFn: browseAllMagazineCategories,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+  })
 
   useEffect(() => {
     if (!query) { setResults([]); return }
@@ -95,7 +105,7 @@ export function MagazinesPage() {
                   const link = previewLink(r)
                   return (
                     <ShelfSlot key={key}>
-                      <BookResultTile id={key} to={link.to} state={link.state} title={r.title} author={r.author} coverSrc={r.coverUrl ? proxyImg(r.coverUrl) : null} result={r} />
+                      <BookResultTile id={key} to={link.to} state={link.state} title={r.title} author={r.author} caption={publishedLabel(r)} coverSrc={r.coverUrl ? proxyImg(r.coverUrl) : null} result={r} />
                     </ShelfSlot>
                   )
                 })}

@@ -1,10 +1,9 @@
-// On/off switches for the three built-in (keyless, code-defined) book sources —
-// Gutenberg, Internet Archive, and LibriVox. Stored in the existing generic
-// tool_global_config table (toolId: 'books'), same mechanism as the old indexer
-// singleton used, but these three keys are booleans defaulting to true (unset =
-// enabled) since most households want all built-ins on. Custom OPDS indexers have
-// their own per-row `enabled` column instead (see indexer.ts) — they're separate
-// rows you add/remove, not a fixed toggle set.
+// On/off switches for the built-in, keyless, code-defined book sources. Stored
+// in the existing generic tool_global_config table (toolId: 'books'), same
+// mechanism as the old indexer singleton used. These keys are booleans
+// defaulting to true (unset = enabled) since most households want all built-ins
+// on. Custom OPDS indexers have their own per-row `enabled` column instead (see
+// indexer.ts), they're separate rows you add/remove, not a fixed toggle set.
 
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
@@ -39,15 +38,15 @@ export interface BuiltinSourceToggles {
 export async function getBuiltinSourceToggles(): Promise<BuiltinSourceToggles> {
   const rows = await db.select().from(toolGlobalConfig).where(eq(toolGlobalConfig.toolId, TOOL_ID))
   const byKey = new Map(rows.map((r) => [r.key, r.value]))
-  const read = (key: string): boolean => {
-    const raw = byKey.get(key)
-    if (raw === undefined) return true // unset = enabled by default
+  const read = (source: BuiltinSource): boolean => {
+    const raw = byKey.get(KEYS[source])
+    if (raw === undefined) return true
     try { return JSON.parse(raw) !== false } catch { return true }
   }
   return {
-    gutenberg: read(KEYS.gutenberg), archiveorg: read(KEYS.archiveorg),
-    librivox: read(KEYS.librivox), standardebooks: read(KEYS.standardebooks),
-    wikisource: read(KEYS.wikisource), googlebooks: read(KEYS.googlebooks), openlibrary: read(KEYS.openlibrary), web: read(KEYS.web),
+    gutenberg: read('gutenberg'), archiveorg: read('archiveorg'),
+    librivox: read('librivox'), standardebooks: read('standardebooks'),
+    wikisource: read('wikisource'), googlebooks: read('googlebooks'), openlibrary: read('openlibrary'), web: read('web'),
   }
 }
 
@@ -60,6 +59,24 @@ export async function setBuiltinSourceToggle(source: BuiltinSource, enabled: boo
   const key = KEYS[source]
   const now = new Date()
   await db.insert(toolGlobalConfig).values({ id: randomUUID(), toolId: TOOL_ID, key, value: JSON.stringify(enabled), updatedAt: now })
+    .onConflictDoUpdate({ target: [toolGlobalConfig.toolId, toolGlobalConfig.key], set: { value: JSON.stringify(enabled), updatedAt: now } })
+}
+
+// Admin-only debug switch: when disabled, resolveArchiveOrgDownload skips the
+// publicdomain-licenseurl eligibility gate so non-PD-licensed IA items can be
+// download-tested. Defaults to enabled (gate active).
+const IA_LICENSE_CHECK_KEY = 'ia_license_check_enabled'
+
+export async function isIaLicenseCheckEnabled(): Promise<boolean> {
+  const rows = await db.select().from(toolGlobalConfig).where(eq(toolGlobalConfig.toolId, TOOL_ID))
+  const raw = rows.find((r) => r.key === IA_LICENSE_CHECK_KEY)?.value
+  if (raw === undefined) return true
+  try { return JSON.parse(raw) !== false } catch { return true }
+}
+
+export async function setIaLicenseCheckEnabled(enabled: boolean): Promise<void> {
+  const now = new Date()
+  await db.insert(toolGlobalConfig).values({ id: randomUUID(), toolId: TOOL_ID, key: IA_LICENSE_CHECK_KEY, value: JSON.stringify(enabled), updatedAt: now })
     .onConflictDoUpdate({ target: [toolGlobalConfig.toolId, toolGlobalConfig.key], set: { value: JSON.stringify(enabled), updatedAt: now } })
 }
 

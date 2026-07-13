@@ -10,7 +10,6 @@
 // cover art; tapping one opens BookPreviewPage for the description/runtime/
 // add-to-library action, same split as the Book Store.
 
-import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -20,14 +19,20 @@ import { BookCard } from '@/components/books/BookCard'
 import { BookResultTile } from '@/components/books/BookResultTile'
 import { BookShelf, ShelfSlot } from '@/components/books/BookShelf'
 import { proxyImg } from '@/lib/img'
-import { listLibrary, bookCoverUrl, browseAllLibrivoxCategories, type LibrivoxShelf } from '@/lib/books/api'
+import { listLibrary, bookCoverUrl, browseAllLibrivoxCategories } from '@/lib/books/api'
 
 export function BooksAudiobooksPage() {
   const { data: books = [], isLoading: libraryLoading } = useQuery({ queryKey: ['books-library'], queryFn: listLibrary })
   const audiobooks = books.filter((b) => b.hasAudio)
 
-  const [shelves, setShelves] = useState<LibrivoxShelf[] | null>(null)
-  useEffect(() => { void browseAllLibrivoxCategories().then(setShelves) }, [])
+  // React Query so navigating back is instant and the slow LibriVox fan-out only
+  // runs once per stale window (in-memory + IDB-persisted across reloads).
+  const { data: shelves = null } = useQuery({
+    queryKey: ['books-librivox-shelves'],
+    queryFn: browseAllLibrivoxCategories,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+  })
 
   return (
     <div className="h-full overflow-y-auto">

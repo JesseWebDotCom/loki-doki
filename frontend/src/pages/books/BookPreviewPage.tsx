@@ -27,6 +27,7 @@ import {
   type BookSearchResult, type LibrivoxSearchResult,
 } from '@/lib/books/api'
 import { readBookPreviewState, type BookPreviewState } from '@/lib/books/previewState'
+import { publishedLabel } from '@/lib/books/format'
 
 const CONTENT_LABEL = { book: 'Book', magazine: 'Magazine', children: "Children's Book", comic: 'Comic', manga: 'Manga', coloring_book: 'Coloring Book' } as const
 
@@ -37,6 +38,7 @@ const SOURCE_LABEL: Record<BookSearchResult['source'], string> = {
   wikisource: 'Wikisource',
   googlebooks: 'Google Books',
   openlibrary: 'Open Library',
+  standardebooks: 'Standard Ebooks',
 }
 
 export function BookPreviewPage() {
@@ -113,7 +115,7 @@ export function BookPreviewPage() {
     ? [(r as LibrivoxSearchResult).runtime ? `${(r as LibrivoxSearchResult).runtime} runtime` : null, 'Audiobook', r.publishedYear]
     : [SOURCE_LABEL[(r as BookSearchResult).source], CONTENT_LABEL[(r as BookSearchResult).contentType ?? 'book'],
         ...((r as BookSearchResult).formats ?? []), (r as BookSearchResult).pageCount ? `${(r as BookSearchResult).pageCount} pages` : null,
-        (r as BookSearchResult).language, r.publishedYear]
+        (r as BookSearchResult).language, publishedLabel(r as BookSearchResult)]
 
   return (
     <div className="h-full overflow-y-auto">

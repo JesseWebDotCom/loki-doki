@@ -2159,6 +2159,44 @@ export function runMigrations() {
   addColumn('books', 'content_type', "TEXT NOT NULL DEFAULT 'book'")
   addColumn('book_chapters', 'external_audio_duration_sec', 'REAL')
   addColumn('book_progress', 'audio_chapter_idx', 'INTEGER')
+  // Kid-safe request/approval gating: a 'requested' book_library row awaits admin approval.
+  addColumn('book_library', 'requested_at', 'INTEGER')
+  addColumn('book_library', 'approved_by_user_id', 'TEXT')
+  // Reading stats.
+  addColumn('book_progress', 'started_at', 'INTEGER')
+  addColumn('book_progress', 'finished_at', 'INTEGER')
+  addColumn('book_progress', 'elapsed_sec', 'INTEGER NOT NULL DEFAULT 0')
+  // KOReader sync + smart shelves.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS book_sync_users (
+      username TEXT NOT NULL PRIMARY KEY,
+      key_hash TEXT NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS book_sync_progress (
+      username TEXT NOT NULL,
+      document TEXT NOT NULL,
+      progress TEXT NOT NULL,
+      percentage REAL NOT NULL DEFAULT 0,
+      device TEXT,
+      device_id TEXT,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(username, document)
+    );
+    CREATE TABLE IF NOT EXISTS book_shelves (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      icon TEXT,
+      rules_json TEXT NOT NULL,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS book_shelves_user_idx ON book_shelves(user_id);
+  `)
 
   // FTS5 over the shared books catalog (external-content), kept in sync by triggers.
   // Powers the global-search books provider (Cmd+K) — title/author/description of any

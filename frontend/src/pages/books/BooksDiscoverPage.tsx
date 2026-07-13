@@ -16,6 +16,7 @@
 // fans into search as a third source when configured.
 
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { BookOpen } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -27,7 +28,7 @@ import { BookShelf, ShelfSlot } from '@/components/books/BookShelf'
 import { proxyImg } from '@/lib/img'
 import {
   searchBookCatalog, browseAllGutenbergCategories, browseVisualBookShelves, getStandardEbooksNewReleases,
-  type BookCatalogSearch, type BookContentType, type BookSearchResult, type GutenbergShelf, type VisualBookShelf,
+  type BookCatalogSearch, type BookContentType, type BookSearchResult,
 } from '@/lib/books/api'
 
 const CONTENT_LABEL: Record<BookContentType, string> = {
@@ -37,6 +38,7 @@ const CONTENT_LABEL: Record<BookContentType, string> = {
 const SOURCE_LABEL: Record<BookSearchResult['source'], string> = {
   archiveorg: 'Internet Archive', gutenberg: 'Project Gutenberg', indexer: 'Indexer',
   wikisource: 'Wikisource', googlebooks: 'Google Books', openlibrary: 'Open Library',
+  standardebooks: 'Standard Ebooks',
 }
 
 function resultKey(r: BookSearchResult): string {
@@ -53,15 +55,15 @@ export function BooksDiscoverPage() {
   const query = params.get('q') ?? ''
   const [results, setResults] = useState<BookCatalogSearch>({ ebooks: [], audiobooks: [], web: [] })
   const [searching, setSearching] = useState(false)
-  const [shelves, setShelves] = useState<GutenbergShelf[] | null>(null)
-  const [newReleases, setNewReleases] = useState<BookSearchResult[]>([])
-  const [visualShelves, setVisualShelves] = useState<VisualBookShelf[]>([])
+  // React Query so the landing's three remote fan-outs run once per stale window
+  // and returning to the page is instant (in-memory + IDB-persisted).
+  const SHELF_QUERY = { staleTime: 30 * 60 * 1000, gcTime: 60 * 60 * 1000 }
+  const { data: shelves = null } = useQuery({ queryKey: ['books-gutenberg-shelves'], queryFn: browseAllGutenbergCategories, ...SHELF_QUERY })
+  const { data: newReleases = [] } = useQuery({ queryKey: ['books-standard-new-releases'], queryFn: getStandardEbooksNewReleases, ...SHELF_QUERY })
+  // v3: cache-busted when the IA visual queries gained subject facets + upload-date sort.
+  const { data: visualShelves = [] } = useQuery({ queryKey: ['books-visual-shelves-v3'], queryFn: browseVisualBookShelves, ...SHELF_QUERY })
   const bookResults = results.ebooks.filter((r) => r.contentType !== 'magazine')
   const bookShelves = visualShelves.filter((shelf) => shelf.key !== 'magazine')
-
-  useEffect(() => { void browseAllGutenbergCategories().then(setShelves) }, [])
-  useEffect(() => { void getStandardEbooksNewReleases().then(setNewReleases) }, [])
-  useEffect(() => { void browseVisualBookShelves().then(setVisualShelves) }, [])
 
   useEffect(() => {
     if (!query) { setResults({ ebooks: [], audiobooks: [], web: [] }); return }
@@ -130,7 +132,7 @@ export function BooksDiscoverPage() {
               return <ArtBillboard items={items} eyebrow={featured.category.label} />
             })()}
             {bookShelves.map((shelf) => (
-              <BookShelf key={shelf.key} title={shelf.label}
+              <BookShelf key={shelf.key} title={shelf.label} to={`/books/category/visual/${shelf.key}`}
                 empty={shelf.results.length === 0 ? `No ${shelf.label.toLowerCase()} are available from enabled sources right now.` : undefined}>
                 {shelf.results.map((r) => {
                   const key = resultKey(r)

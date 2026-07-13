@@ -16,6 +16,7 @@ import { contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/co
 import { safeFetch } from '@/lib/ssrfGuard'
 import { openEpub, readMetadata, readSpineChapters } from '@/lib/epub/parse'
 import { cacheBookCoverFromEpub } from './library'
+import { emitNotification } from '@/lib/notify'
 import { resolveGutenbergDownload } from './gutenberg'
 import { resolveArchiveOrgDownload } from './archiveOrg'
 import { resolveIndexerDownload } from './indexer'
@@ -28,7 +29,7 @@ export interface BookDownloadPayload { bookId: string }
 const SOURCE = 'book'
 const lockKey = (bookId: string) => `book:${bookId}:ebook`
 
-async function resolveDownloadUrl(sourceType: string, sourceRef: string, format: DownloadableBookFormat): Promise<ResolvedDownload> {
+export async function resolveDownloadUrl(sourceType: string, sourceRef: string, format: DownloadableBookFormat): Promise<ResolvedDownload> {
   if (sourceType === 'gutenberg') return resolveGutenbergDownload(sourceRef)
   if (sourceType === 'archiveorg') return resolveArchiveOrgDownload(sourceRef, format)
   if (sourceType === 'indexer') return resolveIndexerDownload(sourceRef)
@@ -265,8 +266,20 @@ export async function runBookDownloadJob(
   }
 }
 
-/** Flip every waiting library ref for this book to ready. */
+/** Flip every waiting library ref for this book to ready, and tell each waiting
+ *  user their download landed. */
 async function linkReady(bookId: string): Promise<void> {
+  const waiting = await db.select({ userId: bookLibrary.userId }).from(bookLibrary)
+    .where(and(eq(bookLibrary.bookId, bookId), inArray(bookLibrary.status, ['pending', 'downloading'])))
   await db.update(bookLibrary).set({ status: 'ready' })
     .where(and(eq(bookLibrary.bookId, bookId), inArray(bookLibrary.status, ['pending', 'downloading'])))
+  if (!waiting.length) return
+  const [book] = await db.select({ title: books.title }).from(books).where(eq(books.id, bookId)).limit(1)
+  for (const { userId } of waiting) {
+    await emitNotification({
+      type: 'download_complete', userId,
+      title: 'Book ready', body: `"${book?.title ?? 'Your book'}" finished downloading`,
+      url: `/books/${bookId}`, dedupeKey: `book-ready:${userId}:${bookId}`,
+    })
+  }
 }

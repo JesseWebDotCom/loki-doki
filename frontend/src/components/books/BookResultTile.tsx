@@ -16,13 +16,15 @@ export interface BookResultTileProps {
   state?: unknown
   title: string
   author?: string | null
+  /** Extra metadata line under the author (e.g. a magazine's issue date). */
+  caption?: string | null
   coverSrc?: string | null
   // When provided (a downloadable ebook/magazine result), a Save/Download overlay
   // is shown on the cover so the user can add it without opening the preview page.
   result?: BookSearchResult
 }
 
-export function BookResultTile({ id, to, state, title, author, coverSrc, result }: BookResultTileProps) {
+export function BookResultTile({ id, to, state, title, author, caption, coverSrc, result }: BookResultTileProps) {
   function handleClick() {
     persistBookPreviewState(to, state)
   }
@@ -36,6 +38,7 @@ export function BookResultTile({ id, to, state, title, author, coverSrc, result 
       <div className="mt-2">
         <p className="truncate text-sm font-semibold">{title}</p>
         {author && <p className="truncate text-xs text-muted-foreground">{author}</p>}
+        {caption && <p className="truncate text-xs text-muted-foreground">{caption}</p>}
       </div>
     </Link>
   )
