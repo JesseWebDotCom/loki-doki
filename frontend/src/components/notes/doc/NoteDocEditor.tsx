@@ -14,9 +14,10 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import GlobalDragHandle from 'tiptap-extension-global-drag-handle'
 import { Markdown } from 'tiptap-markdown'
 import {
-  Bold, Italic, Strikethrough, Code, Heading1, Heading2, Heading3, TextQuote,
+  Bold, Italic, Strikethrough, Code, TextQuote,
   ListTodo, List, ListOrdered, Link2, Check, X,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -142,6 +143,8 @@ export default function NoteDocEditor({ value, onChange, editable, autoFocus, on
         showOnlyCurrent: true,
       }),
       Markdown.configure({ html: false, transformPastedText: true, transformCopiedText: true }),
+      // Outline-style hover drag handle for reordering blocks (styled in notedoc.css).
+      GlobalDragHandle.configure({ dragHandleWidth: 22, scrollTreshold: 80 }),
       slashExtension,
     ],
     content: value,
@@ -210,7 +213,7 @@ export default function NoteDocEditor({ value, onChange, editable, autoFocus, on
 
   return (
     <div
-      className="notedoc min-h-full flex-1 cursor-text"
+      className={cn('notedoc min-h-full flex-1 cursor-text', editable && 'notedoc-editable')}
       // Clicking the empty tail below the last block drops the caret at the end.
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) { e.preventDefault(); editor.chain().focus('end').run() }
@@ -247,9 +250,12 @@ export default function NoteDocEditor({ value, onChange, editable, autoFocus, on
                 <ToolbarButton label="Strikethrough" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough className="size-3.5" /></ToolbarButton>
                 <ToolbarButton label="Code" active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()}><Code className="size-3.5" /></ToolbarButton>
                 <div className="mx-0.5 h-4 w-px bg-border" />
-                <ToolbarButton label="Big heading" active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 className="size-3.5" /></ToolbarButton>
-                <ToolbarButton label="Medium heading" active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 className="size-3.5" /></ToolbarButton>
-                <ToolbarButton label="Small heading" active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 className="size-3.5" /></ToolbarButton>
+                {([1, 2, 3] as const).map((level) => (
+                  <ToolbarButton key={level} label={`Heading ${level}`} active={editor.isActive('heading', { level })}
+                    onClick={() => editor.chain().focus().toggleHeading({ level }).run()}>
+                    <span className="text-xs font-semibold">H{level}</span>
+                  </ToolbarButton>
+                ))}
                 <ToolbarButton label="Quote" active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}><TextQuote className="size-3.5" /></ToolbarButton>
                 <div className="mx-0.5 h-4 w-px bg-border" />
                 <ToolbarButton label="Todo list" active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()}><ListTodo className="size-3.5" /></ToolbarButton>

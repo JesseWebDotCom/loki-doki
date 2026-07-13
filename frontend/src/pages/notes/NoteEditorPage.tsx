@@ -4,7 +4,7 @@
 // not writing (notebook, tags, sharing, entity links, delete) tucked into the
 // header's "…" menu, the way Outline keeps document chrome out of the page.
 
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -24,7 +24,6 @@ import {
   DropdownMenuSeparator, DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { PageContainer } from '@/components/shared/PageContainer'
 import { RichOptionSelect } from '@/components/shared/RichOptionSelect'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { useAuth } from '@/context/AuthContext'
@@ -45,6 +44,76 @@ const NoteDocEditor = lazy(() => import('@/components/notes/doc/NoteDocEditor'))
 // Outline autosaves silently on a 3s debounce (useDocumentSave AUTOSAVE_DELAY)
 // plus a flush when the title blurs; errors surface as toasts, success says nothing.
 const AUTOSAVE_DELAY = 3000
+
+// ── Contents rail (Outline's ToC) ────────────────────────────────────────────────
+
+interface TocHeading { level: number; text: string }
+
+// Headings straight from the markdown source (skipping fenced code), which stays
+// index-aligned with the h1/h2/h3 elements ProseMirror renders.
+function parseHeadings(md: string): TocHeading[] {
+  const out: TocHeading[] = []
+  let inFence = false
+  for (const line of md.split('\n')) {
+    if (/^```/.test(line.trim())) { inFence = !inFence; continue }
+    if (inFence) continue
+    const m = /^(#{1,3})\s+(.+)$/.exec(line)
+    if (m) out.push({ level: m[1]!.length, text: m[2]!.replace(/[*_`~\[\]]/g, '').trim() })
+  }
+  return out
+}
+
+function ContentsRail({ headings }: { headings: TocHeading[] }) {
+  const [active, setActive] = useState(0)
+
+  // Scrollspy: the last heading above the top third of the viewport is current.
+  useEffect(() => {
+    function onScroll() {
+      const els = document.querySelectorAll<HTMLElement>('.notedoc .ProseMirror h1, .notedoc .ProseMirror h2, .notedoc .ProseMirror h3')
+      let current = 0
+      els.forEach((el, i) => { if (el.getBoundingClientRect().top < window.innerHeight / 3) current = i })
+      setActive(current)
+    }
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => document.removeEventListener('scroll', onScroll, { capture: true })
+  }, [])
+
+  function jumpTo(index: number) {
+    const els = document.querySelectorAll<HTMLElement>('.notedoc .ProseMirror h1, .notedoc .ProseMirror h2, .notedoc .ProseMirror h3')
+    const el = els[index]
+    if (!el) return
+    // Scroll ONLY the layout's scroller: scrollIntoView would also scroll the
+    // window and drag the app rail off-screen.
+    let scroller: HTMLElement | null = el.parentElement
+    while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) {
+      scroller = scroller.parentElement
+    }
+    if (!scroller) return
+    const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 72
+    scroller.scrollTo({ top, behavior: 'smooth' })
+  }
+
+  if (!headings.length) return null
+  return (
+    <nav className="sticky top-6 ml-auto w-48 pr-2">
+      <p className="mb-2 text-sm font-medium text-muted-foreground">Contents</p>
+      <ul className="space-y-1.5">
+        {headings.map((h, i) => (
+          <li key={`${i}-${h.text}`} style={{ paddingLeft: `${(h.level - 1) * 12}px` }}>
+            <button
+              type="button"
+              onClick={() => jumpTo(i)}
+              className={cn('block w-full truncate text-left text-[13px] leading-snug transition-colors',
+                i === active ? 'text-brand' : 'text-muted-foreground hover:text-foreground')}
+            >
+              {h.text}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
 
 function relativeTime(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
@@ -214,6 +283,8 @@ export function NoteEditorPage() {
 
   useAppHeader({ query: '', setQuery: () => {}, searchable: false, rail })
 
+  const headings = useMemo(() => parseHeadings(body), [body])
+
   async function patch(bodyPatch: Parameters<typeof updateNote>[1]) {
     try {
       await updateNote(id, bodyPatch)
@@ -253,8 +324,12 @@ export function NoteEditorPage() {
   if (isLoading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
   if (isError || !note) return <p className="py-16 text-center text-sm text-muted-foreground">This note is gone or not yours to see.</p>
 
+  // Outline's document grid: 1fr | content column | 1fr, with the Contents rail
+  // living in the left gutter on wide screens.
   return (
-    <PageContainer width="narrow" className="flex min-h-full flex-col py-4">
+    <div className="grid min-h-full w-full grid-cols-1 gap-x-10 px-4 py-4 md:px-12 xl:grid-cols-[1fr_minmax(0,46rem)_1fr]">
+      <aside className="hidden xl:block"><ContentsRail headings={headings} /></aside>
+      <div className="flex min-h-full min-w-0 flex-col">
       {/* Chrome row: notebook crumb on the left, status + actions on the right. */}
       <div className="flex items-center gap-2 pb-8">
         <button
@@ -329,7 +404,7 @@ export function NoteEditorPage() {
         readOnly={!canEdit}
         autoFocus={isNew}
         rows={1}
-        className="min-h-0 w-full resize-none overflow-hidden border-none bg-transparent p-0 text-4xl font-semibold leading-[1.25] tracking-tight shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-4xl"
+        className="min-h-0 w-full shrink-0 resize-none overflow-hidden border-none bg-transparent p-0 text-4xl font-semibold leading-[1.25] tracking-tight shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-4xl"
       />
 
       {/* Meta line under the title (Outline's DocumentMeta): who + when + tags. */}
@@ -441,6 +516,8 @@ export function NoteEditorPage() {
         onConfirm={doDelete}
       />
       <LinkPickerDialog open={linkOpen} onOpenChange={setLinkOpen} existing={links} onAdd={addLink} />
-    </PageContainer>
+      </div>
+      <div className="hidden xl:block" />
+    </div>
   )
 }
