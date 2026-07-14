@@ -127,6 +127,10 @@ trap cleanup EXIT
 
 stop_existing
 
+# A stale shutdown sentinel (launcher killed before consuming it) would turn the
+# first admin restart into a shutdown — a fresh launch clears it.
+rm -f "$ROOT/data/shutdown-requested"
+
 ensure_deps "$ROOT/backend"
 ensure_deps "$ROOT/frontend"
 
@@ -189,6 +193,13 @@ while true; do
     BACKEND_RESTARTS=0; FRONTEND_RESTARTS=0; WINDOW_START=$now
   fi
   if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    # The admin panel's "Shut down server" drops this sentinel before the
+    # backend exits; seeing it here means "tear down, don't restart".
+    if [ -f "$ROOT/data/shutdown-requested" ]; then
+      rm -f "$ROOT/data/shutdown-requested"
+      echo "Shutdown requested from the admin panel — stopping."
+      break
+    fi
     BACKEND_RESTARTS=$((BACKEND_RESTARTS + 1))
     if [ "$BACKEND_RESTARTS" -gt 5 ]; then
       echo "Backend is crash-looping (>5 restarts in 5 min) — giving up. Check data/logs/app.log."

@@ -29,6 +29,7 @@ import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
 import { AdminHomeAssistantTab } from '@/components/admin/AdminHomeAssistantTab'
 import { AdminBooksTab } from '@/components/admin/AdminBooksTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
+import { ServerPanel } from '@/components/admin/ServerPanel'
 import { AdminSpeedTestTab } from '@/components/admin/AdminSpeedTestTab'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
@@ -212,6 +213,11 @@ export function AdminPage() {
               description="Download speed thresholds that color-code results and the home widget."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
               <AdminSpeedTestTab />
+            </AdminAccordion>
+            <AdminAccordion id="server" title="Server"
+              description="Version info, updates, and restarting the server."
+              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
+              <ServerPanel />
             </AdminAccordion>
             <AdminAccordion id="uninstall" title="Uninstall"
               description="Remove the app and wipe its data."

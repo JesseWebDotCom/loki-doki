@@ -294,6 +294,9 @@ try {
   try {
     New-Item -ItemType Directory -Force (Join-Path $Root 'data') | Out-Null
     Set-Content -Path (Join-Path $Root 'data\launcher.pid') -Value $PID -Encoding ascii
+    # A stale shutdown sentinel (launcher killed before consuming it) would turn
+    # the first admin restart into a shutdown - a fresh launch clears it.
+    Remove-Item (Join-Path $Root 'data\shutdown-requested') -Force -ErrorAction SilentlyContinue
   } catch { }
 
   $backendDir  = Join-Path $Root 'backend'
@@ -362,9 +365,17 @@ try {
   }
 
   $backendArgs = if ($Dev) { @('run', 'dev') } else { @('run', 'start') }
+  # The admin panel's "Shut down server" drops this sentinel before the backend
+  # exits; seeing it here means "tear down, don't restart".
+  $shutdownSentinel = Join-Path $Root 'data\shutdown-requested'
   while ($true) {
     Start-Sleep -Milliseconds 500
     if ($backend.HasExited) {
+      if (Test-Path $shutdownSentinel) {
+        Remove-Item $shutdownSentinel -Force -ErrorAction SilentlyContinue
+        Write-Host 'Shutdown requested from the admin panel - stopping.'
+        break
+      }
       if (-not (Should-Restart 'backend')) { Write-Host 'Backend is crash-looping (5 restarts in 5 min) - giving up. Check data\logs\app.log.'; break }
       Write-Host "Backend exited (code $($backend.ExitCode)) - restarting it..."
       if (-not (Wait-PortFree 3000)) { Write-Host 'Port 3000 would not clear - giving up.'; break }

@@ -41,6 +41,8 @@ import { adminGpu } from '@/routes/adminGpu'
 import { adminMedia } from '@/routes/adminMedia'
 import { adminInstall } from '@/routes/adminInstall'
 import { adminUninstall } from '@/routes/adminUninstall'
+import { adminServer } from '@/routes/adminServer'
+import { registerSidecarStopper } from '@/lib/gracefulExit'
 import { archives } from '@/routes/archives'
 import { adminArchives } from '@/routes/adminArchives'
 import { jobs as downloadJobsRoute } from '@/routes/jobs'
@@ -406,6 +408,13 @@ if (firstBoot) {
   // Shopping price tracker: re-check tracked listings on a jittered ~4h cadence and fire
   // price-drop/back-in-stock alerts through the notification matrix.
   import('@/lib/shopping/poller').then((m) => m.startShoppingPoller()).catch(() => {})
+  // Self-update checks: periodic git fetch; notify admins or auto-apply per the
+  // server.update_check_mode setting (Admin → System → Server). Also clear any
+  // stale shutdown sentinel — this process starting means nobody wants it stopped.
+  import('@/lib/serverUpdate').then((m) => {
+    m.clearStaleShutdownSentinel()
+    m.startUpdateCheckPoller()
+  }).catch(() => {})
   // Books: warm the Discover/Magazines/Audiobooks browse caches so the first visit
   // after a restart is instant instead of a multi-second remote fan-out.
   import('@/lib/books/warm').then((m) => m.warmBookCaches()).catch(() => {})
@@ -443,6 +452,10 @@ async function shutdown() {
   await stopSidecars()
   process.exit(0)
 }
+
+// Deliberate self-exits (admin restart / self-update) need the same sidecar
+// teardown, but their routes can't import this module without a cycle.
+registerSidecarStopper(stopSidecars)
 
 process.on('SIGINT', () => void shutdown())
 process.on('SIGTERM', () => void shutdown())
@@ -515,6 +528,7 @@ app.route('/api/admin/gpu', adminGpu)
 app.route('/api/admin/media', adminMedia)
 app.route('/api/admin/install', adminInstall)
 app.route('/api/admin/uninstall', adminUninstall)
+app.route('/api/admin/server', adminServer)
 app.route('/api/archives', archives)
 app.route('/api/admin/archives', adminArchives)
 app.route('/api/jobs', downloadJobsRoute)
