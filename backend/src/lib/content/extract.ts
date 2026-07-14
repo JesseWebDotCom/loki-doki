@@ -123,14 +123,17 @@ export { stripHtml }
 
 // ── main-content isolation (heuristic) ────────────────────────────────────────
 
-// Tags whose entire block (open→close) is dropped before content selection.
+// Tags whose entire block (open→close) is dropped before content selection. <button> and
+// <label> are included because their text is always UI, not prose — lightbox triggers
+// ("View image in fullscreen"), caption toggles, form controls — and the sanitizer alone
+// would strip the tag but leak the text.
 const STRIP_BLOCKS =
-  /<(script|style|noscript|svg|template|nav|header|footer|aside|form|figure\b[^>]*role=["']?banner|iframe|object|embed)[\s\S]*?<\/\1>/gi
+  /<(script|style|noscript|svg|template|nav|header|footer|aside|form|button|label|figure\b[^>]*role=["']?banner|iframe|object|embed)[\s\S]*?<\/\1>/gi
 
 function preClean(html: string): string {
   return html
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style|noscript|svg|template|nav|header|footer|aside|form|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<(script|style|noscript|svg|template|nav|header|footer|aside|form|button|label|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     // Reference / edit chrome that pollutes reader text (Wikipedia & similar):
     .replace(/<sup\b[^>]*class=["'][^"']*\b(reference|cite_ref|noprint)\b[^"']*["'][\s\S]*?<\/sup>/gi, '')
     .replace(/<span\b[^>]*class=["'][^"']*\bmw-editsection\b[^"']*["'][\s\S]*?<\/span>/gi, '')
@@ -195,7 +198,13 @@ const BYLINE_IMAGE_PARA = /<(p|figure)\b[^>]*>\s*<img\b[^>]*\balt=(["'])(?:(?!\2
 // "styles-module-scss-module__cTcn5a__BylineSection" survives the hashed prefix, but the actual
 // element can be nested several <div>s deep, which plain regex can't balance.
 function removeElementsByClass(html: string, tag: string, keywords: string[]): string {
-  const openRe = new RegExp(`<${tag}\\b[^>]*\\bclass=["'][^"']*(?:${keywords.join('|')})[^"']*["'][^>]*>`, 'i')
+  return removeElementsMatching(html, tag, `\\bclass=["'][^"']*(?:${keywords.join('|')})[^"']*["']`)
+}
+
+// Same balanced removal, but matching any attribute pattern in the opening tag — for
+// boilerplate marked by semantics rather than class names (aria-hidden, data-* flags).
+function removeElementsMatching(html: string, tag: string, attrPattern: string): string {
+  const openRe = new RegExp(`<${tag}\\b[^>]*${attrPattern}[^>]*>`, 'i')
   const nextTagRe = new RegExp(`<(${tag})\\b|<\\/${tag}>`, 'gi')
   let out = html
   for (let guard = 0; guard < 50; guard++) {
@@ -215,15 +224,81 @@ function removeElementsByClass(html: string, tag: string, keywords: string[]): s
   return out
 }
 
+// Elements the publisher itself marks as not-content: aria-hidden (invisible to the
+// accessibility tree — lightbox triggers, decorative duplicates), print-hidden chrome
+// (share bars, "explore more" topic footers), skip-link note targets, and block elements
+// a CMS types as promos rather than prose (the Guardian's spacefinder slots: rich "Read
+// more" links, newsletter sign-ups, standalone CTA link buttons).
+function stripMarkedNonContent(html: string): string {
+  let out = html
+  for (const tag of ['a', 'span', 'p', 'div', 'figure']) {
+    out = removeElementsMatching(out, tag, `\\baria-hidden=["']true["']`)
+  }
+  for (const tag of ['div', 'span', 'section', 'p']) {
+    out = removeElementsMatching(out, tag, `\\bdata-print-layout=["']hide["']`)
+  }
+  for (const tag of ['figure', 'div']) {
+    out = removeElementsMatching(
+      out, tag,
+      `\\bdata-spacefinder-type=["'][^"']*\\.(?:RichLink|Link|NewsletterSignup|EmailSignup)BlockElement["']`,
+    )
+  }
+  // CMSes that type their blocks via data-component (BBC and other React front-ends):
+  // remove the components that are chrome, never prose. Matched as prefixes so
+  // "tag-list" also catches "tag-list-block".
+  for (const tag of ['div', 'section']) {
+    out = removeElementsMatching(
+      out, tag,
+      `\\bdata-component=["'](?:ad-slot|advertisement|tag-list|topic-list|byline|related|share-tools|newsletter|promo)[^"']*["']`,
+    )
+  }
+  out = removeElementsMatching(out, 'p', `\\brole=["']note["']`)
+  // In-page accessibility skip links ("skip past newsletter promotion") — pure navigation.
+  out = out.replace(/<a\b[^>]*href=["']#[^"']*["'][^>]*>\s*skip\s+(?:past|to)\b[\s\S]*?<\/a>/gi, '')
+  return out
+}
+
+// A promo paragraph in the standfirst/body: short, link-heavy, and reading like "Get our
+// breaking news email, free app or daily news podcast" or "Sign up for the X email". Text
+// is checked via stripHtml in a callback so inline links don't hide the phrase from a
+// plain regex, and the length cap keeps legitimate prose that merely starts with "Get"
+// out of reach.
+const PROMO_PARA_RE = /<(p|li)\b[^>]*>[\s\S]*?<\/\1>/gi
+function stripPromoParas(html: string): string {
+  return html.replace(PROMO_PARA_RE, (block) => {
+    const text = stripHtml(block).trim()
+    if (text.length > 180) return block
+    if (/^(?:get|sign up for|subscribe to) (?:our|the|a) .{0,120}\b(?:email|newsletter|podcast|app|briefing)\b/i.test(text)) return ''
+    if (/^(?:after|skip past) (?:the )?newsletter promotion$/i.test(text)) return ''
+    return block
+  })
+}
+
+// Publishers commonly render the same caption twice per figure (a hidden mobile/lightbox
+// copy plus the visible one). Keep the first of any identically-worded run of figcaptions.
+function dedupeFigcaptions(html: string): string {
+  const seen = new Set<string>()
+  return html.replace(/<figcaption\b[^>]*>[\s\S]*?<\/figcaption>/gi, (block) => {
+    const key = stripHtml(block).replace(/\s+/g, ' ').trim().toLowerCase()
+    if (!key) return ''
+    if (seen.has(key)) return ''
+    seen.add(key)
+    return block
+  })
+}
+
 function stripBoilerplate(html: string, title: string | null): string {
   let out = html.replace(NEWSLETTER_CTA, '').replace(POSTED_UPDATED_PARA, '').replace(BYLINE_IMAGE_PARA, '')
+  out = stripMarkedNonContent(out)
+  out = stripPromoParas(out)
+  out = dedupeFigcaptions(out)
   out = removeElementsByClass(out, 'div', ['byline', 'dateline', 'newsletter', 'subscribe'])
   out = removeElementsByClass(out, 'section', ['subscribe'])
   out = removeElementsByClass(out, 'time', ['dateline'])
   // Photo/gallery credit tags (e.g. Engadget's <span class="gallery-image-credit">Apple</span>)
   // - a bare source name sitting right after an image, indistinguishable from real prose once
   // sanitized unless caught by its class name like this.
-  out = removeElementsByClass(out, 'span', ['image-credit', 'photo-credit'])
+  out = removeElementsByClass(out, 'span', ['image-credit', 'photo-credit', 'creditstyled'])
   out = removeElementsByClass(out, 'p', ['image-credit', 'photo-credit'])
   // A leading heading that just repeats the page title (ArticleReader already renders the
   // title in its own header) - only the FIRST occurrence, so a legitimately repeated phrase
@@ -348,7 +423,7 @@ function sanitizeHtml(html: string, opts: ExtractOpts): string {
   })
 
   // Collapse runs of empty block tags left after stripping.
-  out = out.replace(/(<(p|div|span|section)>\s*<\/\2>\s*)+/gi, '')
+  out = out.replace(/(<(p|div|span|section|figure|li)>\s*<\/\2>\s*)+/gi, '')
   return out.replace(/\n{3,}/g, '\n\n').trim()
 }
 
