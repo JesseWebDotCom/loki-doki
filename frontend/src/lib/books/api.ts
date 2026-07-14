@@ -244,7 +244,7 @@ export async function listLibraryIndex(): Promise<{ entries: LibraryIndexEntry[]
   return { entries: d.entries ?? [], mustRequest: d.mustRequest === true }
 }
 
-/** "Download to this device" URL — serves the raw ebook file as a browser
+/** "Download to this device" URL, serves the raw ebook file as a browser
  *  attachment (local blob when already offline, live source proxy otherwise). */
 export function bookDeviceDownloadUrl(result: BookSearchResult): string {
   const params = new URLSearchParams({ source: result.source, ref: result.sourceRef, title: result.title })
@@ -724,7 +724,7 @@ export async function getBookProjectChapter(id: string, idx: number): Promise<Bo
 }
 
 /** Where a project's detail route (`/books/generate/:id`) should redirect to given its
- *  current status — lets any entry point (the projects list, a stale bookmark, a refresh
+ *  current status, lets any entry point (the projects list, a stale bookmark, a refresh
  *  mid-generation) land on the right stage instead of a dead bible-review screen. */
 export function stageRouteForProject(project: BookProject): string {
   switch (project.status) {

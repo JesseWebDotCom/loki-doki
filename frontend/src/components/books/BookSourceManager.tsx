@@ -88,7 +88,7 @@ export function BookSourceManager() {
             Only allow direct downloads of items with a public-domain license. Disable only for testing and troubleshooting, then turn it back on: while off, items without a clear license can be downloaded by anyone in the household.
           </p>
           {!licenseCheck && (
-            <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-500">
+            <p className="mt-1 text-xs font-medium text-warning">
               License check is off. Re-enable it when you finish troubleshooting.
             </p>
           )}
