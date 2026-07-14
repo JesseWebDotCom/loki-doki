@@ -1252,7 +1252,7 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert', 'file_drop', 'service_alert', 'resource_alert'] }).notNull(),
+  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert', 'file_drop', 'service_alert', 'resource_alert', 'media_alert'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   // Delivery routing (lib/notify): 'urgent' breaks through quiet hours; 'info' is
   // bell-only fodder. Priority lives as a real column (not payload) because the

@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Film, Gauge, Gift, Home, Image as ImageIcon, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package,
-  Search, Settings2, Share2, Smile, Sparkles, StickyNote, Tag, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
+  Search, Settings2, Share2, Smile, Sparkles, StickyNote, Tag, TerminalSquare, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
 
 export interface AppItem {
@@ -45,12 +45,11 @@ export const APP_GROUPS: AppGroup[] = [
     icon: Clapperboard,
     apps: [
       { id: "shows",          to: "/shows",          label: "Shows",           description: "Discover TV series: streaming, trailers & reviews", gradient: "linear-gradient(135deg,#0c4a6e,#0284c7)", color: "#0284c7", icon: Tv,             toolId: "tvshows" },
-      { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard },
+      { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard, toolId: "showtimes" },
       { id: "videos",         to: "/videos",         label: "Videos",          description: "Watch, save & create videos", gradient: "linear-gradient(135deg,#164e63,#06b6d4)", color: "#06b6d4", icon: Film,           toolId: "youtube" },
       { id: "music",          to: "/music",          label: "Music",           description: "Listen, discover & create",     gradient: "linear-gradient(135deg,#f97316,#fb923c)", color: "#f97316", icon: Music },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
       { id: "where-to-watch", to: "/where-to-watch", label: "Where to Watch",  description: "Find where to stream any title",      gradient: "linear-gradient(135deg,#1e1b4b,#7c3aed)", color: "#7c3aed", icon: Tv,             toolId: "where-to-watch" },
-      { id: "showtimes",      to: "/showtimes",      label: "Movie Showtimes", description: "Find movies playing near you",        gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard,    toolId: "showtimes" },
       { id: "bored",          to: "/bored",          label: "I'm Bored",       description: "Find something to do",                gradient: "linear-gradient(135deg,#3b0d8a,#7c3aed)", color: "#8b5cf6", icon: Lightbulb },
       { id: "jokes",          to: "/jokes",          label: "Joke of the Day", description: "A fresh dad joke daily",              gradient: "linear-gradient(135deg,#78350f,#d97706)", color: "#d97706", icon: Smile,          toolId: "jokes" },
     ],
@@ -165,6 +164,7 @@ export const APP_GROUPS: AppGroup[] = [
     icon: Code2,
     apps: [
       { id: "coding",   to: "/coding",   label: "Coding",   description: "AI coding agent for sandboxed projects", gradient: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "#3b82f6", icon: Code2, toolId: "coding" },
+      { id: "remote",   to: "/remote",   label: "Remote",   description: "SSH, VNC & RDP connections + terminals",   gradient: "linear-gradient(135deg,#0f172a,#334155)", color: "#38bdf8", icon: TerminalSquare },
       { id: "docs-dev", to: "/docs/dev", label: "Dev Docs", description: "Architecture & internals",               gradient: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "#3b82f6", icon: Code2 },
     ],
   },

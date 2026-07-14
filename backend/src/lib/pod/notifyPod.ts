@@ -7,7 +7,7 @@
 
 import { setUserAlert } from '@/lib/pod/presence'
 
-type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert' | 'price_alert' | 'file_drop' | 'service_alert' | 'resource_alert'
+type NotifType = 'install_complete' | 'download_complete' | 'system' | 'frigate_event' | 'install_request' | 'companion_checkin' | 'watcher_alert' | 'price_alert' | 'file_drop' | 'service_alert' | 'resource_alert' | 'media_alert'
 
 interface Spec {
   emoji: string

@@ -170,7 +170,7 @@ export async function fetchShowtimes(zip: string, date: string): Promise<Showtim
 }
 
 /** Best-effort ZIP from coordinates via Nominatim reverse geocode (online). */
-async function zipFromCoords(lat: number, lng: number): Promise<string | null> {
+export async function zipFromCoords(lat: number, lng: number): Promise<string | null> {
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,

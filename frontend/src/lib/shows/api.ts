@@ -28,6 +28,18 @@ export interface StreamProvider {
   offerType: string
   label: string
   url: string
+  // Rental/purchase price like "$3.99" and the leaving-soon date (ISO), when JustWatch reports them.
+  price?: string | null
+  availableTo?: string | null
+}
+
+/** Real aggregate scores relayed by JustWatch (IMDb, TMDB, Rotten Tomatoes). */
+export interface TitleScoring {
+  imdbScore: number | null
+  imdbVotes: number | null
+  tmdbScore: number | null
+  tomatoMeter: number | null
+  certifiedFresh: boolean
 }
 
 export interface VideoLink {
@@ -152,6 +164,8 @@ export interface StreamingInfo {
   theaters: StreamProvider[]
   justwatchUrl: string | null
   webProviders?: WebProvider[]
+  scoring?: TitleScoring | null
+  imdbId?: string | null
 }
 
 // Fast TVMaze core — renders the page immediately. Enrichments load via their own calls.
@@ -168,6 +182,21 @@ export interface ShowShelf {
   key: string
   title: string
   items: ShowSummary[]
+}
+
+export interface ScheduleEntry {
+  show: ShowSummary
+  airtime: string | null
+  airtimeLabel: string | null
+  episode: string | null
+  season: number | null
+  number: number | null
+  streaming: boolean
+}
+
+export interface OnTvToday {
+  date: string
+  entries: ScheduleEntry[]
 }
 
 // ── Calls ─────────────────────────────────────────────────────────────────────────
@@ -192,6 +221,32 @@ export function showsHomeQueryOptions(): UseQueryOptions<ShowShelf[]> {
 export async function searchShowsApi(q: string): Promise<ShowSummary[]> {
   const data = await getJson<{ results: ShowSummary[] }>(`/api/shows/search?q=${encodeURIComponent(q)}`)
   return data.results
+}
+
+export async function getOnTvToday(): Promise<OnTvToday> {
+  return getJson<OnTvToday>('/api/shows/on-tv')
+}
+
+export async function getShowsForAge(age: number): Promise<ShowSummary[]> {
+  return (await getJson<{ items: ShowSummary[] }>(`/api/shows/for-age?age=${age}`)).items
+}
+
+export async function getTopRatedShows(): Promise<ShowSummary[]> {
+  return (await getJson<{ items: ShowSummary[] }>('/api/shows/top-rated')).items
+}
+
+export interface UpcomingEpisode {
+  show: ShowSummary
+  name: string | null
+  season: number | null
+  number: number | null
+  airdate: string | null
+  airtime: string | null
+  airstamp: string | null
+}
+
+export async function getShowsCalendar(): Promise<UpcomingEpisode[]> {
+  return (await getJson<{ entries: UpcomingEpisode[] }>('/api/shows/calendar')).entries
 }
 
 export async function getShow(id: number | string): Promise<ShowCore> {

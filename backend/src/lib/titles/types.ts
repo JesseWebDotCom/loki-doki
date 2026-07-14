@@ -9,6 +9,30 @@ export interface StreamProvider {
   offerType: string // FLATRATE | RENT | BUY | FREE | ADS | CINEMA
   label: string
   url: string
+  // Rental/purchase price like "$3.99" and the leaving-soon date (ISO), when JustWatch reports them.
+  price?: string | null
+  availableTo?: string | null
+}
+
+/** Real aggregate scores relayed by JustWatch (IMDb, TMDB, Rotten Tomatoes). */
+export interface TitleScoring {
+  imdbScore: number | null
+  imdbVotes: number | null
+  tmdbScore: number | null
+  tomatoMeter: number | null
+  certifiedFresh: boolean
+}
+
+export interface CastMember {
+  name: string
+  character: string
+}
+
+export interface SimilarTitle {
+  title: string
+  year: number | null
+  objectType: string
+  posterUrl: string
 }
 
 export type VideoKind = 'trailer' | 'clip' | 'theme' | 'soundtrack' | 'interview'

@@ -152,6 +152,23 @@ function genreShelves(pool: ShowSummary[], max = 3): ShowShelf[] {
     .map(([genre, items]) => ({ key: `genre:${genre}`, title: genre, items }))
 }
 
+/** IMDb-Top-250-flavor list resolved to TVMaze ids (votes floor keeps out obscure titles). */
+export async function getTopRatedShows(): Promise<ShowSummary[]> {
+  return cachedLookup('shows-top-rated', 'v1', 3 * 60 * 60 * 1000, async () => {
+    const jw = await browsePopular({ objectType: 'SHOW', sortBy: 'IMDB_SCORE', imdbVotesMin: 100_000, first: 48 })
+    return resolveJwShows(jw)
+  })
+}
+
+/** Age-appropriate show discovery: US TV certs by viewer age. Trending-first, TVMaze-resolved. */
+export async function getShowsForAge(age: number): Promise<ShowSummary[]> {
+  const certs = age <= 6 ? ['TV-Y', 'TV-G'] : age <= 9 ? ['TV-Y', 'TV-Y7', 'TV-G'] : age <= 12 ? ['TV-Y', 'TV-Y7', 'TV-G', 'TV-PG'] : ['TV-Y7', 'TV-G', 'TV-PG', 'TV-14']
+  return cachedLookup('shows-for-age', certs.join(','), 3 * 60 * 60 * 1000, async () => {
+    const jw = await browsePopular({ objectType: 'SHOW', sortBy: 'TRENDING', ageCertifications: certs, first: 48 })
+    return resolveJwShows(jw)
+  })
+}
+
 export async function getHomeShelves(): Promise<ShowShelf[]> {
   return cachedLookup('shows-home', 'v2', 30 * 60 * 1000, async () => {
     const [trendingJw, popularJw, onTv] = await Promise.all([

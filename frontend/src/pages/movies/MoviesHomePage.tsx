@@ -1,17 +1,15 @@
-import { useCallback, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Clapperboard, Search, Bookmark, Headphones, Monitor, Settings } from 'lucide-react'
+import { Clapperboard, Search, Bookmark, Headphones, Monitor } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
-import { Button } from '@/components/ui/button'
 import { MediaBillboard, type BillboardItem } from '@/components/media/MediaBillboard'
 import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
 import { getMoviesHome, searchMovies, movieTo, type MovieSummary } from '@/lib/movies/api'
 import { getWatchlist } from '@/lib/library/api'
 import { PlexShelves } from '@/pages/shows/ShowsHomePage'
+import { InTheatersSection } from '@/components/media/InTheatersSection'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { getAppByPath } from '@/lib/appCategories'
 
@@ -112,6 +110,7 @@ function HomeShelves() {
   return (
     <div className="space-y-8">
       {billboard.length > 0 && <MediaBillboard items={billboard} eyebrow={featured?.title ?? 'Featured'} />}
+      <InTheatersSection />
       {watchlistPosters.length > 0 && <MediaShelfRow title="Your Watchlist" items={watchlistPosters} />}
       <PlexShelves type="movie" />
       {shelves?.map((shelf) => (
@@ -122,45 +121,19 @@ function HomeShelves() {
 }
 
 export function MoviesHomePage() {
-  const [query, setQuery] = useState('')
-  const [submitted, setSubmitted] = useState('')
-  const navigate = useNavigate()
+  // Search is URL-driven (?q=): MediaLayout owns the breadcrumb search box and routes here.
+  const [params] = useSearchParams()
+  const q = params.get('q')?.trim() ?? ''
   usePublishUIContext({
     label: 'Movies',
-    description: submitted ? `User is searching movies for "${submitted}".` : 'User is browsing the Movies home page.',
+    description: q ? `User is searching movies for "${q}".` : 'User is browsing the Movies home page.',
   })
 
-  const onSubmit = useCallback(() => setSubmitted(query.trim()), [query])
-  // A user-facing settings gear (everyone, not just admins) → Movies settings (Plex, etc.).
-  const rightSlot = useMemo(
-    () => (
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => navigate('/movies/settings')}
-        title="Movies settings"
-        aria-label="Movies settings"
-        className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-      >
-        <Settings className="size-4" />
-      </Button>
-    ),
-    [navigate],
-  )
-  useAppHeader({
-    query,
-    setQuery,
-    onSubmit,
-    placeholder: 'Search movies…',
-    externalHref: 'https://www.justwatch.com',
-    rightSlot,
-  })
-
-  // No PageShell/PageHeader: MediaLayout owns the dark cinema backdrop, the breadcrumb
-  // carries the app identity, and the billboard is the page's focal point.
+  // No PageShell/PageHeader: MediaLayout owns the dark cinema backdrop + left rail, the
+  // breadcrumb carries the app identity, and the billboard is the page's focal point.
   return (
     <PageContainer width="wide" className="pb-12 pt-5">
-      {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
+      {q ? <SearchGrid q={q} /> : <HomeShelves />}
     </PageContainer>
   )
 }

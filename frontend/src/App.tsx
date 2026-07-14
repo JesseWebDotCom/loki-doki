@@ -30,6 +30,7 @@ import { AppShell } from '@/components/shell/AppShell'
 import { BootScreen } from '@/components/shell/BootScreen'
 import { SetupWizard } from '@/pages/SetupWizard'
 import { WelcomeWizard } from '@/pages/WelcomeWizard'
+import { LocationOnboarding } from '@/components/onboarding/LocationOnboarding'
 import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
@@ -89,7 +90,19 @@ const DocsPage = lazy(() => import('@/pages/DocsPage').then((m) => ({ default: m
 const NewsPage = lazy(() => import('@/pages/NewsPage').then((m) => ({ default: m.NewsPage })))
 const OnThisDayPage = lazy(() => import('@/pages/OnThisDayPage').then((m) => ({ default: m.OnThisDayPage })))
 const RecipesPage = lazy(() => import('@/pages/RecipesPage').then((m) => ({ default: m.RecipesPage })))
-const ShowtimesPage = lazy(() => import('@/pages/ShowtimesPage').then((m) => ({ default: m.ShowtimesPage })))
+const MoviesRail = lazy(() => import('@/pages/movies/MoviesRailPages').then((m) => ({ default: m.MoviesInTheatersPage })))
+const MoviesNewPage = lazy(() => import('@/pages/movies/MoviesRailPages').then((m) => ({ default: m.MoviesNewPage })))
+const MoviesTopRatedPage = lazy(() => import('@/pages/movies/MoviesRailPages').then((m) => ({ default: m.MoviesTopRatedPage })))
+const MoviesGenresPage = lazy(() => import('@/pages/movies/MoviesRailPages').then((m) => ({ default: m.MoviesGenresPage })))
+const MoviesWatchlistPage = lazy(() => import('@/pages/movies/MoviesRailPages').then((m) => ({ default: m.MoviesWatchlistPage })))
+const MoviesFamilyPage = lazy(() => import('@/pages/movies/MoviesRailPages').then((m) => ({ default: m.MoviesFamilyPage })))
+const ShowsOnTvPage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsOnTvPage })))
+const ShowsCalendarPage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsCalendarPage })))
+const ShowsTopRatedPage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsTopRatedPage })))
+const ShowsGenresPage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsGenresPage })))
+const ShowsContinuePage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsContinuePage })))
+const ShowsWatchlistPage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsWatchlistPage })))
+const ShowsFamilyPage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsFamilyPage })))
 const SkillsPage = lazy(() => import('@/pages/SkillsPage').then((m) => ({ default: m.SkillsPage })))
 const VoiceMemosPage = lazy(() => import('@/pages/VoiceMemosPage').then((m) => ({ default: m.VoiceMemosPage })))
 const JokePage = lazy(() => import('@/pages/JokePage').then((m) => ({ default: m.JokePage })))
@@ -98,6 +111,7 @@ const SpeedTestPage = lazy(() => import('@/pages/SpeedTestPage').then((m) => ({ 
 const ShoppingPage = lazy(() => import('@/pages/shopping/ShoppingPage').then((m) => ({ default: m.ShoppingPage })))
 const ProductDetailPage = lazy(() => import('@/pages/shopping/ProductDetailPage').then((m) => ({ default: m.ProductDetailPage })))
 const CodingPage = lazy(() => import('@/pages/coding/CodingPage').then((m) => ({ default: m.CodingPage })))
+const RemoteLayout = lazy(() => import('@/pages/remote/RemoteLayout').then((m) => ({ default: m.RemoteLayout })))
 const CamerasPage = lazy(() => import('@/pages/CamerasPage').then((m) => ({ default: m.CamerasPage })))
 const ReverseLookupPage = lazy(() => import('@/pages/ReverseLookupPage').then((m) => ({ default: m.ReverseLookupPage })))
 const ConverterPage = lazy(() => import('@/pages/ConverterPage').then((m) => ({ default: m.ConverterPage })))
@@ -303,7 +317,9 @@ function AuthGuard() {
     return <WelcomeWizard onComplete={() => { void refetch() }} />
   }
 
-  return <Outlet />
+  // One-time per account: capture the user's location (ZIP/city) so weather, clock, local news,
+  // briefing, and movie showtimes personalize automatically. Renders <Outlet/> once set/skipped.
+  return <LocationOnboarding />
 }
 
 // Lightweight guard for the bookmarklet/share capture popup. Needs a session, but must NOT
@@ -502,10 +518,12 @@ export default function App() {
                 <Route path="/home-inventory" element={<HomeInventoryPage />} />
                 <Route path="/news" element={<NewsPage />} />
                 <Route path="/news/read/:id" element={<NewsReadPage />} />
+                <Route path="/news/reader" element={<NewsReadPage />} />
                 <Route path="/on-this-day" element={<OnThisDayPage />} />
                 <Route path="/moon-phase" element={<MoonPhasePage />} />
                 <Route path="/recipes" element={<RecipesPage />} />
-                <Route path="/showtimes" element={<ShowtimesPage />} />
+                {/* The standalone Showtimes app folded into Movies → In Theaters. */}
+                <Route path="/showtimes" element={<Navigate to="/movies/in-theaters" replace />} />
                 <Route path="/skills" element={<SkillsPage />} />
                 <Route path="/voice-memos" element={<VoiceMemosPage />} />
                 <Route path="/jokes" element={<JokePage />} />
@@ -514,6 +532,7 @@ export default function App() {
                 <Route path="/shopping" element={<ShoppingPage />} />
                 <Route path="/shopping/product/:retailer/:encodedId" element={<ProductDetailPage />} />
                 <Route path="/coding" element={<CodingPage />} />
+                <Route path="/remote" element={<RemoteLayout />} />
                 <Route path="/cameras" element={<CamerasPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
@@ -526,9 +545,22 @@ export default function App() {
                 {/* Movies + Shows share the always-dark MediaLayout cinema shell. */}
                 <Route element={<MediaLayout />}>
                   <Route path="/shows" element={<ShowsHomePage />} />
+                  <Route path="/shows/on-tv" element={<ShowsOnTvPage />} />
+                  <Route path="/shows/calendar" element={<ShowsCalendarPage />} />
+                  <Route path="/shows/top-rated" element={<ShowsTopRatedPage />} />
+                  <Route path="/shows/genres" element={<ShowsGenresPage />} />
+                  <Route path="/shows/family" element={<ShowsFamilyPage />} />
+                  <Route path="/shows/continue" element={<ShowsContinuePage />} />
+                  <Route path="/shows/watchlist" element={<ShowsWatchlistPage />} />
                   <Route path="/shows/:id" element={<ShowsDetailPage />} />
                   <Route path="/movies" element={<MoviesHomePage />} />
                   <Route path="/movies/settings" element={<MoviesSettingsPage />} />
+                  <Route path="/movies/in-theaters" element={<MoviesRail />} />
+                  <Route path="/movies/new" element={<MoviesNewPage />} />
+                  <Route path="/movies/top-rated" element={<MoviesTopRatedPage />} />
+                  <Route path="/movies/genres" element={<MoviesGenresPage />} />
+                  <Route path="/movies/family" element={<MoviesFamilyPage />} />
+                  <Route path="/movies/watchlist" element={<MoviesWatchlistPage />} />
                   <Route path="/movies/:ref" element={<MovieDetailPage />} />
                 </Route>
                 {/* Renamed from "TV Shows" — keep old links working. */}

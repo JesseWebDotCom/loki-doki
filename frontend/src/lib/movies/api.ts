@@ -29,12 +29,37 @@ export interface WebProvider {
   searchUrl: string
 }
 
+export interface TitleScoring {
+  imdbScore: number | null
+  imdbVotes: number | null
+  tmdbScore: number | null
+  tomatoMeter: number | null
+  certifiedFresh: boolean
+}
+
+export interface CastMember {
+  name: string
+  character: string
+}
+
+export interface SimilarTitle {
+  title: string
+  year: number | null
+  objectType: string
+  posterUrl: string
+}
+
 // Fast JustWatch core — renders the movie page immediately; enrichments load separately.
 export interface MovieCore {
   details: MovieDetails
   backdrop: string | null
   streaming: { providers: StreamProvider[]; theaters: StreamProvider[]; justwatchUrl: string | null; webProviders?: WebProvider[] }
   inTheaters: boolean
+  scoring: TitleScoring | null
+  imdbId: string | null
+  cast: CastMember[]
+  directors: string[]
+  similarTitles: SimilarTitle[]
 }
 
 export interface TheaterGroup {
@@ -60,6 +85,22 @@ export interface MovieShelf {
   items: MovieSummary[]
 }
 
+export interface ShowtimesData {
+  zip: string
+  date: string
+  theater_count: number
+  movies: ShowMovie[]
+  source_url: string
+}
+
+export type ZipSource = 'setting' | 'location' | null
+
+export interface NearMe {
+  zip: string | null
+  source: ZipSource
+  data: ShowtimesData | null
+}
+
 // Build the detail-route link target for a movie.
 export function movieTo(m: { title: string; year: number | null }): string {
   const y = m.year ? `?year=${m.year}` : ''
@@ -77,9 +118,48 @@ export async function getMoviesHome(): Promise<MovieShelf[]> {
   return data.shelves
 }
 
-export async function getInTheaters(zip: string): Promise<MovieSummary[]> {
+export async function getInTheaters(zip = ''): Promise<MovieSummary[]> {
   const data = await getJson<{ items: MovieSummary[] }>(`/api/movies/in-theaters?zip=${encodeURIComponent(zip)}`)
   return data.items
+}
+
+// Full "what's playing near you" payload with theaters + showtimes. Resolves the household ZIP
+// server-side when none is passed, so the section works with zero setup.
+export async function getShowtimesNearMe(zip = ''): Promise<NearMe> {
+  return getJson<NearMe>(`/api/movies/near-me${zip ? `?zip=${encodeURIComponent(zip)}` : ''}`)
+}
+
+export interface ZipInfo {
+  saved: string
+  zip: string | null
+  source: ZipSource
+}
+
+export async function getMovieZip(): Promise<ZipInfo> {
+  return getJson<ZipInfo>('/api/movies/zip')
+}
+
+export async function setMovieZip(zip: string): Promise<string> {
+  const res = await fetch('/api/movies/zip', {
+    credentials: 'include',
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ zip }),
+  })
+  if (!res.ok) throw new Error('Failed to save ZIP')
+  return ((await res.json()) as { saved: string }).saved
+}
+
+export async function getTopRatedMovies(): Promise<MovieSummary[]> {
+  return (await getJson<{ items: MovieSummary[] }>('/api/movies/top-rated')).items
+}
+
+export async function getNewMovies(): Promise<MovieSummary[]> {
+  return (await getJson<{ items: MovieSummary[] }>('/api/movies/new')).items
+}
+
+export async function getMoviesForAge(age: number): Promise<MovieSummary[]> {
+  return (await getJson<{ items: MovieSummary[] }>(`/api/movies/for-age?age=${age}`)).items
 }
 
 export async function searchMovies(q: string): Promise<MovieSummary[]> {

@@ -4,7 +4,7 @@
 
 import { whereToWatchTool } from '@/tools/whereToWatch'
 import { webStreamingFallback, type WebProvider } from './streamingFallback'
-import type { StreamProvider } from './types'
+import type { CastMember, SimilarTitle, StreamProvider, TitleScoring } from './types'
 
 export { webStreamingFallback } from './streamingFallback'
 export type { WebProvider } from './streamingFallback'
@@ -13,6 +13,9 @@ export interface StreamingInfo {
   providers: StreamProvider[]
   theaters: StreamProvider[]
   justwatchUrl: string | null
+  // Real aggregate scores (IMDb/RT/TMDB) relayed by JustWatch, when known.
+  scoring?: TitleScoring | null
+  imdbId?: string | null
   // Filled only when JustWatch reports no streaming options: services a keyless web search
   // suggests carry the title (esp. free/ad-supported ones JustWatch tracks poorly — Tubi,
   // Pluto, Plex, Freevee, the Roku Channel). Best-effort, hence "reported".
@@ -43,6 +46,8 @@ export async function getStreaming(
       providers?: StreamProvider[]
       theaters?: StreamProvider[]
       justwatchUrl?: string
+      scoring?: TitleScoring | null
+      imdbId?: string | null
     }
     const providers = d.found ? d.providers ?? [] : []
     const theaters = d.found ? d.theaters ?? [] : []
@@ -51,7 +56,7 @@ export async function getStreaming(
     // shows no streaming options (and the title isn't theatrical-only), supplement with a
     // web-search check.
     const webProviders = providers.length === 0 && theaters.length === 0 ? await webStreamingFallback(title, year) : []
-    return { providers, theaters, justwatchUrl, webProviders }
+    return { providers, theaters, justwatchUrl, webProviders, scoring: d.found ? d.scoring ?? null : null, imdbId: d.found ? d.imdbId ?? null : null }
   } catch {
     return EMPTY
   }
@@ -68,6 +73,12 @@ export interface TitleLookup {
   justwatchUrl: string | null
   providers: StreamProvider[]
   theaters: StreamProvider[]
+  scoring: TitleScoring | null
+  imdbId: string | null
+  tmdbId: string | null
+  cast: CastMember[]
+  directors: string[]
+  similarTitles: SimilarTitle[]
 }
 
 /** Full JustWatch lookup for a title — metadata + streaming. The Movies app uses this as its
@@ -89,6 +100,12 @@ export async function lookupTitle(title: string, objectType: 'MOVIE' | 'SHOW', c
       justwatchUrl: d.justwatchUrl ?? null,
       providers: d.providers ?? [],
       theaters: d.theaters ?? [],
+      scoring: d.scoring ?? null,
+      imdbId: d.imdbId ?? null,
+      tmdbId: d.tmdbId ?? null,
+      cast: d.cast ?? [],
+      directors: d.directors ?? [],
+      similarTitles: d.similarTitles ?? [],
     }
   } catch {
     return null
@@ -106,6 +123,12 @@ const EMPTY_LOOKUP: TitleLookup = {
   justwatchUrl: null,
   providers: [],
   theaters: [],
+  scoring: null,
+  imdbId: null,
+  tmdbId: null,
+  cast: [],
+  directors: [],
+  similarTitles: [],
 }
 
 /** JustWatch popular titles, optionally filtered to MOVIE or SHOW. */

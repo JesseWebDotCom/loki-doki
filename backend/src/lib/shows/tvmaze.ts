@@ -246,3 +246,112 @@ export async function getScheduleToday(country = 'US'): Promise<ShowSummary[]> {
     return out
   })
 }
+
+// ── Next episode (the tracked-shows Calendar) ───────────────────────────────────────
+
+export interface UpcomingEpisode {
+  show: ShowSummary
+  name: string | null
+  season: number | null
+  number: number | null
+  airdate: string | null   // YYYY-MM-DD
+  airtime: string | null   // 24h "20:00"
+  airstamp: string | null  // ISO timestamp
+}
+
+/** The show's next scheduled episode via ?embed=nextepisode — null when nothing is scheduled
+ *  (ended/on-hiatus shows). Cached 6h so a watchlist sweep stays cheap. */
+export async function getNextEpisode(showId: number): Promise<UpcomingEpisode | null> {
+  return cachedLookup('tvmaze-nextep', String(showId), SIX_HOURS_MS, async () => {
+    const show = await tvmazeGet<RawShow & { _embedded?: { nextepisode?: Record<string, unknown> } }>(
+      `/shows/${showId}?embed=nextepisode`,
+    )
+    if (!show?.id) return null
+    const ep = show._embedded?.nextepisode
+    if (!ep) return null
+    return {
+      show: toSummary(show),
+      name: ep.name ? String(ep.name) : null,
+      season: ep.season != null ? Number(ep.season) : null,
+      number: ep.number != null ? Number(ep.number) : null,
+      airdate: ep.airdate ? String(ep.airdate) : null,
+      airtime: ep.airtime ? String(ep.airtime) : null,
+      airstamp: ep.airstamp ? String(ep.airstamp) : null,
+    }
+  })
+}
+
+// ── On TV Tonight (rich schedule: airtime + episode + network) ──────────────────────
+
+export interface ScheduleEntry {
+  show: ShowSummary
+  airtime: string | null      // 24h "20:00"
+  airtimeLabel: string | null // "8:00 PM"
+  episode: string | null
+  season: number | null
+  number: number | null
+  streaming: boolean          // from the web/streaming schedule vs broadcast
+}
+
+interface RawScheduleEntry {
+  airtime?: string
+  name?: string
+  season?: number
+  number?: number
+  show?: RawShow
+  _embedded?: { show?: RawShow }
+}
+
+function to12h(t: string | null | undefined): string | null {
+  if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return null
+  const [h, m] = t.split(':')
+  let hour = Number(h)
+  const ampm = hour >= 12 ? 'PM' : 'AM'
+  hour = hour % 12 || 12
+  return `${hour}:${m} ${ampm}`
+}
+
+/** Tonight's TV for a date (YYYY-MM-DD): broadcast/cable airings for `country` plus streaming
+ *  premieres (web). English-language web entries only (trims foreign-language noise), deduped
+ *  per show+episode, sorted by airtime. Backs the "On TV Tonight" section and companion tool. */
+export async function getOnTvTonight(date: string, country = 'US'): Promise<ScheduleEntry[]> {
+  return cachedLookup('tvmaze-ontv', `${country}:${date}`, 3 * 60 * 60 * 1000, async () => {
+    const [broadcast, web] = await Promise.all([
+      tvmazeGet<RawScheduleEntry[]>(`/schedule?country=${country}&date=${date}`),
+      tvmazeGet<RawScheduleEntry[]>(`/schedule/web?date=${date}`),
+    ])
+    const seen = new Set<string>()
+    const out: ScheduleEntry[] = []
+    const collect = (raw: RawScheduleEntry[] | null, streaming: boolean, cap = Infinity) => {
+      if (!Array.isArray(raw)) return
+      let added = 0
+      for (const e of raw) {
+        if (added >= cap) break
+        const show = e.show ?? e._embedded?.show
+        if (!show?.id) continue
+        // Streaming schedule is global; keep English (or unspecified) to cut foreign-language noise.
+        if (streaming) {
+          const lang = show.language ? String(show.language) : null
+          if (lang && lang !== 'English') continue
+        }
+        const key = `${Number(show.id)}:${e.season ?? ''}:${e.number ?? ''}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push({
+          show: toSummary(show),
+          airtime: e.airtime || null,
+          airtimeLabel: to12h(e.airtime),
+          episode: e.name ? String(e.name) : null,
+          season: e.season != null ? Number(e.season) : null,
+          number: e.number != null ? Number(e.number) : null,
+          streaming,
+        })
+        added++
+      }
+    }
+    collect(broadcast, false)
+    collect(web, true, 60)
+    out.sort((a, b) => (a.airtime ?? '99:99').localeCompare(b.airtime ?? '99:99'))
+    return out.slice(0, 200)
+  })
+}

@@ -15,16 +15,17 @@ export type NotifType =
   | 'file_drop'
   | 'service_alert'
   | 'resource_alert'
+  | 'media_alert'
 
 export type NotifPriority = 'info' | 'normal' | 'urgent'
-export type NotifCategory = 'camera' | 'downloads' | 'installs' | 'system' | 'companion' | 'watchers' | 'shopping' | 'drops' | 'monitoring'
+export type NotifCategory = 'camera' | 'downloads' | 'installs' | 'system' | 'companion' | 'watchers' | 'shopping' | 'drops' | 'monitoring' | 'media'
 export type Channel = 'push' | 'telegram' | 'email'
 export type DeliveryMode = 'off' | 'instant' | 'digest'
 
 export const NOTIF_TYPES: readonly NotifType[] = [
   'install_request', 'install_complete', 'download_complete', 'system',
   'frigate_event', 'companion_checkin', 'watcher_alert', 'price_alert', 'file_drop',
-  'service_alert', 'resource_alert',
+  'service_alert', 'resource_alert', 'media_alert',
 ]
 
 export const CHANNELS: readonly Channel[] = ['push', 'telegram', 'email']
@@ -45,6 +46,7 @@ export const CATEGORY_META: readonly CategoryMeta[] = [
   { key: 'companion', label: 'Companion check-ins', description: 'Your companion reaching out about things you shared', types: ['companion_checkin'] },
   { key: 'drops', label: 'Device drops', description: 'Files and links sent between your devices', types: ['file_drop'] },
   { key: 'monitoring', label: 'Service monitoring', description: 'A service or server going down or recovering, or a computer running low on resources', types: ['service_alert', 'resource_alert'] },
+  { key: 'media', label: 'Shows & movies', description: 'A tracked show returning with new episodes, or a watchlist title leaving a streaming service', types: ['media_alert'] },
   { key: 'system', label: 'System', description: 'Everything else — maintenance, warnings, admin messages', types: ['system'] },
 ]
 
@@ -74,6 +76,7 @@ export const DEFAULT_MATRIX: Record<NotifCategory, Record<Channel, DeliveryMode>
   companion: { push: 'instant', telegram: 'off', email: 'off' },
   drops: { push: 'instant', telegram: 'off', email: 'off' },
   monitoring: { push: 'instant', telegram: 'off', email: 'off' },
+  media: { push: 'instant', telegram: 'off', email: 'off' },
   system: { push: 'instant', telegram: 'off', email: 'off' },
 }
 

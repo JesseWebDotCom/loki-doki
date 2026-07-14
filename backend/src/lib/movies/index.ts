@@ -5,7 +5,11 @@
 // existing Fandango integration. Movies are keyed by title (+year), since that's all the
 // browse/lookup feeds and Fandango give us in common.
 
-import { fetchShowtimes, showtimesTodayIso, isUsZipCode, type ShowMovie } from '@/tools/showtimes'
+import { and, eq } from 'drizzle-orm'
+import { fetchShowtimes, showtimesTodayIso, isUsZipCode, zipFromCoords, type ShowMovie, type ShowtimesData } from '@/tools/showtimes'
+import { db } from '@/db'
+import { userPreferences, toolUserConfig } from '@/db/schema'
+import { resolveToolConfig } from '@/lib/toolConfig'
 import { cachedLookup } from '@/lib/lookupCache'
 import { lookupTitle, webStreamingFallback, type StreamingInfo } from '@/lib/titles/streaming'
 import { browsePopular, type JwTitle } from '@/lib/titles/justwatch'
@@ -43,6 +47,12 @@ export interface MovieCore {
   backdrop: string | null
   streaming: StreamingInfo
   inTheaters: boolean
+  // IMDb-class extras from the JustWatch detail lookup (all optional/nullable).
+  scoring: import('@/lib/titles/types').TitleScoring | null
+  imdbId: string | null
+  cast: import('@/lib/titles/types').CastMember[]
+  directors: string[]
+  similarTitles: import('@/lib/titles/types').SimilarTitle[]
 }
 
 export async function getMovieCore(title: string, year: number | null): Promise<MovieCore | null> {
@@ -69,6 +79,11 @@ export async function getMovieCore(title: string, year: number | null): Promise<
     backdrop: lookup.posterUrl || null,
     streaming: { providers: lookup.providers, theaters: lookup.theaters, justwatchUrl: lookup.justwatchUrl, webProviders },
     inTheaters: lookup.theaters.length > 0,
+    scoring: lookup.scoring,
+    imdbId: lookup.imdbId,
+    cast: lookup.cast,
+    directors: lookup.directors,
+    similarTitles: lookup.similarTitles,
   }
 }
 
@@ -136,6 +151,28 @@ export async function getHomeShelves(): Promise<MovieShelf[]> {
   })
 }
 
+// ── rail pages: Top Rated / New Releases (JustWatch browse) ─────────────────────────
+
+/** IMDb-Top-250-flavor list: IMDB_SCORE sort with a big votes floor (verified live). */
+export async function getTopRatedMovies(): Promise<MovieSummary[]> {
+  const items = await browsePopular({ objectType: 'MOVIE', sortBy: 'IMDB_SCORE', imdbVotesMin: 200_000, first: 48 })
+  return items.map(jwToSummary)
+}
+
+/** This year's releases, trending first. */
+export async function getNewMovies(): Promise<MovieSummary[]> {
+  const items = await browsePopular({ objectType: 'MOVIE', sortBy: 'TRENDING', releaseYearMin: new Date().getFullYear(), first: 48 })
+  return items.map(jwToSummary)
+}
+
+/** Age-appropriate movie discovery: US MPAA certs by viewer age ("something for an 8 year old").
+ *  Trending-first so the list feels current, not a dusty catalog. */
+export async function getMoviesForAge(age: number): Promise<MovieSummary[]> {
+  const certs = age <= 6 ? ['G'] : age <= 12 ? ['G', 'PG'] : ['G', 'PG', 'PG-13']
+  const items = await browsePopular({ objectType: 'MOVIE', sortBy: 'TRENDING', ageCertifications: certs, first: 48 })
+  return items.map(jwToSummary)
+}
+
 // ── in theaters near a ZIP (Fandango) — used for the per-movie showtimes panel ───────
 
 function showMovieToSummary(m: ShowMovie): MovieSummary {
@@ -163,4 +200,93 @@ export async function getMovieShowtimes(title: string, zip: string): Promise<Sho
     data.movies.find((m) => m.title.toLowerCase().includes(t) || t.includes(m.title.toLowerCase())) ??
     null
   )
+}
+
+// ── ZIP resolution (household location → ZIP) ───────────────────────────────────────
+// Fandango needs a 5-digit ZIP, but the household `user.location` preference only stores
+// lat/lng + a city name. Resolution order: the user's saved Showtimes ZIP (the editable
+// setting) → reverse-geocode the household location. The reverse-geocode is cached in-memory
+// per rounded coordinate so we don't hit Nominatim on every page load.
+
+export type ZipSource = 'setting' | 'location' | null
+export interface ResolvedZip {
+  zip: string | null
+  source: ZipSource
+}
+
+const zipCoordCache = new Map<string, { zip: string | null; at: number }>()
+const ZIP_COORD_TTL_MS = 24 * 60 * 60 * 1000
+
+async function readUserLocation(userId: string): Promise<{ lat?: number; lng?: number; displayName?: string; postalCode?: string } | null> {
+  try {
+    const [row] = await db
+      .select({ value: userPreferences.value })
+      .from(userPreferences)
+      .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, 'user.location')))
+      .limit(1)
+    if (!row) return null
+    return JSON.parse(row.value) as { lat?: number; lng?: number; displayName?: string; postalCode?: string }
+  } catch {
+    return null
+  }
+}
+
+/** The user's explicitly-saved Showtimes ZIP (the editable setting), or '' if none/invalid. */
+export async function getSavedZip(userId: string): Promise<string> {
+  const cfg = await resolveToolConfig('showtimes', userId)
+  const saved = String(cfg['default_zip'] ?? '').trim()
+  return isUsZipCode(saved) ? saved : ''
+}
+
+/** Persist the user's Showtimes ZIP (stored on the shared `showtimes` tool config so the
+ *  companion tool and the Movies app resolve the same value). Empty clears it. */
+export async function setSavedZip(userId: string, zip: string): Promise<string> {
+  const clean = zip.trim()
+  const value = isUsZipCode(clean) ? clean : ''
+  const where = and(
+    eq(toolUserConfig.userId, userId),
+    eq(toolUserConfig.toolId, 'showtimes'),
+    eq(toolUserConfig.key, 'default_zip'),
+  )
+  if (!value) {
+    await db.delete(toolUserConfig).where(where)
+    return ''
+  }
+  const [existing] = await db.select({ id: toolUserConfig.id }).from(toolUserConfig).where(where).limit(1)
+  if (existing) {
+    await db.update(toolUserConfig).set({ value: JSON.stringify(value), updatedAt: new Date() }).where(where)
+  } else {
+    await db.insert(toolUserConfig).values({
+      id: crypto.randomUUID(), userId, toolId: 'showtimes', key: 'default_zip', value: JSON.stringify(value), updatedAt: new Date(),
+    })
+  }
+  return value
+}
+
+/** Resolve a US ZIP for a user: saved setting → reverse-geocode household `user.location`. */
+export async function resolveUserZip(userId: string): Promise<ResolvedZip> {
+  const saved = await getSavedZip(userId)
+  if (saved) return { zip: saved, source: 'setting' }
+
+  const loc = await readUserLocation(userId)
+  // A ZIP the user typed at onboarding is exact — prefer it over reverse-geocoding coordinates.
+  if (loc?.postalCode && isUsZipCode(loc.postalCode)) return { zip: loc.postalCode, source: 'location' }
+  if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+    const key = `${loc.lat.toFixed(3)},${loc.lng.toFixed(3)}`
+    const cached = zipCoordCache.get(key)
+    if (cached && Date.now() - cached.at < ZIP_COORD_TTL_MS) {
+      return { zip: cached.zip, source: cached.zip ? 'location' : null }
+    }
+    const zip = await zipFromCoords(loc.lat, loc.lng)
+    zipCoordCache.set(key, { zip, at: Date.now() })
+    if (zip) return { zip, source: 'location' }
+  }
+  return { zip: null, source: null }
+}
+
+/** Full showtimes payload near a ZIP — movies + theaters + times (the discovery section). */
+export async function getShowtimesNear(zip: string): Promise<ShowtimesData | null> {
+  if (!isUsZipCode(zip)) return null
+  const date = showtimesTodayIso()
+  return cachedLookup('showtimes', `${zip}:${date}`, THREE_HOURS_MS, () => fetchShowtimes(zip, date))
 }

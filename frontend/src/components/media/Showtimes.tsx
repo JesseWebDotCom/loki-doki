@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Clock, MapPin, Ticket } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
-import { getMovieShowtimes } from '@/lib/movies/api'
+import { getMovieShowtimes, getMovieZip } from '@/lib/movies/api'
 
 const ZIP_KEY = 'showtimes.lastZip'
 
@@ -26,9 +26,21 @@ function saveZip(zip: string) {
 // Per-movie local showtimes panel, backed by the existing Fandango integration. Prompts for a
 // ZIP if none is saved (shared with the Movie Showtimes app via the same localStorage key).
 export function ShowtimesPanel({ title }: { title: string }) {
-  const [zip, setZip] = useState(readSavedZip)
-  const [draft, setDraft] = useState(zip)
+  const saved = readSavedZip()
+  const [zip, setZip] = useState(saved)
+  const [draft, setDraft] = useState(saved)
   const valid = /^\d{5}$/.test(zip)
+
+  // No manually-entered ZIP → adopt the household ZIP (geocoded from the user's location) so the
+  // panel works without prompting. A manual entry always wins.
+  const { data: zipInfo } = useQuery({ queryKey: ['movie-zip'], queryFn: getMovieZip, staleTime: 60 * 60 * 1000, enabled: !saved })
+  useEffect(() => {
+    const fallback = zipInfo?.zip
+    if (!zip && fallback && /^\d{5}$/.test(fallback)) {
+      setZip(fallback)
+      setDraft(fallback)
+    }
+  }, [zipInfo, zip])
 
   const { data, isLoading } = useQuery({
     queryKey: ['movie-showtimes', title, zip],

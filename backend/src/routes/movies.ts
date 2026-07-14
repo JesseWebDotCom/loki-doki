@@ -13,6 +13,13 @@ import {
   getMovieOverviewById,
   getMovieParentsGuideById,
   getMovieBackdropById,
+  resolveUserZip,
+  getSavedZip,
+  setSavedZip,
+  getShowtimesNear,
+  getTopRatedMovies,
+  getNewMovies,
+  getMoviesForAge,
 } from '@/lib/movies'
 import { searchTitles } from '@/lib/titles/justwatch'
 import { getReviews } from '@/lib/titles/reviews'
@@ -33,9 +40,48 @@ moviesRoute.get('/home', requireAuth, async (c) => {
 })
 
 moviesRoute.get('/in-theaters', requireAuth, async (c) => {
-  const zip = c.req.query('zip')?.trim() ?? ''
+  const user = c.get('user')
+  const zip = c.req.query('zip')?.trim() || (await resolveUserZip(user.id)).zip || ''
   const items = await getInTheaters(zip)
   return c.json({ items })
+})
+
+// Full "what's playing near you" discovery payload — movies + theaters + showtimes. Resolves
+// the household ZIP when none is passed, so the section works with zero setup.
+moviesRoute.get('/near-me', requireAuth, async (c) => {
+  const user = c.get('user')
+  const explicit = c.req.query('zip')?.trim()
+  const resolved = explicit ? { zip: explicit, source: 'setting' as const } : await resolveUserZip(user.id)
+  if (!resolved.zip) return c.json({ zip: null, source: null, data: null })
+  const data = await getShowtimesNear(resolved.zip)
+  return c.json({ zip: resolved.zip, source: resolved.source, data })
+})
+
+// The saved Showtimes ZIP setting (household location used as the geocoded default).
+moviesRoute.get('/zip', requireAuth, async (c) => {
+  const user = c.get('user')
+  const [saved, resolved] = await Promise.all([getSavedZip(user.id), resolveUserZip(user.id)])
+  return c.json({ saved, zip: resolved.zip, source: resolved.source })
+})
+
+moviesRoute.put('/zip', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = (await c.req.json().catch(() => ({}))) as { zip?: string }
+  const saved = await setSavedZip(user.id, body.zip ?? '')
+  return c.json({ saved })
+})
+
+moviesRoute.get('/top-rated', requireAuth, async (c) => {
+  return c.json({ items: await getTopRatedMovies() })
+})
+
+moviesRoute.get('/new', requireAuth, async (c) => {
+  return c.json({ items: await getNewMovies() })
+})
+
+moviesRoute.get('/for-age', requireAuth, async (c) => {
+  const age = Math.min(17, Math.max(2, Number(c.req.query('age')) || 8))
+  return c.json({ age, items: await getMoviesForAge(age) })
 })
 
 moviesRoute.get('/search', requireAuth, async (c) => {
@@ -80,9 +126,10 @@ moviesRoute.get('/backdrop', requireAuth, async (c) => {
 })
 
 moviesRoute.get('/showtimes', requireAuth, async (c) => {
+  const user = c.get('user')
   const title = c.req.query('title')?.trim()
-  const zip = c.req.query('zip')?.trim() ?? ''
   if (!title) return c.json({ error: 'Query param title is required' }, 400)
+  const zip = c.req.query('zip')?.trim() || (await resolveUserZip(user.id)).zip || ''
   const movie = await getMovieShowtimes(title, zip)
   return c.json({ movie })
 })

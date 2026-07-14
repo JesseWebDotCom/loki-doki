@@ -29,6 +29,8 @@ const TITLE_FRAGMENT = `
     shortDescription
     ageCertification
     runtime
+    scoring { imdbScore imdbVotes tmdbScore tomatoMeter certifiedFresh }
+    externalIds { imdbId tmdbId }
   }`
 
 const OFFERS_FRAGMENT = `
@@ -37,7 +39,27 @@ const OFFERS_FRAGMENT = `
     monetizationType
     presentationType
     standardWebURL
+    retailPrice(language: $language)
+    currency
+    availableTo
     package { id packageId shortName clearName technicalName icon }
+  }`
+
+// Single-node extras (cast/crew + similar titles) — only on the OFFERS_QUERY detail fetch,
+// not the multi-result search/browse queries, to keep those light. GraphQL merges the second
+// same-args content selection with TITLE_FRAGMENT's. similarTitles takes `limit` (not `first`)
+// and returns a plain list (no edges) — verified live.
+const DETAIL_EXTRAS_FRAGMENT = `
+  content(country: $country, language: $language) {
+    credits { role name characterName }
+  }
+  similarTitles(country: $country, limit: 12) {
+    objectType
+    content(country: $country, language: $language) {
+      title
+      originalReleaseYear
+      posterUrl
+    }
   }`
 
 const SEARCH_QUERY = `
@@ -52,7 +74,7 @@ query GetSearchResults($country: Country!, $language: Language!, $first: Int!, $
 
 const OFFERS_QUERY = `
 fragment TitleNode on MovieOrShow {
-  __typename id objectId objectType${TITLE_FRAGMENT}${OFFERS_FRAGMENT}
+  __typename id objectId objectType${TITLE_FRAGMENT}${OFFERS_FRAGMENT}${DETAIL_EXTRAS_FRAGMENT}
 }
 query GetNodeOffers($entityId: ID!, $country: Country!, $language: Language!) {
   node(id: $entityId) { ...TitleNode }
@@ -197,7 +219,12 @@ function justwatchUrl(raw: string): string {
   return path.startsWith('http') ? path : `${JUSTWATCH_BASE}${path}`
 }
 
-interface Provider { name: string; offerType: string; label: string; url: string }
+interface Provider {
+  name: string; offerType: string; label: string; url: string
+  // Rental/purchase price like "$3.99" and the leaving-soon date (ISO), when JustWatch reports them.
+  price?: string | null
+  availableTo?: string | null
+}
 
 function parseProviders(offers: unknown): Provider[] {
   if (!Array.isArray(offers)) return []
@@ -218,6 +245,8 @@ function parseProviders(offers: unknown): Provider[] {
       offerType,
       label: OFFER_TYPE_LABELS[offerType] ?? offerType.toLowerCase(),
       url: String(o.standardWebURL ?? '').trim(),
+      price: o.retailPrice ? String(o.retailPrice) : null,
+      availableTo: o.availableTo ? String(o.availableTo) : null,
     })
   }
   const rank = (t: string) => (t === 'FLATRATE' ? 0 : t === 'FREE' || t === 'ADS' ? 1 : 2)
@@ -494,6 +523,43 @@ async function runLookup(rawQuery: string, country: string, language: string, ob
   // the web is dominated by "when will it come to X" speculation.
   const webProviders = providers.length === 0 && theaters.length === 0 ? await webStreamingFallback(resolvedTitle, resolvedYear) : []
 
+  // Detail extras (verified live): real aggregate scores, stable external ids, cast/crew,
+  // and JustWatch's own similar-titles list. All optional — older cache entries and thin
+  // titles simply omit them.
+  const scoringRaw = (content.scoring ?? {}) as Record<string, unknown>
+  const scoring = {
+    imdbScore: typeof scoringRaw.imdbScore === 'number' ? scoringRaw.imdbScore : null,
+    imdbVotes: typeof scoringRaw.imdbVotes === 'number' ? Math.round(scoringRaw.imdbVotes) : null,
+    tmdbScore: typeof scoringRaw.tmdbScore === 'number' ? scoringRaw.tmdbScore : null,
+    tomatoMeter: typeof scoringRaw.tomatoMeter === 'number' ? scoringRaw.tomatoMeter : null,
+    certifiedFresh: scoringRaw.certifiedFresh === true,
+  }
+  const externalIdsRaw = (content.externalIds ?? {}) as Record<string, unknown>
+  const imdbId = externalIdsRaw.imdbId ? String(externalIdsRaw.imdbId) : null
+  const tmdbId = externalIdsRaw.tmdbId ? String(externalIdsRaw.tmdbId) : null
+  const creditsRaw = Array.isArray(content.credits) ? (content.credits as Array<Record<string, unknown>>) : []
+  const cast = creditsRaw
+    .filter((cr) => String(cr.role ?? '') === 'ACTOR' && cr.name)
+    .slice(0, 24)
+    .map((cr) => ({ name: String(cr.name), character: cr.characterName ? String(cr.characterName) : '' }))
+  const directors = creditsRaw
+    .filter((cr) => String(cr.role ?? '') === 'DIRECTOR' && cr.name)
+    .slice(0, 4)
+    .map((cr) => String(cr.name))
+  const similarRaw = Array.isArray((node ?? best).similarTitles) ? ((node ?? best).similarTitles as Array<Record<string, unknown>>) : []
+  const similarTitles = similarRaw
+    .map((s) => {
+      const c = (s.content ?? {}) as Record<string, unknown>
+      if (!c.title) return null
+      return {
+        title: String(c.title),
+        year: typeof c.originalReleaseYear === 'number' ? c.originalReleaseYear : null,
+        objectType: String(s.objectType ?? '').toUpperCase(),
+        posterUrl: posterUrl(String(c.posterUrl ?? '')),
+      }
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null)
+
   const data = {
     mode: 'lookup' as const,
     found: true,
@@ -509,6 +575,12 @@ async function runLookup(rawQuery: string, country: string, language: string, ob
     providers,
     theaters,
     webProviders,
+    scoring,
+    imdbId,
+    tmdbId,
+    cast,
+    directors,
+    similarTitles,
   }
 
   return { success: true, data: { ...data, answer_payload: deriveLookupPayload(data) } }

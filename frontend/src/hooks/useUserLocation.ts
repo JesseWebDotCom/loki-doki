@@ -11,6 +11,7 @@ export interface UserLocation {
   lng: number
   timezone: string
   displayName: string
+  postalCode?: string // set when the user entered a US ZIP; used directly by movie showtimes
 }
 
 export type LocationStatus = 'loading' | 'ready' | 'detecting' | 'error'
@@ -71,6 +72,7 @@ export async function geocodeLocation(query: string): Promise<UserLocation> {
   return {
     city, country, countryCode, lat, lng, timezone,
     displayName: countryCode === 'US' && admin1 ? `${city}, ${admin1}` : `${city}, ${country}`,
+    ...(isZip ? { postalCode: trimmed.slice(0, 5) } : {}),
   }
 }
 

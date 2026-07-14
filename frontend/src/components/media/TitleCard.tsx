@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Star, Tv } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { mediaImg } from '@/lib/shows/api'
+import { mediaImg, getShow, getShowOverview, getShowParentsGuide, getShowTrivia } from '@/lib/shows/api'
+import { getMovie, getMovieOverview, getMovieParentsGuide, getMovieTrivia } from '@/lib/movies/api'
 
 // A poster card for a show or movie. Generic over both apps via the `to` link target.
 export interface PosterItem {
@@ -14,11 +16,50 @@ export interface PosterItem {
   badge?: string | null
 }
 
+// Hover-intent prefetch: the About-tab enrichments (parents guide, trivia) take 5-10s of
+// server work on a title's FIRST view (scrapes + an LLM pass; 30-day server cache after).
+// Warming them the moment the pointer settles on a card means that work starts seconds
+// before the click instead of after the detail page mounts. Keys/staleTime must mirror the
+// detail pages' own useQuery calls so these dedupe into the same cache entries.
+const PREFETCH_STALE_MS = 30 * 60 * 1000
+function prefetchTitle(qc: QueryClient, to: string): void {
+  const movie = to.match(/^\/movies\/([^/?]+)(?:\?year=(\d{4}))?$/)
+  if (movie) {
+    const title = decodeURIComponent(movie[1]!)
+    const year = movie[2] ? Number(movie[2]) : null
+    void qc.prefetchQuery({ queryKey: ['movie', title, year], queryFn: () => getMovie(title, year), staleTime: PREFETCH_STALE_MS })
+    void qc.prefetchQuery({ queryKey: ['movie-overview', title, year], queryFn: () => getMovieOverview(title, year), staleTime: PREFETCH_STALE_MS })
+    void qc.prefetchQuery({ queryKey: ['movie-parents-guide', title, year], queryFn: () => getMovieParentsGuide(title, year), staleTime: PREFETCH_STALE_MS })
+    void qc.prefetchQuery({ queryKey: ['movie-trivia', title, year], queryFn: () => getMovieTrivia(title, year), staleTime: PREFETCH_STALE_MS })
+    return
+  }
+  const show = to.match(/^\/shows\/(\d+)$/)
+  if (show) {
+    const id = show[1]!
+    void qc.prefetchQuery({ queryKey: ['show', id], queryFn: () => getShow(id), staleTime: PREFETCH_STALE_MS })
+    void qc.prefetchQuery({ queryKey: ['show-overview', id], queryFn: () => getShowOverview(id), staleTime: PREFETCH_STALE_MS })
+    void qc.prefetchQuery({ queryKey: ['show-parents-guide', id], queryFn: () => getShowParentsGuide(id), staleTime: PREFETCH_STALE_MS })
+    void qc.prefetchQuery({ queryKey: ['show-trivia', id], queryFn: () => getShowTrivia(id), staleTime: PREFETCH_STALE_MS })
+  }
+}
+
 export function TitleCard({ item, fluid, className }: { item: PosterItem; fluid?: boolean; className?: string }) {
   const [ok, setOk] = useState(true)
+  const qc = useQueryClient()
+  // Fire once per card after the pointer settles for 150ms (a brush-past shouldn't cost a scrape).
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fired = useRef(false)
+  const onEnter = () => {
+    if (fired.current) return
+    timer.current = setTimeout(() => { fired.current = true; prefetchTitle(qc, item.to) }, 150)
+  }
+  const onLeave = () => { if (timer.current) clearTimeout(timer.current) }
   return (
     <Link
       to={item.to}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      onTouchStart={onEnter}
       className={cn(
         'group block',
         fluid ? 'w-full' : 'w-[140px] shrink-0 sm:w-[160px]',

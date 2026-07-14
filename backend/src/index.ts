@@ -34,6 +34,7 @@ import { image } from '@/routes/image'
 import { converter } from '@/routes/converter'
 import { drop } from '@/routes/drop'
 import { startDropSweep } from '@/lib/drop/service'
+import { startMediaAlertsSweep } from '@/lib/media/alerts'
 import { adminImageLoras } from '@/routes/adminImageLoras'
 import { adminQueue } from '@/routes/adminQueue'
 import { adminGpu } from '@/routes/adminGpu'
@@ -93,6 +94,7 @@ import { tvShowsRoute } from '@/routes/tvShows'
 import { showsRoute } from '@/routes/shows'
 import { moviesRoute } from '@/routes/movies'
 import { mediaRoute } from '@/routes/media'
+import { mediaIntegrationsRoute } from '@/routes/mediaIntegrations'
 import { imgRoute } from '@/routes/img'
 import { libraryRoute } from '@/routes/library'
 import { plexRoute } from '@/routes/plex'
@@ -124,6 +126,7 @@ import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
 import { shopping } from '@/routes/shopping'
 import { createCodingRoute } from '@/routes/coding'
+import { createRemoteRoute } from '@/routes/remote'
 import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
 import adminStorageLocations from '@/routes/adminStorageLocations'
@@ -210,6 +213,7 @@ if (firstBoot) {
   startBriefingRefresh()
   startCompanionCheckins()
   startDropSweep()
+  startMediaAlertsSweep()
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})
@@ -575,6 +579,7 @@ app.route('/api/tv-shows', tvShowsRoute)
 app.route('/api/shows', showsRoute)
 app.route('/api/movies', moviesRoute)
 app.route('/api/media', mediaRoute)
+app.route('/api/media-integrations', mediaIntegrationsRoute)
 app.route('/api/img', imgRoute)
 app.route('/api/library', libraryRoute)
 app.route('/api/plex', plexRoute)
@@ -608,6 +613,7 @@ app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
 app.route('/api/shopping', shopping)
 app.route('/api/coding', createCodingRoute(upgradeWebSocket))
+app.route('/api/remote', createRemoteRoute(upgradeWebSocket))
 app.route('/api/artifacts', artifactsRoute)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)

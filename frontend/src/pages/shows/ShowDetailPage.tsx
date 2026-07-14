@@ -9,6 +9,9 @@ import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { cn } from '@/lib/cn'
 import { Backdrop } from '@/components/media/Backdrop'
 import { DetailHero } from '@/components/media/DetailHero'
+import { ScoresRow } from '@/components/media/ScoresRow'
+import { RequestButton } from '@/components/media/MediaIntegrations'
+import { EpisodeHeatmap } from '@/components/media/EpisodeHeatmap'
 import { ArtAccentScope } from '@/components/shared/ArtAccentScope'
 import { MediaTabs } from '@/components/media/MediaTabs'
 import { ActionBar, ActionButton, ActionIcon } from '@/components/media/ActionBar'
@@ -124,38 +127,32 @@ function DetailBody({ id }: { id: string }) {
   const { data: reviews, isLoading: reviewsLoading } = useQuery({
     queryKey: ['show-reviews', id],
     queryFn: () => getShowReviews(id),
-    enabled: !!bundle,
     staleTime: 60 * 60 * 1000,
   })
   const { data: trivia, isLoading: triviaLoading } = useQuery({
     queryKey: ['show-trivia', id],
     queryFn: () => getShowTrivia(id),
-    enabled: !!bundle,
     staleTime: 60 * 60 * 1000,
   })
   // Each enrichment streams into its own section so nothing blocks the core TVMaze data.
   const { data: streaming, isLoading: streamingLoading } = useQuery({
     queryKey: ['show-streaming', id],
     queryFn: () => getShowStreaming(id),
-    enabled: !!bundle,
     staleTime: 30 * 60 * 1000,
   })
   const { data: media, isLoading: mediaLoading } = useQuery({
     queryKey: ['show-media', id],
     queryFn: () => getShowMedia(id),
-    enabled: !!bundle,
     staleTime: 60 * 60 * 1000,
   })
   const { data: overview, isLoading: overviewLoading } = useQuery({
     queryKey: ['show-overview', id],
     queryFn: () => getShowOverview(id),
-    enabled: !!bundle,
     staleTime: 60 * 60 * 1000,
   })
   const { data: parentsGuide } = useQuery({
     queryKey: ['show-parents-guide', id],
     queryFn: () => getShowParentsGuide(id),
-    enabled: !!bundle,
     staleTime: 60 * 60 * 1000,
   })
 
@@ -164,13 +161,11 @@ function DetailBody({ id }: { id: string }) {
   const { data: podcastData } = useQuery({
     queryKey: ['show-podcast', numericId],
     queryFn: () => getShowPodcast(numericId),
-    enabled: !!bundle,
     staleTime: 5 * 60 * 1000,
   })
   const { data: watchedIds } = useQuery({
     queryKey: ['show-watched', id],
     queryFn: () => getShowWatched(numericId),
-    enabled: !!bundle,
     staleTime: 60 * 1000,
   })
   const watched = new Set(watchedIds ?? [])
@@ -211,12 +206,15 @@ function DetailBody({ id }: { id: string }) {
   const watchNode = streamingLoading ? (
     <p className="text-sm text-muted-foreground">Finding where to stream…</p>
   ) : (
-    <StreamingChips
-      providers={streaming?.providers ?? []}
-      theaters={streaming?.theaters}
-      justwatchUrl={streaming?.justwatchUrl}
-      webProviders={streaming?.webProviders}
-    />
+    <div className="space-y-4">
+      <ScoresRow scoring={streaming?.scoring} />
+      <StreamingChips
+        providers={streaming?.providers ?? []}
+        theaters={streaming?.theaters}
+        justwatchUrl={streaming?.justwatchUrl}
+        webProviders={streaming?.webProviders}
+      />
+    </div>
   )
 
   const videosNode = (
@@ -296,6 +294,7 @@ function DetailBody({ id }: { id: string }) {
         imdb={d.externals.imdb}
         tvdb={d.externals.thetvdb}
       />
+      <RequestButton title={d.name} year={d.year ? Number(d.year) : null} type="show" />
       {d.officialSite && <ActionIcon icon={ExternalLink} href={d.officialSite} title="Official site" />}
       {imdbUrl && <ActionIcon icon={Star} href={imdbUrl} title="IMDb" />}
       {d.url && <ActionIcon icon={Film} href={d.url} title="TVMaze" />}
@@ -336,14 +335,17 @@ function DetailBody({ id }: { id: string }) {
             label: 'Episodes',
             count: bundle.episodeCount,
             node: (
-              <EpisodeList
-                seasons={bundle.seasons}
-                watched={watched}
-                onToggle={(epId) => {
-                  const ep = bundle.seasons.flatMap((s) => s.episodes).find((e) => e.id === epId)
-                  if (ep) toggleWatched.mutate({ id: ep.id, season: ep.season, number: ep.number })
-                }}
-              />
+              <div className="space-y-6">
+                <EpisodeHeatmap showId={bundle.details.id} />
+                <EpisodeList
+                  seasons={bundle.seasons}
+                  watched={watched}
+                  onToggle={(epId) => {
+                    const ep = bundle.seasons.flatMap((s) => s.episodes).find((e) => e.id === epId)
+                    if (ep) toggleWatched.mutate({ id: ep.id, season: ep.season, number: ep.number })
+                  }}
+                />
+              </div>
             ),
           },
           { key: 'videos', label: 'Media', node: videosNode },

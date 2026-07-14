@@ -1,16 +1,16 @@
-import { useCallback, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Tv, Search, BookOpen, Bookmark, Headphones } from 'lucide-react'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Spinner } from '@/components/ui/spinner'
 import { MediaBillboard, type BillboardItem } from '@/components/media/MediaBillboard'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
 import { showsHomeQueryOptions, searchShowsApi, type ShowSummary } from '@/lib/shows/api'
 import { getContinueWatching, getWatchlist } from '@/lib/library/api'
 import { usePlexConfigured, plexRailQueryOptions } from '@/lib/plex/hooks'
 import { PlexNowPlaying } from '@/components/media/PlexNowPlaying'
+import { OnTonightSection } from '@/components/media/OnTonightSection'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { getAppByPath } from '@/lib/appCategories'
 
@@ -145,6 +145,7 @@ function HomeShelves() {
   return (
     <div className="space-y-8">
       {billboard.length > 0 && <MediaBillboard items={billboard} eyebrow={featured?.title ?? 'Featured'} />}
+      <OnTonightSection />
       <PersonalShelves />
       <PlexShelves type="show" />
       {shelves.map((shelf) => (
@@ -155,28 +156,19 @@ function HomeShelves() {
 }
 
 export function ShowsHomePage() {
-  const [query, setQuery] = useState('')
-  const [submitted, setSubmitted] = useState('')
+  // Search is URL-driven (?q=): MediaLayout owns the breadcrumb search box and routes here.
+  const [params] = useSearchParams()
+  const q = params.get('q')?.trim() ?? ''
   usePublishUIContext({
     label: 'Shows',
-    description: submitted ? `User is searching shows for "${submitted}".` : 'User is browsing the Shows home page.',
+    description: q ? `User is searching shows for "${q}".` : 'User is browsing the Shows home page.',
   })
 
-  const onSubmit = useCallback(() => setSubmitted(query.trim()), [query])
-  useAppHeader({
-    query,
-    setQuery,
-    onSubmit,
-    placeholder: 'Search shows…',
-    externalHref: 'https://www.tvmaze.com',
-    settingsHref: '/apps/shows/settings',
-  })
-
-  // No PageShell/PageHeader: MediaLayout owns the dark cinema backdrop, the breadcrumb
-  // carries the app identity, and the billboard is the page's focal point.
+  // No PageShell/PageHeader: MediaLayout owns the dark cinema backdrop + left rail, the
+  // breadcrumb carries the app identity, and the billboard is the page's focal point.
   return (
     <PageContainer width="wide" className="pb-12 pt-5">
-      {submitted ? <SearchGrid q={submitted} /> : <HomeShelves />}
+      {q ? <SearchGrid q={q} /> : <HomeShelves />}
     </PageContainer>
   )
 }

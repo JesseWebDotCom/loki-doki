@@ -122,10 +122,15 @@ query Browse($country: Country!, $language: Language!, $first: Int!, $filter: Ti
 
 export interface BrowseOpts {
   objectType: 'MOVIE' | 'SHOW'
-  sortBy?: 'POPULAR' | 'TRENDING'
+  sortBy?: 'POPULAR' | 'TRENDING' | 'IMDB_SCORE' | 'RELEASE_YEAR'
   /** Restrict to titles currently in cinemas (drives the "In Theaters" shelf — no ZIP needed). */
   cinema?: boolean
   releaseYearMin?: number
+  /** Minimum IMDb vote count. REQUIRED alongside IMDB_SCORE sort — without a floor the top
+   *  of the list is obscure few-vote titles (verified live: 200k ≈ the IMDb-Top-250 flavor). */
+  imdbVotesMin?: number
+  /** US age certifications to allow, e.g. ["G","PG"] or ["TV-Y","TV-G"] (verified live). */
+  ageCertifications?: string[]
   /** JustWatch genre shortNames, e.g. ["act","cmy"]. */
   genres?: string[]
   first?: number
@@ -133,13 +138,15 @@ export interface BrowseOpts {
 }
 
 export async function browsePopular(opts: BrowseOpts): Promise<JwTitle[]> {
-  const { objectType, sortBy = 'POPULAR', cinema = false, releaseYearMin, genres, first = 20, country = 'US' } = opts
+  const { objectType, sortBy = 'POPULAR', cinema = false, releaseYearMin, imdbVotesMin, ageCertifications, genres, first = 20, country = 'US' } = opts
   const filter: Record<string, unknown> = { objectTypes: [objectType] }
   if (cinema) filter.monetizationTypes = ['CINEMA']
   if (releaseYearMin) filter.releaseYear = { min: releaseYearMin }
+  if (imdbVotesMin) filter.imdbVotes = { min: imdbVotesMin }
+  if (ageCertifications?.length) filter.ageCertifications = ageCertifications
   if (genres?.length) filter.genres = genres
 
-  const cacheKey = JSON.stringify({ objectType, sortBy, cinema, releaseYearMin, genres, first, country })
+  const cacheKey = JSON.stringify({ objectType, sortBy, cinema, releaseYearMin, imdbVotesMin, ageCertifications, genres, first, country })
   return cachedLookup('justwatch-browse', cacheKey, THIRTY_MIN_MS, async () => {
     try {
       const res = await fetch(GRAPHQL_URL, {

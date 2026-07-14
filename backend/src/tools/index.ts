@@ -167,6 +167,7 @@ import { mapsTool } from './maps'
 import { repairTool } from './repair'
 import { knowledgeTool } from './knowledge'
 import { showtimesTool } from './showtimes'
+import { onTvTool } from './onTv'
 import { playMusicTool } from './playMusic'
 import { plexTool } from './plex'
 import { setStatusTool } from './setStatus'
@@ -218,6 +219,7 @@ export const toolRegistry: Tool[] = [
   repairTool,
   knowledgeTool,
   showtimesTool,
+  onTvTool,
   playMusicTool,
   plexTool,
   setStatusTool,
