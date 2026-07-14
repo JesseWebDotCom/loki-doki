@@ -5,7 +5,9 @@ import { feeds, feedItems, feedItemState, feedFolders, feedItemScores } from '@/
 import { requireAuth } from '@/middleware/auth'
 import { discoverFeeds } from '@/lib/feeds/discover'
 import { refreshFeed, refreshUserFeeds } from '@/lib/feeds/poller'
-import { extractArticle } from '@/lib/content/extract'
+import { ensureFullContent } from '@/lib/feeds/contentQuality'
+import { extractArticle, OBITUARY_RE } from '@/lib/content/extract'
+import { ensureFeedItemSummary } from '@/lib/news/summarize'
 import { getInterests, setInterestsText, recordFeedback, scoreItems } from '@/lib/feeds/classifier'
 import { promoteToBookmarks, unpromoteFromBookmarks } from '@/routes/bookmarks'
 import { logger } from '@/lib/logger'
@@ -214,8 +216,8 @@ feedsRouter.post('/items/:id/feedback', async (c) => {
   return c.json({ ok: true })
 })
 
-// Full article content for the in-app reader. Uses the feed's own content:encoded if
-// present, else lazily extracts (and caches) the article on first open.
+// Full article content for the in-app reader. Uses the feed's own content:encoded when it's
+// substantial, else lazily extracts (and caches) the full article on first open.
 feedsRouter.get('/items/:id/content', async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
@@ -224,17 +226,64 @@ feedsRouter.get('/items/:id/content', async (c) => {
     .where(and(eq(feedItems.id, id), visibleWhere(user.id))).then((r) => r[0]?.i)
   if (!row) return c.json({ error: 'Not found' }, 404)
 
-  if (row.contentHtml) {
-    return c.json({ id: row.id, title: row.title, url: row.url, author: row.author, contentHtml: row.contentHtml, readingMins: Math.max(1, Math.round((row.contentHtml.replace(/<[^>]+>/g, ' ').split(/\s+/).length) / 200)) })
-  }
-  if (row.url) {
-    try {
-      const a = await extractArticle(row.url)
-      if (a.contentHtml) await db.update(feedItems).set({ contentHtml: a.contentHtml }).where(eq(feedItems.id, id))
-      return c.json({ id: row.id, title: row.title || a.title, url: row.url, author: row.author ?? a.byline, siteName: a.siteName, contentHtml: a.contentHtml, readingMins: a.readingMins })
-    } catch { /* fall through */ }
-  }
-  return c.json({ id: row.id, title: row.title, url: row.url, author: row.author, contentHtml: null, readingMins: 0 })
+  const full = await ensureFullContent(row, { force: c.req.query('force') === '1' })
+  return c.json({
+    id: row.id,
+    title: full.title,
+    url: row.url,
+    author: full.author,
+    siteName: full.siteName,
+    contentHtml: full.contentHtml,
+    readingMins: full.readingMins,
+    isObituary: !!row.url && OBITUARY_RE.test(row.url),
+    teaserOnly: full.teaserOnly,
+    imageUrl: full.imageUrl,
+    readerSource: full.source,
+    archiveUrl: full.archiveUrl,
+  })
+})
+
+feedsRouter.post('/items/:id/content-source', async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { url } = await c.req.json<{ url?: string }>()
+  if (!url?.trim()) return c.json({ error: 'url required' }, 400)
+  await assertPublicUrl(url.trim())
+
+  const row = await db.select({ i: feedItems }).from(feedItems)
+    .innerJoin(feeds, eq(feedItems.feedId, feeds.id))
+    .where(and(eq(feedItems.id, id), visibleWhere(user.id))).then((r) => r[0]?.i)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+
+  const a = await extractArticle(url.trim(), 15_000)
+  if (!a.contentHtml || (a.contentText?.length ?? 0) < 400) return c.json({ error: 'No readable article found at that URL' }, 422)
+  await db.update(feedItems).set({ contentHtml: a.contentHtml }).where(eq(feedItems.id, id))
+  return c.json({
+    id: row.id,
+    title: row.title || a.title,
+    url: row.url,
+    author: row.author ?? a.byline,
+    siteName: a.siteName,
+    contentHtml: a.contentHtml,
+    readingMins: a.readingMins,
+    isObituary: !!row.url && OBITUARY_RE.test(row.url),
+    teaserOnly: false,
+    imageUrl: null,
+    readerSource: a.source,
+    archiveUrl: a.archiveUrl ?? url.trim(),
+  })
+})
+
+// AI TL;DR for the reader's right-column summary panel. Generated on first open, then
+// persisted (feed_items.ai_summary) so repeat views are free.
+feedsRouter.get('/items/:id/summary', async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const row = await db.select({ i: feedItems }).from(feedItems)
+    .innerJoin(feeds, eq(feedItems.feedId, feeds.id))
+    .where(and(eq(feedItems.id, id), visibleWhere(user.id))).then((r) => r[0]?.i)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  return c.json({ summary: await ensureFeedItemSummary(row) })
 })
 
 // Upsert per-user read/saved state. saved=true promotes a copy into Reader.

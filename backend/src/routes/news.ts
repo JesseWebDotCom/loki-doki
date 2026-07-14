@@ -10,10 +10,16 @@ import { blendedLocalNews } from '@/lib/briefing/localNews'
 import { getBriefingSettings } from '@/lib/briefing/settings'
 import { resolvePatchSlug } from '@/lib/briefing/resolveSlug'
 import { enrichOgImages } from '@/lib/ogImage'
+import { extractArticle, OBITUARY_RE } from '@/lib/content/extract'
+import { ensureUrlSummary } from '@/lib/news/summarize'
 
 const news = new Hono<AppEnv>()
 
 interface NewsItem {
+  // Present only for items backed by a feedItems row (folder/category items); local/global
+  // fallback headlines are fetched live and have no DB row to key an in-app reader off of -
+  // those route through GET /article?url= instead (see below).
+  id?: string
   title: string
   url?: string
   source?: string
@@ -121,7 +127,7 @@ async function itemsFromFolder(folderId: string, limit: number): Promise<NewsIte
     if (seen.has(key)) continue
     seen.add(key)
     items.push({
-      title, url: r.it.url ?? undefined, source: r.feedTitle ?? undefined,
+      id: r.it.id, title, url: r.it.url ?? undefined, source: r.feedTitle ?? undefined,
       summary: r.it.summary ?? undefined, imageUrl: r.it.imageUrl ?? undefined,
       publishedAt: r.it.publishedAt ?? undefined,
     })
@@ -208,6 +214,40 @@ news.get('/categories/:id/items', requireAuth, async (c) => {
     const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.message.includes('timed out'))
     return c.json({ items: [], error: isTimeout ? 'offline' : 'unavailable' }, 200)
   }
+})
+
+// GET /api/news/article?url= — in-app reader content for headline items that have no
+// feedItems row (local/global fallback headlines). Extracted on the spot, not cached or
+// persisted anywhere - these items aren't "yours" the way a subscribed feed item is.
+news.get('/article', requireAuth, async (c) => {
+  const url = c.req.query('url')
+  if (!url) return c.json({ error: 'Missing url' }, 400)
+  try {
+    const a = await extractArticle(url)
+    return c.json({
+      id: url,
+      title: a.title,
+      url,
+      author: a.byline,
+      siteName: a.siteName,
+      contentHtml: a.contentHtml,
+      readingMins: a.readingMins,
+      isObituary: a.isObituary,
+      readerSource: a.source,
+      archiveUrl: a.archiveUrl,
+    })
+  } catch {
+    return c.json({ id: url, title: null, url, author: null, contentHtml: null, readingMins: 0, isObituary: OBITUARY_RE.test(url), readerSource: null, archiveUrl: null })
+  }
+})
+
+// GET /api/news/article/summary?url= — AI TL;DR for a headline card's reader page, for
+// items with no feedItems row (see /article above). Short-lived in-memory cache, not
+// persisted - these headlines aren't "yours" the way a subscribed feed item is.
+news.get('/article/summary', requireAuth, async (c) => {
+  const url = c.req.query('url')
+  if (!url) return c.json({ error: 'Missing url' }, 400)
+  return c.json({ summary: await ensureUrlSummary(url) })
 })
 
 // POST /api/news/categories/:id/hide  &  /unhide — per-user tab visibility.

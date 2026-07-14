@@ -12,6 +12,7 @@ import { logger } from '@/lib/logger'
 import { parseFeedXml, type ParsedEntry } from '@/lib/feeds/parse'
 import { safeFetch } from '@/lib/ssrfGuard'
 import { googleNewsSearch } from '@/lib/briefing/sources/rss'
+import { prefetchFeedItemContent } from '@/lib/feeds/contentQuality'
 
 const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
 const FETCH_TIMEOUT_MS = 10_000
@@ -32,8 +33,9 @@ async function hostThrottle(url: string): Promise<void> {
   lastHostFetch.set(host, Date.now())
 }
 
-async function upsertEntries(feed: Feed, entries: ParsedEntry[]): Promise<number> {
-  if (!entries.length) return 0
+/** Returns the ids of newly-inserted items (empty when everything was already known). */
+async function upsertEntries(feed: Feed, entries: ParsedEntry[]): Promise<string[]> {
+  if (!entries.length) return []
   const guids = entries.map((e) => e.guid)
   const known = await db.select({ guid: feedItems.guid, id: feedItems.id, imageUrl: feedItems.imageUrl })
     .from(feedItems).where(and(eq(feedItems.feedId, feed.id), inArray(feedItems.guid, guids)))
@@ -50,10 +52,10 @@ async function upsertEntries(feed: Feed, entries: ParsedEntry[]): Promise<number
     await db.update(feedItems).set({ imageUrl: e.imageUrl }).where(and(eq(feedItems.id, row.id), isNull(feedItems.imageUrl)))
   }
 
-  if (!fresh.length) return toBackfill.length > 0 ? 0 : 0
+  if (!fresh.length) return []
 
   const now = new Date()
-  await db.insert(feedItems).values(fresh.map((e) => ({
+  const rows = fresh.map((e) => ({
     id: crypto.randomUUID(),
     feedId: feed.id,
     guid: e.guid,
@@ -65,8 +67,9 @@ async function upsertEntries(feed: Feed, entries: ParsedEntry[]): Promise<number
     imageUrl: e.imageUrl,
     publishedAt: e.publishedAt,
     fetchedAt: now,
-  }))).onConflictDoNothing()
-  return fresh.length
+  }))
+  await db.insert(feedItems).values(rows).onConflictDoNothing()
+  return rows.map((r) => r.id)
 }
 
 async function prune(feedId: string): Promise<void> {
@@ -96,10 +99,11 @@ export async function fetchAndUpsertFeed(feed: Feed): Promise<number> {
         summary: r.summary ?? null, contentHtml: null, imageUrl: r.imageUrl ?? null,
         publishedAt: r.publishedAt ?? null,
       }))
-    const n = await upsertEntries(feed, entries)
+    // No content prefetch here: Google News item URLs are redirect wrappers, not article pages.
+    const newIds = await upsertEntries(feed, entries)
     await prune(feed.id)
     await db.update(feeds).set({ lastFetchedAt: now, lastError: null }).where(eq(feeds.id, feed.id))
-    return n
+    return newIds.length
   }
 
   if (!feed.url) return 0
@@ -118,7 +122,9 @@ export async function fetchAndUpsertFeed(feed: Feed): Promise<number> {
 
   const xml = await res.text()
   const parsed = parseFeedXml(xml)
-  const n = await upsertEntries(feed, parsed.entries)
+  const newIds = await upsertEntries(feed, parsed.entries)
+  // Background: extract new articles' full content now so opening one is instant.
+  if (newIds.length) prefetchFeedItemContent(newIds)
   await prune(feed.id)
 
   const siteUrl = feed.siteUrl ?? parsed.siteUrl ?? null
@@ -135,7 +141,7 @@ export async function fetchAndUpsertFeed(feed: Feed): Promise<number> {
     lastError: null,
   }).where(eq(feeds.id, feed.id))
 
-  return n
+  return newIds.length
 }
 
 async function fetchBounded(list: Feed[]): Promise<void> {

@@ -3319,6 +3319,10 @@ export function runMigrations() {
     console.warn('[migrations] notes_fts backfill failed:', err instanceof Error ? err.message : err)
   }
 
+  // News reader "AI summary" cache (feed_items.summary is the RSS-provided teaser/
+  // description - a different field - so the AI-generated TL;DR gets its own column).
+  addColumn('feed_items', 'ai_summary', 'TEXT')
+
   // LLM-extracted related-search topics for the watch page's topic-grouped "Related"
   // shelves (see schema.ts ytVideos.relatedTopics).
   addColumn('yt_videos', 'related_topics', 'TEXT')

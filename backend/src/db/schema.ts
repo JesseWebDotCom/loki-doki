@@ -1975,8 +1975,9 @@ export const feedItems = sqliteTable('feed_items', {
   title: text('title'),
   url: text('url'),
   author: text('author'),
-  summary: text('summary'),
+  summary: text('summary'),                    // RSS-provided teaser/description
   contentHtml: text('content_html'),           // Phase 2 full-text (offline store)
+  aiSummary: text('ai_summary'),                // AI-generated TL;DR (News reader summary panel)
   imageUrl: text('image_url'),
   publishedAt: integer('published_at'),        // unix ms, nullable
   fetchedAt: integer('fetched_at', { mode: 'timestamp' }).notNull(),

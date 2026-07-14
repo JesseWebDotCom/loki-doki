@@ -75,10 +75,40 @@ export async function markAllRead(scope: { feedId?: string; folderId?: string })
   await fetch('/api/feeds/items/read-all', { ...opts, method: 'POST', headers: J, body: JSON.stringify(scope) })
 }
 
-export interface FeedContent { id: string; title: string; url: string | null; author: string | null; siteName?: string | null; contentHtml: string | null; readingMins: number }
-export async function getItemContent(id: string): Promise<FeedContent> {
-  const res = await fetch(`/api/feeds/items/${id}/content`, opts)
+export interface FeedContent {
+  id: string; title: string; url: string | null; author: string | null; siteName?: string | null
+  contentHtml: string | null; readingMins: number; isObituary?: boolean
+  /** contentHtml is just the feed's teaser (full article unreachable - bot-blocked/paywalled). */
+  teaserOnly?: boolean
+  /** Feed-provided lead image for the teaser view. */
+  imageUrl?: string | null
+  readerSource?: 'direct' | 'social' | 'subscriber' | 'browser' | 'ladder' | 'archive.is' | 'wayback' | null
+  archiveUrl?: string | null
+}
+export async function getItemContent(id: string, options: { force?: boolean } = {}): Promise<FeedContent> {
+  const res = await fetch(`/api/feeds/items/${id}/content${options.force ? '?force=1' : ''}`, opts)
   if (!res.ok) throw new Error('Failed to load article')
+  return res.json()
+}
+
+// In-app reader content for a headline that has no feedItems row (News' local/global
+// fallback cards) - extracted live from the URL instead of looked up by id.
+export async function getArticleByUrl(url: string): Promise<FeedContent> {
+  const res = await fetch(`/api/news/article?url=${encodeURIComponent(url)}`, opts)
+  if (!res.ok) throw new Error('Failed to load article')
+  return res.json()
+}
+
+// AI TL;DR for the reader's right-column summary panel: a short intro + a few key-fact bullets.
+export interface ArticleSummary { intro: string; bullets: string[] }
+export async function getItemSummary(id: string): Promise<{ summary: ArticleSummary | null }> {
+  const res = await fetch(`/api/feeds/items/${id}/summary`, opts)
+  if (!res.ok) throw new Error('Failed to load summary')
+  return res.json()
+}
+export async function getArticleSummaryByUrl(url: string): Promise<{ summary: ArticleSummary | null }> {
+  const res = await fetch(`/api/news/article/summary?url=${encodeURIComponent(url)}`, opts)
+  if (!res.ok) throw new Error('Failed to load summary')
   return res.json()
 }
 

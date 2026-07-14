@@ -4,12 +4,17 @@
 // (a tinted placeholder) and show a source badge (favicon + name) plus a relative timestamp.
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Clock, Newspaper } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { FaviconImg } from '@/components/shared/FaviconImg'
+import { useNewsReaderMode } from '@/hooks/useNewsReaderMode'
 
 export interface NewsItem {
+  // Present only when backed by a feedItems row (a category's subscribed feeds); local/global
+  // fallback headlines have none and read through the URL-based reader instead.
+  id?: string
   title: string
   url?: string
   source?: string
@@ -101,14 +106,22 @@ function TimeStamp({ ts }: { ts?: number }) {
 }
 
 function Wrap({ item, className, children }: { item: NewsItem; className?: string; children: React.ReactNode }) {
-  if (item.url) {
+  const [readerMode] = useNewsReaderMode()
+  const navigate = useNavigate()
+  if (!item.url) return <div className={cn('h-full', className)}>{children}</div>
+  if (readerMode === 'reader') {
+    const target = item.id ? `/news/read/${item.id}` : `/news/reader?url=${encodeURIComponent(item.url)}`
     return (
-      <a href={item.url} target="_blank" rel="noopener noreferrer" className={cn('block h-full', className)}>
+      <button type="button" onClick={() => navigate(target)} className={cn('block h-full w-full text-left', className)}>
         {children}
-      </a>
+      </button>
     )
   }
-  return <div className={cn('h-full', className)}>{children}</div>
+  return (
+    <a href={item.url} target="_blank" rel="noopener noreferrer" className={cn('block h-full', className)}>
+      {children}
+    </a>
+  )
 }
 
 /** Image-on-top hero card. `big` enlarges the image + headline (use for a lead story). */

@@ -28,15 +28,31 @@ export interface ArticleNarration {
   stop: () => void
 }
 
+// Boilerplate that shows up as plain <p>/<figcaption> tags right inside the article body on
+// many sites - correct to keep for the visual reader (ArticleReader renders contentHtml as-is),
+// but not something a listener wants read aloud. Caught here, not in extraction: dropping these
+// server-side would also drop them from the page itself.
+const PHOTO_CREDIT = /^(photo(?:graph)?|image|credit)s?\s*:/i
+// e.g. "Photo by Jane Doe/Reuters", "... Photograph: Carlos Barria/Reuters" trailing credit
+const TRAILING_CREDIT = /\b(photo(?:graph)?|image)s?\s*:\s*[^.!?]*\/(reuters|ap|afp|getty images?|shutterstock|bloomberg)\s*$/i
+const POSTED_UPDATED = /^(posted|published|updated)\b.*\b(am|pm)\b/i
+const BARE_RELATIVE_TIME = /^\d+\s*(second|minute|hour|day|week|month|year)s?\s+ago\.?$/i
+
+function isBoilerplate(text: string): boolean {
+  return PHOTO_CREDIT.test(text) || TRAILING_CREDIT.test(text) || POSTED_UPDATED.test(text) || BARE_RELATIVE_TIME.test(text)
+}
+
 export function extractParagraphs(contentHtml: string): string[] {
   const doc = new DOMParser().parseFromString(contentHtml, 'text/html')
-  const nodes = doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, figcaption')
+  // figcaption deliberately excluded - image captions read oddly out loud and aren't part of
+  // the article's actual prose.
+  const nodes = doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote')
   const out: string[] = []
   for (const node of nodes) {
     // Skip nested matches (an <li> inside a <blockquote> would otherwise read twice).
-    if (node.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, figcaption')) continue
+    if (node.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote')) continue
     const text = node.textContent?.replace(/\s+/g, ' ').trim() ?? ''
-    if (text.length >= 3) out.push(text)
+    if (text.length >= 3 && !isBoilerplate(text)) out.push(text)
   }
   return out
 }

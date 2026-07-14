@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { relativeTime } from '@/components/shared/NewsCard'
 import { listItems, setItemState, markAllRead, sendFeedback, type FeedItem } from '@/lib/feeds/api'
+import { useNewsReaderMode } from '@/hooks/useNewsReaderMode'
 
 export type FeedScope = 'all' | 'unread' | 'saved'
 
@@ -22,6 +23,7 @@ function FeedThumb({ item }: { item: FeedItem }) {
 export function FeedListView({ scope }: { scope: FeedScope }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const [readerMode] = useNewsReaderMode()
 
   const itemQuery = useMemo(() => {
     if (scope === 'saved') return { saved: '1' as const }
@@ -34,6 +36,10 @@ export function FeedListView({ scope }: { scope: FeedScope }) {
 
   async function open(item: FeedItem) {
     if (!item.read) void setItemState(item.id, { read: true }).then(() => qc.invalidateQueries({ queryKey: ['feeds'] }))
+    if (readerMode === 'external' && item.url) {
+      window.open(item.url, '_blank', 'noopener,noreferrer')
+      return
+    }
     navigate(`/news/read/${item.id}`)
   }
   async function toggleSave(e: React.MouseEvent, item: FeedItem) {

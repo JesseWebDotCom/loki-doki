@@ -1,11 +1,18 @@
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 
+function decodeHtmlAttr(value: string): string {
+  return value
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+}
+
 // Route every <img> in the extracted article body through the image proxy, and drop
 // `srcset` so the browser can't reach for an un-proxied responsive candidate instead.
 function proxyHtmlImages(html: string): string {
   return html
-    .replace(/(<img\b[^>]*?\bsrc=)(["'])(.*?)\2/gi, (_m, pre, q, src) => `${pre}${q}${proxyImg(src)}${q}`)
+    .replace(/(<img\b[^>]*?\bsrc=)(["'])(.*?)\2/gi, (_m, pre, q, src) => `${pre}${q}${proxyImg(decodeHtmlAttr(src))}${q}`)
     .replace(/\ssrcset=(["'])[\s\S]*?\1/gi, '')
 }
 
@@ -28,10 +35,16 @@ export interface ArticleReaderProps {
   /** Ref to the rendered prose container; the highlights layer (Bookmarks reader)
    *  walks its text nodes to anchor/apply <mark> wrappers. */
   contentRef?: React.Ref<HTMLDivElement>
+  /** Prose column width (Tailwind max-w-* class). Defaults to the shared 44rem measure;
+   *  override per-caller (e.g. News's wider two-column layout) without affecting other
+   *  readers of this shared component. */
+  maxWidthClassName?: string
 }
 
-const PROSE = cn(
-  'max-w-[44rem] mx-auto text-[15px] leading-[1.75] text-foreground/90',
+const DEFAULT_MAX_WIDTH = 'max-w-[44rem]'
+
+const proseClass = (maxWidthClassName: string) => cn(
+  maxWidthClassName, 'mx-auto text-[15px] leading-[1.75] text-foreground/90',
   '[&_p]:mb-4',
   '[&_h1]:mt-8 [&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-foreground',
   '[&_h2]:mt-7 [&_h2]:mb-3 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-foreground',
@@ -63,6 +76,7 @@ export function ArticleReader({
   readingMins,
   className,
   contentRef,
+  maxWidthClassName = DEFAULT_MAX_WIDTH,
 }: ArticleReaderProps) {
   const host = (() => {
     try {
@@ -74,7 +88,7 @@ export function ArticleReader({
 
   return (
     <article className={cn('px-5 py-8', className)}>
-      <header className="max-w-[44rem] mx-auto mb-6">
+      <header className={cn(maxWidthClassName, 'mx-auto mb-6')}>
         {title && <h1 className="text-3xl font-bold leading-tight text-foreground">{title}</h1>}
         <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
           {faviconUrl && (
@@ -98,16 +112,16 @@ export function ArticleReader({
       </header>
 
       {leadImage && (
-        <div className="max-w-[44rem] mx-auto mb-6">
+        <div className={cn(maxWidthClassName, 'mx-auto mb-6')}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={proxyImg(leadImage)} alt="" className="w-full rounded-card" loading="lazy" />
         </div>
       )}
 
       {contentHtml ? (
-        <div ref={contentRef} className={PROSE} dangerouslySetInnerHTML={{ __html: proxyHtmlImages(contentHtml) }} />
+        <div ref={contentRef} className={proseClass(maxWidthClassName)} dangerouslySetInnerHTML={{ __html: proxyHtmlImages(contentHtml) }} />
       ) : (
-        <div className="max-w-[44rem] mx-auto text-muted-foreground">
+        <div className={cn(maxWidthClassName, 'mx-auto text-muted-foreground')}>
           No readable content was extracted.{' '}
           {url && (
             <a href={url} target="_blank" rel="noopener noreferrer" className="text-brand underline">

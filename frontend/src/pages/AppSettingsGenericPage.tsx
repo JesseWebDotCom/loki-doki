@@ -1,11 +1,12 @@
 import { useCallback } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Bot, MonitorPlay, ShieldCheck, Music4, Sparkles } from "lucide-react";
+import { Bot, MonitorPlay, ShieldCheck, Music4, Sparkles, Newspaper } from "lucide-react";
 import { AppSettingsShell, type AppSettingsSection } from "@/components/shared/AppSettingsShell";
 import { CompanionAbilitiesCard } from "@/components/shared/CompanionAbilitiesCard";
 import { ToolConfigFields } from "@/components/shared/ToolConfigFields";
 import { PlexConnectCard } from "@/components/media/PlexConnectCard";
 import { MusicLyricsSettings } from "@/components/music/MusicLyricsSettings";
+import { NewsReadingSettings } from "@/components/news/NewsReadingSettings";
 import { LoraManager } from "@/components/admin/LoraManager";
 import { APP_GROUPS } from "@/lib/appCategories";
 
@@ -28,6 +29,14 @@ const EXTRA_SECTIONS: Record<string, AppSettingsSection[]> = {
       label: "Lyrics",
       icon: Music4,
       content: <MusicLyricsSettings />,
+    },
+  ],
+  news: [
+    {
+      id: "reading",
+      label: "Reading",
+      icon: Newspaper,
+      content: <NewsReadingSettings />,
     },
   ],
   shows: [
