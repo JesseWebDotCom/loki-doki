@@ -12,8 +12,9 @@ import {
 } from '@/lib/podcast/api'
 
 /** Where a directory card's body click lands: the full-page pre-subscribe preview,
- *  carrying seed params so the hero paints instantly while the feed loads. */
-function previewHref(result: DirectoryResult): string {
+ *  carrying seed params so the hero paints instantly while the feed loads.
+ *  Exported for the Listen Now billboard, which features chart rows the same way. */
+export function previewHref(result: DirectoryResult): string {
   const p = new URLSearchParams()
   if (result.feedUrl) p.set('feedUrl', result.feedUrl)
   if (result.itunesId) p.set('itunesId', String(result.itunesId))

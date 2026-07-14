@@ -1,29 +1,47 @@
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Play, Headphones, Mic, Music, Download, Tv, BookOpen, Podcast } from 'lucide-react'
+import { useQueries, useQuery } from '@tanstack/react-query'
+import { Play, Headphones, Mic, Podcast } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { usePodcastFeed, continueListening, newEpisodes, type FeedEpisode } from '@/lib/podcast/useFeed'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { EpisodeRow } from '@/components/podcast/EpisodeRow'
-import { DirectoryCard } from '@/components/podcast/DirectoryCard'
+import { DirectoryCard, previewHref } from '@/components/podcast/DirectoryCard'
 import { CardGridSkeleton } from '@/components/store/SectionHead'
 import { SectionHeader } from '@/components/shared/SectionHeader'
-import { coverUrl, toTrack, getCharts, type Show } from '@/lib/podcast/api'
+import { coverUrl, toTrack, getCharts, type DirectoryResult, type Show } from '@/lib/podcast/api'
 import { ArtBillboard, type ArtBillboardItem } from '@/components/shared/ArtBillboard'
 import { fmtTime } from '@/lib/podcast/format'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { getAppByPath } from '@/lib/appCategories'
+import { proxyImg } from '@/lib/img'
+
+const CHARTS_STALE_MS = 30 * 60 * 1000
+
+/** iTunes chart art comes back ~170px; mzstatic URLs encode the size, so ask for 600. */
+function hiResArt(url: string | null): string | null {
+  if (!url) return null
+  return proxyImg(url.replace(/\/\d+x\d+(bb)?\.(png|jpg|jpeg)/i, '/600x600bb.$2'))
+}
 
 export function ListenNowPage() {
   const { data, isLoading } = usePodcastFeed()
   const { play } = usePodcastPlayback()
-  // Same query key as the Browse page so the charts fetch is shared between the two.
+  // Same query keys as the Browse page so chart fetches are shared between the two.
   const { data: charts } = useQuery({
     queryKey: ['podcast-dir-charts', null],
     queryFn: () => getCharts(null),
-    staleTime: 30 * 60 * 1000,
+    staleTime: CHARTS_STALE_MS,
+  })
+  const genres = (charts?.genres ?? []).slice(0, 3)
+  const genreCharts = useQueries({
+    queries: genres.map((g) => ({
+      queryKey: ['podcast-dir-charts', g.id],
+      queryFn: () => getCharts(g.id),
+      staleTime: CHARTS_STALE_MS,
+    })),
   })
 
   const cont = data ? continueListening(data.all) : []
@@ -35,7 +53,8 @@ export function ListenNowPage() {
   const popular = charts?.results ?? []
   const libraryEmpty = shows.length === 0 && (data?.all.length ?? 0) === 0
 
-  // Billboard: resume where you left off, else spotlight your library.
+  // Billboard: resume where you left off > spotlight your library > featured from the charts.
+  const billboardEyebrow = cont.length > 0 ? 'Continue listening' : shows.length > 0 ? 'Your library' : 'Popular podcasts'
   const billboardItems: ArtBillboardItem[] = cont.length > 0
     ? cont.slice(0, 6).map((x): ArtBillboardItem => ({
         key: x.episode.id,
@@ -46,70 +65,68 @@ export function ListenNowPage() {
         pillLabel: 'Resume',
         PillIcon: Play,
       }))
-    : shows.slice(0, 6).map((s): ArtBillboardItem => ({
-        key: s.id,
-        title: s.name,
-        subtitle: showSubtitle(s),
-        art: coverUrl(s.id),
-        to: `/podcasts/show/${s.id}`,
-        pillLabel: s.source === 'rss' ? 'Open podcast' : 'Open show',
-        PillIcon: s.source === 'rss' ? Podcast : Headphones,
-      }))
+    : shows.length > 0
+      ? shows.slice(0, 6).map((s): ArtBillboardItem => ({
+          key: s.id,
+          title: s.name,
+          subtitle: showSubtitle(s),
+          art: coverUrl(s.id),
+          to: `/podcasts/show/${s.id}`,
+          pillLabel: s.source === 'rss' ? 'Open podcast' : 'Open show',
+          PillIcon: s.source === 'rss' ? Podcast : Headphones,
+        }))
+      : popular.slice(0, 6).map((r, i): ArtBillboardItem => ({
+          key: String(r.itunesId ?? r.feedUrl ?? i),
+          title: r.title,
+          subtitle: r.author,
+          art: hiResArt(r.artworkUrl),
+          to: previewHref(r),
+          pillLabel: 'Listen',
+          PillIcon: Play,
+        }))
 
   const popularSection = popular.length > 0 && (
-    <section>
-      <SectionHeader title="Popular podcasts" to="/podcasts/browse" className="mb-4" />
-      <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
-        {popular.slice(0, 12).map((r, i) => (
-          <div key={r.itunesId ?? r.feedUrl ?? i} className="w-44 shrink-0">
-            <DirectoryCard result={r} />
-          </div>
-        ))}
-      </div>
-    </section>
+    <ChartRail title="Popular podcasts" results={popular} />
   )
+  const genreSections = genres.map((g, i) => {
+    const results = genreCharts[i]?.data?.results ?? []
+    if (results.length === 0) return null
+    return <ChartRail key={g.id} title={g.name} results={results} />
+  })
 
   // No PageHeader: the rail states where we are and the billboard is the focal point.
   return (
     <PageContainer width="wide" className="space-y-9 py-6 pb-24">
       {isLoading ? (
         <CardGridSkeleton count={4} />
-      ) : data && libraryEmpty ? (
-        <>
-          <EmptyAppState
-            icon={Headphones}
-            gradient={getAppByPath('/podcasts')?.gradient}
-            title="AI-produced podcasts from anything you watch"
-            tagline="Your companion writes, narrates, and produces a full podcast episode for any show, movie, or YouTube content - with music, stingers, and chapters - entirely offline."
-            actions={
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <Link to="/podcasts/library">
-                  <Button><Mic className="mr-1.5 size-4" />Create your first show</Button>
-                </Link>
-                <Link to="/podcasts/browse">
-                  <Button variant="outline"><Podcast className="mr-1.5 size-4" />Browse real podcasts</Button>
-                </Link>
-              </div>
-            }
-            features={[
-              { icon: Mic, title: 'AI narration', desc: 'Your companion hosts every episode in their own voice and style.' },
-              { icon: Music, title: 'Original stingers', desc: 'Intro and outro music generated live to match each show\'s mood.' },
-              { icon: Tv, title: 'Shows, movies & YouTube', desc: 'Batch a show by season, dive deep on a movie, or turn a YouTube video, channel, or playlist into episodes.' },
-              { icon: BookOpen, title: 'Chapter markers', desc: 'Auto-timestamps let you jump straight to any segment of an episode.' },
-              { icon: Play, title: 'Continuous playback', desc: 'A persistent mini player keeps your episode going as you navigate.' },
-              { icon: Download, title: 'Take it offline', desc: 'Download episodes to your device and listen anywhere.' },
-            ]}
-            footnote="All narration and music runs on your local hardware - no external APIs required."
-          />
-          {popularSection}
-        </>
+      ) : data && libraryEmpty && popular.length === 0 ? (
+        // Offline / directory unreachable and nothing in the library: full-page pitch.
+        <EmptyAppState
+          icon={Headphones}
+          gradient={getAppByPath('/podcasts')?.gradient}
+          title="AI-produced podcasts from anything you watch"
+          tagline="Your companion writes, narrates, and produces a full podcast episode for any show, movie, or YouTube content - with music, stingers, and chapters - entirely offline."
+          actions={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link to="/podcasts/library">
+                <Button><Mic className="mr-1.5 size-4" />Create your first show</Button>
+              </Link>
+              <Link to="/podcasts/browse">
+                <Button variant="outline"><Podcast className="mr-1.5 size-4" />Browse real podcasts</Button>
+              </Link>
+            </div>
+          }
+          features={[
+            { icon: Mic, title: 'AI narration', desc: 'Your companion hosts every episode in their own voice and style.' },
+            { icon: Podcast, title: 'Real podcasts too', desc: 'Subscribe to any show from the podcast directory and keep everything in one player.' },
+            { icon: Play, title: 'Continuous playback', desc: 'A persistent mini player keeps your episode going as you navigate.' },
+          ]}
+          footnote="All narration and music runs on your local hardware - no external APIs required."
+        />
       ) : (
         <>
           {billboardItems.length > 0 && (
-            <ArtBillboard
-              eyebrow={cont.length > 0 ? 'Continue listening' : 'Your library'}
-              items={billboardItems}
-            />
+            <ArtBillboard eyebrow={billboardEyebrow} items={billboardItems} />
           )}
 
           {cont.length > 0 && (
@@ -139,6 +156,9 @@ export function ListenNowPage() {
             </section>
           )}
 
+          {/* Nobody here has made an AI show yet: pitch it in one compact banner, not a whole page. */}
+          {aiShows.length === 0 && <CreateShowBanner />}
+
           {popularSection}
 
           {fresh.length > 0 && (
@@ -152,9 +172,54 @@ export function ListenNowPage() {
               </div>
             </section>
           )}
+
+          {genreSections}
         </>
       )}
     </PageContainer>
+  )
+}
+
+/** One horizontally scrolling shelf of directory chart cards. */
+function ChartRail({ title, results }: { title: string; results: DirectoryResult[] }) {
+  return (
+    <section>
+      <SectionHeader title={title} to="/podcasts/browse" className="mb-4" />
+      <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
+        {results.slice(0, 12).map((r, i) => (
+          <div key={r.itunesId ?? r.feedUrl ?? i} className="w-44 shrink-0">
+            <DirectoryCard result={r} />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function CreateShowBanner() {
+  return (
+    <Card
+      variant="gradient"
+      style={{ background: getAppByPath('/podcasts')?.gradient }}
+      className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center"
+    >
+      <div className="flex size-11 shrink-0 items-center justify-center rounded-control bg-white/15">
+        <Mic className="size-5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-lg font-extrabold tracking-tight">Make your own AI podcast</p>
+        <p className="mt-0.5 text-sm text-white/80">
+          Your companion writes, narrates, and produces full episodes about any show, movie, or YouTube
+          channel, with music, stingers, and chapters. All of it runs offline on your own hardware.
+        </p>
+      </div>
+      <Link to="/podcasts/library" className="shrink-0">
+        <Button variant="secondary">
+          <Mic className="mr-1.5 size-4" />
+          Create a show
+        </Button>
+      </Link>
+    </Card>
   )
 }
 
