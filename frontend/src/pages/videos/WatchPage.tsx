@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn'
 import { useArtPalette } from '@/lib/artPalette'
 import { videoAccentVars } from '@/components/videos/AccentScope'
 import { UltraBlur } from '@/components/shared/UltraBlur'
+import { ScrollFade } from '@/components/shared/ScrollFade'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -22,7 +23,7 @@ import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
 import { useYoutubeUI, useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
-import { UpNextRow, watchHref } from '@/components/youtube/VideoCard'
+import { UpNextRow, VideoCard, watchHref } from '@/components/youtube/VideoCard'
 import { AutoplayCountdown, type AutoplayNextItem } from '@/components/youtube/AutoplayCountdown'
 import { CreatePodcastDialog } from '@/components/youtube/CreatePodcastDialog'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
@@ -30,7 +31,7 @@ import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
 import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
-  getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
+  getVideoMeta, summarize, getTranscriptText, getRelated, getRelatedSearches, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
   startLiveRecord, stopLiveRecord, saveOffline, ytImageProxy, prewarmStream,
   type VideoMeta, type VideoVotes, type StreamQuality,
@@ -166,9 +167,11 @@ function SidePanelShell<T extends string>({ tabs, active, onChange, action, chil
   if (tabs.length === 0) return null
   // The music player's pill switcher (NowPlayingOverlay language): floating rounded-full
   // group, active tab solid white - no card box, no underline tabs.
+  // At xl this root completes the sticky rail's flex chain (aside fixes the height; the
+  // panes inside carry flex-1/overflow-y-auto): tabs stay pinned, only the list scrolls.
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
+    <div className="xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-3">
         {/* design-ok(glass-on-plain-bg): pill tab switcher over the watch page's UltraBlur cinema backdrop */}
         <div className="no-scrollbar flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-white/10 p-1">
           {tabs.map(({ key, label }) => (
@@ -451,6 +454,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
         <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
           votes={votes ?? null} />
+        {online && <RelatedTopicsSection videoId={videoId} />}
       </div>
 
       {/* Side column: ONE tabbed rail - the queue is the first (default) tab, not a second
@@ -476,10 +480,12 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             pq.active && pq.playlistId ? (
               <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
             ) : (
-              <div className="space-y-1 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
-                {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
-                {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
-              </div>
+              <ScrollFade fadeSize="h-8" className="xl:pr-1">
+                <div className="space-y-1">
+                  {upNext.map(i => <UpNextRow key={i.videoId} item={i} />)}
+                  {upNext.length === 0 && <p className="px-1 py-4 text-xs text-muted-foreground">Nothing queued.</p>}
+                </div>
+              </ScrollFade>
             )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
@@ -814,27 +820,29 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search transcript" className="w-full bg-transparent text-base outline-none md:text-sm" />
       </div>
       {/* `relative` so the active line's offsetTop is measured against THIS pane. */}
-      <div ref={listRef} className="relative max-h-[440px] space-y-1 overflow-y-auto pr-1 xl:max-h-none xl:min-h-0 xl:flex-1">
-        {lines.length > 0 ? (
-          shown.map((l, idx) => {
-            const active = !ql && lines[activeIdx] === l
-            return (
-              <button key={`${l.sec}-${idx}`} ref={active ? activeRef : undefined} onClick={() => onSeek(l.sec)}
-                className={cn('flex w-full gap-2.5 rounded-control border-l-2 px-2 py-1.5 text-left text-sm transition-colors',
-                  active ? 'border-[var(--yt-accent)] bg-[var(--yt-accent)]/15' : 'border-transparent hover:bg-accent/60')}>
-                <span className={cn('shrink-0 rounded px-1 py-0.5 font-mono text-xs font-semibold tabular-nums',
-                  active ? 'bg-[var(--yt-accent)] text-white' : 'text-[var(--yt-accent-fg)]')}>{l.label}</span>
-                <span className={cn(active ? 'font-semibold text-foreground' : 'text-foreground/85')}>{l.text}</span>
-              </button>
-            )
-          })
-        ) : (
-          <div className="space-y-3 px-1 text-sm leading-relaxed text-foreground/85">
-            {(prose ?? '').split('\n\n').map((p, i) => <p key={i} className="whitespace-pre-wrap">{p}</p>)}
-          </div>
-        )}
-        {lines.length > 0 && shown.length === 0 && <Empty>No lines match “{q}”.</Empty>}
-      </div>
+      <ScrollFade scrollerRef={listRef} fadeSize="h-8" className="relative max-h-[440px] pr-1 xl:max-h-none">
+        <div className="space-y-1">
+          {lines.length > 0 ? (
+            shown.map((l, idx) => {
+              const active = !ql && lines[activeIdx] === l
+              return (
+                <button key={`${l.sec}-${idx}`} ref={active ? activeRef : undefined} onClick={() => onSeek(l.sec)}
+                  className={cn('flex w-full gap-2.5 rounded-control border-l-2 px-2 py-1.5 text-left text-sm transition-colors',
+                    active ? 'border-[var(--yt-accent)] bg-[var(--yt-accent)]/15' : 'border-transparent hover:bg-accent/60')}>
+                  <span className={cn('shrink-0 rounded px-1 py-0.5 font-mono text-xs font-semibold tabular-nums',
+                    active ? 'bg-[var(--yt-accent)] text-white' : 'text-[var(--yt-accent-fg)]')}>{l.label}</span>
+                  <span className={cn(active ? 'font-semibold text-foreground' : 'text-foreground/85')}>{l.text}</span>
+                </button>
+              )
+            })
+          ) : (
+            <div className="space-y-3 px-1 text-sm leading-relaxed text-foreground/85">
+              {(prose ?? '').split('\n\n').map((p, i) => <p key={i} className="whitespace-pre-wrap">{p}</p>)}
+            </div>
+          )}
+          {lines.length > 0 && shown.length === 0 && <Empty>No lines match “{q}”.</Empty>}
+        </div>
+      </ScrollFade>
     </div>
   )
 }
@@ -857,7 +865,8 @@ function YoutubeCommentsTab({ videoId }: { videoId: string }) {
   if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
   if (!comments.length) return <Empty>No comments. They may be turned off for this video.</Empty>
   return (
-    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-none xl:min-h-0 xl:flex-1">
+    <ScrollFade fadeSize="h-8" className="max-h-[520px] pr-1 xl:max-h-none">
+      <div className="space-y-4">
       {comments.map((c, i) => (
         <div key={i} className="flex gap-2.5">
           <CreatorAvatar title={c.author || '?'} src={c.authorThumb} className="mt-0.5 size-7 shrink-0 text-[10px]" />
@@ -874,6 +883,56 @@ function YoutubeCommentsTab({ videoId }: { videoId: string }) {
             </div>
           </div>
         </div>
+      ))}
+      </div>
+    </ScrollFade>
+  )
+}
+
+/** Topic-grouped "Related" shelves under the description: an LLM names the video's concrete
+ *  subjects (from title + transcript, cached server-side) and each becomes a labeled search
+ *  shelf: "more about the THING in this video", complementing the sidebar's engagement-
+ *  ranked Up next. The first open of a video can take a while (transcript fetch + LLM), so
+ *  the section simply appears when ready; it's the last thing in the main column, so nothing
+ *  below it shifts. */
+function RelatedTopicsSection({ videoId }: { videoId: string }) {
+  const { data: topics = [], isPending } = useQuery({
+    queryKey: ['yt-related-searches', videoId],
+    queryFn: () => getRelatedSearches(videoId),
+    enabled: !!videoId,
+    staleTime: 20 * 60_000,
+  })
+  // The first open of a video generates its topics (transcript fetch + two LLM calls,
+  // easily 15-60s): say so instead of silently showing nothing until it lands.
+  if (isPending) {
+    return (
+      <div className="pt-4">
+        <p className="px-1 text-overline text-white/50">Related videos</p>
+        <Centered><Spinner /> Finding related videos…</Centered>
+      </div>
+    )
+  }
+  if (!topics.length) return null
+  return (
+    <div className="space-y-6 pt-4">
+      <p className="px-1 text-overline text-white/50">Related videos</p>
+      {topics.map((t) => (
+        <section key={t.query} className="min-w-0">
+          <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
+            <h3 className="min-w-0 truncate text-base font-bold">{t.query}</h3>
+            <Link to={`/videos/search?q=${encodeURIComponent(t.query)}`}
+              className="shrink-0 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground">
+              See all
+            </Link>
+          </div>
+          <div className="no-scrollbar flex gap-4 overflow-x-auto pb-1">
+            {t.videos.map((v) => (
+              <div key={v.videoId} className="w-52 shrink-0 sm:w-60">
+                <VideoCard item={itToItem(v)} />
+              </div>
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   )
@@ -1379,11 +1438,13 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             pq.active && pq.playlistId ? (
               <PlaylistQueuePanel playlistId={pq.playlistId} playlistName={pq.playlistName} videos={pq.videos} pos={pq.pos} />
             ) : (
-              <div className="space-y-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
-                {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
-                {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
-                {!capabilities?.related && !item.creator && <Empty>Nothing queued.</Empty>}
-              </div>
+              <ScrollFade fadeSize="h-8" className="xl:pr-1">
+                <div className="space-y-5">
+                  {capabilities?.related && <RelatedVideosCard source={source} excludeId={id} />}
+                  {item.creator && <MoreFromCreatorCard source={source} creatorId={item.creator.id} excludeId={id} />}
+                  {!capabilities?.related && !item.creator && <Empty>Nothing queued.</Empty>}
+                </div>
+              </ScrollFade>
             )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
@@ -1402,16 +1463,18 @@ function GenericCommentsTab({ source, id }: { source: VideoSource; id: string })
   if (isPending) return <Centered><Spinner /> Loading comments…</Centered>
   if (!comments.length) return <Empty>No comments.</Empty>
   return (
-    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1 xl:max-h-none xl:min-h-0 xl:flex-1">
-      {comments.map((cm, i) => (
-        <div key={i} className="text-sm">
-          <p className="font-medium text-foreground">{cm.author}
-            {cm.likes && <span className="ml-2 text-xs font-normal text-muted-foreground">{cm.likes} points</span>}
-          </p>
-          <p className="mt-0.5 whitespace-pre-wrap text-foreground/90">{cm.text}</p>
-        </div>
-      ))}
-    </div>
+    <ScrollFade fadeSize="h-8" className="max-h-[520px] pr-1 xl:max-h-none">
+      <div className="space-y-4">
+        {comments.map((cm, i) => (
+          <div key={i} className="text-sm">
+            <p className="font-medium text-foreground">{cm.author}
+              {cm.likes && <span className="ml-2 text-xs font-normal text-muted-foreground">{cm.likes} points</span>}
+            </p>
+            <p className="mt-0.5 whitespace-pre-wrap text-foreground/90">{cm.text}</p>
+          </div>
+        ))}
+      </div>
+    </ScrollFade>
   )
 }
 

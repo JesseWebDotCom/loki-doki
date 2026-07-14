@@ -1455,6 +1455,9 @@ export const ytVideos = sqliteTable('yt_videos', {
   // survives cleaning. Shown in place of the raw description everywhere (YouTube app +
   // Plex export) — kept separate from `description` so the original is never lost.
   descriptionClean: text('description_clean'),
+  // LLM-extracted related-search topics (JSON string[] of 2-4 YouTube search queries drawn
+  // from the title + transcript) — feed the watch page's topic-grouped "Related" shelves.
+  relatedTopics: text('related_topics'),
   // Which InnerTube channel tab this came from, when known (null for RSS/playlist-sourced
   // rows) — 'shorts' drives the Plex export's separate "Channel — Shorts" show; legacy/null
   // rows fall back to the durationSec<=90 heuristic used elsewhere in this codebase.

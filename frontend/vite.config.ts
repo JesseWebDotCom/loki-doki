@@ -170,6 +170,10 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+    // @novnc/novnc (Admin homelab remote display) uses top-level await, which Vite's default
+    // ~es2020 target rejects — the build hard-fails on the AdminPage chunk without this.
+    // es2022 means roughly Safari 15+/Chrome 89+/Firefox 89+, fine for a self-hosted app.
+    target: "es2022",
     // The default 500kB warning fired on the old 8.5MB monolithic entry. After code-splitting,
     // the eager first-paint path is ~1MB gzip across cacheable chunks; every remaining chunk
     // above 500kB is either the app core (index) or a single third-party library isolated to a

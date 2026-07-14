@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 interface ScrollFadeProps {
@@ -7,6 +7,9 @@ interface ScrollFadeProps {
   className?: string;
   /** Height utility for the fade masks. Defaults to `h-5`. */
   fadeSize?: string;
+  /** Optional external handle on the scroll container, for callers that drive it
+   *  programmatically (e.g. the transcript's follow-along auto-scroll). */
+  scrollerRef?: MutableRefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -16,8 +19,8 @@ interface ScrollFadeProps {
  * when the corresponding edge is scrolled away from, so a list that fits shows
  * nothing.
  */
-export function ScrollFade({ children, className, fadeSize = "h-5" }: ScrollFadeProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+export function ScrollFade({ children, className, fadeSize = "h-5", scrollerRef }: ScrollFadeProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atTop, setAtTop] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
@@ -42,7 +45,7 @@ export function ScrollFade({ children, className, fadeSize = "h-5" }: ScrollFade
   return (
     <div className="relative flex-1 min-h-0">
       <div
-        ref={scrollRef}
+        ref={(el) => { scrollRef.current = el; if (scrollerRef) scrollerRef.current = el; }}
         onScroll={update}
         className={cn("h-full overflow-y-auto no-scrollbar", className)}
       >

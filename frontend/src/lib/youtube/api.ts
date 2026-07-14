@@ -296,6 +296,16 @@ export async function getRelated(videoId: string, limit = 20): Promise<ItVideo[]
   return (await r.json() as { videos: ItVideo[] }).videos ?? []
 }
 
+/** Topic-grouped related shelves: an LLM names the video's concrete subjects from its
+ *  title + transcript, each returned with its own search-result videos. Slow on the first
+ *  open of a video (transcript fetch + LLM); cached server-side after that. */
+export interface RelatedSearchTopic { query: string; videos: ItVideo[] }
+export async function getRelatedSearches(videoId: string): Promise<RelatedSearchTopic[]> {
+  const r = await fetch(`/api/youtube/related-searches/${videoId}`, opts)
+  if (!r.ok) throw new Error('Could not load related videos')
+  return (await r.json() as { topics: RelatedSearchTopic[] }).topics ?? []
+}
+
 // ── SponsorBlock ─────────────────────────────────────────────────────────────────
 
 export interface SkipSegment { category: string; start: number; end: number }

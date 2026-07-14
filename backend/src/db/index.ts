@@ -3318,4 +3318,8 @@ export function runMigrations() {
   } catch (err) {
     console.warn('[migrations] notes_fts backfill failed:', err instanceof Error ? err.message : err)
   }
+
+  // LLM-extracted related-search topics for the watch page's topic-grouped "Related"
+  // shelves (see schema.ts ytVideos.relatedTopics).
+  addColumn('yt_videos', 'related_topics', 'TEXT')
 }

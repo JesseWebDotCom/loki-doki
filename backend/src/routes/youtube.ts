@@ -15,6 +15,7 @@ import { resolveYouTubeInput, parseTakeoutCsv } from '@/lib/youtube/resolve'
 import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary, ensureSmartDescription, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
+import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
@@ -1502,6 +1503,36 @@ youtubeRoute.get('/related/:videoId', async (c) => {
     () => cachedLookup('youtube:related', `${videoId}:${limit}`, 20 * 60_000, () => innertubeRelated(videoId, limit)),
     [])
   return c.json({ videos: await filterYtItemsForUser(c.get('user').id, videos) })
+})
+
+// Topic-grouped related shelves — an LLM names the video's 2-4 concrete subjects from its
+// title + transcript (cached on yt_videos), then each becomes a labeled InnerTube video
+// search. Complements /related above (engagement-ranked, unlabeled) with "more about the
+// THING in this video" rows. Searches share the typed-search cache key, so a shelf query
+// and the same manual search never fetch twice.
+youtubeRoute.get('/related-searches/:videoId', async (c) => {
+  const user = c.get('user')
+  const videoId = c.req.param('videoId')
+  const topics = await ensureRelatedTopics(videoId, user.id, await getUserFirstName(user.id))
+    .catch((err) => { logger.warn({ err, videoId }, 'yt related topics failed'); return [] as string[] })
+  if (!topics.length) return c.json({ topics: [] })
+
+  const safe = (await videoPolicyFor(user.id)).restrictedMode
+  const results = await Promise.all(topics.map(async (query) => {
+    const page = await cachedLookup('youtube:search', `videos:${query.toLowerCase()}:${safe ? 's' : 'o'}`, 20 * 60_000, () => tryInnertube('typedSearch',
+      () => innertubeSearch(query, 14, 0, 8000, 0, SEARCH_FILTERS.videos, safe),
+      { videos: [], channels: [], playlists: [], continuation: null }))
+    return { query, videos: await filterYtItemsForUser(user.id, page.videos) }
+  }))
+  // Closely-phrased topics return overlapping results — each video appears once, on the
+  // earliest (highest-priority) shelf, so two shelves never show the same card.
+  const seen = new Set<string>([videoId])
+  const shelves = results.map(({ query, videos }) => {
+    const fresh = videos.filter(v => !seen.has(v.videoId)).slice(0, 10)
+    for (const v of fresh) seen.add(v.videoId)
+    return { query, videos: fresh }
+  })
+  return c.json({ topics: shelves.filter(s => s.videos.length > 0) })
 })
 
 // Comments — InnerTube `next` continuation, proxied so the browser never hits Google.

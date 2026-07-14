@@ -38,6 +38,22 @@ export async function getBookModel(): Promise<string> {
   return configured || await getModel()
 }
 
+// Structured-extraction model (YouTube related-search topics). Same abliteration rationale
+// as getScriptModel(), but with an installed-check fallback instead of an admin setting:
+// the abliterated main model hallucinated topics and echoed channel names on this task
+// (confirmed live), while the stock instruct tag — already the env default above — nailed
+// it. The router_llm fast model is too small to keep the primary subject first.
+const STOCK_INSTRUCT_MODEL = 'llama3.1:8b'
+export async function getExtractionModel(): Promise<string> {
+  const main = await getModel()
+  if (main === STOCK_INSTRUCT_MODEL) return main
+  try {
+    const installed = await ollamaList()
+    if (installed.some((m) => m.name === STOCK_INSTRUCT_MODEL)) return STOCK_INSTRUCT_MODEL
+  } catch { /* Ollama unreachable — fall back to the main model */ }
+  return main
+}
+
 // Cached router model — read once, re-read only on explicit invalidation.
 // router_llm_model almost never changes (only via admin UI), so caching is safe.
 let _routerModelCache: { value: string | null } | null = null
