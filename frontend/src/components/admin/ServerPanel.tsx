@@ -98,7 +98,14 @@ export function ServerPanel() {
     void refreshStatus().then((s) => {
       // An update kicked off elsewhere (another admin, auto mode) is still
       // running: attach to its progress stream instead of showing idle.
-      if (s && (s.phase === 'updating' || s.phase === 'restarting')) attachUpdateStream()
+      if (s && (s.phase === 'updating' || s.phase === 'restarting')) {
+        attachUpdateStream()
+      } else {
+        // `behind` isn't persisted across server restarts, so a fresh load
+        // reports null. Silently check on open so the Update button reflects
+        // the real state right away.
+        void checkNow({ silent: true })
+      }
     })
     return () => { esRef.current?.close() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,20 +265,23 @@ export function ServerPanel() {
 
   // ── check + settings ──────────────────────────────────────────────────────────
 
-  async function checkNow() {
+  async function checkNow(opts?: { silent?: boolean }) {
+    const silent = opts?.silent === true
     setChecking(true)
     try {
       const r = await fetch('/api/admin/server/check', { method: 'POST', credentials: 'include' })
       if (r.ok) {
         const { behind } = (await r.json()) as { behind: number }
-        if (behind > 0) toast.info(`${behind} update${behind === 1 ? '' : 's'} available`)
-        else toast.success('Up to date')
-      } else {
+        if (!silent) {
+          if (behind > 0) toast.info(`${behind} update${behind === 1 ? '' : 's'} available`)
+          else toast.success('Up to date')
+        }
+      } else if (!silent) {
         const { error: msg } = (await r.json().catch(() => ({}))) as { error?: string }
         toast.error(msg ?? 'Could not check for updates')
       }
     } catch {
-      toast.error('Could not check for updates')
+      if (!silent) toast.error('Could not check for updates')
     }
     await refreshStatus()
     setChecking(false)
@@ -331,7 +341,7 @@ export function ServerPanel() {
                 {status.lastCheckedAt && ` · Last checked ${new Date(status.lastCheckedAt).toLocaleString()}`}
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={checkNow} disabled={checking || busy}>
+            <Button variant="outline" size="sm" onClick={() => checkNow()} disabled={checking || busy}>
               {checking ? <Spinner className="size-4" /> : <RefreshCw className="size-4" />}
               Check for updates
             </Button>
@@ -347,10 +357,17 @@ export function ServerPanel() {
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-2">
         {status.gitCheckout && (
-          <Button size="sm" onClick={() => setConfirming('update')} disabled={busy}>
-            <DownloadCloud className="size-4" />
-            Update &amp; restart
-          </Button>
+          status.behind === 0 ? (
+            <Button size="sm" variant="outline" disabled>
+              <CheckCircle2 className="size-4" />
+              Up to date
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => setConfirming('update')} disabled={busy}>
+              <DownloadCloud className="size-4" />
+              Update &amp; restart
+            </Button>
+          )
         )}
         <Button variant="outline" size="sm" onClick={() => setConfirming('restart')} disabled={busy}>
           <Power className="size-4" />
