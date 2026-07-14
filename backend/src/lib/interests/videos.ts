@@ -268,8 +268,25 @@ export async function buildVideoPool(userId: string): Promise<void> {
   })
 
   let ranked = await rankCandidates(profile, fresh)
+  // Relevance gate: a candidate earns its slot through SOME positive signal — embedding
+  // similarity to the taste centroids, a creator the user watches, or a topic they follow.
+  // Kills keyword-collision search hits ("Hubble" the telescope matching "Hubble" the
+  // gadget clock) and off-interest trending/news that used to coast in on bucket priors.
+  // Unembeddable candidates (cos null) pass — unknown is not the same as dissimilar.
+  const RELEVANCE_COS = 0.35
+  // Age gate: platform "related" on low-traffic sources (Vimeo especially) surfaces
+  // decade-old shorts. Nobody's "suggested for you" should lead with 14-year-old videos
+  // unless they're from a creator the user actually watches.
+  const MAX_AGE_MS = 6 * 365 * 24 * 60 * 60 * 1000
+  const builtAt = Date.now()
+  const gated = ranked.filter((e) => {
+    const p = e.parts
+    if (p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && p.topic < 0.2) return false
+    if (e.publishedAt && builtAt - e.publishedAt > MAX_AGE_MS && (p?.creator ?? 0) === 0) return false
+    return true
+  })
   // Subscribed channels already own "Latest from your subscriptions" — nudge, don't ban.
-  ranked = ranked
+  ranked = gated
     .map((e): RankedCandidate => (e.creatorId && subs.has(e.creatorId) ? { ...e, score: e.score * 0.85 } : e))
     .sort((a, b) => b.score - a.score)
 
@@ -287,7 +304,9 @@ export async function buildVideoPool(userId: string): Promise<void> {
   )
 }
 
-/** Related items from hub providers that support it, seeded by the most-engaged watches. */
+/** Related items from hub providers that support it, seeded by the most-engaged watches.
+ *  Seeding is proportional to how much the user actually uses a source: one stray Vimeo
+ *  watch must not flood the pool with that platform's (often ancient) related graph. */
 async function collectHubRelated(signals: InterestSignal[]): Promise<Candidate[]> {
   const enabled = await getEnabledSources()
   const out: Candidate[] = []
@@ -295,14 +314,17 @@ async function collectHubRelated(signals: InterestSignal[]): Promise<Candidate[]
     HUB_SOURCES.filter((s) => enabled.includes(s)).map(async (source) => {
       const provider = getProvider(source)
       if (!provider?.getRelated || !provider.capabilities.related) return
-      const seeds = signals
+      const sourceSignals = signals
         .filter((s) => s.ref.startsWith(`${source}:`))
         .sort((a, b) => b.engagement - a.engagement)
-        .slice(0, 3)
+      // A source the user touched once gets one seed; regular use earns a second.
+      const seeds = sourceSignals.slice(0, sourceSignals.length >= 4 ? 2 : 1)
+      const perSource: Candidate[] = []
       for (const seed of seeds) {
         const items = await provider.getRelated!(seed.ref.slice(source.length + 1)).catch(() => [] as VideoItem[])
-        out.push(...items.map((v) => hubToCandidate(v, 'related')))
+        perSource.push(...items.map((v) => hubToCandidate(v, 'related')))
       }
+      out.push(...perSource.slice(0, 15))
     }),
   )
   return out
@@ -406,7 +428,21 @@ export async function serveVideosSuggested(
   }))
   const kept = await filterVideosForUser(userId, withItems.map((w) => w.item))
   const keptKeys = new Set(kept.map((i) => `${i.source}:${i.id}`))
-  const served = withItems.filter((w) => keptKeys.has(`${w.item.source}:${w.item.id}`)).slice(0, target)
+  // Per-source cap: hub sources add variety but must not crowd the rail — the user's
+  // watch time is overwhelmingly on the primary source (YouTube), so cap each hub
+  // source at 3 of the served slice.
+  const perSource = new Map<string, number>()
+  const served: typeof withItems = []
+  for (const w of withItems) {
+    if (!keptKeys.has(`${w.item.source}:${w.item.id}`)) continue
+    if (w.item.source !== 'youtube') {
+      const n = perSource.get(w.item.source) ?? 0
+      if (n >= 3) continue
+      perSource.set(w.item.source, n + 1)
+    }
+    served.push(w)
+    if (served.length >= target) break
+  }
   await recordServed(userId, DOMAIN, served.map((w) => w.entry))
   return { items: served.map((w) => w.item), building: false }
 }

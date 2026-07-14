@@ -50,8 +50,10 @@ export async function rankCandidates(
   for (const cand of candidates) {
     // Cosine vs the two-horizon centroids. A missing vector (embed failure) or a
     // profile without centroids scores neutral 0.5 so those candidates compete on the
-    // other terms instead of sinking to the bottom.
+    // other terms instead of sinking to the bottom — but `parts.cos` stays null there,
+    // so relevance gates don't mistake "unknown" for "similar".
     let cos = 0.5
+    let cosKnown: number | null = null
     if (profile.recentCentroid || profile.longCentroid) {
       const vec = await embedCached(cand.creatorName ? `${cand.title} by ${cand.creatorName}` : cand.title)
       if (vec) {
@@ -59,7 +61,10 @@ export async function rankCandidates(
         const long = profile.longCentroid ? cosineSimilarity(profile.longCentroid, vec) : null
         const blend = recent !== null && long !== null ? 0.65 * recent + 0.35 * long : (recent ?? long)
         // nomic cosine lives in roughly [0.3, 0.9] for text pairs; stretch to ~[0, 1].
-        if (blend !== null) cos = Math.min(1, Math.max(0, (blend - 0.3) / 0.6))
+        if (blend !== null) {
+          cos = Math.min(1, Math.max(0, (blend - 0.3) / 0.6))
+          cosKnown = cos
+        }
       }
     }
 
@@ -78,7 +83,7 @@ export async function rankCandidates(
 
     const score =
       w.cos * cos + w.creator * creator + w.topic * topic + w.fresh * fresh + w.bucket * BUCKET_PRIOR[cand.bucket]
-    ranked.push({ ...cand, score })
+    ranked.push({ ...cand, score, parts: { cos: cosKnown, creator, topic } })
   }
 
   return ranked.sort((a, b) => b.score - a.score)

@@ -58,4 +58,7 @@ export interface Candidate {
 
 export interface RankedCandidate extends Candidate {
   score: number
+  /** Ranking components, kept for relevance gates: `cos` is null when the candidate
+   *  couldn't be embedded (a gate must not mistake "unknown" for "similar"). */
+  parts?: { cos: number | null; creator: number; topic: number }
 }
