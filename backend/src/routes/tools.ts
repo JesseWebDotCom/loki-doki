@@ -166,13 +166,35 @@ tools.put('/:id/chat-enabled', requireAdmin, async (c) => {
 
 // ── Global config (admin only) ────────────────────────────────────────────────
 
+// Secrets must not be shipped to the browser even for an admin (session hijack, HAR
+// capture, shoulder-surf). Mask any value whose field is declared `secret` in its tool
+// schema, or whose key name looks secret-bearing. The masked sentinel is safe: the admin
+// config form only writes a field the user actually edited (dirty check), so re-serving a
+// placeholder never overwrites the stored secret.
+const SECRET_SENTINEL = '__secret_set__'
+const SENSITIVE_KEY_RE = /(token|password|passwd|secret|api[_-]?key|apikey|client[_-]?secret|private[_-]?key|access[_-]?key)/i
+function secretKeysFor(toolId: string): Set<string> {
+  const tool = toolRegistry.find((t) => t.id === toolId)
+  const keys = new Set<string>()
+  for (const f of tool?.configSchema ?? []) if (f.type === 'secret') keys.add(f.key)
+  return keys
+}
+
 tools.get('/config/global', requireAdmin, async (c) => {
   const rows = await db.select().from(toolGlobalConfig)
   const result: Record<string, Record<string, unknown>> = {}
+  const secretKeyCache = new Map<string, Set<string>>()
   for (const row of rows) {
     if (row.key === '__enabled' || row.key === '__chat_enabled') continue
     result[row.toolId] ??= {}
-    result[row.toolId][row.key] = JSON.parse(row.value)
+    let declaredSecrets = secretKeyCache.get(row.toolId)
+    if (!declaredSecrets) { declaredSecrets = secretKeysFor(row.toolId); secretKeyCache.set(row.toolId, declaredSecrets) }
+    const parsed = JSON.parse(row.value)
+    const isSecret = declaredSecrets.has(row.key) || SENSITIVE_KEY_RE.test(row.key)
+    // Only mask non-empty string secrets; leave booleans/empties so the UI can show "not set".
+    result[row.toolId][row.key] = (isSecret && typeof parsed === 'string' && parsed !== '')
+      ? SECRET_SENTINEL
+      : parsed
   }
   return c.json(result)
 })

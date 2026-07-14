@@ -3249,6 +3249,9 @@ export const adminAuditLog = sqliteTable('admin_audit_log', {
     enum: [
       'unsandbox_toggle', 'host_shell_open', 'ssh_open', 'vnc_open', 'rdp_open',
       'host_create', 'host_update', 'host_delete',
+      // Credential reveals and SFTP filesystem access — previously unaudited (a member
+      // could pull a shared host's VNC/RDP password, or read/write its files, invisibly).
+      'credential_reveal', 'sftp_list', 'sftp_download', 'sftp_upload',
     ],
   }).notNull(),
   detail: text('detail'), // JSON string

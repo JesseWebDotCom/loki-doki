@@ -4,8 +4,9 @@ import { eq } from 'drizzle-orm'
 import { statfs } from 'node:fs/promises'
 import os from 'node:os'
 import { db } from '@/db'
-import { users } from '@/db/schema'
+import { users, profilePins } from '@/db/schema'
 import { issueSession } from '@/lib/session'
+import { hashPin } from '@/lib/pin'
 import { requireAuth } from '@/middleware/auth'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { warmupModel } from '@/lib/models'
@@ -97,7 +98,13 @@ setup.post('/admin', async (c) => {
     firstName: string
     lastName: string
     birthdate: string
+    pin?: string
   }
+
+  // Require an admin PIN at creation so the admin account is never left in the PIN-less
+  // state that POST /api/auth/select would otherwise let any caller claim in one request.
+  const pin = body.pin?.trim() ?? ''
+  if (!/^\d{4,6}$/.test(pin)) return c.json({ error: 'A 4 to 6 digit admin PIN is required' }, 400)
 
   const now = new Date()
   const id = crypto.randomUUID()
@@ -109,6 +116,14 @@ setup.post('/admin', async (c) => {
     nickname: body.firstName,
     birthdate: body.birthdate,
     role: 'admin',
+    createdAt: now,
+    updatedAt: now,
+  })
+  await db.insert(profilePins).values({
+    id: crypto.randomUUID(),
+    userId: id,
+    pinHash: await hashPin(pin),
+    failedAttempts: 0,
     createdAt: now,
     updatedAt: now,
   })

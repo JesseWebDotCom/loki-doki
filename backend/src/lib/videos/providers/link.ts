@@ -11,6 +11,7 @@
 
 import { cachedLookup } from '@/lib/lookupCache'
 import { resolveClip } from '@/lib/clipper/resolve'
+import { assertPublicUrl } from '@/lib/ssrfGuard'
 import type { VideoProvider } from '@/lib/videos/provider'
 import type { PlaybackInfo, VideoItem } from '@/lib/videos/types'
 
@@ -79,6 +80,10 @@ export const linkProvider: VideoProvider = {
   async getPlayback(id): Promise<PlaybackInfo> {
     const url = decodeId(id)
     if (!url) throw new Error('no playable stream for this link')
+    // /stream calls getPlayback directly (skipping getItem's resolveClip guard), then spawns
+    // yt-dlp on pageUrl and streams stdout back — so re-check here or an internal target
+    // (localhost / cloud-metadata) becomes a readable SSRF.
+    await assertPublicUrl(url)
     // Live yt-dlp pipe: the one strategy that works across arbitrary CDNs (many reject a
     // bare server fetch). The /:source/stream endpoint rewrites this to a stream URL.
     return { mode: 'ytdlp-pipe', pageUrl: url }
@@ -87,6 +92,7 @@ export const linkProvider: VideoProvider = {
   async downloadSpec(id) {
     const url = decodeId(id)
     if (!url) throw new Error('invalid link')
+    await assertPublicUrl(url)
     return { method: 'ytdlp', url }
   },
 }

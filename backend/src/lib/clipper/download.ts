@@ -104,11 +104,13 @@ export async function runClipDownloadJob(
     const stem = `clip-${clipId}`
     const outputTemplate = join(tmpDir, `${stem}.%(ext)s`)
 
+    // Trailing `--` terminates option parsing so a URL starting with `-`/`--` can't be read
+    // as a yt-dlp flag (defense-in-depth; the /save route also validates the scheme).
     const args: string[] = kind === 'audio'
       ? ['-x', '--audio-format', AUDIO_FORMAT, '--audio-quality', '0', '--socket-timeout', '30',
-         '--output', outputTemplate, '--no-playlist', url]
+         '--output', outputTemplate, '--no-playlist', '--', url]
       : ['-f', 'bestvideo+bestaudio/best', '-S', 'res,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
-         '--socket-timeout', '30', '--output', outputTemplate, '--no-playlist', url]
+         '--socket-timeout', '30', '--output', outputTemplate, '--no-playlist', '--', url]
     if (ffLoc) args.push('--ffmpeg-location', ffLoc)
 
     await runYtDlpDownload(args, onProgress, kind, signal)

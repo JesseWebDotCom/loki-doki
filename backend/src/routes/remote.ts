@@ -17,6 +17,7 @@ import { Client as SshClient, type SFTPWrapper } from 'ssh2'
 import { db } from '@/db'
 import { homelabHosts, adminAuditLog, profilePins, remoteFolders, remoteSnippets, userPreferences } from '@/db/schema'
 import { requireAuth, requireAdmin, resolveSession } from '@/middleware/auth'
+import { isFeatureEnabled, userMayUseCapability } from '@/lib/featureGate'
 import { verifyPin } from '@/lib/pin'
 import { encryptSecret, decryptSecret } from '@/lib/secrets'
 import { openTcpBridge } from '@/lib/tcpBridge'
@@ -291,8 +292,14 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     const host = await loadAccessibleHost(c.req.query('host') ?? '', user)
     if (!host) return c.json({ error: 'not found' }, 404)
     const proto = c.req.query('proto')
-    if (proto === 'vnc') return c.json({ password: host.vncSecret ? await decryptSecret(host.vncSecret) : '' })
-    if (proto === 'rdp') return c.json({ username: host.rdpUser ?? '', password: host.rdpSecret ? await decryptSecret(host.rdpSecret) : '', security: host.rdpSecurity ?? 'nla' })
+    if (proto === 'vnc') {
+      await audit(user.id, 'credential_reveal', { host: host.hostname, proto: 'vnc', shared: host.userId === null })
+      return c.json({ password: host.vncSecret ? await decryptSecret(host.vncSecret) : '' })
+    }
+    if (proto === 'rdp') {
+      await audit(user.id, 'credential_reveal', { host: host.hostname, proto: 'rdp', shared: host.userId === null })
+      return c.json({ username: host.rdpUser ?? '', password: host.rdpSecret ? await decryptSecret(host.rdpSecret) : '', security: host.rdpSecurity ?? 'nla' })
+    }
     return c.json({ error: 'bad proto' }, 400)
   })
 
@@ -302,6 +309,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     const host = await loadAccessibleHost(c.req.query('host') ?? '', user)
     if (!host || !host.sshUser) return c.json({ error: 'not found' }, 404)
     const path = c.req.query('path') || '.'
+    await audit(user.id, 'sftp_list', { host: host.hostname, path, shared: host.userId === null })
     let client: SshClient | null = null
     try {
       client = await connectSsh(host)
@@ -329,6 +337,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     if (!host || !host.sshUser) return c.json({ error: 'not found' }, 404)
     const path = c.req.query('path') ?? ''
     if (!path) return c.json({ error: 'path required' }, 400)
+    await audit(user.id, 'sftp_download', { host: host.hostname, path, shared: host.userId === null })
     const client = await connectSsh(host)
     const sftp = await getSftp(client)
     const nodeStream = sftp.createReadStream(path)
@@ -349,6 +358,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     if (!path) return c.json({ error: 'path required' }, 400)
     const body = c.req.raw.body
     if (!body) return c.json({ error: 'no body' }, 400)
+    await audit(user.id, 'sftp_upload', { host: host.hostname, path, shared: host.userId === null })
     const client = await connectSsh(host)
     try {
       const sftp = await getSftp(client)
@@ -393,6 +403,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
           try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }
           return
         }
+        if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
         try {
           await ensureCodingPtySidecarReady()
           const spawn = buildHostShellSpawnParams(user.id)
@@ -427,6 +438,8 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     return {
       async onOpen(_evt, ws) {
         if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
+        if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
+        if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || !host.sshUser) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }
         try {
@@ -441,7 +454,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
             pending.length = 0
           })
           client.on('error', (e) => { logger.warn(`[remote] ssh error ${host.hostname}: ${e.message}`); try { ws.close(1011, 'ssh error') } catch { /* ignore */ } })
-          if (host.userId === null) await audit(user.id, 'ssh_open', { host: host.hostname })
+          await audit(user.id, 'ssh_open', { host: host.hostname, shared: host.userId === null })
         } catch (err) {
           logger.warn(`[remote] ssh connect failed: ${err instanceof Error ? err.message : String(err)}`)
           try { ws.close(1011, 'ssh unavailable') } catch { /* ignore */ }
@@ -470,10 +483,12 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     return {
       async onOpen(_evt, ws) {
         if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
+        if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
+        if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || host.vncPort == null) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }
         bridge = openTcpBridge(ws, host.hostname, host.vncPort)
-        if (host.userId === null) await audit(user.id, 'vnc_open', { host: host.hostname })
+        await audit(user.id, 'vnc_open', { host: host.hostname, shared: host.userId === null })
       },
       onMessage(evt) { bridge?.write(evt.data as ArrayBuffer) },
       onClose() { bridge?.close(); bridge = null },
@@ -489,10 +504,12 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     return {
       async onOpen(_evt, ws) {
         if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
+        if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
+        if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || host.rdpPort == null) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }
         ctrl = createRdpCleanPath(ws, host.hostname, host.rdpPort)
-        if (host.userId === null) await audit(user.id, 'rdp_open', { host: host.hostname })
+        await audit(user.id, 'rdp_open', { host: host.hostname, shared: host.userId === null })
       },
       onMessage(evt) {
         if (!ctrl) return

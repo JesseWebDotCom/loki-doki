@@ -6,6 +6,8 @@ import {
   type PersonRecord,
 } from '@/lib/peopleLookup'
 import { parseUsAddress } from '@/lib/addressParse'
+import { isFeatureEnabled } from '@/lib/featureGate'
+import { logger } from '@/lib/logger'
 
 // Companion tool: reverse people lookup via ThatsThem. One tool, three modes auto-detected
 // from the query — a phone number → who it belongs to; a street address → who lives there;
@@ -70,10 +72,16 @@ export const peopleLookupTool: Tool = {
   },
 
   async execute(args: unknown): Promise<ToolResult> {
+    // Respect the People & Property Lookup capability gate: when the admin disables it, the
+    // companion can no longer reverse-look-up people either (the HTTP route is gated too).
+    if (!(await isFeatureEnabled('people_lookup'))) {
+      return { success: false, error: 'People lookup is disabled by the administrator.' }
+    }
     const { query } = args as { query?: string }
     if (!query?.trim()) return { success: false, error: 'A phone number, address, or name is required' }
 
     const classified = classify(query)
+    if (classified) logger.info(`[lookup] companion people_lookup mode=${classified.mode}`)
     if (!classified) {
       return { success: false, error: 'Could not tell whether that is a phone number, address, or name' }
     }

@@ -9,10 +9,23 @@ import { resolveClip } from '@/lib/clipper/resolve'
 import { resolveDirectPlayUrl, NO_DIRECT_PLAY } from '@/lib/clipper/stream'
 import { enqueueClipDownload } from '@/lib/downloadJobs'
 import { blobAbsPath, acquireRead, releaseRead } from '@/lib/content/store'
+import { assertPublicUrl } from '@/lib/ssrfGuard'
 import type { AppEnv } from '@/types'
 
 const clipperRoute = new Hono<AppEnv>()
 clipperRoute.use('*', requireAuth)
+
+/** Reject anything that isn't a plain http(s) URL before it can reach yt-dlp as an argument
+ *  (a value starting with `-`/`--` is otherwise parsed as an option → --config-location →
+ *  arbitrary options incl. --exec → RCE). Mirrors the guard on /resolve and /stream. */
+function isHttpUrl(input: string): boolean {
+  try {
+    const u = new URL(input)
+    return u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
 
 // ── Resolve: preview metadata for a pasted URL, no DB write ─────────────────────
 
@@ -38,6 +51,15 @@ clipperRoute.post('/save', async (c) => {
   }>().catch(() => ({}) as Record<string, never>)
   const url = body.url?.trim()
   if (!url) return c.json({ error: 'url required' }, 400)
+  // Validate BEFORE the DB insert so a rejected URL leaves no orphaned `clips` row.
+  if (!isHttpUrl(url)) return c.json({ error: 'That doesn\'t look like a valid URL.' }, 400)
+  // Refuse internal targets: yt-dlp's generic extractor would otherwise fetch localhost /
+  // cloud-metadata / LAN services on our behalf, and the result is readable via /file/:id.
+  try {
+    await assertPublicUrl(url)
+  } catch {
+    return c.json({ error: 'That URL isn\'t allowed.' }, 400)
+  }
   const kind: 'audio' | 'video' = body.kind === 'audio' ? 'audio' : 'video'
 
   const id = crypto.randomUUID()

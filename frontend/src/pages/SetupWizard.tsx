@@ -343,6 +343,10 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
   const [nickname, setNickname]   = useState(initial?.nickname ?? '')
   const [nicknameTouched, setNicknameTouched] = useState(!!(initial?.nickname))
   const [birthdate, setBirthdate] = useState('')
+  // Admin PIN: required at creation so the admin account is never in a PIN-less,
+  // one-request-takeover state. Not shown when editing an existing profile.
+  const [pin, setPin] = useState('')
+  const [pinConfirm, setPinConfirm] = useState('')
   const [safeMode, setSafeMode] = useState(false)
   const [avatarMode, setAvatarMode] = useState<AvatarMode>(initial?.avatarUrl ? 'photo' : 'avatar')
   const [dbStyle, setDbStyle]   = useState(initial?.dicebearStyle ?? 'avataaars')
@@ -380,6 +384,10 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
     e.preventDefault()
     if (!firstName.trim() || !lastName.trim()) { setError('First and last name are required.'); return }
     if (!editMode && !birthdate) { setError('Date of birth is required.'); return }
+    if (!editMode) {
+      if (!/^\d{4,6}$/.test(pin)) { setError('Choose a 4 to 6 digit admin PIN.'); return }
+      if (pin !== pinConfirm) { setError('The PINs do not match.'); return }
+    }
     setLoading(true); setError('')
     try {
       // Editing an existing account (navigated back) - update in place, don't re-create.
@@ -394,7 +402,7 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
 
       const res = await fetch('/api/setup/admin', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim(), birthdate }),
+        body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim(), birthdate, pin }),
       })
       if (!res.ok) {
         const body = await res.json() as { error?: string }
@@ -452,6 +460,30 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
               Stays on your server - used only for age-appropriate content.
             </p>
           </div>
+
+          {!editMode && (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Admin PIN <span className="font-normal text-muted-foreground/50">(4 to 6 digits)</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="password" inputMode="numeric" autoComplete="new-password" maxLength={6}
+                  className={inputCls} placeholder="Choose a PIN"
+                  value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                />
+                <input
+                  type="password" inputMode="numeric" autoComplete="new-password" maxLength={6}
+                  className={inputCls} placeholder="Confirm PIN"
+                  value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ''))}
+                />
+              </div>
+              <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+                <ShieldCheck className="size-3 shrink-0 text-brand" />
+                Protects the admin account. You'll enter this to unlock admin controls.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">AI content mode</label>

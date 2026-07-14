@@ -65,6 +65,7 @@ import { kosync } from '@/routes/kosync'
 import { opds } from '@/routes/opds'
 import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
+import { requireFeature, isFeatureEnabled } from '@/lib/featureGate'
 import { adminBriefing } from '@/routes/adminBriefing'
 import { briefing } from '@/routes/briefing'
 import { push } from '@/routes/push'
@@ -397,14 +398,19 @@ if (firstBoot) {
   // Karaoke stem cache: delete prepared karaoke tracks unused for 30 days (boot + daily).
   import('@/lib/stems/karaokeCache').then((m) => m.startKaraokeCacheSweep()).catch(() => {})
   
-  // Bookmarks capture engine: resolve (and if needed download) a headless Chromium ahead of the
-  // first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
-  import('@/lib/bookmarks/render').then((m) => m.ensureChromium()).catch(() => {})
-  // Bookmarks auto-update: periodically re-archive items the user marked for monitoring, and alert
-  // on content changes. Rides the download queue, so it's bounded the same way archiving is.
-  import('@/lib/bookmarks/autoUpdate').then((m) => m.startBookmarkAutoUpdatePoller()).catch(() => {})
-  // Collection RSS ingest: auto-save new items from feeds a collection subscribes to.
-  import('@/lib/bookmarks/collectionRss').then((m) => m.startBookmarkCollectionRssPoller()).catch(() => {})
+  // Bookmarks capture engine + auto-update pollers all drive server-side headless Chromium
+  // against third-party sites, so they only start when the Server Browser Automation feature
+  // is enabled. Toggling it off stops future prewarm/archiving without deleting saved data.
+  void isFeatureEnabled('browser_session').then((on) => {
+    if (!on) return
+    // Resolve (and if needed download) a headless Chromium ahead of the first archive so the
+    // initial save isn't stalled by a ~150MB install. Best-effort.
+    import('@/lib/bookmarks/render').then((m) => m.ensureChromium()).catch(() => {})
+    // Periodically re-archive items the user marked for monitoring, and alert on changes.
+    import('@/lib/bookmarks/autoUpdate').then((m) => m.startBookmarkAutoUpdatePoller()).catch(() => {})
+    // Collection RSS ingest: auto-save new items from feeds a collection subscribes to.
+    import('@/lib/bookmarks/collectionRss').then((m) => m.startBookmarkCollectionRssPoller()).catch(() => {})
+  })
   // Shopping price tracker: re-check tracked listings on a jittered ~4h cadence and fire
   // price-drop/back-in-stock alerts through the notification matrix.
   import('@/lib/shopping/poller').then((m) => m.startShoppingPoller()).catch(() => {})
@@ -503,6 +509,21 @@ app.onError((err, c) => {
 // Cheap, unauthenticated liveness probe so the frontend can tell "backend is down"
 // apart from "request failed" and surface/recover instead of hanging silently.
 app.get('/api/health', (c) => c.json({ ok: true }))
+
+// ── Capability gates ────────────────────────────────────────────────────────────
+// Enforce the admin feature toggles at the backend boundary: a disabled feature's HTTP
+// routes 403 and its WebSocket handshake is refused here (the upgrade is a normal GET, so
+// this middleware runs before it completes). Registered BEFORE the mounts below so it
+// matches first. Token routes (opds/kosync) are gated before their token resolution runs.
+// Per-profile authorization for remote/coding is enforced inside their WS handlers, where
+// the session user is resolved. See lib/featureGate.ts.
+app.use('/api/remote/*', requireFeature('remote'))
+app.use('/api/coding/*', requireFeature('coding'))
+app.use('/api/clipper/*', requireFeature('media_downloads'))
+app.use('/api/browser-session/*', requireFeature('browser_session'))
+app.use('/api/opds/*', requireFeature('opds'))
+app.use('/api/kosync/*', requireFeature('kosync'))
+app.use('/api/lookup/*', requireFeature('people_lookup'))
 
 app.route('/api/setup', setup)
 app.route('/api/auth', auth)
@@ -656,7 +677,28 @@ if (process.env.NODE_ENV !== 'development') {
   app.get('*', serveStatic({ path: '../frontend/dist/index.html' }))
 }
 
-const port = parseInt(process.env.PORT ?? '3000')
-logger.info(`loki-doki running on http://localhost:${port}`)
+// At-rest secret encryption (lib/secrets.ts) and the PIN pepper (lib/pin.ts) fall back to a
+// key auto-persisted INTO the database when no env key is set — so DB-file theft yields both
+// the ciphertext and its key. Warn the operator so they can set a real key kept outside the DB.
+if (!process.env.SECRETS_KEY || !process.env.PIN_PEPPER) {
+  const missing = [!process.env.SECRETS_KEY && 'SECRETS_KEY', !process.env.PIN_PEPPER && 'PIN_PEPPER'].filter(Boolean).join(' and ')
+  logger.warn(`[security] ${missing} not set — at-rest encryption keys are stored in the database itself, so a stolen DB file is not protected by them. Set ${missing} (see docs) to keep the key outside the DB.`)
+}
 
-export default { port, fetch: app.fetch, websocket, idleTimeout: 0 }
+const port = parseInt(process.env.PORT ?? '3000')
+
+// This is a household LAN appliance: wall displays, Pods, and family phones all reach the
+// server over the LAN, so the default bind is all interfaces (0.0.0.0). A security-conscious
+// operator can pin it — e.g. HOST=127.0.0.1 when a same-box reverse proxy terminates TLS.
+// The bind address only controls which interfaces answer; it does NOT put the app on the
+// public internet. Internet exposure requires the operator to deliberately port-forward /
+// reverse-proxy, which should always terminate TLS (session cookies are Secure only over
+// HTTPS) and add its own authentication.
+const hostname = process.env.HOST ?? '0.0.0.0'
+if (hostname === '0.0.0.0' || hostname === '::') {
+  logger.info(`loki-doki running on http://localhost:${port} (also reachable on your LAN at http://<this-machine-ip>:${port}). Do not port-forward this port to the internet without a TLS reverse proxy in front.`)
+} else {
+  logger.info(`loki-doki running on http://${hostname}:${port}`)
+}
+
+export default { port, hostname, fetch: app.fetch, websocket, idleTimeout: 0 }

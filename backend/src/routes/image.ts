@@ -46,6 +46,7 @@ import { detectStyle, applyStyleToPrompt, applyVectorizeBias } from '@/lib/image
 import type { ImageStyle } from '@/lib/imageStyles'
 import { selectLoras } from '@/lib/loraRouter'
 import { getAdultKeywords, detectIsAdult } from '@/lib/adultDetection'
+import { getProtections } from '@/lib/protections'
 import { screenPrompt, screenImage, hasMinorIndicator, logCsamBlock } from '@/lib/safety/csamGuard'
 import { ollamaChat } from '@/llm/ollama'
 import { getModel, getVisionModel } from '@/lib/models'
@@ -798,6 +799,37 @@ async function buildAndEnqueueJob(params: {
   // bg_remove / i2v don't require a text prompt (i2v is conditioned on the image)
   const prompt = params.prompt.trim()
   if (pipeline !== 'bg_remove' && pipeline !== 'auto_color' && pipeline !== 'adjust' && pipeline !== 'i2v' && !prompt) return null
+
+  // ── Safety floor at the chokepoint ──────────────────────────────────────────────
+  // Enforced here (not only in /generate) so the companion image/video tools and book
+  // generation — which call startImageJob directly — get the same screens.
+  //
+  // 1. CSAM floor: NOT bypassable by any consent. The /generate handler already screened
+  //    (and may have fallen back to the user's original wording); re-screening the chosen
+  //    prompt is cheap and closes the tool/book bypass.
+  const screenText = `${prompt} ${params.negativePrompt ?? ''}`
+  const verdict = screenPrompt(screenText)
+  if (verdict.blocked) {
+    logCsamBlock('image job', params.userId, verdict.reason ?? 'prompt')
+    return null
+  }
+  // 2. "Transform a supplied person image toward a minor cue" — the sexual signal is in the
+  //    input image, the minor signal in the prompt; neither single surface catches it.
+  if ((params.refId || params.imageBase64) && pipeline !== 'bg_remove' && hasMinorIndicator(prompt)) {
+    logCsamBlock('image transform + minor cue', params.userId, 'input image + age term in prompt')
+    return null
+  }
+  // 3. Per-user adult-content protection (default-on for children; off for admins by default,
+  //    but honored if an admin sets it on themselves). Blocks NSFW generation server-side —
+  //    previously `blockAdultImages` was defined but never enforced anywhere.
+  {
+    const protections = await getProtections(params.userId)
+    if (protections.blockAdultImages &&
+        detectIsAdult(prompt, params.negativePrompt ?? '', undefined, await getAdultKeywords())) {
+      logger.warn(`[image] blockAdultImages: refused adult prompt for user=${params.userId}`)
+      return null
+    }
+  }
 
   // ComfyUI health check — PIL-only pipelines skip it
   if (pipeline !== 'auto_color' && pipeline !== 'adjust') {

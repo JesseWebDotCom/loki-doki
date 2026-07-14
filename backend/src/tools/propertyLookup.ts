@@ -1,6 +1,7 @@
 import type { Tool, ToolResult } from './index'
 import { lookupProperty } from '@/lib/propertyLookup'
 import { parseUsAddress } from '@/lib/addressParse'
+import { isFeatureEnabled } from '@/lib/featureGate'
 
 // Companion tool: assessor property facts for a street address (public record via VGSI).
 // Coverage is mainly New England municipalities on Vision Government Solutions; outside
@@ -45,6 +46,9 @@ export const propertyLookupTool: Tool = {
   },
 
   async execute(args: unknown): Promise<ToolResult> {
+    if (!(await isFeatureEnabled('people_lookup'))) {
+      return { success: false, error: 'Property lookup is disabled by the administrator.' }
+    }
     const { address } = args as { address?: string }
     if (!address?.trim()) return { success: false, error: 'An address is required' }
 

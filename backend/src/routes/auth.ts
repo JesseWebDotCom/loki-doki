@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { getCookie, deleteCookie } from 'hono/cookie'
+import { getConnInfo } from 'hono/bun'
+import type { Context } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, sessions, profilePins } from '@/db/schema'
@@ -10,6 +12,20 @@ import { requireAuth, invalidateSessionCache } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 
 const auth = new Hono<AppEnv>()
+
+// A reverse proxy makes every socket peer look like loopback, so we can only trust a
+// loopback peer as "operator on the box" when no proxy is configured. Mirrors the
+// TRUST_PROXY gate in pinThrottle.ts.
+const TRUST_PROXY = process.env.TRUST_PROXY === '1' || !!(process.env.APP_ORIGIN ?? process.env.PUBLIC_ORIGIN)
+function isLocalOperatorRequest(c: Context<AppEnv>): boolean {
+  if (TRUST_PROXY) return false
+  try {
+    const addr = getConnInfo(c).remote.address ?? ''
+    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
+  } catch {
+    return false
+  }
+}
 
 // All profiles for the profile picker — never exposes pin hashes
 auth.get('/profiles', async (c) => {
@@ -55,9 +71,14 @@ auth.post('/select', async (c) => {
 
     if (existingPin) return c.json({ error: 'PIN required' }, 400)
 
-    // Admin exists but has no PIN on record — a broken state (e.g. from an older
-    // bug that allowed removing it) with otherwise no way back in. Let the picker
-    // walk the user through setting one here instead of dead-ending.
+    // Admin exists but has no PIN on record — a broken/legacy state (setup now always
+    // sets one). Recovering by setting a PIN here also mints an admin session, so it is
+    // an unauthenticated privilege grant: allow it ONLY from a loopback peer with no
+    // reverse proxy configured (the operator physically on the box). A remote client —
+    // LAN or internet — is refused, closing the one-request admin-takeover.
+    if (!isLocalOperatorRequest(c)) {
+      return c.json({ error: 'Admin PIN recovery must be done from the server itself.' }, 403)
+    }
     if (!newPin) return c.json({ error: 'PIN required', needsPinSetup: true }, 400)
     if (!/^\d{4,6}$/.test(newPin)) return c.json({ error: 'PIN must be 4–6 digits' }, 400)
 

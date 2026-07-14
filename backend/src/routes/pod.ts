@@ -8,7 +8,10 @@
 import { Hono } from 'hono'
 import { streamSSE, stream } from 'hono/streaming'
 import { getCookie } from 'hono/cookie'
+import { getConnInfo } from 'hono/bun'
+import type { Context } from 'hono'
 import { requireAdmin, requireAuth, resolveSession } from '@/middleware/auth'
+import { isBlockedIp } from '@/lib/ssrfGuard'
 import { logger } from '@/lib/logger'
 import { buildControllerAtlas, resolveLocalArt, renderPodcastCoverForShow, toDeviceJpeg } from '@/lib/pod/controllerAtlas'
 import type { AppEnv } from '@/types'
@@ -31,7 +34,6 @@ import { resolveDevicePhotoUrl } from '@/lib/pod/displayData'
 import { getNowPlaying } from '@/lib/pod/nowPlaying'
 import { deviceDisplayMode, setDeviceCamera, setDeviceAuto, fetchCameraFrame, getPodView, setPodView, isValidPodView, type DeviceDisplayMode } from '@/lib/pod/displayController'
 import { getUserPresence, setUserStatus, clearUserStatus, setUserSleep, setUserAlert, clearUserAlert, STATUS_COLORS, STATUS_LABELS, type StatusState } from '@/lib/pod/presence'
-import { latestLivingRoomFrame } from '@/lib/pod/cameraStream'
 import { startFfmpegTest, startFfmpegSource, startUrlTest, stopTest, isTestActive } from '@/lib/pod/cameraTest'
 import { livingRoomMjpegUrl } from '@/lib/pod/cameraStream'
 import { setPacing, cameraStats, deviceStreamHealth } from '@/lib/pod/cameraUdp'
@@ -43,6 +45,26 @@ const pod = new Hono<AppEnv>()
 // The AbortController of the in-flight firmware flash (one at a time), so a new flash
 // request can take over a stale/abandoned one (see /firmware/flash).
 let podFlashAbort: AbortController | null = null
+
+// The device-facing display/image/cover endpoints below are polled by ESP32 firmware that
+// carries no session cookie (and today no token in the image URL). They render a family
+// member's ambient screen / photos / camera, so they must not be world-readable if the
+// server is ever internet-exposed. Best-effort gate without a firmware re-flash: allow when
+// a valid browser session is present (in-app preview/admin) OR the request's SOURCE address
+// is a LAN/loopback address (a real Pod is on the LAN; an internet client is not). Behind a
+// configured reverse proxy the true peer is hidden, so we defer to the proxy's own auth.
+const TRUST_PROXY = process.env.TRUST_PROXY === '1' || !!(process.env.APP_ORIGIN ?? process.env.PUBLIC_ORIGIN)
+async function podClientAllowed(c: Context<AppEnv>): Promise<boolean> {
+  const token = getCookie(c, 'session')
+  if (token && (await resolveSession(token))) return true
+  if (TRUST_PROXY) return true // proxied deployment opted into exposure; auth belongs at the proxy
+  try {
+    const addr = getConnInfo(c).remote.address ?? ''
+    return addr === '' ? false : isBlockedIp(addr) // private/loopback/link-local ⇒ a LAN device
+  } catch {
+    return false
+  }
+}
 
 // ── Pod-facing: redeem a pairing code for a long-lived device token ──────────
 // Unauthenticated by design — the code IS the credential. Rate-limiting/IP
@@ -64,6 +86,7 @@ pod.post('/pair', async (c) => {
 // same LAN-appliance trust model as claim-by-hwid — the device must already exist
 // and be bound to a user. Returns a JPEG of that user's /display page.
 pod.get('/display/:hwid', async (c) => {
+  if (!(await podClientAllowed(c))) return c.json({ error: 'forbidden' }, 403)
   const dev = await deviceByHwid(c.req.param('hwid'))
   if (!dev) return c.json({ error: 'unknown device' }, 404)
 
@@ -91,6 +114,7 @@ pod.get('/display/:hwid', async (c) => {
 // [uint32 LE length][jpeg bytes] repeatedly and hardware-decodes each. Avoids the
 // per-frame HTTP connection overhead that capped the poll path at a few fps.
 pod.get('/display/:hwid/stream', async (c) => {
+  if (!(await podClientAllowed(c))) return c.json({ error: 'forbidden' }, 403)
   const dev = await deviceByHwid(c.req.param('hwid'))
   if (!dev) return c.json({ error: 'unknown device' }, 404)
   // Native-LVGL devices render their own dashboard — no server pixels (unless an admin
@@ -132,6 +156,7 @@ pod.get('/display/:hwid/stream', async (c) => {
 // at its tile (sub-region) of the decoded buffer. That keeps N images cheap. Pass 1
 // implements the single-photo case; `?kind=thumbs` is reserved for the atlas.
 pod.get('/image/:hwid', async (c) => {
+  if (!(await podClientAllowed(c))) return c.body(null, 403)
   // The hwid carries an image extension in the device's URL (…/<mac>.jpg); strip it.
   const raw = c.req.param('hwid').replace(/\.(jpe?g|png|webp)$/i, '')
   const url = await resolveDevicePhotoUrl(raw)
@@ -153,6 +178,7 @@ pod.get('/image/:hwid', async (c) => {
 // Controller thumbnail ATLAS: every button's artwork composited into one grid image so the
 // native stream-deck device fetches it ONCE and shows each cell its tile (offset + clip).
 pod.get('/controller-atlas/:hwid', async (c) => {
+  if (!(await podClientAllowed(c))) return c.body(null, 403)
   const raw = c.req.param('hwid').replace(/\.(jpe?g|png|webp)$/i, '')
   const dev = await deviceByHwid(raw)
   if (!dev) return c.body(null, 404)
@@ -171,6 +197,7 @@ pod.get('/controller-atlas/:hwid', async (c) => {
 // media-player bar (the device can't reach the remote art host directly). 404 when nothing
 // is playing → the device keeps its placeholder. LAN-trust like /image (keyed by hwid).
 pod.get('/cover/:hwid', async (c) => {
+  if (!(await podClientAllowed(c))) return c.body(null, 403)
   const raw = c.req.param('hwid').replace(/\.(jpe?g|png|webp)$/i, '')
   const dev = await deviceByHwid(raw)
   if (!dev) return c.body(null, 404)
@@ -218,42 +245,10 @@ pod.get('/cover/:hwid', async (c) => {
 })
 
 // ── Pod-facing: living-room camera perf test ─────────────────────────────────
-// Returns the freshest living-room frame straight from the persistent Frigate MJPEG
-// cache (no per-request upstream fetch), so the device's hw_jpeg loop can hammer this
-// flat-out and the on-screen FPS counter reflects the device's real ceiling. LAN-trust
-// like /display (no MAC needed — it's a single shared test feed).
-pod.get('/camera-test', async (c) => {
-  const frame = await latestLivingRoomFrame()
-  if (!frame) return c.json({ error: 'camera unavailable' }, 503)
-  return new Response(new Uint8Array(frame), {
-    status: 200,
-    headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
-  })
-})
-
-// Continuous PUSH stream of living-room frames over ONE connection: [uint32 LE
-// length][jpeg bytes] repeated. The device opens this once and reads frame after
-// frame — no per-request round-trip (which over the C6/SDIO bridge was the ~2 fps
-// wall). Backpressure paces it to whatever the device can decode.
-pod.get('/camera-test/stream', async (c) => {
-  c.header('Content-Type', 'application/octet-stream')
-  c.header('Cache-Control', 'no-store')
-  return stream(c, async (s) => {
-    let alive = true
-    s.onAbort(() => { alive = false })
-    const header = new Uint8Array(4)
-    const view = new DataView(header.buffer)
-    while (alive) {
-      const frame = await latestLivingRoomFrame()
-      if (frame) {
-        view.setUint32(0, frame.length, true)
-        await s.write(header)
-        await s.write(new Uint8Array(frame))
-      }
-      await s.sleep(20) // ~50fps ceiling; TCP backpressure throttles to device speed
-    }
-  })
-})
+// The unauthenticated HTTP frame endpoints (`GET /camera-test` and `/camera-test/stream`)
+// that once served the raw living-room camera were REMOVED for privacy: nothing referenced
+// them (devices receive camera-test frames over the UDP path in lib/pod/cameraUdp.ts, not
+// over HTTP), and an always-on unauthenticated camera feed is an unacceptable exposure.
 
 // Server-side camera rate stats (source-fps it's receiving, sent-fps it's pushing).
 pod.get('/camera-test/stats', (c) => c.json(cameraStats()))

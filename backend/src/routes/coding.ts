@@ -13,6 +13,7 @@ import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import type { createBunWebSocket } from 'hono/bun'
 import { resolveSession, requireAuth } from '@/middleware/auth'
+import { isFeatureEnabled, userMayUseCapability } from '@/lib/featureGate'
 import { buildAttachSpawnParams, paneControl, type PaneAction } from '@/lib/codingServer'
 import { ensureCodingPtySidecarReady, codingPtySidecarWsUrl } from '@/lib/codingPtySidecar'
 import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
@@ -49,6 +50,11 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
       return {
         async onOpen(_evt, ws) {
           if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
+          // Defense-in-depth on top of the /api/coding/* feature gate: the upgrade middleware
+          // refuses a disabled feature, but re-check here (WS is the code-execution surface)
+          // and enforce per-profile access — a non-admin needs an explicit capability grant.
+          if (!(await isFeatureEnabled('coding'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
+          if (!(await userMayUseCapability(user, 'coding'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
           try {
             await ensureCodingPtySidecarReady()
             const spawnParams = await buildAttachSpawnParams(user.id)
