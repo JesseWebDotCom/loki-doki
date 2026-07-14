@@ -24,13 +24,13 @@ const execFileAsync = promisify(execFile)
 // isolation, only Claude Code's own interactive approval prompts.
 const FALLBACK_WORKSPACES_ROOT = join(dataDir, 'coding', 'users')
 
-// One persistent tmux session PER USER, wrapping a single `claude` process — not one
-// PTY-per-pane managed by this app. tmux itself draws whatever split layout exists
-// into that single character grid; splitting/closing panes are just tmux commands
-// (see paneControl below), and mouse-mode drag-to-resize works because xterm.js
-// forwards mouse events straight through to the attached tmux client. This is
-// dramatically less code than a hand-rolled multi-PTY reconnect/persistence system,
-// and reload/disconnect-survival falls out of tmux's own detach/attach for free.
+// One persistent tmux session PER USER. IMPORTANT (per-window sandbox): the tmux SERVER
+// itself runs as THIS app's own OS user — never sudo'd — and only individual PANES that
+// should be sandboxed drop to the restricted `lokidoki-coding` user via `sudo -u` on their
+// launch command. That's what lets one session mix sandboxed and unsandboxed panes (an
+// admin can escape the sandbox per window). It works because the per-user workspace lives
+// under the group-shared SANDBOX_WORKSPACES_ROOT (2770, g+s; the app user is in the group),
+// so the app-user server can create/enter it AND a sandboxed pane can too.
 const SESSION_NAME = 'coding'
 
 export function workspaceDirFor(userId: string): string {
@@ -38,13 +38,12 @@ export function workspaceDirFor(userId: string): string {
   return join(root, 'users', userId)
 }
 
-// Claude Code writes global config/skills to $HOME/.claude regardless of cwd, same
-// reasoning as OpenCode's old per-user HOME: nested inside each user's own workspace
-// dir so different household members never share credentials/skills/recent-project
-// state.
-function homeDirFor(workingDir: string): string {
-  return join(workingDir, '.home')
-}
+// Claude Code writes global config/skills to $HOME/.claude regardless of cwd; nested inside
+// each user's workspace so household members never share credentials/skills. Sandboxed and
+// unsandboxed panes get SEPARATE homes so their files (written by different OS users) never
+// clash on ownership.
+function sandboxedHomeDir(workingDir: string): string { return join(workingDir, '.home') }
+function unsandboxedHomeDir(workingDir: string): string { return join(workingDir, '.home-host') }
 
 function socketPathFor(workingDir: string): string {
   return join(workingDir, '.tmux.sock')
@@ -57,29 +56,11 @@ async function resolveCodingModelTag(): Promise<string> {
   return entry?.ollamaTag ?? id
 }
 
-interface SandboxedSpawn { bin: string; args: string[] }
-
-// Wraps a command through the sandboxed launch script (real OS-level isolation) when
-// installed, else runs it directly — same branch shape as codingSandboxUser.ts's own
-// docs describe (approval-gate-only fallback, not a silent gap).
-function sandboxWrap(cmdArgs: string[]): SandboxedSpawn {
-  if (isSandboxUserInstalled()) {
-    return { bin: 'sudo', args: ['-u', SANDBOX_USER, LAUNCH_SCRIPT, ...cmdArgs] }
-  }
+// Run a tmux control/attach command directly as THIS app's user (the tmux server owner).
+// No sudo: server + socket + workspace are all app-user/group accessible.
+async function runTmux(cmdArgs: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
   const [bin, ...args] = cmdArgs
-  if (!bin) throw new Error('sandboxWrap: cmdArgs must be non-empty')
-  return { bin, args }
-}
-
-// `cwd` is load-bearing, not cosmetic: without an explicit cwd, the spawned process
-// inherits THIS backend process's own cwd (somewhere inside a home directory), which
-// the sandboxed OS user structurally cannot access at all — confirmed live: sudo
-// itself starts fine, but the exec'd shell's own `getcwd()` then fails ("cannot
-// access parent directories: Permission denied"), silently killing tmux's server
-// before it can even process `-c <dir>`. The workspace dir itself is always a safe
-// choice: it's the one path this sandboxed user is guaranteed to have access to.
-async function runSandboxed(cmdArgs: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
-  const { bin, args } = sandboxWrap(cmdArgs)
+  if (!bin) throw new Error('runTmux: cmdArgs must be non-empty')
   try {
     const { stdout, stderr } = await execFileAsync(bin, args, { cwd, timeout: 10_000, windowsHide: true })
     return { code: 0, stdout, stderr }
@@ -90,13 +71,11 @@ async function runSandboxed(cmdArgs: string[], cwd: string): Promise<{ code: num
 }
 
 async function hasSession(userId: string): Promise<boolean> {
-  // Windows has no tmux socket; the PTY sidecar owns session existence (spawn-or-adopt),
-  // so there's nothing to probe here.
   if (IS_WIN) return false
   const workingDir = workspaceDirFor(userId)
   const sock = socketPathFor(workingDir)
   if (!existsSync(sock)) return false
-  const r = await runSandboxed(['tmux', '-S', sock, 'has-session', '-t', SESSION_NAME], workingDir)
+  const r = await runTmux(['tmux', '-S', sock, 'has-session', '-t', SESSION_NAME], workingDir)
   return r.code === 0
 }
 
@@ -104,11 +83,6 @@ function mirroredClaudeBin(): string {
   return join(SANDBOX_RUNTIME_DIR, 'node_modules', '.bin', 'claude')
 }
 
-// ensureSandboxRuntimeMirrored is a cheap no-op once SANDBOX_RUNTIME_DIR exists at
-// all — it never re-checks WHAT'S mirrored there. This app previously mirrored
-// OpenCode into that exact path; a stale opencode-only mirror would silently never
-// get replaced with Claude Code's binary, since the directory already "exists". Wipe
-// and let it re-mirror fresh whenever the expected binary is missing.
 function ensureFreshSandboxRuntimeMirror(): void {
   if (existsSync(SANDBOX_RUNTIME_DIR) && !existsSync(mirroredClaudeBin())) {
     rmSync(SANDBOX_RUNTIME_DIR, { recursive: true, force: true })
@@ -116,195 +90,143 @@ function ensureFreshSandboxRuntimeMirror(): void {
   ensureSandboxRuntimeMirrored(CLAUDE_CODE_DIR)
 }
 
-interface ClaudeLaunch { claudeBin: string; envArgs: string[]; workingDir: string; sock: string }
+interface PaneLaunch { paneCmd: string[]; workingDir: string; sock: string }
 
-// Shared by ensureTmuxSession (the session's first pane) AND paneControl (every
-// later split): every pane in the Coding app should run Claude Code, not tmux's
-// default fallback shell. Also prepares the per-user workspace/HOME dirs, so calling
-// this is safe even before a session exists yet.
-async function resolveClaudeLaunch(userId: string): Promise<ClaudeLaunch> {
+/**
+ * Build the launch command for a single pane running Claude Code. When `sandboxed` (and the
+ * sandbox user is installed), the pane's `claude` runs via `sudo -u lokidoki-coding` (real
+ * OS-level isolation, mirrored runtime, isolated HOME); otherwise it runs directly as this
+ * app's user with full host access. The tmux server that hosts the pane is always this app's
+ * user — only the pane command is (or isn't) wrapped. Also prepares the workspace + HOME dirs.
+ */
+async function resolvePaneLaunch(userId: string, sandboxed: boolean): Promise<PaneLaunch> {
   if (!isClaudeCodeInstalled()) throw new Error('Claude Code is not installed. Enable it in Admin → Features')
+  const eff = sandboxed && isSandboxUserInstalled()
   const workingDir = workspaceDirFor(userId)
   mkdirSync(workingDir, { recursive: true })
-  // Explicit chmod, not just mkdir's mode param: the umask this process runs under
-  // can strip the group-write bit the sandboxed coding user needs to write into its
-  // own session directories. No-op (harmless) on the unsandboxed fallback path.
+  // Group-writable so a sandboxed pane (lokidoki-coding, same group) can write here too.
   if (isSandboxUserInstalled()) chmodSync(workingDir, 0o770)
-  const homeDir = homeDirFor(workingDir)
-  mkdirSync(homeDir, { recursive: true })
-  if (isSandboxUserInstalled()) chmodSync(homeDir, 0o770)
 
-  const sandboxed = isSandboxUserInstalled()
+  const homeDir = eff ? sandboxedHomeDir(workingDir) : unsandboxedHomeDir(workingDir)
+  mkdirSync(homeDir, { recursive: true })
+  if (eff) chmodSync(homeDir, 0o770)
+
   let claudeBin = CLAUDE_BIN
-  if (sandboxed) {
-    ensureFreshSandboxRuntimeMirror()
-    claudeBin = mirroredClaudeBin()
-  }
+  if (eff) { ensureFreshSandboxRuntimeMirror(); claudeBin = mirroredClaudeBin() }
 
   const model = await resolveCodingModelTag()
   const envArgs = [
     `HOME=${homeDir}`,
-    // Load-bearing, not cosmetic: the sandboxed OS user's login shell is
-    // deliberately /usr/bin/false (codingSandboxUser.ts, to block interactive
-    // login), but tmux always runs a new session/window/pane's initial command
-    // through $SHELL -c "..." — falling back to the invoking user's passwd shell
-    // when $SHELL isn't set. Without this override, tmux launches the pane via
-    // /usr/bin/false, which exits immediately, killing the pane (and, for a brand
-    // new detached session with nothing attached, the whole server with it) —
-    // confirmed live: `new-session -d` reports exit 0, then `has-session` reports
-    // "no server running" moments later, with claude never actually starting.
     `SHELL=/bin/bash`,
-    // Ollama's native Anthropic-Messages-compatible endpoint (confirmed: full
-    // tool-calling + streaming support) — no proxy, no translation shim needed to
-    // point the real Claude Code CLI at the household's local coding model.
     `ANTHROPIC_BASE_URL=${ollamaUrl()}`,
-    `ANTHROPIC_AUTH_TOKEN=ollama`, // accepted but not validated by Ollama's compat layer
+    `ANTHROPIC_AUTH_TOKEN=ollama`,
     `ANTHROPIC_MODEL=${model}`,
   ]
-  return { claudeBin, envArgs, workingDir, sock: socketPathFor(workingDir) }
+  const launch = ['env', ...envArgs, claudeBin]
+  const paneCmd = eff ? ['sudo', '-u', SANDBOX_USER, LAUNCH_SCRIPT, ...launch] : launch
+  return { paneCmd, workingDir, sock: socketPathFor(workingDir) }
 }
 
 // Concurrent WS opens (e.g. two browser tabs) shouldn't race to create the same tmux
 // session twice.
 const ensuring = new Map<string, Promise<void>>()
 
-/** Ensures a tmux session running `claude` exists for this user; idempotent. */
+/** Ensures a tmux session running `claude` exists for this user; idempotent. The first pane
+ *  is sandboxed by default (the safe default; admins can later split unsandboxed panes). */
 export async function ensureTmuxSession(userId: string): Promise<void> {
   const existing = ensuring.get(userId)
   if (existing) return existing
   const p = (async () => {
     if (IS_WIN) {
-      // No tmux on Windows: the PTY sidecar spawns `claude` directly and keeps it alive
-      // across reconnects (see buildAttachSpawnParams). Nothing to pre-create here beyond
-      // the per-user workspace + home dirs the attach spawn will run in.
       const workingDir = workspaceDirFor(userId)
       mkdirSync(workingDir, { recursive: true })
-      mkdirSync(homeDirFor(workingDir), { recursive: true })
+      mkdirSync(unsandboxedHomeDir(workingDir), { recursive: true })
       return
     }
     if (await hasSession(userId)) return
-    const { claudeBin, envArgs, workingDir, sock } = await resolveClaudeLaunch(userId)
-    // Env vars set here reach `claude` because tmux captures the "global environment"
-    // from the process that starts its server (this `env ... tmux new-session`
-    // invocation) and applies it to that first window's command — same env-forwarding
-    // assumption this app already relies on for OPENCODE_SERVER_PASSWORD/HOME today
-    // (see the git history for codingServer.ts), just via tmux instead of a plain spawn.
-    const cmdArgs = [
-      'env', ...envArgs,
-      'tmux', '-S', sock, 'new-session', '-A', '-d', '-s', SESSION_NAME, '-c', workingDir,
-      claudeBin,
-    ]
-    const r = await runSandboxed(cmdArgs, workingDir)
+    const { paneCmd, workingDir, sock } = await resolvePaneLaunch(userId, true)
+    const cmdArgs = ['tmux', '-S', sock, 'new-session', '-A', '-d', '-s', SESSION_NAME, '-c', workingDir, ...paneCmd]
+    const r = await runTmux(cmdArgs, workingDir)
     if (r.code !== 0) throw new Error(`tmux new-session failed: ${r.stderr || r.stdout}`)
-    // Mouse mode is what makes tmux's ASCII splits feel Ghostty-like rather than
-    // needing bespoke resize UI: xterm.js forwards mouse events straight through, and
-    // tmux's own mouse mode consumes drag-on-divider events to resize panes.
-    const mouseResult = await runSandboxed(['tmux', '-S', sock, 'set', '-g', 'mouse', 'on'], workingDir)
+    const mouseResult = await runTmux(['tmux', '-S', sock, 'set', '-g', 'mouse', 'on'], workingDir)
     if (mouseResult.code !== 0) logger.warn(`[coding] tmux mouse mode failed to enable for user ${userId}: ${mouseResult.stderr}`)
   })()
   ensuring.set(userId, p)
   try { await p } finally { ensuring.delete(userId) }
 }
 
-/** Kills the session — used when the coding_model setting changes (env is baked in at session start, not re-readable mid-session) or for admin/debug cleanup. */
+/** Kills the session — used when the coding_model setting changes or for admin/debug cleanup. */
 export async function killTmuxSession(userId: string): Promise<void> {
   if (IS_WIN) {
-    // On Windows the session is a persistent pty inside the PTY sidecar, not a tmux server.
     await killCodingSession(userId)
     return
   }
   const workingDir = workspaceDirFor(userId)
   const sock = socketPathFor(workingDir)
   if (!existsSync(sock)) return
-  await runSandboxed(['tmux', '-S', sock, 'kill-server'], workingDir)
+  await runTmux(['tmux', '-S', sock, 'kill-server'], workingDir)
 }
 
 export type PaneAction = 'split-h' | 'split-v' | 'close'
 
 /**
- * tmux's `-h`/`-v` flags name the divider orientation, not the pane arrangement — a
- * frequent point of confusion. `-h` ("horizontal" divider) produces side-by-side
- * (left/right) panes; `-v` produces stacked (top/bottom) panes. Mapped straight
- * through to our own 'split-h'/'split-v' action names with that same meaning.
+ * tmux's `-h`/`-v` name the divider orientation: `-h` = side-by-side, `-v` = stacked.
+ *
+ * `sandboxed` decides whether the NEW pane's Claude runs inside the OS sandbox (default) or
+ * as this app's own user with full host access. Only admins should ever pass `false` — the
+ * route enforces that. This is the per-window sandbox escape: a single session can hold a
+ * mix of sandboxed and unsandboxed panes.
  */
-export async function paneControl(userId: string, action: PaneAction): Promise<void> {
-  // Split panes are a tmux feature; on Windows the Coding terminal is a single pane. The
-  // route also hides the buttons via /capabilities, so this is defense-in-depth.
+export async function paneControl(userId: string, action: PaneAction, sandboxed = true): Promise<void> {
   if (IS_WIN) throw new Error('Split panes are not available on Windows (no tmux).')
   await ensureTmuxSession(userId)
+  const workingDir = workspaceDirFor(userId)
+  const sock = socketPathFor(workingDir)
   if (action === 'close') {
-    const workingDir = workspaceDirFor(userId)
-    const sock = socketPathFor(workingDir)
-    const r = await runSandboxed(['tmux', '-S', sock, 'kill-pane', '-t', SESSION_NAME], workingDir)
+    const r = await runTmux(['tmux', '-S', sock, 'kill-pane', '-t', SESSION_NAME], workingDir)
     if (r.code !== 0) throw new Error(`tmux ${action} failed: ${r.stderr || r.stdout}`)
     return
   }
-  // Every pane in the Coding app should run Claude Code, not tmux's default fallback
-  // shell — `split-window` with no trailing command just launches $SHELL, which
-  // isn't what "split" means in a coding-agent terminal. Re-specify the same
-  // env/HOME/model/claudeBin used for the session's first pane (tmux's own captured
-  // global environment technically covers the env vars already, but this makes the
-  // pane's actual launch command explicit rather than relying on that).
-  const { claudeBin, envArgs, workingDir, sock } = await resolveClaudeLaunch(userId)
+  const { paneCmd } = await resolvePaneLaunch(userId, sandboxed)
   const flag = action === 'split-h' ? '-h' : '-v'
-  const cmd = ['tmux', '-S', sock, 'split-window', flag, '-t', SESSION_NAME, '-c', workingDir, 'env', ...envArgs, claudeBin]
-  const r = await runSandboxed(cmd, workingDir)
+  const cmd = ['tmux', '-S', sock, 'split-window', flag, '-t', SESSION_NAME, '-c', workingDir, ...paneCmd]
+  const r = await runTmux(cmd, workingDir)
   if (r.code !== 0) throw new Error(`tmux ${action} failed: ${r.stderr || r.stdout}`)
 }
 
 /**
- * Builds the sandboxed command line for a one-shot headless `claude -p` invocation
- * (used by the companion coding tool, tools/coding.ts) — same env/HOME/sandbox-wrap
- * logic as the interactive tmux session above, just without tmux itself: a headless
- * run doesn't need a persistent multiplexed session, only the same model routing and
- * OS-level isolation.
+ * Sandboxed command line for a one-shot headless `claude -p` (the companion coding tool,
+ * tools/coding.ts). Always sandboxed — a background auto-approving run must stay contained.
  */
 export async function buildHeadlessClaudeCommand(userId: string, task: string): Promise<{ bin: string; args: string[]; cwd: string }> {
-  const { claudeBin, envArgs, workingDir } = await resolveClaudeLaunch(userId)
-  // --permission-mode bypassPermissions: a headless run can't prompt interactively for
-  // approval the way the tmux session does, so edits/commands auto-accept here. Safe
-  // because the OS-user sandbox already contains the blast radius to this user's own
-  // workspace. Confirmed live against the installed CLI's own --help output (one of
-  // its documented --permission-mode choices, alongside acceptEdits/auto/manual/
-  // dontAsk/plan).
+  const { paneCmd, workingDir } = await resolvePaneLaunch(userId, true)
   const claudeArgs = ['-p', task, '--output-format', 'json', '--permission-mode', 'bypassPermissions']
-  const cmdArgs = ['env', ...envArgs, claudeBin, ...claudeArgs]
-  const { bin, args } = sandboxWrap(cmdArgs)
-  return { bin, args, cwd: workingDir }
+  const full = [...paneCmd, ...claudeArgs]
+  const [bin, ...args] = full
+  return { bin: bin!, args, cwd: workingDir }
 }
 
 /**
- * Spawn params for the coding-pty-sidecar's WS `/attach` endpoint — the one place
- * that actually needs a real PTY (tmux checks `isatty()` on its controlling
- * terminal for `attach-session`; ordinary tmux control commands like split/kill/
- * has-session don't need one, see runSandboxed above). The attach client runs as the
- * same sandboxed OS user as the session itself: a different OS user couldn't reach
- * the session's own socket file regardless.
+ * Spawn params for the coding-pty-sidecar's WS `/attach` — the one place that needs a real
+ * PTY (tmux `attach-session` checks isatty()). The attach client is this app's user (the tmux
+ * server owner), so it reaches the session socket directly; no sudo.
  */
 export async function buildAttachSpawnParams(userId: string): Promise<{ cmd: string; args: string[]; cwd: string; env: Record<string, string>; sessionKey?: string; persistent?: boolean }> {
   if (IS_WIN) {
-    // Windows has no tmux, so there's no `attach-session` to run in the pty. Instead spawn
-    // `claude` DIRECTLY and mark the sidecar session `persistent`: the sidecar keeps the pty
-    // alive across socket disconnects and shares it across tabs, reproducing tmux's
-    // persistence + reattach. claude.exe is a real PE launcher (verified), so ConPTY runs it.
     if (!isClaudeCodeInstalled()) throw new Error('Claude Code is not installed. Enable it in Admin → Features')
     const workingDir = workspaceDirFor(userId)
     mkdirSync(workingDir, { recursive: true })
-    const homeDir = homeDirFor(workingDir)
+    const homeDir = unsandboxedHomeDir(workingDir)
     mkdirSync(homeDir, { recursive: true })
     const model = await resolveCodingModelTag()
-    // claude is spawned directly here (unlike the Unix path, where tmux baked env into the
-    // session), so its whole environment must be assembled now. Curated allowlist, not the
-    // full process.env, which carries backend secrets an attach client has no reason to see.
     const env: Record<string, string> = {
       TERM: 'xterm-256color',
       HOME: homeDir,
-      USERPROFILE: homeDir, // Node/claude resolve ~/.claude from USERPROFILE on Windows → per-user isolation
+      USERPROFILE: homeDir,
       ANTHROPIC_BASE_URL: ollamaUrl(),
       ANTHROPIC_AUTH_TOKEN: 'ollama',
       ANTHROPIC_MODEL: model,
     }
-    // Windows runtime vars claude.exe (a Node process) needs to load DLLs / find the runtime.
     for (const k of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'APPDATA', 'LOCALAPPDATA']) {
       const v = process.env[k]
       if (v) env[k] = v
@@ -315,12 +237,35 @@ export async function buildAttachSpawnParams(userId: string): Promise<{ cmd: str
   await ensureTmuxSession(userId)
   const workingDir = workspaceDirFor(userId)
   const sock = socketPathFor(workingDir)
-  const { bin, args } = sandboxWrap(['tmux', '-S', sock, 'attach-session', '-t', SESSION_NAME])
-  // Deliberately NOT the full process.env: this backend's own env carries real
-  // secrets (DB connection strings, PIN pepper, etc.) that an attach client — which
-  // only needs PATH to find sudo/tmux and a sane TERM — has no reason to see, even
-  // over a loopback-only connection to the PTY sidecar.
+  // Deliberately NOT the full process.env: this backend's own env carries real secrets an
+  // attach client (which only needs PATH + a sane TERM) has no reason to see.
   const env: Record<string, string> = { TERM: 'xterm-256color' }
   if (process.env.PATH) env.PATH = process.env.PATH
-  return { cmd: bin, args, cwd: workingDir, env }
+  return { cmd: 'tmux', args: ['-S', sock, 'attach-session', '-t', SESSION_NAME], cwd: workingDir, env }
+}
+
+/**
+ * Spawn params for an admin-only RAW host shell (Remote app → This server), running as this
+ * backend's own OS user with full host access — NOT the coding sandbox, NOT Claude Code. Uses
+ * the PTY sidecar's persistent/reattach mode. Curated env only (never the full process.env).
+ * The route that reaches it is requireAdmin + PIN-gated.
+ */
+export function buildHostShellSpawnParams(userId: string): { cmd: string; args: string[]; cwd: string; env: Record<string, string>; sessionKey: string; persistent: boolean } {
+  const home = process.env.HOME || process.env.USERPROFILE || dataDir
+  if (IS_WIN) {
+    const env: Record<string, string> = { TERM: 'xterm-256color' }
+    for (const k of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH']) {
+      const v = process.env[k]
+      if (v) env[k] = v
+    }
+    const cmd = process.env.ComSpec && !existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+      ? process.env.ComSpec
+      : 'powershell.exe'
+    return { cmd, args: [], cwd: home, env, sessionKey: `admin-shell:${userId}`, persistent: true }
+  }
+  const env: Record<string, string> = { TERM: 'xterm-256color', HOME: home }
+  if (process.env.PATH) env.PATH = process.env.PATH
+  if (process.env.LANG) env.LANG = process.env.LANG
+  const shell = process.env.SHELL || '/bin/bash'
+  return { cmd: shell, args: ['-l'], cwd: home, env, sessionKey: `admin-shell:${userId}`, persistent: true }
 }

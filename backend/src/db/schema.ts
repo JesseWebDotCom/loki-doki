@@ -3207,3 +3207,79 @@ export const noteChunks = sqliteTable('note_chunks', {
 }, t => ({
   noteIdx: index('note_chunks_note_idx').on(t.noteId),
 }))
+
+// Admin System console: registry of homelab machines the admin can reach via terminal
+// (SSH), VNC, or RDP from inside the app. Each protocol block is nullable so a host can
+// expose any subset. Secret columns hold ONLY ciphertext from lib/secrets.ts
+// (encryptSecret) — never plaintext — and are never returned to the client.
+export const homelabHosts = sqliteTable('homelab_hosts', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+  hostname: text('hostname').notNull(),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // Scope: null = shared/admin-published (visible to all users); non-null = personal, owned
+  // by that user (private). Distinct from created_by (which is always the original author).
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  folderId: text('folder_id'), // remote_folders.id; plain text (no FK) so folder delete can re-parent
+  favorite: integer('favorite', { mode: 'boolean' }).notNull().default(false),
+  sortOrder: integer('sort_order').notNull().default(0),
+  // SSH
+  sshPort: integer('ssh_port'),
+  sshUser: text('ssh_user'),
+  sshAuth: text('ssh_auth', { enum: ['password', 'key'] }),
+  sshSecret: text('ssh_secret'), // encrypted password or private key
+  // VNC
+  vncPort: integer('vnc_port'),
+  vncSecret: text('vnc_secret'), // encrypted VNC password
+  // RDP
+  rdpPort: integer('rdp_port'),
+  rdpUser: text('rdp_user'),
+  rdpSecret: text('rdp_secret'), // encrypted RDP password
+  rdpSecurity: text('rdp_security', { enum: ['nla', 'tls', 'rdp'] }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Append-only audit trail for the dangerous admin System actions (unsandboxed coding,
+// host shell, remote sessions, host CRUD). Surfaced read-only in the console.
+export const adminAuditLog = sqliteTable('admin_audit_log', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  action: text('action', {
+    enum: [
+      'unsandbox_toggle', 'host_shell_open', 'ssh_open', 'vnc_open', 'rdp_open',
+      'host_create', 'host_update', 'host_delete',
+    ],
+  }).notNull(),
+  detail: text('detail'), // JSON string
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  createdIdx: index('admin_audit_log_created_idx').on(t.createdAt),
+}))
+
+// Remote app: user-defined folders for organizing machines. ownerId null = shared/household
+// (admin-managed), non-null = personal. parentId is a plain-text self-reference (no FK) so a
+// folder can be deleted without cascading its children away (they re-parent to root).
+export const remoteFolders = sqliteTable('remote_folders', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  parentId: text('parent_id'),
+  name: text('name').notNull(),
+  icon: text('icon'),
+  color: text('color'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Remote app: saved commands (Termius-style snippets) sendable into a terminal. ownerId null
+// = shared/household, non-null = personal.
+export const remoteSnippets = sqliteTable('remote_snippets', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  command: text('command').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})

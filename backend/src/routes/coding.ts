@@ -15,6 +15,7 @@ import type { createBunWebSocket } from 'hono/bun'
 import { resolveSession, requireAuth } from '@/middleware/auth'
 import { buildAttachSpawnParams, paneControl, type PaneAction } from '@/lib/codingServer'
 import { ensureCodingPtySidecarReady, codingPtySidecarWsUrl } from '@/lib/codingPtySidecar'
+import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
@@ -88,9 +89,13 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
   // Terminal capabilities the frontend adapts to. Split panes are a tmux feature; on Windows
   // (no tmux) the Coding terminal is a single persistent pane, so the client hides the split
   // buttons. `persistence` documents where session survival comes from.
-  coding.get('/capabilities', requireAuth, (c) =>
-    c.json({ splits: !IS_WIN, persistence: IS_WIN ? 'sidecar' : 'tmux' }),
-  )
+  coding.get('/capabilities', requireAuth, (c) => {
+    const user = c.get('user')
+    // canUnsandbox: an admin can split a pane that escapes the OS sandbox (runs as this
+    // server's user). Only meaningful when the sandbox is actually installed — without it
+    // every pane already runs unsandboxed, so there's nothing to escape.
+    return c.json({ splits: !IS_WIN, persistence: IS_WIN ? 'sidecar' : 'tmux', canUnsandbox: user.role === 'admin' && isSandboxUserInstalled() })
+  })
 
   coding.post('/pane/:action', requireAuth, async (c) => {
     const user = c.get('user')
@@ -99,8 +104,11 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
     if (action !== 'split-h' && action !== 'split-v' && action !== 'close') {
       return c.json({ error: 'invalid pane action' }, 400)
     }
+    // ?sandbox=false opens the new pane OUTSIDE the sandbox (admin only).
+    const sandboxed = c.req.query('sandbox') !== 'false'
+    if (!sandboxed && user.role !== 'admin') return c.json({ error: 'Only admins can open unsandboxed panes' }, 403)
     try {
-      await paneControl(user.id, action)
+      await paneControl(user.id, action, sandboxed)
       return c.json({ ok: true })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'pane action failed' }, 503)

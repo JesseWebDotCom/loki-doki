@@ -41,7 +41,8 @@ export function classifyRoute(pathname: string): RouteChrome {
     pathname.startsWith("/shows") ||
     // A real terminal (xterm.js) edge-to-edge: keeps the automatic breadcrumb
     // (not isReader, that suppresses it), just owns its own full-height content.
-    pathname.startsWith("/coding");
+    pathname.startsWith("/coding") ||
+    pathname.startsWith("/remote");
   // The shell paints the backdrop for standard scroller apps only. Full-bleed,
   // chat and panel routes own their own backgrounds (PageShell self-tints them).
   const shellBackdrop = !isHome && !isChat && !isPanel && !isFullBleed;

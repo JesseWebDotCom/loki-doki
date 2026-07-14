@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { Maximize, Minimize, SplitSquareHorizontal, SplitSquareVertical, X, ShieldAlert } from "lucide-react";
+import { Maximize, Minimize, SplitSquareHorizontal, SplitSquareVertical, X, ShieldAlert, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/cn";
@@ -32,6 +32,9 @@ export function CodingPage() {
   // they're available and we hide the buttons when they're not. Default true so the mac/Linux
   // layout renders immediately without waiting on the fetch.
   const [splits, setSplits] = useState(true);
+  // Admin-only: split a pane that runs OUTSIDE the OS sandbox (full host access). Only
+  // offered when the sandbox is installed (otherwise every pane is already unsandboxed).
+  const [canUnsandbox, setCanUnsandbox] = useState(false);
 
   useEffect(() => {
     const container = termContainerRef.current;
@@ -97,7 +100,10 @@ export function CodingPage() {
   useEffect(() => {
     fetch("/api/coding/capabilities", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((caps: { splits?: boolean } | null) => { if (caps && typeof caps.splits === "boolean") setSplits(caps.splits); })
+      .then((caps: { splits?: boolean; canUnsandbox?: boolean } | null) => {
+        if (caps && typeof caps.splits === "boolean") setSplits(caps.splits);
+        if (caps && typeof caps.canUnsandbox === "boolean") setCanUnsandbox(caps.canUnsandbox);
+      })
       .catch(() => { /* keep default */ });
   }, []);
 
@@ -125,9 +131,10 @@ export function CodingPage() {
 
   // tmux owns the actual pane layout, this just issues the command and lets the
   // terminal repaint whatever tmux sends next, no local layout state to track.
-  const paneAction = useCallback(async (action: PaneAction) => {
+  const paneAction = useCallback(async (action: PaneAction, sandboxed = true) => {
     try {
-      await fetch(`/api/coding/pane/${action}`, { method: "POST" });
+      const q = sandboxed ? "" : "?sandbox=false";
+      await fetch(`/api/coding/pane/${action}${q}`, { method: "POST" });
     } catch { /* best-effort, a failure here just means nothing visibly changes */ }
   }, []);
 
@@ -145,6 +152,12 @@ export function CodingPage() {
             <Button variant="ghost" size="icon-sm" onClick={() => void paneAction("close")} title="Close pane" aria-label="Close pane">
               <X className="size-4" />
             </Button>
+            {canUnsandbox && (
+              <Button variant="ghost" size="icon-sm" className="text-warning" onClick={() => void paneAction("split-h", false)}
+                title="Split pane outside the sandbox (admin: full host access)" aria-label="Split unsandboxed pane">
+                <ShieldOff className="size-4" />
+              </Button>
+            )}
           </>
         )}
         <Button variant="ghost" size="icon-sm" onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "Fullscreen"} aria-label="Toggle fullscreen">

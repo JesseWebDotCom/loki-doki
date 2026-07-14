@@ -3326,4 +3326,64 @@ export function runMigrations() {
   // LLM-extracted related-search topics for the watch page's topic-grouped "Related"
   // shelves (see schema.ts ytVideos.relatedTopics).
   addColumn('yt_videos', 'related_topics', 'TEXT')
+
+  // Admin System console: homelab machine registry + audit log (see schema.ts
+  // homelabHosts / adminAuditLog). Secret columns hold ciphertext only (lib/secrets.ts).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS homelab_hosts (
+      id TEXT NOT NULL PRIMARY KEY,
+      label TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      ssh_port INTEGER,
+      ssh_user TEXT,
+      ssh_auth TEXT,
+      ssh_secret TEXT,
+      vnc_port INTEGER,
+      vnc_secret TEXT,
+      rdp_port INTEGER,
+      rdp_user TEXT,
+      rdp_secret TEXT,
+      rdp_security TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      detail TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_audit_log_created_idx ON admin_audit_log(created_at);
+  `)
+
+  // Remote app: machine ownership/scope (null user_id = shared) + organization columns, plus
+  // folders and snippets. Additive columns on the existing homelab_hosts table.
+  addColumn('homelab_hosts', 'user_id', 'TEXT REFERENCES users(id) ON DELETE CASCADE')
+  addColumn('homelab_hosts', 'folder_id', 'TEXT')
+  addColumn('homelab_hosts', 'favorite', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('homelab_hosts', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS remote_folders (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      parent_id TEXT,
+      name TEXT NOT NULL,
+      icon TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS remote_snippets (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
 }
