@@ -11,6 +11,7 @@ import { getContinueWatching, getWatchlist } from '@/lib/library/api'
 import { usePlexConfigured, plexRailQueryOptions } from '@/lib/plex/hooks'
 import { PlexNowPlaying } from '@/components/media/PlexNowPlaying'
 import { OnTonightSection } from '@/components/media/OnTonightSection'
+import { SuggestedTitlesShelf } from '@/components/media/SuggestedTitlesShelf'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { getAppByPath } from '@/lib/appCategories'
 
@@ -147,6 +148,7 @@ function HomeShelves() {
       {billboard.length > 0 && <MediaBillboard items={billboard} eyebrow={featured?.title ?? 'Featured'} />}
       <OnTonightSection />
       <PersonalShelves />
+      <SuggestedTitlesShelf kind="show" />
       <PlexShelves type="show" />
       {shelves.map((shelf) => (
         <MediaShelfRow key={shelf.key} title={shelf.title} items={shelf.items.map(toPoster)} />

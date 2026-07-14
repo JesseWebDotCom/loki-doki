@@ -311,6 +311,16 @@ Use in the Admin Panel model selection tabs - one `ModelCardGroup` per role (llm
 
 ---
 
+### `DismissableCard` - `src/components/shared/DismissableCard.tsx`
+
+Wraps any suggestion-rail card with a "Not interested" X button (hover-revealed on pointer devices, always visible on touch). Used by every "Suggested for you" rail (Videos, Shows, Movies, Podcasts, Music) together with the `useSuggestionDismiss(domain)` hook (`src/hooks/useSuggestionDismiss.ts`), which handles optimistic hiding, the Undo toast, and the `/api/interests/dismiss` round trip.
+
+**Use this for** any card the interest engine suggests - never hand-roll a per-rail dismiss affordance.
+
+**Props:** `onDismiss: () => void`, `children`.
+
+---
+
 ### `SpotlightSearch` - `src/components/shared/SpotlightSearch.tsx`
 
 A spotlight-style search modal (think macOS Spotlight). Renders both the sidebar trigger button (Search icon + label + ⌘K/Ctrl K badge) and the Dialog. Opens via button click or Ctrl/⌘+K. Supports arrow-key navigation and Enter to navigate. Uses `Dialog` root + raw `RadixDialog.Content` (no built-in close button) from Radix.

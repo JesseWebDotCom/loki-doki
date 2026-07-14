@@ -15,6 +15,8 @@ import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import { listStations, getHistory, getRails, stationToDj, type Station, type Rail } from '@/lib/music/catalogApi'
+import { DismissableCard } from '@/components/shared/DismissableCard'
+import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 
 // (SongTile moved to components/music/SongTile - shared with Browse.)
 
@@ -114,16 +116,21 @@ function OfflineHome() {
 }
 
 // A personalized shelf: horizontal song tiles + a Play-all that queues the whole rail
-// (no DJ interruption for a personal mix - playPlaylist handles that).
+// (no DJ interruption for a personal mix - playPlaylist handles that). The interest
+// engine's Suggested rail (tracks carry a `ref`) additionally gets a "Not interested" X
+// per tile: optimistic hide + Undo toast, excluded server-side from then on.
 function MadeForYouRail({ rail }: { rail: Rail }) {
   const radio = useRadio()
+  const { hidden, dismiss } = useSuggestionDismiss('music')
+  const tracks = rail.tracks.filter(t => !t.ref || !hidden.has(t.ref))
   const playAll = () => radio.playPlaylist(
-    rail.tracks.map(t => ({ videoId: t.videoId, title: t.title, author: t.artist || null, thumbnail: '' })),
+    tracks.map(t => ({ videoId: t.videoId, title: t.title, author: t.artist || null, thumbnail: '' })),
     0, { name: rail.title },
   )
+  if (!tracks.length) return null
   return (
     <section className="mt-6">
-      <SectionHeader title={rail.title} count={rail.tracks.length}
+      <SectionHeader title={rail.title} count={tracks.length}
         action={
           <Button variant="secondary" size="sm" onClick={playAll}>
             <Play className="size-4 fill-current" /> Play
@@ -131,10 +138,19 @@ function MadeForYouRail({ rail }: { rail: Rail }) {
         } />
       <p className="-mt-1 mb-2 text-xs text-muted-foreground">{rail.subtitle}</p>
       <div className="flex gap-4 overflow-x-auto pb-3 pt-1 no-scrollbar">
-        {rail.tracks.slice(0, 16).map(t => (
-          <SongTile key={t.videoId} trackRef={t.videoId} title={t.title} artist={t.artist} size="w-40"
-            onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist })} />
-        ))}
+        {tracks.slice(0, 16).map(t => {
+          const tile = (
+            <SongTile trackRef={t.videoId} title={t.title} artist={t.artist} size="w-40"
+              onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist })} />
+          )
+          return t.ref ? (
+            <DismissableCard key={t.videoId} onDismiss={() => dismiss({ ref: t.ref!, creatorName: t.artist, title: t.title })}>
+              {tile}
+            </DismissableCard>
+          ) : (
+            <div key={t.videoId}>{tile}</div>
+          )
+        })}
       </div>
     </section>
   )

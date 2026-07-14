@@ -3,11 +3,15 @@
 // in beside these). Rails are per-user, advisory-filtered, cached in-memory for 6h, and
 // a rail that can't fill ~8 tracks is omitted rather than padded with junk.
 
+import { and, eq } from 'drizzle-orm'
 import { db, sqlite } from '@/db'
+import { musicFavorites, musicRatings } from '@/db/schema'
 import { filterTracksForUser } from '@/lib/music/advisory'
 import { logger } from '@/lib/logger'
 
-export interface RailTrack { videoId: string; title: string; artist: string }
+/** `ref` (songKey) is set only on the interest-engine Suggested rail — it's the
+ *  "Not interested" dismiss key. */
+export interface RailTrack { videoId: string; title: string; artist: string; ref?: string }
 export interface Rail { key: string; title: string; subtitle: string; tracks: RailTrack[] }
 
 const DAY = 86_400   // seconds - played_at is stored in unix SECONDS (drizzle timestamp mode)
@@ -53,6 +57,47 @@ function recentPlayCounts(userId: string, sinceMs: number): Map<string, number> 
 const toTracks = (rows: Row[]): RailTrack[] =>
   rows.filter(r => r.video_id && r.title).map(r => ({ videoId: r.video_id, title: r.title, artist: r.artist ?? '' }))
 
+// ── Explicit taste signals (the schema's "feeds rail weighting later" hook) ──────────
+// Favorites and star ratings adjust the play-count pools that seed the Daily Mixes and
+// the Discovery centroid: favorite +3, 5★ +2, 4★ +1; a 1-2★ track is dropped outright
+// and its artist's other tracks are damped.
+
+interface TasteSignals {
+  favSet: Set<string>
+  ratings: Map<string, number>
+  lowArtists: Set<string>
+}
+
+async function loadTasteSignals(userId: string): Promise<TasteSignals> {
+  const [favs, ratings] = await Promise.all([
+    db.select({ refId: musicFavorites.refId }).from(musicFavorites)
+      .where(and(eq(musicFavorites.userId, userId), eq(musicFavorites.kind, 'song'))),
+    db.select({ ref: musicRatings.ref, stars: musicRatings.stars, artist: musicRatings.artist })
+      .from(musicRatings).where(eq(musicRatings.userId, userId)),
+  ])
+  const ratingMap = new Map(ratings.map(r => [r.ref, r.stars]))
+  const lowArtists = new Set(
+    ratings.filter(r => r.stars <= 2 && r.artist).map(r => r.artist!.toLowerCase()),
+  )
+  return { favSet: new Set(favs.map(f => f.refId)), ratings: ratingMap, lowArtists }
+}
+
+/** Re-rank a play-count pool by plays + favorites/ratings; 1-2★ tracks drop out. */
+function adjustByTaste(rows: Row[], taste: TasteSignals): Row[] {
+  return rows
+    .filter(r => (taste.ratings.get(r.video_id) ?? 5) > 2)
+    .map(r => {
+      const stars = taste.ratings.get(r.video_id)
+      let weight = r.plays
+        + (taste.favSet.has(r.video_id) ? 3 : 0)
+        + (stars === 5 ? 2 : stars === 4 ? 1 : 0)
+      if (r.artist && taste.lowArtists.has(r.artist.toLowerCase())) weight -= 2
+      return { ...r, plays: Math.max(0, weight) }
+    })
+    .filter(r => r.plays > 0)
+    .sort((a, b) => b.plays - a.plays || (b.last_ms ?? 0) - (a.last_ms ?? 0))
+}
+
 // Deterministic per-day shuffle so Daily Mixes rotate daily but stay stable within a day.
 function seededShuffle<T>(arr: T[], seed: number): T[] {
   const out = [...arr]
@@ -70,6 +115,7 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
 async function computeRails(userId: string): Promise<Rail[]> {
   const now = Math.floor(Date.now() / 1000)
   const rails: Rail[] = []
+  const taste = await loadTasteSignals(userId)
 
   // On Repeat: heavy rotation in the last 14 days (≥3 plays), most-played first.
   const onRepeat = toTracks(topTracks(userId, now - 14 * DAY, now + DAY, 40).filter(r => r.plays >= 3))
@@ -95,7 +141,8 @@ async function computeRails(userId: string): Promise<Rail[]> {
 
   // Daily Mix 1-3: the last 6 months' favorites, spread across three mixes by artist
   // round-robin (no mix becomes one artist's greatest hits), reshuffled daily.
-  const pool = topTracks(userId, now - 180 * DAY, now + DAY, 120)
+  // Taste-adjusted: favorites/high ratings pull tracks in, 1-2★ tracks drop out.
+  const pool = adjustByTaste(topTracks(userId, now - 180 * DAY, now + DAY, 160), taste).slice(0, 120)
   if (pool.length >= MIN_RAIL * 2) {
     const daySeed = Math.floor(now / DAY)   // (both in seconds)
     const byArtist = new Map<string, Row[]>()
@@ -124,7 +171,8 @@ async function computeRails(userId: string): Promise<Rail[]> {
   try {
     const { centroidOf, nearestToVector, featureCount } = await import('@/lib/music/similarity')
     if (await featureCount() >= 50) {
-      const top = topTracks(userId, now - 180 * DAY, now + DAY, 40)
+      // Taste-adjusted centroid: what they LOVE (favorites/ratings), not just what played.
+      const top = adjustByTaste(topTracks(userId, now - 180 * DAY, now + DAY, 80), taste).slice(0, 40)
       const played = new Set(top.map(r => r.video_id))
       const centroid = await centroidOf(top.map(r => r.video_id), 8)
       if (centroid) {
@@ -140,6 +188,18 @@ async function computeRails(userId: string): Promise<Rail[]> {
     }
   } catch { /* intel not installed */ }
 
+  // Suggested for you: NEW music beyond the library, from the interest engine (Deezer
+  // artist-radio/chart candidates ranked by artist affinity, everything ever played or
+  // rated excluded, "Not interested" honored). Impressions are recorded here, once per
+  // rail computation, so the 6h cache doesn't inflate shown counts.
+  try {
+    const { buildMusicSuggestedRail } = await import('@/lib/interests/music')
+    const suggested = await buildMusicSuggestedRail(userId)
+    if (suggested && suggested.tracks.length >= MIN_RAIL) rails.push(suggested)
+  } catch (err) {
+    logger.debug(`[rails] suggested rail failed for ${userId}: ${String(err)}`)
+  }
+
   // Content protections apply to rails like everywhere else.
   for (const rail of rails) {
     rail.tracks = await filterTracksForUser(userId, rail.tracks)
@@ -153,15 +213,29 @@ const RAILS_TTL = 6 * 60 * 60 * 1000
 
 export async function buildRails(userId: string): Promise<Rail[]> {
   const hit = railsCache.get(userId)
-  if (hit && Date.now() - hit.at < RAILS_TTL) return hit.rails
-  try {
-    const rails = await computeRails(userId)
-    railsCache.set(userId, { at: Date.now(), rails })
-    return rails
-  } catch (err) {
-    logger.debug(`[rails] build failed for ${userId}: ${String(err)}`)
-    return hit?.rails ?? []
+  const rails = await (async () => {
+    if (hit && Date.now() - hit.at < RAILS_TTL) return hit.rails
+    try {
+      const fresh = await computeRails(userId)
+      railsCache.set(userId, { at: Date.now(), rails: fresh })
+      return fresh
+    } catch (err) {
+      logger.debug(`[rails] build failed for ${userId}: ${String(err)}`)
+      return hit?.rails ?? []
+    }
+  })()
+  // "Not interested" on the Suggested rail takes effect immediately, not at cache expiry.
+  const suggested = rails.find(r => r.key === 'suggested')
+  if (suggested?.tracks.some(t => t.ref)) {
+    try {
+      const { filterDismissedSuggestions } = await import('@/lib/interests/music')
+      const kept = await filterDismissedSuggestions(userId, suggested.tracks)
+      if (kept.length !== suggested.tracks.length) {
+        return rails.map(r => (r.key === 'suggested' ? { ...r, tracks: kept } : r))
+      }
+    } catch { /* interest engine unavailable — serve as cached */ }
   }
+  return rails
 }
 
 // ── Replay (year recap) ───────────────────────────────────────────────────────────────

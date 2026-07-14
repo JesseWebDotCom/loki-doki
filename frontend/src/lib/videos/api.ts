@@ -108,6 +108,12 @@ export function getHubHome(sources?: VideoSource[], cursor?: string | null): Pro
   return getJson(`/api/videos/home${qs ? `?${qs}` : ''}`)
 }
 
+/** Cross-source "Suggested for you" from the interest engine. `building` = the first
+ *  pool build is still running (caller polls; the shelf stays hidden until items land). */
+export function getSuggested(): Promise<{ items: HubVideoItem[]; building: boolean }> {
+  return getJson('/api/videos/suggested')
+}
+
 export interface HubPager {
   items: HubVideoItem[]
   cursor: string | null

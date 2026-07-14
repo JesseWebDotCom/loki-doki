@@ -223,6 +223,12 @@ export async function searchShowsApi(q: string): Promise<ShowSummary[]> {
   return data.results
 }
 
+/** "Suggested for you" from the interest engine. `ref` is the dismiss key; `building`
+ *  = the first pool build is still running (callers poll until it flips false). */
+export function getSuggestedShows(): Promise<{ items: Array<ShowSummary & { ref: string }>; building: boolean }> {
+  return getJson('/api/shows/suggested')
+}
+
 export async function getOnTvToday(): Promise<OnTvToday> {
   return getJson<OnTvToday>('/api/shows/on-tv')
 }

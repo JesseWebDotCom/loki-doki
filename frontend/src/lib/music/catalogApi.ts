@@ -229,7 +229,8 @@ export function reportHistoryProgress(id: string, positionSec: number, durationS
 export function getHistory(limit = 40) { return mfetch<{ history: HistoryItem[] }>(`/library/history?limit=${limit}`) }
 
 // ── Made For You rails + Replay ─────────────────────────────────────────────────────
-export interface Rail { key: string; title: string; subtitle: string; tracks: Array<{ videoId: string; title: string; artist: string }> }
+// `ref` (songKey) is set only on the interest-engine Suggested rail: the "Not interested" dismiss key.
+export interface Rail { key: string; title: string; subtitle: string; tracks: Array<{ videoId: string; title: string; artist: string; ref?: string }> }
 export function getRails() { return mfetch<{ rails: Rail[] }>('/rails') }
 export interface Replay {
   year: number; totalPlays: number; totalMinutes: number

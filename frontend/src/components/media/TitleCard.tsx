@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Star, Tv } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { DismissableCard } from '@/components/shared/DismissableCard'
 import { mediaImg, getShow, getShowOverview, getShowParentsGuide, getShowTrivia } from '@/lib/shows/api'
 import { getMovie, getMovieOverview, getMovieParentsGuide, getMovieTrivia } from '@/lib/movies/api'
 
@@ -14,6 +15,9 @@ export interface PosterItem {
   poster: string | null
   rating?: number | null
   badge?: string | null
+  /** Interest-engine ref (suggestion rails only): the key MediaShelfRow's onDismiss
+   *  callback identifies the item by. */
+  ref?: string
 }
 
 // Hover-intent prefetch: the About-tab enrichments (parents guide, trivia) take 5-10s of
@@ -98,15 +102,26 @@ export function TitleCard({ item, fluid, className }: { item: PosterItem; fluid?
   )
 }
 
-// A horizontally-scrolling shelf of poster cards with a heading.
-export function MediaShelfRow({ title, items }: { title: string; items: PosterItem[] }) {
+// A horizontally-scrolling shelf of poster cards with a heading. `onDismiss` (suggestion
+// rails) adds a "Not interested" X to each card via the shared DismissableCard wrapper.
+export function MediaShelfRow({ title, items, onDismiss }: {
+  title: string
+  items: PosterItem[]
+  onDismiss?: (item: PosterItem) => void
+}) {
   if (!items.length) return null
   return (
     <section className="space-y-2.5">
       <h2 className="px-0.5 text-base font-semibold">{title}</h2>
       <div className="flex gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map((item, i) => (
-          <TitleCard key={`${item.to}-${i}`} item={item} />
+          onDismiss ? (
+            <DismissableCard key={`${item.to}-${i}`} onDismiss={() => onDismiss(item)}>
+              <TitleCard item={item} />
+            </DismissableCard>
+          ) : (
+            <TitleCard key={`${item.to}-${i}`} item={item} />
+          )
         ))}
       </div>
     </section>

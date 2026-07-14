@@ -19,6 +19,7 @@ import { VideoCollection } from '@/components/youtube/VideoCollection'
 import { SearchResults } from '@/components/youtube/SearchResults'
 import { ViewToggle, type CardListView } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
+import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { useYoutubeMode } from '@/components/videos/VideosLayout'
 
 type Filter = 'all' | 'videos' | 'shorts' | 'channels'
@@ -79,7 +80,17 @@ function HomeLanding() {
   const { data: downloads = [] } = useYtDownloads()
   // Personalized rows (online only): real cross-video history + recommendations.
   const { data: history = [], isLoading: historyLoading } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory, enabled: online })
-  const { data: recommended = [], isLoading: recommendedLoading } = useQuery({ queryKey: ['yt-recommended'], queryFn: getRecommended, enabled: online })
+  // Poll while the interest engine's first pool build runs (the response is the legacy
+  // fallback until then); stops as soon as personalized items land.
+  const { data: recommendedData, isLoading: recommendedLoading } = useQuery({
+    queryKey: ['yt-recommended'],
+    queryFn: getRecommended,
+    enabled: online,
+    refetchInterval: (query) => (query.state.data?.building ? 20_000 : false),
+  })
+  const recommended = useMemo(() => recommendedData?.videos ?? [], [recommendedData])
+  // "Not interested": hide locally right away; the server keeps it excluded from then on.
+  const { hidden: dismissedRefs, dismiss } = useSuggestionDismiss('videos')
   // Discovery beyond your subscriptions. Popular = most-watched (reliable); Trending =
   // YouTube's trending tab (thinner, may be empty → shelf hides). Both privacy-front-end backed.
   const { data: popular = [], isLoading: popularLoading } = useQuery({ ...ytPopularQueryOptions(), enabled: online })
@@ -99,7 +110,10 @@ function HomeLanding() {
       ? history.filter(h => !h.completed && h.positionSec > 5 && h.title.trim()).map(historyToItem)
       : offlineItems.filter(i => i.watch && !i.watch.completed && i.watch.positionSec > 5)
   ), [online, history, offlineItems])
-  const recommendedItems = useMemo(() => (online ? recommended.map(itToItem) : regular.slice(0, 12)), [online, recommended, regular])
+  const recommendedItems = useMemo(
+    () => (online ? recommended.map(itToItem).filter(i => !dismissedRefs.has(`youtube:${i.videoId}`)) : regular.slice(0, 12)),
+    [online, recommended, regular, dismissedRefs],
+  )
   // Balanced "Latest": newest from each channel in turn, not one uploader's backlog.
   const latest = useMemo(() => interleaveByChannel(regular).slice(0, 16), [regular])
   const popularItems = useMemo(() => popular.map(itToItem), [popular])
@@ -144,7 +158,14 @@ function HomeLanding() {
           {online && (trendingItems.length > 0 ? <MediaShelf title="📈 Trending" items={trendingItems} view={view} /> : trendingLoading ? <ShelfSkeleton /> : null)}
           {continueWatching.length > 0 ? <MediaShelf title="Continue watching" items={continueWatching} view={view} /> : (online && historyLoading) ? <ShelfSkeleton /> : null}
           {channels.length > 0 && <ChannelRail title="Your subscriptions" channels={channels} />}
-          {recommendedItems.length > 0 ? <MediaShelf title="Recommended for you" items={recommendedItems} view={view} /> : (online && recommendedLoading) ? <ShelfSkeleton /> : null}
+          {recommendedItems.length > 0 ? (
+            <MediaShelf
+              title="Recommended for you"
+              items={recommendedItems}
+              view={view}
+              onDismiss={online ? (i) => dismiss({ ref: `youtube:${i.videoId}`, creatorId: i.channelId, creatorName: i.author, title: i.title }) : undefined}
+            />
+          ) : (online && recommendedLoading) ? <ShelfSkeleton /> : null}
           {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts.slice(0, 12)} aspect="short" view={view} />}
           {regular.length > 0 ? (
             <section>

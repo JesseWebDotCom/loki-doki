@@ -22,6 +22,7 @@ import {
   getMoviesForAge,
 } from '@/lib/movies'
 import { searchTitles } from '@/lib/titles/justwatch'
+import { serveMediaRail } from '@/lib/interests/media'
 import { getReviews } from '@/lib/titles/reviews'
 import { getTrivia } from '@/lib/titles/trivia'
 import { ensureAndQueueMoviePodcast, getMoviePodcast } from '@/lib/podcast/mediaPodcast'
@@ -37,6 +38,13 @@ function parseYear(raw: string | undefined): number | null {
 moviesRoute.get('/home', requireAuth, async (c) => {
   const shelves = await getHomeShelves()
   return c.json({ shelves })
+})
+
+// "Suggested for you" — interest-engine rail (lib/interests/media.ts): watchlist signals,
+// JustWatch similar/genre candidates, watchlist excluded, rotation + "Not interested".
+moviesRoute.get('/suggested', requireAuth, async (c) => {
+  const { items, building } = await serveMediaRail(c.get('user').id, 'movie')
+  return c.json({ items, building })
 })
 
 moviesRoute.get('/in-theaters', requireAuth, async (c) => {

@@ -282,6 +282,16 @@ export async function searchDirectory(q: string, limit = 25): Promise<DirectoryR
   return (await r.json() as { results: DirectoryResult[] }).results ?? []
 }
 
+/** "Suggested for you" from the interest engine: real directory shows matched to your
+ *  listening. `ref` is the dismiss key; `building` = first pool build still running
+ *  (callers poll until it flips false). */
+export async function getSuggestedPodcasts(): Promise<{ items: Array<DirectoryResult & { ref: string }>; building: boolean }> {
+  const r = await fetch('/api/podcasts/suggested', opts)
+  if (!r.ok) throw new Error('podcasts-suggested')
+  const d = await r.json() as { items?: Array<DirectoryResult & { ref: string }>; building?: boolean }
+  return { items: d.items ?? [], building: d.building === true }
+}
+
 /** Top charts, optionally per Apple genre id. Also carries the genre list for chips. */
 export async function getCharts(genreId?: number | null): Promise<DirectoryCharts> {
   const r = await fetch(`/api/podcasts/directory/charts${genreId ? `?genre=${genreId}` : ''}`, opts)

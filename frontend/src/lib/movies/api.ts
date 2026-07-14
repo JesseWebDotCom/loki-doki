@@ -118,6 +118,12 @@ export async function getMoviesHome(): Promise<MovieShelf[]> {
   return data.shelves
 }
 
+/** "Suggested for you" from the interest engine. `ref` is the dismiss key; `building`
+ *  = the first pool build is still running (callers poll until it flips false). */
+export function getSuggestedMovies(): Promise<{ items: Array<MovieSummary & { ref: string }>; building: boolean }> {
+  return getJson('/api/movies/suggested')
+}
+
 export async function getInTheaters(zip = ''): Promise<MovieSummary[]> {
   const data = await getJson<{ items: MovieSummary[] }>(`/api/movies/in-theaters?zip=${encodeURIComponent(zip)}`)
   return data.items

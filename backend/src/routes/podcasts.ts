@@ -19,6 +19,7 @@ import { createReadStream, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import type { ScriptTurn } from '@/lib/podcast/types'
 import { filterEpisodesForUser, podcastEpisodeAllowed } from '@/lib/podcast/policy'
+import { servePodcastRail } from '@/lib/interests/podcasts'
 import type { AppEnv } from '@/types'
 
 export const podcastsRoute = new Hono<AppEnv>()
@@ -120,6 +121,14 @@ async function loadVisibleShows(user: Actor) {
 
 podcastsRoute.get('/shows', async (c) => {
   return c.json({ shows: await loadVisibleShows(c.get('user')) })
+})
+
+// "Suggested for you" — interest-engine rail of real directory shows (lib/interests/
+// podcasts.ts): listening + subscription signals, genre-chart/topic-search candidates,
+// subscribed/listened shows excluded, rotation + "Not interested".
+podcastsRoute.get('/suggested', async (c) => {
+  const { items, building } = await servePodcastRail(c.get('user').id)
+  return c.json({ items, building })
 })
 
 // Combined feed: all visible shows + their episodes in a few queries, so the podcast

@@ -24,7 +24,8 @@ import { MINE_META } from '@/lib/videos/sources'
 import { VIDEO_CATEGORIES, getVideoCategory, type VideoCategory } from '@/lib/videos/categories'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem } from '@/lib/youtube/types'
-import { getHubHistory, getHubHome, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
+import { getHubHistory, getHubHome, getSuggested, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
+import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
 import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { listStudioBin, isMineBinItem } from '@/lib/videos/studioApi'
@@ -70,6 +71,19 @@ function HubLanding() {
 
   const { data: history = [], isLoading: ytHistoryLoading } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
   const { data: hubHistoryData, isLoading: hubHistoryLoading } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory })
+  // "Suggested for you" from the interest engine. While the first pool build runs the
+  // response is empty + building:true; poll until suggestions land (shelf hidden till then,
+  // the page already has Popular/Trending, so no fallback rail).
+  const { data: suggestedData } = useQuery({
+    queryKey: ['videos-suggested'],
+    queryFn: getSuggested,
+    refetchInterval: (query) => (query.state.data?.building ? 20_000 : false),
+  })
+  const { hidden: dismissedRefs, dismiss } = useSuggestionDismiss('videos')
+  const suggested = useMemo(
+    () => (suggestedData?.items ?? []).filter((i) => !dismissedRefs.has(`${i.source}:${i.id}`)),
+    [suggestedData, dismissedRefs],
+  )
   const historyLoading = ytHistoryLoading || hubHistoryLoading
   // Merged across every source (not just YouTube) so the shelf matches "Across your sources"
   // below it — each card keeps its own source badge via HubCard.
@@ -167,6 +181,14 @@ function HubLanding() {
           {railContinue.length > 0 ? (
             <HubMediaShelf title="Continue watching" items={railContinue} view={view} />
           ) : historyLoading ? <ShelfSkeleton /> : null}
+
+          <HubMediaShelf
+            title="Suggested for you"
+            items={suggested}
+            view={view}
+            showSource
+            onDismiss={(i) => dismiss({ ref: `${i.source}:${i.id}`, creatorId: i.creator?.id, creatorName: i.creator?.name, title: i.title })}
+          />
 
           {/* One mixed Popular + one mixed Trending, interleaved across every active source. */}
           <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />

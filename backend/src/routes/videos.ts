@@ -22,6 +22,7 @@ import { resolveClip } from '@/lib/clipper/resolve'
 import { resolveVideoTranscript, resolveVideoVtt } from '@/lib/podcast/transcript'
 import { summarizeTranscriptText } from '@/lib/youtube/summarize'
 import { stampSmartTitles } from '@/lib/videos/smartTitle'
+import { serveVideosSuggested } from '@/lib/interests/videos'
 import { cachedLookup, cachedLookupStale } from '@/lib/lookupCache'
 import type { Pager, Playlist, VideoItem, VideoSource } from '@/lib/videos/types'
 import type { AppEnv } from '@/types'
@@ -171,6 +172,18 @@ videosRoute.get('/home', async (c) => {
   // this is the authoritative gate every hub list route shares.
   const safe = await filterVideosForUser(user.id, items)
   return c.json({ items: await stampSmartTitles(safe, user.id), cursor })
+})
+
+// ── Suggested for you: interest-engine rail across every source ────────────────
+// Personalized from watch history (lib/interests/videos.ts): never repeats watched
+// items, rotates via impression demotion, honors "Not interested". While the first
+// pool build runs, returns empty + building:true and the shelf stays hidden — the hub
+// home already has Popular/Trending, so no fallback rail is needed here.
+
+videosRoute.get('/suggested', async (c) => {
+  const user = c.get('user')
+  const { items, building } = await serveVideosSuggested(user.id, 18)
+  return c.json({ items: await stampSmartTitles(items, user.id), building })
 })
 
 // ── Universal clipper resolve: provider match first, yt-dlp fallback ───────────

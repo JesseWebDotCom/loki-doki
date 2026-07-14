@@ -3386,4 +3386,24 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL
     );
   `)
+
+  // Interest engine: "Suggested for you" impression/dismissal state (see schema.ts
+  // suggestionImpressions). Profiles and candidate pools live in lookup_cache, not tables.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS suggestion_impressions (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      domain TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      creator_id TEXT,
+      creator_name TEXT,
+      title TEXT,
+      shown_count INTEGER NOT NULL DEFAULT 0,
+      last_shown_at INTEGER,
+      dismissed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, domain, ref)
+    );
+    CREATE INDEX IF NOT EXISTS suggestion_impressions_user_domain_idx ON suggestion_impressions(user_id, domain);
+  `)
 }

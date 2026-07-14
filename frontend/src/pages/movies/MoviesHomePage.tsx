@@ -10,6 +10,7 @@ import { getMoviesHome, searchMovies, movieTo, type MovieSummary } from '@/lib/m
 import { getWatchlist } from '@/lib/library/api'
 import { PlexShelves } from '@/pages/shows/ShowsHomePage'
 import { InTheatersSection } from '@/components/media/InTheatersSection'
+import { SuggestedTitlesShelf } from '@/components/media/SuggestedTitlesShelf'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { getAppByPath } from '@/lib/appCategories'
 
@@ -112,6 +113,7 @@ function HomeShelves() {
       {billboard.length > 0 && <MediaBillboard items={billboard} eyebrow={featured?.title ?? 'Featured'} />}
       <InTheatersSection />
       {watchlistPosters.length > 0 && <MediaShelfRow title="Your Watchlist" items={watchlistPosters} />}
+      <SuggestedTitlesShelf kind="movie" />
       <PlexShelves type="movie" />
       {shelves?.map((shelf) => (
         <MediaShelfRow key={shelf.key} title={shelf.title} items={shelf.items.map(toPoster)} />

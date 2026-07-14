@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { SectionHeader } from '@/components/shared/SectionHeader'
+import { DismissableCard } from '@/components/shared/DismissableCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fmtCount } from '@/lib/youtube/format'
 import { ytImageProxy } from '@/lib/youtube/api'
@@ -36,13 +37,15 @@ export function HScroll({ children, className }: { children: ReactNode; classNam
 
 /** A titled shelf of videos. Defaults to a horizontal card rail; when `view === 'list'` the
  *  same items render as a vertical list of rows (so a page-level card/list toggle flips every
- *  shelf, not just full-width grids). */
-export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid' }: {
+ *  shelf, not just full-width grids). `onDismiss` (suggestion rails) adds a "Not interested"
+ *  X to each card via the shared DismissableCard wrapper. */
+export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid', onDismiss }: {
   title: string
   to?: string
   items: VideoItem[]
   aspect?: 'video' | 'short'
   view?: CardListView
+  onDismiss?: (item: VideoItem) => void
 }) {
   if (!items.length) return null
   // The toggle drives the rail's card shape too, so a shelf matches the grid below it: a
@@ -50,18 +53,24 @@ export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid' }
   const shorts = aspect === 'short'
   const tall = shorts || view === 'big'
   const shape: 'wide' | 'tall' | undefined = shorts ? undefined : view === 'big' ? 'tall' : 'wide'
+  const wrap = (i: VideoItem, node: ReactNode) =>
+    onDismiss ? <DismissableCard onDismiss={() => onDismiss(i)}>{node}</DismissableCard> : node
   return (
     <section>
       <SectionHeader title={title} to={to} className="mb-4" />
       {view === 'list' ? (
         <div className="space-y-1">
-          {items.map(i => <VideoListRow key={i.videoId + (i.localKind ?? '')} item={i} aspect={aspect} />)}
+          {items.map(i => (
+            <div key={i.videoId + (i.localKind ?? '')}>
+              {wrap(i, <VideoListRow item={i} aspect={aspect} />)}
+            </div>
+          ))}
         </div>
       ) : (
         <HScroll>
           {items.map(i => (
             <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', tall ? 'w-44' : 'w-72')}>
-              <VideoCard item={i} aspect={aspect} shape={shape} />
+              {wrap(i, <VideoCard item={i} aspect={aspect} shape={shape} />)}
             </div>
           ))}
         </HScroll>

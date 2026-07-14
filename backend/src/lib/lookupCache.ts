@@ -71,6 +71,29 @@ export async function cachedLookup<T>(
 }
 
 /**
+ * Write-through companion to cachedLookup, for callers that compute values on their own
+ * schedule (background pool/profile builds) rather than lazily inside a read: cachedLookup
+ * would return an unexpired row instead of accepting the fresh value. Same keying, so
+ * cachedLookup/cachedLookupStale read what this writes.
+ */
+export async function cachedLookupPut(namespace: string, key: string, ttlMs: number, value: unknown): Promise<void> {
+  const now = Date.now()
+  await db
+    .insert(lookupCache)
+    .values({
+      key: rowKey(namespace, key),
+      namespace,
+      data: JSON.stringify(value ?? null),
+      expiresAt: now + ttlMs,
+      createdAt: now,
+    })
+    .onConflictDoUpdate({
+      target: lookupCache.key,
+      set: { data: JSON.stringify(value ?? null), expiresAt: now + ttlMs, createdAt: now },
+    })
+}
+
+/**
  * Stale-while-revalidate probe: return the cached value if a row exists — even if expired —
  * plus whether it's still fresh. Never runs a fetcher and never writes. Request paths that
  * must not block on a slow/unreliable lookup (e.g. TikTok, whose yt-dlp extraction can take

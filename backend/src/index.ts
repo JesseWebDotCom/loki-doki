@@ -108,6 +108,7 @@ import { ytPlaylists } from '@/routes/ytPlaylists'
 import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
 import { clipperRoute } from '@/routes/clipper'
 import { videosRoute } from '@/routes/videos'
+import { interestsRoute } from '@/routes/interests'
 import { videoStreamRoute } from '@/routes/videoStream'
 import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
@@ -367,6 +368,12 @@ if (firstBoot) {
   // Bound the app-wide /api/img proxy cache (news/article/misc remote images).
   setTimeout(() => void imgSweep(), 90_000)
   setInterval(() => void imgSweep(), 24 * 60 * 60 * 1000)
+  // Suggestion-rail impression state: reset rotation demotion after idle, drop stale
+  // non-dismissed rows (dismissals are kept — see lib/interests/impressions.ts).
+  const impressionSweep = guardedSweep('suggestion-impressions', () =>
+    import('@/lib/interests/impressions').then((m) => m.sweepImpressions()))
+  setTimeout(() => void impressionSweep(), 120_000)
+  setInterval(() => void impressionSweep(), 24 * 60 * 60 * 1000)
   // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
   // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
   startYtdlpAutoUpdate()
@@ -626,6 +633,7 @@ app.route('/api/monitoring', monitoring)
 app.route('/api/admin/monitoring', adminMonitoring)
 app.route('/api/videos/studio', studioRoute)
 app.route('/api/videos', videosRoute)
+app.route('/api/interests', interestsRoute)
 app.route('/api/vstream', videoStreamRoute)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)

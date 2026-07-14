@@ -506,10 +506,13 @@ export async function getPlaylist(playlistId: string): Promise<{ title: string |
   return r.json() as Promise<{ title: string | null; description?: string | null; owner?: PlaylistOwner | null; videos: ItVideo[] }>
 }
 
-/** Personalized recommendations seeded from watch history / subscriptions. */
-export async function getRecommended(): Promise<ItVideo[]> {
+/** Personalized recommendations from the interest engine (watch-history profile).
+ *  `building` = the engine's first pool build is still running and this response is the
+ *  legacy fallback chain; callers poll until it flips false. */
+export async function getRecommended(): Promise<{ videos: ItVideo[]; building: boolean }> {
   const r = await fetch('/api/youtube/recommended', { ...opts, cache: 'no-store' })
-  return (await r.json() as { videos: ItVideo[] }).videos ?? []
+  const data = await r.json() as { videos?: ItVideo[]; building?: boolean }
+  return { videos: data.videos ?? [], building: data.building === true }
 }
 
 export async function getFeed(limit = 120): Promise<FeedVideo[]> {

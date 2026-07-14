@@ -10,7 +10,9 @@ import { EpisodeRow } from '@/components/podcast/EpisodeRow'
 import { DirectoryCard, previewHref } from '@/components/podcast/DirectoryCard'
 import { CardGridSkeleton } from '@/components/store/SectionHead'
 import { SectionHeader } from '@/components/shared/SectionHeader'
-import { coverUrl, toTrack, getCharts, type DirectoryResult, type Show } from '@/lib/podcast/api'
+import { coverUrl, toTrack, getCharts, getSuggestedPodcasts, type DirectoryResult, type Show } from '@/lib/podcast/api'
+import { DismissableCard } from '@/components/shared/DismissableCard'
+import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { ArtBillboard, type ArtBillboardItem } from '@/components/shared/ArtBillboard'
 import { fmtTime } from '@/lib/podcast/format'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
@@ -159,6 +161,8 @@ export function ListenNowPage() {
           {/* Nobody here has made an AI show yet: pitch it in one compact banner, not a whole page. */}
           {aiShows.length === 0 && <CreateShowBanner />}
 
+          <SuggestedRail />
+
           {popularSection}
 
           {fresh.length > 0 && (
@@ -189,6 +193,35 @@ function ChartRail({ title, results }: { title: string; results: DirectoryResult
         {results.slice(0, 12).map((r, i) => (
           <div key={r.itunesId ?? r.feedUrl ?? i} className="w-44 shrink-0">
             <DirectoryCard result={r} />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/** "Suggested for you": interest-engine picks from the directory, matched to your
+ *  listening. Hidden while empty or still building (charts cover discovery meanwhile);
+ *  each card carries a "Not interested" X. */
+function SuggestedRail() {
+  const { data } = useQuery({
+    queryKey: ['podcasts-suggested'],
+    queryFn: getSuggestedPodcasts,
+    staleTime: 5 * 60_000,
+    refetchInterval: (query) => (query.state.data?.building ? 20_000 : false),
+  })
+  const { hidden, dismiss } = useSuggestionDismiss('podcasts')
+  const items = (data?.items ?? []).filter((r) => !hidden.has(r.ref))
+  if (!items.length) return null
+  return (
+    <section>
+      <SectionHeader title="Suggested for you" className="mb-4" />
+      <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
+        {items.slice(0, 12).map((r) => (
+          <div key={r.ref} className="w-44 shrink-0">
+            <DismissableCard onDismiss={() => dismiss({ ref: r.ref, creatorName: r.author, title: r.title })}>
+              <DirectoryCard result={r} />
+            </DismissableCard>
           </div>
         ))}
       </div>

@@ -16,6 +16,7 @@ import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary, ensureSmartDescription, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
+import { serveYtRecommended } from '@/lib/interests/videos'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
@@ -1565,11 +1566,19 @@ youtubeRoute.get('/playlist/:playlistId', async (c) => {
   return c.json(page)
 })
 
-// "Recommended for you" — discover content beyond your subscriptions. Seeds YouTube's
-// related-videos engine with what you've actually watched (falling back to recent
-// subscription uploads, then trending), then filters out anything already watched.
+// "Recommended for you" — discover content beyond your subscriptions. Served from the
+// interest engine (lib/interests/videos.ts): a background-built pool ranked against the
+// user's recent interests (stratified history seeds + topic searches + creator affinity),
+// excluding everything watched and rotating via impression demotion. While the first pool
+// build runs (building:true), the legacy chain below serves: live related fan-out from
+// the newest watches → subscription uploads → popular.
 youtubeRoute.get('/recommended', async (c) => {
   const user = c.get('user')
+
+  const suggested = await serveYtRecommended(user.id, 24)
+  if (!suggested.building && suggested.videos.length) {
+    return c.json({ videos: suggested.videos, seeded: true, building: false })
+  }
 
   // Up to 100 recently-watched ids: the newest few are seeds, all are the exclude set.
   const watched = await db.select({ videoId: ytWatchState.videoId, updatedAt: ytWatchState.updatedAt })
@@ -1593,7 +1602,7 @@ youtubeRoute.get('/recommended', async (c) => {
   // Still nothing (brand-new user) → just show what's popular.
   if (!seeds.length) {
     const videos = await filterYtItemsForUser(user.id, await fetchPopular(24))
-    return c.json({ videos, seeded: false })
+    return c.json({ videos, seeded: false, building: suggested.building })
   }
 
   // Fan out related lookups across the seeds, then merge + dedupe + filter watched.
@@ -1610,7 +1619,7 @@ youtubeRoute.get('/recommended', async (c) => {
   // simple merge already mixes seeds since we iterate lists in order.
   const videos = await filterYtItemsForUser(user.id, out.slice(0, 24))
   await enrichChannelThumbs(videos)
-  return c.json({ videos, seeded: true })
+  return c.json({ videos, seeded: true, building: suggested.building })
 })
 
 // ── SponsorBlock ────────────────────────────────────────────────────────────────

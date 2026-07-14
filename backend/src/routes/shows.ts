@@ -19,6 +19,7 @@ import {
   getShowsForAge,
 } from '@/lib/shows'
 import { getShowDetails, searchShows, getOnTvTonight, getNextEpisode } from '@/lib/shows/tvmaze'
+import { serveMediaRail } from '@/lib/interests/media'
 import { datasetsReady, ensureImdbDatasets, episodeRatings } from '@/lib/imdb/datasets'
 import { getReviews } from '@/lib/titles/reviews'
 import { getTrivia } from '@/lib/titles/trivia'
@@ -30,6 +31,14 @@ const showsRoute = new Hono<AppEnv>()
 showsRoute.get('/home', requireAuth, async (c) => {
   const shelves = await getHomeShelves()
   return c.json({ shelves })
+})
+
+// "Suggested for you" — interest-engine rail (lib/interests/media.ts): watchlist +
+// watched-episode signals, JustWatch similar/genre candidates, watched excluded,
+// impression rotation + "Not interested". Registered before '/:id'.
+showsRoute.get('/suggested', requireAuth, async (c) => {
+  const { items, building } = await serveMediaRail(c.get('user').id, 'show')
+  return c.json({ items, building })
 })
 
 showsRoute.get('/search', requireAuth, async (c) => {

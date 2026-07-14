@@ -3286,3 +3286,26 @@ export const remoteSnippets = sqliteTable('remote_snippets', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// "Suggested for you" rails (lib/interests): impression + dismissal state, one row per
+// (user, domain, ref). shownCount demotes already-served suggestions so rails rotate;
+// dismissedAt is the explicit "Not interested" (hard exclusion + creator-affinity penalty
+// at the next profile build). creator/title are denormalized off the served card so the
+// penalty works without re-resolving the item. Swept daily (lib/interests/impressions.ts):
+// rotation state is forgotten after idle periods, dismissals are kept forever.
+export const suggestionImpressions = sqliteTable('suggestion_impressions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  domain: text('domain', { enum: ['videos', 'shows', 'movies', 'podcasts', 'music'] }).notNull(),
+  ref: text('ref').notNull(),
+  creatorId: text('creator_id'),
+  creatorName: text('creator_name'),
+  title: text('title'),
+  shownCount: integer('shown_count').notNull().default(0),
+  lastShownAt: integer('last_shown_at', { mode: 'timestamp' }),
+  dismissedAt: integer('dismissed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userDomainRefUnique: unique().on(t.userId, t.domain, t.ref),
+  userDomainIdx: index('suggestion_impressions_user_domain_idx').on(t.userId, t.domain),
+}))
