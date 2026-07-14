@@ -37,11 +37,27 @@ const ytRef = (videoId: string) => `youtube:${videoId}`
 const clampEngagement = (completed: boolean, pos: number, dur: number | null) =>
   completed ? 1 : dur && dur > 0 ? Math.min(1, Math.max(0.05, pos / dur)) : 0.3
 
+// Daily shows title their episodes with dates, and the topic extractor dutifully turns
+// "The View Full Broadcast, July 10 2026" into the topic "July 10, 2026" — which, as a
+// YouTube search, returns astrology/tarot/numerology date-spam (verified live). A topic
+// that is mostly a date once the date parts are stripped is noise, not an interest.
+const MONTH_RE = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
+const isDateTopic = (t: string): boolean => {
+  if (!MONTH_RE.test(t)) return false
+  const stripped = t
+    .replace(/\b(19|20)\d{2}\b/g, '')
+    .replace(new RegExp(MONTH_RE.source, 'gi'), '')
+    .replace(/\b\d{1,2}(st|nd|rd|th)?\b/g, '')
+    .replace(/[,.]/g, '')
+    .trim()
+  return stripped.split(/\s+/).filter(Boolean).length <= 2
+}
+
 const parseTopics = (raw: string | null): string[] => {
   if (!raw) return []
   try {
     const arr = JSON.parse(raw) as unknown
-    return Array.isArray(arr) ? arr.filter((t): t is string => typeof t === 'string') : []
+    return Array.isArray(arr) ? arr.filter((t): t is string => typeof t === 'string' && !isDateTopic(t)) : []
   } catch {
     return []
   }
@@ -197,7 +213,8 @@ export async function buildVideoPool(userId: string): Promise<void> {
     const [u] = await db.select({ firstName: users.firstName }).from(users).where(eq(users.id, userId)).limit(1)
     const firstName = u?.firstName ?? 'user'
     for (const s of missingTopics) {
-      s.topics = await ensureRelatedTopics(s.ref.slice('youtube:'.length), userId, firstName).catch(() => [])
+      const topics = await ensureRelatedTopics(s.ref.slice('youtube:'.length), userId, firstName).catch(() => [])
+      s.topics = topics.filter((t) => !isDateTopic(t))
     }
   }
 
@@ -250,7 +267,15 @@ export async function buildVideoPool(userId: string): Promise<void> {
   const candidates: Candidate[] = [
     ...relatedLists.flat().map((v) => itToCandidate(v, 'related')),
     ...topicLists.flatMap(({ query, videos }) => videos.map((v) => itToCandidate(v, 'topic-search', [query]))),
-    ...channelLists.flat().map((v) => itToCandidate(v, 'creator-latest')),
+    // Channel-tab videos don't repeat their own channel's name/id — stamp the fetched
+    // channel's identity so affinity scoring (and the card's byline) survive.
+    ...channelLists.flatMap((videos, i) =>
+      videos.map((v) => ({
+        ...itToCandidate(v, 'creator-latest'),
+        creatorId: v.channelId ?? affinityChannels[i]!.id,
+        creatorName: v.author ?? affinityChannels[i]!.name,
+      })),
+    ),
     ...hubRelated,
     ...followItems,
     ...popular.map((v) => itToCandidate(v, 'trending')),
@@ -274,6 +299,19 @@ export async function buildVideoPool(userId: string): Promise<void> {
   // gadget clock) and off-interest trending/news that used to coast in on bucket priors.
   // Unembeddable candidates (cos null) pass — unknown is not the same as dissimilar.
   const RELEVANCE_COS = 0.35
+  // Hard-news gate: trending feeds are saturated with minutes-old crime/politics/breaking
+  // uploads, and for anyone who watches ANY commentary the centroid sits close enough to
+  // "news" that a murder headline clears the cosine floor (verified live: 0.48 for a
+  // counterterrorism story). Embeddings can't separate "likes political commentary shows"
+  // from "wants breaking crime news", so hard news needs the one signal that CAN: the
+  // user actually watching that outlet (affinity threshold, uniform across buckets —
+  // creator-latest candidates carry their channel's affinity after the stamping above).
+  const NEWS_CHANNEL = /\b(news(hour)?|breaking|associated press|reuters|inside edition|sky news|bbc|cnn|msnbc|nbc|abc|cbs|fox news|newsmax|c-?span|telemundo|univision)\b/i
+  // Two halves: word-bounded phrases, then patterns that end mid-word or at punctuation
+  // (a trailing \b after "," or inside "assassination" never matches).
+  const NEWS_TITLE =
+    /\b(breaking(\s+news)?|murder(ed)?|shooting|shot (dead|by)|stabb(ed|ing)|kill(s|ed)? (man|woman|teen|child|officer|suspect)|(planned|plott?ed|tried) to kill|found dead|dead after|dies after|death toll|manhunt|crackdown|indict(ed|ment)|arraign|verdict|press conference)\b|\b(assassinat|(dead|dies)\s*[,:;])/i
+  const isHardNews = (e: RankedCandidate) => NEWS_CHANNEL.test(e.creatorName ?? '') || NEWS_TITLE.test(e.title)
   // Age gate: platform "related" on low-traffic sources (Vimeo especially) surfaces
   // decade-old shorts. Nobody's "suggested for you" should lead with 14-year-old videos
   // unless they're from a creator the user actually watches.
@@ -283,6 +321,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
     const p = e.parts
     if (p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && p.topic < 0.2) return false
     if (e.publishedAt && builtAt - e.publishedAt > MAX_AGE_MS && (p?.creator ?? 0) === 0) return false
+    if (isHardNews(e) && (p?.creator ?? 0) < 0.15) return false
     return true
   })
   // Subscribed channels already own "Latest from your subscriptions" — nudge, don't ban.
@@ -402,7 +441,19 @@ export async function serveYtRecommended(
 
   const byRef = new Map(entries.map((e) => [e.ref, e]))
   const kept = await filterYtItemsForUser(userId, entries.map((e) => e.payload as ItVideo))
-  const served = kept.slice(0, target)
+  // Same trending cap as the hub rail: backfill fills gaps, it doesn't take over as
+  // rotation demotes the personalized picks.
+  const trendingCap = Math.max(3, Math.floor(target / 3))
+  let trendingServed = 0
+  const served: ItVideo[] = []
+  for (const v of kept) {
+    if (byRef.get(ytRef(v.videoId))?.bucket === 'trending') {
+      if (trendingServed >= trendingCap) continue
+      trendingServed++
+    }
+    served.push(v)
+    if (served.length >= target) break
+  }
   await enrichChannelThumbs(served)
   await recordServed(userId, DOMAIN, served.map((v) => byRef.get(ytRef(v.videoId))!).filter(Boolean))
   return { videos: served, building: false }
@@ -430,11 +481,19 @@ export async function serveVideosSuggested(
   const keptKeys = new Set(kept.map((i) => `${i.source}:${i.id}`))
   // Per-source cap: hub sources add variety but must not crowd the rail — the user's
   // watch time is overwhelmingly on the primary source (YouTube), so cap each hub
-  // source at 3 of the served slice.
+  // source at 3 of the served slice. Trending backfill is likewise capped to a third:
+  // it exists to fill gaps, and without a cap the rotation demotion (shown items sink)
+  // gradually hands the whole rail to it.
   const perSource = new Map<string, number>()
+  let trendingServed = 0
+  const trendingCap = Math.max(3, Math.floor(target / 3))
   const served: typeof withItems = []
   for (const w of withItems) {
     if (!keptKeys.has(`${w.item.source}:${w.item.id}`)) continue
+    if (w.entry.bucket === 'trending') {
+      if (trendingServed >= trendingCap) continue
+      trendingServed++
+    }
     if (w.item.source !== 'youtube') {
       const n = perSource.get(w.item.source) ?? 0
       if (n >= 3) continue
