@@ -63,6 +63,13 @@ const parseTopics = (raw: string | null): string[] => {
   }
 }
 
+// Only the PRIMARY related-topic (index 0 — the subject the video is centered on) shapes the
+// taste profile. The extractor deliberately also emits 1-3 "other subjects": an accessory
+// shown, a product named in passing, the platform it runs on. Those enrich the watch page's
+// Related shelves, but as interest search queries they drag the profile toward things the user
+// never cared about — a one-line Delonghi mention in a smart-home tour becoming a coffee rail.
+const primaryTopic = (raw: string | null): string[] => parseTopics(raw).slice(0, 1)
+
 // ── Signals ─────────────────────────────────────────────────────────────────────
 
 export async function collectVideoSignals(userId: string): Promise<InterestSignal[]> {
@@ -118,7 +125,7 @@ export async function collectVideoSignals(userId: string): Promise<InterestSigna
       title: w.title,
       creatorId: w.channelId,
       creatorName: w.author || null,
-      topics: parseTopics(w.relatedTopics),
+      topics: primaryTopic(w.relatedTopics),
       engagement: clampEngagement(w.completed, w.positionSec, w.durationSec),
       at: w.updatedAt.getTime(),
     })
@@ -214,7 +221,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
     const firstName = u?.firstName ?? 'user'
     for (const s of missingTopics) {
       const topics = await ensureRelatedTopics(s.ref.slice('youtube:'.length), userId, firstName).catch(() => [])
-      s.topics = topics.filter((t) => !isDateTopic(t))
+      s.topics = topics.filter((t) => !isDateTopic(t)).slice(0, 1)
     }
   }
 
@@ -319,7 +326,13 @@ export async function buildVideoPool(userId: string): Promise<void> {
   const builtAt = Date.now()
   const gated = ranked.filter((e) => {
     const p = e.parts
-    if (p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && p.topic < 0.2) return false
+    // A topic-search hit matches its own query by construction, so its `topic` part is
+    // tautological — it can't independently vouch for relevance. Require real similarity
+    // (cosine) or a watched creator instead; otherwise an off-taste result from a stray or
+    // hallucinated interest topic (e.g. "Fable 5", the Claude model, misread as the Xbox
+    // game) coasts past the gate on the very topic that spawned it.
+    const topicVouch = e.bucket === 'topic-search' ? 0 : (p?.topic ?? 0)
+    if (p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
     if (e.publishedAt && builtAt - e.publishedAt > MAX_AGE_MS && (p?.creator ?? 0) === 0) return false
     if (isHardNews(e) && (p?.creator ?? 0) < 0.15) return false
     return true
