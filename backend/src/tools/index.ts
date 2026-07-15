@@ -59,9 +59,26 @@ export interface ConfirmActionDirective {
   summary: string
   approveLabel: string
   declineLabel: string
+  /** Optional rich preview (e.g. movie poster + "Title (Year)" for a media request)
+   *  so the user confirms the exact thing being acted on. Additive: surfaces without
+   *  card support keep rendering summary + buttons. */
+  card?: { title: string; subtitle?: string; imageUrl?: string }
 }
 
-export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective | ConfirmActionDirective
+/** A structured client-side action telling the frontend to open a saved playlist
+ *  the companion just built or refined (curate_playlist tool). Off-chat (voice) the
+ *  shell navigates to the playlist page so the user sees it; `autoplay` is currently
+ *  false by design (curating shouldn't hijack whatever audio is playing) but the field
+ *  is honored if set, so playback can be opted into later. */
+export interface OpenPlaylistDirective {
+  action: 'open_playlist'
+  playlistId: string
+  name: string
+  trackCount: number
+  autoplay?: boolean
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective | ConfirmActionDirective | OpenPlaylistDirective
 
 export interface ToolResult {
   success: boolean
@@ -169,6 +186,10 @@ import { knowledgeTool } from './knowledge'
 import { showtimesTool } from './showtimes'
 import { onTvTool } from './onTv'
 import { playMusicTool } from './playMusic'
+import { curatePlaylistTool } from './curatePlaylist'
+import { musicInsightsTool } from './musicInsights'
+import { requestMediaTool } from './requestMedia'
+import { downloadStatusTool } from './downloadStatus'
 import { plexTool } from './plex'
 import { setStatusTool } from './setStatus'
 import { sleepTool } from './sleep'
@@ -221,6 +242,10 @@ export const toolRegistry: Tool[] = [
   showtimesTool,
   onTvTool,
   playMusicTool,
+  curatePlaylistTool,
+  musicInsightsTool,
+  requestMediaTool,
+  downloadStatusTool,
   plexTool,
   setStatusTool,
   sleepTool,

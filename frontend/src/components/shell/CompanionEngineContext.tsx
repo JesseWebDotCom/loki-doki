@@ -6,6 +6,8 @@ import { useCompanionStream } from '@/hooks/useCompanionStream'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { applyPlayDirective } from '@/lib/playDirective'
+import { getPlaylist } from '@/lib/music/catalogApi'
+import { artUrlForRef } from '@/lib/music/trackRef'
 import { useCompanionState, type CaptionStyle } from '@/lib/companionState'
 import { useUIContext } from '@/context/UIContextProvider'
 import type { Mood } from '@/components/companion/moods'
@@ -54,6 +56,8 @@ export interface PendingCompanionAction {
   summary: string
   approveLabel: string
   declineLabel: string
+  /** Optional rich preview (poster + "Title (Year)") for surfaces that can show it. */
+  card?: { title: string; subtitle?: string; imageUrl?: string }
   expiresAt: number
 }
 
@@ -133,6 +137,25 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     const t = setTimeout(() => setPendingAction(null), Math.max(0, pendingAction.expiresAt - Date.now()))
     return () => clearTimeout(t)
   }, [pendingAction])
+  // Off-chat companion turns can ask to open a playlist the companion just curated
+  // ("make me a dinner playlist"). Navigate to it so the user sees it; only play when
+  // the directive opts in (autoplay is false today — curating shouldn't hijack audio).
+  const openPlaylist = useCallback(
+    async (playlistId: string, opts: { name: string; trackCount: number; autoplay: boolean }) => {
+      navigate(`/music/playlist/${playlistId}`)
+      if (!opts.autoplay) return
+      try {
+        const { playlist, tracks } = await getPlaylist(playlistId)
+        if (!tracks.length) return
+        radio.playPlaylist(
+          tracks.map((t) => ({ videoId: t.videoId, title: t.title, author: t.artist, thumbnail: artUrlForRef(t.videoId) ?? '' })),
+          0,
+          { name: playlist.name, playlistId: playlist.id },
+        )
+      } catch { /* navigation already happened; playback is best-effort */ }
+    },
+    [navigate, radio],
+  )
   // Off-chat companion turns can ask to start playback ("play heavy metal",
   // "play the Thriller music video"), drive the global mini-player in place.
   const onDirective = useCallback(
@@ -143,13 +166,14 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
           summary: directive.summary,
           approveLabel: directive.approveLabel,
           declineLabel: directive.declineLabel,
+          card: directive.card,
           expiresAt: Date.now() + 60_000,
         })
         return
       }
-      applyPlayDirective(directive, { playExpanded: youtube.playExpanded, startStation: radio.start })
+      applyPlayDirective(directive, { playExpanded: youtube.playExpanded, startStation: radio.start, openPlaylist })
     },
-    [youtube.playExpanded, radio.start],
+    [youtube.playExpanded, radio.start, openPlaylist],
   )
   const companion = useCompanionStream({ onDirective })
   const { companion: character, companions, isLoading } = useActiveCompanion()

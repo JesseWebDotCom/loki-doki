@@ -6,11 +6,8 @@ import { eq, and, or, desc, asc, max } from 'drizzle-orm'
 import { db } from '@/db'
 import { musicPlaylists, musicPlaylistTracks, users } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
-import { llmTracklist } from '@/lib/music/stationEngine'
-import { resolveTracks } from '@/lib/music/resolve'
-import { preferLibrary } from '@/lib/music/resolveSource'
-import { filterTracksForUser } from '@/lib/music/advisory'
 import { parseSmartRules, evaluateSmartPlaylist } from '@/lib/music/smartRules'
+import { createCuratedPlaylist, regenerateFromRecipe, CurateError } from '@/lib/music/curate'
 import type { AppEnv } from '@/types'
 
 export const musicPlaylists_route = new Hono<AppEnv>()
@@ -72,45 +69,27 @@ musicPlaylists_route.post('/', async (c) => {
 })
 
 // ── Magic Vibe: describe it, get a playlist ──────────────────────────────────────
-// The LLM proposes real songs for the vibe (chips fold into the brief, the arc shapes
-// the ordering), the resolver makes them playable, prefer-library swaps in owned
-// copies, and the result lands as a NORMAL editable playlist (kind 'magic', recipe
-// kept in rules_json so Regenerate can re-roll it).
-async function generateMagic(userId: string, recipe: { vibe: string; chips?: string[]; arc?: string; count?: number }) {
-  const chips = (recipe.chips ?? []).filter(Boolean)
-  const count = Math.max(8, Math.min(40, recipe.count ?? 20))
-  const arc = recipe.arc && ['rise', 'fall', 'wave', 'flat'].includes(recipe.arc) ? recipe.arc : 'flat'
-  const brief = `${recipe.vibe}${chips.length ? `. Sonic direction: ${chips.join(', ')}` : ''}.` +
-    (arc !== 'flat' ? ` Order the playlist as a ${arc === 'rise' ? 'rising energy arc (mellow start, big finish)' : arc === 'fall' ? 'falling energy arc (big start, wind-down finish)' : 'wave energy arc (build, release, build again)'}.` : '')
-  const proposed = await llmTracklist({ name: recipe.vibe.slice(0, 60), aiPrompt: brief }, count)
-  const resolved = await resolveTracks(proposed.map(t => ({ title: t.title, artist: t.artist })), 8)
-  const withOwned = await preferLibrary(resolved)
-  return filterTracksForUser(userId, withOwned)
-}
-
+// Delegates to the shared curation engine (lib/music/curate.ts) so a UI-built magic
+// playlist and a companion-voice-built one are identical: the LLM proposes real songs
+// for the vibe (chips fold into the brief, the arc shapes ordering), the resolver makes
+// them playable, prefer-library swaps in owned copies, and the result lands as a NORMAL
+// editable playlist (kind 'magic', recipe kept in rules_json so Regenerate can re-roll it).
 musicPlaylists_route.post('/magic', async (c) => {
   const user = c.get('user')
   const body = await c.req.json<{ vibe?: string; chips?: string[]; arc?: string; count?: number; name?: string }>().catch(() => ({} as Record<string, never>))
   const vibe = body.vibe?.trim()
   if (!vibe) return c.json({ error: 'vibe required' }, 400)
 
-  const tracks = await generateMagic(user.id, { vibe, chips: body.chips, arc: body.arc, count: body.count })
-  if (tracks.length < 5) return c.json({ error: 'Could not find enough songs for that vibe - try rewording it.' }, 422)
-
-  const id = crypto.randomUUID()
-  const now = new Date()
-  await db.insert(musicPlaylists).values({
-    id, userId: user.id, name: body.name?.trim() || vibe.slice(0, 60), description: `Magic mix: ${vibe}`,
-    visibility: 'private', kind: 'magic',
-    rulesJson: JSON.stringify({ vibe, chips: body.chips ?? [], arc: body.arc ?? 'flat', count: body.count ?? 20 }),
-    generatedAt: now, createdAt: now, updatedAt: now,
-  })
-  await db.insert(musicPlaylistTracks).values(tracks.map((t, i) => ({
-    id: crypto.randomUUID(), playlistId: id, videoId: t.videoId, title: t.title,
-    artist: t.artist || null, mbid: null, durationSec: t.durationSec, position: i, addedAt: now,
-  })))
-  const [row] = await db.select().from(musicPlaylists).where(eq(musicPlaylists.id, id))
-  return c.json({ playlist: serialize(row!, user.id, null, tracks.length) })
+  try {
+    const { id, trackCount } = await createCuratedPlaylist(user.id, {
+      vibe, chips: body.chips, arc: body.arc, count: body.count, name: body.name, description: `Magic mix: ${vibe}`,
+    })
+    const [row] = await db.select().from(musicPlaylists).where(eq(musicPlaylists.id, id))
+    return c.json({ playlist: serialize(row!, user.id, null, trackCount) })
+  } catch (err) {
+    if (err instanceof CurateError) return c.json({ error: 'Could not find enough songs for that vibe - try rewording it.' }, 422)
+    throw err
+  }
 })
 
 // Re-roll a magic playlist from its stored recipe (owner only).
@@ -121,17 +100,13 @@ musicPlaylists_route.post('/:id/regenerate', async (c) => {
   if (!row) return c.json({ error: 'not found' }, 404)
   if (row.userId !== user.id) return c.json({ error: 'not your playlist' }, 403)
   if (row.kind !== 'magic' || !row.rulesJson) return c.json({ error: 'not a magic playlist' }, 400)
-  const recipe = JSON.parse(row.rulesJson) as { vibe: string; chips?: string[]; arc?: string; count?: number }
-  const tracks = await generateMagic(user.id, recipe)
-  if (tracks.length < 5) return c.json({ error: 'Could not find enough songs - try editing the vibe.' }, 422)
-  const now = new Date()
-  await db.delete(musicPlaylistTracks).where(eq(musicPlaylistTracks.playlistId, id))
-  await db.insert(musicPlaylistTracks).values(tracks.map((t, i) => ({
-    id: crypto.randomUUID(), playlistId: id, videoId: t.videoId, title: t.title,
-    artist: t.artist || null, mbid: null, durationSec: t.durationSec, position: i, addedAt: now,
-  })))
-  await db.update(musicPlaylists).set({ generatedAt: now, updatedAt: now }).where(eq(musicPlaylists.id, id))
-  return c.json({ ok: true, trackCount: tracks.length })
+  try {
+    const trackCount = await regenerateFromRecipe(user.id, id)
+    return c.json({ ok: true, trackCount })
+  } catch (err) {
+    if (err instanceof CurateError) return c.json({ error: 'Could not find enough songs - try editing the vibe.' }, 422)
+    throw err
+  }
 })
 
 // ── Smart playlist: create with rules / update rules (owner) ─────────────────────

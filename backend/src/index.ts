@@ -322,6 +322,9 @@ if (firstBoot) {
   startYoutubeFeedPoller()
   // Videos hub: refresh non-YouTube follows + cross-source auto-save (lib/videos/feed.ts).
   import('@/lib/videos/feed').then((m) => m.startVideosFeedPoller()).catch(() => {})
+  // Media requests: advance requested→downloading→ready-in-Plex + ready notifications
+  // + external Overseerr request sync (lib/media/requestsPoller.ts).
+  import('@/lib/media/requestsPoller').then((m) => m.startMediaRequestsPoller()).catch(() => {})
   // Notification delivery layer: deferred/digest flush + daily reports (lib/notify),
   // and the Telegram two-way bridge long-poll loop (lib/telegram).
   import('@/lib/notify/scheduler').then((m) => m.startNotifyScheduler()).catch(() => {})

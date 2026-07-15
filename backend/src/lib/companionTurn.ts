@@ -31,6 +31,7 @@ import {
   isFollowUp as isHAFollowUp, hasRecentContext as hasRecentHAContext,
 } from '@/lib/homeAssistant/context'
 import { hasPendingCompanionAction, isConfirmationReply } from '@/lib/companionActions'
+import { getActiveCuration, isCurationFollowUp } from '@/lib/music/curationSession'
 import { isOffline } from '@/lib/connectivity'
 import { friendshipLine } from '@/lib/friendshipMemory'
 import { buildLocalePrompt, getLocaleSettings } from '@/routes/adminLocale'
@@ -376,6 +377,17 @@ export async function runCompanionTurn(
   if (!pendingConfirm && (!tool || tool.id !== 'homeAssistant') && haFollowUp && allowedToolIds.has('homeAssistant')) {
     const haTool = toolRegistry.find((t) => t.id === 'homeAssistant')
     if (haTool) { tool = haTool; args = { text: p.message } }
+  }
+
+  // Playlist-curation follow-ups ("add some Bad Bunny", "make it more upbeat", "drop
+  // the last one") carry no playlist name, so the router reads them as chitchat/playback.
+  // While a curation session is live (the tool just built/edited a playlist), treat a
+  // refine-shaped message as a follow-up to it. Gated on an active session, so the same
+  // phrase in a normal chat still routes normally.
+  const curationFollowUp = isCurationFollowUp(p.message) && !!getActiveCuration(p.userId)
+  if (!pendingConfirm && (!tool || tool.id !== 'curate_playlist') && curationFollowUp && allowedToolIds.has('curate_playlist')) {
+    const curateTool = toolRegistry.find((t) => t.id === 'curate_playlist')
+    if (curateTool) { tool = curateTool; args = { query: p.message } }
   }
 
   // Document-attached override: when this conversation has an uploaded document and

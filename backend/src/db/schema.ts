@@ -2652,6 +2652,35 @@ export const mediaWatchlist = sqliteTable('media_watchlist', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userItemUnique: unique().on(t.userId, t.mediaType, t.refId) }))
 
+// Download requests filed from the Shows/Movies apps (or synced from Overseerr). One row
+// per user+title; the requests poller advances status (arr queue progress → found in Plex)
+// and emits a "ready to watch" notification exactly once (notifiedAt guard). refId follows
+// the media_watchlist convention: TVMaze id for shows, title for movies.
+export const mediaRequests = sqliteTable('media_requests', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  mediaType: text('media_type', { enum: ['show', 'movie'] }).notNull(),
+  refId: text('ref_id').notNull(),
+  title: text('title').notNull(),
+  year: integer('year'),
+  posterUrl: text('poster_url'),
+  tmdbId: integer('tmdb_id'),
+  tvdbId: integer('tvdb_id'),
+  imdbId: text('imdb_id'),
+  pipeline: text('pipeline', { enum: ['overseerr', 'radarr', 'sonarr'] }).notNull(),
+  externalId: text('external_id'),   // Overseerr request id, or arr movie/series id
+  origin: text('origin', { enum: ['app', 'companion', 'external'] }).notNull().default('app'),
+  status: text('status', { enum: ['requested', 'downloading', 'ready', 'failed'] }).notNull().default('requested'),
+  progress: real('progress'),        // 0..100 while downloading
+  plexRatingKey: text('plex_rating_key'),
+  plexDeepLink: text('plex_deep_link'),
+  notifiedAt: integer('notified_at', { mode: 'timestamp' }),
+  lastCheckedAt: integer('last_checked_at', { mode: 'timestamp' }),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userItemUnique: unique().on(t.userId, t.mediaType, t.refId) }))
+
 // Per-episode watched marks for shows — drives episode checkmarks + "Continue Watching".
 export const showWatchedEpisodes = sqliteTable('show_watched_episodes', {
   id: text('id').primaryKey(),

@@ -162,6 +162,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         summary: directive.summary,
         approveLabel: directive.approveLabel,
         declineLabel: directive.declineLabel,
+        card: directive.card,
         expiresAt: Date.now() + 60_000,
       },
     }

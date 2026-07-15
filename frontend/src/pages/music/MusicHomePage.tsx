@@ -1,11 +1,13 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Download, Play } from 'lucide-react'
+import { Radio, Download, Play, Plus } from 'lucide-react'
 import { artUrlForRef } from '@/lib/music/trackRef'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { StationCard } from '@/components/music/StationCard'
+import { StationEditorDialog } from '@/components/music/StationEditorDialog'
 import { Button } from '@/components/ui/button'
 import { StationArt } from '@/components/music/StationArt'
 import { BlendedHeroBackdrop } from '@/components/shared/BlendedHeroBackdrop'
@@ -16,7 +18,9 @@ import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import { listStations, getHistory, getRails, stationToDj, type Station, type Rail } from '@/lib/music/catalogApi'
 import { DismissableCard } from '@/components/shared/DismissableCard'
+import { PitchBanner } from '@/components/shared/PitchBanner'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
+import { getAppByPath } from '@/lib/appCategories'
 
 // (SongTile moved to components/music/SongTile - shared with Browse.)
 
@@ -158,6 +162,7 @@ function MadeForYouRail({ rail }: { rail: Rail }) {
 
 export function MusicHomePage() {
   const radio = useRadio()
+  const [editorOpen, setEditorOpen] = useState(false)
   const offline = useMusicModeOptional() === 'offline'
   const { data: buckets } = useQuery({ queryKey: ['music-stations'], queryFn: listStations, enabled: !offline })
   const { data: hist } = useQuery({ queryKey: ['music-history'], queryFn: () => getHistory(12), enabled: !offline })
@@ -172,6 +177,23 @@ export function MusicHomePage() {
     <PageContainer width="wide" className="pb-10 pt-6">
       {/* No page title: the rail states where we are and the billboard is the focal point. */}
       <StationBillboard stations={buckets?.builtin ?? []} />
+
+      {/* Pitch station-building right under the hero (same placement as Podcasts); the X hides it for good. */}
+      <div className="mb-6">
+        <PitchBanner
+          prefKey="music.createStationBannerDismissed"
+          icon={Radio}
+          gradient={getAppByPath('/music')?.gradient}
+          title="Make your own station"
+          description="Describe a vibe, an era, or a mix of artists and your companion builds an endless AI radio station around it, complete with a DJ that learns your taste."
+          action={
+            <Button variant="secondary" onClick={() => setEditorOpen(true)}>
+              <Plus className="mr-1.5 size-4" />
+              New station
+            </Button>
+          }
+        />
+      </div>
 
       {recent.length > 0 && (
         <section className="mt-2">
@@ -205,6 +227,8 @@ export function MusicHomePage() {
           <StationGrid stations={buckets!.mine} />
         </section>
       )}
+
+      <StationEditorDialog open={editorOpen} onOpenChange={setEditorOpen} station={null} />
     </PageContainer>
   )
 }

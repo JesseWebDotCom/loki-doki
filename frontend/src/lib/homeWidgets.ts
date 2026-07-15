@@ -1,5 +1,5 @@
 import {
-  Bookmark, BookOpen, CalendarDays, CirclePlay, Clapperboard, CloudSun, Globe, Headphones, Home, Laugh, ListVideo,
+  Bookmark, BookOpen, CalendarDays, CirclePlay, Clapperboard, CloudSun, Download, Globe, Headphones, Home, Laugh, ListVideo,
   MessagesSquare, Music, Music2, Network, Newspaper, Play, PlaySquare, Radio, Server, Star, Sunrise, Tag, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
@@ -215,6 +215,13 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     description: "Set your availability for screen Pods (BUSY-bar style)",
     icon: Radio, color: "#ef4444",
     gradient: "linear-gradient(135deg,#450a0a,#dc2626)",
+    allowWide: false,
+  },
+  {
+    id: "downloads", title: "Downloads",
+    description: "Live download queue & your media requests",
+    icon: Download, color: "#f43f5e",
+    gradient: "linear-gradient(135deg,#4c0519,#e11d48)",
     allowWide: false,
   },
 ];

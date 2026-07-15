@@ -3,6 +3,18 @@ import { db } from '@/db'
 import { toolGlobalConfig, toolUserConfig, toolUserPermissions } from '@/db/schema'
 import { toolRegistry } from '@/tools'
 import { isPlexConfigured } from '@/lib/plex'
+import { getIntegrationsConfig } from '@/lib/media/integrations'
+
+// The media request/status tools stay disabled until at least one backing service
+// (Radarr, Sonarr, Overseerr, SABnzbd) is configured — mirrors the Plex gate below.
+async function isMediaIntegrationsConfigured(): Promise<boolean> {
+  const cfg = await getIntegrationsConfig()
+  return !!(
+    (cfg.radarr_url && cfg.radarr_key) || (cfg.sonarr_url && cfg.sonarr_key) ||
+    (cfg.overseerr_url && cfg.overseerr_key) || (cfg.sabnzbd_url && cfg.sabnzbd_key)
+  )
+}
+const MEDIA_TOOL_IDS = ['request_media', 'download_status'] as const
 
 // Internal enablement keys on toolGlobalConfig, excluded from tool-visible config:
 // __enabled = installed (store), __chat_enabled = companion may use it in chat
@@ -58,6 +70,9 @@ export async function getAllowedToolIds(userId: string): Promise<Set<string>> {
     if (row.state === 'deny') allowed.delete(row.toolId)
   }
   if (allowed.has('plex') && !(await isPlexConfigured())) allowed.delete('plex')
+  if (MEDIA_TOOL_IDS.some((id) => allowed.has(id)) && !(await isMediaIntegrationsConfigured())) {
+    for (const id of MEDIA_TOOL_IDS) allowed.delete(id)
+  }
   return allowed
 }
 
@@ -78,5 +93,6 @@ export async function isToolAllowed(toolId: string, userId: string): Promise<boo
   if (permRow[0]?.state === 'deny') return false
   // Plex stays disabled until a server URL + token are configured (Admin → Features → Plex).
   if (toolId === 'plex' && !(await isPlexConfigured())) return false
+  if ((MEDIA_TOOL_IDS as readonly string[]).includes(toolId) && !(await isMediaIntegrationsConfigured())) return false
   return true
 }

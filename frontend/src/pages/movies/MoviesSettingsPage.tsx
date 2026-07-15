@@ -6,6 +6,7 @@ import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/A
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { PlexConnectCard } from '@/components/media/PlexConnectCard'
 import { MediaIntegrationsAdminCard } from '@/components/media/MediaIntegrations'
+import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { getMovieZip, setMovieZip } from '@/lib/movies/api'
@@ -93,6 +94,11 @@ const SECTIONS: AppSettingsSection[] = [
     content: (
       <section className="space-y-6">
         <MediaIntegrationsAdminCard />
+        <CompanionAbilitiesCard appId="movies" />
+        <Link to="/admin/integrations/radarr" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
+          Radarr, Sonarr and download queue management <ExternalLink className="size-3.5" />
+        </Link>
+        <br />
         <Link to="/admin/plex" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
           Plex server configuration <ExternalLink className="size-3.5" />
         </Link>

@@ -196,6 +196,29 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         keywords: ['books', 'opds', 'ebook', 'calibre', 'kavita', 'indexer', 'catalog', 'discover'],
         description: 'Optional self-hosted OPDS indexers as extra Book Store sources',
       },
+      // The four media-download products share one management view (pipeline choice,
+      // per-user grants, and the queue span all of them) but each gets its own
+      // product-named sidebar entry, matching Plex/Frigate/Home Assistant.
+      {
+        id: 'sonarr', label: 'Sonarr', kind: 'view',
+        keywords: ['sonarr', 'shows', 'tv', 'series', 'episodes', 'arr', 'downloads', 'requests', 'calendar'],
+        description: 'Sonarr: TV show downloads, requests from the Shows app, and library calendar',
+      },
+      {
+        id: 'radarr', label: 'Radarr', kind: 'view',
+        keywords: ['radarr', 'movies', 'films', 'arr', 'downloads', 'requests', 'calendar'],
+        description: 'Radarr: movie downloads, requests from the Movies app, and release calendar',
+      },
+      {
+        id: 'overseerr', label: 'Overseerr', kind: 'view',
+        keywords: ['overseerr', 'requests', 'request pipeline', 'plex requests', 'jellyseerr'],
+        description: 'Overseerr: household request pipeline with per-user Plex attribution',
+      },
+      {
+        id: 'sabnzbd', label: 'SABnzbd', kind: 'view',
+        keywords: ['sabnzbd', 'sab', 'usenet', 'nzb', 'queue', 'downloads', 'speed', 'history'],
+        description: 'SABnzbd: live download queue, pause/resume, and history',
+      },
     ],
   },
   {

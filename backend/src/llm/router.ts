@@ -36,6 +36,12 @@ const PLAY_INTENT_RE = /^(?:(?:hey|ok|okay|yo)\b[\s,]+\w+[\s,!]+)?(?:can you|cou
 // …but not non-media uses of "play" (games, instruments, sports).
 const NOT_MEDIA_PLAY_RE = /\bplay(?:ing)?\s+(?:a\s+|some\s+)?(?:game|games|chess|checkers|cards|a\s+round|outside|sports?|football|basketball|tag|the\s+(?:guitar|piano|drums|violin|keyboard))\b/i
 
+// "make me a playlist of X" / "build a workout playlist" → curate_playlist. Requires
+// a build verb AND the word "playlist" so it never catches "make me a sandwich" or a
+// plain "put on a playlist" (that's playback → play_music). Checked before the play
+// fast-path so "start a road trip playlist" curates instead of resolving a video.
+const CURATE_INTENT_RE = /\b(?:make|build|create|put together|generate|curate|whip up|throw together|give me|get me|set up)\b[^.?!]{0,40}\bplaylist\b/i
+
 // Arithmetic the embeddings can't see: symbols and money-math score near-zero on
 // all-minilm ("what is 17 × 23?" → calculator=0.24), so a regex is the only gate
 // that catches them before the search-intent path swallows the question. WORD forms
@@ -155,6 +161,8 @@ const TIER2_RULES: Record<string, string> = {
   recipes: 'recipes: cooking questions, recipe requests, or "what can I make with X?".',
   youtube: 'youtube: requests to FIND or SEARCH for a video, or "show me how to X" — browsing, not immediate playback. Do NOT use for "play X" (use play_music).',
   play_music: 'play_music: requests to PLAY or PUT ON something now — a specific song, music video, movie/show trailer, theme song, an artist, a genre/mood, or a radio station. "play X", "put on X", "start an X station", "play the X trailer", "play the X music video". Prefer this over youtube whenever the user says play/put on.',
+  curate_playlist: 'curate_playlist: requests to BUILD or CHANGE a playlist (not just play one). "make me a playlist of 90s hip hop", "build a workout playlist", "add some Bad Bunny", "make it more upbeat", "remove the last one". Use whenever the user wants to create or refine a playlist rather than start playback of something.',
+  music_insights: "music_insights: questions about the user's OWN listening history — when they first listened to a song, how many times they've played it, what they've been into lately, or their top artists. \"when did I first hear this\", \"how many times have I played X\", \"what have I been listening to lately\". Not for playing music.",
   unit_conversion: 'unit_conversion: converting between units of measurement.',
   jokes: 'jokes: requests for a joke, humor, or to cheer the user up.',
   datetime: 'datetime: read-only date/time questions: current date, time, day of week, days until/since an event, or timezone queries. NOT for creating alarms or timers (use alarms_timers).',
@@ -385,6 +393,17 @@ export async function routePrompt(
     if (searchTool && isAllowed(searchTool)) {
       logger.info(`[ROUTER] path=continuation→tier2 msg="${excerpt}"`)
       return tier2Call(model, prompt, history, [searchTool], chatNumCtx)
+    }
+  }
+
+  // Fast path: "make me a playlist of X" → curate_playlist. Before play-intent so a
+  // "start/build a playlist" request curates rather than trying to play a video. The
+  // tool classifies create vs. refine (add/remove/adjust) itself.
+  if (CURATE_INTENT_RE.test(prompt)) {
+    const curateTool = toolRegistry.find((t) => t.id === 'curate_playlist')
+    if (curateTool && isAllowed(curateTool)) {
+      logger.info(`[ROUTER] path=curate-intent msg="${excerpt}"`)
+      return { tool: curateTool, args: curateTool.passMessage ? { [curateTool.passMessage]: prompt } : {}, path: 'curate-intent' }
     }
   }
 

@@ -2671,6 +2671,32 @@ export function runMigrations() {
       watched_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS show_watched_episodes_unique ON show_watched_episodes(user_id, episode_id);
+    CREATE TABLE IF NOT EXISTS media_requests (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      media_type TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      year INTEGER,
+      poster_url TEXT,
+      tmdb_id INTEGER,
+      tvdb_id INTEGER,
+      imdb_id TEXT,
+      pipeline TEXT NOT NULL,
+      external_id TEXT,
+      origin TEXT NOT NULL DEFAULT 'app',
+      status TEXT NOT NULL DEFAULT 'requested',
+      progress REAL,
+      plex_rating_key TEXT,
+      plex_deep_link TEXT,
+      notified_at INTEGER,
+      last_checked_at INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS media_requests_unique ON media_requests(user_id, media_type, ref_id);
+    CREATE INDEX IF NOT EXISTS media_requests_status_idx ON media_requests(status);
   `)
 
   // Plex account-Watchlist mirror columns — added after the table exists (existing DBs).

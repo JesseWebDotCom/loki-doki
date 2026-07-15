@@ -27,6 +27,8 @@ export interface StagedAction {
   summary: string
   approveLabel: string
   declineLabel: string
+  /** Optional rich preview carried into the directive (poster + title for media requests). */
+  card?: { title: string; subtitle?: string; imageUrl?: string }
   /** The parked work; returns the speakable outcome reply. */
   execute: () => Promise<string>
   createdAt: number
@@ -77,6 +79,7 @@ export function stageWithDirective(a: Omit<StagedAction, 'id' | 'createdAt'>): {
       summary: staged.summary,
       approveLabel: staged.approveLabel,
       declineLabel: staged.declineLabel,
+      ...(staged.card ? { card: staged.card } : {}),
     },
   }
 }

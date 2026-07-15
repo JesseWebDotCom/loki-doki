@@ -40,6 +40,7 @@ import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTe
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
+import { DownloadsWidget } from "@/components/home/DownloadsWidget";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpotlight } from "@/components/shared/SpotlightSearch";
 import { useYtFeed } from "@/lib/youtube/useData";
@@ -1969,6 +1970,7 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'status':             () => <WidgetStatus />,
   'ha-summary':         () => <WidgetHASummary />,
   'ha-favorites':       () => <WidgetHAFavorites />,
+  'downloads':          () => <DownloadsWidget />,
 };
 
 function renderWidget(widget: HomeWidget, mode: 'row' | 'column'): React.ReactNode {

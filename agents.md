@@ -321,6 +321,16 @@ Wraps any suggestion-rail card with a "Not interested" X button (hover-revealed 
 
 ---
 
+### `PitchBanner` - `src/components/shared/PitchBanner.tsx`
+
+A compact gradient "try this feature" banner (icon + title + blurb + CTA) with a persistent dismiss X. Dismissal is stored per user in `user_preferences` under the caller-supplied `prefKey` (e.g. `podcasts.createBannerDismissed`), so it sticks across visits and devices; the banner stays hidden while preferences load so a dismissed banner never flashes in. Used by Podcasts ("Make your own AI podcast", Listen Now) and Music ("Make your own station", Home).
+
+**Use this for** any in-app pitch of a creation feature - never build a one-off banner Card, and never make a pitch banner the user can't dismiss.
+
+**Props:** `prefKey`, `icon`, `title`, `description`, `gradient?` (pass the app's `getAppByPath(...)?.gradient`), `action` (ReactNode CTA, typically a `Button variant="secondary"`).
+
+---
+
 ### `SpotlightSearch` - `src/components/shared/SpotlightSearch.tsx`
 
 A spotlight-style search modal (think macOS Spotlight). Renders both the sidebar trigger button (Search icon + label + ⌘K/Ctrl K badge) and the Dialog. Opens via button click or Ctrl/⌘+K. Supports arrow-key navigation and Enter to navigate. Uses `Dialog` root + raw `RadixDialog.Content` (no built-in close button) from Radix.

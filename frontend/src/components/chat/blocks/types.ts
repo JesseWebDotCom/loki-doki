@@ -228,6 +228,8 @@ export interface ConfirmActionBlockData {
   summary: string
   approveLabel: string
   declineLabel: string
+  /** Optional rich preview (poster + "Title (Year)") rendered above the buttons. */
+  card?: { title: string; subtitle?: string; imageUrl?: string }
   /** Client-stamped on directive receipt; mirrors the server's 60s TTL for UI only. */
   expiresAt: number
 }

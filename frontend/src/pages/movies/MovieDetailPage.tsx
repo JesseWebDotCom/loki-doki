@@ -241,7 +241,7 @@ function DetailBody({ title, year }: { title: string; year: number | null }) {
       <ActionButton icon={Mic} label="Podcast" variant={podcastData ? 'primary' : 'secondary'} onClick={() => setTab('podcast')} />
       <MediaStationButton title={d.title} posterUrl={d.poster} kind="movie" />
       <PlexBadge type="movie" title={d.title} year={d.year} />
-      <RequestButton title={d.title} year={d.year} type="movie" />
+      <RequestButton title={d.title} year={d.year} type="movie" refId={d.title} imdb={bundle.imdbId} posterUrl={d.poster} />
       {bundle.imdbId && <ActionIcon icon={Star} href={`https://www.imdb.com/title/${bundle.imdbId}/`} title="IMDb" />}
       {d.justwatchUrl && <ActionIcon icon={ExternalLink} href={d.justwatchUrl} title="JustWatch" />}
     </ActionBar>

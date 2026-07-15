@@ -14,7 +14,7 @@ import {
   type ShowSummary, type ScheduleEntry,
 } from '@/lib/shows/api'
 import { getContinueWatching, getWatchlist } from '@/lib/library/api'
-import { LibraryCalendarSection } from '@/components/media/MediaIntegrations'
+import { LibraryCalendarSection, MyRequestsSection } from '@/components/media/MediaIntegrations'
 
 function toPoster(s: ShowSummary): PosterItem {
   return {
@@ -180,6 +180,7 @@ export function ShowsCalendarPage() {
           ))}
         </div>
       )}
+      <MyRequestsSection mediaType="show" />
       <LibraryCalendarSection />
     </PageContainer>
   )

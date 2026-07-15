@@ -294,7 +294,15 @@ function DetailBody({ id }: { id: string }) {
         imdb={d.externals.imdb}
         tvdb={d.externals.thetvdb}
       />
-      <RequestButton title={d.name} year={d.year ? Number(d.year) : null} type="show" />
+      <RequestButton
+        title={d.name}
+        year={d.year ? Number(d.year) : null}
+        type="show"
+        refId={id}
+        imdb={d.externals.imdb}
+        tvdb={d.externals.thetvdb}
+        posterUrl={d.poster}
+      />
       {d.officialSite && <ActionIcon icon={ExternalLink} href={d.officialSite} title="Official site" />}
       {imdbUrl && <ActionIcon icon={Star} href={imdbUrl} title="IMDb" />}
       {d.url && <ActionIcon icon={Film} href={d.url} title="TVMaze" />}

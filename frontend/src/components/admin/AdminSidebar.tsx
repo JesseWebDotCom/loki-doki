@@ -69,11 +69,17 @@ export function AdminSidebar({
         <ChromeWash />
         <div className="relative flex flex-1 items-center gap-2 rounded-full border border-border bg-secondary/50 px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-ring">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
+          {/* type="search" + autoComplete off: password-type inputs on some tabs (service
+              API keys) make the browser treat the panel as a login form and it autofills
+              the saved username into the first plain text input — this box. */}
           <input
+            type="search"
+            name="admin-settings-filter"
+            autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search settings…"
-            className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
           />
         </div>
         {onToggleCollapse && (

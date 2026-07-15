@@ -28,6 +28,7 @@ import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
 import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
 import { AdminHomeAssistantTab } from '@/components/admin/AdminHomeAssistantTab'
 import { AdminBooksTab } from '@/components/admin/AdminBooksTab'
+import { AdminMediaServiceTab, type MediaService } from '@/components/admin/AdminDownloadsTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { ServerPanel } from '@/components/admin/ServerPanel'
 import { AdminSpeedTestTab } from '@/components/admin/AdminSpeedTestTab'
@@ -238,6 +239,7 @@ export function AdminPage() {
         {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}
         {section === 'integrations' && sub === 'home-assistant'  && <AdminHomeAssistantTab />}
         {section === 'integrations' && sub === 'books'           && <AdminBooksTab />}
+        {section === 'integrations' && ['sonarr', 'radarr', 'overseerr', 'sabnzbd'].includes(sub ?? '') && <AdminMediaServiceTab service={sub as MediaService} />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}

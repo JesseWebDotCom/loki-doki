@@ -47,6 +47,10 @@ export const ABILITY_HOSTS: AbilityMapping[] = [
   { toolId: "canvas",          hostAppId: "canvas",         standalone: false },
   // Standalone abilities - toggle = __enabled
   { toolId: "play_music",      hostAppId: "music",          standalone: true },
+  { toolId: "curate_playlist", hostAppId: "music",          standalone: true },
+  { toolId: "music_insights",  hostAppId: "music",          standalone: true },
+  { toolId: "request_media",   hostAppId: "movies",         standalone: true },
+  { toolId: "download_status", hostAppId: "movies",         standalone: true },
   { toolId: "video_gen",       hostAppId: "video",          standalone: true },
   { toolId: "document_edit",   hostAppId: "canvas",         standalone: true },
   { toolId: "saveToBookmarks", hostAppId: "bookmarks",      standalone: true },

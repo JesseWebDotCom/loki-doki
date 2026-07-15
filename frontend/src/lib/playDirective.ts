@@ -52,15 +52,32 @@ export interface ConfirmActionDirective {
   summary: string
   approveLabel: string
   declineLabel: string
+  /** Optional rich preview (poster + "Title (Year)") rendered above the buttons. */
+  card?: { title: string; subtitle?: string; imageUrl?: string }
 }
 
-export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective | ConfirmActionDirective
+/** Mirror of the backend `OpenPlaylistDirective` (tools/index.ts). Emitted when the
+ *  companion's curate_playlist tool builds or refines a saved playlist. The shell opens
+ *  the playlist page so the user sees it; `autoplay` is currently false by design
+ *  (curating shouldn't hijack whatever audio is going) but is honored if set. */
+export interface OpenPlaylistDirective {
+  action: 'open_playlist'
+  playlistId: string
+  name: string
+  trackCount: number
+  autoplay?: boolean
+}
+
+export type Directive = PlayMediaDirective | StartNarrationDirective | OpenArtifactDirective | ConfirmActionDirective | OpenPlaylistDirective
 
 export interface PlayDirectiveDeps {
   /** YoutubePlaybackContext.playExpanded - docks + expands one clip. */
   playExpanded: (t: YtMiniTrack) => void
   /** RadioContext.start - begins an AI radio station. */
   startStation: (s: DjStation, opts?: { silentIntro?: boolean }) => void
+  /** Open (and optionally play) a saved playlist the companion just curated.
+   *  Optional: only the router-mounted shell supplies it; in-chat dispatch omits it. */
+  openPlaylist?: (playlistId: string, opts: { name: string; trackCount: number; autoplay: boolean }) => void
 }
 
 /** Parse an unknown SSE payload into a Directive, or null if it isn't one. */
@@ -86,6 +103,18 @@ export function parsePlayDirective(raw: unknown): Directive | null {
       summary: d.summary,
       approveLabel: d.approveLabel || 'Yes',
       declineLabel: d.declineLabel || 'Cancel',
+      ...(d.card?.title ? { card: d.card } : {}),
+    }
+  }
+  if (action === 'open_playlist') {
+    const d = raw as Partial<OpenPlaylistDirective>
+    if (!d.playlistId) return null
+    return {
+      action: 'open_playlist',
+      playlistId: d.playlistId,
+      name: d.name || 'Playlist',
+      trackCount: typeof d.trackCount === 'number' ? d.trackCount : 0,
+      autoplay: !!d.autoplay,
     }
   }
   const d = raw as Partial<PlayMediaDirective>
@@ -111,6 +140,16 @@ export function applyPlayDirective(directive: Directive, deps: PlayDirectiveDeps
   }
   if (directive.action === 'start_narration') {
     void playNarrationTurns(directive.turns)
+    return
+  }
+  if (directive.action === 'open_playlist') {
+    // Only the router-mounted shell supplies openPlaylist (it has navigation); in-chat
+    // dispatch omits it, so the spoken confirmation stands on its own there.
+    deps.openPlaylist?.(directive.playlistId, {
+      name: directive.name,
+      trackCount: directive.trackCount,
+      autoplay: directive.autoplay ?? false,
+    })
     return
   }
   if (directive.media === 'video' && directive.videoId) {

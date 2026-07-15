@@ -3,30 +3,85 @@
 // per-title Request button. All render nothing (or a prompt) when unconfigured.
 
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, CheckCircle2, Download, Film, Send, Tv } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Download, Film, Send, Tv, X, XCircle } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ActionButton } from '@/components/media/ActionBar'
 
 const opts: RequestInit = { credentials: 'include' }
 
 // ── Admin config card ────────────────────────────────────────────────────────────────
 
-interface IntegrationsConfig {
+export interface IntegrationsConfig {
   sonarr_url: string
   radarr_url: string
   overseerr_url: string
+  sabnzbd_url: string
   sonarr_key_set: boolean
   radarr_key_set: boolean
   overseerr_key_set: boolean
+  sabnzbd_key_set: boolean
+  request_pipeline: 'overseerr' | 'direct'
+  radarr_quality_profile_id: string
+  radarr_root_folder: string
+  sonarr_quality_profile_id: string
+  sonarr_root_folder: string
+}
+
+export interface ArrTestInfo {
+  ok: boolean
+  version?: string
+  qualityProfiles?: Array<{ id: number; name: string }>
+  rootFolders?: Array<{ id: number; path: string }>
+}
+export interface TestResult {
+  sonarr: ArrTestInfo
+  radarr: ArrTestInfo
+  overseerr: { ok: boolean; version?: string }
+  sabnzbd: { ok: boolean; version?: string }
+}
+
+/** Shared admin config query, reused by the per-product admin pages. */
+export function useIntegrationsConfig() {
+  return useQuery({
+    queryKey: ['media-integrations-config'],
+    queryFn: async () => {
+      const r = await fetch('/api/media-integrations/config', opts)
+      if (!r.ok) throw new Error('load failed')
+      return (await r.json()) as IntegrationsConfig
+    },
+    staleTime: 60 * 1000,
+  })
+}
+
+export async function saveIntegrationsConfig(patch: Record<string, string>): Promise<boolean> {
+  const r = await fetch('/api/media-integrations/config', {
+    ...opts, method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+  })
+  return r.ok
+}
+
+export async function testIntegrations(): Promise<TestResult | null> {
+  const r = await fetch('/api/media-integrations/test', opts)
+  if (!r.ok) return null
+  return (await r.json()) as TestResult
 }
 
 const SERVICES = [
-  { urlKey: 'sonarr_url', keyKey: 'sonarr_key', setKey: 'sonarr_key_set', label: 'Sonarr', hint: 'shows calendar' },
-  { urlKey: 'radarr_url', keyKey: 'radarr_key', setKey: 'radarr_key_set', label: 'Radarr', hint: 'movie releases' },
-  { urlKey: 'overseerr_url', keyKey: 'overseerr_key', setKey: 'overseerr_key_set', label: 'Overseerr', hint: 'requests' },
+  { urlKey: 'sonarr_url', keyKey: 'sonarr_key', setKey: 'sonarr_key_set', testKey: 'sonarr', label: 'Sonarr', hint: 'shows' },
+  { urlKey: 'radarr_url', keyKey: 'radarr_key', setKey: 'radarr_key_set', testKey: 'radarr', label: 'Radarr', hint: 'movies' },
+  { urlKey: 'overseerr_url', keyKey: 'overseerr_key', setKey: 'overseerr_key_set', testKey: 'overseerr', label: 'Overseerr', hint: 'requests' },
+  { urlKey: 'sabnzbd_url', keyKey: 'sabnzbd_key', setKey: 'sabnzbd_key_set', testKey: 'sabnzbd', label: 'SABnzbd', hint: 'downloads' },
+] as const
+
+const ARR_DEFAULTS = [
+  { label: 'Radarr', testKey: 'radarr', profileKey: 'radarr_quality_profile_id', rootKey: 'radarr_root_folder' },
+  { label: 'Sonarr', testKey: 'sonarr', profileKey: 'sonarr_quality_profile_id', rootKey: 'sonarr_root_folder' },
 ] as const
 
 export function MediaIntegrationsAdminCard() {
@@ -40,8 +95,18 @@ export function MediaIntegrationsAdminCard() {
     staleTime: 60 * 1000,
   })
   const [draft, setDraft] = useState<Record<string, string>>({})
+  const [test, setTest] = useState<TestResult | null>(null)
+  const [testing, setTesting] = useState(false)
   useEffect(() => {
-    if (data) setDraft((d) => ({ sonarr_url: data.sonarr_url, radarr_url: data.radarr_url, overseerr_url: data.overseerr_url, ...d }))
+    if (data) {
+      setDraft((d) => ({
+        sonarr_url: data.sonarr_url, radarr_url: data.radarr_url, overseerr_url: data.overseerr_url,
+        sabnzbd_url: data.sabnzbd_url, request_pipeline: data.request_pipeline,
+        radarr_quality_profile_id: data.radarr_quality_profile_id, radarr_root_folder: data.radarr_root_folder,
+        sonarr_quality_profile_id: data.sonarr_quality_profile_id, sonarr_root_folder: data.sonarr_root_folder,
+        ...d,
+      }))
+    }
   }, [data])
 
   const save = async () => {
@@ -57,31 +122,112 @@ export function MediaIntegrationsAdminCard() {
     } else toast.error('Could not save integrations')
   }
 
+  const runTest = async () => {
+    setTesting(true)
+    try {
+      const r = await fetch('/api/media-integrations/test', opts)
+      if (!r.ok) throw new Error('test failed')
+      setTest((await r.json()) as TestResult)
+    } catch {
+      toast.error('Could not reach the server to test connections')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const pipeline = (draft.request_pipeline ?? data?.request_pipeline ?? 'overseerr') as 'overseerr' | 'direct'
+
   return (
     <section className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Connect your Sonarr, Radarr, and Overseerr servers to see what&rsquo;s coming to your library and request titles from any detail page. URL + API key per service (Settings → General → API Key in each app).
+        Connect Sonarr, Radarr, Overseerr, and SABnzbd to see what&rsquo;s coming to your library, request titles from any detail page, and track downloads. URL + API key per service (Settings → General → API Key in each app).
       </p>
-      {SERVICES.map((svc) => (
-        <div key={svc.label} className="flex flex-wrap items-center gap-2">
-          <span className="w-20 text-sm font-medium">{svc.label}</span>
-          <Input
-            value={draft[svc.urlKey] ?? ''}
-            onChange={(e) => setDraft((d) => ({ ...d, [svc.urlKey]: e.target.value }))}
-            placeholder={`http://host:port (${svc.hint})`}
-            className="w-64"
-          />
-          <Input
-            type="password"
-            value={draft[svc.keyKey] ?? ''}
-            onChange={(e) => setDraft((d) => ({ ...d, [svc.keyKey]: e.target.value }))}
-            placeholder={data?.[svc.setKey] ? 'API key saved' : 'API key'}
-            className="w-48"
-          />
-          {data?.[svc.setKey] && <CheckCircle2 className="size-4 text-success" />}
-        </div>
-      ))}
-      <Button type="button" variant="secondary" onClick={() => void save()}>Save integrations</Button>
+      {SERVICES.map((svc) => {
+        const probe = test?.[svc.testKey]
+        return (
+          <div key={svc.label} className="flex flex-wrap items-center gap-2">
+            <span className="w-20 text-sm font-medium">{svc.label}</span>
+            {/* name+autoComplete stop the browser treating "text field next to a password
+                field" as a login form and autofilling the admin username/password. */}
+            <Input
+              value={draft[svc.urlKey] ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, [svc.urlKey]: e.target.value }))}
+              placeholder={`http://host:port (${svc.hint})`}
+              className="w-64"
+              name={`${svc.urlKey}-server`}
+              autoComplete="off"
+            />
+            <Input
+              type="password"
+              value={draft[svc.keyKey] ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, [svc.keyKey]: e.target.value }))}
+              placeholder={data?.[svc.setKey] ? 'API key saved' : 'API key'}
+              className="w-48"
+              name={`${svc.keyKey}-secret`}
+              autoComplete="new-password"
+            />
+            {probe ? (
+              probe.ok ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
+                  <CheckCircle2 className="size-3" /> Connected{probe.version ? ` · v${probe.version}` : ''}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive">
+                  <XCircle className="size-3" /> Unreachable
+                </span>
+              )
+            ) : data?.[svc.setKey] ? <CheckCircle2 className="size-4 text-success" /> : null}
+          </div>
+        )
+      })}
+
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <span className="w-20 text-sm font-medium">Requests</span>
+        <select
+          className="ld-input w-64"
+          value={pipeline}
+          onChange={(e) => setDraft((d) => ({ ...d, request_pipeline: e.target.value }))}
+        >
+          <option value="overseerr">Through Overseerr (uses each user&rsquo;s linked Plex account)</option>
+          <option value="direct">Direct to Radarr and Sonarr</option>
+        </select>
+      </div>
+
+      {pipeline === 'direct' && ARR_DEFAULTS.map((arr) => {
+        const probe = test?.[arr.testKey]
+        return (
+          <div key={arr.label} className="flex flex-wrap items-center gap-2">
+            <span className="w-20 text-sm font-medium" />
+            <span className="text-xs text-muted-foreground w-14">{arr.label}</span>
+            <select
+              className="ld-input w-44"
+              value={draft[arr.profileKey] ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, [arr.profileKey]: e.target.value }))}
+            >
+              <option value="">Quality: first profile</option>
+              {(probe?.qualityProfiles ?? []).map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+            </select>
+            <select
+              className="ld-input w-56"
+              value={draft[arr.rootKey] ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, [arr.rootKey]: e.target.value }))}
+            >
+              <option value="">Folder: first root folder</option>
+              {(probe?.rootFolders ?? []).map((f) => <option key={f.id} value={f.path}>{f.path}</option>)}
+            </select>
+            {!probe && <span className="text-xs text-muted-foreground">Test connections to load choices</span>}
+          </div>
+        )
+      })}
+
+      {pipeline === 'direct' && <RequestGrantsList />}
+
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="secondary" onClick={() => void save()}>Save integrations</Button>
+        <Button type="button" variant="ghost" onClick={() => void runTest()} disabled={testing}>
+          {testing ? 'Testing…' : 'Test connections'}
+        </Button>
+      </div>
     </section>
   )
 }
@@ -131,54 +277,265 @@ export function LibraryCalendarSection() {
   )
 }
 
-// ── Request button (Overseerr) ───────────────────────────────────────────────────────
+// ── Request button (pipeline-aware: Overseerr or direct Radarr/Sonarr) ──────────────
 
 interface RequestStatus {
   configured: boolean
-  status: 'none' | 'pending' | 'processing' | 'partial' | 'available'
+  pipeline: 'overseerr' | 'direct'
+  canRequest: boolean
+  reason?: 'unconfigured' | 'grant' | 'link_plex'
+  status: 'none' | 'pending' | 'processing' | 'partial' | 'available' | 'requested' | 'downloading' | 'ready' | 'failed'
+  progress: number | null
   requestable: boolean
   tmdbId: number | null
+  deepLink: string | null
 }
 
 const STATUS_LABEL: Record<RequestStatus['status'], string | null> = {
   none: null, pending: 'Requested', processing: 'Downloading', partial: 'Partly available', available: 'Available',
+  requested: 'Requested', downloading: 'Downloading', ready: 'Ready to watch', failed: 'Request failed',
 }
 
-export function RequestButton({ title, year, type }: { title: string; year: number | null; type: 'movie' | 'show' }) {
+const ACTIVE_STATUSES = new Set(['pending', 'processing', 'requested', 'downloading'])
+
+export interface RequestButtonProps {
+  title: string
+  year: number | null
+  type: 'movie' | 'show'
+  refId?: string
+  imdb?: string | null
+  tvdb?: number | null
+  posterUrl?: string | null
+}
+
+export function RequestButton({ title, year, type, refId, imdb, tvdb, posterUrl }: RequestButtonProps) {
   const qc = useQueryClient()
+  const ref = refId ?? title
   const { data } = useQuery({
-    queryKey: ['request-status', type, title, year],
+    queryKey: ['request-status', type, ref, year],
     queryFn: async () => {
-      const r = await fetch(`/api/media-integrations/request-status?title=${encodeURIComponent(title)}&type=${type}${year ? `&year=${year}` : ''}`, opts)
+      const qs = new URLSearchParams({ title, type, refId: ref })
+      if (year) qs.set('year', String(year))
+      if (imdb) qs.set('imdb', imdb)
+      if (tvdb) qs.set('tvdb', String(tvdb))
+      const r = await fetch(`/api/media-integrations/request-status?${qs}`, opts)
       if (!r.ok) return null
       return (await r.json()) as RequestStatus
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    refetchInterval: (query) => (query.state.data && ACTIVE_STATUSES.has(query.state.data.status) ? 30_000 : false),
   })
   const request = useMutation({
     mutationFn: async () => {
       const r = await fetch('/api/media-integrations/request', {
         ...opts, method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tmdbId: data?.tmdbId, type }),
+        body: JSON.stringify({
+          type, title, year, refId: ref, imdb: imdb ?? undefined, tvdb: tvdb ?? undefined,
+          tmdbId: data?.tmdbId ?? undefined, posterUrl: posterUrl ?? undefined,
+        }),
       })
-      if (!r.ok) throw new Error('request failed')
+      if (!r.ok) {
+        const body = (await r.json().catch(() => ({}))) as { error?: string }
+        throw new Error(body.error ?? 'Request failed')
+      }
     },
     onSuccess: () => {
       toast.success(`Requested "${title}"`)
-      void qc.invalidateQueries({ queryKey: ['request-status', type, title, year] })
+      void qc.invalidateQueries({ queryKey: ['request-status', type, ref, year] })
+      void qc.invalidateQueries({ queryKey: ['my-media-requests'] })
     },
-    onError: () => toast.error('Request failed'),
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Request failed'),
   })
 
   if (!data?.configured) return null
+
   const label = STATUS_LABEL[data.status]
-  if (label) {
-    return (
+  if (data.status === 'ready' || data.status === 'available') {
+    const chip = (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 px-3 py-1.5 text-xs font-semibold text-success">
         <CheckCircle2 className="size-3.5" /> {label}
       </span>
     )
+    return data.deepLink ? <a href={data.deepLink} target="_blank" rel="noreferrer">{chip}</a> : chip
   }
-  if (!data.requestable || !data.tmdbId) return null
-  return <ActionButton icon={Send} label={request.isPending ? 'Requesting…' : 'Request'} onClick={() => request.mutate()} disabled={request.isPending} />
+  if (label && data.status !== 'failed') {
+    const pct = data.status === 'downloading' && data.progress != null ? ` ${Math.round(data.progress)}%` : ''
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1.5 text-xs font-semibold text-brand">
+        <Download className="size-3.5" /> {label}{pct}
+      </span>
+    )
+  }
+
+  if (!data.canRequest) {
+    if (data.reason === 'link_plex') {
+      return (
+        <Link to="/movies/settings" className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+          <Send className="size-3.5" /> Link Plex to request
+        </Link>
+      )
+    }
+    return null
+  }
+  if (!data.requestable) return null
+  const buttonLabel = data.status === 'failed' ? 'Request again' : 'Request'
+  return <ActionButton icon={Send} label={request.isPending ? 'Requesting…' : buttonLabel} onClick={() => request.mutate()} disabled={request.isPending} />
+}
+
+// ── My requests (per-user request tracking list) ─────────────────────────────────────
+
+interface MediaRequestRow {
+  id: string
+  mediaType: 'show' | 'movie'
+  refId: string
+  title: string
+  year: number | null
+  posterUrl: string | null
+  status: 'requested' | 'downloading' | 'ready' | 'failed'
+  progress: number | null
+  plexDeepLink: string | null
+  origin: 'app' | 'companion' | 'external'
+}
+
+const REQUEST_STATUS_META: Record<MediaRequestRow['status'], { label: string; cls: string }> = {
+  requested: { label: 'Requested', cls: 'bg-brand/15 text-brand' },
+  downloading: { label: 'Downloading', cls: 'bg-brand/15 text-brand' },
+  ready: { label: 'Ready', cls: 'bg-success/15 text-success' },
+  failed: { label: 'Failed', cls: 'bg-destructive/15 text-destructive' },
+}
+
+export function MyRequestsSection({ mediaType }: { mediaType?: 'show' | 'movie' }) {
+  const qc = useQueryClient()
+  const [removeTarget, setRemoveTarget] = useState<MediaRequestRow | null>(null)
+  const { data } = useQuery({
+    queryKey: ['my-media-requests'],
+    queryFn: async () => {
+      const r = await fetch('/api/media-integrations/requests/mine', opts)
+      if (!r.ok) return { requests: [] as MediaRequestRow[] }
+      return (await r.json()) as { requests: MediaRequestRow[] }
+    },
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      (query.state.data?.requests ?? []).some((r) => r.status === 'requested' || r.status === 'downloading') ? 30_000 : false,
+  })
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const r = await fetch(`/api/media-integrations/requests/${id}`, { ...opts, method: 'DELETE' })
+      if (!r.ok) throw new Error('remove failed')
+    },
+    onSuccess: () => {
+      toast.success('Request removed')
+      void qc.invalidateQueries({ queryKey: ['my-media-requests'] })
+    },
+    onError: () => toast.error('Could not remove the request'),
+  })
+
+  const requests = (data?.requests ?? []).filter((r) => !mediaType || r.mediaType === mediaType)
+  if (!requests.length) return null
+  return (
+    <section className="mt-10">
+      <h3 className="mb-3 inline-flex items-center gap-2 text-base font-semibold">
+        <Send className="size-4 text-brand" /> My Requests
+      </h3>
+      <div className="space-y-2">
+        {requests.slice(0, 12).map((r) => {
+          const meta = REQUEST_STATUS_META[r.status]
+          return (
+            <div key={r.id} className="flex items-center gap-3 rounded-card border border-border/50 bg-card/40 p-3">
+              {r.posterUrl ? (
+                <img src={r.posterUrl} alt="" className="h-14 w-10 shrink-0 rounded-control object-cover" loading="lazy" />
+              ) : (
+                <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded-control bg-brand/15 text-brand">
+                  {r.mediaType === 'show' ? <Tv className="size-4" /> : <Film className="size-4" />}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">
+                  {r.title}{r.year ? <span className="text-muted-foreground font-normal"> ({r.year})</span> : null}
+                </p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.cls}`}>
+                    {meta.label}{r.status === 'downloading' && r.progress != null ? ` ${Math.round(r.progress)}%` : ''}
+                  </span>
+                  {r.status === 'downloading' && r.progress != null && (
+                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, r.progress)}%` }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+              {r.status === 'ready' && r.plexDeepLink && (
+                <a href={r.plexDeepLink} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-semibold text-success hover:underline">
+                  Watch on Plex
+                </a>
+              )}
+              <Button
+                type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-destructive"
+                onClick={() => setRemoveTarget(r)} title="Remove request"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+          )
+        })}
+      </div>
+      <ConfirmDialog
+        open={removeTarget != null}
+        onOpenChange={(open) => { if (!open) setRemoveTarget(null) }}
+        title="Remove this request?"
+        description={removeTarget ? `"${removeTarget.title}" will disappear from your requests. The download itself is not cancelled.` : ''}
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          if (removeTarget) remove.mutate(removeTarget.id)
+          setRemoveTarget(null)
+        }}
+      />
+    </section>
+  )
+}
+
+// ── Direct-mode per-user request grants (admin, shown inside the admin card) ─────────
+
+interface GrantUser { id: string; name: string; role: 'admin' | 'user'; allowed: boolean }
+
+export function RequestGrantsList() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['media-request-grants'],
+    queryFn: async () => {
+      const r = await fetch('/api/media-integrations/grants', opts)
+      if (!r.ok) throw new Error('load failed')
+      return (await r.json()) as { users: GrantUser[] }
+    },
+    staleTime: 60 * 1000,
+  })
+  const setGrant = useMutation({
+    mutationFn: async ({ userId, allowed }: { userId: string; allowed: boolean }) => {
+      const r = await fetch(`/api/media-integrations/grants/${userId}`, {
+        ...opts, method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowed }),
+      })
+      if (!r.ok) throw new Error('save failed')
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['media-request-grants'] }),
+    onError: () => toast.error('Could not update the permission'),
+  })
+  if (!data?.users.length) return null
+  return (
+    <div className="space-y-2 pt-1">
+      <p className="text-sm font-medium">Who can request downloads</p>
+      {data.users.map((u) => (
+        <label key={u.id} className="flex items-center gap-2 text-sm">
+          <Switch
+            checked={u.allowed}
+            disabled={u.role === 'admin' || setGrant.isPending}
+            onCheckedChange={(checked) => setGrant.mutate({ userId: u.id, allowed: checked })}
+          />
+          <span>{u.name}</span>
+          {u.role === 'admin' && <span className="text-xs text-muted-foreground">admin, always allowed</span>}
+        </label>
+      ))}
+    </div>
+  )
 }

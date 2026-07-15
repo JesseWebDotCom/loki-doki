@@ -18,7 +18,23 @@ export const PendingActionButtons = memo(function PendingActionButtons({ action,
   className?: string
 }) {
   return (
-    <div className={cn('mt-2 flex items-center gap-2', className)}>
+    <div className={cn('mt-2', className)}>
+      {action.card && (
+        <div className={cn(
+          'mb-2 flex items-center gap-2.5 rounded-card border p-2',
+          // design-ok(glass-on-plain-bg): tone 'dark' renders inside the black island capsule, where translucent glass is the house style
+          tone === 'dark' ? 'border-white/15 bg-white/5' : 'border-border/50 bg-card/40',
+        )}>
+          {action.card.imageUrl && (
+            <img src={action.card.imageUrl} alt="" className="h-12 w-8 shrink-0 rounded-control object-cover" loading="lazy" />
+          )}
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{action.card.title}</p>
+            {action.card.subtitle && <p className="truncate text-xs opacity-70">{action.card.subtitle}</p>}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
       <Button
         size="sm"
         onClick={onApprove}
@@ -36,6 +52,7 @@ export const PendingActionButtons = memo(function PendingActionButtons({ action,
         <X className="size-3.5" />
         {action.declineLabel}
       </Button>
+      </div>
     </div>
   )
 })

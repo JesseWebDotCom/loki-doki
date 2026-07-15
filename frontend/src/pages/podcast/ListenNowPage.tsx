@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Play, Headphones, Mic, Podcast } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { usePodcastFeed, continueListening, newEpisodes, type FeedEpisode } from '@/lib/podcast/useFeed'
 import { ShowCover } from '@/components/podcast/ShowCover'
@@ -12,6 +11,7 @@ import { CardGridSkeleton } from '@/components/store/SectionHead'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { coverUrl, toTrack, getCharts, getSuggestedPodcasts, type DirectoryResult, type Show } from '@/lib/podcast/api'
 import { DismissableCard } from '@/components/shared/DismissableCard'
+import { PitchBanner } from '@/components/shared/PitchBanner'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { ArtBillboard, type ArtBillboardItem } from '@/components/shared/ArtBillboard'
 import { fmtTime } from '@/lib/podcast/format'
@@ -159,7 +159,23 @@ export function ListenNowPage() {
           )}
 
           {/* Nobody here has made an AI show yet: pitch it in one compact banner, not a whole page. */}
-          {aiShows.length === 0 && <CreateShowBanner />}
+          {aiShows.length === 0 && (
+            <PitchBanner
+              prefKey="podcasts.createBannerDismissed"
+              icon={Mic}
+              gradient={getAppByPath('/podcasts')?.gradient}
+              title="Make your own AI podcast"
+              description="Your companion writes, narrates, and produces full episodes about any show, movie, or YouTube channel, with music, stingers, and chapters. All of it runs offline on your own hardware."
+              action={
+                <Link to="/podcasts/library">
+                  <Button variant="secondary">
+                    <Mic className="mr-1.5 size-4" />
+                    Create a show
+                  </Button>
+                </Link>
+              }
+            />
+          )}
 
           <SuggestedRail />
 
@@ -226,33 +242,6 @@ function SuggestedRail() {
         ))}
       </div>
     </section>
-  )
-}
-
-function CreateShowBanner() {
-  return (
-    <Card
-      variant="gradient"
-      style={{ background: getAppByPath('/podcasts')?.gradient }}
-      className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center"
-    >
-      <div className="flex size-11 shrink-0 items-center justify-center rounded-control bg-white/15">
-        <Mic className="size-5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-lg font-extrabold tracking-tight">Make your own AI podcast</p>
-        <p className="mt-0.5 text-sm text-white/80">
-          Your companion writes, narrates, and produces full episodes about any show, movie, or YouTube
-          channel, with music, stingers, and chapters. All of it runs offline on your own hardware.
-        </p>
-      </div>
-      <Link to="/podcasts/library" className="shrink-0">
-        <Button variant="secondary">
-          <Mic className="mr-1.5 size-4" />
-          Create a show
-        </Button>
-      </Link>
-    </Card>
   )
 }
 

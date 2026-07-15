@@ -36,9 +36,20 @@ export function ConfirmActionBlock({ data }: { data: ConfirmActionBlockData }) {
 
   return (
     <div className="mb-2 flex max-w-md items-center gap-3 rounded-card border border-border bg-card px-3 py-2.5">
-      <ShieldQuestion className="size-5 shrink-0 text-brand" />
+      {data.card?.imageUrl ? (
+        <img src={data.card.imageUrl} alt="" className="h-16 w-11 shrink-0 rounded-control object-cover ring-1 ring-border/40" loading="lazy" />
+      ) : (
+        <ShieldQuestion className="size-5 shrink-0 text-brand" />
+      )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-foreground" title={data.summary}>{data.summary}</p>
+        {data.card ? (
+          <>
+            <p className="truncate text-sm font-semibold text-foreground" title={data.card.title}>{data.card.title}</p>
+            {data.card.subtitle && <p className="truncate text-xs text-muted-foreground">{data.card.subtitle}</p>}
+          </>
+        ) : (
+          <p className="truncate text-sm text-foreground" title={data.summary}>{data.summary}</p>
+        )}
         {resolution === 'pending' ? (
           <div className="mt-2 flex items-center gap-2">
             <Button size="sm" onClick={() => resolve(true)} className="h-7 rounded-full bg-brand text-brand-foreground hover:bg-brand/85">
