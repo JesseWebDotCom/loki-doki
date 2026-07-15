@@ -105,7 +105,13 @@ function TimeStamp({ ts }: { ts?: number }) {
   )
 }
 
-function Wrap({ item, className, children }: { item: NewsItem; className?: string; children: React.ReactNode }) {
+/**
+ * Routes a news click to honor the user's `news.reader_mode` preference:
+ * reader → in-app reader route, external → original URL in a new tab. The
+ * single source of truth for that decision; reuse it anywhere a news item is
+ * clickable (cards, home widgets, briefing) so surfaces stay consistent.
+ */
+export function NewsLink({ item, className, children }: { item: NewsItem; className?: string; children: React.ReactNode }) {
   const [readerMode] = useNewsReaderMode()
   const navigate = useNavigate()
   if (!item.url) return <div className={cn('h-full', className)}>{children}</div>
@@ -127,7 +133,7 @@ function Wrap({ item, className, children }: { item: NewsItem; className?: strin
 /** Image-on-top hero card. `big` enlarges the image + headline (use for a lead story). */
 export function NewsFeature({ item, big, className }: { item: NewsItem; big?: boolean; className?: string }) {
   return (
-    <Wrap item={item} className={className}>
+    <NewsLink item={item} className={className}>
       <div className="group flex h-full flex-col overflow-hidden rounded-card border border-border/60 bg-card transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md">
         <NewsThumb item={item} className={cn('w-full', big ? 'h-48 sm:h-60' : 'h-36')} />
         <div className="flex flex-1 flex-col gap-2 p-4">
@@ -150,14 +156,14 @@ export function NewsFeature({ item, big, className }: { item: NewsItem; big?: bo
           </div>
         </div>
       </div>
-    </Wrap>
+    </NewsLink>
   )
 }
 
 /** Thumbnail-on-left list row (compact). Optional `tag` shows a small accent label. */
 export function NewsRow({ item, tag, tagColor }: { item: NewsItem; tag?: string; tagColor?: string }) {
   return (
-    <Wrap item={item}>
+    <NewsLink item={item}>
       <div className="group flex gap-3 rounded-control p-2 transition-colors hover:bg-foreground/5">
         <NewsThumb item={item} className="size-[60px] shrink-0 rounded-control" />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -178,6 +184,6 @@ export function NewsRow({ item, tag, tagColor }: { item: NewsItem; tag?: string;
           </div>
         </div>
       </div>
-    </Wrap>
+    </NewsLink>
   )
 }

@@ -30,7 +30,8 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { NewsRow, type NewsItem } from "@/components/shared/NewsCard";
+import { NewsRow, NewsLink, type NewsItem } from "@/components/shared/NewsCard";
+import { useNewsReaderMode } from "@/hooks/useNewsReaderMode";
 import { usePublishUIContext } from "@/context/UIContextProvider";
 import { useAuth } from "@/context/AuthContext";
 import { useWeatherSnapshot } from "@/hooks/useWeatherSnapshot";
@@ -305,6 +306,8 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
 function HomeTicker({ config }: { config: TickerConfig }) {
   const ytPb = useYoutubePlayback()
   const podcastPb = usePodcastPlayback()
+  const navigate = useNavigate()
+  const [readerMode] = useNewsReaderMode()
   const [items, setItems] = useState<TickerItem[]>([])
   const [ready, setReady] = useState(false)
 
@@ -428,7 +431,10 @@ function HomeTicker({ config }: { config: TickerConfig }) {
       } else if (item.type === 'podcast') {
         podcastPb.play({ episodeId: item.episodeId, showId: item.showId, showName: item.showName, title: item.title, coverUrl: item.podCoverUrl, durationSec: item.durationSec ?? undefined, chapters: item.chapters ?? [] })
       } else if (item.type === 'news' && item.url) {
-        window.open(item.url, '_blank', 'noopener,noreferrer')
+        // Honor the reader-vs-new-tab preference, same as the news cards/widgets.
+        // Ticker items carry no feedItems id, so reader mode uses the URL reader.
+        if (readerMode === 'reader') navigate(`/news/reader?url=${encodeURIComponent(item.url)}`)
+        else window.open(item.url, '_blank', 'noopener,noreferrer')
       }
     }
     clickedItem.current = null; dragDistRef.current = 0
@@ -559,11 +565,9 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
       {displayMode === 'row' ? (
         <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
           {items.map((item, i) => (
-            <a
+            <NewsLink
               key={i}
-              href={item.url ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
+              item={item}
               className="group shrink-0 w-[180px] flex flex-col gap-1.5"
             >
               {item.imageUrl ? (
@@ -582,7 +586,7 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
               {item.source && (
                 <p className="truncate text-[10px] text-muted-foreground/55">{item.source}</p>
               )}
-            </a>
+            </NewsLink>
           ))}
         </div>
       ) : (
@@ -775,7 +779,7 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
               </div>
             );
             return c.url
-              ? <a key={i} href={c.url} target="_blank" rel="noopener noreferrer">{inner}</a>
+              ? <NewsLink key={i} item={{ title: c.text, url: c.url }}>{inner}</NewsLink>
               : <div key={i}>{inner}</div>;
           })}
         </div>
