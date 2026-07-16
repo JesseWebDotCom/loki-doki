@@ -3,6 +3,7 @@ import { Copy, Check, Pencil, RotateCcw, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { SourcesCard } from './SourcesCard'
 import { BlockRenderer } from './blocks/BlockRenderer'
 import type { Block } from './blocks/BlockRenderer'
 import type { Source } from '@/lib/transformCitations'
@@ -67,6 +68,11 @@ export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenera
         message.routingLabel
           ? <RoutingStatus label={message.routingLabel} />
           : <TypingDots />
+      )}
+
+      {/* Sources list under a settled answer that cited web results. */}
+      {!isActive && message.sources && message.sources.length > 0 && (
+        <SourcesCard sources={message.sources} />
       )}
 
       {!isActive && cleanContent.length > 0 && (

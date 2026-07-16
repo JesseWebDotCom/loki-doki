@@ -31,6 +31,7 @@ import { BootScreen } from '@/components/shell/BootScreen'
 import { SetupWizard } from '@/pages/SetupWizard'
 import { WelcomeWizard } from '@/pages/WelcomeWizard'
 import { LocationOnboarding } from '@/components/onboarding/LocationOnboarding'
+import { GuidedTour } from '@/components/onboarding/GuidedTour'
 import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
@@ -623,6 +624,7 @@ export default function App() {
           </FrigateAnnounceProvider>
           <AlarmRingDialog />
           <GlobalSetupWidget />
+          <GuidedTour />
           <RestorePrompt />
           </TimeAlarmProvider>
           </LiveRadioProvider>

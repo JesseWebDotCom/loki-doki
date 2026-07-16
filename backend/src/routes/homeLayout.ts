@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '@/db'
 import { userPreferences, appSettings, users } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
+import { buildStarterLayout } from '@/lib/home/starterLayout'
 import type { AppEnv } from '@/types'
 
 const homeLayout = new Hono<AppEnv>()
@@ -63,6 +64,17 @@ async function getSystemDefaultLayout(): Promise<HomeLayout> {
   try { return JSON.parse(row.value) as HomeLayout } catch { return DEFAULT_LAYOUT }
 }
 
+/** True when an admin has explicitly set a system default layout (which must be respected
+ *  over the auto-generated starter). */
+async function hasAdminDefault(): Promise<boolean> {
+  const [row] = await db
+    .select({ key: appSettings.key })
+    .from(appSettings)
+    .where(eq(appSettings.key, DEFAULT_SETTING_KEY))
+    .limit(1)
+  return !!row
+}
+
 async function getUserLayout(userId: string): Promise<HomeLayout | null> {
   const [row] = await db
     .select({ value: userPreferences.value })
@@ -119,6 +131,14 @@ homeLayout.get('/', requireAuth, async (c) => {
         }
         return c.json({ layout: migratedLayout, locked })
       } catch { /* fall through */ }
+    }
+
+    // No saved layout and no legacy prefs: seed an inline starter inferred from the
+    // installed apps (#11), unless an admin set a custom system default (respect that
+    // fully). Returned inline, NOT persisted, so it stays "auto" until the user edits.
+    if (!(await hasAdminDefault())) {
+      const starter = await buildStarterLayout(systemDefault)
+      return c.json({ layout: { ...starter, header: { ...starter.header, locked } }, locked })
     }
   }
 

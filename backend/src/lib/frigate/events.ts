@@ -9,6 +9,7 @@ import { db } from '@/db'
 import { frigateEvents } from '@/db/schema'
 import { logger } from '@/lib/logger'
 import { emitNotification } from '@/lib/notify'
+import { generateAlertText } from '@/lib/notify/generateAlertText'
 import { getFrigateConfig, normalizePlate, type AnnounceType, type FrigateConfig } from './config'
 
 // Frigate+ delivery-logo attribute labels (plus a few common North-American ones).
@@ -110,7 +111,21 @@ async function store(input: StoreInput): Promise<string> {
   if (input.notify) {
     // userId null = admin-targeted; emitNotification handles the bell row AND delivery
     // fan-out (push/telegram/email per each admin's routing matrix).
-    const message = input.notifyMessage ?? input.announceText ?? `${humanCamera(input.camera)}: ${input.label ?? 'activity detected'}`
+    const template = input.notifyMessage ?? input.announceText ?? `${humanCamera(input.camera)}: ${input.label ?? 'activity detected'}`
+    // Prefer a natural-language, intent-aware sentence from the local model (#6); fall back
+    // to the template if the model is unavailable or slow.
+    const generated = await generateAlertText({
+      kind: input.kind,
+      where: humanCamera(input.camera),
+      label: input.label,
+      subLabel: input.subLabel,
+      zones: input.zones,
+      plate: input.plate,
+      plateName: input.plateName,
+      severity: input.severity,
+      description: input.description,
+    })
+    const message = generated ?? template
     await emitNotification({
       type: 'frigate_event',
       userId: null,

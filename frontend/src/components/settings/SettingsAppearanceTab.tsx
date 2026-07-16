@@ -1,6 +1,7 @@
-import { Monitor, Moon, Sun } from 'lucide-react'
+import { Check, Monitor, Moon, Sun } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useTheme, type ThemeMode } from '@/context/ThemeContext'
+import { ACCENT_PRESETS, accentSwatch } from '@/lib/themePresets'
 
 const OPTIONS: { id: ThemeMode; label: string; Icon: React.ElementType; note: string }[] = [
   { id: 'light', label: 'Light',  Icon: Sun,     note: 'Always light' },
@@ -9,7 +10,7 @@ const OPTIONS: { id: ThemeMode; label: string; Icon: React.ElementType; note: st
 ]
 
 export function SettingsAppearanceTab() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, accent, setAccent } = useTheme()
 
   return (
     <div className="p-4 space-y-6">
@@ -31,6 +32,30 @@ export function SettingsAppearanceTab() {
               <Icon className="size-5" />
               <span className="font-medium">{label}</span>
               <span className={cn('text-caption', theme === id ? 'text-brand/80' : 'text-muted-foreground')}>{note}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-section mb-1">Accent</h2>
+        <p className="text-caption text-muted-foreground mb-3">The highlight color for buttons and controls.</p>
+        <div className="flex flex-wrap gap-3">
+          {ACCENT_PRESETS.map((preset) => (
+            <button
+              key={preset.key}
+              onClick={() => setAccent(preset.key)}
+              title={preset.label}
+              aria-label={preset.label}
+              aria-pressed={accent === preset.key}
+              className={cn(
+                'flex size-10 items-center justify-center rounded-full border-2 transition-all',
+                accent === preset.key ? 'border-foreground' : 'border-transparent hover:border-border',
+              )}
+              // Runtime OKLCH swatch (per-preset hue); exempt from the source design contract.
+              style={{ backgroundColor: accentSwatch(preset) }}
+            >
+              {accent === preset.key && <Check className="size-4 text-white" />}
             </button>
           ))}
         </div>
