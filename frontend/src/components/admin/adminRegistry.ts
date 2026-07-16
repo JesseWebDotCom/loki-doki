@@ -16,6 +16,10 @@ export interface AdminSubsection {
   kind: SubKind
   anchorId?: string
   description?: string
+  /** false = hidden from the sidebar tree; still searchable and URL-addressable. */
+  listed?: boolean
+  /** Pointer entry: search/palette navigates to this app route instead of /admin. */
+  href?: string
 }
 
 export interface AdminSection {
@@ -24,7 +28,37 @@ export interface AdminSection {
   icon: LucideIcon
   keywords: string[]
   description?: string
+  /** Sidebar group heading. Ungrouped sections (Overview) render first. */
+  group?: string
   subsections: AdminSubsection[]
+}
+
+/** Sidebar display order: ungrouped first, then group-contiguous. Sections omitted
+ *  here sort last, so a forgotten entry is visible rather than lost. */
+const SECTION_ORDER = [
+  'overview',
+  // Household
+  'users', 'apps', 'companions', 'security',
+  // Platform
+  'features', 'integrations', 'engine', 'news', 'music',
+  // Devices & Alerts
+  'devices', 'notifications',
+  // System
+  'system', 'advanced',
+]
+
+export function orderedSections(): AdminSection[] {
+  const rank = (s: AdminSection) => {
+    const i = SECTION_ORDER.indexOf(s.id)
+    return i === -1 ? SECTION_ORDER.length : i
+  }
+  return [...ADMIN_SECTIONS].sort((a, b) => rank(a) - rank(b))
+}
+
+/** Old /admin URLs that moved. Keys are 'section' or 'section/sub'; values are absolute
+ *  paths (may leave /admin). AdminPage redirects with the query string preserved. */
+export const LEGACY_ADMIN_REDIRECTS: Record<string, string> = {
+  voice: '/admin/companions/voice',
 }
 
 export const ADMIN_SECTIONS: AdminSection[] = [
@@ -35,7 +69,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     subsections: [],
   },
   {
-    id: 'system', label: 'System', icon: Settings2,
+    id: 'system', label: 'System', icon: Settings2, group: 'System',
     keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'home', 'layout'],
     description: 'Connectivity, home layout, locale, and server maintenance',
     subsections: [
@@ -63,7 +97,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'features', label: 'Features', icon: LayoutGrid,
+    id: 'features', label: 'Features', icon: LayoutGrid, group: 'Platform',
     keywords: ['features', 'models', 'downloads', 'capabilities', 'install'],
     description: 'Enable capabilities and manage model downloads',
     subsections: [
@@ -82,7 +116,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'apps', label: 'Apps', icon: Store,
+    id: 'apps', label: 'Apps', icon: Store, group: 'Household',
     keywords: ['apps', 'extensions', 'install', 'store'],
     description: 'Apps, install requests, and settings',
     subsections: [
@@ -95,7 +129,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'companions', label: 'Companions', icon: Sparkles,
+    id: 'companions', label: 'Companions', icon: Sparkles, group: 'Household',
     keywords: ['companion', 'voice', 'wakeword', 'briefing', 'tts'],
     description: 'Instance-wide voice, wake words, and daily briefing (character studio lives in the Companions app)',
     subsections: [
@@ -108,13 +142,13 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'news', label: 'News', icon: Newspaper,
+    id: 'news', label: 'News', icon: Newspaper, group: 'Platform',
     keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines', 'shared'],
     description: 'Shared News categories and their RSS feeds (visible to everyone)',
     subsections: [],
   },
   {
-    id: 'music', label: 'Music', icon: Music2,
+    id: 'music', label: 'Music', icon: Music2, group: 'Platform',
     keywords: ['music', 'library', 'collection', 'folder', 'folders', 'scan', 'local', 'flac', 'mp3', 'lossless', 'plex music', 'sources'],
     description: 'Music sources: local library folders (and Plex music sections)',
     subsections: [
@@ -124,7 +158,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'notifications', label: 'Notifications', icon: BellRing,
+    id: 'notifications', label: 'Notifications', icon: BellRing, group: 'Devices & Alerts',
     keywords: ['notifications', 'push', 'telegram', 'email', 'smtp', 'bot', 'digest', 'delivery', 'alerts', 'quiet hours', 'vapid'],
     description: 'Delivery channels: Telegram bot, email (SMTP), web push, and the delivery log',
     subsections: [
@@ -143,7 +177,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'devices', label: 'Devices', icon: Cpu,
+    id: 'devices', label: 'Devices', icon: Cpu, group: 'Devices & Alerts',
     keywords: ['devices', 'pod', 'pods', 'esp32', 'satellite', 'hardware', 'pairing', 'pair', 'wake word', 'echo', 'dot', 'show', 'watch', 'wyoming'],
     description: 'Set up and manage your voice devices around the home',
     subsections: [
@@ -170,7 +204,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'integrations', label: 'Integrations', icon: Plug2,
+    id: 'integrations', label: 'Integrations', icon: Plug2, group: 'Platform',
     keywords: ['integrations', 'frigate', 'plex', 'home assistant', 'nvr', 'camera', 'media', 'smart home', 'mqtt', 'hass', 'cctv', 'security', 'books', 'opds'],
     description: 'External service integrations — Frigate NVR, Plex, Home Assistant, and Books',
     subsections: [
@@ -180,27 +214,27 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         description: 'Every external service at a glance: status, host, and where it is managed',
       },
       {
-        id: 'frigate', label: 'Frigate', kind: 'view',
+        id: 'frigate', label: 'Frigate', kind: 'view', listed: false,
         keywords: ['frigate', 'nvr', 'camera', 'cameras', 'cctv', 'security', 'genai', 'license plate', 'lpr', 'delivery', 'mqtt'],
         description: 'Frigate NVR — VLM GenAI provider, camera event notifications and announcements',
       },
       {
-        id: 'monitoring', label: 'Monitoring', kind: 'view',
+        id: 'monitoring', label: 'Monitoring', kind: 'view', listed: false,
         keywords: ['monitoring', 'uptime', 'kuma', 'uptime kuma', 'status', 'health', 'down', 'alerts', 'webhook', 'service', 'server', 'outage'],
         description: 'Uptime Kuma — get told (and have the companion announce) when a service or server goes down',
       },
       {
-        id: 'plex', label: 'Plex', kind: 'view',
+        id: 'plex', label: 'Plex', kind: 'view', listed: false,
         keywords: ['plex', 'media', 'server', 'watchlist', 'library', 'movies', 'shows', 'streaming', 'token', 'pin'],
         description: 'Link your Plex Media Server — library rails, two-way Watchlist sync, and in-app playback',
       },
       {
-        id: 'home-assistant', label: 'Home Assistant', kind: 'view',
+        id: 'home-assistant', label: 'Home Assistant', kind: 'view', listed: false,
         keywords: ['home assistant', 'hass', 'smart home', 'iot', 'devices', 'entities', 'areas', 'automation', 'lights', 'thermostat'],
         description: 'Connect Home Assistant for smart-home control via the companion',
       },
       {
-        id: 'books', label: 'Books', kind: 'view',
+        id: 'books', label: 'Books', kind: 'view', listed: false,
         keywords: ['books', 'opds', 'ebook', 'calibre', 'kavita', 'indexer', 'catalog', 'discover'],
         description: 'Optional self-hosted OPDS indexers as extra Book Store sources',
       },
@@ -208,29 +242,29 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       // per-user grants, and the queue span all of them) but each gets its own
       // product-named sidebar entry, matching Plex/Frigate/Home Assistant.
       {
-        id: 'sonarr', label: 'Sonarr', kind: 'view',
+        id: 'sonarr', label: 'Sonarr', kind: 'view', listed: false,
         keywords: ['sonarr', 'shows', 'tv', 'series', 'episodes', 'arr', 'downloads', 'requests', 'calendar'],
         description: 'Sonarr: TV show downloads, requests from the Shows app, and library calendar',
       },
       {
-        id: 'radarr', label: 'Radarr', kind: 'view',
+        id: 'radarr', label: 'Radarr', kind: 'view', listed: false,
         keywords: ['radarr', 'movies', 'films', 'arr', 'downloads', 'requests', 'calendar'],
         description: 'Radarr: movie downloads, requests from the Movies app, and release calendar',
       },
       {
-        id: 'overseerr', label: 'Overseerr', kind: 'view',
+        id: 'overseerr', label: 'Overseerr', kind: 'view', listed: false,
         keywords: ['overseerr', 'requests', 'request pipeline', 'plex requests', 'jellyseerr'],
         description: 'Overseerr: household request pipeline with per-user Plex attribution',
       },
       {
-        id: 'sabnzbd', label: 'SABnzbd', kind: 'view',
+        id: 'sabnzbd', label: 'SABnzbd', kind: 'view', listed: false,
         keywords: ['sabnzbd', 'sab', 'usenet', 'nzb', 'queue', 'downloads', 'speed', 'history'],
         description: 'SABnzbd: live download queue, pause/resume, and history',
       },
     ],
   },
   {
-    id: 'security', label: 'Security', icon: ShieldCheck,
+    id: 'security', label: 'Security', icon: ShieldCheck, group: 'Household',
     keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored'],
     description: 'Style flags, filtering, and privacy mode',
     subsections: [
@@ -249,7 +283,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'users', label: 'Users', icon: Users,
+    id: 'users', label: 'Users', icon: Users, group: 'Household',
     keywords: ['users', 'accounts', 'roles', 'admin', 'members', 'storage', 'profiles', 'content'],
     description: 'User accounts, content profiles, and storage',
     subsections: [
@@ -268,7 +302,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'advanced', label: 'Advanced', icon: ChevronRight,
+    id: 'advanced', label: 'Advanced', icon: ChevronRight, group: 'System',
     keywords: ['advanced', 'diagnostics', 'logs', 'debug', 'troubleshoot'],
     description: 'Diagnostics and live logs',
     subsections: [
@@ -281,7 +315,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'engine', label: 'Engine', icon: Cpu,
+    id: 'engine', label: 'Engine', icon: Cpu, group: 'Platform',
     keywords: ['engine', 'remote', 'ollama', 'gpu', 'offload', 'inference', 'llm', 'host'],
     description: 'Run inference on a remote Ollama host',
     subsections: [],
@@ -326,7 +360,7 @@ export function searchSettings(query: string): SearchHit[] {
     return 0
   }
 
-  for (const section of ADMIN_SECTIONS) {
+  for (const section of orderedSections()) {
     if (section.subsections.length === 0) {
       const s = score(section.label, section.keywords, section.description)
       if (s > 0) hits.push({ sectionId: section.id, label: section.label, breadcrumb: section.label, description: section.description, score: s })
@@ -348,7 +382,7 @@ export function searchSettings(query: string): SearchHit[] {
 // All leaf entries (sections without subs + every subsection), for the empty palette state.
 export function allEntries(): SearchHit[] {
   const hits: SearchHit[] = []
-  for (const section of ADMIN_SECTIONS) {
+  for (const section of orderedSections()) {
     if (section.subsections.length === 0) {
       hits.push({ sectionId: section.id, label: section.label, breadcrumb: section.label, description: section.description, score: 0 })
     }

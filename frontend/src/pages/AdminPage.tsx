@@ -1,10 +1,10 @@
-import { useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { PanelLeft, Search, WifiOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { Button } from '@/components/ui/button'
-import { findSection, findSubsection, defaultSub } from '@/components/admin/adminRegistry'
+import { findSection, findSubsection, defaultSub, LEGACY_ADMIN_REDIRECTS } from '@/components/admin/adminRegistry'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { AdminOverview } from '@/components/admin/AdminOverview'
 import { AdminCommandPalette } from '@/components/admin/AdminCommandPalette'
@@ -40,8 +40,13 @@ const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
 export function AdminPage() {
   const { section: rawSection = 'overview', subsection: rawSub } = useParams<{ section?: string; subsection?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
 
-  const section = findSection(rawSection) ? rawSection : rawSection === 'voice' ? 'companions' : 'overview'
+  // Relocated URLs redirect (rendered below, after every hook has run, to keep the
+  // hook order stable across the redirecting and normal render paths).
+  const legacyTarget = LEGACY_ADMIN_REDIRECTS[`${rawSection}/${rawSub ?? ''}`] ?? LEGACY_ADMIN_REDIRECTS[rawSection]
+
+  const section = findSection(rawSection) ? rawSection : 'overview'
   const sub = findSubsection(section, rawSub)?.id ?? defaultSub(section)
 
   const sectionDef = findSection(section)
@@ -158,6 +163,8 @@ export function AdminPage() {
     })
     return () => { cancelAnimationFrame(raf); obs?.disconnect() }
   }, [section, sub])
+
+  if (legacyTarget) return <Navigate to={legacyTarget + location.search} replace />
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
