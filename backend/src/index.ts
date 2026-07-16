@@ -86,6 +86,7 @@ import { adminSpeedtest } from '@/routes/adminSpeedtest'
 import { notificationsRoute } from '@/routes/notifications'
 import { appStore } from '@/routes/appStore'
 import { homeLayout } from '@/routes/homeLayout'
+import { mediaProgress } from '@/routes/mediaProgress'
 import { adminConnectivity } from '@/routes/adminConnectivity'
 import { news } from '@/routes/news'
 import { adminNews } from '@/routes/adminNews'
@@ -623,6 +624,7 @@ app.route('/api/notify', notifyChannels)
 app.route('/api/admin/notify', adminNotify)
 app.route('/api/app-store', appStore)
 app.route('/api/home-layout', homeLayout)
+app.route('/api/media-progress', mediaProgress)
 app.route('/api/admin/connectivity', adminConnectivity)
 app.route('/api/news', news)
 app.route('/api/admin/news', adminNews)

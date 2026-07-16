@@ -2106,6 +2106,17 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, book_id)
     );
+    CREATE TABLE IF NOT EXISTS media_progress (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      asset_type TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      position_sec REAL NOT NULL DEFAULT 0,
+      duration_sec REAL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, asset_type, asset_id)
+    );
     CREATE TABLE IF NOT EXISTS book_indexers (
       id TEXT NOT NULL PRIMARY KEY,
       label TEXT NOT NULL,
