@@ -17,6 +17,7 @@ import { isFeatureEnabled, userMayUseCapability } from '@/lib/featureGate'
 import { buildAttachSpawnParams, paneControl, type PaneAction } from '@/lib/codingServer'
 import { prepareCodingSession, codingSessionOpened, codingSessionClosed } from '@/lib/codingEngine'
 import { ensureCodingPtySidecarReady, codingPtySidecarWsUrl } from '@/lib/codingPtySidecar'
+import { startWsKeepalive } from '@/lib/wsKeepalive'
 import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
@@ -39,6 +40,7 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
       // True once this connection passed auth and was counted as an active coding session -
       // onClose must only decrement what onOpen actually counted.
       let counted = false
+      let stopKeepalive = () => { /* not started */ }
       // Setting up `upstream` is asynchronous (ensureCodingPtySidecarReady +
       // buildAttachSpawnParams both await), but the browser's own WS is already
       // "open" the instant its handshake completes — it sends its initial resize
@@ -63,6 +65,7 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
           // model in the background, so the user's first prompt doesn't pay the cold load.
           counted = true
           codingSessionOpened()
+          stopKeepalive = startWsKeepalive(ws)
           void prepareCodingSession()
           try {
             await ensureCodingPtySidecarReady()
@@ -95,6 +98,7 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
           // keeps running server-side. That persistence across disconnect/reload is
           // the entire point of the tmux-backed design.
           if (counted) { counted = false; codingSessionClosed() }
+          stopKeepalive()
           try { upstream?.close() } catch { /* already closed */ }
           upstream = null
         },

@@ -723,4 +723,11 @@ if (hostname === '0.0.0.0' || hostname === '::') {
   logger.info(`loki-doki running on http://${hostname}:${port}`)
 }
 
-export default { port, hostname, fetch: app.fetch, websocket, idleTimeout: 0 }
+// websocket.idleTimeout: Bun auto-pings each WS client and closes any that hasn't sent
+// a frame (a pong counts) within this window — measured: close 1006 "WebSocket timed out
+// from inactivity" at exactly 120s (the default). Browsers only pong while the page is
+// awake, so a locked phone or backgrounded tab looked "dead" after 2 minutes and its
+// VNC/RDP/terminal session was reaped. 960 (Bun's max, 16 min) rides out normal
+// screen-off gaps; genuinely dead clients still get collected, just later — acceptable
+// for a LAN appliance. The trailing idleTimeout: 0 is the separate HTTP-request timeout.
+export default { port, hostname, fetch: app.fetch, websocket: { ...websocket, idleTimeout: 960 }, idleTimeout: 0 }

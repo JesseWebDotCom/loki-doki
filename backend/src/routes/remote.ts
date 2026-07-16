@@ -23,6 +23,7 @@ import { verifyPin } from '@/lib/pin'
 import { encryptSecret, decryptSecret } from '@/lib/secrets'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { openTcpBridge } from '@/lib/tcpBridge'
+import { startWsKeepalive } from '@/lib/wsKeepalive'
 import { createRdpCleanPath, type RdpCleanPathController } from '@/lib/rdpCleanPath'
 import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
 import { buildHostShellSpawnParams } from '@/lib/codingServer'
@@ -507,6 +508,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     const user = await resolveUser(getCookie(c, 'session'))
     const token = c.req.query('token') ?? ''
     let upstream: WebSocket | null = null
+    let stopKeepalive = () => { /* not started */ }
     const pending: (string | ArrayBufferLike)[] = []
     return {
       async onOpen(_evt, ws) {
@@ -515,6 +517,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
           return
         }
         if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
+        stopKeepalive = startWsKeepalive(ws)
         try {
           await ensureCodingPtySidecarReady()
           const spawn = buildHostShellSpawnParams(user.id)
@@ -535,7 +538,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (upstream?.readyState === WebSocket.OPEN) { try { upstream.send(evt.data as string) } catch { /* gone */ } }
         else pending.push(evt.data as string)
       },
-      onClose() { try { upstream?.close() } catch { /* closed */ }; upstream = null },
+      onClose() { stopKeepalive(); try { upstream?.close() } catch { /* closed */ }; upstream = null },
     }
   }))
 
@@ -545,6 +548,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     const hostId = c.req.query('host') ?? ''
     let client: SshClient | null = null
     let stream: import('ssh2').ClientChannel | null = null
+    let stopKeepalive = () => { /* not started */ }
     const pending: string[] = []
     return {
       async onOpen(_evt, ws) {
@@ -553,6 +557,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || !host.sshUser) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }
+        stopKeepalive = startWsKeepalive(ws)
         try {
           client = await connectSsh(host)
           client.shell({ term: 'xterm-256color', cols: 80, rows: 24 }, (err, sh) => {
@@ -582,7 +587,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         const text = typeof data === 'string' ? data : Buffer.from(data as ArrayBuffer).toString()
         if (stream) stream.write(text); else pending.push(text)
       },
-      onClose() { try { stream?.close() } catch { /* closed */ }; try { client?.end() } catch { /* closed */ }; client = null; stream = null },
+      onClose() { stopKeepalive(); try { stream?.close() } catch { /* closed */ }; try { client?.end() } catch { /* closed */ }; client = null; stream = null },
     }
   }))
 
@@ -594,6 +599,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     const hostId = c.req.query('host') ?? ''
     const selfToken = c.req.query('self') ?? ''
     let bridge: ReturnType<typeof openTcpBridge> | null = null
+    let stopKeepalive = () => { /* not started */ }
     return {
       async onOpen(_evt, ws) {
         if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
@@ -601,6 +607,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (selfToken) {
           if (user.role !== 'admin' || !consumeSelfToken(selfToken, user.id, 'vnc')) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
           const cfg = await getSelfDesktopConfig(user.id)
+          stopKeepalive = startWsKeepalive(ws)
           bridge = openTcpBridge(ws, cfg.host, cfg.vncPort)
           await audit(user.id, 'vnc_open', { host: `${cfg.host}:${cfg.vncPort}`, self: true })
           return
@@ -608,11 +615,12 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || host.vncPort == null) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }
+        stopKeepalive = startWsKeepalive(ws)
         bridge = openTcpBridge(ws, host.hostname, host.vncPort)
         await audit(user.id, 'vnc_open', { host: host.hostname, shared: host.userId === null })
       },
       onMessage(evt) { bridge?.write(evt.data as ArrayBuffer) },
-      onClose() { bridge?.close(); bridge = null },
+      onClose() { stopKeepalive(); bridge?.close(); bridge = null },
     }
   }))
 
@@ -625,6 +633,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     const selfToken = c.req.query('self') ?? ''
     let ctrl: RdpCleanPathController | null = null
     let started = false
+    let stopKeepalive = () => { /* not started */ }
     return {
       async onOpen(_evt, ws) {
         if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
@@ -632,6 +641,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (selfToken) {
           if (user.role !== 'admin' || !consumeSelfToken(selfToken, user.id, 'rdp')) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
           const cfg = await getSelfDesktopConfig(user.id)
+          stopKeepalive = startWsKeepalive(ws)
           ctrl = createRdpCleanPath(ws, cfg.host, cfg.rdpPort)
           await audit(user.id, 'rdp_open', { host: `${cfg.host}:${cfg.rdpPort}`, self: true })
           return
@@ -639,6 +649,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || host.rdpPort == null) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }
+        stopKeepalive = startWsKeepalive(ws)
         ctrl = createRdpCleanPath(ws, host.hostname, host.rdpPort)
         await audit(user.id, 'rdp_open', { host: host.hostname, shared: host.userId === null })
       },
@@ -647,7 +658,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (!started) { started = true; void ctrl.onFirstMessage(evt.data as ArrayBuffer) }
         else ctrl.onData(evt.data as ArrayBuffer)
       },
-      onClose() { ctrl?.close(); ctrl = null },
+      onClose() { stopKeepalive(); ctrl?.close(); ctrl = null },
     }
   }))
 
