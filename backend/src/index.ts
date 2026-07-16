@@ -33,6 +33,7 @@ import { projects } from '@/routes/projects'
 import { image } from '@/routes/image'
 import { converter } from '@/routes/converter'
 import { drop } from '@/routes/drop'
+import { desktopApp } from '@/routes/desktop'
 import { startDropSweep } from '@/lib/drop/service'
 import { startMediaAlertsSweep } from '@/lib/media/alerts'
 import { adminImageLoras } from '@/routes/adminImageLoras'
@@ -567,6 +568,7 @@ app.route('/api/projects', projects)
 app.route('/api/image', image)
 app.route('/api/converter', converter)
 app.route('/api/drop', drop)
+app.route('/api/desktop', desktopApp)
 app.route('/api/admin/image-loras', adminImageLoras)
 app.route('/api/admin/queue', adminQueue)
 app.route('/api/admin/gpu', adminGpu)
