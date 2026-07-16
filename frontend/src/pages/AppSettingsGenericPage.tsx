@@ -1,10 +1,11 @@
 import { useCallback } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Bot, MonitorPlay, ShieldCheck, Music4, Sparkles, Newspaper } from "lucide-react";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Bot, ExternalLink, MonitorPlay, ShieldCheck, Music4, Sparkles, Newspaper } from "lucide-react";
 import { AppSettingsShell, type AppSettingsSection } from "@/components/shared/AppSettingsShell";
 import { CompanionAbilitiesCard } from "@/components/shared/CompanionAbilitiesCard";
 import { ToolConfigFields } from "@/components/shared/ToolConfigFields";
 import { PlexConnectCard } from "@/components/media/PlexConnectCard";
+import { MediaIntegrationsAdminCard } from "@/components/media/MediaIntegrations";
 import { MusicLyricsSettings } from "@/components/music/MusicLyricsSettings";
 import { NewsReadingSettings } from "@/components/news/NewsReadingSettings";
 import { LoraManager } from "@/components/admin/LoraManager";
@@ -63,6 +64,25 @@ const EXTRA_SECTIONS: Record<string, AppSettingsSection[]> = {
 // still lands on a usable section first). Imaging colocates its admin-only LoRA
 // style browser here instead of in the central Admin panel.
 const APPEND_SECTIONS: Record<string, AppSettingsSection[]> = {
+  shows: [
+    {
+      id: "admin",
+      label: "Admin",
+      icon: ShieldCheck,
+      adminOnly: true,
+      content: (
+        <section className="space-y-6">
+          <MediaIntegrationsAdminCard services={["sonarr", "overseerr"]} />
+          <Link
+            to="/admin/integrations/sonarr"
+            className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline"
+          >
+            Download queue and activity <ExternalLink className="size-3.5" />
+          </Link>
+        </section>
+      ),
+    },
+  ],
   imaging: [
     {
       id: "loras",

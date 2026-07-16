@@ -93,17 +93,17 @@ const SECTIONS: AppSettingsSection[] = [
     adminOnly: true,
     content: (
       <section className="space-y-6">
-        <MediaIntegrationsAdminCard />
+        <MediaIntegrationsAdminCard services={['radarr', 'overseerr']} />
         <CompanionAbilitiesCard appId="movies" />
         <Link to="/admin/integrations/radarr" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
-          Radarr, Sonarr and download queue management <ExternalLink className="size-3.5" />
+          Download queue and activity <ExternalLink className="size-3.5" />
         </Link>
         <br />
-        <Link to="/admin/plex" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
+        <Link to="/admin/integrations/plex" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
           Plex server configuration <ExternalLink className="size-3.5" />
         </Link>
         <br />
-        <Link to="/admin/features?tool=showtimes" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
+        <Link to="/admin/apps/app-settings?tool=showtimes" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
           Showtimes &amp; movie data settings <ExternalLink className="size-3.5" />
         </Link>
       </section>

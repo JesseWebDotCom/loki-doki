@@ -84,7 +84,19 @@ const ARR_DEFAULTS = [
   { label: 'Sonarr', testKey: 'sonarr', profileKey: 'sonarr_quality_profile_id', rootKey: 'sonarr_root_folder' },
 ] as const
 
-export function MediaIntegrationsAdminCard() {
+export type MediaServiceId = 'sonarr' | 'radarr' | 'overseerr' | 'sabnzbd'
+
+const ALL_SERVICES: MediaServiceId[] = ['sonarr', 'radarr', 'overseerr', 'sabnzbd']
+
+function listNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** Admin config for the LAN media services. `services` filters which ones this mount
+ *  shows (Shows settings passes sonarr+overseerr, Movies radarr+overseerr, the admin
+ *  hub all four); every mount reads and writes the same shared config. */
+export function MediaIntegrationsAdminCard({ services = ALL_SERVICES }: { services?: MediaServiceId[] }) {
   const { data, refetch } = useQuery({
     queryKey: ['media-integrations-config'],
     queryFn: async () => {
@@ -97,17 +109,27 @@ export function MediaIntegrationsAdminCard() {
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [test, setTest] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
+  const shown = SERVICES.filter((svc) => services.includes(svc.testKey))
+  const arrShown = ARR_DEFAULTS.filter((arr) => services.includes(arr.testKey))
+  // Effect keys on the joined string, not the array, so callers can pass literals.
+  const servicesKey = services.join(',')
   useEffect(() => {
-    if (data) {
-      setDraft((d) => ({
-        sonarr_url: data.sonarr_url, radarr_url: data.radarr_url, overseerr_url: data.overseerr_url,
-        sabnzbd_url: data.sabnzbd_url, request_pipeline: data.request_pipeline,
-        radarr_quality_profile_id: data.radarr_quality_profile_id, radarr_root_folder: data.radarr_root_folder,
-        sonarr_quality_profile_id: data.sonarr_quality_profile_id, sonarr_root_folder: data.sonarr_root_folder,
-        ...d,
-      }))
-    }
-  }, [data])
+    if (!data) return
+    setDraft((d) => {
+      const included = new Set(servicesKey.split(','))
+      const base: Record<string, string> = { request_pipeline: data.request_pipeline }
+      for (const svc of SERVICES) {
+        if (!included.has(svc.testKey)) continue
+        base[svc.urlKey] = data[svc.urlKey]
+      }
+      for (const arr of ARR_DEFAULTS) {
+        if (!included.has(arr.testKey)) continue
+        base[arr.profileKey] = data[arr.profileKey]
+        base[arr.rootKey] = data[arr.rootKey]
+      }
+      return { ...base, ...d }
+    })
+  }, [data, servicesKey])
 
   const save = async () => {
     const body: Record<string, string> = {}
@@ -140,9 +162,9 @@ export function MediaIntegrationsAdminCard() {
   return (
     <section className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Connect Sonarr, Radarr, Overseerr, and SABnzbd to see what&rsquo;s coming to your library, request titles from any detail page, and track downloads. URL + API key per service (Settings → General → API Key in each app).
+        Connect {listNames(shown.map((s) => s.label))} to see what&rsquo;s coming to your library, request titles from any detail page, and track downloads. URL + API key per service (Settings → General → API Key in each app).
       </p>
-      {SERVICES.map((svc) => {
+      {shown.map((svc) => {
         const probe = test?.[svc.testKey]
         return (
           <div key={svc.label} className="flex flex-wrap items-center gap-2">
@@ -181,19 +203,24 @@ export function MediaIntegrationsAdminCard() {
         )
       })}
 
-      <div className="flex flex-wrap items-center gap-2 pt-1">
-        <span className="w-20 text-sm font-medium">Requests</span>
-        <select
-          className="ld-input w-64"
-          value={pipeline}
-          onChange={(e) => setDraft((d) => ({ ...d, request_pipeline: e.target.value }))}
-        >
-          <option value="overseerr">Through Overseerr (uses each user&rsquo;s linked Plex account)</option>
-          <option value="direct">Direct to Radarr and Sonarr</option>
-        </select>
-      </div>
+      {services.includes('overseerr') && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="w-20 text-sm font-medium">Requests</span>
+          <select
+            className="ld-input w-64"
+            value={pipeline}
+            onChange={(e) => setDraft((d) => ({ ...d, request_pipeline: e.target.value }))}
+          >
+            <option value="overseerr">Through Overseerr (uses each user&rsquo;s linked Plex account)</option>
+            <option value="direct">Direct to Radarr and Sonarr</option>
+          </select>
+          {services.length < ALL_SERVICES.length && (
+            <span className="text-xs text-muted-foreground">Shared across the Shows and Movies apps</span>
+          )}
+        </div>
+      )}
 
-      {pipeline === 'direct' && ARR_DEFAULTS.map((arr) => {
+      {pipeline === 'direct' && arrShown.map((arr) => {
         const probe = test?.[arr.testKey]
         return (
           <div key={arr.label} className="flex flex-wrap items-center gap-2">
