@@ -168,6 +168,7 @@ import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
 import { monitoring } from '@/routes/monitoring'
 import { adminMonitoring } from '@/routes/adminMonitoring'
+import { integrationsStatus } from '@/routes/integrationsStatus'
 import { startMonitoringReconcile } from '@/lib/monitoring/kuma'
 import { maybeSpawnComfyUI, stopComfyUI, isComfyUIInstalled } from '@/lib/comfyui'
 import { ensureVtracer } from '@/lib/vtracer'
@@ -645,6 +646,7 @@ app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
 app.route('/api/monitoring', monitoring)
 app.route('/api/admin/monitoring', adminMonitoring)
+app.route('/api/integrations', integrationsStatus)
 app.route('/api/videos/studio', studioRoute)
 app.route('/api/videos', videosRoute)
 app.route('/api/interests', interestsRoute)

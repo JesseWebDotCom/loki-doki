@@ -175,6 +175,11 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     description: 'External service integrations — Frigate NVR, Plex, Home Assistant, and Books',
     subsections: [
       {
+        id: 'overview', label: 'All Integrations', kind: 'view',
+        keywords: ['integrations', 'status', 'connected', 'overview', 'hub', 'services', 'external'],
+        description: 'Every external service at a glance: status, host, and where it is managed',
+      },
+      {
         id: 'frigate', label: 'Frigate', kind: 'view',
         keywords: ['frigate', 'nvr', 'camera', 'cameras', 'cctv', 'security', 'genai', 'license plate', 'lpr', 'delivery', 'mqtt'],
         description: 'Frigate NVR — VLM GenAI provider, camera event notifications and announcements',
