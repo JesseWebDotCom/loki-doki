@@ -31,6 +31,8 @@ import { AdminBooksTab } from '@/components/admin/AdminBooksTab'
 import { AdminMediaServiceTab, type MediaService } from '@/components/admin/AdminDownloadsTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { ServerPanel } from '@/components/admin/ServerPanel'
+import { AdminStorageTab } from '@/components/admin/AdminStorageTab'
+import { AdminStorageLocationsTab } from '@/components/admin/AdminStorageLocationsTab'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
 
@@ -209,19 +211,12 @@ export function AdminPage() {
               openSignal={openSignal} defaultOpen contentClassName="p-0">
               <AdminSystemTab />
             </AdminAccordion>
-            <AdminAccordion id="ai-engine" title="AI Engine"
-              description="Loaded AI models, VRAM residency, engine guards, and controls."
-              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
-              <AdminAiEngineTab />
-            </AdminAccordion>
             <AdminAccordion id="locale" title="Locale & Units"
               description="Measurement units, temperature, currency, and time format."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
               <AdminLocaleTab />
             </AdminAccordion>
-            <DefaultHomeLayoutSection openSignal={openSignal} />
-            <PerUserHomeLayoutSection />
-            <AdminAccordion id="server" title="Server"
+            <AdminAccordion id="server" title="Updates & Restart"
               description="Version info, updates, and restarting the server."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
               <ServerPanel />
@@ -248,7 +243,16 @@ export function AdminPage() {
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}
-        {section === 'engine'     && <AdminRemoteEngineTab />}
+        {section === 'ai-engine' && sub === 'runtime' && (
+          <div className="p-5"><AdminAiEngineTab /></div>
+        )}
+        {section === 'ai-engine' && sub === 'remote' && <AdminRemoteEngineTab />}
+        {section === 'storage' && sub === 'usage' && (
+          <div className="p-5"><AdminStorageTab /></div>
+        )}
+        {section === 'storage' && sub === 'locations' && (
+          <div className="p-5"><AdminStorageLocationsTab /></div>
+        )}
       </div>
       </div>
 

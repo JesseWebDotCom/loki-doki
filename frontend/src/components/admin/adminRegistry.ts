@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing, HardDrive } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -40,7 +40,7 @@ const SECTION_ORDER = [
   // Household
   'users', 'apps', 'companions', 'security',
   // Platform
-  'features', 'integrations', 'engine',
+  'features', 'integrations', 'ai-engine', 'storage',
   // Devices & Alerts
   'devices', 'notifications',
   // System
@@ -63,6 +63,12 @@ export const LEGACY_ADMIN_REDIRECTS: Record<string, string> = {
   music: '/apps/music/settings/sources',
   'music/sources': '/apps/music/settings/sources',
   'system/speed-test': '/apps/speed-test/settings/thresholds',
+  engine: '/admin/ai-engine/remote',
+  'system/ai-engine': '/admin/ai-engine/runtime',
+  'system/home-layout': '/admin/apps/home-layout',
+  'users/storage': '/admin/storage/usage',
+  'users/storage-locations': '/admin/storage/locations',
+  'companions/characters': '/companions',
 }
 
 /** Settings that moved out of /admin into an app's settings page, kept findable from
@@ -93,23 +99,17 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     subsections: [],
   },
   {
-    id: 'system', label: 'System', icon: Settings2, group: 'System',
-    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'home', 'layout'],
-    description: 'Connectivity, home layout, locale, and server maintenance',
+    id: 'system', label: 'Server', icon: Settings2, group: 'System',
+    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'locale', 'units'],
+    description: 'Connectivity, locale, updates, and server maintenance',
     subsections: [
       { id: 'connectivity', label: 'Connectivity', kind: 'anchor', anchorId: 'connectivity',
         keywords: ['network', 'offline', 'online', 'internet', 'downloads', 'queue'],
         description: 'Online/offline mode and download permissions' },
-      { id: 'ai-engine', label: 'AI Engine', kind: 'anchor', anchorId: 'ai-engine',
-        keywords: ['ollama', 'llm', 'model', 'vram', 'gpu', 'loaded', 'unload', 'offload', 'context', 'guards', 'engine', 'restart', 'coding'],
-        description: 'Loaded AI models, VRAM residency, engine guards, and controls' },
       { id: 'locale', label: 'Locale & Units', kind: 'anchor', anchorId: 'locale',
         keywords: ['units', 'temperature', 'currency', 'time', 'measurement', 'metric', 'imperial'],
         description: 'Measurement units, temperature, currency, time format' },
-      { id: 'home-layout', label: 'Home Layout', kind: 'anchor', anchorId: 'home-layout',
-        keywords: ['home', 'layout', 'widgets', 'default', 'dashboard', 'per user', 'lock'],
-        description: 'Default and per-user home dashboard layout' },
-      { id: 'server', label: 'Server', kind: 'anchor', anchorId: 'server',
+      { id: 'server', label: 'Updates & Restart', kind: 'anchor', anchorId: 'server',
         keywords: ['restart', 'reboot', 'update', 'upgrade', 'version', 'git', 'commit', 'maintenance'],
         description: 'Version info, updates, and restarting the server' },
       { id: 'uninstall', label: 'Uninstall', kind: 'anchor', anchorId: 'uninstall',
@@ -137,9 +137,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'apps', label: 'Apps', icon: Store, group: 'Household',
-    keywords: ['apps', 'extensions', 'install', 'store'],
-    description: 'Apps, install requests, and settings',
+    id: 'apps', label: 'Apps & Home', icon: Store, group: 'Household',
+    keywords: ['apps', 'extensions', 'install', 'store', 'home', 'layout'],
+    description: 'Apps, install requests, settings, and the home dashboard layout',
     subsections: [
       { id: 'requests', label: 'Install Requests', kind: 'anchor', anchorId: 'requests',
         keywords: ['install', 'requests', 'notifications', 'approve', 'pending'],
@@ -147,6 +147,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'app-settings', label: 'App Settings', kind: 'anchor', anchorId: 'app-settings',
         keywords: ['apps', 'extensions', 'config', 'api key', 'secret', 'permissions', 'home assistant', 'youtube', 'who can use', 'enable', 'disable'],
         description: 'Per-app configuration, API keys, and per-user permissions' },
+      { id: 'home-layout', label: 'Home Layout', kind: 'anchor', anchorId: 'home-layout',
+        keywords: ['home', 'layout', 'widgets', 'default', 'dashboard', 'per user', 'lock'],
+        description: 'Default and per-user home dashboard layout' },
     ],
   },
   {
@@ -269,7 +272,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'security', label: 'Security', icon: ShieldCheck, group: 'Household',
+    id: 'security', label: 'Content & Safety', icon: ShieldCheck, group: 'Household',
     keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored'],
     description: 'Style flags, filtering, and privacy mode',
     subsections: [
@@ -289,8 +292,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'users', label: 'Users', icon: Users, group: 'Household',
-    keywords: ['users', 'accounts', 'roles', 'admin', 'members', 'storage', 'profiles', 'content'],
-    description: 'User accounts, content profiles, and storage',
+    keywords: ['users', 'accounts', 'roles', 'admin', 'members', 'profiles', 'content'],
+    description: 'User accounts and content profiles',
     subsections: [
       { id: 'accounts', label: 'Accounts', kind: 'anchor', anchorId: 'accounts',
         keywords: ['users', 'accounts', 'roles', 'memory', 'protections', 'style', 'clear memory'],
@@ -298,16 +301,23 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'profiles', label: 'Content Profiles', kind: 'anchor', anchorId: 'profiles',
         keywords: ['profiles', 'content', 'ceiling', 'dials', 'profanity', 'sexual', 'violence', 'nsfw', 'adult', 'uncensored', 'unrestricted', 'censored'],
         description: 'Named per-category content ceilings assigned to users' },
-      { id: 'storage', label: 'Storage', kind: 'anchor', anchorId: 'storage',
+    ],
+  },
+  {
+    id: 'storage', label: 'Storage', icon: HardDrive, group: 'Platform',
+    keywords: ['storage', 'disk', 'space', 'usage', 'cleanup', 'locations', 'network', 'unc', 'nas', 'path', 'mapping', 'users'],
+    description: 'Disk usage, cleanup, and storage locations',
+    subsections: [
+      { id: 'usage', label: 'Usage', kind: 'view',
         keywords: ['storage', 'disk', 'cleanup', 'space', 'usage'],
         description: 'Disk usage and cleanup' },
-      { id: 'storage-locations', label: 'Storage Locations', kind: 'anchor', anchorId: 'storage-locations',
+      { id: 'locations', label: 'Locations', kind: 'view',
         keywords: ['storage', 'locations', 'network', 'unc', 'nas', 'plex', 'path', 'mapping'],
         description: 'Per-content-type storage roots, incl. network paths, and Plex path mappings' },
     ],
   },
   {
-    id: 'advanced', label: 'Advanced', icon: ChevronRight, group: 'System',
+    id: 'advanced', label: 'Diagnostics & Logs', icon: ChevronRight, group: 'System',
     keywords: ['advanced', 'diagnostics', 'logs', 'debug', 'troubleshoot'],
     description: 'Diagnostics and live logs',
     subsections: [
@@ -320,10 +330,17 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'engine', label: 'Engine', icon: Cpu, group: 'Platform',
-    keywords: ['engine', 'remote', 'ollama', 'gpu', 'offload', 'inference', 'llm', 'host'],
-    description: 'Run inference on a remote Ollama host',
-    subsections: [],
+    id: 'ai-engine', label: 'AI Engine', icon: Cpu, group: 'Platform',
+    keywords: ['ai engine', 'engine', 'system', 'ollama', 'llm', 'model', 'vram', 'gpu', 'remote', 'offload', 'inference', 'host'],
+    description: 'The local AI engine and optional remote inference host',
+    subsections: [
+      { id: 'runtime', label: 'Runtime', kind: 'view',
+        keywords: ['ollama', 'llm', 'model', 'vram', 'gpu', 'loaded', 'unload', 'offload', 'context', 'guards', 'restart', 'coding'],
+        description: 'Loaded AI models, VRAM residency, engine guards, and controls' },
+      { id: 'remote', label: 'Remote Engine', kind: 'view',
+        keywords: ['remote', 'ollama', 'gpu', 'offload', 'inference', 'host', 'engine'],
+        description: 'Run inference on a remote Ollama host' },
+    ],
   },
 ]
 
