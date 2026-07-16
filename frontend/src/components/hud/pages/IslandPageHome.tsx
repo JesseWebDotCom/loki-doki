@@ -8,15 +8,19 @@ import type { NowPlayingInfo } from '../useNowPlaying'
 // transport). Right = calendar with a big date and event cards. Nothing else;
 // weather lives on its own tab.
 
-function EventCard({ icon: Icon, label, sublabel }: { icon: typeof Music; label: string; sublabel?: string }) {
+function EventCard({ icon: Icon, label, sublabel, nearby }: { icon: typeof Music; label: string; sublabel?: string; nearby?: boolean }) {
   return (
     // design-ok(glass-on-plain-bg): event card inside the black island surface
     <div className="flex items-center gap-2.5 rounded-[10px] bg-white/[0.07] px-2.5 py-2">
-      <span className="h-7 w-[3px] shrink-0 rounded-full bg-brand" />
+      <span className={`h-7 w-[3px] shrink-0 rounded-full ${nearby ? 'bg-white/25' : 'bg-brand'}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <Icon className="size-3.5 shrink-0 text-white/50" />
           <span className="truncate text-sm font-semibold text-white/90">{label}</span>
+          {nearby && (
+            // design-ok(glass-on-plain-bg): source chip inside the black island surface
+            <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white/45">Nearby</span>
+          )}
         </div>
         {sublabel && <div className="text-xs text-white/45">{sublabel}</div>}
       </div>
@@ -59,7 +63,7 @@ export function IslandPageHome({ nowPlaying }: { nowPlaying: NowPlayingInfo | nu
             </div>
           ) : (
             items.slice(0, 3).map((it) => (
-              <EventCard key={it.key} icon={it.icon} label={it.label} sublabel={it.sublabel} />
+              <EventCard key={it.key} icon={it.icon} label={it.label} sublabel={it.sublabel} nearby={it.kind === 'nearby'} />
             ))
           )}
         </div>

@@ -3,6 +3,7 @@ import { FolderOpen, Power, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { useCompanionState } from '@/lib/companionState'
+import { useNearbyEventsPref } from '@/components/hud/useTodayItems'
 import { DISPLAY_MODES } from '@/components/companion/CompanionMenu'
 import { timeAgo } from '@/lib/notifications'
 import type { FsAccessEntry, ResourceMonitorSettings, ShellSettings } from '@/types/desktop'
@@ -70,6 +71,7 @@ function NumField({ value, onCommit, suffix, label }: { value: number; onCommit:
 
 export function IslandPageSettings() {
   const { size, setSize } = useCompanionState()
+  const nearbyEvents = useNearbyEventsPref()
   const [shell, setShell] = useState<ShellSettings | null>(null)
   const [hotkeyDraft, setHotkeyDraft] = useState('')
   const [hotkeyError, setHotkeyError] = useState('')
@@ -141,6 +143,14 @@ export function IslandPageSettings() {
             </button>
           ))}
         </div>
+      </Row>
+
+      <Row label="Nearby events" hint="Community listings from your town on the Home and Calendar pages">
+        <Toggle
+          on={nearbyEvents.show}
+          label="Nearby events"
+          onChange={(v) => nearbyEvents.setShow(v)}
+        />
       </Row>
 
       {shell ? (

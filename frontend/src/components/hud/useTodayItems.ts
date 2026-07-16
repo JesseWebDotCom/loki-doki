@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, PartyPopper, MapPin, Timer } from 'lucide-react'
 import { useTimeApp } from '@/context/TimeAlarmContext'
+import { useAuth } from '@/context/AuthContext'
+import { useUserPreferences, patchUserPreferencesCache } from '@/hooks/useUserPreferences'
 import { formatCountdown } from '@/lib/time/format'
 
 // "Today" data for the island's Home and Calendar pages: holidays (whole-year
-// fetch, module-cached, filtered client-side), local events, running timers and
-// today's enabled alarms (both free from the already-polled time context).
+// fetch, module-cached, filtered client-side), nearby community events, running
+// timers and today's enabled alarms (both free from the already-polled time
+// context). Nearby events are third-party listings (Patch/web), NOT the user's
+// own schedule, so items carry a kind and the island labels them "Nearby".
 
 export interface HolidayItem {
   date: string // YYYY-MM-DD
@@ -17,6 +22,35 @@ export interface TodayItem {
   icon: typeof Timer
   label: string
   sublabel?: string
+  /** 'own' = the user's schedule (alarms, timers, holidays); 'nearby' = scraped town listings. */
+  kind: 'own' | 'nearby'
+}
+
+// Per-user toggle for the scraped town listings on the island (Settings page).
+// Absent means on; the island hides them while preferences are still loading so
+// a switched-off feed never flashes in.
+export const NEARBY_EVENTS_PREF_KEY = 'island.showNearbyEvents'
+
+export function useNearbyEventsPref() {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  const prefsQuery = useUserPreferences()
+  const loading = prefsQuery.data === undefined && !prefsQuery.isError
+  const show = !loading && (prefsQuery.data ?? {})[NEARBY_EVENTS_PREF_KEY] !== false
+
+  const setShow = useCallback((next: boolean) => {
+    const userId = user?.id
+    if (!userId) return
+    patchUserPreferencesCache(queryClient, userId, { [NEARBY_EVENTS_PREF_KEY]: next })
+    void fetch(`/api/users/${userId}/preferences`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [NEARBY_EVENTS_PREF_KEY]: next }),
+    })
+  }, [user?.id, queryClient])
+
+  return { show, setShow, loading }
 }
 
 let holidaysCache: { year: number; holidays: HolidayItem[] } | null = null
@@ -58,32 +92,41 @@ export function diffDays(iso: string): number {
 
 export function useTodayItems(): { items: TodayItem[]; holidays: HolidayItem[] } {
   const { running, alarms } = useTimeApp()
+  const { show: showNearby } = useNearbyEventsPref()
   const [holidays, setHolidays] = useState<HolidayItem[]>([])
-  const [localEvents, setLocalEvents] = useState<string[]>([])
+  const [localEvents, setLocalEvents] = useState<{ title: string; detail?: string }[]>([])
 
   useEffect(() => {
     let cancelled = false
     void fetchHolidays(new Date().getFullYear()).then((h) => { if (!cancelled) setHolidays(h) })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!showNearby) { setLocalEvents([]); return }
+    let cancelled = false
     fetch('/api/local-events', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : { events: [] }))
-      .then((d: { events?: { text: string }[] }) => {
-        if (!cancelled) setLocalEvents((d.events ?? []).slice(0, 3).map((e) => e.text))
+      .then((d: { events?: { text: string; title?: string; detail?: string }[] }) => {
+        if (cancelled) return
+        setLocalEvents((d.events ?? []).slice(0, 3).map((e) => ({ title: e.title ?? e.text, ...(e.detail ? { detail: e.detail } : {}) })))
       })
       .catch(() => { /* offline */ })
     return () => { cancelled = true }
-  }, [])
+  }, [showNearby])
 
   const iso = todayIso()
   const weekday = new Date().getDay()
 
   const items: TodayItem[] = [
     ...holidays.filter((h) => h.date === iso).map((h) => ({
-      key: `hol-${h.date}-${h.name}`, icon: PartyPopper, label: h.name, sublabel: 'Holiday',
+      key: `hol-${h.date}-${h.name}`, icon: PartyPopper, label: h.name, sublabel: 'Holiday', kind: 'own' as const,
     })),
     ...running.map((t) => ({
       key: `timer-${t.id}`, icon: Timer,
       label: t.label || 'Timer',
       sublabel: t.paused ? 'Paused' : `${formatCountdown(Math.max(0, t.endsAt - Date.now()))} left`,
+      kind: 'own' as const,
     })),
     ...alarms
       .filter((a) => a.enabled && (a.repeatDays.length === 0 || a.repeatDays.includes(weekday)))
@@ -91,8 +134,11 @@ export function useTodayItems(): { items: TodayItem[]; holidays: HolidayItem[] }
         key: `alarm-${a.id}`, icon: AlarmClock,
         label: a.label || 'Alarm',
         sublabel: `${String(a.hour).padStart(2, '0')}:${String(a.minute).padStart(2, '0')}`,
+        kind: 'own' as const,
       })),
-    ...localEvents.map((text, i) => ({ key: `evt-${i}`, icon: MapPin, label: text })),
+    ...localEvents.map((e, i) => ({
+      key: `evt-${i}`, icon: MapPin, label: e.title, ...(e.detail ? { sublabel: e.detail } : {}), kind: 'nearby' as const,
+    })),
   ]
 
   return { items, holidays }

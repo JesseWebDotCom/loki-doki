@@ -65,8 +65,12 @@ export function IslandPageCalendar() {
         ) : (
           <div className="space-y-1.5">
             {items.slice(0, 6).map((it) => (
-              <div key={it.key} className="flex items-center gap-1.5 border-l-2 border-brand/70 pl-2">
+              <div key={it.key} className={cn('flex items-center gap-1.5 border-l-2 pl-2', it.kind === 'nearby' ? 'border-white/25' : 'border-brand/70')}>
                 <span className="min-w-0 flex-1 truncate text-xs text-white/80">{it.label}</span>
+                {it.kind === 'nearby' && (
+                  // design-ok(glass-on-plain-bg): source chip inside the black island surface
+                  <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white/45">Nearby</span>
+                )}
                 {it.sublabel && <span className="shrink-0 text-[10px] text-white/40">{it.sublabel}</span>}
               </div>
             ))}

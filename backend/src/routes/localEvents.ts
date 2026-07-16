@@ -11,7 +11,11 @@ import type { AppEnv } from '@/types'
 const localEventsRoute = new Hono<AppEnv>()
 
 interface EventItem {
+  /** Legacy single-line form ("Title — date"); the Local Events page uses it. */
   text: string
+  /** Structured form for the island, which renders the date as a sublabel. */
+  title?: string
+  detail?: string
   url?: string
 }
 
@@ -75,6 +79,8 @@ localEventsRoute.get('/', requireAuth, async (c) => {
   if (Array.isArray(data?.['events'])) {
     events = (data['events'] as RawEvent[]).map((e) => ({
       text: e.detail ? `${e.title} — ${e.detail}` : e.title,
+      title: e.title,
+      ...(e.detail ? { detail: e.detail } : {}),
       ...(e.url ? { url: e.url } : {}),
     }))
   } else {

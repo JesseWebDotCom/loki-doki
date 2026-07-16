@@ -55,6 +55,13 @@ function patchImageUrl(it: Record<string, unknown>): string | undefined {
   return undefined
 }
 
+// Patch's town events rail is entirely paid placement (every entry carries
+// eventType "paid"). Most are real local happenings whose organizers paid for
+// the listing, but plain retail promotions slip in too ("Get your eye exam
+// today before the back to school rush!"). Drop titles shaped like store
+// promos, not events; the list stays conservative so real events never vanish.
+const PROMO_TITLE_RE = /\b(sale|% ?off|percent off|discount|coupon|clearance|now hiring|limited time|shop (now|local)|free (quote|estimate|consultation)|book (an?|your)|schedule (an?|your)|(eye|hearing|vision|dental) exam)\b/i
+
 function fmtEventDate(start: unknown): string | undefined {
   if (typeof start !== 'string') return undefined
   const d = new Date(start)
@@ -128,6 +135,7 @@ async function scrapePatch(slug: string, limit: number, timeoutMs: number): Prom
     if (events.length >= limit) break
     const title = typeof ev['title'] === 'string' ? (ev['title'] as string).trim() : ''
     if (!title || seen.has(title)) continue
+    if (PROMO_TITLE_RE.test(title)) continue
     seen.add(title)
     events.push({ title, detail: fmtEventDate(ev['displayDate'] ?? ev['startDate']) })
   }
