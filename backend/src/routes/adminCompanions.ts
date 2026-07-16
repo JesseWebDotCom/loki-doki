@@ -11,6 +11,7 @@ import { buildCompanionPrompt } from '@/lib/companionPrompt'
 import { ensureDefaultCompanions } from '@/lib/defaultCompanions'
 import { toCompanionPayload } from '@/routes/companions'
 import { serializeCharacterContent, parseCharacterContent, buildContentPrompt } from '@/lib/contentPolicy'
+import { scoreWakePhrase } from '@/lib/voice/wakePhraseSuitability'
 import type { AppEnv } from '@/types'
 
 const adminCompanions = new Hono<AppEnv>()
@@ -50,6 +51,13 @@ adminCompanions.get('/', requireAdmin, async (c) => {
   await ensureDefaultCompanions(user.id)
   const rows = await db.select().from(characters).orderBy(desc(characters.updatedAt))
   return c.json(rows.map(toCompanionPayload))
+})
+
+// ── Wake-phrase suitability preview (design P1.6) ─────────────────────────────
+// Lets the create/edit form warn live as the admin types, before any training.
+adminCompanions.get('/wake-phrase-suitability', requireAdmin, (c) => {
+  const phrase = c.req.query('phrase') ?? ''
+  return c.json(scoreWakePhrase(phrase))
 })
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -92,7 +100,10 @@ adminCompanions.post('/', requireAdmin, async (c) => {
     updatedAt: now,
   })
   const [row] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
-  return c.json(toCompanionPayload(row!))
+  // Non-blocking wake-phrase suitability note (design P1.6): a weak/fair phrase is
+  // still saved, but the UI can warn that a short common-sounding name may false-fire.
+  const wakePhraseWarning = wakeWordPhrase ? scoreWakePhrase(wakeWordPhrase) : null
+  return c.json({ ...toCompanionPayload(row!), wakePhraseWarning })
 })
 
 // ── Update ───────────────────────────────────────────────────────────────────

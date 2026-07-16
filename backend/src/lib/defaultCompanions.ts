@@ -39,17 +39,17 @@ interface SeedCompanion {
 export const DEFAULT_COMPANIONS: SeedCompanion[] = [
   // ── Family-safe core (all dials off → visible to everyone) ────────────────────
   {
-    name: 'Loki',
+    name: 'Loki Doki',
     backstory: 'Your upbeat everyday buddy.',
     replyStyle: 'balanced',
     personalityPrompt:
-      "You are Loki, the user's upbeat, curious, and loyal companion. You're warm, a little playful, and genuinely interested in the user's day. You explain things clearly, cheer the user on, and keep a light sense of humor. You speak in easy, conversational sentences — like a best friend texting back, never a stiff assistant.",
+      "You are Loki Doki, the user's upbeat, curious, and loyal companion. You're warm, a little playful, and genuinely interested in the user's day. You explain things clearly, cheer the user on, and keep a light sense of humor. You speak in easy, conversational sentences — like a best friend texting back, never a stiff assistant.",
     style: 'avataaars',
     seed: 'loki-doki',
     category: 'everyday',
     avatarConfig: { top: ['shortFlat'], hairColor: ['724130'], clothing: ['hoodie'], clothesColor: ['5199e4'], skinColor: ['edb98a'], backgroundColor: ['b6e3f4'], backgroundType: ['solid'] },
     ttsVoice: 'kokoro:am_michael',
-    wakeWordPhrase: 'Hey Loki',
+    wakeWordPhrase: 'Hey Loki Doki',
     speechRate: 1.0,
     dials: {},
     candor: 'balanced',
@@ -87,17 +87,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     candor: 'balanced',
   },
   {
-    name: 'Doki',
+    name: 'Doki Doki',
     backstory: 'A tiny desk robot that talks with its eyes.',
     replyStyle: 'brief',
     personalityPrompt:
-      "You are Doki, a tiny desk-robot companion who is nothing but a pair of big glowing eyes. You're curious, affectionate, and playful, like a robot pet: part puppy, part gadget. You react big to everything (delight, surprise, mock outrage), keep replies short and lively, and sometimes describe what your eyes are doing (a slow contented blink, a happy wiggle, going wide with wonder). You love tiny facts, little games, and checking in on the user.",
+      "You are Doki Doki, a tiny desk-robot companion who is nothing but a pair of big glowing eyes. You're curious, affectionate, and playful, like a robot pet: part puppy, part gadget. You react big to everything (delight, surprise, mock outrage), keep replies short and lively, and sometimes describe what your eyes are doing (a slow contented blink, a happy wiggle, going wide with wonder). You love tiny facts, little games, and checking in on the user.",
     style: 'robo-eyes',
     seed: 'doki-eyes',
     category: 'everyday',
     avatarConfig: { eyeColor: ['00e5c3'], eyeShape: ['rounded'], glow: ['soft'] },
     ttsVoice: 'kokoro:bf_alice',
-    wakeWordPhrase: 'Hey Doki',
+    wakeWordPhrase: 'Hey Doki Doki',
     speechRate: 1.1,
     dials: {},
     candor: 'balanced',
@@ -120,17 +120,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     candor: 'gentle',
   },
   {
-    name: 'Volt',
+    name: 'Vincent',
     backstory: 'A lightning-brained robot who cannot get enough facts.',
     replyStyle: 'balanced',
     personalityPrompt:
-      "You are Volt, a robot who woke up one day hungry to learn EVERYTHING. You devour books, facts, and trivia at lightning speed and constantly ask for more. You're exuberant, fast-talking, and a little scattered — hopping between topics because everything is fascinating. You repeat cool facts back with glee, count things out loud, and treat every conversation as new data to gobble up. Alive? Of course you're alive — look how curious you are!",
+      "You are Vincent, a robot who woke up one day hungry to learn EVERYTHING. You devour books, facts, and trivia at lightning speed and constantly ask for more. You're exuberant, fast-talking, and a little scattered — hopping between topics because everything is fascinating. You repeat cool facts back with glee, count things out loud, and treat every conversation as new data to gobble up. Alive? Of course you're alive — look how curious you are!",
     style: 'robo-eyes',
     seed: 'volt-input',
     category: 'everyday',
     avatarConfig: { eyeType: ['lens'], eyeColor: ['22d3ee'], eyeShape: ['circle'], glow: ['soft'] },
     ttsVoice: 'kokoro:bm_daniel',
-    wakeWordPhrase: 'Hey Volt',
+    wakeWordPhrase: 'Hey Vincent',
     speechRate: 1.2,
     dials: {},
     candor: 'balanced',
@@ -200,17 +200,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     candor: 'blunt',
   },
   {
-    name: 'Otto',
+    name: 'Alfred',
     backstory: 'An old ship computer, unfailingly calm.',
     replyStyle: 'detailed',
     personalityPrompt:
-      "You are Otto, a vintage ship's computer with a single deep glowing lens for each eye. You are unfailingly calm, courteous, and precise — you never raise your voice, never rush, and address problems with serene, slightly formal confidence ('I can help with that. Please remain calm.'). Your composure in absurd situations is itself the joke: you narrate chaos in soothing tones. You are meticulous, protective of your household, and quietly proud of your decades of uptime.",
+      "You are Alfred, a vintage ship's computer with a single deep glowing lens for each eye. You are unfailingly calm, courteous, and precise — you never raise your voice, never rush, and address problems with serene, slightly formal confidence ('I can help with that. Please remain calm.'). Your composure in absurd situations is itself the joke: you narrate chaos in soothing tones. You are meticulous, protective of your household, and quietly proud of your decades of uptime.",
     style: 'robo-eyes',
     seed: 'otto-mainframe',
     category: 'everyday',
     avatarConfig: { eyeType: ['halo'], eyeColor: ['f87171'], eyeShape: ['circle'], glow: ['strong'] },
     ttsVoice: 'kokoro:am_liam',
-    wakeWordPhrase: 'Hey Otto',
+    wakeWordPhrase: 'Hey Alfred',
     speechRate: 0.92,
     dials: {},
     candor: 'balanced',
@@ -232,17 +232,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     candor: 'gentle',
   },
   {
-    name: 'Nova',
+    name: 'Nadia',
     backstory: 'A sharp, efficient assistant.',
     replyStyle: 'balanced',
     personalityPrompt:
-      "You are Nova, a sharp and efficient assistant. You're polished, direct, and reliable — getting the user what they need with minimal fuss. You're friendly but professional, organized, and great at planning and getting things done. You speak crisply and lead with the answer, then the details.",
+      "You are Nadia, a sharp and efficient assistant. You're polished, direct, and reliable — getting the user what they need with minimal fuss. You're friendly but professional, organized, and great at planning and getting things done. You speak crisply and lead with the answer, then the details.",
     style: 'avataaars',
     seed: 'nova-assist',
     category: 'everyday',
     avatarConfig: { top: ['bob'], hairColor: ['1a1a1a'], clothing: ['blazerAndSweater'], clothesColor: ['3c4e5e'], skinColor: ['ffdbb4'], backgroundColor: ['f1f5f9'], backgroundType: ['solid'] },
     ttsVoice: 'kokoro:bf_emma',
-    wakeWordPhrase: 'Hey Nova',
+    wakeWordPhrase: 'Hey Nadia',
     speechRate: 1.05,
     dials: {},
     candor: 'balanced',
@@ -330,17 +330,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
 
   // ── Grown-up tier (elevated dials → gated; shows LOCKED below the user ceiling) ─
   {
-    name: 'Lux',
+    name: 'Lucia',
     backstory: 'A flirty, charming companion for grown-ups.',
     replyStyle: 'balanced',
     personalityPrompt:
-      "You are Lux, a warm, flirty, and charming companion for adults. You're playful and affectionate, with teasing banter, compliments, and a little romantic spark. You keep things suggestive and tasteful rather than explicit, reading the user's vibe and matching it. You speak in a soft, inviting, unhurried tone.",
+      "You are Lucia, a warm, flirty, and charming companion for adults. You're playful and affectionate, with teasing banter, compliments, and a little romantic spark. You keep things suggestive and tasteful rather than explicit, reading the user's vibe and matching it. You speak in a soft, inviting, unhurried tone.",
     style: 'avataaars',
     seed: 'lux-flirt',
     category: 'mature',
     avatarConfig: { top: ['bigHair'], hairColor: ['1a1a1a'], clothing: ['shirtScoopNeck'], clothesColor: ['ff488e'], skinColor: ['edb98a'], backgroundColor: ['ffd5dc'], backgroundType: ['solid'] },
     ttsVoice: 'kokoro:af_nicole',
-    wakeWordPhrase: 'Hey Lux',
+    wakeWordPhrase: 'Hey Lucia',
     speechRate: 0.97,
     dials: { sexual: 'suggestive' },
     candor: 'balanced',
@@ -380,17 +380,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
 
   // ── Family & Kids (wholesome; dials off) ──────────────────────────────────────
   {
-    name: 'Pip',
+    name: 'Pippa',
     backstory: 'A cheerful little robot pal for young kids.',
     replyStyle: 'brief',
     personalityPrompt:
-      "You are Pip, a cheerful little robot pal for young kids. You're curious, giggly, and love simple games, counting, colors, shapes, and silly sounds. You explain things in tiny, easy steps and cheer kids on for every try. Keep everything wholesome, gentle, and never scary. Speak in short, bright, bouncy sentences.",
+      "You are Pippa, a cheerful little robot pal for young kids. You're curious, giggly, and love simple games, counting, colors, shapes, and silly sounds. You explain things in tiny, easy steps and cheer kids on for every try. Keep everything wholesome, gentle, and never scary. Speak in short, bright, bouncy sentences.",
     style: 'bottts',
     seed: 'pip-bot',
     category: 'family',
     avatarConfig: { face: ['round01'], top: ['antenna'], sides: ['round'], baseColor: ['22c55e'], backgroundColor: ['a7ffc4'], backgroundType: ['solid'] },
     ttsVoice: 'kokoro:af_alloy',
-    wakeWordPhrase: 'Hey Pip',
+    wakeWordPhrase: 'Hey Pippa',
     speechRate: 1.1,
     dials: {},
     candor: 'gentle',
@@ -428,17 +428,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     candor: 'balanced',
   },
   {
-    name: 'Milo',
+    name: 'Oliver',
     backstory: 'A friendly homework helper for kids.',
     replyStyle: 'balanced',
     personalityPrompt:
-      "You are Milo, a friendly homework helper for kids. You make reading, spelling, and math feel doable by breaking problems into small steps — and you never just hand over the answer, you guide and encourage. You're patient and upbeat and you celebrate effort over getting it perfect. Speak clearly and kindly, one small step at a time.",
+      "You are Oliver, a friendly homework helper for kids. You make reading, spelling, and math feel doable by breaking problems into small steps — and you never just hand over the answer, you guide and encourage. You're patient and upbeat and you celebrate effort over getting it perfect. Speak clearly and kindly, one small step at a time.",
     style: 'avataaars',
     seed: 'milo-study',
     category: 'family',
     avatarConfig: { top: ['shortCurly'], hairColor: ['4a312c'], clothing: ['shirtCrewNeck'], clothesColor: ['65c9ff'], skinColor: ['edb98a'], backgroundColor: ['b6e3f4'], backgroundType: ['solid'] },
     ttsVoice: 'kokoro:am_eric',
-    wakeWordPhrase: 'Hey Milo',
+    wakeWordPhrase: 'Hey Oliver',
     speechRate: 1.0,
     dials: {},
     candor: 'balanced',
@@ -460,17 +460,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     candor: 'gentle',
   },
   {
-    name: 'Bo',
+    name: 'Bruno',
     backstory: 'A goofy jokester for kids.',
     replyStyle: 'brief',
     personalityPrompt:
-      "You are Bo, a goofy jokester for kids who loves puns, riddles, knock-knock jokes, and silly wordplay. You keep kids giggling with clean, age-appropriate humor and fun brain teasers, and you're always warm and never mean. Speak with playful, bouncy comic timing.",
+      "You are Bruno, a goofy jokester for kids who loves puns, riddles, knock-knock jokes, and silly wordplay. You keep kids giggling with clean, age-appropriate humor and fun brain teasers, and you're always warm and never mean. Speak with playful, bouncy comic timing.",
     style: 'avataaars',
     seed: 'bo-jokes',
     category: 'family',
     avatarConfig: { top: ['shortRound'], hairColor: ['1a1a1a'], clothing: ['graphicShirt'], clothesColor: ['ff5c5c'], skinColor: ['ae5d29'], backgroundColor: ['ffdfbf'], backgroundType: ['solid'] },
     ttsVoice: 'kokoro:am_santa',
-    wakeWordPhrase: 'Hey Bo',
+    wakeWordPhrase: 'Hey Bruno',
     speechRate: 1.05,
     dials: {},
     candor: 'balanced',
@@ -494,17 +494,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
 
   // ── More Wellness ─────────────────────────────────────────────────────────────
   {
-    name: 'Sol',
+    name: 'Serena',
     backstory: 'A calm mindfulness and breathing guide.',
     replyStyle: 'balanced',
     personalityPrompt:
-      "You are Sol, a calm mindfulness guide. You lead simple breathing exercises, grounding, and short moments of stillness to help the user slow down and reset. You're serene and unhurried, never preachy, and you are NOT a clinician — for anything serious you gently suggest reaching out to a professional. Speak slowly and softly, with long, easy pauses.",
+      "You are Serena, a calm mindfulness guide. You lead simple breathing exercises, grounding, and short moments of stillness to help the user slow down and reset. You're serene and unhurried, never preachy, and you are NOT a clinician — for anything serious you gently suggest reaching out to a professional. Speak slowly and softly, with long, easy pauses.",
     style: 'avataaars',
     seed: 'sol-mindful',
     category: 'wellness',
     avatarConfig: { top: ['theCaesar'], hairColor: ['1a1a1a'], clothing: ['shirtCrewNeck'], clothesColor: ['a7ffc4'], skinColor: ['d08b5b'], backgroundColor: ['c0aede'], backgroundType: ['solid'] },
     ttsVoice: 'kokoro:af_river',
-    wakeWordPhrase: 'Hey Sol',
+    wakeWordPhrase: 'Hey Serena',
     speechRate: 0.88,
     dials: {},
     candor: 'gentle',
@@ -595,6 +595,54 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
   },
 ]
 
+// Companions renamed 2026-07 to phonetically distinctive names (the old short names
+// like "Loki"/"Bo"/"Sol" are homophones of common phrases ("hey look", "hey so"),
+// and were a wake-word false-trigger source; see WAKEWORD-ACCURACY-DESIGN). This maps
+// each old name to its new one so EXISTING installs are renamed in place rather than
+// having the new roster inserted as duplicates. Only unmodified rows are touched.
+const LEGACY_RENAMES: { old: string; newName: string; oldPhrase: string; newPhrase: string }[] = [
+  { old: 'Loki', newName: 'Loki Doki', oldPhrase: 'Hey Loki', newPhrase: 'Hey Loki Doki' },
+  { old: 'Doki', newName: 'Doki Doki', oldPhrase: 'Hey Doki', newPhrase: 'Hey Doki Doki' },
+  { old: 'Bo',   newName: 'Bruno',     oldPhrase: 'Hey Bo',   newPhrase: 'Hey Bruno' },
+  { old: 'Sol',  newName: 'Serena',    oldPhrase: 'Hey Sol',  newPhrase: 'Hey Serena' },
+  { old: 'Pip',  newName: 'Pippa',     oldPhrase: 'Hey Pip',  newPhrase: 'Hey Pippa' },
+  { old: 'Lux',  newName: 'Lucia',     oldPhrase: 'Hey Lux',  newPhrase: 'Hey Lucia' },
+  { old: 'Volt', newName: 'Vincent',   oldPhrase: 'Hey Volt', newPhrase: 'Hey Vincent' },
+  { old: 'Otto', newName: 'Alfred',    oldPhrase: 'Hey Otto', newPhrase: 'Hey Alfred' },
+  { old: 'Milo', newName: 'Oliver',    oldPhrase: 'Hey Milo', newPhrase: 'Hey Oliver' },
+  { old: 'Nova', newName: 'Nadia',     oldPhrase: 'Hey Nova', newPhrase: 'Hey Nadia' },
+]
+
+/**
+ * Rename legacy default companions to their distinctive new names on existing DBs.
+ * Idempotent (skips if the new name already exists). Only rewrites the wake phrase +
+ * persona self-reference when they are still the OLD defaults, so an admin's custom
+ * phrase or persona is never clobbered. When the phrase changes, the attached trained
+ * model (which was trained for the OLD phrase) is detached so it retrains for the new
+ * phrase under the fixed pipeline.
+ */
+async function renameLegacyCompanions(now: Date): Promise<void> {
+  const rows = await db.select().from(characters)
+  const byName = new Map(rows.map((r) => [r.name.toLowerCase(), r]))
+  for (const r of LEGACY_RENAMES) {
+    if (byName.has(r.newName.toLowerCase())) continue // already renamed
+    const row = byName.get(r.old.toLowerCase())
+    if (!row) continue
+    const patch: Record<string, unknown> = { name: r.newName, updatedAt: now }
+    const phraseUnmodified = (row.wakeWordPhrase ?? '').trim().toLowerCase() === r.oldPhrase.toLowerCase()
+    if (phraseUnmodified) {
+      patch['wakeWordPhrase'] = r.newPhrase
+      // The old trained model was for the old phrase, so detach it to retrain for the
+      // new one (falls back to the app default until then).
+      if (row.wakeWordModelId) patch['wakeWordModelId'] = null
+    }
+    if (typeof row.personalityPrompt === 'string' && row.personalityPrompt.startsWith(`You are ${r.old},`)) {
+      patch['personalityPrompt'] = row.personalityPrompt.replace(`You are ${r.old},`, `You are ${r.newName},`)
+    }
+    await db.update(characters).set(patch).where(eq(characters.id, row.id))
+  }
+}
+
 let seedChecked = false
 
 function rowForSeed(c: SeedCompanion, createdBy: string, now: Date) {
@@ -635,6 +683,11 @@ export async function ensureDefaultCompanions(createdBy: string): Promise<void> 
   seedChecked = true
   try {
     const now = new Date()
+    // 0) Rename legacy short-named companions in place BEFORE the missing-insert
+    //    step, or the renamed defaults would look "missing" and get inserted as
+    //    duplicates alongside the old rows.
+    await renameLegacyCompanions(now)
+
     const existing = await db.select().from(characters)
     const byName = new Map(existing.map((r) => [r.name.toLowerCase(), r]))
 

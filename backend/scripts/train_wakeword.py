@@ -49,6 +49,23 @@ MEL_BUF_FRAMES  = 76     # MEL_BUFFER_SEED_FRAMES
 EMB_DIM         = 96
 DET_FRAMES      = 16     # DETECTOR_INPUT_FRAMES
 
+# Runtime fire-logic constants, MUST match wake-word-loop.ts / lib/pod/wake.ts and
+# the eval harness (wakewordEvalCore.countFires). Calibration replays these over
+# ordered score streams so the chosen threshold reflects real detection EVENTS, not
+# raw per-window threshold crossings (which over-count by ~an order of magnitude).
+SCORE_SMOOTHING_FRAMES = 4     # trailing moving-average window
+REFRACTORY_MS          = 1000  # post-fire lockout
+FRAME_MS               = 80    # per detector hop
+HYST_BROWSER           = 2     # consecutive smoothed frames to fire (browser surface)
+HYST_POD               = 4     # consecutive smoothed frames to fire (pod surface)
+
+# Certification gate (per the wakeword design doc). A model must clear BOTH on the
+# browser surface or it is not shipped: FA/hr on held-out REAL audio at or below
+# TARGET, and isolated-clip recall at or above the floor. Emitted as gate_pass so the
+# Bun trainer / companionWake can refuse to attach a failing detector.
+GATE_TARGET_FAPH   = 1.0
+GATE_RECALL_FLOOR  = 0.85
+
 # A detector window whose loudest frame is below this RMS is treated as
 # non-speech. Inside a positive clip, such windows are the leading/trailing
 # silence padding — they are NOT the wake word, so they must be labeled
@@ -386,6 +403,97 @@ def pick_operating_threshold(pos: np.ndarray, neg: np.ndarray, neg_hours: float,
     idxs = np.where(pick_from)[0]
     best_i = int(idxs[np.argmax(cands[idxs])])  # highest threshold in the chosen set → lowest FA
     return float(cands[best_i]), float(faphs[best_i]), float(recalls[best_i])
+
+
+# ---------------------------------------------------------------------------
+# Runtime event replay for calibration: the correct way to pick a threshold.
+# ---------------------------------------------------------------------------
+
+def replay_fires(scores, threshold: float, hysteresis: int,
+                 smoothing: int = SCORE_SMOOTHING_FRAMES,
+                 refractory_ms: int = REFRACTORY_MS, frame_ms: int = FRAME_MS) -> int:
+    """Count detection EVENTS over an ORDERED per-window score stream by replaying
+    the exact runtime logic: a trailing `smoothing`-frame moving average, then
+    `hysteresis` consecutive smoothed frames at/above `threshold`, then a refractory
+    lockout. Byte-for-byte equivalent to wakewordEvalCore.countFires + the loop's own
+    smoothing, so a threshold chosen here means the same thing the device does at run
+    time. (The previous per-window counting ignored smoothing/hysteresis/refractory
+    and over-estimated crossings, which is why shipped 'calibrated' thresholds still
+    measured 40-140 FA/hr.)"""
+    from collections import deque
+    win = deque(maxlen=smoothing)
+    fires = 0
+    consec = 0
+    last_fire = -1e18
+    for i, s in enumerate(scores):
+        win.append(float(s))
+        sm = sum(win) / len(win)
+        if sm < threshold:
+            consec = 0
+            continue
+        consec += 1
+        if consec < hysteresis:
+            continue
+        t_ms = i * frame_ms
+        if t_ms - last_fire < refractory_ms:
+            continue
+        last_fire = t_ms
+        consec = 0
+        fires += 1
+    return fires
+
+
+def score_streams(paths, mel_sess, emb_sess, mel_in, emb_in, mfc, predict_fn,
+                  isolate_pad_s: float = 0.0):
+    """Return an ordered per-window score stream (np.ndarray) for each WAV in `paths`.
+    With isolate_pad_s > 0 each clip is padded with that much leading + trailing
+    silence, so an isolated positive utterance is scored exactly as the device hears
+    it live (nothing from an adjacent clip bleeding into the 2.2 s rolling window;
+    concatenating positives back-to-back understates recall by ~25 points)."""
+    from pathlib import Path as _P
+    pad = np.zeros(int(isolate_pad_s * SAMPLE_RATE), np.float32) if isolate_pad_s > 0 else None
+    streams = []
+    for f in paths:
+        try:
+            audio = load_audio(str(f))
+            if pad is not None:
+                audio = np.concatenate([pad, audio, pad])
+            embs, rms = extract_embeddings(audio, mel_sess, emb_sess, mel_in, emb_in, mfc)
+            X, _y = windows_from_embeddings(embs, rms, positive=False)  # ordered windows; labels unused
+            if X:
+                streams.append(predict_fn(np.array(X, np.float32)))
+        except Exception as e:
+            progress(f"  stream skip {_P(f).name}: {e}")
+    return streams
+
+
+def sweep_operating_point(pos_streams, neg_streams, neg_hours: float, hysteresis: int,
+                          target_faph: float = GATE_TARGET_FAPH,
+                          recall_floor: float = GATE_RECALL_FLOOR,
+                          tmin: float = 0.10, tmax: float = 0.90, step: float = 0.02):
+    """Sweep thresholds and pick an operating point by REPLAYING runtime events on
+    isolated-positive and continuous-negative streams. Returns
+    (threshold, faph, recall, rows). Selection: among thresholds meeting both the FA
+    target and the recall floor, take the highest threshold (lowest FA); if none meet
+    both, prefer the FA target subset with the best recall, else the global min-FA
+    point. Sweep starts at 0.10 because a real-negative-trained head's best point can
+    sit well below the old 0.30/0.40 floors."""
+    cands = np.round(np.arange(tmin, tmax + 1e-9, step), 2)
+    rows = []
+    for t in cands:
+        fa = sum(replay_fires(s, float(t), hysteresis) for s in neg_streams)
+        faph = (fa / neg_hours) if neg_hours > 0 else 0.0
+        rec = (float(np.mean([1.0 if replay_fires(s, float(t), hysteresis) > 0 else 0.0
+                              for s in pos_streams])) if pos_streams else 0.0)
+        rows.append((float(t), float(faph), float(rec)))
+    both = [r for r in rows if r[2] >= recall_floor and r[1] <= target_faph]
+    if both:
+        best = max(both, key=lambda r: r[0])            # highest threshold → lowest FA
+    else:
+        under = [r for r in rows if r[1] <= target_faph]
+        best = (max(under, key=lambda r: r[2]) if under  # meet FA, best recall
+                else min(rows, key=lambda r: r[1]))       # nothing meets FA: least-bad FA
+    return best[0], best[1], best[2], rows
 
 
 # ---------------------------------------------------------------------------
@@ -997,57 +1105,68 @@ def main() -> None:
     model, pva, yva, val_acc, acc = train_dnn(X, y, groups, total_steps=DNN_STEPS)
     progress(f"Training accuracy: {acc:.1%}")
 
-    # Calibrate the fire threshold on the DNN's own held-out val split.
-    # openWakeWord/microWakeWord both tune to a target FALSE-ACCEPTS-PER-HOUR, not
-    # raw accuracy, so we do the same here against the held-out negative windows.
+    # ── Threshold calibration by RUNTIME EVENT REPLAY (not per-window counting) ──
+    # Score isolated positive clips and continuous real-negative audio as ordered
+    # streams, then replay the exact device fire logic (4-frame smoothing + N-frame
+    # hysteresis + 1 s refractory) across a 0.10-0.90 sweep, per hardware surface.
+    # This is what the eval harness does, so a threshold chosen here means the same
+    # thing at run time, unlike the old per-window count, which understated FA and
+    # picked thresholds that still measured 40-140 FA/hr live.
+    from pathlib import Path as _P
+    predict_fn = lambda Xin: torch_predict(model, Xin)
     threshold = 0.5
-    TARGET_FAPH  = 1.0   # aim for ≤1 false accept per hour of ambient audio
-    RECALL_FLOOR = 0.6   # …but never so strict the phrase stops firing
-    try:
-        pos = pva[yva == 1]; neg = pva[yva == 0]
-        if len(pos) and len(neg):
-            # The held-out negative windows are a proxy ambient stream: each window
-            # is one 80 ms detector hop, so 12.5 windows ≈ 1 s. The runtime's 4-frame
-            # smoothing + 2-frame hysteresis suppress isolated crossings further, so
-            # real FA/hr ≤ the figure here.
-            hours = len(neg) / 12.5 / 3600.0
-            threshold, measured, recall = pick_operating_threshold(pos, neg, hours, TARGET_FAPH, RECALL_FLOOR)
-            progress(f"Validation accuracy: {val_acc:.1%}; threshold {threshold:.2f} "
-                     f"(~{measured:.2f} false-accepts/hr over {hours * 60:.0f} min held-out negatives, recall {recall:.0%})")
-        else:
-            progress(f"Validation accuracy: {val_acc:.1%}; calibrated threshold {threshold:.2f}")
-    except Exception as e:
-        progress(f"Threshold calibration skipped ({e}); using {threshold:.2f}")
+    pod_threshold = 0.5
+    gate_pass = None           # None = could not certify (no real negatives); bool otherwise
+    gate_reason = "no real-negative audio (--calib-dir): cannot certify FA/hr"
 
-    # Real-audio threshold calibration (structural fix): synthetic held-out windows
-    # are a proxy ambient stream and understate real false-accept risk, which is why
-    # shipped thresholds measured 44-137 FA/hr on real speech/noise. When a directory
-    # of real negative audio is given, recalibrate the fire threshold against it —
-    # same shape as the synthetic calibration above, but a higher recall floor,
-    # since a threshold proven against real audio can afford to be pickier.
-    if args.calib_dir:
-        try:
-            progress(f"Calibrating threshold against real audio in {args.calib_dir}…")
-            real_neg = score_real_negatives(args.calib_dir, mel_sess, emb_sess, mel_input_name,
-                                             emb_input_name, mel_frames_per_chunk,
-                                             lambda Xin: torch_predict(model, Xin))
-            # HELD-OUT positives only (pva/yva from train_dnn's group split) — using
-            # X[y==1] (including training positives the model already fit to) would
-            # reintroduce the same leakage this whole fix targets: an inflated
-            # recall estimate that doesn't reflect real generalization. A threshold
-            # proven against REAL audio can afford a higher recall floor (0.85) than
-            # the synthetic pass, since real negatives are the true FP source.
-            pos_final = pva[yva == 1]
-            if len(real_neg) and len(pos_final):
-                hours = len(real_neg) / 12.5 / 3600.0
-                threshold, measured, recall_real = pick_operating_threshold(
-                    pos_final, real_neg, hours, TARGET_FAPH, recall_floor=0.85)
-                progress(f"Real-audio calibration: threshold {threshold:.2f} (~{measured:.2f} false-accepts/hr over "
-                         f"{hours * 60:.0f} min real negatives, recall {recall_real:.0%})")
-            else:
-                progress("Real-audio calibration skipped (no windows extracted from --calib-dir)")
-        except Exception as e:
-            progress(f"Real-audio calibration skipped ({e}); keeping synthetic threshold {threshold:.2f}")
+    try:
+        # Positives scored in ISOLATION (0.6 s silence pad each): the way a real
+        # wake utterance is heard, so recall isn't understated by clip-to-clip bleed.
+        pos_paths = sorted(_P(args.positives).glob("*.wav"))
+        pos_streams = score_streams(pos_paths, mel_sess, emb_sess, mel_input_name,
+                                    emb_input_name, mel_frames_per_chunk, predict_fn,
+                                    isolate_pad_s=0.6)
+
+        # Negatives: prefer HELD-OUT real audio (the true FP source). Each file is a
+        # continuous stream so refractory/hysteresis behave as they do live.
+        neg_streams = []
+        if args.calib_dir:
+            neg_paths = sorted(_P(args.calib_dir).glob("*.wav"))
+            progress(f"Calibrating by event-replay over {len(pos_paths)} positive clips "
+                     f"+ {len(neg_paths)} real-negative files…")
+            neg_streams = score_streams(neg_paths, mel_sess, emb_sess, mel_input_name,
+                                        emb_input_name, mel_frames_per_chunk, predict_fn,
+                                        isolate_pad_s=0.0)
+        neg_windows = int(sum(len(s) for s in neg_streams))
+        neg_hours = neg_windows / 12.5 / 3600.0
+
+        if pos_streams and neg_streams and neg_hours > 0:
+            b_th, b_fa, b_rec, _rows = sweep_operating_point(pos_streams, neg_streams, neg_hours, HYST_BROWSER)
+            p_th, p_fa, p_rec, _prows = sweep_operating_point(pos_streams, neg_streams, neg_hours, HYST_POD)
+            threshold, pod_threshold = b_th, p_th
+            gate_pass = bool(b_fa <= GATE_TARGET_FAPH and b_rec >= GATE_RECALL_FLOOR)
+            gate_reason = (
+                f"browser th {b_th:.2f}: {b_fa:.2f} FA/hr, recall {b_rec:.0%} over {neg_hours * 60:.0f} min real audio"
+                if gate_pass else
+                f"no browser threshold meets ≤{GATE_TARGET_FAPH:.0f} FA/hr with recall ≥{GATE_RECALL_FLOOR:.0%} "
+                f"(best: th {b_th:.2f} → {b_fa:.2f} FA/hr, recall {b_rec:.0%})")
+            progress(f"Validation accuracy: {val_acc:.1%}; "
+                     f"browser th {b_th:.2f} ({b_fa:.2f} FA/hr, recall {b_rec:.0%}), "
+                     f"pod th {p_th:.2f} ({p_fa:.2f} FA/hr, recall {p_rec:.0%}); "
+                     f"gate {'PASS' if gate_pass else 'FAIL'}: {gate_reason}")
+        else:
+            # No real negatives available: fall back to the old synthetic per-window
+            # estimate just to have SOME threshold, but leave gate_pass=None so the
+            # caller knows this model was never certified against real audio.
+            pos_w = pva[yva == 1]; neg_w = pva[yva == 0]
+            if len(pos_w) and len(neg_w):
+                hours = len(neg_w) / 12.5 / 3600.0
+                threshold, measured, recall = pick_operating_threshold(pos_w, neg_w, hours, GATE_TARGET_FAPH, 0.6)
+                pod_threshold = threshold
+            progress(f"Validation accuracy: {val_acc:.1%}; threshold {threshold:.2f} "
+                     f"(synthetic-only estimate: {gate_reason})")
+    except Exception as e:
+        progress(f"Threshold calibration failed ({e}); using {threshold:.2f}, gate uncertified")
 
     progress("Exporting ONNX detector…")
     dummy = torch.zeros(1, DET_FRAMES, EMB_DIM, dtype=torch.float32)
@@ -1067,7 +1186,8 @@ def main() -> None:
     _onnx.save(_exported, args.output)
     if _EMBEDDER_POOL is not None:
         _EMBEDDER_POOL.close()
-    progress("Done.", done=True, threshold=threshold, accuracy=val_acc)
+    progress("Done.", done=True, threshold=threshold, pod_threshold=pod_threshold,
+             accuracy=val_acc, gate_pass=gate_pass, gate_reason=gate_reason)
 
 
 if __name__ == "__main__":

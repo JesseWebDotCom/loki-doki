@@ -7,9 +7,9 @@
 // this activity isn't visible in the terminal until it finishes, only the completion
 // notification is.
 
-import { spawn } from 'node:child_process'
 import type { Tool, ToolResult } from './index'
-import { buildHeadlessClaudeCommand } from '@/lib/codingServer'
+import { runHeadlessClaude } from '@/lib/codingServer'
+import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
 import { prepareCodingSession, codingSessionOpened, codingSessionClosed } from '@/lib/codingEngine'
 import { isClaudeCodeInstalled } from '@/lib/claudeCode'
 import { emitNotification } from '@/lib/notify'
@@ -31,15 +31,12 @@ async function runHeadlessTask(userId: string, task: string): Promise<void> {
   let exitCode: number | null = null
   try {
     await prepareCodingSession()
-    const { bin, args, cwd } = await buildHeadlessClaudeCommand(userId, task)
-    exitCode = await new Promise<number | null>((resolve) => {
-      const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-      const timer = setTimeout(() => { try { child.kill('SIGTERM') } catch { /* already gone */ } }, TASK_TIMEOUT_MS)
-      child.stdout.on('data', (c: Buffer) => { stdout += c.toString() })
-      child.stderr.on('data', (c: Buffer) => { stderr += c.toString() })
-      child.on('close', (code) => { clearTimeout(timer); resolve(code) })
-      child.on('error', () => { clearTimeout(timer); resolve(null) })
-    })
+    // Sandboxed on every platform (runHeadlessClaude throws rather than run a
+    // bypassPermissions claude outside the OS boundary — fail closed).
+    const r = await runHeadlessClaude(userId, task, TASK_TIMEOUT_MS)
+    stdout = r.stdout
+    stderr = r.stderr
+    exitCode = r.code
   } finally {
     codingSessionClosed()
   }
@@ -71,6 +68,11 @@ async function execute(args: unknown, config?: Record<string, unknown>): Promise
   if (!task?.trim()) return { success: false, error: 'What should the coding agent do?' }
   if (!isClaudeCodeInstalled()) {
     return { success: true, directReply: "Coding isn't installed yet. An admin can turn it on in Admin → Features." }
+  }
+  // Check BEFORE replying "I've started" — runHeadlessTask would refuse anyway (it
+  // fails closed), but the user deserves the real reason up front, not silence.
+  if (!isSandboxUserInstalled()) {
+    return { success: true, directReply: 'Background coding tasks run commands automatically, so they need Coding Sandbox Isolation, which isn\'t set up yet. An admin can enable it in Admin → Features → Coding. You can still code interactively in the Coding app.' }
   }
 
   // Detached: never blocks the reply. Errors are logged, not surfaced to the caller,
