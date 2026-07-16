@@ -42,6 +42,7 @@ import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
 import { retrieveDocChunks, DOC_STUFF_BUDGET } from '@/lib/docChunks'
 import { getModel, getFastModel } from '@/lib/models'
+import { maybeStageLearnedAnswer, type LearnCandidate } from '@/lib/notes/learnedAnswer'
 import { CATALOG } from '@/lib/catalog'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
 import { appendVersion as appendArtifactVersion } from '@/lib/artifacts/store'
@@ -426,6 +427,12 @@ export async function runCompanionTurn(
   // tool block below; consumed by the streaming loop.
   let artifactMode: OpenArtifactDirective | null = null
 
+  // Phase 2 learned-answers: set when a home_inventory device lookup returns a
+  // grounded manual excerpt. After the turn streams, a grounded answer is distilled
+  // and STAGED (behind a confirm) to the device's notes, so repeat questions get a
+  // saved answer instead of re-reasoning. Only manual-grounded turns qualify.
+  let learnCandidate: LearnCandidate | null = null
+
   // Speculative KV prime: while a routed tool executes (network-bound), prefill
   // the system+history+user-message prefix on the chat model, so the post-tool
   // synthesis call only pays prefill for the folded tool result. llama-server
@@ -556,6 +563,25 @@ export async function runCompanionTurn(
         ]
       } else if (result.success) {
         emitEvent('tool_data', JSON.stringify({ tool: tool.id, data: result.data }))
+
+        // Learned-answers provenance gate: only a home_inventory device lookup that
+        // returned a non-empty manual excerpt qualifies. Pure-LLM or list-only
+        // answers never reach the staging path.
+        if (tool.id === 'home_inventory' && !p.primeOnly) {
+          const invArgs = args as { deviceId?: string }
+          const d = result.data as { device?: { name?: string }; manualContext?: string | null } | null
+          if (invArgs.deviceId && d?.device?.name && typeof d.manualContext === 'string' && d.manualContext.trim()) {
+            learnCandidate = {
+              userId: p.userId,
+              convId: p.convId,
+              isAdmin: p.userRole === 'admin',
+              deviceId: invArgs.deviceId,
+              deviceName: d.device.name,
+              question: p.message,
+              groundedSource: d.manualContext,
+            }
+          }
+        }
 
         const block = buildBlock(tool.id, result.data)
         if (block) emitEvent('block', JSON.stringify(block))
@@ -973,6 +999,25 @@ export async function runCompanionTurn(
         body: `"${artifactMode!.title}" is ready in your canvas.`,
         url: '/canvas',
       })).catch(() => {})
+    }
+  }
+
+  // ── Learned-answers offer ─────────────────────────────────────────────────
+  // A grounded device answer just streamed. Distill it and, if there's a reusable
+  // fact, append a one-line "save that?" offer + a confirm directive so a later
+  // "yes" writes it to the device's notes (via the same staged-action flow as any
+  // other confirmation). Never on the artifact path (finalText is a pointer line).
+  if (learnCandidate && completed && !artifactMode && finalText.trim().length >= 20) {
+    try {
+      const staged = await maybeStageLearnedAnswer(learnCandidate, finalText, await getFastModel())
+      if (staged) {
+        const offer = `\n\n${staged.prompt}`
+        h.onToken(offer)
+        emitEvent('directive', JSON.stringify(staged.directive))
+        finalText += offer
+      }
+    } catch (e) {
+      logger.warn(`[companion-turn] learned-answer staging failed: ${e}`)
     }
   }
 

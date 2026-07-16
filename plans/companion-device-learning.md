@@ -1,7 +1,7 @@
 # Companion Device Learning: Answer Write-Back & Passive Procedural Capture
 
 **Date:** 2026-07-16
-**Status:** Phases 0 and 1 SHIPPED (2026-07-16); Phase 2 not started
+**Status:** Phases 0, 1, and 2 all SHIPPED (2026-07-16)
 **Scope:** make conversational chat about Home Inventory devices *update* stored knowledge, not just read it, so repeat questions get grounded answers and casually stated facts stop evaporating.
 **Origin:** review of the chat write-back paths (2026-07-16). Findings: the `remember` tool reliably captures explicit "note that..." facts into Notes; the passive memory judge never routes procedural facts to Notes; nothing ever persists a companion answer.
 
@@ -50,7 +50,22 @@
 
 ---
 
-## Phase 2: learned-answers write-back (#2)
+## Phase 2 (SHIPPED 2026-07-16): learned-answers write-back (#2)
+
+> Landed as designed. `lib/notes/learnedAnswer.ts` distills a grounded device
+> answer to one line on the fast model and stages it via `stageWithDirective`;
+> `companionTurn.ts` sets a `learnCandidate` only when the `home_inventory` tool
+> returned a non-empty `manualContext` (the provenance gate), and after the turn
+> streams it appends a one-line "save that?" offer + a `confirm_action` directive.
+> A later "yes" resolves through the existing `confirm_pending` flow and writes a
+> device-linked note (`linkDeviceId` forces the link to the known device) with a
+> `(from manual, saved <date>)` suffix. Rate-limited to one offer per device per
+> conversation (1h TTL). Never auto-saves; never writes `manualText`; distillation
+> failure / empty fact / timeout all fail safe to no-offer. Verified: 5 tests
+> (stage→approve writes linked note w/ provenance, decline writes nothing, no-fact
+> → no offer, rate-limit, forced device link), all passing.
+>
+> Design notes preserved below.
 
 **Problem.** When the companion answers a device question, the answer evaporates. If it reasoned from scattered context (or a future web/search tool), the next identical question starts from zero.
 

@@ -123,6 +123,10 @@ export interface CaptureNoteInput {
   /** Suggested title for a new note (classifier or entity name); falls back to the
    *  matched device name, then the fact itself. */
   title?: string
+  /** Force the note's device link to this device instead of inferring it from the
+   *  fact text (Phase 2 learned-answers already know the exact device). When set,
+   *  findDeviceTarget is skipped. */
+  linkDeviceId?: string
 }
 
 export interface CaptureNoteResult {
@@ -140,7 +144,12 @@ export interface CaptureNoteResult {
  */
 export async function captureNoteFact(input: CaptureNoteInput): Promise<CaptureNoteResult> {
   const fact = input.fact.trim()
-  const deviceMatch = await findDeviceTarget(fact)
+  // A caller-supplied device wins over text inference; look up its name for the
+  // reply/title. An unknown id falls back to inferring from the fact text.
+  const deviceMatch = input.linkDeviceId
+    ? (await db.select({ id: homeDevices.id, name: homeDevices.name })
+        .from(homeDevices).where(eq(homeDevices.id, input.linkDeviceId)).limit(1))[0] ?? await findDeviceTarget(fact)
+    : await findDeviceTarget(fact)
   const target = await findAppendTarget(input.userId, input.allowSharedAppend, input.factEmbedding, fact)
 
   const withLink = async (noteId: string): Promise<CaptureNoteResult['device']> => {
