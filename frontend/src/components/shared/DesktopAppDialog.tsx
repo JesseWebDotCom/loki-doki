@@ -251,12 +251,18 @@ export function DesktopAppDialog({
             <div className="space-y-2 rounded-control bg-secondary/60 p-3 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground">After installing</p>
               {visitorPlatform === 'mac' ? (
-                <p>
-                  {assets.some((a) => a.name.endsWith('.zip')) &&
-                    'Unzip the download and drag Doki Dock into Applications. '}
-                  macOS blocks the first open of home-built apps: right-click Doki Dock in
-                  Applications, choose Open, then Open again.
-                </p>
+                <>
+                  <p>
+                    {assets.some((a) => a.name.endsWith('.zip')) &&
+                      'Unzip the download and drag Doki Dock into Applications. '}
+                    If your browser warns about the download, choose Keep.
+                  </p>
+                  <p>
+                    macOS blocks the first open of home-built apps: open Doki Dock and dismiss
+                    the warning, then go to System Settings, Privacy &amp; Security, scroll to
+                    the Security section, and click Open Anyway next to Doki Dock.
+                  </p>
+                </>
               ) : (
                 <p>Windows SmartScreen warns once: click More info, then Run anyway.</p>
               )}
