@@ -3281,6 +3281,9 @@ export const adminAuditLog = sqliteTable('admin_audit_log', {
       // Credential reveals and SFTP filesystem access — previously unaudited (a member
       // could pull a shared host's VNC/RDP password, or read/write its files, invisibly).
       'credential_reveal', 'sftp_list', 'sftp_download', 'sftp_upload',
+      // AI engine control actions (Admin → System → AI engine). TS-level enum only -
+      // the column is plain text, so extending this list needs no migration.
+      'engine_restart', 'engine_unload', 'engine_guards_update', 'engine_sweep',
     ],
   }).notNull(),
   detail: text('detail'), // JSON string

@@ -10,6 +10,7 @@
 import { spawn } from 'node:child_process'
 import type { Tool, ToolResult } from './index'
 import { buildHeadlessClaudeCommand } from '@/lib/codingServer'
+import { prepareCodingSession, codingSessionOpened, codingSessionClosed } from '@/lib/codingEngine'
 import { isClaudeCodeInstalled } from '@/lib/claudeCode'
 import { emitNotification } from '@/lib/notify'
 import { logger } from '@/lib/logger'
@@ -21,17 +22,27 @@ const TASK_TIMEOUT_MS = 5 * 60_000
 interface ClaudeJsonResult { result?: string; is_error?: boolean }
 
 async function runHeadlessTask(userId: string, task: string): Promise<void> {
-  const { bin, args, cwd } = await buildHeadlessClaudeCommand(userId, task)
+  // Count as an active coding session for the WHOLE run (a headless task has no WebSocket,
+  // so without this an image job could evict the coding model mid-task), and bring the
+  // coding engine up + warm before Claude Code's first request.
+  codingSessionOpened()
   let stdout = ''
   let stderr = ''
-  const exitCode = await new Promise<number | null>((resolve) => {
-    const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-    const timer = setTimeout(() => { try { child.kill('SIGTERM') } catch { /* already gone */ } }, TASK_TIMEOUT_MS)
-    child.stdout.on('data', (c: Buffer) => { stdout += c.toString() })
-    child.stderr.on('data', (c: Buffer) => { stderr += c.toString() })
-    child.on('close', (code) => { clearTimeout(timer); resolve(code) })
-    child.on('error', () => { clearTimeout(timer); resolve(null) })
-  })
+  let exitCode: number | null = null
+  try {
+    await prepareCodingSession()
+    const { bin, args, cwd } = await buildHeadlessClaudeCommand(userId, task)
+    exitCode = await new Promise<number | null>((resolve) => {
+      const child = spawn(bin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      const timer = setTimeout(() => { try { child.kill('SIGTERM') } catch { /* already gone */ } }, TASK_TIMEOUT_MS)
+      child.stdout.on('data', (c: Buffer) => { stdout += c.toString() })
+      child.stderr.on('data', (c: Buffer) => { stderr += c.toString() })
+      child.on('close', (code) => { clearTimeout(timer); resolve(code) })
+      child.on('error', () => { clearTimeout(timer); resolve(null) })
+    })
+  } finally {
+    codingSessionClosed()
+  }
 
   let summary = 'The coding agent finished working — open the Coding app to review the result.'
   try {

@@ -16,11 +16,27 @@ export interface GpuStat {
   temperatureC: number | null
 }
 export interface GpuIssue {
-  kind: 'missing' | 'driver' | 'overheat' | 'vram'
+  kind: 'missing' | 'driver' | 'overheat' | 'vram' | 'offload'
   key: string
   severity: 'warn' | 'error'
   message: string
   gpu?: string
+}
+// Live LLM engine census (mirrors backend lib/llmStatus.ts).
+export interface LoadedLlmModel {
+  engine: 'main' | 'coding'
+  name: string
+  sizeBytes: number
+  vramBytes: number
+  offloadPct: number
+  contextLength: number | null
+  expiresAt: string | null
+}
+export interface LlmStatus {
+  models: LoadedLlmModel[]
+  engines: { main: boolean; coding: boolean }
+  orphanSweep: { at: number; pids: number[] }
+  sustainedOffload: LoadedLlmModel[]
 }
 export interface GpuHealth {
   supported: boolean
@@ -28,18 +44,21 @@ export interface GpuHealth {
   gpus: GpuStat[]
   expected: { uuid: string; name: string }[]
   issues: GpuIssue[]
+  llm: LlmStatus
 }
 export interface GpuAlertConfig {
   missing:  { enabled: boolean }
   driver:   { enabled: boolean }
   overheat: { enabled: boolean; thresholdC: number }
   vram:     { enabled: boolean; thresholdPct: number }
+  offload:  { enabled: boolean }
 }
 export type GpuAlertConfigPatch = {
   missing?:  { enabled?: boolean }
   driver?:   { enabled?: boolean }
   overheat?: { enabled?: boolean; thresholdC?: number }
   vram?:     { enabled?: boolean; thresholdPct?: number }
+  offload?:  { enabled?: boolean }
 }
 
 interface GpuCtx {

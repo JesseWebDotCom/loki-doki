@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { getLlmStatus, type LlmStatus } from '@/lib/llmStatus'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
@@ -20,7 +21,7 @@ export interface GpuStat {
   temperatureC: number | null
 }
 
-export type GpuIssueKind = 'missing' | 'driver' | 'overheat' | 'vram'
+export type GpuIssueKind = 'missing' | 'driver' | 'overheat' | 'vram' | 'offload'
 export interface GpuIssue {
   kind: GpuIssueKind
   key: string                       // stable id for toast dedupe (e.g. "missing:<uuid>")
@@ -34,15 +35,20 @@ export interface GpuAlertConfig {
   driver:   { enabled: boolean }
   overheat: { enabled: boolean; thresholdC: number }
   vram:     { enabled: boolean; thresholdPct: number }
+  offload:  { enabled: boolean }
 }
 
-// All off by default — this is a home box, not a monitored datacenter fleet; alerts
+// Mostly off by default - this is a home box, not a monitored datacenter fleet; alerts
 // are opt-in (Admin → System → GPU health → Alerts) rather than firing out of the box.
+// EXCEPTION: offload defaults ON - a model silently running on the CPU turns every reply
+// into minutes and gives no other signal (observed live: a 90-second "hi"); it's the one
+// condition an admin always wants to hear about.
 export const DEFAULT_GPU_ALERT_CONFIG: GpuAlertConfig = {
   missing:  { enabled: false },
   driver:   { enabled: false },
   overheat: { enabled: false, thresholdC: 85 },
   vram:     { enabled: false, thresholdPct: 95 },
+  offload:  { enabled: true },
 }
 
 export interface GpuHealth {
@@ -51,6 +57,8 @@ export interface GpuHealth {
   gpus: GpuStat[]
   expected: { uuid: string; name: string }[]
   issues: GpuIssue[]
+  /** Live LLM engine census (loaded models, VRAM vs CPU split, orphan sweeps). */
+  llm: LlmStatus
 }
 
 /** Partial config accepted by the PUT endpoint. */
@@ -59,6 +67,7 @@ export interface GpuAlertConfigPatch {
   driver?:   { enabled?: boolean }
   overheat?: { enabled?: boolean; thresholdC?: number }
   vram?:     { enabled?: boolean; thresholdPct?: number }
+  offload?:  { enabled?: boolean }
 }
 
 const CONFIG_KEY   = 'gpu.alertConfig'
@@ -116,6 +125,7 @@ export async function getGpuAlertConfig(): Promise<GpuAlertConfig> {
     driver:   { enabled: s?.driver?.enabled   ?? d.driver.enabled },
     overheat: { enabled: s?.overheat?.enabled ?? d.overheat.enabled, thresholdC:   s?.overheat?.thresholdC   ?? d.overheat.thresholdC },
     vram:     { enabled: s?.vram?.enabled     ?? d.vram.enabled,     thresholdPct: s?.vram?.thresholdPct     ?? d.vram.thresholdPct },
+    offload:  { enabled: s?.offload?.enabled  ?? d.offload.enabled },
   }
 }
 
@@ -126,6 +136,7 @@ export async function setGpuAlertConfig(patch: GpuAlertConfigPatch): Promise<Gpu
     driver:   { enabled: patch.driver?.enabled   ?? cur.driver.enabled },
     overheat: { enabled: patch.overheat?.enabled ?? cur.overheat.enabled, thresholdC:   clamp(patch.overheat?.thresholdC   ?? cur.overheat.thresholdC,   40, 120) },
     vram:     { enabled: patch.vram?.enabled     ?? cur.vram.enabled,     thresholdPct: clamp(patch.vram?.thresholdPct     ?? cur.vram.thresholdPct,     50, 100) },
+    offload:  { enabled: patch.offload?.enabled  ?? cur.offload.enabled },
   }
   await setAppSetting(CONFIG_KEY, merged)
   return merged
@@ -157,23 +168,35 @@ export async function resetGpuBaseline(): Promise<void> {
 
 export async function getGpuHealth(): Promise<GpuHealth> {
   const config = await getGpuAlertConfig()
-  const stats = await queryGpus()
+  // The LLM census runs in parallel with nvidia-smi and is valid even on non-NVIDIA boxes.
+  const [stats, llm] = await Promise.all([queryGpus(), getLlmStatus()])
   const baseline = await getBaseline()
+
+  // Sustained CPU offload (>=2 consecutive polls): the silent killer - replies take minutes
+  // with no other visible signal. Synthesized regardless of GPU-driver state.
+  const offloadIssues: GpuIssue[] = config.offload.enabled
+    ? llm.sustainedOffload.map((m) => ({
+        kind: 'offload' as const,
+        key: `offload:${m.engine}:${m.name}`,
+        severity: 'warn' as const,
+        message: `${m.name} is running ${m.offloadPct}% on the CPU (${m.engine} engine) - replies will be very slow. Free VRAM from Admin → System → AI engine.`,
+      }))
+    : []
 
   // nvidia-smi failed to run.
   if (stats === null) {
     // Never seen a GPU here ⇒ not an NVIDIA machine; the feature is simply N/A (no false alarm).
-    if (baseline.length === 0) return { supported: false, driverOk: false, gpus: [], expected: [], issues: [] }
-    const issues: GpuIssue[] = []
+    if (baseline.length === 0) return { supported: false, driverOk: false, gpus: [], expected: [], issues: offloadIssues, llm }
+    const issues: GpuIssue[] = [...offloadIssues]
     if (config.driver.enabled) {
       issues.push({ kind: 'driver', key: 'driver', severity: 'error', message: 'NVIDIA driver is not responding (nvidia-smi failed) — GPUs may be unavailable.' })
     }
-    return { supported: true, driverOk: false, gpus: [], expected: baseline, issues }
+    return { supported: true, driverOk: false, gpus: [], expected: baseline, issues, llm }
   }
 
   const expected = await growBaseline(stats)
   const present = new Set(stats.map((g) => g.uuid))
-  const issues: GpuIssue[] = []
+  const issues: GpuIssue[] = [...offloadIssues]
 
   if (config.missing.enabled) {
     for (const e of expected) {
@@ -197,5 +220,5 @@ export async function getGpuHealth(): Promise<GpuHealth> {
     }
   }
 
-  return { supported: true, driverOk: true, gpus: stats, expected, issues }
+  return { supported: true, driverOk: true, gpus: stats, expected, issues, llm }
 }

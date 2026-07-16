@@ -7,9 +7,11 @@ import { promisify } from 'node:util'
 import { CATALOG } from '@/lib/catalog'
 import type { HfSource, CatalogModel } from '@/lib/catalog'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
-import { IS_WIN, extractZip, killByCommandLine, spawnDetachedHidden } from '@/lib/platform'
+import { IS_WIN, extractZip, killByCommandLine, killByListeningPort, spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import { getCachedGpuPlacement, type ComfyUILaunchConfig } from '@/lib/hwfit'
+import { sweepOrphanLlamaRunners } from '@/lib/ollamaHygiene'
+import { getCachedEngineGuards } from '@/lib/engineGuards'
 
 const ollamaBase = () => (process.env.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/$/, '')
 
@@ -722,17 +724,21 @@ export function ollamaModelsDir(): string {
 // turn evicted the biggest model (the 8B chat model) and paid a measured ~930ms
 // reload plus total KV-cache loss on the next call. All five fit in ~12GB.
 export function ollamaServeEnv(): NodeJS.ProcessEnv {
+  // Admin-tunable engine guards (Admin → System → AI engine), resolved into a sync cache at
+  // boot. Operator env vars always win. NOTE: no OLLAMA_CONTEXT_LENGTH here - the big coding
+  // context lives on the DEDICATED coding engine (codingEngine.ts); giving it to the main
+  // engine ballooned the KV cache of any load that didn't pass an explicit num_ctx.
+  const guards = getCachedEngineGuards()
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    OLLAMA_MAX_LOADED_MODELS: process.env.OLLAMA_MAX_LOADED_MODELS ?? '6',
+    OLLAMA_MAX_LOADED_MODELS: process.env.OLLAMA_MAX_LOADED_MODELS ?? String(guards.maxLoadedModels),
+    // Parallel slots multiply each model's KV allocation; a family box serves one request
+    // per model at a time in practice.
+    OLLAMA_NUM_PARALLEL: process.env.OLLAMA_NUM_PARALLEL ?? String(guards.numParallel),
+    // Flash attention enables the quantized KV cache (≈half the KV memory). Server-global.
+    OLLAMA_FLASH_ATTENTION: process.env.OLLAMA_FLASH_ATTENTION ?? (guards.flashAttention ? '1' : '0'),
+    OLLAMA_KV_CACHE_TYPE: process.env.OLLAMA_KV_CACHE_TYPE ?? guards.kvCacheType,
     OLLAMA_MODELS: ollamaModelsDir(),
-    // Default context window for requests that don't set their own num_ctx. The Coding app drives
-    // Claude Code, which reaches Ollama through the Anthropic-compatible endpoint and can't send a
-    // per-request num_ctx — so it inherits this. Claude Code's system prompt + tool schema run well
-    // past Ollama's small built-in default (8k), and once truncated the model stops following the
-    // prompt (it echoes/continues it) and stops emitting tool calls. Chat/companion paths pass their
-    // own num_ctx per request, so they're unaffected by this larger floor. Operator override wins.
-    OLLAMA_CONTEXT_LENGTH: process.env.OLLAMA_CONTEXT_LENGTH ?? '32768',
   }
   // Central GPU placement: on a multi-GPU box Ollama is confined to the cards ComfyUI
   // isn't using, so the family's chats and image generation never contend for VRAM
@@ -876,10 +882,19 @@ async function hasHomebrewOllama(): Promise<boolean> {
 
 /** Kill whatever's currently serving on Ollama's port and start it again from
  *  whichever binary now resolves first (system install, or our managed copy),
- *  same resolution order as downloadAndStartOllama, just without the install fallback. */
-async function restartOllamaServe(): Promise<void> {
-  await killByCommandLine('ollama serve')
+ *  same resolution order as downloadAndStartOllama, just without the install fallback.
+ *  Exported for the admin "Restart engine" action (Admin → System → AI engine). */
+export async function restartOllamaServe(): Promise<void> {
+  // Kill by LISTENING PORT, not command line: the dedicated coding engine (codingEngine.ts)
+  // runs an identical `ollama serve` command line on its own port - a command-line match
+  // would take it down as collateral.
+  const mainPort = parseInt(new URL(ollamaBase()).port || '11434', 10)
+  await killByListeningPort(mainPort)
   await new Promise<void>((r) => setTimeout(r, 800))
+  // Killing the parent orphans its llama-server children, which keep squatting VRAM until
+  // reaped - the new server can't adopt or evict them (observed live: enough orphans piled
+  // up to force every model load onto the CPU). Sweep before the fresh spawn.
+  await sweepOrphanLlamaRunners('restartOllamaServe')
   const bin = findSystemOllama() ?? join(dataDir, OLLAMA_BIN_DEST)
   if (!existsSync(bin)) return
   spawnDetachedHidden(bin, ['serve'], { env: ollamaServeEnv() }).unref()
@@ -942,6 +957,9 @@ export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<O
       // this works whether the process reports as `ollama` or `ollama.exe`.
       await killByCommandLine(managedBin)
       await new Promise<void>((r) => setTimeout(r, 800))
+      // Same orphan gap as restartOllamaServe: the killed parent leaves llama-server
+      // children holding VRAM. Sweep before the fresh install spawns.
+      await sweepOrphanLlamaRunners('upgradeOllama')
       await rm(managedBin, { force: true })
       await downloadAndStartOllama(() => {})
       const v = await currentOllamaVersion()

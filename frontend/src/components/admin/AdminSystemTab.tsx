@@ -218,6 +218,7 @@ function GpuHealthCard() {
               <Switch checked={config.vram.enabled} onCheckedChange={(v) => set({ vram: { enabled: v } })} />
             </div>
           </div>
+          <AlertToggle label="An AI model is running on the CPU (slow replies)" checked={config.offload.enabled} onChange={(v) => set({ offload: { enabled: v } })} />
         </div>
       )}
     </Card>

@@ -11,7 +11,7 @@ import { wakewordDir, downloadWakewordModel, downloadWakewordCore, isWakewordCor
 import { isGloballyOffline, isDownloadBlocked } from '@/lib/connectivity'
 import { trainWakeword } from '@/lib/voice/wakewordTrainer'
 import { retrainAllCompanions } from '@/lib/pod/companionWake'
-import { ollamaUrl } from '@/llm/ollama'
+import { ollamaChat } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
 import type { AppEnv } from '@/types'
 
@@ -114,15 +114,15 @@ adminWakewords.post('/phonetics', requireAdmin, async (c) => {
 
   try {
     const model = await getModel()
-    const res = await fetch(`${ollamaUrl()}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: `You generate phonetic pronunciations for voice assistant wake phrases.
+    // Through the central client (not a raw fetch): gets the standard num_ctx default -
+    // a raw call with no num_ctx reloads the chat model's runner at the server default
+    // context, evicting/re-sizing it for one admin action - plus the keep_alive policy.
+    const data = await ollamaChat(
+      model,
+      [
+        {
+          role: 'system',
+          content: `You generate phonetic pronunciations for voice assistant wake phrases.
 Respond ONLY with valid JSON matching: {"options":["phonetic1","phonetic2","phonetic3"]}
 Rules:
 - Plain English only, no IPA
@@ -130,19 +130,14 @@ Rules:
 - Hyphens between syllables (e.g. "hey LOH-kee", "hey LOW-ky", "hey lah-KEE")
 - Give exactly 3 variations covering plausible pronunciations
 - Preserve the exact same number of words as the input phrase`,
-          },
-          { role: 'user', content: phrase.trim() },
-        ],
-        format: 'json',
-        stream: false,
-        keep_alive: -1,
-        options: { temperature: 0.4, num_predict: 120 },
-        think: false,
-      }),
-      signal: AbortSignal.timeout(20_000),
-    })
-    if (!res.ok) throw new Error('ollama unavailable')
-    const data = (await res.json()) as { message?: { content?: string } }
+        },
+        { role: 'user', content: phrase.trim() },
+      ],
+      undefined,
+      { temperature: 0.4, num_predict: 120 },
+      'json',
+      20_000,
+    )
     const parsed = JSON.parse(data.message?.content ?? '{}') as { options?: unknown[] }
     const options = (parsed.options ?? []).filter((o): o is string => typeof o === 'string').slice(0, 3)
     if (options.length < 1) throw new Error('empty')

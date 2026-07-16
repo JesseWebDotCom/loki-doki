@@ -14,6 +14,7 @@ import { AdminFeaturesTab } from '@/components/admin/AdminFeaturesTab'
 import { AdminAppsTab, DefaultHomeLayoutSection, PerUserHomeLayoutSection } from '@/components/admin/AdminAppsTab'
 import { AdminUsersTab } from '@/components/admin/AdminUsersTab'
 import { AdminSystemTab } from '@/components/admin/AdminSystemTab'
+import { AdminAiEngineTab } from '@/components/admin/AdminAiEngineTab'
 import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdvancedTab'
 import { AdminCompanionsTab, type CompanionView } from '@/components/admin/AdminCompanionsTab'
 import { AdminSecurityTab } from '@/components/admin/AdminSecurityTab'
@@ -202,6 +203,11 @@ export function AdminPage() {
               description="Online/offline mode and download permissions."
               openSignal={openSignal} defaultOpen contentClassName="p-0">
               <AdminSystemTab />
+            </AdminAccordion>
+            <AdminAccordion id="ai-engine" title="AI Engine"
+              description="Loaded AI models, VRAM residency, engine guards, and controls."
+              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
+              <AdminAiEngineTab />
             </AdminAccordion>
             <AdminAccordion id="locale" title="Locale & Units"
               description="Measurement units, temperature, currency, and time format."

@@ -15,6 +15,7 @@
 import os from 'node:os'
 import { logger } from '@/lib/logger'
 import { getAppSetting } from '@/lib/settings'
+import { releaseCodingGpuForImaging } from '@/lib/codingEngine'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -207,6 +208,13 @@ async function runJob(job: Job): Promise<void> {
   const type = job.type
   job.status = 'running'
   job.startedAt = Date.now()
+
+  // Imaging handoff: image generation shares its GPU with the coding engine. When nobody
+  // is actively coding, release the coding model first so ComfyUI gets the whole card
+  // (awaited - the unload is fast and the VRAM must actually be free before the job runs).
+  if (type === 'image') {
+    await releaseCodingGpuForImaging().catch(() => {})
+  }
 
   // Notify subscribers that the slot is acquired
   appendAndFanout(job, 'queue', JSON.stringify({ position: 0, type }))

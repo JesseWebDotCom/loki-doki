@@ -5,8 +5,47 @@
 - Wraps llama.cpp internally: llama.cpp performance without manual management
 - Auto-offloads layers to CPU RAM when model exceeds VRAM
 - Models are just files: censored and uncensored use the same runner
-- Set `OLLAMA_KEEP_ALIVE=-1` to keep models loaded in memory permanently (eliminates reload latency)
 - **No cloud. Ever.** 100% local, 100% offline.
+
+## Engines, residency & guards (2026-07 resource-management redesign)
+
+Two local `ollama serve` instances ("engines"), both spawned and supervised by the app:
+
+- **Main engine** (`OLLAMA_URL`, default :11434, pinned to the chat GPU via hwfit placement):
+  chat, vision, router, embeddings. Spawn env comes from `ollamaServeEnv()` (lib/download.ts)
+  driven by the admin **engine guards** (`llm.engineGuards` app setting, cached at boot by
+  `lib/engineGuards.ts`): `OLLAMA_MAX_LOADED_MODELS` (default 5), `OLLAMA_NUM_PARALLEL=1`,
+  `OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0` (about half the KV memory,
+  server-global). No `OLLAMA_CONTEXT_LENGTH` here; the central client injects
+  `num_ctx: 8192` on every call.
+- **Coding engine** (`lib/codingEngine.ts`, :11435, pinned to the imaging GPU): serves ONLY
+  the coding model for Claude Code, whose Anthropic-compatible endpoint cannot send a
+  per-request num_ctx, so this engine's env carries `OLLAMA_CONTEXT_LENGTH=codingCtx`
+  (guard, default 32768; smaller truncates Claude Code's system prompt and the model
+  derails). Spawned lazily on the first coding session (`prepareCodingSession()` from the
+  terminal WS open + the headless companion tool), never at boot; the model ages out on a
+  30m keep_alive and an image-gen job unloads it first when nobody is coding (genQueue
+  handoff). Falls back to the main engine when the imaging GPU is absent (eGPU dropout),
+  and to the remote engine when one is paired.
+
+**Residency policy** (`setKeepAlivePolicyResolver` in llm/ollama.ts, implemented by
+lib/models.ts): keep_alive is no longer a hardcoded `-1`. Chat and the two embedders stay
+pinned (-1); router_llm gets 30m, vision 15m, anything unresolved 15m, so idle models
+become evictable instead of forcing new loads onto the CPU. Switching the chat/vision model
+unloads the displaced model (`setModelSettingAndUnloadDisplaced`). With a remote engine
+paired, keep_alive is omitted entirely (their server, their policy).
+
+**Hygiene**: killing `ollama serve` orphans its per-model `llama-server` children, which
+squat VRAM forever (observed: enough orphans to force every load onto the CPU).
+`lib/ollamaHygiene.ts` sweeps runners whose parent is dead or PID-recycled (path-scoped to
+ollama dirs), invoked from every engine restart path, boot reconcile, a 60 s watchdog
+(index.ts), and run.ps1 teardown.
+
+**Monitoring & control**: Admin → System → AI Engine shows the live census
+(lib/llmStatus.ts via the GPU-health poll): per-model VRAM vs CPU split, ctx, expiry, with
+per-model Unload, Free VRAM, Sweep orphans, and Restart engine actions plus the guards
+editor. Sustained CPU offload (>=25% across two polls) raises a toast (alert on by
+default; the rest of the GPU alerts stay opt-in).
 
 ## Required models
 Both must be pulled via Ollama before first use. The setup wizard will prompt for this.

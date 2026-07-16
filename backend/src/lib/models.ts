@@ -1,7 +1,8 @@
 import { db } from '@/db'
 import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { ollamaChat, ollamaEmbed, ollamaList, ollamaWarmModel } from '@/llm/ollama'
+import { setAppSetting } from '@/lib/settings'
+import { ollamaChat, ollamaEmbed, ollamaList, ollamaWarmModel, ollamaUnloadModel, setKeepAlivePolicyResolver, type OllamaKeepAlive } from '@/llm/ollama'
 import { EMBED_MODEL, ROUTER_EMBED_MODEL } from '@/llm/embed'
 import { initRouter } from '@/llm/router'
 import { logger } from '@/lib/logger'
@@ -13,11 +14,52 @@ async function getSetting(key: string): Promise<string | null> {
   return row ? (JSON.parse(row.value) as string) : null
 }
 
+// ── keep_alive residency policy (injected into the central Ollama client) ──────
+// Which models stay resident, by ROLE: the chat model is the family's primary UX and is
+// pinned (-1); the two embedders are tiny (≈0.35 GB combined) and pinned; everything else
+// ages out on a finite window so idle models become evictable under VRAM pressure instead
+// of forcing new loads onto the CPU. The role→tag mapping changes at runtime (admin model
+// switches, downloadJobs auto-select), so the resolver reads a sync cache that every role
+// getter refreshes as it resolves - call sites do `await getModel()` right before the
+// request, so the cache is fresh at request time by construction.
+const roleTags: { chat?: string; vision?: string; fast?: string } = {}
+const normTag = (t: string) => t.replace(/:latest$/, '')
+
+function keepAlivePolicy(model: string): OllamaKeepAlive {
+  const m = normTag(model)
+  // Chat first: when the chat model has builtinVision, getVisionModel() returns the chat
+  // tag - the chat pin must win over the vision window.
+  if (roleTags.chat && normTag(roleTags.chat) === m) return -1
+  if (m === normTag(EMBED_MODEL) || m === normTag(ROUTER_EMBED_MODEL)) return -1
+  if (roleTags.fast && normTag(roleTags.fast) === m) return '30m'
+  if (roleTags.vision && normTag(roleTags.vision) === m) return '15m'
+  // Unknown/auxiliary (script/book/extraction stand-ins, one-offs): finite, never pinned -
+  // a stock-instruct extraction model is a second ~4.8 GB resident if it gets -1.
+  return '15m'
+}
+setKeepAlivePolicyResolver(keepAlivePolicy)
+
+/**
+ * Write a model-role setting AND release the displaced model's runner. Without the unload,
+ * the OLD chat model stays resident pinned -1 forever (nothing else ever evicts a pin) -
+ * a permanent multi-GB squatter after every model switch. If the old tag still serves
+ * another role it simply reloads on next use under that role's policy.
+ */
+export async function setModelSettingAndUnloadDisplaced(key: 'model' | 'vision_model', newValue: string): Promise<void> {
+  const old = await getSetting(key)
+  await setAppSetting(key, newValue)
+  if (key === 'model') roleTags.chat = newValue
+  if (key === 'vision_model') roleTags.vision = newValue
+  if (old && normTag(old) !== normTag(newValue)) void ollamaUnloadModel(old)
+}
+
 export async function getModel(): Promise<string> {
   // A paired remote engine supplies its own model name (the local one may not exist there).
   const remote = getRemoteModelOverride()
   if (remote) return remote
-  return (await getSetting('model')) ?? process.env.MODEL ?? 'llama3.1:8b'
+  const model = (await getSetting('model')) ?? process.env.MODEL ?? 'llama3.1:8b'
+  roleTags.chat = model
+  return model
 }
 
 // Long-form scriptwriting model (podcast episodes). The main chat model may be an
@@ -76,7 +118,7 @@ export function invalidateRouterModelCache(): void {
 let _fastModelCache: { value: string } | null = null
 
 export async function getFastModel(): Promise<string> {
-  if (_fastModelCache) return _fastModelCache.value
+  if (_fastModelCache) { roleTags.fast = _fastModelCache.value; return _fastModelCache.value }
   const main = await getModel()
   const candidate =
     (await getSetting('router_llm_model')) ??
@@ -88,8 +130,9 @@ export async function getFastModel(): Promise<string> {
       const installed = await ollamaList()
       if (installed.some((m) => m.name === candidate)) {
         _fastModelCache = { value: candidate }
+        roleTags.fast = candidate
         // Load the fast model into VRAM immediately so it's ready before the first
-        // real call. Fire-and-forget — keep_alive: -1 keeps it there permanently.
+        // real call. Fire-and-forget - residency follows the keep_alive policy.
         ollamaWarmModel(candidate).catch(() => {})
         return candidate
       }
@@ -111,12 +154,15 @@ export function invalidateFastModelCache(): void {
 // 3. Fallback: gemma3:4b-it-qat (the catalog vision role default)
 export async function getVisionModel(): Promise<string> {
   const explicit = await getSetting('vision_model')
-  if (explicit) return explicit
+  if (explicit) { roleTags.vision = explicit; return explicit }
 
   const chatModel = await getModel()
   const chatEntry = CATALOG.find(m => m.ollamaTag === chatModel || m.id === chatModel)
-  if (chatEntry?.builtinVision) return chatModel
+  // builtinVision: vision IS the chat model - the resolver's chat-first ordering keeps
+  // the -1 pin (roleTags.vision matching is then redundant but harmless).
+  if (chatEntry?.builtinVision) { roleTags.vision = chatModel; return chatModel }
 
+  roleTags.vision = 'gemma3:4b-it-qat'
   return 'gemma3:4b-it-qat'
 }
 

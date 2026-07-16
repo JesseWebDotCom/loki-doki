@@ -5,11 +5,51 @@ import type { IncomingMessage } from 'node:http'
 import type { Socket } from 'bun'
 import { logger } from '@/lib/logger'
 
-import { getActiveOllamaUrl } from '@/lib/remoteEngine'
+import { getActiveOllamaUrl, remoteEngineState } from '@/lib/remoteEngine'
 import { applyTextFloor } from '@/lib/safety/textFloor'
 
 // Resolves to the remote Ollama host when an admin has paired one, else local/env.
 export const ollamaUrl = () => getActiveOllamaUrl()
+
+// ── keep_alive residency policy ──────────────────────────────────────────────
+// Historically every request hardcoded keep_alive: -1, pinning every model ever touched
+// resident forever. On an 8 GB card that overcommits VRAM (chat + vision + router + embeds
+// ≈ 10.4 GB pinned against 8), and pinned models are never evicted under pressure - so new
+// loads silently ran on the CPU instead. The policy lives in models.ts (it knows which tag
+// currently fills each role) and is injected here as a RESOLVER FUNCTION, consulted per
+// request: role→tag mappings change at runtime (admin model switches, downloadJobs
+// auto-select), so a boot-time snapshot would go stale. models.ts registers it at import
+// time; setter injection keeps this module free of a models.ts import cycle.
+//
+// When a REMOTE engine is paired, keep_alive is omitted entirely - residency on someone
+// else's host is their server's business (the old -1 pinned models on remote hosts too).
+export type OllamaKeepAlive = number | string
+let keepAliveResolver: ((model: string) => OllamaKeepAlive) | null = null
+export function setKeepAlivePolicyResolver(fn: (model: string) => OllamaKeepAlive): void {
+  keepAliveResolver = fn
+}
+function keepAliveFields(model: string): Record<string, unknown> {
+  if (remoteEngineState().enabled) return {}
+  return { keep_alive: keepAliveResolver ? keepAliveResolver(model) : -1 }
+}
+
+/**
+ * Ask Ollama to release a model's runner now (keep_alive: 0 with an empty prompt). Verified
+ * semantics on 0.31.x: does NOT cancel an in-flight generation (waits for the refcount) and
+ * no-ops with done_reason:"unload" when the model isn't loaded. No-op when a remote engine
+ * is paired - we don't manage residency on remote hosts. Best-effort, never throws.
+ */
+export async function ollamaUnloadModel(model: string, baseUrl?: string): Promise<void> {
+  if (!baseUrl && remoteEngineState().enabled) return
+  try {
+    await fetch(`${baseUrl ?? ollamaUrl()}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, keep_alive: 0 }),
+      signal: AbortSignal.timeout(20_000),
+    })
+  } catch { /* best-effort */ }
+}
 
 // A connected-but-silent Ollama would otherwise hang the caller forever and,
 // for chat jobs, never free the genQueue slot. These bound that wait.
@@ -87,9 +127,9 @@ export async function ollamaList(): Promise<OllamaModel[]> {
 }
 
 /**
- * Load a model into Ollama's VRAM without running any prompt. Uses keep_alive: -1 so
- * Ollama holds it loaded indefinitely (until the process exits or another model evicts it).
- * Fire-and-forget safe — call without await to warm in the background.
+ * Load a model into Ollama's VRAM without running any prompt. Residency follows the
+ * keep_alive policy (a lazily-warmed router model must NOT re-pin itself -1 hours after
+ * boot). Fire-and-forget safe - call without await to warm in the background.
  */
 export async function ollamaWarmModel(model: string): Promise<void> {
   try {
@@ -101,7 +141,7 @@ export async function ollamaWarmModel(model: string): Promise<void> {
       // runner at Ollama's 4096 default, and the first real call (which gets
       // DEFAULT_NUM_CTX injected) then pays a full ~3s runner reload, defeating
       // the warm entirely.
-      body: JSON.stringify({ model, keep_alive: -1, options: { num_ctx: DEFAULT_NUM_CTX } }),
+      body: JSON.stringify({ model, ...keepAliveFields(model), options: { num_ctx: DEFAULT_NUM_CTX } }),
     })
   } catch { /* best-effort */ }
 }
@@ -112,7 +152,7 @@ export async function ollamaEmbed(model: string, input: string): Promise<number[
   const res = await fetch(`${ollamaUrl()}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, input, keep_alive: -1 }),
+    body: JSON.stringify({ model, input, ...keepAliveFields(model) }),
     signal: AbortSignal.timeout(20_000),
   })
   if (!res.ok) throw new Error('Embedding request failed')
@@ -153,7 +193,7 @@ export async function ollamaChat(
     // think: false — Gemma 4 and other thinking models spend hidden tokens on reasoning
     // before emitting visible content. With num_predict capped those tokens get consumed
     // before any content appears, producing silent/empty responses. Disable it globally.
-    body: JSON.stringify({ model, messages, tools, stream: false, keep_alive: -1, options, think: false, ...(format !== undefined && { format }) }),
+    body: JSON.stringify({ model, messages, tools, stream: false, ...keepAliveFields(model), options, think: false, ...(format !== undefined && { format }) }),
   })
   if (!res.ok) throw new Error('Chat request failed')
   return res.json() as Promise<OllamaChatChunk>
@@ -179,7 +219,7 @@ export function ollamaChatStream(
   // Centralized text safety floor (skipped for vision / already-floored companion calls).
   messages = applyTextFloor(messages)
   options = withDefaultCtx(options)
-  const payload = JSON.stringify({ model, messages, stream: true, keep_alive: -1, options, think: false })
+  const payload = JSON.stringify({ model, messages, stream: true, ...keepAliveFields(model), options, think: false })
   const base = new URL(ollamaUrl())
 
   // HTTPS falls back to node:http — Bun.connect TLS needs cert config

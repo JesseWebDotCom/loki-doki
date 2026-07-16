@@ -8,10 +8,8 @@ import {
 } from '@/lib/codingSandboxUser'
 import { CLAUDE_CODE_DIR, CLAUDE_BIN, isClaudeCodeInstalled } from '@/lib/claudeCode'
 import { killCodingSession } from '@/lib/codingPtySidecar'
-import { ollamaUrl } from '@/llm/ollama'
+import { codingEngineUrl, resolveCodingModelTag } from '@/lib/codingEngine'
 import { dataDir } from '@/lib/download'
-import { getAppSetting } from '@/lib/settings'
-import { CATALOG } from '@/lib/catalog'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
@@ -47,13 +45,6 @@ function unsandboxedHomeDir(workingDir: string): string { return join(workingDir
 
 function socketPathFor(workingDir: string): string {
   return join(workingDir, '.tmux.sock')
-}
-
-async function resolveCodingModelTag(): Promise<string> {
-  const settingId = await getAppSetting('coding_model') as string | null
-  const id = settingId ?? CATALOG.find((m) => m.role === 'coding')?.id ?? 'ornith:9b'
-  const entry = CATALOG.find((m) => m.id === id && m.role === 'coding')
-  return entry?.ollamaTag ?? id
 }
 
 // Run a tmux control/attach command directly as THIS app's user (the tmux server owner).
@@ -118,7 +109,9 @@ async function resolvePaneLaunch(userId: string, sandboxed: boolean): Promise<Pa
   const envArgs = [
     `HOME=${homeDir}`,
     `SHELL=/bin/bash`,
-    `ANTHROPIC_BASE_URL=${ollamaUrl()}`,
+    // The dedicated coding engine (falls back to the main engine when its GPU is absent,
+    // or to the remote engine when one is paired) - see codingEngine.ts.
+    `ANTHROPIC_BASE_URL=${await codingEngineUrl()}`,
     `ANTHROPIC_AUTH_TOKEN=ollama`,
     `ANTHROPIC_MODEL=${model}`,
   ]
@@ -223,7 +216,8 @@ export async function buildAttachSpawnParams(userId: string): Promise<{ cmd: str
       TERM: 'xterm-256color',
       HOME: homeDir,
       USERPROFILE: homeDir,
-      ANTHROPIC_BASE_URL: ollamaUrl(),
+      // Dedicated coding engine, with main/remote fallbacks - see codingEngine.ts.
+      ANTHROPIC_BASE_URL: await codingEngineUrl(),
       ANTHROPIC_AUTH_TOKEN: 'ollama',
       ANTHROPIC_MODEL: model,
     }

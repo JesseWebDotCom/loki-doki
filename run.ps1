@@ -23,9 +23,11 @@
 param(
   [switch]$Dev,
   [switch]$Uninstall,
-  # Sustained power ceiling (watts) applied to each settable NVIDIA GPU at launch to tame
-  # the load transients that were browning out the machine. Set to 0 to disable the cap.
-  [int]$GpuPowerCap = 150
+  # Sustained power ceiling (watts) applied to each settable NVIDIA GPU at launch. Disabled
+  # by default (0) since 2026-07-16: the brownouts this guarded against were traced to a
+  # failing battery (replaced + reset + calibrated), so the cards run at full power for
+  # performance. Pass a wattage to re-enable if power problems ever return.
+  [int]$GpuPowerCap = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -204,6 +206,29 @@ function Stop-ByCommandLine([string]$Pattern) {
   } catch { }
 }
 
+# Reap orphaned llama-server model runners. Ollama spawns one llama-server child per loaded
+# model; if the ollama.exe parent dies (crash, or the flat kills above / Stop-Port's dead-owner
+# ollama kill), the children survive holding their VRAM and can never be reached again - they
+# pile up across restarts until every model load lands on the CPU. Only kills runners whose
+# parent is dead or was PID-recycled by a non-ollama process, and only binaries under an
+# ollama directory - a live `ollama serve` (deliberately left running by this launcher) keeps
+# all its runners.
+function Remove-OrphanLlamaRunners {
+  try {
+    $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+    $byPid = @{}
+    foreach ($p in $procs) { $byPid[[uint32]$p.ProcessId] = $p }
+    $procs |
+      Where-Object { $_.Name -eq 'llama-server.exe' -and $_.ExecutablePath -like '*\ollama\*' } |
+      ForEach-Object {
+        $parent = $byPid[[uint32]$_.ParentProcessId]
+        if ((-not $parent) -or ($parent.Name -notlike 'ollama*')) {
+          Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+      }
+  } catch { }
+}
+
 # Wait for a port to actually clear (not just the owning PID to report exited —
 # a killed process's listen socket can linger briefly, and `bun run` wrappers spawn
 # grandchildren that hold it). Starting into a still-bound port crashes the backend
@@ -262,6 +287,9 @@ function Stop-Existing {
   } catch { }
   foreach ($p in $Ports) { Stop-Port $p }
   foreach ($sig in $SidecarPatterns) { Stop-ByCommandLine $sig }
+  # After the kills above (including Stop-Port's dead-owner ollama kill), reap any
+  # llama-server children they orphaned.
+  Remove-OrphanLlamaRunners
   Start-Sleep -Seconds 1
 }
 
@@ -404,4 +432,6 @@ finally {
   # Sweep any detached sidecars the servers left behind.
   foreach ($p in $Ports) { Stop-Port $p }
   foreach ($sig in $SidecarPatterns) { Stop-ByCommandLine $sig }
+  # Stop-Port's dead-owner branch can flat-kill ollama.exe; reap any runners it orphaned.
+  Remove-OrphanLlamaRunners
 }

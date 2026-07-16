@@ -9,7 +9,7 @@ import { issueSession } from '@/lib/session'
 import { hashPin } from '@/lib/pin'
 import { requireAuth } from '@/middleware/auth'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
-import { warmupModel } from '@/lib/models'
+import { warmupModel, setModelSettingAndUnloadDisplaced } from '@/lib/models'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import { CATALOG, TIERS, recommendedTier, ROLE_SETTINGS_KEY } from '@/lib/catalog'
 import { ollamaList } from '@/llm/ollama'
@@ -414,12 +414,14 @@ setup.post('/download', requireAuth, async (c) => {
         // Keep the canonical 'model' key (what getModel() reads) pointing at the active LLM.
         // ROLE_SETTINGS_KEY maps uncensored_llm → 'uncensored_model', so without this,
         // switching to an uncensored model leaves 'model' stale and chat ignores the change.
+        // Goes through the displaced-unload helper so the outgoing model's runner is
+        // released instead of squatting VRAM pinned forever.
         if (model.role === 'llm' || model.role === 'uncensored_llm') {
-          await setAppSetting('model', model.id)
+          await setModelSettingAndUnloadDisplaced('model', model.id)
         }
         // If this LLM handles vision natively, route vision queries to it too
         if ((model.role === 'llm' || model.role === 'uncensored_llm') && model.builtinVision) {
-          await setAppSetting('vision_model', model.id)
+          await setModelSettingAndUnloadDisplaced('vision_model', model.id)
         }
 
         console.log(`[models] ✓ ${model.label} complete`)

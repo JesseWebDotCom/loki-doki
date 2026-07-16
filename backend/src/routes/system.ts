@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile)
 import { logger } from '@/lib/logger'
 import { getModel, getWarmupPromise } from '@/lib/models'
 import { seedHardwareDefaults, detectHardware, resolveComfyUILaunchConfig, resolveGpuPlacement } from '@/lib/hwfit'
+import { resolveEngineGuards } from '@/lib/engineGuards'
 import {
   pullOllama,
   downloadHfFile,
@@ -31,6 +32,7 @@ import {
   isWakewordTrainInstalled,
 } from '@/lib/download'
 import { killByCommandLine, spawnDetachedHidden } from '@/lib/platform'
+import { sweepOrphanLlamaRunners } from '@/lib/ollamaHygiene'
 import { isVoiceServerInstalled, maybeSpawnVoiceServer, getVoiceServerState } from '@/lib/voiceServer'
 import {
   spawnComfyUI,
@@ -335,6 +337,9 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   // Populates the cached placement that ollamaServeEnv() reads, so the very first
   // Ollama spawn below already lands on the right GPU(s) on multi-GPU machines.
   try { await resolveGpuPlacement() } catch { /* no NVIDIA tooling — stays unpinned */ }
+  // Same deal for the admin engine guards (max loaded models, KV cache type, …): the
+  // spawn env is synchronous, so the persisted values must be cached before the spawn.
+  try { await resolveEngineGuards() } catch { /* defaults apply */ }
 
   // ── 0. Kill stale project-owned Ollama binary ────────────────────────────────
   // Only when a system install exists to take over: the CLI-only extracted binary
@@ -366,6 +371,10 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
     const ping = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(1_500) })
     if (!ping.ok) throw new Error('not ready')
   } catch {
+    // Ollama isn't answering - a previous crash/kill may have left llama-server
+    // orphans squatting VRAM. Reap them before spawning fresh (they can never be
+    // reached again; leaving them forces new model loads onto the CPU).
+    await sweepOrphanLlamaRunners('boot-reconcile')
     const systemBin = findSystemOllama()
     if (systemBin) {
       spawnDetachedHidden(systemBin, ['serve'], { env: ollamaServeEnv() }).unref()

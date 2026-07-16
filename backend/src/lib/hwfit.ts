@@ -48,7 +48,8 @@ function detectAppleSiliconGeneration(): { mpsBf16Supported: boolean } {
 // Spawned async and directly (no cmd.exe) so it never blocks the event loop — a synchronous
 // spawnSync intermittently times out in the loaded backend process on Windows, which would drop
 // GPU detection and silently fall ComfyUI back to CPU/lowvram.
-async function detectCudaDevices(): Promise<CudaDevice[]> {
+// Exported for the LLM status census (llmStatus.ts), which reuses it as the per-card VRAM probe.
+export async function detectCudaDevices(): Promise<CudaDevice[]> {
   try {
     const { stdout } = await execFileAsync('nvidia-smi',
       ['--query-gpu=index,name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader,nounits'],

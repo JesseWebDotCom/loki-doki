@@ -147,6 +147,7 @@ import { mediaImageCacheSweep } from '@/lib/titles/imageProxy'
 import { imageCacheSweep } from '@/lib/imageProxy'
 import { startYtdlpAutoUpdate } from '@/lib/ytdlp'
 import { startOllamaAutoUpdate } from '@/lib/download'
+import { resolveEngineGuards } from '@/lib/engineGuards'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
 import { recipesRoute } from '@/routes/recipes'
@@ -388,7 +389,17 @@ if (firstBoot) {
   // format (discovered pulling ornith:9b against 0.30.8). Same daily-check/weekly-force
   // cadence; only upgrades installs it can do safely and unattended (Homebrew or its own
   // managed binary), otherwise just logs a manual-upgrade nudge.
+  // Guards first: an auto-update respawn bakes ollamaServeEnv at spawn time, and this can
+  // fire before the boot reconcile's own resolveEngineGuards call.
+  await resolveEngineGuards().catch(() => {})
   startOllamaAutoUpdate()
+  // LLM hygiene watchdog: reap orphaned llama-server runners (children of a crashed/killed
+  // `ollama serve` keep squatting VRAM forever and force new loads onto the CPU - observed
+  // as a 90-second chat reply). Dead-parent-only matching makes this safe to run blind.
+  const orphanSweep = guardedSweep('llama-orphans', () =>
+    import('@/lib/ollamaHygiene').then((m) => m.sweepOrphanLlamaRunners('watchdog')))
+  setTimeout(() => void orphanSweep(), 45_000)
+  setInterval(() => void orphanSweep(), 60_000).unref()
 
   // Unlike OpenCode's old HTTP sidecars, per-user tmux sessions are DELIBERATELY left
   // running across a backend restart (--hot or a real relaunch alike) — that's the

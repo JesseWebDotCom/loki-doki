@@ -15,6 +15,7 @@ import type { createBunWebSocket } from 'hono/bun'
 import { resolveSession, requireAuth } from '@/middleware/auth'
 import { isFeatureEnabled, userMayUseCapability } from '@/lib/featureGate'
 import { buildAttachSpawnParams, paneControl, type PaneAction } from '@/lib/codingServer'
+import { prepareCodingSession, codingSessionOpened, codingSessionClosed } from '@/lib/codingEngine'
 import { ensureCodingPtySidecarReady, codingPtySidecarWsUrl } from '@/lib/codingPtySidecar'
 import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
 import { IS_WIN } from '@/lib/platform'
@@ -35,6 +36,9 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
       const user = token ? await resolveSession(token) : null
 
       let upstream: WebSocket | null = null
+      // True once this connection passed auth and was counted as an active coding session -
+      // onClose must only decrement what onOpen actually counted.
+      let counted = false
       // Setting up `upstream` is asynchronous (ensureCodingPtySidecarReady +
       // buildAttachSpawnParams both await), but the browser's own WS is already
       // "open" the instant its handshake completes — it sends its initial resize
@@ -55,6 +59,11 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
           // and enforce per-profile access — a non-admin needs an explicit capability grant.
           if (!(await isFeatureEnabled('coding'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
           if (!(await userMayUseCapability(user, 'coding'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
+          // Count the session and bring the dedicated coding engine up + warm the coding
+          // model in the background, so the user's first prompt doesn't pay the cold load.
+          counted = true
+          codingSessionOpened()
+          void prepareCodingSession()
           try {
             await ensureCodingPtySidecarReady()
             const spawnParams = await buildAttachSpawnParams(user.id)
@@ -85,6 +94,7 @@ export function createCodingRoute(upgradeWebSocket: UpgradeWebSocket) {
           // Kill only this attach client — the tmux session (and `claude` inside it)
           // keeps running server-side. That persistence across disconnect/reload is
           // the entire point of the tmux-backed design.
+          if (counted) { counted = false; codingSessionClosed() }
           try { upstream?.close() } catch { /* already closed */ }
           upstream = null
         },

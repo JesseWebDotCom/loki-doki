@@ -19,7 +19,7 @@ export const IS_WIN = process.platform === 'win32'
 export const IS_MAC = process.platform === 'darwin'
 export const IS_LINUX = process.platform === 'linux'
 
-function psEscape(s: string): string {
+export function psEscape(s: string): string {
   // Single-quoted PowerShell strings escape an embedded quote by doubling it.
   return s.replace(/'/g, "''")
 }
@@ -135,4 +135,20 @@ export async function killByCommandLine(pattern: string): Promise<void> {
       await execAsync(`pkill -f '${pattern}' 2>/dev/null`, { timeout: 5_000 })
     }
   } catch { /* none running — best-effort */ }
+}
+
+/**
+ * Best-effort kill of whatever process is LISTENING on a local TCP port. Needed where a
+ * command-line match can't disambiguate - e.g. the main and coding Ollama engines both
+ * run an identical `ollama serve`, differing only in the port their env binds them to.
+ */
+export async function killByListeningPort(port: number): Promise<void> {
+  try {
+    if (IS_WIN) {
+      const cmd = `Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }`
+      await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { timeout: 5_000, windowsHide: true })
+    } else {
+      await execAsync(`lsof -ti tcp:${port} -s tcp:LISTEN 2>/dev/null | xargs -r kill -9`, { timeout: 5_000 })
+    }
+  } catch { /* none listening - best-effort */ }
 }
