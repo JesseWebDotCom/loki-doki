@@ -16,6 +16,10 @@ const APP_ICON = path.join(__dirname, '..', 'build', 'icon.png')
 // renderer opts painted regions back in via the hud:set-mouse-intercept IPC,
 // so the big transparent area never swallows clicks.
 const HUD_SIZE = { width: 700, height: 520 }
+// A physical notch strip is ~37-44px tall on notched MacBooks; a plain menu bar on an
+// external display is ~24-25px. Only insets at least this tall count as a real notch, so
+// external/notchless displays never get a fake notch core (they show the slim pill).
+const NOTCH_MIN_INSET = 32
 
 const commonWebPreferences = (serverOrigin) => ({
   preload: path.join(__dirname, 'preload.js'),
@@ -86,9 +90,13 @@ function positionHud(hud) {
   const { width, height } = HUD_SIZE
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const wa = display.workArea
+  const notched = wa.y - display.bounds.y >= NOTCH_MIN_INSET
   hud.setBounds({
     x: Math.round(wa.x + (wa.width - width) / 2),
-    y: display.bounds.y,
+    // Notched: flush to the physical top so the capsule merges with the notch. Notchless
+    // or external: float just below the menu bar so the pill reads as a clean floating
+    // capsule and never hides menu-bar status items.
+    y: notched ? display.bounds.y : Math.round(wa.y + 8),
     width,
     height,
   })
@@ -117,4 +125,4 @@ function createMainWindow(serverUrl, { onCloseHide, show = true }) {
   return win
 }
 
-module.exports = { createHudWindow, createMainWindow, positionHud, HUD_SIZE, PARTITION }
+module.exports = { createHudWindow, createMainWindow, positionHud, HUD_SIZE, NOTCH_MIN_INSET, PARTITION }
