@@ -8,6 +8,7 @@ import { SttCapture } from '@/lib/voice/stt-capture'
 import { transition, type HandsFreeState } from '@/lib/voice/handsfree-state-machine'
 import { getVoicePlayback, stopSpeech } from '@/lib/voice/voicePlaybackStore'
 import { getSileroVad, type SileroVadStream } from '@/lib/voice/silero-vad'
+import { cleanTranscript } from '@/lib/voice/cleanTranscript'
 
 // Hands-free conversation loop:
 //   idle → (wake word) → capturing → (whisper final) → submit → replying →
@@ -195,7 +196,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           }
           if (text) {
             dispatch({ type: 'stt_final' })
-            submitRef.current(text)
+            // Clean disfluencies (um/uh, false starts) before the text is shown and sent.
+            // isStopCommand above deliberately ran on the raw text.
+            submitRef.current(cleanTranscript(text))
           } else {
             dispatch({ type: 'stop_command' })
           }
@@ -312,7 +315,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         }
         if (st === 'wake-detected') dispatch({ type: 'capture_open' })
         dispatch({ type: 'stt_final' })
-        submitRef.current(cmd)
+        submitRef.current(cleanTranscript(cmd))
       }
       wakeLoop = wl
       console.info(`[handsfree] engaging — whisper wakeword phrase "${wakeWordPhrase.trim()}"`)
