@@ -36,7 +36,7 @@ interface Props {
   onClose: () => void
 }
 
-const SOURCE_META: Record<DataSource['type'], { label: string; icon: React.ComponentType<{ className?: string }>; chip: string }> = {
+export const SOURCE_META: Record<DataSource['type'], { label: string; icon: React.ComponentType<{ className?: string }>; chip: string }> = {
   api: { label: 'API',  icon: Globe,    chip: 'bg-info/15 text-info' },
   rss: { label: 'RSS',  icon: Rss,      chip: 'bg-warning/15 text-warning' },
   web: { label: 'Web',  icon: Code,     chip: 'bg-brand/15 text-brand' },
