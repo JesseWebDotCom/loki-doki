@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, ExternalLink, Home, ShieldCheck, Star, X } from 'lucide-react'
+import { Bot, Home, ShieldCheck, Star, X } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAuth } from '@/context/AuthContext'
 import { AdminHomeAssistantSection } from '@/components/admin/AdminHomeAssistantSection'
+import { HomeAssistantConnectionCard } from '@/components/homeassistant/HomeAssistantConnectionCard'
 import { ToolConfigFields } from '@/components/shared/ToolConfigFields'
 import type { HAEntity } from '@/components/homeassistant/DeviceDetailDialog'
 import { cn } from '@/lib/cn'
@@ -108,9 +109,7 @@ function AdminHaSettingsSection() {
 
   return (
     <div className="space-y-6">
-      <Link to="/admin/integrations/home-assistant" className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline">
-        Server connection (URL &amp; access token) <ExternalLink className="size-3.5" />
-      </Link>
+      <HomeAssistantConnectionCard />
       <ToolConfigFields toolId="homeAssistant" onlyKeys={['llm_fallback']} />
       <AdminHomeAssistantSection users={users} />
     </div>

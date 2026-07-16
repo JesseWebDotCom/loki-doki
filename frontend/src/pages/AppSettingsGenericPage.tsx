@@ -9,6 +9,7 @@ import { MediaIntegrationsAdminCard } from "@/components/media/MediaIntegrations
 import { MusicLyricsSettings } from "@/components/music/MusicLyricsSettings";
 import { NewsReadingSettings } from "@/components/news/NewsReadingSettings";
 import { LoraManager } from "@/components/admin/LoraManager";
+import { AdminFrigateTab } from "@/components/admin/AdminFrigateTab";
 import { AdminNewsTab } from "@/components/admin/AdminNewsTab";
 import { AdminMusicTab } from "@/components/admin/AdminMusicTab";
 import { AdminSpeedTestTab } from "@/components/admin/AdminSpeedTestTab";
@@ -111,6 +112,15 @@ const APPEND_SECTIONS: Record<string, AppSettingsSection[]> = {
           </Link>
         </section>
       ),
+    },
+  ],
+  cameras: [
+    {
+      id: "admin",
+      label: "Admin",
+      icon: ShieldCheck,
+      adminOnly: true,
+      content: <AdminFrigateTab />,
     },
   ],
   imaging: [

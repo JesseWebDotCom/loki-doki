@@ -1,8 +1,8 @@
-// Admin → Integrations → Sonarr / Radarr / Overseerr / SABnzbd. Each product gets its
-// own page: connection (URL + API key + test), then only that product's concerns:
-// arr pages add download defaults, the request pipeline and per-user grants, and that
-// arr's activity; the Overseerr page owns the pipeline choice and Plex attribution;
-// the SABnzbd page owns the live queue, controls, and history.
+// Per-service admin cards for the LAN media services (Sonarr / Radarr / Overseerr /
+// SABnzbd): connection (URL + API key + test), arr download defaults, the request
+// pipeline and per-user grants, arr activity, and the SABnzbd queue + history.
+// Composed two ways: AdminMediaServiceTab (Admin → Integrations, one page per product)
+// and MediaIntegrationsAdminCard (the Shows/Movies settings admin sections).
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -21,7 +21,7 @@ const opts: RequestInit = { credentials: 'include' }
 
 export type MediaService = 'sonarr' | 'radarr' | 'overseerr' | 'sabnzbd'
 
-const SERVICE_META: Record<MediaService, { label: string; urlKey: string; keyKey: string; setKey: keyof IntegrationsConfig; blurb: string }> = {
+export const SERVICE_META: Record<MediaService, { label: string; urlKey: string; keyKey: string; setKey: keyof IntegrationsConfig; blurb: string }> = {
   sonarr: {
     label: 'Sonarr', urlKey: 'sonarr_url', keyKey: 'sonarr_key', setKey: 'sonarr_key_set',
     blurb: 'TV show downloads. Powers show requests from the Shows app and the library calendar.',
@@ -42,7 +42,7 @@ const SERVICE_META: Record<MediaService, { label: string; urlKey: string; keyKey
 
 // ── Connection card (one product) ─────────────────────────────────────────────────────
 
-function ConnectionCard({ service }: { service: MediaService }) {
+export function ConnectionCard({ service }: { service: MediaService }) {
   const meta = SERVICE_META[service]
   const { data, refetch } = useIntegrationsConfig()
   const [url, setUrl] = useState<string | null>(null)
@@ -127,7 +127,7 @@ function ConnectionCard({ service }: { service: MediaService }) {
 
 // ── Arr defaults (quality profile + root folder, direct mode) ────────────────────────
 
-function ArrDefaultsCard({ service }: { service: 'sonarr' | 'radarr' }) {
+export function ArrDefaultsCard({ service }: { service: 'sonarr' | 'radarr' }) {
   const { data, refetch } = useIntegrationsConfig()
   const [test, setTest] = useState<TestResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -186,7 +186,7 @@ function ArrDefaultsCard({ service }: { service: 'sonarr' | 'radarr' }) {
 
 // ── Request pipeline (shared decision; shown on the pages it affects) ─────────────────
 
-function RequestPipelineCard({ service }: { service: MediaService }) {
+export function RequestPipelineCard({ service, sharedNote = false }: { service: MediaService; sharedNote?: boolean }) {
   const { data, refetch } = useIntegrationsConfig()
   const pipeline = data?.request_pipeline ?? 'overseerr'
 
@@ -206,10 +206,15 @@ function RequestPipelineCard({ service }: { service: MediaService }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <select className="ld-input w-96 max-w-full" value={pipeline} onChange={(e) => void setPipeline(e.target.value)}>
-          <option value="overseerr">Through Overseerr (uses each user&rsquo;s linked Plex account)</option>
-          <option value="direct">Direct to Radarr and Sonarr</option>
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <select className="ld-input w-96 max-w-full" value={pipeline} onChange={(e) => void setPipeline(e.target.value)}>
+            <option value="overseerr">Through Overseerr (uses each user&rsquo;s linked Plex account)</option>
+            <option value="direct">Direct to Radarr and Sonarr</option>
+          </select>
+          {sharedNote && (
+            <span className="text-xs text-muted-foreground">Shared across the Shows and Movies apps</span>
+          )}
+        </div>
         {pipeline === 'overseerr' && service === 'overseerr' && (
           <p className="text-xs text-muted-foreground">
             Users without a linked Plex account cannot request. Overseerr applies its own per-user permissions and quotas.
@@ -243,7 +248,7 @@ function useDownloads() {
   })
 }
 
-function ArrActivityCard({ service }: { service: 'sonarr' | 'radarr' }) {
+export function ArrActivityCard({ service }: { service: 'sonarr' | 'radarr' }) {
   const { data } = useDownloads()
   const items = (data?.arr ?? []).filter((q) => q.arr === service)
   if (!items.length) return null
@@ -281,7 +286,7 @@ function fmtSize(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`
 }
 
-function SabQueueCards() {
+export function SabQueueCards() {
   const qc = useQueryClient()
   const { data, isLoading } = useDownloads()
   const [deleteTarget, setDeleteTarget] = useState<SabSlot | null>(null)

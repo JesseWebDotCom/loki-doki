@@ -71,7 +71,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
   {
     id: 'frigate', label: 'Frigate', icon: Cctv, category: 'smart-home',
     blurb: 'NVR camera events, announcements, and the GenAI shim',
-    ownerAppLabel: null, appSettingsHref: null, adminSub: 'frigate',
+    ownerAppLabel: 'Cameras', appSettingsHref: '/apps/cameras/settings/admin', adminSub: 'frigate',
     keywords: ['frigate', 'nvr', 'camera', 'cctv'],
   },
   {

@@ -10,8 +10,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { getFrigateStatus, listEvents, type FrigateEvent } from '@/lib/frigate/api'
+
+const NOOP = () => {}
 
 function relTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime()
@@ -92,6 +95,8 @@ export function CamerasPage() {
     label: 'Cameras',
     description: 'User is viewing recent camera activity and clips.',
   })
+
+  useAppHeader({ query: '', setQuery: NOOP, searchable: false, settingsHref: '/apps/cameras/settings' })
 
   const { data: status } = useQuery({ queryKey: ['frigate-status'], queryFn: getFrigateStatus })
   const enabled = status?.enabled ?? false
