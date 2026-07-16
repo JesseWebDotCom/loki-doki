@@ -1,7 +1,7 @@
 # Companion Device Learning: Answer Write-Back & Passive Procedural Capture
 
 **Date:** 2026-07-16
-**Status:** PLANNED (Phase 0 shipped; Phases 1 and 2 not started)
+**Status:** Phases 0 and 1 SHIPPED (2026-07-16); Phase 2 not started
 **Scope:** make conversational chat about Home Inventory devices *update* stored knowledge, not just read it, so repeat questions get grounded answers and casually stated facts stop evaporating.
 **Origin:** review of the chat write-back paths (2026-07-16). Findings: the `remember` tool reliably captures explicit "note that..." facts into Notes; the passive memory judge never routes procedural facts to Notes; nothing ever persists a companion answer.
 
@@ -21,7 +21,16 @@
 
 ---
 
-## Phase 1: teach the passive judge to route procedural facts to Notes (#3)
+## Phase 1 (SHIPPED 2026-07-16): teach the passive judge to route procedural facts to Notes (#3)
+
+> Landed as designed: shared pipeline in `lib/notes/capture.ts` (`captureNoteFact`:
+> append-vs-create, 0.88 chunk-cosine duplicate suppression, device linking), the
+> remember tool refactored onto it, and the judge extraction prompt carries an
+> optional per-fact `kind: personal | procedural` (missing = personal = old
+> behavior). Procedural facts route to Notes with `allowSharedAppend: false`; a
+> capture failure falls through to the memory path. `JudgeResult.notesCaptured`
+> surfaces in the sweep logs. Verified: 7 capture tests + 2 judge-routing tests
+> (mocked structuredCall/embed, real DB), all passing.
 
 **Problem.** "Oh, you have to hold the xyz button to reset it," said mid-conversation without a capture phrase, is only seen by the memory judge (`memory/judge.ts`), whose extraction schema targets personal facts (person/place/preference/state...). Procedural device knowledge is either squeezed into a generic `fact` memory or discarded as one-off chatter.
 

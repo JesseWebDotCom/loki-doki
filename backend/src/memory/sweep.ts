@@ -202,12 +202,13 @@ async function doJudgeSweep(): Promise<void> {
         generateEpisode(conv.id, conv.userId, conv.characterId ?? null, msgList, model).catch(() => {})
       }
 
-      if (judgeResult.factsAdded > 0 || judgeResult.entitiesUpserted > 0) {
+      if (judgeResult.factsAdded > 0 || judgeResult.entitiesUpserted > 0 || judgeResult.notesCaptured > 0) {
         logger.info(
           `[memory:judge] conv=${conv.id} ` +
           `entities=${judgeResult.entitiesUpserted} ` +
           `added=${judgeResult.factsAdded} updated=${judgeResult.factsUpdated} ` +
-          `superseded=${judgeResult.factsSuperseded} no_change=${judgeResult.factsNoChange}`,
+          `superseded=${judgeResult.factsSuperseded} no_change=${judgeResult.factsNoChange} ` +
+          `notes=${judgeResult.notesCaptured}`,
         )
       }
     } catch (err) {
@@ -290,7 +291,7 @@ export async function triggerJudgeForConversation(
 
     logger.info(
       `[memory:judge:explicit] conv=${convId} ` +
-      `entities=${judgeResult.entitiesUpserted} added=${judgeResult.factsAdded}`,
+      `entities=${judgeResult.entitiesUpserted} added=${judgeResult.factsAdded} notes=${judgeResult.notesCaptured}`,
     )
   } catch (err) {
     logger.error(`[memory:judge:explicit] failed for conv=${convId}: ${err}`)

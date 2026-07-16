@@ -8,19 +8,18 @@
 // decides whether the content is a short conversational fact (memories table, the
 // original path) or reference/procedural/measurement knowledge, which lands in a
 // real note instead ("the far pothole took 8 bags" → append to "Driveway repair" or
-// start a new personal note). A note-classified fact that names a Home Inventory
-// device also gets its note linked to that device (note_links targetType 'device'),
-// so the device sheet's Notes tab accumulates captured device knowledge. ANY
-// classification failure falls back to the memory path, so behavior degrades to
-// exactly what it was before.
+// start a new personal note). Note capture (append-vs-create, duplicate suppression,
+// Home Inventory device linking) lives in lib/notes/capture.ts, shared with the
+// passive memory judge so the two paths cannot diverge. ANY classification failure
+// falls back to the memory path, so behavior degrades to exactly what it was before.
 
-import { and, eq, isNull, or } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/db'
-import { homeDevices, memories, noteChunks, noteLinks, notes } from '@/db/schema'
-import { embed, cosineSimilarity, cachedVector } from '@/llm/embed'
+import { memories } from '@/db/schema'
+import { embed, cosineSimilarity } from '@/llm/embed'
 import { structuredCall } from '@/llm/structured'
 import { invalidateMemoryBlocksForUser } from '@/memory/blockCache'
-import { createNote, appendToNote } from '@/lib/notes/store'
+import { captureNoteFact } from '@/lib/notes/capture'
 import { stageWithDirective } from '@/lib/companionActions'
 import { logger } from '@/lib/logger'
 import type { Tool, ToolResult } from './index'
@@ -29,9 +28,6 @@ import type { Tool, ToolResult } from './index'
 const DUPLICATE_COSINE = 0.88
 // Match floor for forget: below this we refuse to guess which memory they meant.
 const FORGET_MIN_COSINE = 0.55
-// Append floor for note capture: best-matching editable note at/above this cosine
-// gets the fact appended; below it a new note is started.
-const NOTE_APPEND_COSINE = 0.60
 
 const REMEMBER_LEAD_RE = /^(?:hey\s+\w+[,!]?\s+)?(?:please\s+)?(?:can you\s+|could you\s+|will you\s+)?(?:remember|note|log|write down|jot down|keep in mind|don'?t forget)(?:\s+that)?[:,]?\s*/i
 const FORGET_LEAD_RE = /^(?:hey\s+\w+[,!]?\s+)?(?:please\s+)?(?:can you\s+|could you\s+)?(?:forget|erase|delete|remove)(?:\s+(?:that|what i (?:said|told you) about|about|the (?:memory|fact|thing) (?:that|about)?))?[:,]?\s*/i
@@ -69,96 +65,6 @@ JSON: {"kind": "memory" | "note", "title": "..."}`,
     logger.warn(`[remember] capture classification failed, defaulting to memory: ${err}`)
     return { kind: 'memory', title: '' }
   }
-}
-
-// Best append target among the notes this user can EDIT (own notes always; shared
-// notes only for admins — a non-admin's capture never mutates a household note).
-async function findAppendTarget(
-  userId: string,
-  isAdmin: boolean,
-  factEmbedding: number[],
-  fact: string,
-): Promise<{ id: string; title: string } | null> {
-  const editable = isAdmin ? or(isNull(notes.ownerId), eq(notes.ownerId, userId)) : eq(notes.ownerId, userId)
-  const rows = await db
-    .select({ id: noteChunks.id, noteId: noteChunks.noteId, embedding: noteChunks.embedding, title: notes.title })
-    .from(noteChunks)
-    .innerJoin(notes, eq(notes.id, noteChunks.noteId))
-    .where(editable)
-  if (!rows.length) return null
-
-  const factTokens = new Set(fact.toLowerCase().split(/\W+/).filter((t) => t.length >= 4))
-  const best = new Map<string, { title: string; score: number }>()
-  for (const r of rows) {
-    if (!r.embedding) continue
-    const vec = cachedVector(`note:${r.id}`, r.embedding)
-    if (!vec) continue
-    let score = cosineSimilarity(factEmbedding, vec)
-    const titleTokens = r.title.toLowerCase().split(/\W+/)
-    if (titleTokens.some((t) => t.length >= 4 && factTokens.has(t))) score += 0.05
-    const cur = best.get(r.noteId)
-    if (!cur || score > cur.score) best.set(r.noteId, { title: r.title, score })
-  }
-  let top: { id: string; title: string; score: number } | null = null
-  for (const [id, v] of best) {
-    if (!top || v.score > top.score) top = { id, title: v.title, score: v.score }
-  }
-  return top && top.score >= NOTE_APPEND_COSINE ? { id: top.id, title: top.title } : null
-}
-
-// Generic product words that shouldn't count toward a device match on their own.
-const DEVICE_TOKEN_STOPLIST = new Set(['bundle', 'pack', 'edition', 'licensed', 'universal', 'upgrade'])
-
-// Match a captured fact against Home Inventory devices so the note can be linked to
-// the device sheet (note_links targetType 'device'). Conservative token scoring: a
-// model or full-name substring hit counts double; otherwise at least two distinct
-// name/brand/model tokens must appear in the fact. A tie between two devices links
-// nothing (ambiguous beats wrong). Exported for tests.
-export async function findDeviceTarget(fact: string): Promise<{ id: string; name: string } | null> {
-  const devices = await db
-    .select({ id: homeDevices.id, name: homeDevices.name, brand: homeDevices.brand, model: homeDevices.model })
-    .from(homeDevices)
-  if (!devices.length) return null
-
-  const factLower = fact.toLowerCase()
-  const factTokens = new Set(factLower.split(/\W+/).filter((t) => t.length >= 4))
-
-  let best: { id: string; name: string; score: number } | null = null
-  let runnerUp = 0
-  for (const d of devices) {
-    let score = 0
-    const model = d.model?.toLowerCase().trim() ?? ''
-    if (model.length >= 4 && factLower.includes(model)) score += 2
-    if (factLower.includes(d.name.toLowerCase().trim())) score += 2
-    const deviceTokens = new Set(
-      `${d.name} ${d.brand ?? ''} ${d.model ?? ''}`.toLowerCase().split(/\W+/)
-        .filter((t) => t.length >= 4 && !DEVICE_TOKEN_STOPLIST.has(t)),
-    )
-    for (const t of deviceTokens) if (factTokens.has(t)) score += 1
-    if (best && score > best.score) { runnerUp = best.score; best = { id: d.id, name: d.name, score } }
-    else if (!best) best = { id: d.id, name: d.name, score }
-    else if (score > runnerUp) runnerUp = score
-  }
-  if (!best || best.score < 2 || best.score === runnerUp) return null
-  return { id: best.id, name: best.name }
-}
-
-/** Link a note to a device (idempotent). Returns true when a new link was created. */
-async function ensureDeviceLink(noteId: string, deviceId: string): Promise<boolean> {
-  const [existing] = await db
-    .select({ id: noteLinks.id })
-    .from(noteLinks)
-    .where(and(eq(noteLinks.noteId, noteId), eq(noteLinks.targetType, 'device'), eq(noteLinks.targetId, deviceId)))
-    .limit(1)
-  if (existing) return false
-  await db.insert(noteLinks).values({
-    id: crypto.randomUUID(),
-    noteId,
-    targetType: 'device',
-    targetId: deviceId,
-    createdAt: new Date(),
-  })
-  return true
 }
 
 export const rememberTool: Tool = {
@@ -205,42 +111,29 @@ export const rememberTool: Tool = {
       // failure = memory path, exactly the pre-notes behavior.
       const verdict = await classifyCapture(fact)
       if (verdict.kind === 'note') {
-        const isAdmin = config['_isAdmin'] === true
-        // Device match runs on every note capture: a fact that names a Home
-        // Inventory device gets its note linked to the device sheet, so everything
-        // ever told to the companion about a device accumulates in one place.
-        const device = await findDeviceTarget(fact)
-        const target = await findAppendTarget(userId, isAdmin, factEmbedding, fact)
-        if (target) {
-          await appendToNote(target.id, fact)
-          const newlyLinked = device ? await ensureDeviceLink(target.id, device.id) : false
-          const label = target.title || 'your note'
-          return {
-            success: true,
-            data: { stored: true, note: true, noteId: target.id, appended: true, deviceId: device?.id ?? null, text: fact },
-            directReply: newlyLinked
-              ? `Noted. I added that to "${label}" and linked it to ${device!.name}.`
-              : `Noted. I added that to "${label}".`,
-          }
-        }
-        const title = verdict.title || device?.name || fact.slice(0, 60)
-        const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        // Companion-created notes are always personal; sharing with the household is
-        // a deliberate action taken in the Notes UI (admin only).
-        const note = await createNote({
-          ownerId: userId,
-          createdBy: userId,
-          title,
-          body: `- ${dateStr}: ${fact}`,
-          source: 'companion',
+        const captured = await captureNoteFact({
+          userId,
+          allowSharedAppend: config['_isAdmin'] === true,
+          fact,
+          factEmbedding,
+          title: verdict.title || undefined,
         })
-        if (device) await ensureDeviceLink(note.id, device.id)
+        const linkedSuffix = captured.device?.newlyLinked ? ` and linked it to ${captured.device.name}` : ''
+        const directReply =
+          captured.status === 'duplicate' ? `I've already got that written down in "${captured.title}".`
+          : captured.status === 'appended' ? `Noted. I added that to "${captured.title}"${linkedSuffix}.`
+          : `Noted. I started a note called "${captured.title}" for that${linkedSuffix}.`
         return {
           success: true,
-          data: { stored: true, note: true, noteId: note.id, appended: false, deviceId: device?.id ?? null, text: fact },
-          directReply: device
-            ? `Noted. I started a note called "${title}" for that and linked it to ${device.name}.`
-            : `Noted. I started a note called "${title}" for that.`,
+          data: {
+            stored: captured.status !== 'duplicate',
+            note: true,
+            noteId: captured.noteId,
+            appended: captured.status === 'appended',
+            deviceId: captured.device?.id ?? null,
+            text: fact,
+          },
+          directReply,
         }
       }
 

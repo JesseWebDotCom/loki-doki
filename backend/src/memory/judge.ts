@@ -17,6 +17,8 @@ import { embed, cosineSimilarity, cachedVector } from '@/llm/embed'
 import { db } from '@/db'
 import { memories, entities } from '@/db/schema'
 import { and, eq, isNull } from 'drizzle-orm'
+import { captureNoteFact } from '@/lib/notes/capture'
+import { logger } from '@/lib/logger'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +44,10 @@ interface ExtractedFact {
   entityName: string | null   // name of entity this fact is about, if any
   sourceQuote?: string | null // verbatim user phrase the fact came from (provenance)
   scope?: 'user' | 'household' // household = shared with everyone in the home
+  // procedural = how-to/reference knowledge about the user's own things; routed to
+  // the Notes app instead of the memories table. OPTIONAL by design: a model that
+  // omits it degrades to 'personal', which is exactly the pre-notes behavior.
+  kind?: 'personal' | 'procedural'
 }
 
 interface DedupeDecision {
@@ -56,6 +62,8 @@ export interface JudgeResult {
   factsUpdated: number
   factsSuperseded: number
   factsNoChange: number
+  /** Procedural facts routed to the Notes app (appended or created; dupes excluded). */
+  notesCaptured: number
   /** True when Phase-1 extraction failed — the span was NOT processed and the
    *  caller must not advance its cursor past these messages. */
   failed: boolean
@@ -78,7 +86,7 @@ CRITICAL — DISCARD these, do NOT extract:
 - Questions the user asked or information they looked up (one-off curiosity)
 - One-moment moods and feelings ("I'm tired", "I'm excited today", "I'm hungry")
 - Tasks, to-dos, or things to do later
-- Facts about the world that don't reveal anything about the user
+- Facts about the world that don't reveal anything about the user (but procedural knowledge about the user's OWN things is worth keeping — see KIND below)
 - Anything the user asked about as a passing question with no personal relevance
 - Meta-statements about the user's relationship to real-time/transient data — "the user knows the current date", "the user is unsure about the date", "the user asked about the weather". The current date/time/weather/prices are not facts about the user, and neither is whether they currently know them.
 - Trivially-true or contentless observations ("the user said hi", "the user is chatting", "the user wants help")
@@ -87,11 +95,16 @@ SCOPE — each fact carries a "scope":
 - "user" (default): a fact about THIS person specifically.
 - "household": a shared fact about the home everyone in the family should know — the wifi network name, the dog's name, where the spare key lives, the trash pickup day, the address. If a new family member would need to be told it, it's household.
 
+KIND — each fact carries a "kind":
+- "personal" (default): a fact ABOUT the user or their people (preferences, identity, relationships, events, states).
+- "procedural": how-to, reference, or technical knowledge about the user's OWN things, stated by the user — device procedures ("hold the reset button 10 seconds"), configs, measurements, materials used, install gotchas. These are filed as notes, not personal memories. Only what the USER asserted from their own experience — never the assistant's own instructions or answers.
+
 PERSIST these:
 - Stable facts about the user's identity, life, relationships, preferences
 - People, places, or things personally important to them
 - Long-running projects, goals, or aspirations
 - Corrections or updates to previously stated facts
+- Procedural/reference knowledge the user stated about their own things (kind: "procedural")
 - Ongoing multi-day situations ("stressed about a work deadline", "recovering from knee surgery", "training for a marathon") → category "state" — these power caring follow-ups ("feeling better?") and auto-expire after about a week, so persist the situation, not the moment
 
 Category options: person, place, thing, preference, identity, event, project, goal, relationship, fact, state
@@ -110,6 +123,8 @@ Examples of what to DISCARD vs PERSIST:
 - "I'm building a home theater in my basement" → PERSIST fact:"user is building a home theater" (goal)
 - "I'm so stressed today" → DISCARD (temporary mood)
 - "I've been a vegetarian for 10 years" → PERSIST fact:"user is vegetarian" (identity)
+- "turns out you have to hold the reset button on my arcade cabinet for 10 seconds" → PERSIST fact:"the arcade cabinet resets by holding the reset button 10 seconds" (kind:procedural)
+- Assistant: "You can reset it by holding the power button" (user never confirmed) → DISCARD (assistant statement, not user knowledge)
 
 Each fact carries a "sourceQuote": the short verbatim phrase FROM THE USER that the fact came from (provenance — lets a human audit why the memory exists).
 
@@ -119,9 +134,10 @@ Return ONLY a JSON object in this exact shape (empty arrays if nothing to extrac
     { "name": "Artie", "kind": "person", "aliases": ["artie", "brother", "art"], "importance": 8 }
   ],
   "facts": [
-    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null, "sourceQuote": "I forgot to charge my car", "scope": "user" },
-    { "text": "Artie loves horror movies", "category": "preference", "tier": "durable", "importance": 7, "entityName": "Artie", "sourceQuote": "My brother Artie loves horror movies", "scope": "user" },
-    { "text": "the family dog is named Biscuit", "category": "fact", "tier": "durable", "importance": 7, "entityName": null, "sourceQuote": "Biscuit chewed the couch again", "scope": "household" }
+    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null, "sourceQuote": "I forgot to charge my car", "scope": "user", "kind": "personal" },
+    { "text": "Artie loves horror movies", "category": "preference", "tier": "durable", "importance": 7, "entityName": "Artie", "sourceQuote": "My brother Artie loves horror movies", "scope": "user", "kind": "personal" },
+    { "text": "the family dog is named Biscuit", "category": "fact", "tier": "durable", "importance": 7, "entityName": null, "sourceQuote": "Biscuit chewed the couch again", "scope": "household", "kind": "personal" },
+    { "text": "the arcade cabinet resets by holding the reset button 10 seconds", "category": "fact", "tier": "episodic", "importance": 5, "entityName": "arcade cabinet", "sourceQuote": "you have to hold the reset button for 10 seconds", "scope": "user", "kind": "procedural" }
   ]
 }`
 
@@ -187,6 +203,7 @@ export async function runJudge(
     factsUpdated: 0,
     factsSuperseded: 0,
     factsNoChange: 0,
+    notesCaptured: 0,
     failed: false,
     householdTouched: false,
   }
@@ -332,6 +349,28 @@ export async function runJudge(
     const live = isHousehold ? householdLive : liveMemories
 
     const factEmbedding = await embed(fact.text)
+
+    // Procedural facts route to the Notes app through the same capture pipeline as
+    // the explicit remember tool (append-vs-create, dedupe, device linking), never
+    // to the memories table. The judge is a passive capture with no explicit user
+    // intent, so it never appends to household-shared notes (allowSharedAppend:
+    // false) and a capture failure falls through to the memory path below, keeping
+    // today's behavior as the worst case.
+    if (fact.kind === 'procedural' && userId) {
+      try {
+        const captured = await captureNoteFact({
+          userId,
+          allowSharedAppend: false,
+          fact: fact.text,
+          factEmbedding,
+          title: fact.entityName ?? undefined,
+        })
+        if (captured.status !== 'duplicate') result.notesCaptured++
+        continue
+      } catch (err) {
+        logger.warn(`[memory:judge] procedural note capture failed, storing as memory: ${err}`)
+      }
+    }
 
     // Find semantically similar existing memories (wide net — LLM makes the final
     // call). Sorted by similarity so the 5 CLOSEST are shown — the old unsorted
