@@ -252,6 +252,8 @@ export function DesktopAppDialog({
               <p className="font-semibold text-foreground">After installing</p>
               {visitorPlatform === 'mac' ? (
                 <p>
+                  {assets.some((a) => a.name.endsWith('.zip')) &&
+                    'Unzip the download and drag Doki Dock into Applications. '}
                   macOS blocks the first open of home-built apps: right-click Doki Dock in
                   Applications, choose Open, then Open again.
                 </p>

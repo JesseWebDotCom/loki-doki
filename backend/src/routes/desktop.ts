@@ -33,7 +33,11 @@ function classifyAsset(name: string): Pick<DesktopAsset, 'platform' | 'arch'> | 
   const lower = name.toLowerCase()
   if (lower.endsWith('.exe')) return { platform: 'win', arch: 'x64' }
   if (lower.endsWith('.dmg')) return { platform: 'mac', arch: lower.includes('arm64') ? 'arm64' : 'x64' }
-  // .zip/.blockmap exist for updater tooling; users install via dmg/exe.
+  // Mac apps also ship as plain zips (the Windows-built cross-compile pipeline
+  // produces these, and electron-builder emits them next to every dmg).
+  if (lower.endsWith('.zip') && (lower.includes('mac') || lower.includes('darwin'))) {
+    return { platform: 'mac', arch: lower.includes('arm64') ? 'arm64' : 'x64' }
+  }
   return null
 }
 
@@ -60,7 +64,11 @@ function listAssets(): DesktopAsset[] {
     if (!stat.isFile()) continue
     assets.push({ name, ...kind, sizeBytes: stat.size, builtAt: stat.mtimeMs, version: assetVersion(name) })
   }
-  return assets
+  // A dmg and a zip of the same Mac build can coexist (electron-builder emits
+  // both); offer only the dmg in that case.
+  return assets.filter((a) =>
+    !(a.platform === 'mac' && a.name.toLowerCase().endsWith('.zip') &&
+      assets.some((b) => b.platform === 'mac' && b.arch === a.arch && b.name.toLowerCase().endsWith('.dmg'))))
 }
 
 function serverPlatform(): 'win' | 'mac' | 'linux' {
