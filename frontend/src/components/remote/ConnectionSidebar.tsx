@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Server, Plus, Search, Star, MoreVertical, Pencil, Trash2, TerminalSquare, Monitor, MonitorPlay, Folder, ChevronRight, ChevronDown, ShieldAlert, Zap, FolderPlus } from 'lucide-react'
+import { Server, Plus, Search, Star, MoreVertical, Pencil, Trash2, TerminalSquare, Monitor, MonitorPlay, Folder, ChevronRight, ChevronDown, ShieldAlert, Zap, FolderPlus, ServerCog, Settings, Bot } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
@@ -8,12 +8,14 @@ import type { RemoteHost, RemoteFolder, Capabilities } from './api'
 type Proto = 'ssh' | 'vnc' | 'rdp'
 const defaultProto = (h: RemoteHost): Proto | null => (h.ssh ? 'ssh' : h.vnc ? 'vnc' : h.rdp ? 'rdp' : null)
 
-export function ConnectionSidebar({ hosts, folders, capabilities, onConnect, onHostShell, onEdit, onDelete, onToggleFav, onAddMachine, onAddFolder, onManageSnippets }: {
+export function ConnectionSidebar({ hosts, folders, capabilities, onConnect, onServerConnect, onClaudeCode, onServerSettings, onEdit, onDelete, onToggleFav, onAddMachine, onAddFolder, onManageSnippets }: {
   hosts: RemoteHost[]
   folders: RemoteFolder[]
   capabilities: Capabilities | null
   onConnect: (host: RemoteHost, kind: Proto) => void
-  onHostShell: () => void
+  onServerConnect: (proto: 'shell' | 'vnc' | 'rdp') => void
+  onClaudeCode: () => void
+  onServerSettings: () => void
   onEdit: (host: RemoteHost) => void
   onDelete: (host: RemoteHost) => void
   onToggleFav: (host: RemoteHost) => void
@@ -60,12 +62,24 @@ export function ConnectionSidebar({ hosts, folders, capabilities, onConnect, onH
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-3">
         {capabilities?.isAdmin && (
-          // design-ok(hand-styled-button): sidebar list-row action (like the host rows), not a form button.
-          <button onClick={onHostShell} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/60">
-            <ShieldAlert className="size-4 text-warning" />
-            <span className="flex-1">This server (shell)</span>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">admin</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              {/* design-ok(hand-styled-button): sidebar list-row action (like the host rows), not a form button. */}
+              <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/60">
+                <ShieldAlert className="size-4 text-warning" />
+                <span className="flex-1">This server</span>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">admin</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuItem onClick={() => onServerConnect('shell')}><ServerCog className="mr-2 size-4" />Shell</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onServerConnect('vnc')}><Monitor className="mr-2 size-4" />VNC desktop</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onServerConnect('rdp')}><MonitorPlay className="mr-2 size-4" />RDP desktop</DropdownMenuItem>
+              <DropdownMenuItem onClick={onClaudeCode}><Bot className="mr-2 size-4" />Claude Code</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onServerSettings}><Settings className="mr-2 size-4" />Settings</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
 
         {favorites.length > 0 && (

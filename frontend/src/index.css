@@ -2,6 +2,18 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 
+/* Nerd Font symbol glyphs (powerline separators + icon sets) for the web terminals, so
+   Oh My Posh / Starship / powerline prompts render for everyone regardless of what font
+   the user has on their own machine. Symbols-only (no letters), scoped by unicode-range to
+   the Private Use Areas where Nerd Font glyphs live, so the ~1 MB file is fetched lazily and
+   ONLY when such a glyph is actually drawn; normal text keeps the system monospace. */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("/fonts/SymbolsNerdFontMono.woff2") format("woff2");
+  font-display: swap;
+  unicode-range: U+2665, U+26A1, U+2B58, U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD;
+}
+
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }

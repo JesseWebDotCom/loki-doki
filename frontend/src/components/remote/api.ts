@@ -70,12 +70,27 @@ export const getSnippets = () => jget<{ snippets: RemoteSnippet[] }>('/snippets'
 export const createSnippet = (b: { name: string; command: string; shared?: boolean }) => jsend<{ id: string }>('/snippets', 'POST', b)
 export const deleteSnippet = (id: string) => jsend<{ ok: boolean }>(`/snippets/${id}`, 'DELETE')
 
-export const authorizeHostShell = (pin: string) => jsend<{ token: string }>('/host-shell/authorize', 'POST', { pin }).then((r) => r.token)
-
 export interface VncCreds { password: string }
 export interface RdpCreds { username: string; password: string; security: string }
 export const getVncCreds = (host: string) => jget<VncCreds>(`/display-credentials?proto=vnc&host=${encodeURIComponent(host)}`)
 export const getRdpCreds = (host: string) => jget<RdpCreds>(`/display-credentials?proto=rdp&host=${encodeURIComponent(host)}`)
+
+// ── "This server" (loopback) sessions: admin-only, PIN-gated. One authorize per connect
+// mints a single-use WS token; vnc/rdp also return the stored loopback credentials. ──
+export type SelfProto = 'shell' | 'vnc' | 'rdp'
+export interface SelfShellAuth { token: string }
+export interface SelfVncAuth { token: string; password: string }
+export interface SelfRdpAuth { token: string; username: string; password: string; security: string }
+export const authorizeSelfShell = (pin: string) => jsend<SelfShellAuth>('/self/authorize', 'POST', { pin, proto: 'shell' }).then((r) => r.token)
+// Claude Code needs no WS token (the coding terminal is cookie-authed); this just PIN-gates the open.
+export const authorizeSelfClaudeCode = (pin: string) => jsend<{ ok: boolean }>('/self/authorize', 'POST', { pin, proto: 'claude-code' })
+export const authorizeSelfVnc = (pin: string) => jsend<SelfVncAuth>('/self/authorize', 'POST', { pin, proto: 'vnc' })
+export const authorizeSelfRdp = (pin: string) => jsend<SelfRdpAuth>('/self/authorize', 'POST', { pin, proto: 'rdp' })
+
+export interface SelfDesktopConfig { host: string; vncPort: number; vncHasSecret: boolean; rdpPort: number; rdpUser: string; rdpHasSecret: boolean; rdpSecurity: 'nla' | 'tls' | 'rdp' }
+export interface SelfDesktopInput { host?: string; vncPort?: number; vncPassword?: string; rdpPort?: number; rdpUser?: string; rdpPassword?: string; rdpSecurity?: 'nla' | 'tls' | 'rdp' }
+export const getSelfConfig = () => jget<SelfDesktopConfig>('/self/config')
+export const saveSelfConfig = (b: SelfDesktopInput) => jsend<{ ok: boolean }>('/self/config', 'PUT', b)
 
 // SFTP
 export const sftpList = (host: string, path: string) => jget<{ path: string; entries: SftpEntry[] }>(`/sftp/list?host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}`)

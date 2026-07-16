@@ -6,13 +6,17 @@ import { createContext, useContext, useCallback, useMemo, useRef, useState, type
 // only tracks the tab list + which is active; each session component owns its own live
 // WebSocket / xterm / RFB / RDP objects for as long as its tab exists.
 
-export type SessionKind = 'ssh' | 'vnc' | 'rdp' | 'host-shell'
+export type SessionKind = 'ssh' | 'vnc' | 'rdp' | 'host-shell' | 'claude-code'
 
 export interface RemoteSession {
   id: string
   kind: SessionKind
   hostId?: string
   hostShellToken?: string
+  // "This server" (loopback) VNC/RDP: single-use WS token + the creds the browser client needs.
+  selfToken?: string
+  selfVncPassword?: string
+  selfRdp?: { username: string; password: string; security: string }
   title: string
   subtitle?: string
 }

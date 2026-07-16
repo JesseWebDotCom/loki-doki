@@ -43,7 +43,9 @@ export function CodingPage() {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      // Nerd Font symbol fallback (unicode-range @font-face in index.css) so powerline / icon
+      // glyphs render; latin text stays in the system monospace before it.
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Symbols Nerd Font Mono", monospace',
       // design-ok(hex-in-tsx): xterm.js's Terminal renders to canvas, not the DOM, its
       // theme option takes literal hex colors, not Tailwind classes.
       theme: { background: "#0a0a0a" },

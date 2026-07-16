@@ -13,6 +13,7 @@ import { getCookie } from 'hono/cookie'
 import type { createBunWebSocket } from 'hono/bun'
 import { and, desc, eq, isNull, or } from 'drizzle-orm'
 import { Readable } from 'node:stream'
+import { networkInterfaces } from 'node:os'
 import { Client as SshClient, type SFTPWrapper } from 'ssh2'
 import { db } from '@/db'
 import { homelabHosts, adminAuditLog, profilePins, remoteFolders, remoteSnippets, userPreferences } from '@/db/schema'
@@ -20,6 +21,7 @@ import { requireAuth, requireAdmin, resolveSession } from '@/middleware/auth'
 import { isFeatureEnabled, userMayUseCapability } from '@/lib/featureGate'
 import { verifyPin } from '@/lib/pin'
 import { encryptSecret, decryptSecret } from '@/lib/secrets'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { openTcpBridge } from '@/lib/tcpBridge'
 import { createRdpCleanPath, type RdpCleanPathController } from '@/lib/rdpCleanPath'
 import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
@@ -76,18 +78,86 @@ async function verifyAdminPin(userId: string, pin: string): Promise<boolean> {
   return verifyPin(pin, record.pinHash)
 }
 
-// Short-lived, single-use tokens for the admin-only host shell (the WS can't prompt for a PIN).
-const hostShellTokens = new Map<string, { userId: string; expires: number }>()
-function mintHostShellToken(userId: string): string {
+// ── "This server" sessions (admin-only, PIN-gated) ──────────────────────────
+// The shell, VNC and RDP into THIS host all share one flow: verify the admin PIN over HTTP,
+// mint a short-lived single-use token bound to (user, proto), then hand it to the WS (which
+// can't prompt for a PIN). VNC/RDP bridge to loopback on admin-configured ports.
+type SelfProto = 'shell' | 'vnc' | 'rdp' | 'claude-code'
+const selfTokens = new Map<string, { userId: string; proto: SelfProto; expires: number }>()
+function mintSelfToken(userId: string, proto: SelfProto): string {
   const token = crypto.randomUUID()
-  hostShellTokens.set(token, { userId, expires: Date.now() + 60_000 })
+  selfTokens.set(token, { userId, proto, expires: Date.now() + 60_000 })
   return token
 }
-function consumeHostShellToken(token: string, userId: string): boolean {
-  const rec = hostShellTokens.get(token)
+function consumeSelfToken(token: string, userId: string, proto: SelfProto): boolean {
+  const rec = selfTokens.get(token)
   if (!rec) return false
-  hostShellTokens.delete(token)
-  return rec.userId === userId && rec.expires > Date.now()
+  selfTokens.delete(token)
+  return rec.userId === userId && rec.proto === proto && rec.expires > Date.now()
+}
+
+// Admin-configured desktop endpoints for THIS server. Defaults to loopback, but the address is
+// configurable: a VNC/RDP server bound only to a LAN/Tailscale interface (not 127.0.0.1) must be
+// reached at that address, so the admin can point "this server" at whatever it actually listens on.
+const SELF_DESKTOP_KEY = 'remote.selfDesktop'
+interface SelfDesktopConfig {
+  host: string
+  vncPort: number
+  vncSecret: string | null   // encrypted
+  rdpPort: number
+  rdpUser: string | null
+  rdpSecret: string | null   // encrypted
+  rdpSecurity: 'nla' | 'tls' | 'rdp'
+}
+// This machine's own addresses, so a saved host entry that points at one of them can be
+// recognized as "this server" and its port/credentials reused.
+function localAddresses(): Set<string> {
+  const set = new Set<string>(['127.0.0.1', 'localhost', '::1', '0.0.0.0'])
+  for (const list of Object.values(networkInterfaces())) {
+    for (const ni of list ?? []) set.add(ni.address.toLowerCase())
+  }
+  return set
+}
+
+// Best-guess desktop settings for "this server" derived from a host entry whose hostname is one
+// of this machine's own addresses. Scoped to shared hosts + the requesting admin's own, so we
+// never pull another user's private credentials. Encrypted secrets are copied as-is (same key).
+async function deriveSelfDesktopFromHosts(forUserId: string | undefined): Promise<Partial<SelfDesktopConfig> | null> {
+  const locals = localAddresses()
+  const rows = await db.select().from(homelabHosts)
+  const mine = rows.filter((h) => (h.userId === null || h.userId === forUserId) && locals.has(h.hostname.trim().toLowerCase()))
+  if (mine.length === 0) return null
+  const vncH = mine.find((h) => h.vncPort != null)
+  const rdpH = mine.find((h) => h.rdpUser != null || h.rdpPort != null)
+  const host = (vncH ?? rdpH ?? mine[0]!).hostname.trim()
+  return {
+    host,
+    vncPort: vncH?.vncPort ?? undefined,
+    vncSecret: vncH?.vncSecret ?? undefined,
+    rdpPort: rdpH?.rdpPort ?? undefined,
+    rdpUser: rdpH?.rdpUser ?? undefined,
+    rdpSecret: rdpH?.rdpSecret ?? undefined,
+    rdpSecurity: (rdpH?.rdpSecurity as SelfDesktopConfig['rdpSecurity'] | null) ?? undefined,
+  }
+}
+
+// Effective config = saved values, with any field still unset auto-filled from a matching host
+// entry (address, ports, and credentials). Pure read (no writes); an explicit save persists the
+// user's choices. Auto-fill only kicks in for fields the admin hasn't set themselves.
+async function getSelfDesktopConfig(forUserId?: string): Promise<SelfDesktopConfig> {
+  const raw = (await getAppSetting(SELF_DESKTOP_KEY)) as Partial<SelfDesktopConfig> | null
+  const hasHost = typeof raw?.host === 'string' && !!raw.host.trim()
+  const seed = (!hasHost || !raw?.vncSecret || !raw?.rdpSecret) ? await deriveSelfDesktopFromHosts(forUserId) : null
+  return {
+    host: hasHost ? raw!.host!.trim() : (seed?.host ?? '127.0.0.1'),
+    vncPort: typeof raw?.vncPort === 'number' ? raw.vncPort : (seed?.vncPort ?? 5900),
+    vncSecret: raw?.vncSecret ?? seed?.vncSecret ?? null,
+    rdpPort: typeof raw?.rdpPort === 'number' ? raw.rdpPort : (seed?.rdpPort ?? 3389),
+    rdpUser: raw?.rdpUser ?? seed?.rdpUser ?? null,
+    rdpSecret: raw?.rdpSecret ?? seed?.rdpSecret ?? null,
+    rdpSecurity: raw?.rdpSecurity === 'tls' || raw?.rdpSecurity === 'rdp' ? raw.rdpSecurity
+      : (raw?.rdpSecurity === 'nla' ? 'nla' : (seed?.rdpSecurity ?? 'nla')),
+  }
 }
 
 async function resolveUser(token: string | undefined): Promise<User | null> {
@@ -378,12 +448,53 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     }
   })
 
-  // ── Host shell (admin-only, PIN-gated) ──
-  r.post('/host-shell/authorize', requireAdmin, async (c) => {
+  // ── "This server" desktop config (admin-only): loopback ports + optional credentials ──
+  r.get('/self/config', requireAdmin, async (c) => {
+    const cfg = await getSelfDesktopConfig(c.get('user').id)
+    return c.json({
+      host: cfg.host,
+      vncPort: cfg.vncPort, vncHasSecret: !!cfg.vncSecret,
+      rdpPort: cfg.rdpPort, rdpUser: cfg.rdpUser ?? '', rdpHasSecret: !!cfg.rdpSecret, rdpSecurity: cfg.rdpSecurity,
+    })
+  })
+  r.put('/self/config', requireAdmin, async (c) => {
+    const b = await c.req.json<{ host?: string; vncPort?: number; vncPassword?: string; rdpPort?: number; rdpUser?: string; rdpPassword?: string; rdpSecurity?: 'nla' | 'tls' | 'rdp' }>()
+    const cur = await getSelfDesktopConfig()
+    const port = (v: number | undefined, fallback: number) => (typeof v === 'number' && v > 0 && v < 65536 ? Math.floor(v) : fallback)
+    // A blank password field keeps the stored secret (same "leave blank to keep" rule as the machine editor).
+    const next: SelfDesktopConfig = {
+      host: b.host !== undefined ? (b.host.trim() || '127.0.0.1') : cur.host,
+      vncPort: port(b.vncPort, cur.vncPort),
+      vncSecret: b.vncPassword ? await encryptSecret(b.vncPassword) : cur.vncSecret,
+      rdpPort: port(b.rdpPort, cur.rdpPort),
+      rdpUser: b.rdpUser !== undefined ? (b.rdpUser.trim() || null) : cur.rdpUser,
+      rdpSecret: b.rdpPassword ? await encryptSecret(b.rdpPassword) : cur.rdpSecret,
+      rdpSecurity: b.rdpSecurity ?? cur.rdpSecurity,
+    }
+    await setAppSetting(SELF_DESKTOP_KEY, next)
+    return c.json({ ok: true })
+  })
+
+  // ── "This server" session authorize (admin-only, PIN-gated) — shell / vnc / rdp ──
+  // noVNC/IronRDP auth client-side, so vnc/rdp return the stored loopback credentials to the browser.
+  r.post('/self/authorize', requireAdmin, async (c) => {
     const user = c.get('user')
-    const { pin } = await c.req.json<{ pin: string }>()
+    const { pin, proto } = await c.req.json<{ pin: string; proto: SelfProto }>()
+    if (proto !== 'shell' && proto !== 'vnc' && proto !== 'rdp' && proto !== 'claude-code') return c.json({ error: 'bad proto' }, 400)
     if (!(await verifyAdminPin(user.id, pin))) return c.json({ error: 'Invalid PIN' }, 403)
-    return c.json({ token: mintHostShellToken(user.id) })
+    // Claude Code attaches to the cookie-authed coding terminal (no per-open WS token), so the
+    // PIN check alone gates the open — return ok without minting a token.
+    if (proto === 'claude-code') return c.json({ ok: true })
+    const token = mintSelfToken(user.id, proto)
+    if (proto === 'vnc') {
+      const cfg = await getSelfDesktopConfig(user.id)
+      return c.json({ token, password: cfg.vncSecret ? await decryptSecret(cfg.vncSecret) : '' })
+    }
+    if (proto === 'rdp') {
+      const cfg = await getSelfDesktopConfig(user.id)
+      return c.json({ token, username: cfg.rdpUser ?? '', password: cfg.rdpSecret ? await decryptSecret(cfg.rdpSecret) : '', security: cfg.rdpSecurity })
+    }
+    return c.json({ token })
   })
 
   r.get('/audit', requireAdmin, async (c) => {
@@ -399,7 +510,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     const pending: (string | ArrayBufferLike)[] = []
     return {
       async onOpen(_evt, ws) {
-        if (!user || user.role !== 'admin' || !consumeHostShellToken(token, user.id)) {
+        if (!user || user.role !== 'admin' || !consumeSelfToken(token, user.id, 'shell')) {
           try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }
           return
         }
@@ -476,14 +587,24 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
   }))
 
   // ── WS: VNC relay ──
+  // Either into an accessible host (?host=), or into THIS server's loopback VNC (?self=<token>,
+  // admin-only, PIN-authorized).
   r.get('/vnc', upgradeWebSocket(async (c) => {
     const user = await resolveUser(getCookie(c, 'session'))
     const hostId = c.req.query('host') ?? ''
+    const selfToken = c.req.query('self') ?? ''
     let bridge: ReturnType<typeof openTcpBridge> | null = null
     return {
       async onOpen(_evt, ws) {
         if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
         if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
+        if (selfToken) {
+          if (user.role !== 'admin' || !consumeSelfToken(selfToken, user.id, 'vnc')) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
+          const cfg = await getSelfDesktopConfig(user.id)
+          bridge = openTcpBridge(ws, cfg.host, cfg.vncPort)
+          await audit(user.id, 'vnc_open', { host: `${cfg.host}:${cfg.vncPort}`, self: true })
+          return
+        }
         if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || host.vncPort == null) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }
@@ -496,15 +617,25 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
   }))
 
   // ── WS: RDP via RDCleanPath ──
+  // Either into an accessible host (?host=), or into THIS server's loopback RDP (?self=<token>,
+  // admin-only, PIN-authorized).
   r.get('/rdp', upgradeWebSocket(async (c) => {
     const user = await resolveUser(getCookie(c, 'session'))
     const hostId = c.req.query('host') ?? ''
+    const selfToken = c.req.query('self') ?? ''
     let ctrl: RdpCleanPathController | null = null
     let started = false
     return {
       async onOpen(_evt, ws) {
         if (!user) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
         if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
+        if (selfToken) {
+          if (user.role !== 'admin' || !consumeSelfToken(selfToken, user.id, 'rdp')) { try { ws.close(4401, 'unauthorized') } catch { /* ignore */ }; return }
+          const cfg = await getSelfDesktopConfig(user.id)
+          ctrl = createRdpCleanPath(ws, cfg.host, cfg.rdpPort)
+          await audit(user.id, 'rdp_open', { host: `${cfg.host}:${cfg.rdpPort}`, self: true })
+          return
+        }
         if (!(await userMayUseCapability(user, 'remote'))) { try { ws.close(4403, 'forbidden') } catch { /* ignore */ }; return }
         const host = await loadAccessibleHost(hostId, user)
         if (!host || host.rdpPort == null) { try { ws.close(4404, 'host not found') } catch { /* ignore */ }; return }

@@ -5,7 +5,7 @@
 // no OS/arch URL table to maintain here.
 
 import { join } from 'node:path'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { dataDir } from '@/lib/download'
 import { ensureNode } from '@/lib/node'
@@ -18,9 +18,13 @@ const CLAUDE_CODE_VERSION = '2.1.200'
 export const CLAUDE_CODE_DIR = join(dataDir, 'coding', 'claude-runtime')
 const BIN_DIR = join(CLAUDE_CODE_DIR, 'node_modules', '.bin')
 export const CLAUDE_BIN = join(BIN_DIR, IS_WIN ? 'claude.exe' : 'claude')
+const CLAUDE_PKG_JSON = join(CLAUDE_CODE_DIR, 'node_modules', '@anthropic-ai', 'claude-code', 'package.json')
 
 export function isClaudeCodeInstalled(): boolean {
-  return existsSync(CLAUDE_BIN)
+  // Require BOTH the launcher shim AND the real package payload. A stale `.bin/claude` shim can
+  // outlive a pruned package (e.g. an interrupted `bun add`), and checking the shim alone reports
+  // "installed" while the CLI actually fails to launch with "bin executable does not exist on disk".
+  return existsSync(CLAUDE_BIN) && existsSync(CLAUDE_PKG_JSON)
 }
 
 export async function installClaudeCode(onStatus: (msg: string) => void, signal?: AbortSignal): Promise<void> {
@@ -29,6 +33,12 @@ export async function installClaudeCode(onStatus: (msg: string) => void, signal?
   if (!existsSync(pkgPath)) {
     writeFileSync(pkgPath, JSON.stringify({ name: 'loki-doki-claude-code-runtime', private: true }, null, 2))
   }
+  // Start from a clean tree so bun regenerates the .bin launcher shims from scratch. `bun add`
+  // over a partial/stale node_modules (e.g. an interrupted prior install) leaves a mis-remapped
+  // shim that fails at runtime with "bin executable does not exist on disk", and the package's
+  // real bin is a native binary that must be extracted, not a JS entry.
+  rmSync(join(CLAUDE_CODE_DIR, 'node_modules'), { recursive: true, force: true })
+  rmSync(join(CLAUDE_CODE_DIR, 'bun.lock'), { force: true })
   onStatus(`Installing Claude Code ${CLAUDE_CODE_VERSION}…`)
   await new Promise<void>((resolve, reject) => {
     const proc = spawn('bun', ['add', `@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}`], {

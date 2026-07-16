@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { TerminalSquare, Monitor, MonitorPlay, X, ServerCog, Plus, Trash2 } from 'lucide-react'
+import { TerminalSquare, Monitor, MonitorPlay, X, ServerCog, Plus, Trash2, Bot } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,8 +13,10 @@ import { ConnectionSidebar } from '@/components/remote/ConnectionSidebar'
 import { SessionPane } from '@/components/remote/SessionPane'
 import { MachineEditorDialog } from '@/components/remote/MachineEditorDialog'
 import { PinDialog } from '@/components/remote/PinDialog'
+import { ServerDesktopDialog } from '@/components/remote/ServerDesktopDialog'
 import {
-  getHosts, getFolders, getSnippets, getCapabilities, deleteHost, setFavorite, authorizeHostShell,
+  getHosts, getFolders, getSnippets, getCapabilities, deleteHost, setFavorite,
+  authorizeSelfShell, authorizeSelfVnc, authorizeSelfRdp, authorizeSelfClaudeCode,
   createFolder, createSnippet, deleteSnippet,
   type RemoteHost, type RemoteFolder, type RemoteSnippet, type Capabilities,
 } from '@/components/remote/api'
@@ -27,7 +29,7 @@ export function RemoteLayout() {
   )
 }
 
-const KIND_ICON = { ssh: TerminalSquare, 'host-shell': ServerCog, vnc: Monitor, rdp: MonitorPlay } as const
+const KIND_ICON = { ssh: TerminalSquare, 'host-shell': ServerCog, vnc: Monitor, rdp: MonitorPlay, 'claude-code': Bot } as const
 
 function RemoteApp() {
   const { sessions, activeId, open, close, focus } = useRemoteSessions()
@@ -40,6 +42,8 @@ function RemoteApp() {
   const [editorOpen, setEditorOpen] = useState(false)
   const [editHost, setEditHost] = useState<RemoteHost | null>(null)
   const [pinOpen, setPinOpen] = useState(false)
+  const [serverProto, setServerProto] = useState<'shell' | 'vnc' | 'rdp' | 'claude-code'>('shell')
+  const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [delTarget, setDelTarget] = useState<RemoteHost | null>(null)
   const [folderOpen, setFolderOpen] = useState(false)
   const [snippetsOpen, setSnippetsOpen] = useState(false)
@@ -56,11 +60,22 @@ function RemoteApp() {
   const onConnect = (host: RemoteHost, kind: 'ssh' | 'vnc' | 'rdp') =>
     open({ kind, hostId: host.id, title: host.label, subtitle: host.hostname })
 
-  const onHostShell = () => setPinOpen(true)
-  const connectHostShell = async (pin: string) => {
+  const onServerConnect = (proto: 'shell' | 'vnc' | 'rdp' | 'claude-code') => { setServerProto(proto); setPinOpen(true) }
+  const connectServer = async (pin: string) => {
     try {
-      const token = await authorizeHostShell(pin)
-      open({ kind: 'host-shell', hostShellToken: token, title: 'This server', subtitle: 'host shell' })
+      if (serverProto === 'shell') {
+        const token = await authorizeSelfShell(pin)
+        open({ kind: 'host-shell', hostShellToken: token, title: 'This server', subtitle: 'host shell' })
+      } else if (serverProto === 'vnc') {
+        const { token, password } = await authorizeSelfVnc(pin)
+        open({ kind: 'vnc', selfToken: token, selfVncPassword: password, title: 'This server', subtitle: 'VNC desktop' })
+      } else if (serverProto === 'rdp') {
+        const { token, username, password, security } = await authorizeSelfRdp(pin)
+        open({ kind: 'rdp', selfToken: token, selfRdp: { username, password, security }, title: 'This server', subtitle: 'RDP desktop' })
+      } else {
+        await authorizeSelfClaudeCode(pin)
+        open({ kind: 'claude-code', title: 'Claude Code', subtitle: 'this server' })
+      }
     } catch (e) { toast.error(`Authorization failed: ${e instanceof Error ? e.message : e}`) }
   }
 
@@ -76,7 +91,9 @@ function RemoteApp() {
       <ConnectionSidebar
         hosts={hosts} folders={folders} capabilities={caps}
         onConnect={onConnect}
-        onHostShell={onHostShell}
+        onServerConnect={onServerConnect}
+        onClaudeCode={() => onServerConnect('claude-code')}
+        onServerSettings={() => setServerSettingsOpen(true)}
         onEdit={(h) => { setEditHost(h); setEditorOpen(true) }}
         onDelete={setDelTarget}
         onToggleFav={onToggleFav}
@@ -116,11 +133,18 @@ function RemoteApp() {
               </div>
             </div>
           )}
-          {sessions.map((s) => (
-            <div key={s.id} className="absolute inset-0" style={{ display: s.id === activeId ? 'block' : 'none' }}>
-              <SessionPane session={s} host={hosts.find((h) => h.id === s.hostId)} snippets={snippets} fontSize={13} />
-            </div>
-          ))}
+          {/* Hide inactive panes with `visibility`, never `display:none`: a display:none pane
+              collapses to 0x0, which makes noVNC's scaleViewport observer compute a zero scale
+              and blank the canvas grey (it never repaints on the way back). `invisible` keeps the
+              pane's real size, so the desktop is intact when you switch tabs back. */}
+          {sessions.map((s) => {
+            const active = s.id === activeId
+            return (
+              <div key={s.id} className={`absolute inset-0 ${active ? '' : 'invisible'}`} aria-hidden={!active}>
+                <SessionPane session={s} host={hosts.find((h) => h.id === s.hostId)} snippets={snippets} fontSize={13} active={active} />
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -128,8 +152,17 @@ function RemoteApp() {
         open={editorOpen} host={editHost} folders={folders} isAdmin={!!caps?.isAdmin}
         onClose={() => setEditorOpen(false)} onSaved={refreshHosts}
       />
-      <PinDialog open={pinOpen} onOpenChange={setPinOpen} title="Confirm host shell"
-        description="Opening a shell on this server with full app-user access. Enter your admin PIN." onSubmit={connectHostShell} />
+      <PinDialog open={pinOpen} onOpenChange={setPinOpen}
+        title={serverProto === 'shell' ? 'Confirm host shell'
+          : serverProto === 'claude-code' ? 'Confirm Claude Code'
+          : `Connect to this server (${serverProto.toUpperCase()})`}
+        description={serverProto === 'shell'
+          ? 'Opening a shell on this server with full app-user access. Enter your admin PIN.'
+          : serverProto === 'claude-code'
+            ? 'Opening the Claude Code CLI on this server. Enter your admin PIN.'
+            : `Opening a ${serverProto.toUpperCase()} desktop session to this server. Enter your admin PIN.`}
+        onSubmit={connectServer} />
+      <ServerDesktopDialog open={serverSettingsOpen} onClose={() => setServerSettingsOpen(false)} />
       <ConfirmDialog open={!!delTarget} onOpenChange={(o) => { if (!o) setDelTarget(null) }}
         title="Delete machine?" description={delTarget ? `${delTarget.label} (${delTarget.hostname}) and its stored credentials will be removed.` : ''}
         confirmLabel="Delete" destructive onConfirm={() => delTarget && doDelete(delTarget)} />
