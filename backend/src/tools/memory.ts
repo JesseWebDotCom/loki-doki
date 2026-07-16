@@ -8,12 +8,15 @@
 // decides whether the content is a short conversational fact (memories table, the
 // original path) or reference/procedural/measurement knowledge, which lands in a
 // real note instead ("the far pothole took 8 bags" → append to "Driveway repair" or
-// start a new personal note). ANY classification failure falls back to the memory
-// path, so behavior degrades to exactly what it was before.
+// start a new personal note). A note-classified fact that names a Home Inventory
+// device also gets its note linked to that device (note_links targetType 'device'),
+// so the device sheet's Notes tab accumulates captured device knowledge. ANY
+// classification failure falls back to the memory path, so behavior degrades to
+// exactly what it was before.
 
 import { and, eq, isNull, or } from 'drizzle-orm'
 import { db } from '@/db'
-import { memories, noteChunks, notes } from '@/db/schema'
+import { homeDevices, memories, noteChunks, noteLinks, notes } from '@/db/schema'
 import { embed, cosineSimilarity, cachedVector } from '@/llm/embed'
 import { structuredCall } from '@/llm/structured'
 import { invalidateMemoryBlocksForUser } from '@/memory/blockCache'
@@ -103,6 +106,61 @@ async function findAppendTarget(
   return top && top.score >= NOTE_APPEND_COSINE ? { id: top.id, title: top.title } : null
 }
 
+// Generic product words that shouldn't count toward a device match on their own.
+const DEVICE_TOKEN_STOPLIST = new Set(['bundle', 'pack', 'edition', 'licensed', 'universal', 'upgrade'])
+
+// Match a captured fact against Home Inventory devices so the note can be linked to
+// the device sheet (note_links targetType 'device'). Conservative token scoring: a
+// model or full-name substring hit counts double; otherwise at least two distinct
+// name/brand/model tokens must appear in the fact. A tie between two devices links
+// nothing (ambiguous beats wrong). Exported for tests.
+export async function findDeviceTarget(fact: string): Promise<{ id: string; name: string } | null> {
+  const devices = await db
+    .select({ id: homeDevices.id, name: homeDevices.name, brand: homeDevices.brand, model: homeDevices.model })
+    .from(homeDevices)
+  if (!devices.length) return null
+
+  const factLower = fact.toLowerCase()
+  const factTokens = new Set(factLower.split(/\W+/).filter((t) => t.length >= 4))
+
+  let best: { id: string; name: string; score: number } | null = null
+  let runnerUp = 0
+  for (const d of devices) {
+    let score = 0
+    const model = d.model?.toLowerCase().trim() ?? ''
+    if (model.length >= 4 && factLower.includes(model)) score += 2
+    if (factLower.includes(d.name.toLowerCase().trim())) score += 2
+    const deviceTokens = new Set(
+      `${d.name} ${d.brand ?? ''} ${d.model ?? ''}`.toLowerCase().split(/\W+/)
+        .filter((t) => t.length >= 4 && !DEVICE_TOKEN_STOPLIST.has(t)),
+    )
+    for (const t of deviceTokens) if (factTokens.has(t)) score += 1
+    if (best && score > best.score) { runnerUp = best.score; best = { id: d.id, name: d.name, score } }
+    else if (!best) best = { id: d.id, name: d.name, score }
+    else if (score > runnerUp) runnerUp = score
+  }
+  if (!best || best.score < 2 || best.score === runnerUp) return null
+  return { id: best.id, name: best.name }
+}
+
+/** Link a note to a device (idempotent). Returns true when a new link was created. */
+async function ensureDeviceLink(noteId: string, deviceId: string): Promise<boolean> {
+  const [existing] = await db
+    .select({ id: noteLinks.id })
+    .from(noteLinks)
+    .where(and(eq(noteLinks.noteId, noteId), eq(noteLinks.targetType, 'device'), eq(noteLinks.targetId, deviceId)))
+    .limit(1)
+  if (existing) return false
+  await db.insert(noteLinks).values({
+    id: crypto.randomUUID(),
+    noteId,
+    targetType: 'device',
+    targetId: deviceId,
+    createdAt: new Date(),
+  })
+  return true
+}
+
 export const rememberTool: Tool = {
   id: 'remember',
   name: 'Remember',
@@ -148,17 +206,24 @@ export const rememberTool: Tool = {
       const verdict = await classifyCapture(fact)
       if (verdict.kind === 'note') {
         const isAdmin = config['_isAdmin'] === true
+        // Device match runs on every note capture: a fact that names a Home
+        // Inventory device gets its note linked to the device sheet, so everything
+        // ever told to the companion about a device accumulates in one place.
+        const device = await findDeviceTarget(fact)
         const target = await findAppendTarget(userId, isAdmin, factEmbedding, fact)
         if (target) {
           await appendToNote(target.id, fact)
+          const newlyLinked = device ? await ensureDeviceLink(target.id, device.id) : false
           const label = target.title || 'your note'
           return {
             success: true,
-            data: { stored: true, note: true, noteId: target.id, appended: true, text: fact },
-            directReply: `Noted. I added that to "${label}".`,
+            data: { stored: true, note: true, noteId: target.id, appended: true, deviceId: device?.id ?? null, text: fact },
+            directReply: newlyLinked
+              ? `Noted. I added that to "${label}" and linked it to ${device!.name}.`
+              : `Noted. I added that to "${label}".`,
           }
         }
-        const title = verdict.title || fact.slice(0, 60)
+        const title = verdict.title || device?.name || fact.slice(0, 60)
         const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
         // Companion-created notes are always personal; sharing with the household is
         // a deliberate action taken in the Notes UI (admin only).
@@ -169,10 +234,13 @@ export const rememberTool: Tool = {
           body: `- ${dateStr}: ${fact}`,
           source: 'companion',
         })
+        if (device) await ensureDeviceLink(note.id, device.id)
         return {
           success: true,
-          data: { stored: true, note: true, noteId: note.id, appended: false, text: fact },
-          directReply: `Noted. I started a note called "${title}" for that.`,
+          data: { stored: true, note: true, noteId: note.id, appended: false, deviceId: device?.id ?? null, text: fact },
+          directReply: device
+            ? `Noted. I started a note called "${title}" for that and linked it to ${device.name}.`
+            : `Noted. I started a note called "${title}" for that.`,
         }
       }
 
