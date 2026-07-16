@@ -1,24 +1,25 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, Music } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useRadio } from '@/context/RadioContext'
 import { useSongArt } from '@/components/music/SongArt'
+import { StationArt } from '@/components/music/StationArt'
 import { DJ_STATIONS, type DjStation } from '@/lib/music/radioStations'
 import { listStations, stationToDj, type Station } from '@/lib/music/catalogApi'
-import { proxyImg } from '@/lib/img'
 
 // Music page of the island panel: a browsable station grid where the ALBUM
 // ART is the tile (name as a bottom scrim overlay), same cover-resolution
 // path as the Music app's StationCard (useSongArt over the station's cover
-// track). Tapping a tile starts the AI radio engine IN THIS WINDOW, so the
-// island is a self-contained player; the Home page shows the transport.
+// track, StationArt silhouette fallback when no cover exists, so cover-less
+// stations get the Music app's designed tile instead of an empty wash).
+// Tapping a tile starts the AI radio engine IN THIS WINDOW, so the island is
+// a self-contained player; the Home page shows the transport.
 
 interface Tile {
   key: string
   name: string
   emoji: string | null
-  iconUrl: string | null
-  accent: string | null
+  art: Pick<Station, 'name' | 'accent' | 'category' | 'iconUrl'>
   coverTrack: { videoId: string; title: string; artist: string | null } | null
   dj: DjStation
 }
@@ -28,8 +29,7 @@ function tilesFromStations(stations: Station[]): Tile[] {
     key: `st-${s.id}`,
     name: s.name,
     emoji: null,
-    iconUrl: s.iconUrl,
-    accent: s.accent,
+    art: { name: s.name, accent: s.accent, category: s.category, iconUrl: s.iconUrl },
     coverTrack: s.coverTrack,
     dj: stationToDj(s),
   }))
@@ -39,8 +39,7 @@ const PRESET_TILES: Tile[] = DJ_STATIONS.map((d) => ({
   key: `dj-${d.id}`,
   name: d.label,
   emoji: d.emoji,
-  iconUrl: null,
-  accent: d.color,
+  art: { name: d.label, accent: d.color, category: null, iconUrl: null },
   coverTrack: null,
   dj: d,
 }))
@@ -49,7 +48,6 @@ const PRESET_TILES: Tile[] = DJ_STATIONS.map((d) => ({
 // hook; results are query-cached, matching the Music app's stations grid).
 function StationTile({ tile, onPlay }: { tile: Tile; onPlay: (t: Tile) => void }) {
   const coverUrl = useSongArt(tile.coverTrack?.videoId, tile.coverTrack?.title, tile.coverTrack?.artist)
-  const art = coverUrl ?? (tile.iconUrl ? proxyImg(tile.iconUrl) : null)
 
   return (
     <button
@@ -57,18 +55,18 @@ function StationTile({ tile, onPlay }: { tile: Tile; onPlay: (t: Tile) => void }
       title={`Play ${tile.name}`}
       onClick={() => onPlay(tile)}
       className="group relative overflow-hidden rounded-[14px] transition-transform hover:scale-[1.03]"
-      // Accent wash shows until (or instead of) the artwork.
-      // design-ok(hex-in-tsx): accent is per-station DATA, not a UI token
-      style={{ background: tile.accent ? `linear-gradient(140deg, ${tile.accent}44, ${tile.accent}18)` : 'rgba(255,255,255,0.07)' }}
     >
-      {art ? (
-        <img src={art} alt="" className="absolute inset-0 size-full object-cover" draggable={false} loading="lazy" />
-      ) : (
-        <span className="absolute inset-0 flex items-center justify-center pb-4">
-          {tile.emoji
-            ? <span className="text-3xl leading-none drop-shadow">{tile.emoji}</span>
-            : <Music className="size-7 text-white/70" />}
+      {tile.emoji ? (
+        // Preset DJ stations carry a curated emoji identity.
+        // design-ok(hex-in-tsx): accent is per-station DATA, not a UI token
+        <span
+          className="absolute inset-0 flex items-center justify-center pb-4"
+          style={{ background: tile.art.accent ? `linear-gradient(140deg, ${tile.art.accent}44, ${tile.art.accent}18)` : 'rgba(255,255,255,0.07)' }}
+        >
+          <span className="text-3xl leading-none drop-shadow">{tile.emoji}</span>
         </span>
+      ) : (
+        <StationArt station={tile.art} coverUrl={coverUrl} showName={false} className="absolute inset-0" />
       )}
       {/* Name scrim over the artwork bottom edge */}
       <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1.5 pt-5 text-left">

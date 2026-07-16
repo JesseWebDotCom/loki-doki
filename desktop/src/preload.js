@@ -79,6 +79,10 @@ contextBridge.exposeInMainWorld('lokiDesktop', {
   ackResourceEvents(ids) {
     return ipcRenderer.invoke('system:resources-ack', Array.isArray(ids) ? ids : [])
   },
+  // System output volume of the machine the dock runs on.
+  volumeCommand(action) {
+    return ipcRenderer.invoke('system:volume', action)
+  },
   // Read-only file access (companion file ops + island settings management).
   // All enforcement happens in the main process; see desktop/src/fileAccess.js.
   fsRequest(req) {

@@ -121,6 +121,8 @@ export interface LokiDesktopBridge {
   /** Local machine stats + threshold alerts (island System tab / server reporter). */
   getResources?: () => Promise<ResourceState | null>
   ackResourceEvents?: (ids: string[]) => Promise<void>
+  /** System output volume of the dock's machine (island Home page cluster). */
+  volumeCommand?: (action: 'up' | 'down' | 'mute') => Promise<void>
   /** Read-only file access - enforced in the Electron main process. */
   fsRequest?: (req: { action: string; path: string }) => Promise<FsRequestResult>
   /** Native folder picker; returns the updated allowed roots. */

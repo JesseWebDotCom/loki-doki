@@ -6,6 +6,7 @@
 const { ipcMain, desktopCapturer, screen, shell } = require('electron')
 const { getMacScreenAccessStatus } = require('./permissions')
 const resources = require('./resources')
+const volume = require('./volume')
 const fileAccess = require('./fileAccess')
 const { NOTCH_MIN_INSET } = require('./windows')
 
@@ -121,6 +122,12 @@ function init({ getHud, getMain, getServerUrl, getSettings, onHudStateChanged, a
   ipcMain.handle('system:resources-ack', (event, ids) => {
     if (!fromServer(event)) return
     resources.ackEvents(ids)
+  })
+
+  // System output volume (island Home page cluster: mute / down / up).
+  ipcMain.handle('system:volume', (event, action) => {
+    if (!fromServer(event)) return
+    return volume.volumeCommand(String(action))
   })
 
   // Read-only file access for the companion (see fileAccess.js — main process is

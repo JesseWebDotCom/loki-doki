@@ -253,6 +253,14 @@ export function IslandShell() {
     island.raiseToFull()
   }, [island.raiseToFull]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Double-click any bare spot on the island to open the full app window
+  // (single click still expands; the avatar and the top-bar window button keep
+  // working as explicit affordances).
+  const onIslandDoubleClick = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="menuitem"]')) return
+    window.lokiDesktop?.openMainWindow()
+  }, [])
+
   return (
     <div className="flex h-screen flex-col items-center">
       <div
@@ -261,6 +269,7 @@ export function IslandShell() {
         onPointerLeave={() => { hover.onPointerLeave(); island.onPointerLeave() }}
         onPointerDown={hover.onPointerDown}
         onClick={onIslandClick}
+        onDoubleClick={onIslandDoubleClick}
         onContextMenu={(e) => { e.preventDefault(); openMenu() }}
         className={cn(
           'island-spring pointer-events-auto overflow-hidden bg-black',

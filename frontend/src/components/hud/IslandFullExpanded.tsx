@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { ChevronLeft, ChevronRight, Ear } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
@@ -51,6 +52,38 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
     setTab(ISLAND_TABS[next]!)
   }
 
+  // Swipe page navigation: a horizontal two-finger trackpad scroll (wheel
+  // deltaX) or a horizontal drag cycles pages like the side chevrons. Vertical
+  // scrolling inside pages is untouched (only deltaX-dominant wheel events
+  // count), and a short lockout keeps one gesture from skipping several pages.
+  const wheelAccum = useRef(0)
+  const swipeLockUntil = useRef(0)
+  const dragStart = useRef<{ x: number; y: number } | null>(null)
+
+  const onPageWheel = (e: React.WheelEvent) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
+    const now = Date.now()
+    if (now < swipeLockUntil.current) { wheelAccum.current = 0; return }
+    wheelAccum.current += e.deltaX
+    if (Math.abs(wheelAccum.current) > 90) {
+      cycleTab(wheelAccum.current > 0 ? 1 : -1)
+      wheelAccum.current = 0
+      swipeLockUntil.current = now + 450
+    }
+  }
+  const onPagePointerDown = (e: React.PointerEvent) => {
+    dragStart.current = { x: e.clientX, y: e.clientY }
+  }
+  const onPagePointerUp = (e: React.PointerEvent) => {
+    const start = dragStart.current
+    dragStart.current = null
+    if (!start) return
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+    // Dragging left reveals the next page (touch convention).
+    if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) cycleTab(dx < 0 ? 1 : -1)
+  }
+
   const avatar = engine.character ? (
     <CharacterAvatar
       className="pointer-events-none"
@@ -97,7 +130,13 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
 
         {/* Active page; keyed so tab changes crossfade. Fixed height so swaps
             never resize the island. */}
-        <div key={tab} className="island-swap h-[268px] overflow-y-auto px-6 py-1">
+        <div
+          key={tab}
+          className="island-swap h-[268px] overflow-y-auto px-6 py-1"
+          onWheel={onPageWheel}
+          onPointerDown={onPagePointerDown}
+          onPointerUp={onPagePointerUp}
+        >
           {tab === 'home' && <IslandPageHome nowPlaying={nowPlaying} />}
           {tab === 'actions' && <IslandPageActions />}
           {tab === 'music' && <IslandPageMusic onStarted={() => setTab('home')} />}

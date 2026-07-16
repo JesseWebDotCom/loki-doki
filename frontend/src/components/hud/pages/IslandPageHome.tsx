@@ -1,4 +1,5 @@
-import { Music } from 'lucide-react'
+import { Music, Volume1, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { NowPlayingCard } from '../NowPlayingModule'
 import { useTodayItems } from '../useTodayItems'
 import type { NowPlayingInfo } from '../useNowPlaying'
@@ -28,6 +29,36 @@ function EventCard({ icon: Icon, label, sublabel, nearby }: { icon: typeof Music
   )
 }
 
+// System volume of the dock's machine, shell-mediated (desktop/src/volume.js).
+// Feature-detected: browsers without the bridge never see the cluster.
+const VOLUME_ACTIONS: { action: 'mute' | 'down' | 'up'; icon: LucideIcon; label: string }[] = [
+  { action: 'mute', icon: VolumeX, label: 'Mute' },
+  { action: 'down', icon: Volume1, label: 'Volume down' },
+  { action: 'up', icon: Volume2, label: 'Volume up' },
+]
+
+function VolumeCluster() {
+  if (!window.lokiDesktop?.volumeCommand) return null
+  return (
+    <div className="flex items-center gap-1">
+      {VOLUME_ACTIONS.map((v) => (
+        <Button
+          key={v.action}
+          variant="ghost"
+          size="icon"
+          aria-label={v.label}
+          title={v.label}
+          onClick={() => void window.lokiDesktop?.volumeCommand?.(v.action)}
+          // design-ok(glass-on-plain-bg): sits inside the black island surface
+          className="size-7 rounded-full text-white/50 hover:bg-white/10 hover:text-white"
+        >
+          <v.icon className="size-4" />
+        </Button>
+      ))}
+    </div>
+  )
+}
+
 export function IslandPageHome({ nowPlaying }: { nowPlaying: NowPlayingInfo | null }) {
   const { items } = useTodayItems()
   const now = new Date()
@@ -35,7 +66,7 @@ export function IslandPageHome({ nowPlaying }: { nowPlaying: NowPlayingInfo | nu
   return (
     <div className="grid h-full grid-cols-[1.15fr_1fr] gap-5">
       {/* Media zone */}
-      <div className="flex min-w-0 items-center">
+      <div className="flex min-w-0 flex-col items-center justify-center gap-2">
         {nowPlaying ? (
           <NowPlayingCard info={nowPlaying} />
         ) : (
@@ -44,6 +75,7 @@ export function IslandPageHome({ nowPlaying }: { nowPlaying: NowPlayingInfo | nu
             <span className="text-sm">Nothing playing</span>
           </div>
         )}
+        <VolumeCluster />
       </div>
 
       {/* Calendar zone */}
