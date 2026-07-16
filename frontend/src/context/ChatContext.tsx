@@ -325,10 +325,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch(`/api/chat/conversations/${id}`, { credentials: 'include' })
       if (!res.ok) return
-      const data = await res.json() as { messages: Array<{ id: string; role: string; content: string }> }
+      const data = await res.json() as { messages: Array<{ id: string; role: string; content: string; sources?: string | null }> }
       const loadedMsgs = data.messages
         .filter((m) => m.role !== 'system')
-        .map((m) => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content }))
+        .map((m) => {
+          // sources persist as a JSON string of Source[] (#8); parse so tappable citation
+          // chips + the sources card survive a reload.
+          let sources: Source[] | undefined
+          if (m.sources) { try { const parsed = JSON.parse(m.sources); if (Array.isArray(parsed) && parsed.length) sources = parsed as Source[] } catch { /* ignore malformed */ } }
+          return { id: m.id, role: m.role as 'user' | 'assistant', content: m.content, ...(sources ? { sources } : {}) }
+        })
 
       setConversationId(id)
       setMessages(loadedMsgs)

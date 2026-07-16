@@ -371,6 +371,7 @@ export function runMigrations() {
   addColumn('memories', 'status', `TEXT DEFAULT 'active' NOT NULL`)
   addColumn('memories', 'last_used_at', 'INTEGER')
   addColumn('conversations', 'memory_processed_through', 'INTEGER')
+  addColumn('messages', 'sources', 'TEXT')  // JSON citation sources, so chips survive reload (#8)
 
   // Projects
   sqlite.exec(`

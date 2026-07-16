@@ -336,6 +336,9 @@ export const messages = sqliteTable('messages', {
   // into LLM history on later turns so follow-ups elaborate on real data instead
   // of re-searching; never rendered in the UI.
   toolNote: text('tool_note'),
+  // JSON array of citation sources ({ n, title, url }) backing the [n] markers in content,
+  // so tappable citation chips survive a reload. Null for messages with no sources.
+  sources: text('sources'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
