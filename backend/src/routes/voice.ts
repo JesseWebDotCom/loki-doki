@@ -70,8 +70,14 @@ voice.get('/wakewords', requireAuth, async (c) => {
   return c.json({
     coreInstalled,
     detectors: detectors.map((f) => {
-      const id = f.replace(/_v[\d.]+\.onnx$/, '').replace(/\.onnx$/, '')
       const m = meta.get(f)
+      // The catalog row's id is authoritative: filename-derived ids mis-strip
+      // trained models whose id legitimately ends in _v<n> (e.g.
+      // trained_hey_loki_doki_v2 → trained_hey_loki_doki, which breaks the
+      // character's wakeWordModelId match in the browser). The regex only
+      // exists to normalize pretrained files like hey_jarvis_v0.1.onnx that
+      // have no catalog row.
+      const id = m?.id ?? f.replace(/_v[\d.]+\.onnx$/, '').replace(/\.onnx$/, '')
       return {
         id,
         file: f,
