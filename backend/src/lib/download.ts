@@ -1205,6 +1205,16 @@ export function isNegFeaturesInstalled(): boolean {
   return existsSync(negFeaturesPath())
 }
 
+// Per-phrase harvested hard-negative audio (design P1.5): short clips of real audio
+// that FALSELY triggered a given wake word in this household, saved with consent so
+// the next retrain learns to reject them. Grouped by phrase slug so each phrase only
+// trains against its own false triggers.
+export const WAKEWORD_HARDNEG_DIR_REL = `${WAKEWORD_DIR_REL}/hard-negatives`
+export function wakewordHardNegDir(slug?: string): string {
+  const base = join(dataDir, WAKEWORD_HARDNEG_DIR_REL)
+  return slug ? join(base, slug) : base
+}
+
 export async function downloadNegFeatures(
   onProgress: (p: DownloadProgress) => void,
   signal?: AbortSignal,
@@ -1423,6 +1433,24 @@ export async function installWakewordTrainDeps(
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
     onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Real-noise pack skipped (${err instanceof Error ? err.message.split('\n')[0] : String(err)}) — synthetic-only calibration will be used` })
+  }
+
+  // openWakeWord real-audio negative feature bank (180 MB, one-time). This is the
+  // single biggest lever for a low false-accept rate: 60k windows of real speech/
+  // noise/music that teach the detector to reject real household audio, which the
+  // synthetic negatives alone do not cover (measured: shipped synthetic-only heads
+  // false-fired ~140/hr on real room audio; adding this bank drops that to ~0).
+  // Verified to work under our ort-web runtime despite the bank living in native-
+  // embedding space, the model still discriminates the phrase, not the feature
+  // space. Best-effort: absence just means training falls back to synthetic-only
+  // negatives, so it must not block the core install.
+  try {
+    await downloadNegFeatures(onProgress, signal)
+    try { const { recordInstalled } = await import('@/lib/installRegistry'); await recordInstalled('wakeword-train-negbank') }
+    catch { /* ledger is best-effort */ }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
+    onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Real-negative bank skipped (${err instanceof Error ? err.message.split('\n')[0] : String(err)}), synthetic-only negatives will be used` })
   }
 }
 

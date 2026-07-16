@@ -49,7 +49,13 @@ for (const modelId of modelIds) {
   const calibrated = row?.defaultThreshold ?? 0.5
   const phrase = POSITIVE_PHRASE[modelId]
     ?? (row?.label?.toLowerCase().replace(/[^a-z ]/g, '').trim()
-      || modelId.replace(/^trained_/, '').replace(/_[a-z0-9]+$/, '').replace(/_/g, ' '))
+      // Only strip a trailing random-id token from OUR trained ids (trained_<slug>_<ts>).
+      // Pretrained openWakeWord ids (e.g. "hey_jarvis") must NOT lose their last word:
+      // the old blanket `_[a-z0-9]+$` strip turned "hey_jarvis" into "hey", giving a
+      // bogus 0% recall (the harness scored the phrase "hey").
+      || (modelId.startsWith('trained_')
+        ? modelId.replace(/^trained_/, '').replace(/_[a-z0-9]+$/, '').replace(/_/g, ' ')
+        : modelId.replace(/_/g, ' ')))
 
   console.log(`\n═══ ${modelId} (phrase "${phrase}", calibrated threshold ${calibrated}) ═══`)
 
