@@ -726,6 +726,13 @@ export function ollamaServeEnv(): NodeJS.ProcessEnv {
     ...process.env,
     OLLAMA_MAX_LOADED_MODELS: process.env.OLLAMA_MAX_LOADED_MODELS ?? '6',
     OLLAMA_MODELS: ollamaModelsDir(),
+    // Default context window for requests that don't set their own num_ctx. The Coding app drives
+    // Claude Code, which reaches Ollama through the Anthropic-compatible endpoint and can't send a
+    // per-request num_ctx — so it inherits this. Claude Code's system prompt + tool schema run well
+    // past Ollama's small built-in default (8k), and once truncated the model stops following the
+    // prompt (it echoes/continues it) and stops emitting tool calls. Chat/companion paths pass their
+    // own num_ctx per request, so they're unaffected by this larger floor. Operator override wins.
+    OLLAMA_CONTEXT_LENGTH: process.env.OLLAMA_CONTEXT_LENGTH ?? '32768',
   }
   // Central GPU placement: on a multi-GPU box Ollama is confined to the cards ComfyUI
   // isn't using, so the family's chats and image generation never contend for VRAM
