@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowUpRight, Search } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
 import { searchSettings, allEntries, findSection, type SearchHit } from './adminRegistry'
@@ -13,12 +14,17 @@ interface Props {
 export function AdminCommandPalette({ open, onOpenChange, onNavigate }: Props) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
+  const navigate = useNavigate()
   const results = useMemo<SearchHit[]>(() => (query.trim() ? searchSettings(query) : allEntries()), [query])
 
   useEffect(() => { if (open) { setQuery(''); setActive(0) } }, [open])
   useEffect(() => { setActive(0) }, [query])
 
-  const choose = (h: SearchHit) => { onNavigate(h.sectionId, h.subId); onOpenChange(false) }
+  const choose = (h: SearchHit) => {
+    if (h.href) navigate(h.href)
+    else onNavigate(h.sectionId, h.subId)
+    onOpenChange(false)
+  }
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, results.length - 1)) }
@@ -50,12 +56,16 @@ export function AdminCommandPalette({ open, onOpenChange, onNavigate }: Props) {
               const Icon = findSection(h.sectionId)?.icon
               return (
                 <button
-                  key={`${h.sectionId}/${h.subId ?? ''}`}
+                  key={h.href ?? `${h.sectionId}/${h.subId ?? ''}`}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => choose(h)}
                   className={cn('flex w-full items-start gap-3 rounded-control px-3 py-2 text-left', i === active ? 'bg-brand/10' : 'hover:bg-foreground/[0.04]')}
                 >
-                  {Icon && (
+                  {h.href ? (
+                    <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-control bg-secondary/50 text-muted-foreground">
+                      <ArrowUpRight className="size-4" />
+                    </span>
+                  ) : Icon && (
                     <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-control bg-secondary/50 text-muted-foreground">
                       <Icon className="size-4" />
                     </span>

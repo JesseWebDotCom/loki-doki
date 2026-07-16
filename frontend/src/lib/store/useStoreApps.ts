@@ -43,6 +43,8 @@ export interface StoreApp {
   examples: string[]
   /** Extra lowercase search terms so natural words find the app (e.g. "shop" → Price Tracker). */
   keywords?: string[]
+  /** Owning user feature: install/remove goes through /api/features/:featureId. */
+  featureId?: string | null
 }
 
 /** Store category - reuses the app catalog groups for nav/visuals. */
@@ -175,6 +177,7 @@ function fromTool(tool: AppTool): StoreApp {
     dataSources: tool.dataSources ?? [],
     examples: (tool as AppTool & { examples?: string[] }).examples ?? [],
     keywords: keywordsFromExamples((tool as AppTool & { examples?: string[] }).examples ?? []),
+    featureId: tool.featureId ?? null,
   }
 }
 

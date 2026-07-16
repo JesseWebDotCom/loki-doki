@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { Globe, Rss, Code, Package, HardDrive, CheckCircle2 } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Globe, Rss, Code, Package, HardDrive, CheckCircle2, Download } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -24,11 +24,13 @@ export interface AppTool {
   /** Companion may use this tool in chat (the app-settings ability toggle). */
   chatEnabled: boolean
   dataSources: DataSource[]
+  /** Owning user feature: install/remove goes through /api/features/:featureId. */
+  featureId?: string | null
 }
 
 /** The subset of tool fields the install/request modals actually render. Both
  *  {@link AppTool} and the store's `StoreApp` satisfy this, so either can be passed. */
-export type InstallableTool = Pick<AppTool, 'id' | 'name' | 'description' | 'dataSources'>
+export type InstallableTool = Pick<AppTool, 'id' | 'name' | 'description' | 'dataSources'> & Pick<Partial<AppTool>, 'featureId'>
 
 interface Props {
   tool: InstallableTool | null
@@ -43,27 +45,56 @@ export const SOURCE_META: Record<DataSource['type'], { label: string; icon: Reac
   cdn: { label: 'CDN',  icon: Package,  chip: 'bg-muted text-muted-foreground' },
 }
 
+function fmtGb(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`
+  return `${Math.max(1, Math.round(bytes / 1e6))} MB`
+}
+
 export function InstallDisclosureModal({ tool, open, onClose }: Props) {
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Feature-backed tools install through the orchestrator, which may download models
+  // and components: show the aggregate size + disk headroom before the admin commits.
+  const featureId = tool?.featureId ?? null
+  const { data: featureInfo } = useQuery({
+    queryKey: ['features'],
+    queryFn: async () => {
+      const r = await fetch('/api/features', { credentials: 'include' })
+      if (!r.ok) throw new Error('features failed')
+      return (await r.json()) as {
+        features: { id: string; bytesRequired: number }[]
+        disk: { freeBytes: number }
+      }
+    },
+    enabled: open && !!featureId,
+    staleTime: 30 * 1000,
+  })
+  const feature = featureInfo?.features.find((f) => f.id === featureId)
 
   async function handleInstall() {
     if (!tool) return
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/tools/${tool.id}/enabled`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: true }),
-      })
-      if (!res.ok) throw new Error('Failed to install')
+      const res = tool.featureId
+        ? await fetch(`/api/features/${tool.featureId}/enable`, { method: 'POST', credentials: 'include' })
+        : await fetch(`/api/tools/${tool.id}/enabled`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: true }),
+          })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(body.error ?? 'Failed to install')
+      }
       await queryClient.invalidateQueries({ queryKey: ['tools'] })
+      await queryClient.invalidateQueries({ queryKey: ['features'] })
       onClose()
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err instanceof Error && err.message !== 'Failed to install' ? err.message : 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -120,6 +151,19 @@ export function InstallDisclosureModal({ tool, open, onClose }: Props) {
                 <p className="text-sm font-medium">Fully local</p>
                 <p className="text-xs text-muted-foreground leading-snug">
                   This app runs entirely on your local hardware. No external connections are made.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {feature && feature.bytesRequired > 0 && (
+            <div className="flex items-start gap-3 rounded-card border border-border/50 bg-muted/30 p-3">
+              <Download className="mt-0.5 size-4 shrink-0 text-brand" />
+              <div>
+                <p className="text-sm font-medium">Downloads about {fmtGb(feature.bytesRequired)}</p>
+                <p className="text-xs text-muted-foreground leading-snug">
+                  Models and components install to this server in the background
+                  {featureInfo?.disk.freeBytes ? ` (${fmtGb(featureInfo.disk.freeBytes)} free)` : ''}. You can keep using the app meanwhile.
                 </p>
               </div>
             </div>

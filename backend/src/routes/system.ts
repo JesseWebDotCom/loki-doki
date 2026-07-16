@@ -51,6 +51,7 @@ import { enqueueBackground, scanAndRepairCorruptImageModels } from '@/lib/downlo
 import { checkOsFingerprint, stampOsFingerprint } from '@/lib/osFingerprint'
 import { getRestorePlan, saveRestorePlan, clearRestorePlan, type RestoreAttentionItem } from '@/lib/restorePlan'
 import { isDownloadBlocked } from '@/lib/connectivity'
+import { seedFeatureSwitchesOnce } from '@/lib/features/orchestrator'
 import { requireAdmin } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 
@@ -673,6 +674,15 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   } else {
     // Optional — not a warning. Set up in the background / Features when wanted.
     step(broadcast, { key: 'voice', label: 'Voice — set up in the background', status: 'ok', detail: 'Optional · manage in Features' })
+  }
+
+  // ── Seed the one-switch feature gates from installed reality (one-time) ────────
+  // Before reconcile so healing sees the same ledger it always has; only writes
+  // app_feature.* rows that do not exist yet.
+  try {
+    await seedFeatureSwitchesOnce()
+  } catch (err) {
+    logger.warn(`[boot] feature switch seeding failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   // ── Reconcile: repair any previously-installed item that has gone missing ──────

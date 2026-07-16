@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Search, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Fragment, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Search, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, ArrowUpRight } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { ChromeWash } from '@/components/shared/ChromeWash'
-import { ADMIN_SECTIONS, searchSettings } from './adminRegistry'
+import { orderedSections, searchSettings } from './adminRegistry'
 
 interface Props {
   sectionId: string
@@ -24,6 +25,8 @@ export function AdminSidebar({
   const toggle = (id: string) =>
     setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const results = searchSettings(query)
+  const sections = orderedSections()
+  const navigate = useNavigate()
 
   // ── Collapsed icon rail (desktop only) ──────────────────────────────────────
   if (collapsed) {
@@ -39,22 +42,26 @@ export function AdminSidebar({
         >
           <PanelLeftOpen className="size-4" />
         </Button>
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
-          {ADMIN_SECTIONS.map((section) => {
+        <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto">
+          {sections.map((section, i) => {
             const Icon = section.icon
             const active = section.id === sectionId
+            // A thin divider stands in for the group heading in the icon-only rail.
+            const newGroup = !!section.group && i > 0 && section.group !== sections[i - 1]?.group
             return (
-              <button
-                key={section.id}
-                onClick={() => onNavigate(section.id)}
-                title={section.label}
-                className={cn(
-                  'flex size-10 items-center justify-center rounded-control transition-colors',
-                  active ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4" />
-              </button>
+              <Fragment key={section.id}>
+                {newGroup && <div className="my-1 h-px w-6 bg-border/60" />}
+                <button
+                  onClick={() => onNavigate(section.id)}
+                  title={section.group ? `${section.group} · ${section.label}` : section.label}
+                  className={cn(
+                    'flex size-10 items-center justify-center rounded-control transition-colors',
+                    active ? 'bg-brand/10 text-brand' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
+                  )}
+                >
+                  <Icon className="size-4" />
+                </button>
+              </Fragment>
             )
           })}
         </nav>
@@ -103,23 +110,31 @@ export function AdminSidebar({
           ) : (
             results.map((h) => (
               <button
-                key={`${h.sectionId}/${h.subId ?? ''}`}
-                onClick={() => onNavigate(h.sectionId, h.subId)}
+                key={h.href ?? `${h.sectionId}/${h.subId ?? ''}`}
+                onClick={() => { if (h.href) navigate(h.href); else onNavigate(h.sectionId, h.subId) }}
                 className="flex w-full flex-col items-start rounded-control px-2.5 py-1.5 text-left hover:bg-foreground/[0.04]"
               >
-                <span className="font-medium">{h.label}</span>
+                <span className="inline-flex items-center gap-1 font-medium">
+                  {h.label}
+                  {h.href && <ArrowUpRight className="size-3 text-muted-foreground" />}
+                </span>
                 <span className="text-caption text-muted-foreground">{h.breadcrumb}</span>
               </button>
             ))
           )
         ) : (
-          ADMIN_SECTIONS.map((section) => {
+          sections.map((section, i) => {
             const Icon = section.icon
             const isActiveSection = section.id === sectionId
-            const hasSubs = section.subsections.length > 0
+            const listedSubs = section.subsections.filter((s) => s.listed !== false)
+            const hasSubs = listedSubs.length > 0
             const isOpen = expanded.has(section.id) || isActiveSection
+            const showGroup = !!section.group && section.group !== sections[i - 1]?.group
             return (
               <div key={section.id} className="mb-0.5">
+                {showGroup && (
+                  <p className={cn('px-2.5 pb-1 text-overline text-muted-foreground/50', i === 0 ? 'pt-1' : 'pt-4')}>{section.group}</p>
+                )}
                 <button
                   onClick={() => { onNavigate(section.id); if (hasSubs) toggle(section.id) }}
                   className={cn(
@@ -133,7 +148,7 @@ export function AdminSidebar({
                 </button>
                 {hasSubs && isOpen && (
                   <div className="ml-[18px] border-l border-border/40 pl-1.5">
-                    {section.subsections.map((sub) => {
+                    {listedSubs.map((sub) => {
                       const active = isActiveSection && sub.id === subId
                       return (
                         <button

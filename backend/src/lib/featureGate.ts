@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { userPreferences } from '@/db/schema'
+import { appSettings, userPreferences } from '@/db/schema'
 import { getAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
@@ -82,6 +82,46 @@ export const FEATURES: Record<string, FeatureMeta> = {
     id: 'home-inventory', label: 'Home Inventory', risk: 'low', defaultEnabled: true,
     description: 'Track devices and belongings.',
   },
+  // User-facing feature switches (the Features hub). These default ON because the
+  // launcher hides apps whose gate reads false; boot seeding writes an explicit row
+  // per feature (true when its required components are installed, false otherwise),
+  // so a fresh install ends up honestly OFF without a regression window on upgrade.
+  voice: {
+    id: 'voice', label: 'Voice', risk: 'low', defaultEnabled: true,
+    description: 'Local text-to-speech and speech-to-text (talking companions, narration, dictation).',
+  },
+  image_gen: {
+    id: 'image_gen', label: 'Image Generation', risk: 'low', defaultEnabled: true,
+    description: 'Local image and video generation (ComfyUI and its models).',
+  },
+  music_studio: {
+    id: 'music_studio', label: 'Music Studio', risk: 'low', defaultEnabled: true,
+    description: 'Stem separation and music tools (karaoke, instrument isolation).',
+  },
+  web_search: {
+    id: 'web_search', label: 'Web Search', risk: 'medium', defaultEnabled: true,
+    description: 'Private web search through the bundled SearXNG instance.',
+  },
+  reference: {
+    id: 'reference', label: 'Reference Library', risk: 'low', defaultEnabled: true,
+    description: 'Offline reference archives (Wikipedia, guides) served locally.',
+  },
+}
+
+/** Persist a gate row. The one writer shared by the appFeatures router and the features
+ *  orchestrator, so every toggle hits the same app_settings key the same way. */
+export async function setFeatureGate(id: string, enabled: boolean): Promise<void> {
+  const key = `app_feature.${id}`
+  const existing = await db.select({ id: appSettings.id }).from(appSettings).where(eq(appSettings.key, key)).limit(1)
+  if (existing.length > 0) {
+    await db.update(appSettings)
+      .set({ value: JSON.stringify(enabled), updatedAt: new Date() })
+      .where(eq(appSettings.key, key))
+  } else {
+    await db.insert(appSettings).values({
+      id: crypto.randomUUID(), key, value: JSON.stringify(enabled), updatedAt: new Date(),
+    })
+  }
 }
 
 /** True if a feature is enabled. Absent toggle → the registry default (risky features OFF).

@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Cpu, Plug2, BellRing, Music2 } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing, HardDrive } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -16,6 +16,10 @@ export interface AdminSubsection {
   kind: SubKind
   anchorId?: string
   description?: string
+  /** false = hidden from the sidebar tree; still searchable and URL-addressable. */
+  listed?: boolean
+  /** Pointer entry: search/palette navigates to this app route instead of /admin. */
+  href?: string
 }
 
 export interface AdminSection {
@@ -24,8 +28,68 @@ export interface AdminSection {
   icon: LucideIcon
   keywords: string[]
   description?: string
+  /** Sidebar group heading. Ungrouped sections (Overview) render first. */
+  group?: string
   subsections: AdminSubsection[]
 }
+
+/** Sidebar display order: ungrouped first, then group-contiguous. Sections omitted
+ *  here sort last, so a forgotten entry is visible rather than lost. */
+const SECTION_ORDER = [
+  'overview',
+  // Household
+  'users', 'apps', 'companions', 'security',
+  // Platform
+  'features', 'integrations', 'ai-engine', 'storage',
+  // Devices & Alerts
+  'devices', 'notifications',
+  // System
+  'system', 'advanced',
+]
+
+export function orderedSections(): AdminSection[] {
+  const rank = (s: AdminSection) => {
+    const i = SECTION_ORDER.indexOf(s.id)
+    return i === -1 ? SECTION_ORDER.length : i
+  }
+  return [...ADMIN_SECTIONS].sort((a, b) => rank(a) - rank(b))
+}
+
+/** Old /admin URLs that moved. Keys are 'section' or 'section/sub'; values are absolute
+ *  paths (may leave /admin). AdminPage redirects with the query string preserved. */
+export const LEGACY_ADMIN_REDIRECTS: Record<string, string> = {
+  voice: '/admin/companions/voice',
+  news: '/apps/news/settings/categories',
+  music: '/apps/music/settings/sources',
+  'music/sources': '/apps/music/settings/sources',
+  'system/speed-test': '/apps/speed-test/settings/thresholds',
+  engine: '/admin/ai-engine/remote',
+  'system/ai-engine': '/admin/ai-engine/runtime',
+  'system/home-layout': '/admin/apps/home-layout',
+  'users/storage': '/admin/storage/usage',
+  'users/storage-locations': '/admin/storage/locations',
+  'companions/characters': '/companions',
+}
+
+/** Settings that moved out of /admin into an app's settings page, kept findable from
+ *  the admin search box and the command palette as pointer entries. */
+export const EXTERNAL_ENTRIES: { label: string; href: string; breadcrumb: string; description: string; keywords: string[] }[] = [
+  {
+    label: 'News Categories & Feeds', href: '/apps/news/settings/categories', breadcrumb: 'News settings',
+    description: 'Shared News categories and their RSS feeds',
+    keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines'],
+  },
+  {
+    label: 'Music Sources', href: '/apps/music/settings/sources', breadcrumb: 'Music settings',
+    description: 'Local music folders and Plex music sections',
+    keywords: ['music', 'folder', 'folders', 'library', 'scan', 'local', 'flac', 'plex music', 'sources', 'nas', 'path'],
+  },
+  {
+    label: 'Speed Test Thresholds', href: '/apps/speed-test/settings/thresholds', breadcrumb: 'Speed Test settings',
+    description: 'Download speed thresholds that color-code results and the home widget',
+    keywords: ['speed', 'threshold', 'mbps', 'bandwidth', 'internet', 'rating'],
+  },
+]
 
 export const ADMIN_SECTIONS: AdminSection[] = [
   {
@@ -35,26 +99,17 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     subsections: [],
   },
   {
-    id: 'system', label: 'System', icon: Settings2,
-    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'home', 'layout'],
-    description: 'Connectivity, home layout, locale, and server maintenance',
+    id: 'system', label: 'Server', icon: Settings2, group: 'System',
+    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'locale', 'units'],
+    description: 'Connectivity, locale, updates, and server maintenance',
     subsections: [
       { id: 'connectivity', label: 'Connectivity', kind: 'anchor', anchorId: 'connectivity',
         keywords: ['network', 'offline', 'online', 'internet', 'downloads', 'queue'],
         description: 'Online/offline mode and download permissions' },
-      { id: 'ai-engine', label: 'AI Engine', kind: 'anchor', anchorId: 'ai-engine',
-        keywords: ['ollama', 'llm', 'model', 'vram', 'gpu', 'loaded', 'unload', 'offload', 'context', 'guards', 'engine', 'restart', 'coding'],
-        description: 'Loaded AI models, VRAM residency, engine guards, and controls' },
       { id: 'locale', label: 'Locale & Units', kind: 'anchor', anchorId: 'locale',
         keywords: ['units', 'temperature', 'currency', 'time', 'measurement', 'metric', 'imperial'],
         description: 'Measurement units, temperature, currency, time format' },
-      { id: 'home-layout', label: 'Home Layout', kind: 'anchor', anchorId: 'home-layout',
-        keywords: ['home', 'layout', 'widgets', 'default', 'dashboard', 'per user', 'lock'],
-        description: 'Default and per-user home dashboard layout' },
-      { id: 'speed-test', label: 'Speed Test', kind: 'anchor', anchorId: 'speed-test',
-        keywords: ['speed', 'threshold', 'mbps', 'good', 'ok', 'slow', 'rating', 'bandwidth', 'internet'],
-        description: 'Download speed thresholds that color-code Speed Test results and the home widget' },
-      { id: 'server', label: 'Server', kind: 'anchor', anchorId: 'server',
+      { id: 'server', label: 'Updates & Restart', kind: 'anchor', anchorId: 'server',
         keywords: ['restart', 'reboot', 'update', 'upgrade', 'version', 'git', 'commit', 'maintenance'],
         description: 'Version info, updates, and restarting the server' },
       { id: 'uninstall', label: 'Uninstall', kind: 'anchor', anchorId: 'uninstall',
@@ -63,7 +118,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'features', label: 'Features', icon: LayoutGrid,
+    id: 'features', label: 'Features', icon: LayoutGrid, group: 'Platform',
     keywords: ['features', 'models', 'downloads', 'capabilities', 'install'],
     description: 'Enable capabilities and manage model downloads',
     subsections: [
@@ -82,9 +137,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'apps', label: 'Apps', icon: Store,
-    keywords: ['apps', 'extensions', 'install', 'store'],
-    description: 'Apps, install requests, and settings',
+    id: 'apps', label: 'Apps & Home', icon: Store, group: 'Household',
+    keywords: ['apps', 'extensions', 'install', 'store', 'home', 'layout'],
+    description: 'Apps, install requests, settings, and the home dashboard layout',
     subsections: [
       { id: 'requests', label: 'Install Requests', kind: 'anchor', anchorId: 'requests',
         keywords: ['install', 'requests', 'notifications', 'approve', 'pending'],
@@ -92,10 +147,13 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'app-settings', label: 'App Settings', kind: 'anchor', anchorId: 'app-settings',
         keywords: ['apps', 'extensions', 'config', 'api key', 'secret', 'permissions', 'home assistant', 'youtube', 'who can use', 'enable', 'disable'],
         description: 'Per-app configuration, API keys, and per-user permissions' },
+      { id: 'home-layout', label: 'Home Layout', kind: 'anchor', anchorId: 'home-layout',
+        keywords: ['home', 'layout', 'widgets', 'default', 'dashboard', 'per user', 'lock'],
+        description: 'Default and per-user home dashboard layout' },
     ],
   },
   {
-    id: 'companions', label: 'Companions', icon: Sparkles,
+    id: 'companions', label: 'Companions', icon: Sparkles, group: 'Household',
     keywords: ['companion', 'voice', 'wakeword', 'briefing', 'tts'],
     description: 'Instance-wide voice, wake words, and daily briefing (character studio lives in the Companions app)',
     subsections: [
@@ -108,23 +166,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'news', label: 'News', icon: Newspaper,
-    keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines', 'shared'],
-    description: 'Shared News categories and their RSS feeds (visible to everyone)',
-    subsections: [],
-  },
-  {
-    id: 'music', label: 'Music', icon: Music2,
-    keywords: ['music', 'library', 'collection', 'folder', 'folders', 'scan', 'local', 'flac', 'mp3', 'lossless', 'plex music', 'sources'],
-    description: 'Music sources: local library folders (and Plex music sections)',
-    subsections: [
-      { id: 'sources', label: 'Sources', kind: 'anchor', anchorId: 'sources',
-        keywords: ['folder', 'folders', 'local', 'scan', 'library', 'plex', 'nas', 'path'],
-        description: 'Local music folders and Plex music sections' },
-    ],
-  },
-  {
-    id: 'notifications', label: 'Notifications', icon: BellRing,
+    id: 'notifications', label: 'Notifications', icon: BellRing, group: 'Devices & Alerts',
     keywords: ['notifications', 'push', 'telegram', 'email', 'smtp', 'bot', 'digest', 'delivery', 'alerts', 'quiet hours', 'vapid'],
     description: 'Delivery channels: Telegram bot, email (SMTP), web push, and the delivery log',
     subsections: [
@@ -143,7 +185,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'devices', label: 'Devices', icon: Cpu,
+    id: 'devices', label: 'Devices', icon: Cpu, group: 'Devices & Alerts',
     keywords: ['devices', 'pod', 'pods', 'esp32', 'satellite', 'hardware', 'pairing', 'pair', 'wake word', 'echo', 'dot', 'show', 'watch', 'wyoming'],
     description: 'Set up and manage your voice devices around the home',
     subsections: [
@@ -170,32 +212,37 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'integrations', label: 'Integrations', icon: Plug2,
+    id: 'integrations', label: 'Integrations', icon: Plug2, group: 'Platform',
     keywords: ['integrations', 'frigate', 'plex', 'home assistant', 'nvr', 'camera', 'media', 'smart home', 'mqtt', 'hass', 'cctv', 'security', 'books', 'opds'],
     description: 'External service integrations — Frigate NVR, Plex, Home Assistant, and Books',
     subsections: [
       {
-        id: 'frigate', label: 'Frigate', kind: 'view',
+        id: 'overview', label: 'All Integrations', kind: 'view',
+        keywords: ['integrations', 'status', 'connected', 'overview', 'hub', 'services', 'external'],
+        description: 'Every external service at a glance: status, host, and where it is managed',
+      },
+      {
+        id: 'frigate', label: 'Frigate', kind: 'view', listed: false,
         keywords: ['frigate', 'nvr', 'camera', 'cameras', 'cctv', 'security', 'genai', 'license plate', 'lpr', 'delivery', 'mqtt'],
         description: 'Frigate NVR — VLM GenAI provider, camera event notifications and announcements',
       },
       {
-        id: 'monitoring', label: 'Monitoring', kind: 'view',
+        id: 'monitoring', label: 'Monitoring', kind: 'view', listed: false,
         keywords: ['monitoring', 'uptime', 'kuma', 'uptime kuma', 'status', 'health', 'down', 'alerts', 'webhook', 'service', 'server', 'outage'],
         description: 'Uptime Kuma — get told (and have the companion announce) when a service or server goes down',
       },
       {
-        id: 'plex', label: 'Plex', kind: 'view',
+        id: 'plex', label: 'Plex', kind: 'view', listed: false,
         keywords: ['plex', 'media', 'server', 'watchlist', 'library', 'movies', 'shows', 'streaming', 'token', 'pin'],
         description: 'Link your Plex Media Server — library rails, two-way Watchlist sync, and in-app playback',
       },
       {
-        id: 'home-assistant', label: 'Home Assistant', kind: 'view',
+        id: 'home-assistant', label: 'Home Assistant', kind: 'view', listed: false,
         keywords: ['home assistant', 'hass', 'smart home', 'iot', 'devices', 'entities', 'areas', 'automation', 'lights', 'thermostat'],
         description: 'Connect Home Assistant for smart-home control via the companion',
       },
       {
-        id: 'books', label: 'Books', kind: 'view',
+        id: 'books', label: 'Books', kind: 'view', listed: false,
         keywords: ['books', 'opds', 'ebook', 'calibre', 'kavita', 'indexer', 'catalog', 'discover'],
         description: 'Optional self-hosted OPDS indexers as extra Book Store sources',
       },
@@ -203,29 +250,29 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       // per-user grants, and the queue span all of them) but each gets its own
       // product-named sidebar entry, matching Plex/Frigate/Home Assistant.
       {
-        id: 'sonarr', label: 'Sonarr', kind: 'view',
+        id: 'sonarr', label: 'Sonarr', kind: 'view', listed: false,
         keywords: ['sonarr', 'shows', 'tv', 'series', 'episodes', 'arr', 'downloads', 'requests', 'calendar'],
         description: 'Sonarr: TV show downloads, requests from the Shows app, and library calendar',
       },
       {
-        id: 'radarr', label: 'Radarr', kind: 'view',
+        id: 'radarr', label: 'Radarr', kind: 'view', listed: false,
         keywords: ['radarr', 'movies', 'films', 'arr', 'downloads', 'requests', 'calendar'],
         description: 'Radarr: movie downloads, requests from the Movies app, and release calendar',
       },
       {
-        id: 'overseerr', label: 'Overseerr', kind: 'view',
+        id: 'overseerr', label: 'Overseerr', kind: 'view', listed: false,
         keywords: ['overseerr', 'requests', 'request pipeline', 'plex requests', 'jellyseerr'],
         description: 'Overseerr: household request pipeline with per-user Plex attribution',
       },
       {
-        id: 'sabnzbd', label: 'SABnzbd', kind: 'view',
+        id: 'sabnzbd', label: 'SABnzbd', kind: 'view', listed: false,
         keywords: ['sabnzbd', 'sab', 'usenet', 'nzb', 'queue', 'downloads', 'speed', 'history'],
         description: 'SABnzbd: live download queue, pause/resume, and history',
       },
     ],
   },
   {
-    id: 'security', label: 'Security', icon: ShieldCheck,
+    id: 'security', label: 'Content & Safety', icon: ShieldCheck, group: 'Household',
     keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored'],
     description: 'Style flags, filtering, and privacy mode',
     subsections: [
@@ -244,9 +291,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'users', label: 'Users', icon: Users,
-    keywords: ['users', 'accounts', 'roles', 'admin', 'members', 'storage', 'profiles', 'content'],
-    description: 'User accounts, content profiles, and storage',
+    id: 'users', label: 'Users', icon: Users, group: 'Household',
+    keywords: ['users', 'accounts', 'roles', 'admin', 'members', 'profiles', 'content'],
+    description: 'User accounts and content profiles',
     subsections: [
       { id: 'accounts', label: 'Accounts', kind: 'anchor', anchorId: 'accounts',
         keywords: ['users', 'accounts', 'roles', 'memory', 'protections', 'style', 'clear memory'],
@@ -254,16 +301,23 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'profiles', label: 'Content Profiles', kind: 'anchor', anchorId: 'profiles',
         keywords: ['profiles', 'content', 'ceiling', 'dials', 'profanity', 'sexual', 'violence', 'nsfw', 'adult', 'uncensored', 'unrestricted', 'censored'],
         description: 'Named per-category content ceilings assigned to users' },
-      { id: 'storage', label: 'Storage', kind: 'anchor', anchorId: 'storage',
+    ],
+  },
+  {
+    id: 'storage', label: 'Storage', icon: HardDrive, group: 'Platform',
+    keywords: ['storage', 'disk', 'space', 'usage', 'cleanup', 'locations', 'network', 'unc', 'nas', 'path', 'mapping', 'users'],
+    description: 'Disk usage, cleanup, and storage locations',
+    subsections: [
+      { id: 'usage', label: 'Usage', kind: 'view',
         keywords: ['storage', 'disk', 'cleanup', 'space', 'usage'],
         description: 'Disk usage and cleanup' },
-      { id: 'storage-locations', label: 'Storage Locations', kind: 'anchor', anchorId: 'storage-locations',
+      { id: 'locations', label: 'Locations', kind: 'view',
         keywords: ['storage', 'locations', 'network', 'unc', 'nas', 'plex', 'path', 'mapping'],
         description: 'Per-content-type storage roots, incl. network paths, and Plex path mappings' },
     ],
   },
   {
-    id: 'advanced', label: 'Advanced', icon: ChevronRight,
+    id: 'advanced', label: 'Diagnostics & Logs', icon: ChevronRight, group: 'System',
     keywords: ['advanced', 'diagnostics', 'logs', 'debug', 'troubleshoot'],
     description: 'Diagnostics and live logs',
     subsections: [
@@ -276,10 +330,17 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
-    id: 'engine', label: 'Engine', icon: Cpu,
-    keywords: ['engine', 'remote', 'ollama', 'gpu', 'offload', 'inference', 'llm', 'host'],
-    description: 'Run inference on a remote Ollama host',
-    subsections: [],
+    id: 'ai-engine', label: 'AI Engine', icon: Cpu, group: 'Platform',
+    keywords: ['ai engine', 'engine', 'system', 'ollama', 'llm', 'model', 'vram', 'gpu', 'remote', 'offload', 'inference', 'host'],
+    description: 'The local AI engine and optional remote inference host',
+    subsections: [
+      { id: 'runtime', label: 'Runtime', kind: 'view',
+        keywords: ['ollama', 'llm', 'model', 'vram', 'gpu', 'loaded', 'unload', 'offload', 'context', 'guards', 'restart', 'coding'],
+        description: 'Loaded AI models, VRAM residency, engine guards, and controls' },
+      { id: 'remote', label: 'Remote Engine', kind: 'view',
+        keywords: ['remote', 'ollama', 'gpu', 'offload', 'inference', 'host', 'engine'],
+        description: 'Run inference on a remote Ollama host' },
+    ],
   },
 ]
 
@@ -303,6 +364,8 @@ export interface SearchHit {
   breadcrumb: string
   description?: string
   anchorId?: string
+  /** Pointer hit: navigate here (an app settings route) instead of /admin/:section. */
+  href?: string
   score: number
 }
 
@@ -321,7 +384,7 @@ export function searchSettings(query: string): SearchHit[] {
     return 0
   }
 
-  for (const section of ADMIN_SECTIONS) {
+  for (const section of orderedSections()) {
     if (section.subsections.length === 0) {
       const s = score(section.label, section.keywords, section.description)
       if (s > 0) hits.push({ sectionId: section.id, label: section.label, breadcrumb: section.label, description: section.description, score: s })
@@ -337,19 +400,26 @@ export function searchSettings(query: string): SearchHit[] {
       }
     }
   }
+  for (const entry of EXTERNAL_ENTRIES) {
+    const s = score(entry.label, entry.keywords, entry.description)
+    if (s > 0) hits.push({ sectionId: '', href: entry.href, label: entry.label, breadcrumb: entry.breadcrumb, description: entry.description, score: s })
+  }
   return hits.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
 }
 
 // All leaf entries (sections without subs + every subsection), for the empty palette state.
 export function allEntries(): SearchHit[] {
   const hits: SearchHit[] = []
-  for (const section of ADMIN_SECTIONS) {
+  for (const section of orderedSections()) {
     if (section.subsections.length === 0) {
       hits.push({ sectionId: section.id, label: section.label, breadcrumb: section.label, description: section.description, score: 0 })
     }
     for (const sub of section.subsections) {
       hits.push({ sectionId: section.id, subId: sub.id, label: sub.label, breadcrumb: section.label, description: sub.description, anchorId: sub.anchorId, score: 0 })
     }
+  }
+  for (const entry of EXTERNAL_ENTRIES) {
+    hits.push({ sectionId: '', href: entry.href, label: entry.label, breadcrumb: entry.breadcrumb, description: entry.description, score: 0 })
   }
   return hits
 }

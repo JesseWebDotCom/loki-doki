@@ -443,16 +443,28 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     repair: (onP) => installTmux(onP),
   },
   {
-    // Real OS-level isolation for the coding sidecar (see codingSandboxUser.ts):
-    // a restricted OS user with zero access to any home directory, since the
-    // opencode-sandbox plugin's Seatbelt/bubblewrap wrapping was verified live to
-    // fail open (sandbox-exec itself is non-functional on this machine). Requires
-    // one-time OS admin approval (native password/Touch ID dialog on macOS,
-    // pkexec on Linux); every later sidecar spawn is silent after that.
+    // Real OS-level isolation for the coding sidecar (see codingSandboxUser.ts and
+    // CODING-SANDBOX-DESIGN-2026-07-16.md): a restricted OS user — with no access to
+    // any home directory (mac/Linux) or to the app/data dirs + drive roots via deny
+    // ACEs (Windows) — since the opencode-sandbox plugin's Seatbelt/bubblewrap
+    // wrapping was verified live to fail open. Requires one-time OS admin approval
+    // (native password/Touch ID dialog on macOS, pkexec on Linux, UAC on Windows);
+    // every later sidecar spawn is silent after that. Install-time verification
+    // asserts the boundary actually HOLDS (fail-open is a hard error, not a warning).
     id: 'coding-sandbox-user', group: 'coding', label: 'Coding Sandbox Isolation',
     needsElevation: true,
     isInstalled: isSandboxUserInstalled,
-    repair: (onP) => installSandboxUser(statusAdapter(onP)),
+    repair: async (onP) => {
+      await installSandboxUser(statusAdapter(onP))
+      // Windows: the coding sidecar may already be running as the APP user from
+      // before the install — tear it down so the next attach spawns it under the
+      // restricted identity. (mac/Linux instead require a backend restart for the
+      // new group membership; installSandboxUser's status message says so.)
+      if (process.platform === 'win32') {
+        const { shutdownCodingSidecar } = await import('@/lib/codingPtySidecar')
+        await shutdownCodingSidecar()
+      }
+    },
   },
   {
     // Headless Chromium — powers the Reader offline archive AND Canvas → PDF export.

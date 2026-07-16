@@ -167,13 +167,13 @@ export function CollectionTab() {
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
         <ListMusic className="size-8 text-muted-foreground opacity-40" />
         <p className="max-w-sm text-sm text-muted-foreground">
-          Your collection is empty. Upload songs here, {user?.role === 'admin' ? 'or add a music folder in Admin → Music, ' : ''}
+          Your collection is empty. Upload songs here, {user?.role === 'admin' ? 'or add a music folder in Music Settings → Sources, ' : ''}
           and everything plays at its original quality - FLAC included.
         </p>
         <div className="flex items-center gap-2">
           <UploadControl onDone={refresh} />
           {user?.role === 'admin' && (
-            <Button size="sm" variant="ghost" onClick={() => navigate('/admin/music/sources')}>
+            <Button size="sm" variant="ghost" onClick={() => navigate('/apps/music/settings/sources')}>
               <FolderPlus className="size-4" /> Add a folder
             </Button>
           )}

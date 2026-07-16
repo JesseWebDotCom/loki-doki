@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { appSettings } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
-import { FEATURES, isFeatureEnabled } from '@/lib/featureGate'
+import { FEATURES, isFeatureEnabled, setFeatureGate } from '@/lib/featureGate'
+import { shutdownCodingSidecar } from '@/lib/codingPtySidecar'
+import { killSandboxedOrphans } from '@/lib/codingSandboxUser'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -45,21 +46,21 @@ appFeaturesRouter.put('/:id', requireAdmin, async (c) => {
   if (!(id in FEATURES)) return c.json({ error: 'Unknown feature' }, 400)
 
   const { enabled } = await c.req.json() as { enabled: boolean }
-  const key = `app_feature.${id}`
   const user = c.get('user')
 
-  const existing = await db.select().from(appSettings).where(eq(appSettings.key, key))
-  if (existing.length > 0) {
-    await db.update(appSettings)
-      .set({ value: JSON.stringify(enabled), updatedAt: new Date() })
-      .where(eq(appSettings.key, key))
-  } else {
-    await db.insert(appSettings).values({
-      id: crypto.randomUUID(), key, value: JSON.stringify(enabled), updatedAt: new Date(),
-    })
-  }
+  await setFeatureGate(id, enabled)
   // Audit trail for enabling/disabling a capability (esp. the critical ones).
   logger.info(`[featureGate] ${enabled ? 'ENABLED' : 'DISABLED'} feature '${id}' by admin=${user?.id ?? 'unknown'}`)
+
+  // Disabling Coding actively tears down the live terminals, not just the routes:
+  // the gate blocks NEW attaches, but running claude sessions (and their persistent
+  // ptys in the sidecar) would otherwise keep executing indefinitely.
+  if (id === 'coding' && !enabled) {
+    void shutdownCodingSidecar().catch((e) => logger.warn(`[featureGate] coding sidecar shutdown failed: ${e instanceof Error ? e.message : String(e)}`))
+    // mac/Linux: the claude processes live in tmux panes as the sandbox user, outside
+    // the sidecar — sweep those too (no-op on Windows / when the sandbox isn't installed).
+    try { killSandboxedOrphans() } catch { /* best-effort */ }
+  }
 
   return c.json({ id, enabled })
 })

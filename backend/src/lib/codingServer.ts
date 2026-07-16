@@ -1,19 +1,21 @@
 import { join } from 'node:path'
 import { existsSync, mkdirSync, chmodSync, rmSync } from 'node:fs'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   SANDBOX_WORKSPACES_ROOT, SANDBOX_RUNTIME_DIR, SANDBOX_USER, LAUNCH_SCRIPT,
-  isSandboxUserInstalled, ensureSandboxRuntimeMirrored,
+  WIN_MIRROR_CLAUDE_DIR, WIN_SANDBOX_TMP,
+  isSandboxUserInstalled, ensureSandboxRuntimeMirrored, ensureWindowsSandboxMirror,
 } from '@/lib/codingSandboxUser'
 import { CLAUDE_CODE_DIR, CLAUDE_BIN, isClaudeCodeInstalled } from '@/lib/claudeCode'
-import { killCodingSession } from '@/lib/codingPtySidecar'
+import { killCodingSession, runInCodingSidecar } from '@/lib/codingPtySidecar'
 import { codingEngineUrl, resolveCodingModelTag } from '@/lib/codingEngine'
 import { dataDir } from '@/lib/download'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
+const BACKEND_DIR = join(import.meta.dir, '../..')
 
 // Before the coding-sandbox-user install step has run (fresh install, or Windows,
 // where it's unsupported), SANDBOX_WORKSPACES_ROOT doesn't exist and this app's own
@@ -71,14 +73,56 @@ async function hasSession(userId: string): Promise<boolean> {
 }
 
 function mirroredClaudeBin(): string {
-  return join(SANDBOX_RUNTIME_DIR, 'node_modules', '.bin', 'claude')
+  // Windows nests claude under runtime\claude (node + the sidecar have their own
+  // mirror subdirs — see ensureWindowsSandboxMirror); mac keeps the flat layout.
+  return IS_WIN
+    ? join(WIN_MIRROR_CLAUDE_DIR, 'node_modules', '.bin', 'claude.exe')
+    : join(SANDBOX_RUNTIME_DIR, 'node_modules', '.bin', 'claude')
 }
 
 function ensureFreshSandboxRuntimeMirror(): void {
+  if (IS_WIN) {
+    // 'node' = "system PATH node, skip the node mirror" — only claude freshness
+    // matters on this call path; the sidecar's own spawn mirrors node itself.
+    ensureWindowsSandboxMirror('node', CLAUDE_CODE_DIR, BACKEND_DIR)
+    return
+  }
   if (existsSync(SANDBOX_RUNTIME_DIR) && !existsSync(mirroredClaudeBin())) {
     rmSync(SANDBOX_RUNTIME_DIR, { recursive: true, force: true })
   }
   ensureSandboxRuntimeMirrored(CLAUDE_CODE_DIR)
+}
+
+/** Per-session env for a Windows claude pty/headless run. When sandboxed, every
+ *  profile-shaped variable points INSIDE the user's workspace — the real app-user
+ *  profile is structurally unreachable and claude would otherwise crash trying to
+ *  write config under an unreadable APPDATA. */
+async function windowsClaudeEnv(workingDir: string, homeDir: string, sandboxed: boolean): Promise<Record<string, string>> {
+  const model = await resolveCodingModelTag()
+  const env: Record<string, string> = {
+    TERM: 'xterm-256color',
+    HOME: homeDir,
+    USERPROFILE: homeDir,
+    // Dedicated coding engine, with main/remote fallbacks - see codingEngine.ts.
+    ANTHROPIC_BASE_URL: await codingEngineUrl(),
+    ANTHROPIC_AUTH_TOKEN: 'ollama',
+    ANTHROPIC_MODEL: model,
+  }
+  for (const k of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'APPDATA', 'LOCALAPPDATA']) {
+    const v = process.env[k]
+    if (v) env[k] = v
+  }
+  if (sandboxed) {
+    const appData = join(homeDir, 'AppData', 'Roaming')
+    const localAppData = join(homeDir, 'AppData', 'Local')
+    mkdirSync(appData, { recursive: true })
+    mkdirSync(localAppData, { recursive: true })
+    env.APPDATA = appData
+    env.LOCALAPPDATA = localAppData
+    env.TEMP = WIN_SANDBOX_TMP
+    env.TMP = WIN_SANDBOX_TMP
+  }
+  return env
 }
 
 interface PaneLaunch { paneCmd: string[]; workingDir: string; sock: string }
@@ -91,6 +135,7 @@ interface PaneLaunch { paneCmd: string[]; workingDir: string; sock: string }
  * user — only the pane command is (or isn't) wrapped. Also prepares the workspace + HOME dirs.
  */
 async function resolvePaneLaunch(userId: string, sandboxed: boolean): Promise<PaneLaunch> {
+  if (IS_WIN) throw new Error('resolvePaneLaunch is tmux-only (mac/Linux); Windows spawns via the PTY sidecar.')
   if (!isClaudeCodeInstalled()) throw new Error('Claude Code is not installed. Enable it in Admin → Features')
   const eff = sandboxed && isSandboxUserInstalled()
   const workingDir = workspaceDirFor(userId)
@@ -133,7 +178,8 @@ export async function ensureTmuxSession(userId: string): Promise<void> {
     if (IS_WIN) {
       const workingDir = workspaceDirFor(userId)
       mkdirSync(workingDir, { recursive: true })
-      mkdirSync(unsandboxedHomeDir(workingDir), { recursive: true })
+      const home = isSandboxUserInstalled() ? sandboxedHomeDir(workingDir) : unsandboxedHomeDir(workingDir)
+      mkdirSync(home, { recursive: true })
       return
     }
     if (await hasSession(userId)) return
@@ -187,16 +233,54 @@ export async function paneControl(userId: string, action: PaneAction, sandboxed 
   if (r.code !== 0) throw new Error(`tmux ${action} failed: ${r.stderr || r.stdout}`)
 }
 
+const HEADLESS_CLAUDE_ARGS = ['--output-format', 'json', '--permission-mode', 'bypassPermissions']
+
 /**
- * Sandboxed command line for a one-shot headless `claude -p` (the companion coding tool,
- * tools/coding.ts). Always sandboxed — a background auto-approving run must stay contained.
+ * One-shot headless `claude -p` (the companion coding tool, tools/coding.ts).
+ * FAIL CLOSED on every platform: headless runs auto-approve all edits/commands
+ * (no interactive prompt is possible), so they run ONLY when the OS sandbox
+ * actually contains them — never as the app's own user. That containment is the
+ * entire justification for bypassPermissions here.
  */
-export async function buildHeadlessClaudeCommand(userId: string, task: string): Promise<{ bin: string; args: string[]; cwd: string }> {
+export async function runHeadlessClaude(userId: string, task: string, timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  if (!isClaudeCodeInstalled()) throw new Error('Claude Code is not installed. Enable it in Admin → Features')
+  if (!isSandboxUserInstalled()) {
+    throw new Error('Headless coding tasks auto-approve every edit and command, so they only run inside OS-level sandbox isolation. Enable "Coding Sandbox Isolation" in Admin → Features first.')
+  }
+
+  if (IS_WIN) {
+    // Runs INSIDE the restricted sidecar (POST /run) — the sidecar process itself is
+    // the sandbox user, so the headless claude inherits the boundary.
+    const workingDir = workspaceDirFor(userId)
+    mkdirSync(workingDir, { recursive: true })
+    const homeDir = sandboxedHomeDir(workingDir)
+    mkdirSync(homeDir, { recursive: true })
+    ensureFreshSandboxRuntimeMirror()
+    const env = await windowsClaudeEnv(workingDir, homeDir, true)
+    return runInCodingSidecar({
+      cmd: mirroredClaudeBin(),
+      args: ['-p', task, ...HEADLESS_CLAUDE_ARGS],
+      cwd: workingDir,
+      env,
+      timeoutMs,
+    })
+  }
+
+  // mac/Linux: spawn directly under `sudo -u lokidoki-coding` (the tmux-pane wrapper,
+  // minus tmux — a headless run needs no terminal).
   const { paneCmd, workingDir } = await resolvePaneLaunch(userId, true)
-  const claudeArgs = ['-p', task, '--output-format', 'json', '--permission-mode', 'bypassPermissions']
-  const full = [...paneCmd, ...claudeArgs]
-  const [bin, ...args] = full
-  return { bin: bin!, args, cwd: workingDir }
+  const [bin, ...args] = [...paneCmd, '-p', task, ...HEADLESS_CLAUDE_ARGS]
+  let stdout = ''
+  let stderr = ''
+  const code = await new Promise<number | null>((resolve) => {
+    const child = spawn(bin!, args, { cwd: workingDir, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const timer = setTimeout(() => { try { child.kill('SIGTERM') } catch { /* already gone */ } }, timeoutMs)
+    child.stdout.on('data', (c: Buffer) => { stdout += c.toString() })
+    child.stderr.on('data', (c: Buffer) => { stderr += c.toString() })
+    child.on('close', (c) => { clearTimeout(timer); resolve(c) })
+    child.on('error', () => { clearTimeout(timer); resolve(null) })
+  })
+  return { code, stdout, stderr }
 }
 
 /**
@@ -207,25 +291,19 @@ export async function buildHeadlessClaudeCommand(userId: string, task: string): 
 export async function buildAttachSpawnParams(userId: string): Promise<{ cmd: string; args: string[]; cwd: string; env: Record<string, string>; sessionKey?: string; persistent?: boolean }> {
   if (IS_WIN) {
     if (!isClaudeCodeInstalled()) throw new Error('Claude Code is not installed. Enable it in Admin → Features')
+    // The pty spawn happens inside the coding sidecar. With the sandbox installed,
+    // that sidecar IS the restricted user, so this claude (and every shell it opens)
+    // is contained without any per-spawn privilege work here — but it can only reach
+    // the MIRRORED claude runtime (the app data dir is deny-ACE'd for it).
+    const sandboxed = isSandboxUserInstalled()
     const workingDir = workspaceDirFor(userId)
     mkdirSync(workingDir, { recursive: true })
-    const homeDir = unsandboxedHomeDir(workingDir)
+    const homeDir = sandboxed ? sandboxedHomeDir(workingDir) : unsandboxedHomeDir(workingDir)
     mkdirSync(homeDir, { recursive: true })
-    const model = await resolveCodingModelTag()
-    const env: Record<string, string> = {
-      TERM: 'xterm-256color',
-      HOME: homeDir,
-      USERPROFILE: homeDir,
-      // Dedicated coding engine, with main/remote fallbacks - see codingEngine.ts.
-      ANTHROPIC_BASE_URL: await codingEngineUrl(),
-      ANTHROPIC_AUTH_TOKEN: 'ollama',
-      ANTHROPIC_MODEL: model,
-    }
-    for (const k of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'APPDATA', 'LOCALAPPDATA']) {
-      const v = process.env[k]
-      if (v) env[k] = v
-    }
-    return { cmd: CLAUDE_BIN, args: [], cwd: workingDir, env, sessionKey: userId, persistent: true }
+    let claudeBin = CLAUDE_BIN
+    if (sandboxed) { ensureFreshSandboxRuntimeMirror(); claudeBin = mirroredClaudeBin() }
+    const env = await windowsClaudeEnv(workingDir, homeDir, sandboxed)
+    return { cmd: claudeBin, args: [], cwd: workingDir, env, sessionKey: userId, persistent: true }
   }
 
   await ensureTmuxSession(userId)

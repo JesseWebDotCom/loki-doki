@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
-import { wakewordDir, wakewordTrainPython, isWakewordTrainInstalled, wakewordRirDir, isWakewordRirInstalled, ensureWakewordNoisePack, wakewordNoiseTrainDir, wakewordNoiseCalibDir, isWakewordNoisePackInstalled } from '@/lib/download'
+import { wakewordDir, wakewordTrainPython, isWakewordTrainInstalled, wakewordRirDir, isWakewordRirInstalled, ensureWakewordNoisePack, wakewordNoiseTrainDir, wakewordNoiseCalibDir, isWakewordNoisePackInstalled, negFeaturesPath, isNegFeaturesInstalled, wakewordHardNegDir } from '@/lib/download'
 import { kokoroUrl } from '@/lib/voice/config'
 import { listKokoroVoices, type KokoroVoice } from '@/lib/voice/engines/kokoroEngine'
 import { ollamaUrl } from '@/llm/ollama'
@@ -322,6 +322,26 @@ async function writeRealNoiseNegatives(negDir: string): Promise<number> {
   return count
 }
 
+// Harvested hard negatives (design P1.5): real audio that FALSELY triggered THIS
+// phrase's wake word in this household, saved (with consent) under
+// data/voice/wakewords/hard-negatives/<slug>/. Mixed into the next retrain's negatives
+// with a distinctive filename prefix, so the model learns to reject the household's
+// actual false triggers (its TV, its rooms, its voices). No-op when the dir is absent.
+async function writeHarvestedNegatives(negDir: string, phrase: string): Promise<number> {
+  const slug = phrase.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  const dir = wakewordHardNegDir(slug)
+  if (!existsSync(dir)) return 0
+  let count = 0
+  try {
+    for (const name of await readdir(dir)) {
+      if (!name.endsWith('.wav')) continue
+      await copyFile(join(dir, name), join(negDir, `harvest_${name}`))
+      count++
+    }
+  } catch { /* best-effort */ }
+  return count
+}
+
 export interface TrainProgress {
   step: 'generating' | 'training' | 'done' | 'error'
   msg: string
@@ -354,13 +374,26 @@ export async function cleanupStaleTrainingTmp(maxAgeMs = 60 * 60 * 1000): Promis
   return removed
 }
 
+export interface TrainResult {
+  onnxPath: string
+  threshold?: number
+  /** Calibrated threshold for the pod surface (hysteresis 4); browser uses `threshold`. */
+  podThreshold?: number
+  accuracy?: number
+  /** Certification gate: true = met the FA/hr + recall bar on real audio, false =
+   *  failed, undefined = could not be certified (no real-negative audio present).
+   *  Callers must NOT auto-attach a detector with gatePass === false. */
+  gatePass?: boolean
+  gateReason?: string
+}
+
 export async function trainWakeword(
   phrase: string,
   outputId: string,
   emit: (p: TrainProgress) => void,
   signal?: AbortSignal,
   trainingVoice?: string | null,
-): Promise<{ onnxPath: string; threshold?: number; accuracy?: number }> {
+): Promise<TrainResult> {
   const tmpDir = join(wakewordDir(), `.train_${outputId}_tmp`)
   const posDir = join(tmpDir, 'positives')
   const negDir = join(tmpDir, 'negatives')
@@ -497,6 +530,10 @@ export async function trainWakeword(
     const realNoiseCount = await writeRealNoiseNegatives(negDir)
     if (realNoiseCount) emit({ step: 'generating', msg: `Added ${realNoiseCount} real-room negatives (MS-SNSD)`, pct: 50 })
 
+    // Harvested household false triggers for this exact phrase, if any were saved.
+    const harvestCount = await writeHarvestedNegatives(negDir, phrase)
+    if (harvestCount) emit({ step: 'generating', msg: `Added ${harvestCount} harvested false-trigger negatives`, pct: 50 })
+
     // ── Step 2: run Python training script ───────────────────────────────────
     emit({ step: 'training', msg: 'Training ONNX detector…', pct: 50 })
 
@@ -518,10 +555,15 @@ export async function trainWakeword(
     // "trains fine but the tester never matches" bug). So training extracts its
     // embeddings through the SAME runtime — wake_embed_ortweb.mjs, run under this
     // same Bun binary — making train and inference features bit-for-bit identical.
-    // The openWakeWord negative-feature bank lives in native-embedding space, so
-    // it is intentionally NOT used (it would crush the ort-web positives);
-    // discrimination comes from the diverse synthesized negatives, which share the
-    // ort-web feature space.
+    // The openWakeWord negative-feature bank (60k windows of real speech/noise/
+    // music) is the single biggest lever for a low false-accept rate: it teaches
+    // the detector to reject real household audio that the synthetic negatives don't
+    // cover. It lives in native-embedding space, but A/B training proved the model
+    // still discriminates the PHRASE, not the feature space (real ort-web negatives
+    // score near 0 while ort-web positives score 0.9+), so we pass --keep-native-bank
+    // to include it even in ortweb mode. This is what separates a ~140 FA/hr head
+    // from a ~0 FA/hr one. (An earlier build dropped it here citing a runtime-space
+    // mismatch; that premise was disproven, see WAKEWORD-ACCURACY-DESIGN.)
     const python = wakewordTrainPython()
     // Real room-impulse-response pack (bundled with the Wake Word Training install).
     // Passed only when present on disk — the trainer falls back to procedural reverb
@@ -530,8 +572,16 @@ export async function trainWakeword(
     // Threshold calibration against the HELD-OUT real-audio split (disjoint from the
     // real negatives mixed into training above) — never the same files the model saw.
     const calibArgs = isWakewordNoisePackInstalled() ? ['--calib-dir', wakewordNoiseCalibDir()] : []
+    // openWakeWord real-negative feature bank (see comment above). --keep-native-bank
+    // overrides the trainer's ortweb-mode default of dropping it.
+    const negBankArgs = isNegFeaturesInstalled()
+      ? ['--neg-features', negFeaturesPath(), '--keep-native-bank']
+      : []
     let calibratedThreshold: number | undefined
+    let calibratedPodThreshold: number | undefined
     let valAccuracy: number | undefined
+    let gatePass: boolean | undefined
+    let gateReason: string | undefined
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(python, [
         TRAIN_SCRIPT,
@@ -545,6 +595,7 @@ export async function trainWakeword(
         '--embed-script',  EMBED_SCRIPT,
         ...rirArgs,
         ...calibArgs,
+        ...negBankArgs,
       ], { windowsHide: true })
 
       signal?.addEventListener('abort', () => proc.kill())
@@ -558,11 +609,14 @@ export async function trainWakeword(
           const trimmed = line.trim()
           if (!trimmed) continue
           try {
-            const parsed = JSON.parse(trimmed) as { msg?: string; done?: boolean; error?: boolean; threshold?: number; accuracy?: number }
+            const parsed = JSON.parse(trimmed) as { msg?: string; done?: boolean; error?: boolean; threshold?: number; pod_threshold?: number; accuracy?: number; gate_pass?: boolean | null; gate_reason?: string }
             const pct = parsed.done ? 99 : 50 + Math.min(48, (parsed.msg?.length ?? 0))
             emit({ step: 'training', msg: parsed.msg ?? trimmed, pct })
             if (typeof parsed.threshold === 'number') calibratedThreshold = parsed.threshold
+            if (typeof parsed.pod_threshold === 'number') calibratedPodThreshold = parsed.pod_threshold
             if (typeof parsed.accuracy === 'number') valAccuracy = parsed.accuracy
+            if (typeof parsed.gate_pass === 'boolean') gatePass = parsed.gate_pass
+            if (typeof parsed.gate_reason === 'string') gateReason = parsed.gate_reason
             if (parsed.done) resolve()
           } catch {
             emit({ step: 'training', msg: trimmed, pct: 75 })
@@ -588,7 +642,7 @@ export async function trainWakeword(
       proc.on('error', reject)
     })
 
-    return { onnxPath: outOnnx, threshold: calibratedThreshold, accuracy: valAccuracy }
+    return { onnxPath: outOnnx, threshold: calibratedThreshold, podThreshold: calibratedPodThreshold, accuracy: valAccuracy, gatePass, gateReason }
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => null)
   }

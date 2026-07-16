@@ -47,7 +47,7 @@ export function SpeedTestPage() {
     description: 'User is on the Speed Test page, measuring connection speed.',
   })
 
-  useAppHeader({ query: '', setQuery: NOOP, searchable: false })
+  useAppHeader({ query: '', setQuery: NOOP, searchable: false, settingsHref: '/apps/speed-test/settings' })
 
   return (
     <PageShell>

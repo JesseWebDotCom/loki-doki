@@ -17,6 +17,10 @@ import { StatusDot } from '@/components/shared/StatusDot'
 import { cn } from '@/lib/cn'
 import { DownloadProgress } from '@/components/shared/DownloadProgress'
 import type { DownloadStatus } from '@/components/shared/DownloadProgress'
+import { FeatureSwitchRow } from '@/components/admin/FeatureSwitchRow'
+import { useFeatureSwitches } from '@/hooks/useFeatureSwitches'
+import { Link } from 'react-router-dom'
+import { Badge } from '@/components/ui/badge'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -169,7 +173,7 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'stem-roformer-guitar', label: 'Music Studio: Enhanced Guitar', description: 'Optional guitar upgrade: a RoFormer model that isolates guitar far more cleanly than Demucs. Adds to an existing Music Studio install.', bytes: 2_100_000_000, requires: ['stem-audio'], icon: SlidersHorizontal },
   { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model, usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
   { id: 'tmux',          label: 'Coding Terminal Multiplexer', description: 'Powers split panes and reload-persistence in the Coding app\'s terminal.', bytes: 2_000_000, requires: ['claude-code'], icon: Code2 },
-  { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
+  { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin approval (native macOS/Linux dialog, UAC prompt on Windows); silent after that, and setup verifies the wall actually holds before reporting success. Without this, coding tasks still pause for approval but have no OS-level wall behind it, and chat-triggered background coding tasks are disabled.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
   // Rendered only on Windows + NVIDIA (see the More Capabilities section guard).
   { id: 'nvidia-gpu-tuning', label: 'NVIDIA Driver Tuning', description: 'Stops image/video generation from silently crawling when VRAM runs out: sets the driver\'s CUDA sysmem-fallback policy to "prefer none" for python.exe (via NVIDIA Profile Inspector), so over-commits fail fast and ComfyUI uses its own faster tiling instead. Applies to every python.exe on this machine. Re-apply after NVIDIA driver upgrades.', bytes: 450_000, requires: [], icon: Cpu },
 ]
@@ -401,7 +405,6 @@ const MOVED_CONFIG_TOOL_IDS = new Set(['youtube', 'homeAssistant', 'where-to-wat
 export function ToolsSection({ query, focusToolId }: { query: string; focusToolId?: string }) {
   const [tools, setTools]           = useState<ToolInfo[]>([])
   const [loading, setLoading]       = useState(true)
-  const [saving, setSaving]         = useState<Set<string>>(new Set())
   const [expandedId, setExpandedId] = useState<string | null>(focusToolId ?? null)
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({})
   const [users, setUsers]               = useState<ToolUser[]>([])
@@ -443,18 +446,6 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
   function handleExpand(id: string) {
     if (expandedId === id) { setExpandedId(null); return }
     setExpandedId(id); loadConfig()
-  }
-
-  async function doToggleTool(id: string, enabled: boolean) {
-    setSaving(prev => new Set(prev).add(id))
-    setTools(prev => prev.map(t => t.id === id ? { ...t, enabled } : t))
-    try {
-      await fetch(`/api/tools/${id}/enabled`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }), credentials: 'include' })
-    } finally { setSaving(prev => { const next = new Set(prev); next.delete(id); return next }) }
-  }
-
-  function toggleTool(id: string, enabled: boolean) {
-    void doToggleTool(id, enabled)
   }
 
   async function saveConfigField(toolId: string, key: string, value: string | boolean) {
@@ -569,7 +560,14 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
                               {isExpanded ? 'Done' : globalFields.length > 0 ? 'Config' : 'Manage'}
                             </Button>
                           )}
-                          <ToggleSwitch checked={tool.enabled} disabled={tool.core || saving.has(tool.id)} onChange={enabled => toggleTool(tool.id, enabled)} />
+                          {/* Install state is read-only here: the App Store is the one
+                              writer of the install flag (feature-backed tools go through
+                              the orchestrator there). This panel keeps config + grants. */}
+                          {!tool.core && (
+                            <Link to={`/app-store/app/${tool.id}`} className="shrink-0" title="Manage in App Store">
+                              <Badge variant={tool.enabled ? 'success' : 'outline'}>{tool.enabled ? 'Installed' : 'Not installed'}</Badge>
+                            </Link>
+                          )}
                         </div>
 
                         {isExpanded && (
@@ -680,6 +678,16 @@ const SECTION_ANCHOR: Record<string, string> = {
   capabilities: 'section-capabilities',
 }
 
+// Where each feature switch's "Choose models and extras" link points further down the page.
+const FEATURE_DETAILS_ANCHOR: Record<string, string> = {
+  coding: 'section-coding',
+  image_gen: 'section-images',
+  voice: 'section-voice',
+  music_studio: 'section-capabilities',
+  web_search: 'section-capabilities',
+  reference: 'section-capabilities',
+}
+
 export function AdminFeaturesTab({ view }: { view?: string } = {}) {
   const { user } = useAuth()
   const [catalog, setCatalog] = useState<FullCatalogResponse | null>(null)
@@ -693,6 +701,7 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
   const [showFaceIdNotice, setShowFaceIdNotice] = useState(false)
   const [pendingEntry, setPendingEntry] = useState<CatalogEntry | null>(null)
   const abortRefs = useRef<Map<string, AbortController>>(new Map())
+  const featureSwitches = useFeatureSwitches()
 
   const loadAll = useCallback(async () => {
     setLoading(true); setLoadError('')
@@ -885,6 +894,39 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
 
       <div className="px-5 py-6 space-y-8 pb-[600px]">
 
+        {/* One-switch features: the primary way to turn a capability on or off. The
+            sections further down hold the advanced knobs (model choice, extras). */}
+        {(featureSwitches.data?.features.length ?? 0) > 0 && (
+          <div id="section-switches" className="space-y-2">
+            <p className="text-overline text-muted-foreground/60">Features</p>
+            <p className="text-xs text-muted-foreground">
+              One switch per feature. Everything each one needs (models, components) installs automatically in the background.
+            </p>
+            <div className="space-y-4 pt-1">
+              {featureSwitches.data!.features.map((f) => {
+                const busy =
+                  (featureSwitches.enable.isPending && featureSwitches.enable.variables === f.id) ||
+                  (featureSwitches.disable.isPending && featureSwitches.disable.variables === f.id) ||
+                  (featureSwitches.repair.isPending && featureSwitches.repair.variables === f.id)
+                return (
+                  <FeatureSwitchRow
+                    key={f.id}
+                    feature={f}
+                    freeBytes={featureSwitches.data!.disk.freeBytes || null}
+                    busy={busy}
+                    onEnable={() => featureSwitches.enable.mutate(f.id)}
+                    onDisable={() => featureSwitches.disable.mutate(f.id)}
+                    onRepair={() => featureSwitches.repair.mutate(f.id)}
+                    onApprovePart={(cid) => void repairComponent(cid, cid)}
+                    approvingIds={new Set([...installStates].filter(([, s]) => s.status === 'downloading').map(([id]) => id))}
+                    detailsAnchor={FEATURE_DETAILS_ANCHOR[f.id]}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Chat & Intelligence */}
         <div id="section-chat" className="space-y-2">
           <p className="text-overline text-muted-foreground/60">Chat &amp; Intelligence</p>
@@ -1031,21 +1073,14 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
                 onCancel={() => cancelInstall('tmux')}
               />
             )}
-            {catalog.hardware.platform === 'win32' ? (
-              <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
-                <ShieldCheck className="size-4 shrink-0" />
-                Sandbox isolation isn't available on Windows yet. Coding tasks still pause for your approval, just without an OS-level wall behind it.
-              </div>
-            ) : (
-              <CapInstallRow
-                cap={ADMIN_CAPS.find(c => c.id === 'coding-sandbox-user')!}
-                installed={compMap.get('coding-sandbox-user') === true}
-                blocked={compMap.get('claude-code') !== true}
-                installState={installStates.get('coding-sandbox-user')}
-                onInstall={() => void repairComponent('coding-sandbox-user', 'coding-sandbox-user')}
-                onCancel={() => cancelInstall('coding-sandbox-user')}
-              />
-            )}
+            <CapInstallRow
+              cap={ADMIN_CAPS.find(c => c.id === 'coding-sandbox-user')!}
+              installed={compMap.get('coding-sandbox-user') === true}
+              blocked={compMap.get('claude-code') !== true}
+              installState={installStates.get('coding-sandbox-user')}
+              onInstall={() => void repairComponent('coding-sandbox-user', 'coding-sandbox-user')}
+              onCancel={() => cancelInstall('coding-sandbox-user')}
+            />
             {codingModels.map(m => (
               <ModelInstallRow key={m.id} entry={m}
                 installState={installStates.get(m.id)}

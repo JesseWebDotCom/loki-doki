@@ -17,8 +17,6 @@ import { CONTENT_DIALS, type ContentDialValues } from '@/components/shared/conte
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { AdminAccordion } from '@/components/admin/AdminAccordion'
 import { ContentProfilesManager } from '@/components/admin/ContentProfilesManager'
-import { AdminStorageTab } from '@/components/admin/AdminStorageTab'
-import { AdminStorageLocationsTab } from '@/components/admin/AdminStorageLocationsTab'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1205,17 +1203,6 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
         <ContentProfilesManager embedded />
       </AdminAccordion>
 
-      <AdminAccordion id="storage" title="Storage"
-        description="Disk usage and cleanup."
-        openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
-        <AdminStorageTab />
-      </AdminAccordion>
-
-      <AdminAccordion id="storage-locations" title="Storage Locations"
-        description="Named storage roots (incl. network paths) individual content types can be pointed at, e.g. for Plex to see."
-        openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
-        <AdminStorageLocationsTab />
-      </AdminAccordion>
     </div>
   )
 }

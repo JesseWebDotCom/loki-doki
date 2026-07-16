@@ -701,6 +701,8 @@ export function AdminAppsTab({ openSignal }: { openSignal?: string } = {}) {
         >
           <ToolsSection query="" focusToolId={focusToolId} />
         </SectionPanel>
+        <DefaultHomeLayoutSection openSignal={openSignal} />
+        <PerUserHomeLayoutSection />
       </div>
     </div>
   )

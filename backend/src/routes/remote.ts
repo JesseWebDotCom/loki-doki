@@ -27,7 +27,10 @@ import { startWsKeepalive } from '@/lib/wsKeepalive'
 import { createRdpCleanPath, type RdpCleanPathController } from '@/lib/rdpCleanPath'
 import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
 import { buildHostShellSpawnParams } from '@/lib/codingServer'
-import { ensureCodingPtySidecarReady, codingPtySidecarWsUrl } from '@/lib/codingPtySidecar'
+// Host-shell variants, NOT the coding ones: on Windows with sandbox isolation the
+// coding sidecar runs as the restricted user, and the admin "This server" shell
+// must keep full app-user access (it gets its own sidecar instance there).
+import { ensureHostShellSidecarReady, hostShellSidecarWsUrl } from '@/lib/codingPtySidecar'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import type { AppEnv, User } from '@/types'
@@ -519,9 +522,9 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         if (!(await isFeatureEnabled('remote'))) { try { ws.close(4403, 'feature disabled') } catch { /* ignore */ }; return }
         stopKeepalive = startWsKeepalive(ws)
         try {
-          await ensureCodingPtySidecarReady()
+          await ensureHostShellSidecarReady()
           const spawn = buildHostShellSpawnParams(user.id)
-          upstream = new WebSocket(codingPtySidecarWsUrl())
+          upstream = new WebSocket(hostShellSidecarWsUrl())
           upstream.addEventListener('open', () => {
             try { upstream?.send(JSON.stringify(spawn)); for (const m of pending) upstream?.send(m as string); pending.length = 0 } catch { /* closed */ }
           })

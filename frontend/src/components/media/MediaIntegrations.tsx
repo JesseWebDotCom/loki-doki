@@ -2,16 +2,18 @@
 // requests): the admin config card, the "Coming to your library" calendar section, and the
 // per-title Request button. All render nothing (or a prompt) when unconfigured.
 
-import { useEffect, useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, CheckCircle2, Download, Film, Send, Tv, X, XCircle } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Download, Film, Send, Tv, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ActionButton } from '@/components/media/ActionBar'
+import {
+  ConnectionCard, ArrDefaultsCard, RequestPipelineCard, SERVICE_META,
+} from '@/components/media/MediaServiceCards'
 
 const opts: RequestInit = { credentials: 'include' }
 
@@ -72,18 +74,6 @@ export async function testIntegrations(): Promise<TestResult | null> {
   return (await r.json()) as TestResult
 }
 
-const SERVICES = [
-  { urlKey: 'sonarr_url', keyKey: 'sonarr_key', setKey: 'sonarr_key_set', testKey: 'sonarr', label: 'Sonarr', hint: 'shows' },
-  { urlKey: 'radarr_url', keyKey: 'radarr_key', setKey: 'radarr_key_set', testKey: 'radarr', label: 'Radarr', hint: 'movies' },
-  { urlKey: 'overseerr_url', keyKey: 'overseerr_key', setKey: 'overseerr_key_set', testKey: 'overseerr', label: 'Overseerr', hint: 'requests' },
-  { urlKey: 'sabnzbd_url', keyKey: 'sabnzbd_key', setKey: 'sabnzbd_key_set', testKey: 'sabnzbd', label: 'SABnzbd', hint: 'downloads' },
-] as const
-
-const ARR_DEFAULTS = [
-  { label: 'Radarr', testKey: 'radarr', profileKey: 'radarr_quality_profile_id', rootKey: 'radarr_root_folder' },
-  { label: 'Sonarr', testKey: 'sonarr', profileKey: 'sonarr_quality_profile_id', rootKey: 'sonarr_root_folder' },
-] as const
-
 export type MediaServiceId = 'sonarr' | 'radarr' | 'overseerr' | 'sabnzbd'
 
 const ALL_SERVICES: MediaServiceId[] = ['sonarr', 'radarr', 'overseerr', 'sabnzbd']
@@ -95,166 +85,25 @@ function listNames(names: string[]): string {
 
 /** Admin config for the LAN media services. `services` filters which ones this mount
  *  shows (Shows settings passes sonarr+overseerr, Movies radarr+overseerr, the admin
- *  hub all four); every mount reads and writes the same shared config. */
+ *  hub all four); every mount reads and writes the same shared config. A thin
+ *  composition of the per-service cards in MediaServiceCards (the same cards the
+ *  Admin → Integrations product pages use), so connection semantics, secret
+ *  handling, and the request pipeline stay defined in exactly one place. */
 export function MediaIntegrationsAdminCard({ services = ALL_SERVICES }: { services?: MediaServiceId[] }) {
-  const { data, refetch } = useQuery({
-    queryKey: ['media-integrations-config'],
-    queryFn: async () => {
-      const r = await fetch('/api/media-integrations/config', opts)
-      if (!r.ok) throw new Error('load failed')
-      return (await r.json()) as IntegrationsConfig
-    },
-    staleTime: 60 * 1000,
-  })
-  const [draft, setDraft] = useState<Record<string, string>>({})
-  const [test, setTest] = useState<TestResult | null>(null)
-  const [testing, setTesting] = useState(false)
-  const shown = SERVICES.filter((svc) => services.includes(svc.testKey))
-  const arrShown = ARR_DEFAULTS.filter((arr) => services.includes(arr.testKey))
-  // Effect keys on the joined string, not the array, so callers can pass literals.
-  const servicesKey = services.join(',')
-  useEffect(() => {
-    if (!data) return
-    setDraft((d) => {
-      const included = new Set(servicesKey.split(','))
-      const base: Record<string, string> = { request_pipeline: data.request_pipeline }
-      for (const svc of SERVICES) {
-        if (!included.has(svc.testKey)) continue
-        base[svc.urlKey] = data[svc.urlKey]
-      }
-      for (const arr of ARR_DEFAULTS) {
-        if (!included.has(arr.testKey)) continue
-        base[arr.profileKey] = data[arr.profileKey]
-        base[arr.rootKey] = data[arr.rootKey]
-      }
-      return { ...base, ...d }
-    })
-  }, [data, servicesKey])
-
-  const save = async () => {
-    const body: Record<string, string> = {}
-    for (const [k, v] of Object.entries(draft)) body[k] = v
-    const r = await fetch('/api/media-integrations/config', {
-      ...opts, method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    })
-    if (r.ok) {
-      toast.success('Integrations saved')
-      setDraft((d) => Object.fromEntries(Object.entries(d).filter(([k]) => !k.endsWith('_key'))))
-      void refetch()
-    } else toast.error('Could not save integrations')
-  }
-
-  const runTest = async () => {
-    setTesting(true)
-    try {
-      const r = await fetch('/api/media-integrations/test', opts)
-      if (!r.ok) throw new Error('test failed')
-      setTest((await r.json()) as TestResult)
-    } catch {
-      toast.error('Could not reach the server to test connections')
-    } finally {
-      setTesting(false)
-    }
-  }
-
-  const pipeline = (draft.request_pipeline ?? data?.request_pipeline ?? 'overseerr') as 'overseerr' | 'direct'
-
   return (
-    <section className="space-y-3">
+    <section className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Connect {listNames(shown.map((s) => s.label))} to see what&rsquo;s coming to your library, request titles from any detail page, and track downloads. URL + API key per service (Settings → General → API Key in each app).
+        Connect {listNames(services.map((s) => SERVICE_META[s].label))} to see what&rsquo;s coming to your library, request titles from any detail page, and track downloads. URL + API key per service (Settings → General → API Key in each app).
       </p>
-      {shown.map((svc) => {
-        const probe = test?.[svc.testKey]
-        return (
-          <div key={svc.label} className="flex flex-wrap items-center gap-2">
-            <span className="w-20 text-sm font-medium">{svc.label}</span>
-            {/* name+autoComplete stop the browser treating "text field next to a password
-                field" as a login form and autofilling the admin username/password. */}
-            <Input
-              value={draft[svc.urlKey] ?? ''}
-              onChange={(e) => setDraft((d) => ({ ...d, [svc.urlKey]: e.target.value }))}
-              placeholder={`http://host:port (${svc.hint})`}
-              className="w-64"
-              name={`${svc.urlKey}-server`}
-              autoComplete="off"
-            />
-            <Input
-              type="password"
-              value={draft[svc.keyKey] ?? ''}
-              onChange={(e) => setDraft((d) => ({ ...d, [svc.keyKey]: e.target.value }))}
-              placeholder={data?.[svc.setKey] ? 'API key saved' : 'API key'}
-              className="w-48"
-              name={`${svc.keyKey}-secret`}
-              autoComplete="new-password"
-            />
-            {probe ? (
-              probe.ok ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
-                  <CheckCircle2 className="size-3" /> Connected{probe.version ? ` · v${probe.version}` : ''}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive">
-                  <XCircle className="size-3" /> Unreachable
-                </span>
-              )
-            ) : data?.[svc.setKey] ? <CheckCircle2 className="size-4 text-success" /> : null}
-          </div>
-        )
-      })}
-
+      {services.map((svc) => (
+        <Fragment key={svc}>
+          <ConnectionCard service={svc} />
+          {(svc === 'sonarr' || svc === 'radarr') && <ArrDefaultsCard service={svc} />}
+        </Fragment>
+      ))}
       {services.includes('overseerr') && (
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="w-20 text-sm font-medium">Requests</span>
-          <select
-            className="ld-input w-64"
-            value={pipeline}
-            onChange={(e) => setDraft((d) => ({ ...d, request_pipeline: e.target.value }))}
-          >
-            <option value="overseerr">Through Overseerr (uses each user&rsquo;s linked Plex account)</option>
-            <option value="direct">Direct to Radarr and Sonarr</option>
-          </select>
-          {services.length < ALL_SERVICES.length && (
-            <span className="text-xs text-muted-foreground">Shared across the Shows and Movies apps</span>
-          )}
-        </div>
+        <RequestPipelineCard service="overseerr" sharedNote={services.length < ALL_SERVICES.length} />
       )}
-
-      {pipeline === 'direct' && arrShown.map((arr) => {
-        const probe = test?.[arr.testKey]
-        return (
-          <div key={arr.label} className="flex flex-wrap items-center gap-2">
-            <span className="w-20 text-sm font-medium" />
-            <span className="text-xs text-muted-foreground w-14">{arr.label}</span>
-            <select
-              className="ld-input w-44"
-              value={draft[arr.profileKey] ?? ''}
-              onChange={(e) => setDraft((d) => ({ ...d, [arr.profileKey]: e.target.value }))}
-            >
-              <option value="">Quality: first profile</option>
-              {(probe?.qualityProfiles ?? []).map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-            </select>
-            <select
-              className="ld-input w-56"
-              value={draft[arr.rootKey] ?? ''}
-              onChange={(e) => setDraft((d) => ({ ...d, [arr.rootKey]: e.target.value }))}
-            >
-              <option value="">Folder: first root folder</option>
-              {(probe?.rootFolders ?? []).map((f) => <option key={f.id} value={f.path}>{f.path}</option>)}
-            </select>
-            {!probe && <span className="text-xs text-muted-foreground">Test connections to load choices</span>}
-          </div>
-        )
-      })}
-
-      {pipeline === 'direct' && <RequestGrantsList />}
-
-      <div className="flex items-center gap-2">
-        <Button type="button" variant="secondary" onClick={() => void save()}>Save integrations</Button>
-        <Button type="button" variant="ghost" onClick={() => void runTest()} disabled={testing}>
-          {testing ? 'Testing…' : 'Test connections'}
-        </Button>
-      </div>
     </section>
   )
 }

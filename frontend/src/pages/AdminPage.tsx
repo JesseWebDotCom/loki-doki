@@ -1,27 +1,26 @@
-import { useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { PanelLeft, Search, WifiOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { Button } from '@/components/ui/button'
-import { findSection, findSubsection, defaultSub } from '@/components/admin/adminRegistry'
+import { findSection, findSubsection, defaultSub, LEGACY_ADMIN_REDIRECTS } from '@/components/admin/adminRegistry'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { AdminOverview } from '@/components/admin/AdminOverview'
 import { AdminCommandPalette } from '@/components/admin/AdminCommandPalette'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { AdminAccordion } from '@/components/admin/AdminAccordion'
 import { AdminFeaturesTab } from '@/components/admin/AdminFeaturesTab'
-import { AdminAppsTab, DefaultHomeLayoutSection, PerUserHomeLayoutSection } from '@/components/admin/AdminAppsTab'
+import { AdminAppsTab } from '@/components/admin/AdminAppsTab'
 import { AdminUsersTab } from '@/components/admin/AdminUsersTab'
 import { AdminSystemTab } from '@/components/admin/AdminSystemTab'
 import { AdminAiEngineTab } from '@/components/admin/AdminAiEngineTab'
 import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdvancedTab'
 import { AdminCompanionsTab, type CompanionView } from '@/components/admin/AdminCompanionsTab'
 import { AdminSecurityTab } from '@/components/admin/AdminSecurityTab'
-import { AdminNewsTab } from '@/components/admin/AdminNewsTab'
-import { AdminMusicTab } from '@/components/admin/AdminMusicTab'
 import { AdminNotificationsTab } from '@/components/admin/AdminNotificationsTab'
 import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
+import { AdminIntegrationsOverview } from '@/components/admin/AdminIntegrationsOverview'
 import { AdminMonitoringTab } from '@/components/admin/AdminMonitoringTab'
 import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
@@ -29,18 +28,24 @@ import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
 import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
 import { AdminHomeAssistantTab } from '@/components/admin/AdminHomeAssistantTab'
 import { AdminBooksTab } from '@/components/admin/AdminBooksTab'
-import { AdminMediaServiceTab, type MediaService } from '@/components/admin/AdminDownloadsTab'
+import { AdminMediaServiceTab, type MediaService } from '@/components/media/MediaServiceCards'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { ServerPanel } from '@/components/admin/ServerPanel'
-import { AdminSpeedTestTab } from '@/components/admin/AdminSpeedTestTab'
+import { AdminStorageTab } from '@/components/admin/AdminStorageTab'
+import { AdminStorageLocationsTab } from '@/components/admin/AdminStorageLocationsTab'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
 
 export function AdminPage() {
   const { section: rawSection = 'overview', subsection: rawSub } = useParams<{ section?: string; subsection?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
 
-  const section = findSection(rawSection) ? rawSection : rawSection === 'voice' ? 'companions' : 'overview'
+  // Relocated URLs redirect (rendered below, after every hook has run, to keep the
+  // hook order stable across the redirecting and normal render paths).
+  const legacyTarget = LEGACY_ADMIN_REDIRECTS[`${rawSection}/${rawSub ?? ''}`] ?? LEGACY_ADMIN_REDIRECTS[rawSection]
+
+  const section = findSection(rawSection) ? rawSection : 'overview'
   const sub = findSubsection(section, rawSub)?.id ?? defaultSub(section)
 
   const sectionDef = findSection(section)
@@ -158,6 +163,8 @@ export function AdminPage() {
     return () => { cancelAnimationFrame(raf); obs?.disconnect() }
   }, [section, sub])
 
+  if (legacyTarget) return <Navigate to={legacyTarget + location.search} replace />
+
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Desktop sidebar (collapsible icon rail) */}
@@ -204,24 +211,12 @@ export function AdminPage() {
               openSignal={openSignal} defaultOpen contentClassName="p-0">
               <AdminSystemTab />
             </AdminAccordion>
-            <AdminAccordion id="ai-engine" title="AI Engine"
-              description="Loaded AI models, VRAM residency, engine guards, and controls."
-              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
-              <AdminAiEngineTab />
-            </AdminAccordion>
             <AdminAccordion id="locale" title="Locale & Units"
               description="Measurement units, temperature, currency, and time format."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
               <AdminLocaleTab />
             </AdminAccordion>
-            <DefaultHomeLayoutSection openSignal={openSignal} />
-            <PerUserHomeLayoutSection />
-            <AdminAccordion id="speed-test" title="Speed Test"
-              description="Download speed thresholds that color-code results and the home widget."
-              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
-              <AdminSpeedTestTab />
-            </AdminAccordion>
-            <AdminAccordion id="server" title="Server"
+            <AdminAccordion id="server" title="Updates & Restart"
               description="Version info, updates, and restarting the server."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
               <ServerPanel />
@@ -236,10 +231,9 @@ export function AdminPage() {
         {section === 'features'   && <AdminFeaturesTab view={sub} />}
         {section === 'apps'       && <AdminAppsTab openSignal={openSignal} />}
         {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
-        {section === 'news'       && <AdminNewsTab />}
-        {section === 'music'      && <AdminMusicTab />}
         {section === 'notifications' && <AdminNotificationsTab openSignal={openSignal} />}
         {section === 'devices'    && <AdminDevicesTab view={sub} />}
+        {section === 'integrations' && sub === 'overview'        && <AdminIntegrationsOverview onNavigate={go} />}
         {section === 'integrations' && sub === 'frigate'         && <AdminFrigateTab />}
         {section === 'integrations' && sub === 'monitoring'       && <AdminMonitoringTab />}
         {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}
@@ -249,7 +243,16 @@ export function AdminPage() {
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}
-        {section === 'engine'     && <AdminRemoteEngineTab />}
+        {section === 'ai-engine' && sub === 'runtime' && (
+          <div className="p-5"><AdminAiEngineTab /></div>
+        )}
+        {section === 'ai-engine' && sub === 'remote' && <AdminRemoteEngineTab />}
+        {section === 'storage' && sub === 'usage' && (
+          <div className="p-5"><AdminStorageTab /></div>
+        )}
+        {section === 'storage' && sub === 'locations' && (
+          <div className="p-5"><AdminStorageLocationsTab /></div>
+        )}
       </div>
       </div>
 

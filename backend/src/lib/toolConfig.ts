@@ -96,3 +96,19 @@ export async function isToolAllowed(toolId: string, userId: string): Promise<boo
   if ((MEDIA_TOOL_IDS as readonly string[]).includes(toolId) && !(await isMediaIntegrationsConfigured())) return false
   return true
 }
+
+/** Persist the store-install flag (`__enabled`). The one writer shared by the tools
+ *  router and the features orchestrator, so every surface flips the same row. */
+export async function setToolEnabled(toolId: string, enabled: boolean): Promise<void> {
+  const where = and(eq(toolGlobalConfig.toolId, toolId), eq(toolGlobalConfig.key, '__enabled'))
+  const [existing] = await db.select({ id: toolGlobalConfig.id }).from(toolGlobalConfig).where(where).limit(1)
+  if (existing) {
+    await db.update(toolGlobalConfig)
+      .set({ value: JSON.stringify(enabled), updatedAt: new Date() })
+      .where(where)
+  } else {
+    await db.insert(toolGlobalConfig).values({
+      id: crypto.randomUUID(), toolId, key: '__enabled', value: JSON.stringify(enabled), updatedAt: new Date(),
+    })
+  }
+}

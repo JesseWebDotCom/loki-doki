@@ -126,7 +126,7 @@ async function trainCompanion(characterId: string, name: string, phrase: string)
   let lastStep = ''
   try {
     logger.info(`[pod] auto-training wake word "${phrase}" for companion "${name}"…`)
-    const { threshold, accuracy } = await trainWakeword(
+    const { threshold, podThreshold, accuracy, gatePass, gateReason } = await trainWakeword(
       phrase,
       id,
       (p) => { if (p.step !== lastStep) { lastStep = p.step; logger.info(`[pod] wake-train "${phrase}": ${p.step}`) } },
@@ -134,15 +134,27 @@ async function trainCompanion(characterId: string, name: string, phrase: string)
       null, // train across the full diverse voice set (speaker-independent)
     )
     const now = new Date()
+    // Certification gate: a detector that FAILED the FA/hr + recall bar on real audio
+    // is recorded but left DISABLED and NOT attached to the character; the companion
+    // keeps its previous model (or the app default) rather than shipping a chatty
+    // detector that false-fires on the TV. gatePass === undefined means it could not
+    // be certified (no real-negative audio installed); we attach that with a warning
+    // rather than block, since it's no worse than the historical behavior.
+    const failed = gatePass === false
     await db.insert(wakeWordCatalog).values({
       id, label: phrase, kind: 'trained', assetPath: `${id}.onnx`,
-      defaultThreshold: threshold ?? 0.6, accuracy: accuracy ?? null, characterId, enabled: true, createdAt: now, updatedAt: now,
-    }).onConflictDoUpdate({ target: wakeWordCatalog.id, set: { assetPath: `${id}.onnx`, accuracy: accuracy ?? null, updatedAt: now } })
+      defaultThreshold: threshold ?? 0.6, accuracy: accuracy ?? null, characterId, enabled: !failed, createdAt: now, updatedAt: now,
+    }).onConflictDoUpdate({ target: wakeWordCatalog.id, set: { assetPath: `${id}.onnx`, accuracy: accuracy ?? null, defaultThreshold: threshold ?? 0.6, enabled: !failed, updatedAt: now } })
+    if (failed) {
+      logger.warn(`[pod] ⚠️ wake word for "${name}" ("${phrase}") FAILED certification, not attaching. ${gateReason ?? ''}`)
+      return
+    }
     // Attach to the character so every device with this companion uses it. Keep the
     // phrase (the in-app companion still Whisper-matches it); the model just takes
     // precedence for devices.
     await db.update(characters).set({ wakeWordModelId: id, updatedAt: now }).where(eq(characters.id, characterId))
-    logger.info(`[pod] ✅ auto-trained wake word for "${name}" → say "${phrase}" (model ${id})`)
+    const podNote = typeof podThreshold === 'number' ? `, pod th ${podThreshold.toFixed(2)}` : ''
+    logger.info(`[pod] ✅ auto-trained wake word for "${name}" → say "${phrase}" (model ${id}, browser th ${(threshold ?? 0.6).toFixed(2)}${podNote}${gatePass ? ', gate PASS' : ''})`)
   } catch (e) {
     logger.warn(`[pod] wake auto-train failed for "${name}": ${(e as Error).message}`)
   }

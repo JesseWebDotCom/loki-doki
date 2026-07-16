@@ -78,8 +78,27 @@ export class WakeWordLoop {
   }
 
   setEnabled(enabled: boolean): void {
+    const wasEnabled = this.enabled
     this.enabled = enabled
     if (!enabled) { this.consecutiveAboveThreshold = 0; this.scoreWindow = [] }
+    // On (re)enable, clear the rolling audio/embedding history so audio captured
+    // before the loop was armed (e.g. the tail of the companion's own TTS reply, the
+    // same voice the detector was trained on) can't linger in the buffers and score a
+    // spurious fire. Parity with lib/pod/wake.ts's reset() + post-reset suppression.
+    else if (!wasEnabled) this.resetBuffers()
+  }
+
+  /** Clear rolling raw-audio + embedding history and re-arm the warm-up window, so
+   *  stale/self-generated audio can't trigger a fire right after (re)enabling. */
+  private resetBuffers(): void {
+    this.accumulator = new Float32Array(WAKE_WORD_FRAME_SAMPLES)
+    this.accumulatorOffset = 0
+    this.consecutiveAboveThreshold = 0
+    this.scoreWindow = []
+    this.rawBuffer = new Float32Array(RAW_AUDIO_BUFFER_SAMPLES)
+    this.rawFilled = 0
+    this.embeddingBuffer = seedEmbeddingBuffer(0xa17c0001)
+    this.detectorFrameIndex = 0 // re-arms WARMUP_ZERO_FRAMES (next frames score 0)
   }
 
   setModel(modelId: string): void {
@@ -249,6 +268,7 @@ export class WakeWordLoop {
       threshold,
       frameIndex,
       timestamp: now,
+      origin: 'onnx-wake',
     }
     emitWakeDetected(event)
   }

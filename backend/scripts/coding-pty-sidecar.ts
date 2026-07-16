@@ -14,6 +14,12 @@
 //
 //   GET  /health          → { ok: true }
 //   POST /session/kill    → body { sessionKey } — kill a persistent session (model change / admin)
+//   POST /run             → body { cmd, args, cwd, env, timeoutMs? } — one-shot NON-pty exec
+//                          (headless `claude -p`); responds { code, stdout, stderr }. Runs as
+//                          THIS process's user — which is the whole point when the sidecar
+//                          runs as the restricted sandbox user on Windows.
+//   POST /shutdown        → kill every session and exit (cooperative teardown: on Windows the
+//                          backend cannot signal a sidecar running as the sandbox user)
 //   WS   /attach           first message: JSON { cmd, args, cwd, env, cols, rows, sessionKey?, persistent? }
 //                          then: binary frames = raw PTY I/O both ways;
 //                          text frames = JSON control { type: 'resize', cols, rows }
@@ -26,6 +32,7 @@
 //     This reproduces tmux's persistence + reattach on platforms without tmux (Windows).
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { spawn as spawnChild } from 'node:child_process'
 import { WebSocketServer, type WebSocket } from 'ws'
 import * as pty from 'node-pty'
 
@@ -245,6 +252,45 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ ok: true, existed }))
     })
+    return
+  }
+  if (req.url === '/run' && req.method === 'POST') {
+    void readJsonBody(req).then((body) => {
+      const cmd = typeof body.cmd === 'string' ? body.cmd : ''
+      const args = Array.isArray(body.args) ? (body.args as string[]) : []
+      const cwd = typeof body.cwd === 'string' ? body.cwd : process.cwd()
+      const env = (body.env && typeof body.env === 'object') ? (body.env as Record<string, string>) : {}
+      const timeoutMs = typeof body.timeoutMs === 'number' ? body.timeoutMs : 5 * 60_000
+      if (!cmd) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'cmd required' }))
+        return
+      }
+      let stdout = ''
+      let stderr = ''
+      const child = spawnChild(cmd, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      const timer = setTimeout(() => { try { child.kill('SIGTERM') } catch { /* already gone */ } }, timeoutMs)
+      child.stdout.on('data', (c: Buffer) => { stdout += c.toString() })
+      child.stderr.on('data', (c: Buffer) => { stderr += c.toString() })
+      let done = false
+      const finish = (code: number | null) => {
+        if (done) return  // 'error' (spawn failure) and 'close' can both fire
+        done = true
+        clearTimeout(timer)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ code, stdout, stderr }))
+      }
+      child.on('close', finish)
+      child.on('error', (err) => { stderr += String(err); finish(null) })
+    })
+    return
+  }
+  if (req.url === '/shutdown' && req.method === 'POST') {
+    for (const s of [...sessions.values()]) destroySession(s)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true }))
+    // Let the response flush before exiting.
+    setTimeout(() => process.exit(0), 150)
     return
   }
   res.writeHead(404)

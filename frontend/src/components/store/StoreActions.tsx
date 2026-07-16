@@ -48,12 +48,19 @@ export function StoreActionsProvider({ children }: { children: ReactNode }) {
   const remove = useCallback(async (app: StoreApp) => {
     setBusyId(app.id)
     try {
-      await fetch(`/api/tools/${app.id}/enabled`, {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: false }),
-      })
+      // Feature-backed apps disable through the orchestrator (gate + tool flags +
+      // cancel in-flight installs); plain tools just flip the store flag.
+      if (app.featureId) {
+        await fetch(`/api/features/${app.featureId}/disable`, { method: 'POST', credentials: 'include' })
+      } else {
+        await fetch(`/api/tools/${app.id}/enabled`, {
+          method: 'PUT', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: false }),
+        })
+      }
       await qc.invalidateQueries({ queryKey: ['tools'] })
+      await qc.invalidateQueries({ queryKey: ['features'] })
     } finally { setBusyId(null) }
   }, [qc])
 
