@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bookmark, Copy, Check } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { toast } from '@/lib/toast'
+import { ToggleRow } from '@/components/shared/ToggleRow'
+import { useAuth } from '@/context/AuthContext'
+import { useUserPreferences, patchUserPreferencesCache } from '@/hooks/useUserPreferences'
 
 // "Save to Loki" — a draggable bookmarklet (and the share-target hint) that captures the
 // current page into the right app via the same-origin /save popup. ORIGIN is derived at
@@ -17,6 +21,21 @@ export function SettingsSaveToLokiTab() {
   const linkRef = useRef<HTMLAnchorElement>(null)
   const [copied, setCopied] = useState(false)
 
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  // Default ON, matching the backend (#7).
+  const { data: autoOrganize } = useUserPreferences((p) => p['capture.autoOrganize'] !== false)
+  const toggleAutoOrganize = () => {
+    if (!user) return
+    const next = !(autoOrganize ?? true)
+    fetch(`/api/users/${user.id}/preferences`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'capture.autoOrganize': next }),
+    }).catch(() => {})
+    patchUserPreferencesCache(queryClient, user.id, { 'capture.autoOrganize': next })
+  }
+
   // JSX/bundlers strip javascript: hrefs — set it on the DOM node after mount.
   useEffect(() => { linkRef.current?.setAttribute('href', code) }, [code])
 
@@ -31,6 +50,13 @@ export function SettingsSaveToLokiTab() {
         <h2 className="text-title">Save to Loki</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">Save any web page to Loki from your browser, no extension needed.</p>
       </div>
+
+      <ToggleRow
+        title="Auto-organize saved items"
+        description="Tag new saves automatically using your on-device model, so your library files itself. Runs privately, only on items you haven't already tagged."
+        checked={autoOrganize ?? true}
+        onCheckedChange={toggleAutoOrganize}
+      />
 
       <Card className="p-5">
         <p className="mb-3 text-sm font-medium">1. Drag this button to your bookmarks bar</p>
