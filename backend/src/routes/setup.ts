@@ -259,12 +259,16 @@ setup.post('/download', requireAuth, async (c) => {
   // Coding package: a selected coding-role model implies the Coding app, which needs the
   // Claude Code CLI + tmux to run (codingServer refuses to start without them). Provision
   // the whole package from the install wizard, the way image models pull in the ComfyUI
-  // runtime, so nothing is left for a later step. (coding-sandbox-user is intentionally
-  // excluded: it throws on Windows and needs interactive OS approval elsewhere; codingServer
-  // degrades gracefully to a plain per-user workdir without it, and it can be enabled from
-  // Admin -> Features where the OS prompt is expected.)
+  // runtime, so nothing is left for a later step. coding-sandbox-user is included on every
+  // platform (Windows support landed with CODING-SANDBOX-DESIGN-2026-07-16.md): the user
+  // is sitting at the wizard, so the one-time OS consent dialog (Touch ID/password/pkexec/
+  // UAC) is expected — the same reasoning that already ships nvidia-gpu-tuning below. A
+  // declined prompt degrades gracefully: codingServer falls back to a plain per-user
+  // workdir (interactive approval only, headless tasks disabled) and the component stays
+  // available in Admin → Features.
   if (selected.some((m) => m.role === 'coding')) {
     if (!componentIds.includes('claude-code')) componentIds.push('claude-code')
+    if (!componentIds.includes('coding-sandbox-user')) componentIds.push('coding-sandbox-user')
     // tmux is unavailable on Windows (installTmux throws), and Coding's terminal needs it,
     // so on Windows the package is limited to the CLI + model. Enqueuing tmux there would
     // fail permanently and stall the wizard's completion gate, so gate it by platform.

@@ -169,7 +169,7 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'stem-roformer-guitar', label: 'Music Studio: Enhanced Guitar', description: 'Optional guitar upgrade: a RoFormer model that isolates guitar far more cleanly than Demucs. Adds to an existing Music Studio install.', bytes: 2_100_000_000, requires: ['stem-audio'], icon: SlidersHorizontal },
   { id: 'claude-code',   label: 'Coding',          description: 'The real Claude Code CLI, running in a sandboxed dev workspace and pointed at your local coding model, usable from the Coding app\'s terminal or by asking the companion in chat. Edits and commands pause for your approval in the terminal; a chat-triggered background task runs unattended, sandboxed to your own workspace.', bytes: 40_000_000, requires: [], icon: Code2 },
   { id: 'tmux',          label: 'Coding Terminal Multiplexer', description: 'Powers split panes and reload-persistence in the Coding app\'s terminal.', bytes: 2_000_000, requires: ['claude-code'], icon: Code2 },
-  { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin password prompt (native macOS/Linux dialog); silent after that. Without this, coding tasks still pause for approval but have no OS-level wall behind it.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
+  { id: 'coding-sandbox-user', label: 'Coding Sandbox Isolation', description: 'Creates a restricted OS user with no access to this app\'s own files, so the coding agent runs fully walled off at the operating-system level instead of only pausing for your approval. One-time admin approval (native macOS/Linux dialog, UAC prompt on Windows); silent after that, and setup verifies the wall actually holds before reporting success. Without this, coding tasks still pause for approval but have no OS-level wall behind it, and chat-triggered background coding tasks are disabled.', bytes: 0, requires: ['claude-code'], icon: ShieldCheck },
   // Rendered only on Windows + NVIDIA (see the More Capabilities section guard).
   { id: 'nvidia-gpu-tuning', label: 'NVIDIA Driver Tuning', description: 'Stops image/video generation from silently crawling when VRAM runs out: sets the driver\'s CUDA sysmem-fallback policy to "prefer none" for python.exe (via NVIDIA Profile Inspector), so over-commits fail fast and ComfyUI uses its own faster tiling instead. Applies to every python.exe on this machine. Re-apply after NVIDIA driver upgrades.', bytes: 450_000, requires: [], icon: Cpu },
 ]
@@ -1031,21 +1031,14 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
                 onCancel={() => cancelInstall('tmux')}
               />
             )}
-            {catalog.hardware.platform === 'win32' ? (
-              <div className="flex items-center gap-3 rounded-card border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
-                <ShieldCheck className="size-4 shrink-0" />
-                Sandbox isolation isn't available on Windows yet. Coding tasks still pause for your approval, just without an OS-level wall behind it.
-              </div>
-            ) : (
-              <CapInstallRow
-                cap={ADMIN_CAPS.find(c => c.id === 'coding-sandbox-user')!}
-                installed={compMap.get('coding-sandbox-user') === true}
-                blocked={compMap.get('claude-code') !== true}
-                installState={installStates.get('coding-sandbox-user')}
-                onInstall={() => void repairComponent('coding-sandbox-user', 'coding-sandbox-user')}
-                onCancel={() => cancelInstall('coding-sandbox-user')}
-              />
-            )}
+            <CapInstallRow
+              cap={ADMIN_CAPS.find(c => c.id === 'coding-sandbox-user')!}
+              installed={compMap.get('coding-sandbox-user') === true}
+              blocked={compMap.get('claude-code') !== true}
+              installState={installStates.get('coding-sandbox-user')}
+              onInstall={() => void repairComponent('coding-sandbox-user', 'coding-sandbox-user')}
+              onCancel={() => cancelInstall('coding-sandbox-user')}
+            />
             {codingModels.map(m => (
               <ModelInstallRow key={m.id} entry={m}
                 installState={installStates.get(m.id)}

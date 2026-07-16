@@ -4,6 +4,8 @@ import { db } from '@/db'
 import { appSettings } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { FEATURES, isFeatureEnabled } from '@/lib/featureGate'
+import { shutdownCodingSidecar } from '@/lib/codingPtySidecar'
+import { killSandboxedOrphans } from '@/lib/codingSandboxUser'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -60,6 +62,16 @@ appFeaturesRouter.put('/:id', requireAdmin, async (c) => {
   }
   // Audit trail for enabling/disabling a capability (esp. the critical ones).
   logger.info(`[featureGate] ${enabled ? 'ENABLED' : 'DISABLED'} feature '${id}' by admin=${user?.id ?? 'unknown'}`)
+
+  // Disabling Coding actively tears down the live terminals, not just the routes:
+  // the gate blocks NEW attaches, but running claude sessions (and their persistent
+  // ptys in the sidecar) would otherwise keep executing indefinitely.
+  if (id === 'coding' && !enabled) {
+    void shutdownCodingSidecar().catch((e) => logger.warn(`[featureGate] coding sidecar shutdown failed: ${e instanceof Error ? e.message : String(e)}`))
+    // mac/Linux: the claude processes live in tmux panes as the sandbox user, outside
+    // the sidecar — sweep those too (no-op on Windows / when the sandbox isn't installed).
+    try { killSandboxedOrphans() } catch { /* best-effort */ }
+  }
 
   return c.json({ id, enabled })
 })
