@@ -18,25 +18,31 @@ const CLAUDE_CODE_VERSION = '2.1.200'
 export const CLAUDE_CODE_DIR = join(dataDir, 'coding', 'claude-runtime')
 const BIN_DIR = join(CLAUDE_CODE_DIR, 'node_modules', '.bin')
 export const CLAUDE_BIN = join(BIN_DIR, IS_WIN ? 'claude.exe' : 'claude')
-const CLAUDE_PKG_JSON = join(CLAUDE_CODE_DIR, 'node_modules', '@anthropic-ai', 'claude-code', 'package.json')
+// The `.bin/claude` shim only remaps to the REAL native binary, which the package's postinstall
+// (install.cjs) provisions from a platform optionalDependency into node_modules/.../bin. That
+// binary is what actually runs, so it's the meaningful "is it installed" signal.
+const CLAUDE_PKG_BIN = join(CLAUDE_CODE_DIR, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', IS_WIN ? 'claude.exe' : 'claude')
 
 export function isClaudeCodeInstalled(): boolean {
-  // Require BOTH the launcher shim AND the real package payload. A stale `.bin/claude` shim can
-  // outlive a pruned package (e.g. an interrupted `bun add`), and checking the shim alone reports
-  // "installed" while the CLI actually fails to launch with "bin executable does not exist on disk".
-  return existsSync(CLAUDE_BIN) && existsSync(CLAUDE_PKG_JSON)
+  // Require BOTH the launcher shim AND the real native binary it points at. Checking the shim
+  // alone reports "installed" while the CLI fails at runtime with "bin executable does not exist
+  // on disk" — exactly what happens when Bun skips the postinstall that provisions the binary.
+  return existsSync(CLAUDE_BIN) && existsSync(CLAUDE_PKG_BIN)
 }
 
 export async function installClaudeCode(onStatus: (msg: string) => void, signal?: AbortSignal): Promise<void> {
   mkdirSync(CLAUDE_CODE_DIR, { recursive: true })
+  // Always (re)write package.json with `trustedDependencies`: the package's real native binary is
+  // provisioned by its postinstall (install.cjs copies it from a platform optionalDependency), and
+  // Bun SKIPS lifecycle scripts unless the dependency is trusted. Without this the install leaves a
+  // .bin shim that can't remap and fails at runtime with "bin executable does not exist on disk".
   const pkgPath = join(CLAUDE_CODE_DIR, 'package.json')
-  if (!existsSync(pkgPath)) {
-    writeFileSync(pkgPath, JSON.stringify({ name: 'loki-doki-claude-code-runtime', private: true }, null, 2))
-  }
-  // Start from a clean tree so bun regenerates the .bin launcher shims from scratch. `bun add`
-  // over a partial/stale node_modules (e.g. an interrupted prior install) leaves a mis-remapped
-  // shim that fails at runtime with "bin executable does not exist on disk", and the package's
-  // real bin is a native binary that must be extracted, not a JS entry.
+  writeFileSync(pkgPath, JSON.stringify({
+    name: 'loki-doki-claude-code-runtime', private: true,
+    trustedDependencies: ['@anthropic-ai/claude-code'],
+  }, null, 2))
+  // Start from a clean tree so bun regenerates the launcher shims and re-runs the postinstall from
+  // scratch (a re-run over an existing tree renames the live binary to a stale .old copy each time).
   rmSync(join(CLAUDE_CODE_DIR, 'node_modules'), { recursive: true, force: true })
   rmSync(join(CLAUDE_CODE_DIR, 'bun.lock'), { force: true })
   onStatus(`Installing Claude Code ${CLAUDE_CODE_VERSION}…`)
