@@ -623,7 +623,7 @@ export async function runCompanionTurn(
         // than narrating JSON.
         const toolTurnContent = typeof result.synthesisHint === 'string' && result.synthesisHint.trim()
           ? `${p.message}\n\n${result.synthesisHint.trim()}${sourceList}`
-          : `${p.message}\n\n[${tool.name} data]: ${llmFold(result.data)}${sourceList}`
+          : `${p.message}\n\n[${tool.name} data]: ${llmFold(result.data)}\n\nAnswer the question directly from this data: state the answer in your first sentence, in your own voice, with no preamble.${sourceList}`
         ollamaMessages = [
           ...history,
           { role: 'user', content: toolTurnContent },
@@ -799,6 +799,19 @@ export async function runCompanionTurn(
     const _interactionFragment = buildInteractionFragment(p.interactionStyle)
     if (_interactionFragment) systemParts.push(_interactionFragment)
 
+    // Answer-first discipline: when the user asks a question, the FIRST sentence is
+    // the answer. Personality goes after the answer, never in front of it. Small
+    // models otherwise pad replies with greetings, clock commentary ("it's 3 AM,
+    // you're up late"), restating the question, and "let me check" filler.
+    systemParts.push(
+      'When the user asks a question, your very first sentence must contain the answer. ' +
+      'Do not open with a greeting or their name, do not remark on the time or how late it ' +
+      'is, do not repeat their question back, do not say you are glad they asked, and do not ' +
+      'say you will look it up. This overrides your usual conversational style. After the ' +
+      'direct answer you may add a sentence or two of personality or useful detail. Keep ' +
+      'replies to simple factual questions short.',
+    )
+
     // ── Late volatile zone ── everything below changes turn-to-turn (memory =
     // per-message recall, summary = every few turns, uiContext = per page), so it
     // sits after the stable prefix. Bonus: end-of-prompt recency bias gives the
@@ -816,7 +829,7 @@ export async function runCompanionTurn(
     systemParts.push(
       [
         `Today is ${_date}, and the current time is ${_time}.`,
-        `It's ${_partOfDay} for them — match that energy.`,
+        `It's ${_partOfDay} for them. Mention the time or the hour only if they ask about it.`,
         p.userDisplayName ? `You are speaking with ${p.userDisplayName}.` : null,
         _loc ? `They are located in ${_loc}.` : null,
       ].filter(Boolean).join(' '),

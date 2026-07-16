@@ -25,7 +25,7 @@ const CONVERSATIONAL_THRESHOLD = 0.40
 // Covers "who is/was/played/directed/wrote/starred", "what is/was/are", temporal/location
 // lookups, quantity questions, and explicit search commands. Intentionally excludes
 // "how do I / how to" (routes to youtube/recipes) and "when is" (routes to datetime).
-const SEARCH_INTENT_RE = /\b(what is|what are|what was|what were|who is|who was|who are|who played|who starred|who directed|who wrote|who sang|who voiced|who invented|who created|who founded|who made|tell me about|tell me more about|explain to me|explain what|how does|how do|how did|how many|how much|how long|how far|how tall|how old|how big|when did|when was|when were|where is|where was|where are|where were|where did|have you heard of|do you know about|what happened to|what's up with|search for|look up|find out about|can you find out|can you look up|can you search)\b/i
+const SEARCH_INTENT_RE = /\b(what is|what are|what was|what were|who is|who was|who are|who played|who starred|who directed|who wrote|who sang|who voiced|who invented|who created|who founded|who made|who won|who beat|tell me about|tell me more about|explain to me|explain what|how does|how do|how did|how many|how much|how long|how far|how tall|how old|how big|when did|when was|when were|where is|where was|where are|where were|where did|have you heard of|do you know about|what happened to|what's up with|search for|look up|find out about|can you find out|can you look up|can you search)\b/i
 
 // Explicit playback commands → always route to play_music, which then decides
 // song vs. music video vs. radio station. Embeddings alone miss misspelled
@@ -155,7 +155,7 @@ const TIER2_RULES: Record<string, string> = {
   search: 'search: questions about any specific title, person, show, movie, product, event, or general knowledge topic — including "have you seen X?", "what is X?", "who is X?", "tell me about X?", "do you know about X?" — prefer search over answering from memory.',
   tvshows: 'tvshows: questions about a specific TV show (cast, network, seasons, status, ratings). Use when the user asks about a show by name or says "have you seen [show name]?".',
   weather: 'weather: weather conditions, temperature, forecast, or what to wear.',
-  calculator: 'calculator: any arithmetic, math estimate, or percentage. "How much would..." counts.',
+  calculator: 'calculator: any arithmetic, math estimate, or percentage. "How much would..." counts. Compute exactly what was asked: a "20% tip on $85" question asks for the TIP, so the expression is "20% of 85", not the bill total.',
   dictionary: 'dictionary: what a word means, its definition, pronunciation, or etymology.',
   news: 'news: current events, headlines, or what is happening in the world right now.',
   recipes: 'recipes: cooking questions, recipe requests, or "what can I make with X?".',
@@ -169,7 +169,7 @@ const TIER2_RULES: Record<string, string> = {
   time: 'alarms_timers: set, change, cancel, or list the user\'s alarms and timers, or start/stop a countdown. "set an alarm for 7am", "wake me at 6:30", "set a timer for 10 minutes", "start a 5 minute timer", "cancel my timer", "delete my alarm", "turn off my alarm". Use this (not datetime) whenever the user wants to create or manage an alarm or timer.',
   image_gen: 'image_gen: any request to create, generate, draw, paint, sketch, illustrate, or show an image. "draw me a cat", "make an image of X", "create a picture of X", "show me what X looks like", "paint X".',
   contentRating: 'contentRating: whether a movie, show, book, game, or app is appropriate for kids/a certain age, or what objectionable content (violence, sex, language, drugs/smoking) it has. "is X ok for my kid", "is X appropriate for a 7 year old", "does X have a lot of violence/swearing", "parent guide for X". Prefer this over search and tvshows for child-suitability or content-concern questions.',
-  sports: 'sports: live scores, results, or who is playing today in any league (MLB, World Cup, NFL, NBA, NHL, MLS). "what\'s the score", "who won", "is there a game on".',
+  sports: 'sports: live scores, results, or who is playing today in any league (MLB, World Cup, NFL, NBA, NHL, MLS). "what\'s the score", "who won today\'s game", "is there a game on".',
   localNews: 'localNews: hyperlocal news for the user\'s own town. "what\'s going on in town", "local news near me".',
   localEvents: 'localEvents: local events, festivals, parades, or things to do near the user. "anything happening this weekend", "events near me".',
   onthisday: 'onthisday: historical events or notable birthdays for a calendar date. "what happened on this day", "celebrity birthdays today".',
@@ -182,11 +182,19 @@ function tier2System(candidates: Tool[]): string {
     .filter(Boolean)
     .map((r) => `- ${r}`)
     .join('\n')
+  // Day-granular date so relative-time arguments extract correctly ("who won last
+  // year" must not become a stale hardcoded year from the model's training data).
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  // Phrasing here is LOAD-BEARING for the small router model: adding the date and
+  // the no-clarify rule as separate extra lines made granite4.1:3b answer questions
+  // itself ("Breaking Bad has 5 seasons.") or ask for a location instead of calling
+  // the tool. Folding them into the existing lines (plus the explicit "never answer
+  // yourself") routes reliably — re-run eval:router after ANY wording change.
   return [
-    `You are a routing assistant. Call the right tool for the user's message — even when phrased naturally or implicitly, not as an explicit command.`,
+    `You are a routing assistant. Today is ${today}. Call the right tool for the user's message — even when phrased naturally or implicitly, not as an explicit command. Never answer the message yourself: your only output is a tool call, or empty content for pure chitchat.`,
     rules ? `Tool selection rules:\n${rules}` : null,
     `Conversational messages (greetings, opinions, "thanks", chitchat with no factual need) → respond with empty content, no tool call.`,
-    `Extract all tool arguments from the full conversation context, including prior messages.`,
+    `Extract all tool arguments from the full conversation context, including prior messages. Only use argument values the user actually said: never invent one, and never ask a clarifying question — leave unspecified optional arguments (like location) out and the user's saved defaults fill them in.`,
   ].filter(Boolean).join('\n\n')
 }
 

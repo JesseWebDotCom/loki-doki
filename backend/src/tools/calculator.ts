@@ -186,7 +186,7 @@ export const calculatorTool: Tool = {
         properties: {
           expression: {
             type: 'string',
-            description: 'Math expression to evaluate, e.g. "sqrt(144)" or "15/100 * 250"',
+            description: 'Math expression to evaluate, e.g. "sqrt(144)" or "15/100 * 250". Compute the exact quantity asked for: a tip question wants the tip amount ("20% of 85"), not the total.',
           },
         },
       },
