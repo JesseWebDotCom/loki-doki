@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Cpu, Plug2, BellRing, Music2 } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -40,7 +40,7 @@ const SECTION_ORDER = [
   // Household
   'users', 'apps', 'companions', 'security',
   // Platform
-  'features', 'integrations', 'engine', 'news', 'music',
+  'features', 'integrations', 'engine',
   // Devices & Alerts
   'devices', 'notifications',
   // System
@@ -59,7 +59,31 @@ export function orderedSections(): AdminSection[] {
  *  paths (may leave /admin). AdminPage redirects with the query string preserved. */
 export const LEGACY_ADMIN_REDIRECTS: Record<string, string> = {
   voice: '/admin/companions/voice',
+  news: '/apps/news/settings/categories',
+  music: '/apps/music/settings/sources',
+  'music/sources': '/apps/music/settings/sources',
+  'system/speed-test': '/apps/speed-test/settings/thresholds',
 }
+
+/** Settings that moved out of /admin into an app's settings page, kept findable from
+ *  the admin search box and the command palette as pointer entries. */
+export const EXTERNAL_ENTRIES: { label: string; href: string; breadcrumb: string; description: string; keywords: string[] }[] = [
+  {
+    label: 'News Categories & Feeds', href: '/apps/news/settings/categories', breadcrumb: 'News settings',
+    description: 'Shared News categories and their RSS feeds',
+    keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines'],
+  },
+  {
+    label: 'Music Sources', href: '/apps/music/settings/sources', breadcrumb: 'Music settings',
+    description: 'Local music folders and Plex music sections',
+    keywords: ['music', 'folder', 'folders', 'library', 'scan', 'local', 'flac', 'plex music', 'sources', 'nas', 'path'],
+  },
+  {
+    label: 'Speed Test Thresholds', href: '/apps/speed-test/settings/thresholds', breadcrumb: 'Speed Test settings',
+    description: 'Download speed thresholds that color-code results and the home widget',
+    keywords: ['speed', 'threshold', 'mbps', 'bandwidth', 'internet', 'rating'],
+  },
+]
 
 export const ADMIN_SECTIONS: AdminSection[] = [
   {
@@ -85,9 +109,6 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'home-layout', label: 'Home Layout', kind: 'anchor', anchorId: 'home-layout',
         keywords: ['home', 'layout', 'widgets', 'default', 'dashboard', 'per user', 'lock'],
         description: 'Default and per-user home dashboard layout' },
-      { id: 'speed-test', label: 'Speed Test', kind: 'anchor', anchorId: 'speed-test',
-        keywords: ['speed', 'threshold', 'mbps', 'good', 'ok', 'slow', 'rating', 'bandwidth', 'internet'],
-        description: 'Download speed thresholds that color-code Speed Test results and the home widget' },
       { id: 'server', label: 'Server', kind: 'anchor', anchorId: 'server',
         keywords: ['restart', 'reboot', 'update', 'upgrade', 'version', 'git', 'commit', 'maintenance'],
         description: 'Version info, updates, and restarting the server' },
@@ -139,22 +160,6 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'briefing', label: 'Daily Briefing', kind: 'view',
         keywords: ['briefing', 'news', 'weather', 'ambient', 'context', 'sports'],
         description: 'Ambient world and local context for companions' },
-    ],
-  },
-  {
-    id: 'news', label: 'News', icon: Newspaper, group: 'Platform',
-    keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines', 'shared'],
-    description: 'Shared News categories and their RSS feeds (visible to everyone)',
-    subsections: [],
-  },
-  {
-    id: 'music', label: 'Music', icon: Music2, group: 'Platform',
-    keywords: ['music', 'library', 'collection', 'folder', 'folders', 'scan', 'local', 'flac', 'mp3', 'lossless', 'plex music', 'sources'],
-    description: 'Music sources: local library folders (and Plex music sections)',
-    subsections: [
-      { id: 'sources', label: 'Sources', kind: 'anchor', anchorId: 'sources',
-        keywords: ['folder', 'folders', 'local', 'scan', 'library', 'plex', 'nas', 'path'],
-        description: 'Local music folders and Plex music sections' },
     ],
   },
   {
@@ -342,6 +347,8 @@ export interface SearchHit {
   breadcrumb: string
   description?: string
   anchorId?: string
+  /** Pointer hit: navigate here (an app settings route) instead of /admin/:section. */
+  href?: string
   score: number
 }
 
@@ -376,6 +383,10 @@ export function searchSettings(query: string): SearchHit[] {
       }
     }
   }
+  for (const entry of EXTERNAL_ENTRIES) {
+    const s = score(entry.label, entry.keywords, entry.description)
+    if (s > 0) hits.push({ sectionId: '', href: entry.href, label: entry.label, breadcrumb: entry.breadcrumb, description: entry.description, score: s })
+  }
   return hits.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
 }
 
@@ -389,6 +400,9 @@ export function allEntries(): SearchHit[] {
     for (const sub of section.subsections) {
       hits.push({ sectionId: section.id, subId: sub.id, label: sub.label, breadcrumb: section.label, description: sub.description, anchorId: sub.anchorId, score: 0 })
     }
+  }
+  for (const entry of EXTERNAL_ENTRIES) {
+    hits.push({ sectionId: '', href: entry.href, label: entry.label, breadcrumb: entry.breadcrumb, description: entry.description, score: 0 })
   }
   return hits
 }

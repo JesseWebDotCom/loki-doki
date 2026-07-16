@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
-import { Search, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Search, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, ArrowUpRight } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { ChromeWash } from '@/components/shared/ChromeWash'
@@ -25,6 +26,7 @@ export function AdminSidebar({
     setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const results = searchSettings(query)
   const sections = orderedSections()
+  const navigate = useNavigate()
 
   // ── Collapsed icon rail (desktop only) ──────────────────────────────────────
   if (collapsed) {
@@ -108,11 +110,14 @@ export function AdminSidebar({
           ) : (
             results.map((h) => (
               <button
-                key={`${h.sectionId}/${h.subId ?? ''}`}
-                onClick={() => onNavigate(h.sectionId, h.subId)}
+                key={h.href ?? `${h.sectionId}/${h.subId ?? ''}`}
+                onClick={() => { if (h.href) navigate(h.href); else onNavigate(h.sectionId, h.subId) }}
                 className="flex w-full flex-col items-start rounded-control px-2.5 py-1.5 text-left hover:bg-foreground/[0.04]"
               >
-                <span className="font-medium">{h.label}</span>
+                <span className="inline-flex items-center gap-1 font-medium">
+                  {h.label}
+                  {h.href && <ArrowUpRight className="size-3 text-muted-foreground" />}
+                </span>
                 <span className="text-caption text-muted-foreground">{h.breadcrumb}</span>
               </button>
             ))

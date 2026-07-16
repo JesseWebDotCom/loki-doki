@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { Bot, ExternalLink, MonitorPlay, ShieldCheck, Music4, Sparkles, Newspaper } from "lucide-react";
+import { Bot, ExternalLink, FolderOpen, Gauge, MonitorPlay, ShieldCheck, Music4, Sparkles, Newspaper, Rss } from "lucide-react";
 import { AppSettingsShell, type AppSettingsSection } from "@/components/shared/AppSettingsShell";
 import { CompanionAbilitiesCard } from "@/components/shared/CompanionAbilitiesCard";
 import { ToolConfigFields } from "@/components/shared/ToolConfigFields";
@@ -9,6 +9,9 @@ import { MediaIntegrationsAdminCard } from "@/components/media/MediaIntegrations
 import { MusicLyricsSettings } from "@/components/music/MusicLyricsSettings";
 import { NewsReadingSettings } from "@/components/news/NewsReadingSettings";
 import { LoraManager } from "@/components/admin/LoraManager";
+import { AdminNewsTab } from "@/components/admin/AdminNewsTab";
+import { AdminMusicTab } from "@/components/admin/AdminMusicTab";
+import { AdminSpeedTestTab } from "@/components/admin/AdminSpeedTestTab";
 import { APP_GROUPS } from "@/lib/appCategories";
 
 // Apps whose global config (API keys, etc.) used to only live on the generic
@@ -64,6 +67,33 @@ const EXTRA_SECTIONS: Record<string, AppSettingsSection[]> = {
 // still lands on a usable section first). Imaging colocates its admin-only LoRA
 // style browser here instead of in the central Admin panel.
 const APPEND_SECTIONS: Record<string, AppSettingsSection[]> = {
+  news: [
+    {
+      id: "categories",
+      label: "Categories & Feeds",
+      icon: Rss,
+      adminOnly: true,
+      content: <AdminNewsTab />,
+    },
+  ],
+  music: [
+    {
+      id: "sources",
+      label: "Sources",
+      icon: FolderOpen,
+      adminOnly: true,
+      content: <AdminMusicTab />,
+    },
+  ],
+  "speed-test": [
+    {
+      id: "thresholds",
+      label: "Thresholds",
+      icon: Gauge,
+      adminOnly: true,
+      content: <AdminSpeedTestTab />,
+    },
+  ],
   shows: [
     {
       id: "admin",

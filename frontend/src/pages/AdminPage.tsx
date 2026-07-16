@@ -18,8 +18,6 @@ import { AdminAiEngineTab } from '@/components/admin/AdminAiEngineTab'
 import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdvancedTab'
 import { AdminCompanionsTab, type CompanionView } from '@/components/admin/AdminCompanionsTab'
 import { AdminSecurityTab } from '@/components/admin/AdminSecurityTab'
-import { AdminNewsTab } from '@/components/admin/AdminNewsTab'
-import { AdminMusicTab } from '@/components/admin/AdminMusicTab'
 import { AdminNotificationsTab } from '@/components/admin/AdminNotificationsTab'
 import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
 import { AdminIntegrationsOverview } from '@/components/admin/AdminIntegrationsOverview'
@@ -33,7 +31,6 @@ import { AdminBooksTab } from '@/components/admin/AdminBooksTab'
 import { AdminMediaServiceTab, type MediaService } from '@/components/admin/AdminDownloadsTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { ServerPanel } from '@/components/admin/ServerPanel'
-import { AdminSpeedTestTab } from '@/components/admin/AdminSpeedTestTab'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
 
@@ -224,11 +221,6 @@ export function AdminPage() {
             </AdminAccordion>
             <DefaultHomeLayoutSection openSignal={openSignal} />
             <PerUserHomeLayoutSection />
-            <AdminAccordion id="speed-test" title="Speed Test"
-              description="Download speed thresholds that color-code results and the home widget."
-              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
-              <AdminSpeedTestTab />
-            </AdminAccordion>
             <AdminAccordion id="server" title="Server"
               description="Version info, updates, and restarting the server."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
@@ -244,8 +236,6 @@ export function AdminPage() {
         {section === 'features'   && <AdminFeaturesTab view={sub} />}
         {section === 'apps'       && <AdminAppsTab openSignal={openSignal} />}
         {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
-        {section === 'news'       && <AdminNewsTab />}
-        {section === 'music'      && <AdminMusicTab />}
         {section === 'notifications' && <AdminNotificationsTab openSignal={openSignal} />}
         {section === 'devices'    && <AdminDevicesTab view={sub} />}
         {section === 'integrations' && sub === 'overview'        && <AdminIntegrationsOverview onNavigate={go} />}
