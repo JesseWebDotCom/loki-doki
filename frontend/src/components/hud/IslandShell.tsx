@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Music } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { CompanionMenu } from '@/components/companion/CompanionMenu'
 import { useCompanionEngine } from '@/components/shell/CompanionEngineContext'
@@ -50,13 +51,26 @@ export function IslandShell() {
 
   const island = useIslandState({
     idleTier: IDLE_TIER[size] ?? 'compact',
-    activityTier: forcedComposer ? 'full' : speaking || listening ? 'peek' : 'compact',
+    // A transient event peek (engine.capsuleEvent) raises to peek below conversation priority.
+    activityTier: forcedComposer ? 'full' : speaking || listening ? 'peek' : engine.capsuleEvent ? 'peek' : 'compact',
     // Shelf holds the panel open: an OS file drag keeps the pointer "outside"
     // the window as far as hover events go, and dismissal mid-drag would drop
     // the interception the drop needs.
     holdOpen: menuOpen || islandFocused || engine.busy || isShelfHold,
   })
   const { tier } = island
+
+  // First caller for the event-peek (#1): when the track changes while the dock is idle,
+  // briefly bloom the capsule to announce it (the Dynamic Island music behavior). The ref
+  // starts undefined so the currently-playing track on mount does not trigger a pulse.
+  const lastTrackRef = useRef<string | null | undefined>(undefined)
+  const pulseEvent = engine.pulseEvent
+  useEffect(() => {
+    const title = nowPlaying?.title ?? null
+    if (lastTrackRef.current === undefined) { lastTrackRef.current = title; return }
+    if (title && title !== lastTrackRef.current) pulseEvent({ icon: Music, text: `Now playing: ${title}` })
+    lastTrackRef.current = title
+  }, [nowPlaying?.title, pulseEvent])
 
   // Reset to home when the panel closes; also bounds the shelf hold.
   useEffect(() => {

@@ -22,6 +22,7 @@ import { useDockYield } from '@/lib/voice/dockYield'
 import { toast } from '@/lib/toast'
 import { matchesScreenIntent } from '@/lib/screenIntent'
 import { fetchVisionStatus } from '@/hooks/useVisionStatus'
+import type { LucideIcon } from 'lucide-react'
 
 // Injected into uiContext for screen-awareness turns so the model knows the
 // attached image IS the user's live screen (uiContext is per-turn: it vanishes
@@ -59,6 +60,20 @@ export interface PendingCompanionAction {
   /** Optional rich preview (poster + "Title (Year)") for surfaces that can show it. */
   card?: { title: string; subtitle?: string; imageUrl?: string }
   expiresAt: number
+}
+
+/** A transient action offered inside a capsule event peek (#17). */
+export interface CapsuleEventAction {
+  label: string
+  run: () => void
+}
+
+/** A discrete, self-dismissing event surfaced as a brief capsule peek (#1): an icon,
+ *  one line of text, and up to a few inline actions. Independent of conversation state. */
+export interface CapsuleEvent {
+  icon: LucideIcon
+  text: string
+  actions?: CapsuleEventAction[]
 }
 
 export interface CompanionEngine {
@@ -112,6 +127,13 @@ export interface CompanionEngine {
   setCaptions: (on: boolean) => void
   /** Dormant (no activity for a while, nothing streaming or thinking). */
   sleeping: boolean
+  /** A transient capsule event (icon + text + optional actions), or null. Auto-clears. */
+  capsuleEvent: CapsuleEvent | null
+  /** Surface a transient capsule event for `ttlMs` (default 4000). No-ops if a conversation
+   *  is active, so an event peek never fights a live turn. */
+  pulseEvent: (evt: CapsuleEvent, ttlMs?: number) => void
+  /** Clear the current capsule event immediately (e.g. when an action is taken). */
+  dismissCapsuleEvent: () => void
 }
 
 const Ctx = createContext<CompanionEngine | null>(null)
@@ -351,6 +373,31 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     if (lookingAtScreen && replyText.length > 0) setLookingAtScreen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replyText])
+  // Transient capsule events (#1/#17): a discrete, self-dismissing peek independent of
+  // conversation. A live turn always preempts it (effect below).
+  const [capsuleEvent, setCapsuleEvent] = useState<CapsuleEvent | null>(null)
+  const capsuleEventTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dismissCapsuleEvent = useCallback(() => {
+    if (capsuleEventTimer.current) { clearTimeout(capsuleEventTimer.current); capsuleEventTimer.current = null }
+    setCapsuleEvent(null)
+  }, [])
+  const conversingNow =
+    thinking || streaming || talkActive || !!captionText || !!pendingAction ||
+    listeningState === 'on-active' || listeningState === 'on-followup' || !!handsFree.partial
+  const conversingRef = useRef(conversingNow)
+  conversingRef.current = conversingNow
+  const pulseEvent = useCallback((evt: CapsuleEvent, ttlMs = 4000) => {
+    if (conversingRef.current) return // never fight a live turn
+    if (capsuleEventTimer.current) clearTimeout(capsuleEventTimer.current)
+    setCapsuleEvent(evt)
+    capsuleEventTimer.current = setTimeout(() => { capsuleEventTimer.current = null; setCapsuleEvent(null) }, ttlMs)
+  }, [])
+  // A conversation starting preempts any active event peek.
+  useEffect(() => {
+    if (conversingNow && capsuleEvent) dismissCapsuleEvent()
+  }, [conversingNow, capsuleEvent, dismissCapsuleEvent])
+  useEffect(() => () => { if (capsuleEventTimer.current) clearTimeout(capsuleEventTimer.current) }, [])
+
   const focusComposer = useCallback(() => setFocusKey((k) => k + 1), [])
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -520,6 +567,9 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     setHandsFree,
     setCaptions,
     sleeping: isActualSleeping,
+    capsuleEvent,
+    pulseEvent,
+    dismissCapsuleEvent,
   }
 
   return <Ctx.Provider value={engine}>{children}</Ctx.Provider>
