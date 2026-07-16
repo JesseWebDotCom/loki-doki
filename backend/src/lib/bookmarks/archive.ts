@@ -20,6 +20,7 @@ import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
 import type { DownloadProgress } from '@/lib/download'
 import { emitNotification } from '@/lib/notify'
+import { organizeCaptured } from '@/lib/capture/organize'
 
 // Where POST /bookmarks/:id/snapshot stashes the browser-rendered HTML for the job to pick up.
 export const renderedHtmlPath = (itemId: string) => join(dataDir, 'tmp', `bookmark-render-${itemId}.html`)
@@ -199,6 +200,12 @@ export async function runArchiveArticleJob(
     // configured, the edge-triggered verdict decides; a plain whole-page watch keeps the
     // original fingerprint semantics. emitNotification covers the bell row, pod overlay,
     // and push/telegram/email delivery routing.
+    // Auto-organize (#7): tag a freshly-captured item with the local model, detached so it
+    // never blocks the archive job. No-ops if the user turned it off or already tagged it.
+    if (item.ownerId && a.contentText) {
+      void organizeCaptured({ userId: item.ownerId, bookmarkId, title: item.title || a.title || item.url, text: a.contentText })
+    }
+
     const hasWatchConfig = item.watchMode !== 'any_change' || !!item.watchSelector
     const shouldAlert = hasWatchConfig ? watch.triggered : changed
     if (shouldAlert && item.alertOnChange && item.ownerId) {

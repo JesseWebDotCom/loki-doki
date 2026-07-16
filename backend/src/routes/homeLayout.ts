@@ -171,6 +171,20 @@ homeLayout.put('/', requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+// ── DELETE /api/home-layout ──────────────────────────────────────────────────
+// Reset the user's home back to the auto-generated starter: drop their saved layout so
+// GET falls through to buildStarterLayout again (stays "auto" until they edit once more).
+
+homeLayout.delete('/', requireAuth, async (c) => {
+  const user = c.get('user')
+  const locked = await isLayoutLocked(user.id)
+  if (locked) return c.json({ error: 'Layout is locked by admin' }, 403)
+  await db
+    .delete(userPreferences)
+    .where(and(eq(userPreferences.userId, user.id), eq(userPreferences.key, PREF_KEY)))
+  return c.json({ ok: true })
+})
+
 // ── GET /api/home-layout/default (admin) ─────────────────────────────────────
 
 homeLayout.get('/default', requireAdmin, async (c) => {

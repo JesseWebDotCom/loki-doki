@@ -134,6 +134,17 @@ export function IslandShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine.focusComposer])
 
+  // Tray "Drop a File…": open the shelf in the full panel so a file can be dropped straight
+  // onto the dock (the shelf owns its own mouse interception + hold).
+  useEffect(() => {
+    return window.lokiDesktop?.onOpenShelf(() => {
+      setTab('shelf')
+      island.raiseToFull()
+      window.focus()
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [island.raiseToFull])
+
   // Keep the shell's tray label and hide rules accurate.
   useEffect(() => {
     window.lokiDesktop?.reportState({

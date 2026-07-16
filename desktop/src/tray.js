@@ -49,6 +49,12 @@ function rebuild({ state, settings, serverReachable, actions }) {
     },
     { type: 'separator' },
     {
+      label: 'Drop a File…',
+      toolTip: 'Open the drop shelf, then drag a file onto the dock to hand it to your companion',
+      click: actions.openDropShelf,
+    },
+    { type: 'separator' },
+    {
       label: serverReachable ? `Server: ${serverHost}` : `Server unreachable: ${serverHost}`,
       enabled: false,
     },

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useAuth } from '@/context/AuthContext'
+import { readCachedLayout, writeCachedLayout, removeCachedLayout } from '@/lib/homeLayoutCache'
 
 export interface HomeWidget {
   toolId: string
@@ -54,11 +56,14 @@ export interface UseHomeLayoutResult {
   locked: boolean
   isLoading: boolean
   save: (layout: HomeLayout) => Promise<void>
+  /** Drop the saved layout so the server rebuilds the auto starter, then reload. */
+  resetToAuto: () => Promise<void>
   reload: () => void
 }
 
 export function useHomeLayout(): UseHomeLayoutResult {
-  const [layout, setLayout] = useState<HomeLayout>(DEFAULT_LAYOUT)
+  const { user } = useAuth()
+  const [layout, setLayout] = useState<HomeLayout>(() => (user?.id ? readCachedLayout(user.id) : undefined) ?? DEFAULT_LAYOUT)
   const [locked, setLocked] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [rev, setRev] = useState(0)
@@ -66,17 +71,19 @@ export function useHomeLayout(): UseHomeLayoutResult {
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
+    // Paint the cached layout immediately (covers a profile switch after mount).
+    if (user?.id) { const cached = readCachedLayout(user.id); if (cached) setLayout(cached) }
     fetch('/api/home-layout', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then((d: { layout?: HomeLayout; locked?: boolean } | null) => {
         if (cancelled) return
-        if (d?.layout) setLayout(d.layout)
+        if (d?.layout) { setLayout(d.layout); if (user?.id) writeCachedLayout(user.id, d.layout) }
         setLocked(d?.locked ?? false)
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setIsLoading(false) })
     return () => { cancelled = true }
-  }, [rev])
+  }, [rev, user?.id])
 
   const save = useCallback(async (next: HomeLayout) => {
     // Check res.ok: fetch only rejects on network errors, so a 401 (expired session), 403
@@ -90,9 +97,18 @@ export function useHomeLayout(): UseHomeLayoutResult {
     })
     if (!res.ok) throw new Error(`Failed to save layout (${res.status})`)
     setLayout(next)
-  }, [])
+    if (user?.id) writeCachedLayout(user.id, next)
+  }, [user?.id])
 
   const reload = useCallback(() => setRev(v => v + 1), [])
 
-  return { layout, locked, isLoading, save, reload }
+  const resetToAuto = useCallback(async () => {
+    const res = await fetch('/api/home-layout', { method: 'DELETE', credentials: 'include' })
+    if (!res.ok) throw new Error(`Failed to reset layout (${res.status})`)
+    // Drop the stale cache so the next paint uses the freshly-built auto starter.
+    if (user?.id) removeCachedLayout(user.id)
+    setRev(v => v + 1)
+  }, [user?.id])
+
+  return { layout, locked, isLoading, save, resetToAuto, reload }
 }

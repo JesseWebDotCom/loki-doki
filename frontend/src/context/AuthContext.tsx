@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { clearPersistedCache } from '@/lib/prefetch/persist'
 import { clearCachedUserPreferences } from '@/hooks/useUserPreferences'
+import { clearCachedHomeLayouts } from '@/lib/homeLayoutCache'
 
 export interface AuthUser {
   id: string
@@ -81,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear()
     void clearPersistedCache()
     clearCachedUserPreferences()
+    clearCachedHomeLayouts()
   }, [queryClient])
 
   useEffect(() => { refetch() }, [refetch])
