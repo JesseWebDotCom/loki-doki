@@ -40,6 +40,7 @@ import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTe
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { DownloadsWidget } from "@/components/home/DownloadsWidget";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpotlight } from "@/components/shared/SpotlightSearch";
@@ -2379,7 +2380,7 @@ export function HomePage() {
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
-  const { layout, locked, save } = useHomeLayout();
+  const { layout, locked, save, resetToAuto } = useHomeLayout();
   const { tools } = useInstalledTools();
   const { openSpotlight } = useSpotlight();
 
@@ -2397,6 +2398,7 @@ export function HomePage() {
   const [draftRows, setDraftRows] = useState<HomeRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const toolsMap = useMemo(() => {
     const m = new Map<string, { enabled: boolean }>();
@@ -2435,6 +2437,21 @@ export function HomePage() {
       setIsSaving(false);
     }
   }, [layout, draftRows, save]);
+
+  const handleResetToAuto = useCallback(async () => {
+    setConfirmReset(false);
+    setIsSaving(true);
+    try {
+      await resetToAuto();
+      setEditMode(false);
+      setDraftRows([]);
+      toast.success('Home reset to the auto layout.');
+    } catch {
+      toast.error("Couldn't reset your layout, please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [resetToAuto]);
 
   const handleRemoveWidget = useCallback((toolId: string) => {
     setDraftRows(prev => normalizeRows(
@@ -2545,6 +2562,15 @@ export function HomePage() {
             editMode ? (
               <div className="flex items-center gap-2">
                 <Button
+                  onClick={() => setConfirmReset(true)}
+                  disabled={isSaving}
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto px-3 py-1 text-[11px] font-medium text-muted-foreground/70 hover:text-foreground/80"
+                >
+                  Reset to auto
+                </Button>
+                <Button
                   onClick={cancelEdit}
                   variant="outline"
                   size="sm"
@@ -2592,6 +2618,15 @@ export function HomePage() {
           onClose={() => setPickerOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmReset}
+        onOpenChange={setConfirmReset}
+        title="Reset to the auto layout?"
+        description="This discards your custom home layout and rebuilds it automatically from your installed apps. You can always customize it again."
+        confirmLabel="Reset"
+        onConfirm={() => { void handleResetToAuto(); }}
+      />
 
     </div>
   );

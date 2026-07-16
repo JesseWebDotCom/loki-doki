@@ -54,6 +54,8 @@ export interface UseHomeLayoutResult {
   locked: boolean
   isLoading: boolean
   save: (layout: HomeLayout) => Promise<void>
+  /** Drop the saved layout so the server rebuilds the auto starter, then reload. */
+  resetToAuto: () => Promise<void>
   reload: () => void
 }
 
@@ -94,5 +96,11 @@ export function useHomeLayout(): UseHomeLayoutResult {
 
   const reload = useCallback(() => setRev(v => v + 1), [])
 
-  return { layout, locked, isLoading, save, reload }
+  const resetToAuto = useCallback(async () => {
+    const res = await fetch('/api/home-layout', { method: 'DELETE', credentials: 'include' })
+    if (!res.ok) throw new Error(`Failed to reset layout (${res.status})`)
+    setRev(v => v + 1) // reload → server returns the freshly-built auto starter
+  }, [])
+
+  return { layout, locked, isLoading, save, resetToAuto, reload }
 }
