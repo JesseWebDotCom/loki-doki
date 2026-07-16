@@ -258,6 +258,15 @@ const trayActions = {
     if (hud.isVisible()) dismissHud()
     else summonHud(false)
   },
+  openDropShelf() {
+    if (!hud || hud.isDestroyed()) return
+    // Reliable drop path (#2): show the dock and open its drop shelf so a file can be
+    // dragged straight onto it. (A click-through window can't detect an OS drag hovering
+    // it, so we open the shelf on request rather than on drag-over.)
+    if (!hud.isVisible()) summonHud(false)
+    hud.webContents.send('hud:open-shelf')
+    refreshTray()
+  },
   toggleListening() {
     toggleListening()
     refreshTray()
