@@ -101,7 +101,7 @@ const STEP_ORDER: Step[] = ['welcome', 'profile', 'pin', 'consent', 'area', 'com
 const STEP_META: Record<Step, { icon: React.ComponentType<{ className?: string }>; label: string; sub: string }> = {
   welcome:    { icon: Sparkles,        label: 'Welcome',      sub: 'What you get' },
   profile:    { icon: Users,           label: 'Your profile', sub: 'Admin account' },
-  pin:        { icon: Lock,            label: 'Secure it',    sub: 'Optional PIN' },
+  pin:        { icon: Lock,            label: 'Secure it',    sub: 'Admin PIN' },
   consent:    { icon: ShieldQuestion,  label: 'Permissions',  sub: 'What you allow' },
   area:       { icon: MapPin,          label: 'Your area',    sub: 'Location & units' },
   components: { icon: Package,         label: 'Your AI',      sub: 'Models & features' },
@@ -337,16 +337,62 @@ interface ProfileInitial {
   avatarUrl: string | null; dicebearStyle: string | null; dicebearSeed: string | null; dicebearConfig: Record<string, unknown> | null
 }
 
-function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => void; editMode?: boolean; initial?: ProfileInitial }) {
+// A first-run profile collected on the profile step but not yet persisted. The admin
+// account is created from this on the PIN step (see createAdminFromDraft) so it is
+// created atomically with the PIN and never left in a PIN-less, one-request-takeover state.
+interface DraftProfile {
+  firstName: string
+  lastName: string
+  nickname: string
+  birthdate: string
+  safeMode: boolean
+  avatarMode: AvatarMode
+  dbStyle: string
+  dbSeed: string
+  dbConfig: Record<string, unknown>
+  photoFile: File | null
+}
+
+// Create the admin account + avatar + preferences from a draft, atomically with the PIN.
+// Runs on the PIN step so the PIN is present the moment the account first exists.
+async function createAdminFromDraft(d: DraftProfile, pin: string): Promise<string> {
+  const res = await fetch('/api/setup/admin', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    body: JSON.stringify({ firstName: d.firstName, lastName: d.lastName, birthdate: d.birthdate, pin }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? 'Setup failed. Please try again.')
+  }
+  const { id } = await res.json() as { id: string }
+
+  const patch: Record<string, unknown> = { nickname: d.nickname.trim() || d.firstName.trim() }
+  if (d.avatarMode === 'avatar') {
+    patch['dicebearStyle'] = d.dbStyle; patch['dicebearSeed'] = d.dbSeed; patch['dicebearConfig'] = JSON.stringify(d.dbConfig)
+  }
+  await fetch(`/api/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(patch) }).catch(() => {})
+  if (d.avatarMode === 'photo' && d.photoFile) {
+    const form = new FormData(); form.append('file', d.photoFile)
+    await fetch(`/api/users/${id}/avatar`, { method: 'PUT', credentials: 'include', body: form }).catch(() => {})
+  }
+  await fetch(`/api/users/${id}/preferences`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    // Write content dials directly (authoritative). Safe = all off; Uncensored = all max + blunt.
+    body: JSON.stringify({
+      content_dials: d.safeMode ? MIN_DIALS : MAX_DIALS,
+      interaction_style: { candor: d.safeMode ? 'balanced' : 'blunt' },
+    }),
+  }).catch(() => {})
+
+  return id
+}
+
+function ProfileStep({ onCreate, onEdit, editMode, initial }: { onCreate: (draft: DraftProfile) => void; onEdit: (id: string) => void; editMode?: boolean; initial?: ProfileInitial }) {
   const [firstName, setFirstName] = useState(initial?.firstName ?? '')
   const [lastName, setLastName]   = useState(initial?.lastName ?? '')
   const [nickname, setNickname]   = useState(initial?.nickname ?? '')
   const [nicknameTouched, setNicknameTouched] = useState(!!(initial?.nickname))
   const [birthdate, setBirthdate] = useState('')
-  // Admin PIN: required at creation so the admin account is never in a PIN-less,
-  // one-request-takeover state. Not shown when editing an existing profile.
-  const [pin, setPin] = useState('')
-  const [pinConfirm, setPinConfirm] = useState('')
   const [safeMode, setSafeMode] = useState(false)
   const [avatarMode, setAvatarMode] = useState<AvatarMode>(initial?.avatarUrl ? 'photo' : 'avatar')
   const [dbStyle, setDbStyle]   = useState(initial?.dicebearStyle ?? 'avataaars')
@@ -384,47 +430,36 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
     e.preventDefault()
     if (!firstName.trim() || !lastName.trim()) { setError('First and last name are required.'); return }
     if (!editMode && !birthdate) { setError('Date of birth is required.'); return }
-    if (!editMode) {
-      if (!/^\d{4,6}$/.test(pin)) { setError('Choose a 4 to 6 digit admin PIN.'); return }
-      if (pin !== pinConfirm) { setError('The PINs do not match.'); return }
-    }
-    setLoading(true); setError('')
-    try {
-      // Editing an existing account (navigated back) - update in place, don't re-create.
-      if (editMode && initial) {
+    setError('')
+
+    // Editing an existing account (navigated back) - update in place, don't re-create.
+    if (editMode && initial) {
+      setLoading(true)
+      try {
         const patch: Record<string, unknown> = { firstName: firstName.trim(), lastName: lastName.trim() }
         if (birthdate) patch['birthdate'] = birthdate
         await fetch(`/api/users/${initial.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(patch) }).catch(() => {})
         await saveAvatar(initial.id, !!initial.avatarUrl)
-        onNext(initial.id)
-        return
-      }
-
-      const res = await fetch('/api/setup/admin', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim(), birthdate, pin }),
-      })
-      if (!res.ok) {
-        const body = await res.json() as { error?: string }
-        setError(body.error ?? 'Setup failed. Please try again.')
+        onEdit(initial.id)
+      } catch {
+        setError('Could not reach the server. Make sure the backend is running.')
         setLoading(false)
-        return
       }
-      const { id } = await res.json() as { id: string }
-      await saveAvatar(id, false)
-      await fetch(`/api/users/${id}/preferences`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        // Write content dials directly (authoritative). Safe = all off; Uncensored = all max + blunt.
-        body: JSON.stringify({
-          content_dials: safeMode ? MIN_DIALS : MAX_DIALS,
-          interaction_style: { candor: safeMode ? 'balanced' : 'blunt' },
-        }),
-      }).catch(() => {})
-      onNext(id)
-    } catch {
-      setError('Could not reach the server. Make sure the backend is running.')
-      setLoading(false)
+      return
     }
+
+    // First run: hand the profile to the wizard as a draft. The admin account (with the
+    // PIN) is created on the next step, so the PIN is collected only once, on the PIN pad.
+    onCreate({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      nickname,
+      birthdate,
+      safeMode,
+      avatarMode,
+      dbStyle, dbSeed, dbConfig,
+      photoFile,
+    })
   }
 
   return (
@@ -460,30 +495,6 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
               Stays on your server - used only for age-appropriate content.
             </p>
           </div>
-
-          {!editMode && (
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Admin PIN <span className="font-normal text-muted-foreground/50">(4 to 6 digits)</span>
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="password" inputMode="numeric" autoComplete="new-password" maxLength={6}
-                  className={inputCls} placeholder="Choose a PIN"
-                  value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                />
-                <input
-                  type="password" inputMode="numeric" autoComplete="new-password" maxLength={6}
-                  className={inputCls} placeholder="Confirm PIN"
-                  value={pinConfirm} onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ''))}
-                />
-              </div>
-              <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-                <ShieldCheck className="size-3 shrink-0 text-brand" />
-                Protects the admin account. You'll enter this to unlock admin controls.
-              </p>
-            </div>
-          )}
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">AI content mode</label>
@@ -547,7 +558,7 @@ function ProfileStep({ onNext, editMode, initial }: { onNext: (id: string) => vo
 
 // ── PIN step ──────────────────────────────────────────────────────────────────
 
-function PinStep({ userId, onNext, onSkip, canSkip = true }: { userId: string; onNext: () => void; onSkip: () => void; canSkip?: boolean }) {
+function PinStep({ onSubmit, onNext, onSkip, canSkip = true }: { onSubmit: (pin: string) => Promise<void>; onNext: () => void; onSkip: () => void; canSkip?: boolean }) {
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone]       = useState(false)
@@ -555,13 +566,11 @@ function PinStep({ userId, onNext, onSkip, canSkip = true }: { userId: string; o
   async function handleComplete(pin: string) {
     setLoading(true); setError('')
     try {
-      const res = await fetch(`/api/users/${userId}/pin`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }),
-      })
-      if (res.ok) { setDone(true); setTimeout(onNext, 600); return }
-      const body = await res.json() as { error?: string }
-      setError(body.error ?? 'Could not save PIN.')
-    } catch { setError('Could not reach the server.') } finally { setLoading(false) }
+      await onSubmit(pin)
+      setDone(true); setTimeout(onNext, 600)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save PIN.')
+    } finally { setLoading(false) }
   }
 
   return (
@@ -1894,6 +1903,7 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
   const navigate          = useNavigate()
   const [step, setStep]   = useState<Step>(startStep === 'models' ? 'components' : 'welcome')
   const [adminId, setAdminId] = useState<string | null>(null)
+  const [pendingProfile, setPendingProfile] = useState<DraftProfile | null>(null)
   const [downloadIds, setDownloadIds] = useState<string[]>([])
   const [downloadComponentIds, setDownloadComponentIds] = useState<string[]>([])
   const [downloadTier, setDownloadTier] = useState('')
@@ -1928,7 +1938,28 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
       .catch(() => {})
   }, [])
 
-  async function handleProfileNext(id: string) { setAdminId(id); await refetch(); goTo('pin') }
+  // First run: profile is captured as a draft; the admin isn't created until the PIN step.
+  function handleProfileDraft(draft: DraftProfile) { setPendingProfile(draft); goTo('pin') }
+  // Navigated back to edit an existing account: it's already persisted, just continue.
+  async function handleProfileEdit(id: string) { setAdminId(id); await refetch(); goTo('pin') }
+
+  // PIN step: create the admin from the draft (first run) or update the PIN (editing).
+  async function handlePinComplete(pin: string) {
+    if (pendingProfile) {
+      const id = await createAdminFromDraft(pendingProfile, pin)
+      setAdminId(id); setPendingProfile(null)
+      await refetch()
+      return
+    }
+    if (!userId) throw new Error('No account to secure.')
+    const res = await fetch(`/api/users/${userId}/pin`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pin }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string }
+      throw new Error(body.error ?? 'Could not save PIN.')
+    }
+  }
 
   // Offline content (library, maps, OCR) is chosen later in the post-boot welcome wizard,
   // so the install jumps straight to downloading the essentials.
@@ -1948,8 +1979,8 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
   return (
     <WizardShell step={step} onNavigate={goTo} maxIdx={maxIdx}>
       {step === 'welcome'  && <WelcomeStep onNext={() => goTo('profile')} />}
-      {step === 'profile'  && <ProfileStep onNext={handleProfileNext} editMode={!!userId} initial={profileInitial} />}
-      {step === 'pin' && userId && <PinStep userId={userId} onNext={() => goTo('consent')} onSkip={() => goTo('consent')} canSkip={false} />}
+      {step === 'profile'  && <ProfileStep onCreate={handleProfileDraft} onEdit={handleProfileEdit} editMode={!!userId} initial={profileInitial} />}
+      {step === 'pin' && (pendingProfile || userId) && <PinStep onSubmit={handlePinComplete} onNext={() => goTo('consent')} onSkip={() => goTo('consent')} canSkip={false} />}
       {step === 'consent'  && <ConsentStep onNext={() => goTo('area')} />}
       {step === 'area'     && <AreaStep onNext={() => goTo('components')} />}
       {step === 'components' && <ModelsStep onNext={handleModelsNext} initialTier={downloadTier} initialIds={downloadIds} initialComponents={downloadComponentIds.length ? downloadComponentIds : null} />}
