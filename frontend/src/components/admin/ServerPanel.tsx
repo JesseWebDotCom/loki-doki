@@ -157,7 +157,7 @@ export function ServerPanel() {
     esRef.current?.close()
     const es = new EventSource('/api/admin/server/update/stream')
     esRef.current = es
-    // Every (re)connect replays the full buffer — reset so nothing duplicates.
+    // Every (re)connect replays the full buffer, so reset so nothing duplicates.
     es.addEventListener('open', () => {
       setSteps([])
       setLogLines([])

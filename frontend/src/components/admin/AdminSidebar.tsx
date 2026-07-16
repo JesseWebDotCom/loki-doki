@@ -71,7 +71,7 @@ export function AdminSidebar({
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           {/* type="search" + autoComplete off: password-type inputs on some tabs (service
               API keys) make the browser treat the panel as a login form and it autofills
-              the saved username into the first plain text input — this box. */}
+              the saved username into the first plain text input: this box. */}
           <input
             type="search"
             name="admin-settings-filter"

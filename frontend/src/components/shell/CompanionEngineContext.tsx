@@ -139,7 +139,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   }, [pendingAction])
   // Off-chat companion turns can ask to open a playlist the companion just curated
   // ("make me a dinner playlist"). Navigate to it so the user sees it; only play when
-  // the directive opts in (autoplay is false today — curating shouldn't hijack audio).
+  // the directive opts in (autoplay is false today; curating shouldn't hijack audio).
   const openPlaylist = useCallback(
     async (playlistId: string, opts: { name: string; trackCount: number; autoplay: boolean }) => {
       navigate(`/music/playlist/${playlistId}`)

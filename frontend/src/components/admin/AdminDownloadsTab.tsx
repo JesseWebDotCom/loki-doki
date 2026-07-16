@@ -1,5 +1,5 @@
 // Admin → Integrations → Sonarr / Radarr / Overseerr / SABnzbd. Each product gets its
-// own page: connection (URL + API key + test), then only that product's concerns —
+// own page: connection (URL + API key + test), then only that product's concerns:
 // arr pages add download defaults, the request pipeline and per-user grants, and that
 // arr's activity; the Overseerr page owns the pipeline choice and Plex attribution;
 // the SABnzbd page owns the live queue, controls, and history.

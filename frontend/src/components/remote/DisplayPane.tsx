@@ -17,10 +17,10 @@ export type DisplayTarget =
 // A single VNC (noVNC) or RDP (IronRDP WASM) remote-desktop surface. Mounts once per session
 // tab and stays alive while the tab exists; parent re-renders never tear down the live session.
 // Host-mode sessions RECONNECT automatically after an unexpected drop (the server reaps
-// sockets whose client stopped answering pings — a locked phone or backgrounded tab — and
+// sockets whose client stopped answering pings (a locked phone or backgrounded tab) and
 // dev restarts kill every socket): silent backoff retries, paused while the tab is hidden
-// and resumed the moment it's visible again. Self-mode can't reconnect unattended — its WS
-// token is single-use and minting another needs the PIN — so it keeps the terminal message.
+// and resumed the moment it's visible again. Self-mode can't reconnect unattended: its WS
+// token is single-use and minting another needs the PIN, so it keeps the terminal message.
 export function DisplayPane({ target, kind }: { target: DisplayTarget; kind: 'vnc' | 'rdp' }) {
   const [status, setStatus] = useState<'connecting' | 'connected' | 'closed'>('connecting')
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -49,7 +49,7 @@ export function DisplayPane({ target, kind }: { target: DisplayTarget; kind: 'vn
       if (target.mode !== 'host' || attempts >= MAX_ATTEMPTS) { setStatus('closed'); return }
       setStatus('connecting')
       if (document.hidden) {
-        // Suspended tab (device asleep, app in background) — the usual reason the server
+        // Suspended tab (device asleep, app in background) is the usual reason the server
         // dropped us. Retrying in the dark burns attempts; go the instant we're visible.
         onVisible = () => {
           if (document.hidden) return
@@ -104,7 +104,7 @@ export function DisplayPane({ target, kind }: { target: DisplayTarget; kind: 'vn
       } catch (e) {
         if (cancelled) return
         // Toast only the first failure; the retries are silent and the overlay already
-        // says "Connecting…" — five toasts for one flaky wifi blip is just noise.
+        // says "Connecting…"; five toasts for one flaky wifi blip is just noise.
         if (attempts === 0) toast.error(`Connection failed: ${e instanceof Error ? e.message : e}`)
         scheduleReconnect()
       }
