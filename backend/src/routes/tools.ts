@@ -5,7 +5,7 @@ import { toolGlobalConfig, toolUserConfig, toolUserPermissions } from '@/db/sche
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { toolRegistry } from '@/tools'
 import { weatherTool } from '@/tools/weather'
-import { resolveToolConfig } from '@/lib/toolConfig'
+import { resolveToolConfig, setToolEnabled } from '@/lib/toolConfig'
 import { isPlexConfigured } from '@/lib/plex'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
@@ -120,21 +120,7 @@ tools.put('/:id/enabled', requireAdmin, async (c) => {
   const toolId = c.req.param('id')
   if (!toolRegistry.find(t => t.id === toolId)) return c.json({ error: 'Unknown tool' }, 404)
   const { enabled } = await c.req.json() as { enabled: boolean }
-
-  const [existing] = await db.select({ id: toolGlobalConfig.id })
-    .from(toolGlobalConfig)
-    .where(and(eq(toolGlobalConfig.toolId, toolId), eq(toolGlobalConfig.key, '__enabled')))
-    .limit(1)
-
-  if (existing) {
-    await db.update(toolGlobalConfig)
-      .set({ value: JSON.stringify(enabled), updatedAt: new Date() })
-      .where(and(eq(toolGlobalConfig.toolId, toolId), eq(toolGlobalConfig.key, '__enabled')))
-  } else {
-    await db.insert(toolGlobalConfig).values({
-      id: crypto.randomUUID(), toolId, key: '__enabled', value: JSON.stringify(enabled), updatedAt: new Date(),
-    })
-  }
+  await setToolEnabled(toolId, enabled)
   return c.json({ ok: true })
 })
 

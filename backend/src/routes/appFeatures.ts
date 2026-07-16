@@ -1,9 +1,8 @@
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { appSettings } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
-import { FEATURES, isFeatureEnabled } from '@/lib/featureGate'
+import { FEATURES, isFeatureEnabled, setFeatureGate } from '@/lib/featureGate'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -45,19 +44,9 @@ appFeaturesRouter.put('/:id', requireAdmin, async (c) => {
   if (!(id in FEATURES)) return c.json({ error: 'Unknown feature' }, 400)
 
   const { enabled } = await c.req.json() as { enabled: boolean }
-  const key = `app_feature.${id}`
   const user = c.get('user')
 
-  const existing = await db.select().from(appSettings).where(eq(appSettings.key, key))
-  if (existing.length > 0) {
-    await db.update(appSettings)
-      .set({ value: JSON.stringify(enabled), updatedAt: new Date() })
-      .where(eq(appSettings.key, key))
-  } else {
-    await db.insert(appSettings).values({
-      id: crypto.randomUUID(), key, value: JSON.stringify(enabled), updatedAt: new Date(),
-    })
-  }
+  await setFeatureGate(id, enabled)
   // Audit trail for enabling/disabling a capability (esp. the critical ones).
   logger.info(`[featureGate] ${enabled ? 'ENABLED' : 'DISABLED'} feature '${id}' by admin=${user?.id ?? 'unknown'}`)
 
