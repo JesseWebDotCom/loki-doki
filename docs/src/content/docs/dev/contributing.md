@@ -16,10 +16,20 @@ sidebar:
 ## Running
 
 ```bash
-./run.sh
+./run.sh            # macOS/Linux — production (build the UI, serve everything on :3000)
+./run.sh --dev      # dev servers + HMR (Vite on :5173, hot-reloading backend on :3000)
 ```
 
-`run.sh` installs Bun if absent, then starts the backend (`backend/`, `bun run dev`, Hono on port 3000) and the frontend (`frontend/`, `bun run dev`, Vite on port 5173), running `bun install` per package if `node_modules` is missing. It opens the browser at `http://localhost:5173`, and on exit unloads Ollama models from VRAM. `./run.sh --uninstall` removes app data, models, and ComfyUI/Ollama after a typed confirmation.
+On Windows use `.\run.ps1` / `.\run.ps1 -Dev` (siblings with the same behavior).
+The launcher installs Bun if absent, stops any previous instance and its detached
+sidecars, refreshes dependencies when the lockfile changed, opens the browser, and
+then **supervises** the servers — a crashed backend/frontend is auto-restarted
+(capped 5×/5 min). On exit it sweeps sidecars but leaves `ollama serve` running so
+the next launch is instant. `--uninstall` / `-Uninstall` removes app data, models,
+and ComfyUI/Ollama after a typed confirmation.
+
+See [`/dev/launcher`](../launcher/) for the full launch sequence, flags, the
+auto-restart loop, the Windows GPU brownout guard, and eGPU recovery.
 
 The two dev servers can also be run by hand:
 
