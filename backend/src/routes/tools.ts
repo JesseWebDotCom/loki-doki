@@ -6,6 +6,7 @@ import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { toolRegistry } from '@/tools'
 import { weatherTool } from '@/tools/weather'
 import { resolveToolConfig, setToolEnabled } from '@/lib/toolConfig'
+import { featureIdForTool } from '@/lib/features/registry'
 import { isPlexConfigured } from '@/lib/plex'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
@@ -110,6 +111,9 @@ tools.get('/', requireAuth, async (c) => {
       enabled: t.id === 'plex' ? plexConfigured && enabledMap[t.id] !== false : enabledMap[t.id] !== false,
       chatEnabled: chatMap[t.id] !== false,
       dataSources: t.dataSources,
+      // Present when a user feature owns this tool: the App Store then installs and
+      // removes through /api/features/:featureId instead of the bare __enabled flag.
+      featureId: featureIdForTool(t.id) ?? null,
     }))
   )
 })
