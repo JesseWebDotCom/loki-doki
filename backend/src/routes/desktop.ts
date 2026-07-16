@@ -279,10 +279,14 @@ desktopApp.get('/download/:name', requireAuth, (c) => {
 
   const file = Bun.file(path)
   const contentType = name.toLowerCase().endsWith('.dmg') ? 'application/x-apple-diskimage' : 'application/octet-stream'
-  return c.body(file.stream(), 200, {
-    'Content-Type': contentType,
-    'Content-Length': String(file.size),
-    'Content-Disposition': `attachment; filename="${name.replace(/["\r\n]/g, '_')}"`,
+  // Hand Bun the file itself (not a stream): a streamed body goes out chunked
+  // with no Content-Length, so the browser can't show progress on an 80 MB file.
+  return new Response(file, {
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(file.size),
+      'Content-Disposition': `attachment; filename="${name.replace(/["\r\n]/g, '_')}"`,
+    },
   })
 })
 
