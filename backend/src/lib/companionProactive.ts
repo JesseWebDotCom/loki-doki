@@ -234,5 +234,5 @@ async function saveCheckinState(userId: string, next: CheckinState, now: Date): 
       set: { value, updatedAt: now },
     })
 
-  logger.info(`[companion:checkin] sent to user=${user.id} as ${characterName} (thread=${thread.category})`)
+  logger.info(`[companion:checkin] state saved for user=${userId}`)
 }
