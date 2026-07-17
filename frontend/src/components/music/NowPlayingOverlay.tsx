@@ -18,6 +18,7 @@ import { useTitleMask } from '@/lib/music/policy'
 import { useSongArt } from '@/components/music/SongArt'
 import { useArtPalette, accentOf, readableOn } from '@/lib/artPalette'
 import { UltraBlur } from '@/components/shared/UltraBlur'
+import { AppTabBar } from '@/components/shared/AppTabBar'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
 import { CastButton } from '@/components/music/CastButton'
@@ -358,15 +359,10 @@ export function NowPlayingOverlay() {
 
         {/* Tabs: Lyrics / Up Next / About, themed on a dark card so tokens stay readable */}
         <div data-theme="dark" className="mt-5 flex min-h-0 flex-1 flex-col text-foreground">
-          <div className="flex shrink-0 gap-1 rounded-full bg-white/10 p-1 text-sm">
-            {([['lyrics', 'Lyrics'], ['up-next', 'Up Next'], ['about', 'About']] as [Tab, string][]).map(([id, lbl]) => (
-              <button key={id} onClick={() => setTab(id)}
-                className={cn('flex-1 rounded-full px-3 py-1.5 font-medium transition-colors',
-                  tab === id ? 'bg-white text-black' : 'text-white/70 hover:text-white')}>
-                {lbl}
-              </button>
-            ))}
-          </div>
+          <AppTabBar
+            tabs={[{ id: 'lyrics', label: 'Lyrics' }, { id: 'up-next', label: 'Up Next' }, { id: 'about', label: 'About' }]}
+            value={tab} onChange={setTab} variant="glass" className="shrink-0"
+          />
 
           <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
             {tab === 'lyrics' && (

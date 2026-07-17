@@ -11,6 +11,7 @@ import { useArtPalette } from '@/lib/artPalette'
 import { videoAccentVars } from '@/components/videos/AccentScope'
 import { UltraBlur } from '@/components/shared/UltraBlur'
 import { ScrollFade } from '@/components/shared/ScrollFade'
+import { AppTabBar } from '@/components/shared/AppTabBar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -190,31 +191,19 @@ function SidePanelShell<T extends string>({ tabs, active, onChange, action, chil
   children: React.ReactNode
 }) {
   if (tabs.length === 0) return null
-  // The music player's pill switcher (NowPlayingOverlay language): floating rounded-full
-  // group, active tab solid white - no card box, no underline tabs.
   // At xl this root completes the sticky rail's flex chain (aside fixes the height; the
   // panes inside carry flex-1/overflow-y-auto): tabs stay pinned, only the list scrolls.
   // The 400px side column can't fit five text labels plus the Autoplay toggle (it used to
-  // clip mid-word with no scroll affordance) - inactive tabs collapse to just their icon,
-  // full label reappears once a tab is selected.
+  // clip mid-word with no scroll affordance) - AppTabBar's compact mode collapses
+  // inactive tabs to just their icon, full label reappears once a tab is selected.
   return (
     <div className="xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
       <div className="flex shrink-0 items-center justify-between gap-2">
         {/* design-ok(glass-on-plain-bg): pill tab switcher over the watch page's UltraBlur cinema backdrop */}
-        <div className="no-scrollbar flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-white/10 p-1">
-          {tabs.map(({ key, label, icon: Icon }) => {
-            const isActive = active === key
-            return (
-              <button key={key} onClick={() => onChange(key)} title={label} aria-label={label}
-                className={cn('flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full py-1.5 text-sm font-semibold transition-colors',
-                  isActive ? 'pl-2.5 pr-3.5' : 'px-2.5',
-                  isActive ? 'bg-white text-black' : 'text-white/70 hover:text-white')}>
-                {Icon && <Icon className="size-4 shrink-0" />}
-                {(isActive || !Icon) && <span>{label}</span>}
-              </button>
-            )
-          })}
-        </div>
+        <AppTabBar
+          tabs={tabs.map(({ key, label, icon }) => ({ id: key, label, icon }))}
+          value={active} onChange={onChange} variant="glass" compact
+        />
         {action}
       </div>
       <div className="px-1 pt-3 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden">{children}</div>
