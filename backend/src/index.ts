@@ -156,6 +156,8 @@ import adminRemoteAccess from '@/routes/adminRemoteAccess'
 import routinesRoute from '@/routes/routines'
 import adminNetworkProtection from '@/routes/adminNetworkProtection'
 import mcpAdmin, { mcpPublic } from '@/routes/mcp'
+import { cast, castMedia } from '@/routes/cast'
+import { shutdownCast } from '@/lib/cast'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -513,6 +515,7 @@ async function stopSidecars() {
   try { stopComfyUI() } catch { /* best-effort */ }
   try { stopSearXNG() } catch { /* best-effort */ }
   try { stopVoiceServer() } catch { /* best-effort */ }
+  try { shutdownCast() } catch { /* best-effort */ }
   // Deliberately NOT killing per-user tmux sessions here: they're meant to survive a
   // backend restart (that's the whole point of tmux-backed persistence) — only the
   // stateless PTY-attach sidecar needs to go down.
@@ -767,6 +770,8 @@ app.route('/api/routines', routinesRoute)
 app.route('/api/admin/network-protection', adminNetworkProtection)
 app.route('/api/admin/mcp', mcpAdmin)
 app.route('/api/mcp', mcpPublic)
+app.route('/api/cast', cast)
+app.route('/api/cast-media', castMedia)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))
