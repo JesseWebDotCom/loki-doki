@@ -18,6 +18,7 @@ import { StatusDot } from '@/components/shared/StatusDot'
 import { useTitleMask } from '@/lib/music/policy'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
+import { FamilyRemainingChip } from '@/components/shared/FamilyRemainingChip'
 
 // Scene selector right on the bar (both breakpoints) - changing the visual must not
 // require opening the full player. Same shared pref as everywhere else (None + every
@@ -179,6 +180,9 @@ export function RadioMiniBar() {
               )}
             </span>
           </div>
+
+          {/* Family audio: kid-visible remaining-time chip (renders only with a budget). */}
+          <FamilyRemainingChip className="hidden sm:inline-flex" />
 
           {/* Elapsed / remaining - same readout as the YouTube mini-player. */}
           {canSeek && (

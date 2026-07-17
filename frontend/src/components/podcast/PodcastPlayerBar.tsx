@@ -10,6 +10,7 @@ import { NowPlaying } from '@/components/podcast/NowPlaying'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { fmtTime } from '@/lib/podcast/format'
 import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
+import { FamilyRemainingChip } from '@/components/shared/FamilyRemainingChip'
 
 const POP_SIZE = 220 // px, fixed square - cover art has no natural aspect to resize like video
 
@@ -122,6 +123,7 @@ export function PodcastPlayerBar() {
             </div>
           </button>
 
+          <FamilyRemainingChip className="hidden sm:inline-flex" />
           <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
             {fmtTime(positionSec)} / {fmtTime(total)}
           </span>

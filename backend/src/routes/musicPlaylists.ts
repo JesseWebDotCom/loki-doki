@@ -8,6 +8,9 @@ import { musicPlaylists, musicPlaylistTracks, users } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { parseSmartRules, evaluateSmartPlaylist } from '@/lib/music/smartRules'
 import { createCuratedPlaylist, regenerateFromRecipe, CurateError } from '@/lib/music/curate'
+import {
+  audioGateFor, familyEntrySetsFor, playlistAllowed, filterTracksBySets, logFamilyAudioEvent,
+} from '@/lib/family/audioPolicy'
 import type { AppEnv } from '@/types'
 
 export const musicPlaylists_route = new Hono<AppEnv>()
@@ -48,7 +51,11 @@ musicPlaylists_route.get('/', async (c) => {
     .from(musicPlaylistTracks)
   for (const r of countRows) counts.set(r.playlistId, (counts.get(r.playlistId) ?? 0) + 1)
 
-  const all = rows.map(r => serialize(r.p, user.id, r.ownerName, counts.get(r.p.id) ?? 0))
+  let all = rows.map(r => serialize(r.p, user.id, r.ownerName, counts.get(r.p.id) ?? 0))
+  // Family audio: allowlist-only profiles only see approved playlists; blocklisted
+  // playlists disappear for anyone they apply to.
+  const sets = await familyEntrySetsFor(user.id)
+  if (sets.hasAny) all = all.filter(p => playlistAllowed(sets, p.id))
   return c.json({ mine: all.filter(p => p.owned), shared: all.filter(p => !p.owned) })
 })
 
@@ -162,21 +169,35 @@ musicPlaylists_route.get('/:id', async (c) => {
   if (!row) return c.json({ error: 'not found' }, 404)
   if (row.p.userId !== user.id && row.p.visibility !== 'shared') return c.json({ error: 'not available' }, 403)
 
+  // Family audio: this GET is what the player queues from, so gate the playlist and
+  // the time budget here, and drop blocklisted artists from what comes back.
+  const familyGate = await audioGateFor(user.id)
+  if (!familyGate.allowed) {
+    return c.json({ error: familyGate.reason === 'quiet_hours' ? 'Audio is paused during quiet hours' : 'Audio time is done for today', code: 'family_time' }, 403)
+  }
+  const sets = await familyEntrySetsFor(user.id)
+  const approved = playlistAllowed(sets, id)
+  if (sets.hasAny && !approved) {
+    logFamilyAudioEvent(user.id, 'blocked_play', { label: row.p.name, medium: 'music', reason: 'playlist' })
+    return c.json({ error: 'This playlist is not available on this profile', code: 'family_blocked' }, 403)
+  }
+
   // Smart playlists ARE their rules: re-evaluated over the owner's universe on every
   // read (a fresh play, rating, or favorite changes the answer) - no persisted rows.
   if (row.p.kind === 'smart') {
     const rules = parseSmartRules(row.p.rulesJson)
     const hits = rules ? await evaluateSmartPlaylist(row.p.userId, rules) : []
-    const tracks = hits.map((t, i) => ({
+    const tracks = filterTracksBySets(sets, hits.map((t, i) => ({
       id: `smart-${i}`, playlistId: id, videoId: t.videoId, title: t.title,
       artist: t.artist || null, mbid: null, durationSec: null, position: i, addedAt: new Date(),
-    }))
+    })), approved)
     return c.json({ playlist: serialize(row.p, user.id, row.ownerName, tracks.length), tracks })
   }
 
-  const tracks = await db.select().from(musicPlaylistTracks)
+  const trackRows = await db.select().from(musicPlaylistTracks)
     .where(eq(musicPlaylistTracks.playlistId, id))
     .orderBy(asc(musicPlaylistTracks.position))
+  const tracks = filterTracksBySets(sets, trackRows, approved)
   return c.json({ playlist: serialize(row.p, user.id, row.ownerName, tracks.length), tracks })
 })
 

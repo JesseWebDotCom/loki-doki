@@ -12,6 +12,9 @@ import { resolvePlayable, findOwned } from '@/lib/music/resolveSource'
 import { deezerChartTracks, deezerArtistPicture } from '@/lib/music/deezer'
 import { getMusicSuggestions } from '@/lib/music/suggest'
 import { searchStations } from '@/routes/musicStations'
+import {
+  familyEntrySetsFor, artistAllowed, stationAllowed, audioGateFor, logFamilyAudioEvent,
+} from '@/lib/family/audioPolicy'
 import type { AppEnv } from '@/types'
 
 export const musicCatalog = new Hono<AppEnv>()
@@ -31,6 +34,18 @@ musicCatalog.get('/search', async (c) => {
     type === 'all' || type === 'songs' ? searchSongs(q, type === 'songs' ? 30 : 10, artist) : Promise.resolve([]),
     (type === 'all' || type === 'stations') && q ? searchStations(q, user.id, type === 'stations' ? 24 : 8) : Promise.resolve([]),
   ])
+
+  // Family audio: allowlist-only profiles only see approved artists/stations; blocked
+  // items disappear for everyone they apply to.
+  const sets = await familyEntrySetsFor(user.id)
+  if (sets.hasAny) {
+    return c.json({
+      artists: artists.filter(a => artistAllowed(sets, a.name)),
+      albums: albums.filter(a => artistAllowed(sets, a.artistName)),
+      songs: songs.filter(s => artistAllowed(sets, s.artistName)),
+      stations: stations.filter(s => stationAllowed(sets, s.id)),
+    })
+  }
   return c.json({ artists, albums, songs, stations })
 })
 
@@ -39,7 +54,13 @@ musicCatalog.get('/search', async (c) => {
 musicCatalog.get('/suggest', async (c) => {
   const q = c.req.query('q')?.trim()
   if (!q) return c.json({ suggestions: [] })
-  return c.json({ suggestions: await getMusicSuggestions(q) })
+  // Allowlist-only profiles get no open-ended autosuggest (it surfaces the whole
+  // catalog); blocked artists never appear as a suggestion's artist line.
+  const sets = await familyEntrySetsFor(c.get('user').id)
+  if (sets.allowlistOnly) return c.json({ suggestions: [] })
+  const suggestions = await getMusicSuggestions(q)
+  if (!sets.hasAny) return c.json({ suggestions })
+  return c.json({ suggestions: suggestions.filter(s => artistAllowed(sets, s.sublabel ?? s.label)) })
 })
 
 // GET /api/music/catalog/artist/:mbid — bio/links + discography
@@ -47,6 +68,11 @@ musicCatalog.get('/artist/:mbid', async (c) => {
   const mbid = c.req.param('mbid')
   const [artist, albums] = await Promise.all([getArtist(mbid), getArtistAlbums(mbid)])
   if (!artist) return c.json({ error: 'not found' }, 404)
+  const sets = await familyEntrySetsFor(c.get('user').id)
+  if (sets.hasAny && !artistAllowed(sets, artist.name)) {
+    logFamilyAudioEvent(c.get('user').id, 'blocked_play', { label: artist.name, medium: 'music', reason: 'artist' })
+    return c.json({ error: 'This artist is not available on this profile' }, 403)
+  }
   return c.json({ artist, albums })
 })
 
@@ -54,6 +80,10 @@ musicCatalog.get('/artist/:mbid', async (c) => {
 musicCatalog.get('/album/:mbid', async (c) => {
   const { album, songs } = await getAlbum(c.req.param('mbid'))
   if (!album) return c.json({ error: 'not found' }, 404)
+  const sets = await familyEntrySetsFor(c.get('user').id)
+  if (sets.hasAny && !artistAllowed(sets, album.artistName)) {
+    return c.json({ error: 'This album is not available on this profile' }, 403)
+  }
   return c.json({ album, songs })
 })
 
@@ -76,7 +106,9 @@ musicCatalog.get('/cover', async (c) => {
 musicCatalog.get('/genre', async (c) => {
   const g = c.req.query('g')?.trim() ?? ''
   if (!g) return c.json({ error: 'g required' }, 400)
-  const tracks = (await deezerChartTracks(g, 40)).slice(0, 30)
+  const sets = await familyEntrySetsFor(c.get('user').id)
+  let tracks = (await deezerChartTracks(g, 40)).slice(0, 30)
+  if (sets.hasAny) tracks = tracks.filter(t => artistAllowed(sets, t.artist))
   const seen = new Set<string>()
   const names: string[] = []
   for (const t of tracks) {
@@ -121,6 +153,21 @@ musicCatalog.get('/resolve', async (c) => {
   const title = c.req.query('title')?.trim()
   const artist = c.req.query('artist')?.trim() ?? ''
   if (!title) return c.json({ error: 'title required' }, 400)
+
+  // Family audio hard gates: this is the identity -> playable seam every direct song
+  // play crosses, so allowlist/blocklist and the time budget are enforced here.
+  const user = c.get('user')
+  const gate = await audioGateFor(user.id)
+  if (!gate.allowed) {
+    logFamilyAudioEvent(user.id, gate.reason === 'quiet_hours' ? 'quiet_hours_block' : 'budget_exhausted', { label: `${artist} - ${title}`, medium: 'music' })
+    return c.json({ error: gate.reason === 'quiet_hours' ? 'Audio is paused during quiet hours' : 'Audio time is done for today', code: 'family_time' }, 403)
+  }
+  const sets = await familyEntrySetsFor(user.id)
+  if (sets.hasAny && !artistAllowed(sets, artist)) {
+    logFamilyAudioEvent(user.id, 'blocked_play', { label: `${artist} - ${title}`, medium: 'music', reason: 'artist' })
+    return c.json({ error: 'This artist is not available on this profile', code: 'family_blocked' }, 403)
+  }
+
   const durationRaw = c.req.query('duration')
   const playable = await resolvePlayable({
     mbid: c.req.query('mbid')?.trim() || null,

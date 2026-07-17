@@ -19,6 +19,9 @@ import { createReadStream, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import type { ScriptTurn } from '@/lib/podcast/types'
 import { filterEpisodesForUser, podcastEpisodeAllowed } from '@/lib/podcast/policy'
+import {
+  audioGateFor, familyEntrySetsFor, podcastShowAllowed, logFamilyAudioEvent,
+} from '@/lib/family/audioPolicy'
 import { servePodcastRail } from '@/lib/interests/podcasts'
 import type { AppEnv } from '@/types'
 
@@ -101,10 +104,15 @@ async function loadVisibleShows(user: Actor) {
     : []
   const ownerMap = Object.fromEntries(owners.map(o => [o.id, o]))
 
+  // Family audio: allowlist-only profiles only see approved shows (AI shows included);
+  // blocklisted shows disappear for anyone they apply to.
+  const familySets = await familyEntrySetsFor(user.id)
+
   return shows
     // An RSS show someone ELSE subscribed to isn't in this user's library until they
     // subscribe too (discovery happens in the browse directory, not the shows list).
     .filter(s => s.source !== 'rss' || subMap.has(s.id))
+    .filter(s => !familySets.hasAny || podcastShowAllowed(familySets, s))
     .map(s => {
       const sub = subMap.get(s.id)
       return {
@@ -127,6 +135,9 @@ podcastsRoute.get('/shows', async (c) => {
 // podcasts.ts): listening + subscription signals, genre-chart/topic-search candidates,
 // subscribed/listened shows excluded, rotation + "Not interested".
 podcastsRoute.get('/suggested', async (c) => {
+  // Family audio: no discovery rail for allowlist-only profiles.
+  const sets = await familyEntrySetsFor(c.get('user').id)
+  if (sets.allowlistOnly) return c.json({ items: [], building: false })
   const { items, building } = await servePodcastRail(c.get('user').id)
   return c.json({ items, building })
 })
@@ -777,6 +788,22 @@ podcastsRoute.get('/episodes/:id/stream', async (c) => {
   // even if it slipped past the list filters. Classifies synchronously (single episode).
   if (!(await podcastEpisodeAllowed(user.id, { id: episodeId, title: episode.title, description: episode.description, explicit: episode.explicit }))) {
     return c.json({ error: 'Not available' }, 403)
+  }
+  // Family audio hard gates: time budget/quiet hours, and allowlist/blocklist on the
+  // show. Range requests re-check, so an exhausted budget also stops long streams.
+  {
+    const gate = await audioGateFor(user.id)
+    if (!gate.allowed) {
+      logFamilyAudioEvent(user.id, gate.reason === 'quiet_hours' ? 'quiet_hours_block' : 'budget_exhausted', { label: episode.title, medium: 'podcast' })
+      return c.json({ error: gate.reason === 'quiet_hours' ? 'Audio is paused during quiet hours' : 'Audio time is done for today', code: 'family_time' }, 403)
+    }
+    const sets = await familyEntrySetsFor(user.id)
+    const [showRow] = await db.select({ id: podcastShows.id, name: podcastShows.name, feedUrl: podcastShows.feedUrl })
+      .from(podcastShows).where(eq(podcastShows.id, episode.showId)).limit(1)
+    if (sets.hasAny && !podcastShowAllowed(sets, showRow ?? { id: episode.showId })) {
+      logFamilyAudioEvent(user.id, 'blocked_play', { label: showRow?.name ?? episode.title, medium: 'podcast', reason: 'show' })
+      return c.json({ error: 'This show is not available on this profile', code: 'family_blocked' }, 403)
+    }
   }
 
   // 1. Generated episode: per-user file.

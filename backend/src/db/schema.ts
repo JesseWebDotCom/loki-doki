@@ -3430,3 +3430,74 @@ export const musicBlends = sqliteTable('music_blends', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ── Family audio controls ─────────────────────────────────────────────────────
+// Per-profile kids/family audio guardrails (music + podcasts): allowlist-only mode,
+// blocklist, daily time budget, quiet hours, and a volume cap. Settings row is
+// optional; a missing row means "no restrictions". See lib/family/audioPolicy.ts.
+export const familyAudioSettings = sqliteTable('family_audio_settings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  allowlistOnly: integer('allowlist_only', { mode: 'boolean' }).notNull().default(false),
+  dailyAudioMinutes: integer('daily_audio_minutes'),      // null = unlimited
+  quietHoursStart: text('quiet_hours_start'),             // 'HH:MM' local, null = none
+  quietHoursEnd: text('quiet_hours_end'),
+  maxVolumePercent: integer('max_volume_percent'),        // null = uncapped
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Allowlist/blocklist entries. `ref` is the identity: artists use a normalized name
+// key, stations/playlists their row id, podcast shows the show id or canonical feed
+// URL. `altRef` carries a secondary identity (artist MBID, 'itunes:<id>') so chart
+// rows that omit the feed URL still match.
+export const familyAudioEntries = sqliteTable('family_audio_entries', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  list: text('list', { enum: ['allow', 'block'] }).notNull(),
+  kind: text('kind', { enum: ['artist', 'playlist', 'station', 'podcastShow'] }).notNull(),
+  ref: text('ref').notNull(),
+  altRef: text('alt_ref'),
+  label: text('label').notNull(),
+  addedBy: text('added_by'),                              // admin user id (informational)
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userListKindRefUnique: unique().on(t.userId, t.list, t.kind, t.ref),
+  userIdx: index('family_audio_entries_user_idx').on(t.userId),
+}))
+
+// Daily listening ledger, accrued from the players' now-playing heartbeats
+// (routes/deviceStudio.ts). One row per (user, local day, medium).
+export const familyAudioUsage = sqliteTable('family_audio_usage', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),                             // local 'YYYY-MM-DD'
+  medium: text('medium', { enum: ['music', 'podcast'] }).notNull(),
+  seconds: integer('seconds').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userDayMediumUnique: unique().on(t.userId, t.day, t.medium),
+  dayIdx: index('family_audio_usage_day_idx').on(t.day),
+}))
+
+// Guardrail events (blocked plays, budget exhaustion) — feeds the weekly parent digest.
+export const familyAudioEvents = sqliteTable('family_audio_events', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['blocked_play', 'budget_exhausted', 'quiet_hours_block'] }).notNull(),
+  detail: text('detail'),                                 // JSON {label?, medium?, reason?}
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userCreatedIdx: index('family_audio_events_user_created_idx').on(t.userId, t.createdAt),
+}))
+
+// Weekly parent digest snapshots (per household week). payload holds the per-child raw
+// numbers; summary is the optional LLM-written blurb. Surfaced in Admin > Family audio
+// and announced via an admin-targeted notification.
+export const familyAudioDigests = sqliteTable('family_audio_digests', {
+  id: text('id').primaryKey(),
+  weekStart: text('week_start').notNull().unique(),       // local 'YYYY-MM-DD' (Monday)
+  payload: text('payload').notNull().default('{}'),
+  summary: text('summary'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
