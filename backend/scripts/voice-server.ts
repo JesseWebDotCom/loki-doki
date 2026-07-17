@@ -154,7 +154,7 @@ const server = createServer(async (req, res) => {
           .map((ch) => {
             const start = Number(ch.timestamp?.[0] ?? 0)
             const rawEnd = ch.timestamp?.[1]
-            // The final chunk's end timestamp can be null — close it at the audio end.
+            // The final chunk's end timestamp can be null, so close it at the audio end.
             const end = rawEnd == null || !Number.isFinite(Number(rawEnd)) ? durationSec : Number(rawEnd)
             return { start, end: Math.max(end, start), text: String(ch.text ?? '').trim() }
           })

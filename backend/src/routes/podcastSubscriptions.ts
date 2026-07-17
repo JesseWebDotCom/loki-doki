@@ -84,6 +84,7 @@ podcastSubscriptionsRoute.get('/subscriptions', async (c) => {
     showId: podcastSubscriptions.showId,
     autoDownload: podcastSubscriptions.autoDownload,
     autoDownloadKeep: podcastSubscriptions.autoDownloadKeep,
+    autoTranscribe: podcastSubscriptions.autoTranscribe,
     addedAt: podcastSubscriptions.addedAt,
     name: podcastShows.name,
     feedUrl: podcastShows.feedUrl,

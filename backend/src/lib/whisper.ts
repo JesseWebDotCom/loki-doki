@@ -65,7 +65,7 @@ export interface WhisperTimedSegment {
  * Long-form transcription with per-segment timestamps (`/inference?timestamps=1`,
  * the voice sidecar's chunked mode that handles audio beyond Whisper's 30s window).
  * `segments: null` means the running sidecar predates the timestamped mode (or a
- * non-sidecar whisper server is configured) — the caller falls back to plain text.
+ * non-sidecar whisper server is configured); the caller falls back to plain text.
  * Generous timeout: minutes of CPU decode per multi-minute WAV chunk is normal.
  */
 export async function transcribeWavTimed(wav: Uint8Array, timeoutMs = 15 * 60_000): Promise<{ text: string; segments: WhisperTimedSegment[] | null }> {

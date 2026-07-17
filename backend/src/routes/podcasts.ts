@@ -122,7 +122,7 @@ async function loadVisibleShows(user: Actor) {
         categories: safeParse(s.categoriesJson, [] as string[]),
         ownerName: ownerMap[s.ownerUserId] ? `${ownerMap[s.ownerUserId]!.firstName}`.trim() : 'Unknown',
         isOwn: s.ownerUserId === user.id,
-        subscription: sub ? { autoDownload: sub.autoDownload, autoDownloadKeep: sub.autoDownloadKeep } : null,
+        subscription: sub ? { autoDownload: sub.autoDownload, autoDownloadKeep: sub.autoDownloadKeep, autoTranscribe: sub.autoTranscribe } : null,
       }
     })
 }

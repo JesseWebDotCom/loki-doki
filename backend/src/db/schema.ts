@@ -3610,7 +3610,7 @@ export const podcastEpisodeAi = sqliteTable('podcast_episode_ai', {
   episodeUnique: unique().on(t.episodeId),
 }))
 
-// Snips: "clip that" moments — the transcript around a playback position (snapped to
+// Snips: "clip that" moments. The transcript around a playback position (snapped to
 // segment boundaries), LLM-titled and summarized. noteId links the snip to a Note when
 // the user saves it there (notes are the household knowledge store; snips stay the
 // structured, deep-linkable library entry).
