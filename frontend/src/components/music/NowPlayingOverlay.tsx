@@ -20,6 +20,7 @@ import { useArtPalette, accentOf, readableOn } from '@/lib/artPalette'
 import { UltraBlur } from '@/components/shared/UltraBlur'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
+import { CastButton } from '@/components/music/CastButton'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu'
@@ -252,6 +253,14 @@ export function NowPlayingOverlay() {
             aria-label="Volume"
             className="h-1 flex-1 cursor-pointer accent-white"
           />
+          <span className="shrink-0 text-white/70">
+            <CastButton
+              trackRef={radio.currentTrack?.videoId ?? null}
+              title={radio.currentTrack?.title ?? 'Loki Doki'}
+              artist={radio.currentTrack?.author ?? null}
+              onCastStart={() => { if (!radio.paused) radio.togglePause() }}
+            />
+          </span>
           <button onClick={openImmersive} aria-label="Fullscreen visualizer" title="Fullscreen visualizer"
             className="grid size-9 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white">
             <Sparkles className="size-4" />
