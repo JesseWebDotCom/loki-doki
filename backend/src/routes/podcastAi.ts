@@ -8,7 +8,7 @@ import { streamSSE } from 'hono/streaming'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import {
-  downloadJobs, podcastEpisodes, podcastShows, podcastSubscriptions, podcastTranscripts,
+  downloadJobs, podcastAdReports, podcastEpisodes, podcastShows, podcastSubscriptions, podcastTranscripts,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { ollamaChatStream } from '@/llm/ollama'
@@ -17,6 +17,7 @@ import { filterEpisodesForUser, podcastEpisodeAllowed } from '@/lib/podcast/poli
 import { familyEntrySetsFor, podcastShowAllowed } from '@/lib/family/audioPolicy'
 import { resolveEpisodeTranscript, searchTranscriptWindows } from '@/lib/podcast/transcripts'
 import { enqueueEpisodeTranscription, transcribeJobRefId } from '@/lib/podcast/transcribe'
+import { enqueueAdScan, getAdSegments } from '@/lib/podcast/adScan'
 import { buildAskContext, generateEpisodeInsights, getEpisodeInsights } from '@/lib/podcast/ai'
 import { createSnip, deleteSnip, listSnips } from '@/lib/podcast/snips'
 import { logger } from '@/lib/logger'
@@ -123,6 +124,72 @@ podcastAiRoute.get('/episodes/:id/transcript/search', async (c) => {
   if (!q) return c.json({ hits: [] })
   const hits = searchTranscriptWindows(q, 40, episodeId)
   return c.json({ hits: hits.map(h => ({ startSec: h.startSec, endSec: h.endSec, snippet: h.snippet, text: h.text })) })
+})
+
+// ── Ad detection ──────────────────────────────────────────────────────────────────
+
+/** The player's one read: detected ad ranges with household 'not_ad' corrections
+ *  already applied. status 'none' means no scan has ever been requested. */
+podcastAiRoute.get('/episodes/:id/ad-segments', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+  const episode = await visibleEpisode(episodeId, user)
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+  return c.json(await getAdSegments(episodeId))
+})
+
+/** Queue an ad scan. Returns immediately; the player polls the GET above. Requires a
+ *  ready transcript (400 with a user-facing message otherwise). */
+podcastAiRoute.post('/episodes/:id/ad-scan', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+  const episode = await visibleEpisode(episodeId, user)
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+  const force = c.req.query('force') === '1'
+  try {
+    await enqueueAdScan(episodeId, user.id, { force })
+    return c.json({ ok: true, status: 'pending' })
+  } catch (err) {
+    return c.json({ error: String(err instanceof Error ? err.message : err) }, 400)
+  }
+})
+
+/** Corrections. 'not_ad' suppresses a detected range household-wide (matched by time
+ *  overlap, so it survives rescans); 'missed' records a spot the scan missed and
+ *  force-rescans the episode. */
+podcastAiRoute.post('/episodes/:id/ad-reports', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+  const episode = await visibleEpisode(episodeId, user)
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+
+  const body = await c.req.json<{ kind?: string; startSec?: number; endSec?: number; positionSec?: number }>()
+    .catch(() => ({} as Record<string, never>))
+
+  if (body.kind === 'not_ad') {
+    const startSec = Math.max(0, Number(body.startSec) || 0)
+    const endSec = Math.max(startSec, Number(body.endSec) || 0)
+    if (endSec <= startSec) return c.json({ error: 'startSec and endSec required' }, 400)
+    await db.insert(podcastAdReports).values({
+      id: crypto.randomUUID(), userId: user.id, episodeId,
+      kind: 'not_ad', startSec, endSec, createdAt: new Date(),
+    })
+    return c.json(await getAdSegments(episodeId))
+  }
+
+  if (body.kind === 'missed') {
+    const positionSec = Math.max(0, Number(body.positionSec) || 0)
+    await db.insert(podcastAdReports).values({
+      id: crypto.randomUUID(), userId: user.id, episodeId,
+      kind: 'missed', startSec: positionSec, endSec: 0, createdAt: new Date(),
+    })
+    // Best-effort: a rescan needs a transcript, and a missing one is not this
+    // report's problem (the report row is already saved for a later scan).
+    await enqueueAdScan(episodeId, user.id, { force: true }).catch(() => {})
+    return c.json({ ok: true })
+  }
+
+  return c.json({ error: 'kind must be not_ad or missed' }, 400)
 })
 
 // ── AI summary + auto-chapters ────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
   reportTimeSaved, DEFAULT_SHOW_SETTINGS,
   type ShowPlaybackSettings,
 } from '@/lib/podcast/playerApi'
+import { getAdSegments, reportAdCorrection, requestAdScan, type AdSegment } from '@/lib/podcast/aiApi'
 import {
   applyPodcastDsp, duckPodcastForSpeech, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
   setPodcastBaseRate, setPodcastVolume, takeSavedSeconds, unduckPodcastAfterSpeech,
@@ -48,6 +49,8 @@ interface PodcastPlaybackCtx {
   chapters: PodcastChapter[]
   /** This user's playback settings for the current show (defaults when none saved). */
   showSettings: ShowPlaybackSettings
+  /** Detected ad ranges for the current track (empty unless the show has skip-ads on). */
+  adSegments: AdSegment[]
   sleep: SleepState
   audioRef: React.RefObject<HTMLAudioElement | null>
   /** Play a single track now. Up Next is left intact and plays after it. */
@@ -130,6 +133,11 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   const [chapters, setChapters] = useState<PodcastChapter[]>([])
   const [showSettings, setShowSettings] = useState<ShowPlaybackSettings>({ ...DEFAULT_SHOW_SETTINGS })
   const [sleep, setSleepState] = useState<SleepState>({ mode: 'off' })
+  const [adSegments, setAdSegments] = useState<AdSegment[]>([])
+  // Each detected range fires at most once per play session, so a user who scrubs
+  // back into one deliberately can listen through it (the natural way to verify a
+  // detection) without the player fighting them.
+  const skippedAdIds = useRef(new Set<string>())
 
   const pendingStart = useRef(0)
   const lastSaved = useRef(0)
@@ -150,6 +158,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   const chaptersRef = useRef(chapters); chaptersRef.current = chapters
   const posRef = useRef(positionSec); posRef.current = positionSec
   const durRef = useRef(duration); durRef.current = duration
+  const adSegmentsRef = useRef(adSegments); adSegmentsRef.current = adSegments
 
   // ── Global DSP prefs (per-user, synced across devices) ───────────────────────
   const { data: prefs } = useUserPreferences()
@@ -194,6 +203,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     // passes the old episode's position — for most episodes, never — silently losing resume.
     lastSaved.current = 0
     outroFired.current = false
+    skippedAdIds.current = new Set()
     pendingStart.current = startSec
     // Replaying the episode that's already loaded (e.g. tapping one of its bookmarks):
     // the src-driving effect won't reset currentTime, so seek the element directly.
@@ -374,6 +384,50 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     return () => { alive = false }
   }, [track?.episodeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Ad segments ────────────────────────────────────────────────────────────────
+  // Fetched only when the show has skip-ads on. A never-scanned episode gets a lazy
+  // on-demand scan (covers feed-transcript and back-catalog episodes; the server
+  // rejects it harmlessly when no transcript exists yet), then bounded polling while
+  // the job runs so ranges appear mid-listen.
+  useEffect(() => {
+    setAdSegments([])
+    const episodeId = track?.episodeId
+    if (!episodeId || !showSettings.skipAds) return
+    let alive = true
+    let tries = 0
+    let timer: number | undefined
+    const check = async () => {
+      const res = await getAdSegments(episodeId).catch(() => null)
+      if (!alive || !res) return
+      if (res.status === 'ready') { setAdSegments(res.segments); return }
+      if (res.status === 'failed') return
+      if (res.status === 'none') {
+        try { await requestAdScan(episodeId) } catch { return }  // no transcript yet
+        if (!alive) return
+      }
+      if (++tries <= 15) timer = window.setTimeout(() => { void check() }, 20_000)
+    }
+    void check()
+    return () => { alive = false; if (timer) clearTimeout(timer) }
+  }, [track?.episodeId, showSettings.skipAds]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "Not an ad?": rewind to where the skip fired, stop skipping the range locally,
+  // and record a household-wide suppression. Time-saved credit is not clawed back
+  // (accepted v1 slop; the counter is a rough score, not billing).
+  const undoAdSkip = useCallback((seg: AdSegment, fromSec: number) => {
+    const el = audioRef.current
+    if (el) el.currentTime = fromSec
+    setPositionSec(fromSec)
+    setAdSegments(prev => prev.filter(a => a.id !== seg.id))
+    const episodeId = trackRef.current?.episodeId
+    if (episodeId) {
+      void reportAdCorrection(episodeId, { kind: 'not_ad', startSec: seg.startSec, endSec: seg.endSec })
+        .then(() => toast.success('Thanks. That range will not be skipped again.'))
+        .catch(() => {})
+    }
+  }, [])
+  const undoAdSkipRef = useRef(undoAdSkip); undoAdSkipRef.current = undoAdSkip
+
   const currentChapterIndex = useCallback((pos: number): number => {
     const ch = chaptersRef.current
     for (let i = ch.length - 1; i >= 0; i--) if (pos >= ch[i]!.startSec) return i
@@ -519,6 +573,23 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
         else if (autoplayRef.current) advance()
         else { el.pause(); setPlaying(false) }
       }
+      // Ad skip: seek past a detected range. The endSec - 0.75 lower bound keeps the
+      // landing frame from re-matching the range it just left.
+      if (s.skipAds && adSegmentsRef.current.length) {
+        const pos = el.currentTime
+        const seg = adSegmentsRef.current.find(a => pos >= a.startSec && pos < a.endSec - 0.75)
+        if (seg && !skippedAdIds.current.has(seg.id)) {
+          skippedAdIds.current.add(seg.id)
+          const target = total > 0 ? Math.min(seg.endSec, total - 0.25) : seg.endSec
+          const saved = Math.max(0, target - pos)
+          el.currentTime = target
+          setPositionSec(target)
+          reportTimeSaved(saved)
+          toast(`Skipped a ${Math.round(saved)}s ad`, {
+            action: { label: 'Not an ad?', onClick: () => undoAdSkipRef.current(seg, pos) },
+          })
+        }
+      }
     }
     const onMeta = () => setDuration(el.duration || 0)
     const onPlay = () => {
@@ -612,11 +683,11 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   }, [track])
 
   const value = useMemo<PodcastPlaybackCtx>(() => ({
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, audioRef, volume,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, sleep, audioRef, volume,
     play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
     next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
     refreshShowSettings, close, closeIfShow,
-  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, volume,
+  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, sleep, volume,
        play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
        next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
        refreshShowSettings, close, closeIfShow])

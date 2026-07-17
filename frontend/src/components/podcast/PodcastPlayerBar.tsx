@@ -27,7 +27,7 @@ const POP_SIZE = 220 // px, fixed square - cover art has no natural aspect to re
  * (chapters/transcript/queue) for when more room is actually needed.
  */
 export function PodcastPlayerBar() {
-  const { track, playing, positionSec, duration, pause, resume, next, prev, seek, close } = usePodcastPlayback()
+  const { track, playing, positionSec, duration, adSegments, pause, resume, next, prev, seek, close } = usePodcastPlayback()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [popped, setPopped] = useState(false)
   const [win, setWin] = useState<{ x: number; y: number } | null>(null)
@@ -99,6 +99,15 @@ export function PodcastPlayerBar() {
         >
           <div className="absolute top-1 h-0.5 w-full bg-muted" />
           <div className="absolute top-1 h-0.5" style={{ width: `${pct}%`, background: accent }} />
+          {/* Detected ad ranges: same amber overlay as the Now Playing seek bar. */}
+          {total > 0 && adSegments.map(a => (
+            // design-ok(raw-palette-semantic): semantic "ad range" amber, matches SeekBar's ad overlay
+            <span key={a.id} aria-hidden className="absolute top-1 h-0.5 bg-amber-400/60"
+              style={{
+                left: `${(a.startSec / total) * 100}%`,
+                width: `${((Math.min(a.endSec, total) - a.startSec) / total) * 100}%`,
+              }} />
+          ))}
         </div>
 
         {/* Phone: shared compact row; tap opens the full Now Playing sheet. */}

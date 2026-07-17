@@ -24,11 +24,13 @@ export interface SeekBarProps {
   onScrubStateChange?: (scrubbing: boolean) => void
   /** Optional marker positions in seconds (e.g. podcast chapter starts): subtle ticks on the track. */
   ticks?: number[]
+  /** Optional highlighted time ranges (e.g. detected podcast ads): translucent amber spans. */
+  ranges?: { startSec: number; endSec: number }[]
   className?: string
 }
 
 // design-ok(hex-in-tsx): per-player accent default (YouTube red), passed into inline styles
-export function SeekBar({ pos, total, onSeek, accent = '#dc2626', disabled, onScrubStateChange, ticks, className }: SeekBarProps) {
+export function SeekBar({ pos, total, onSeek, accent = '#dc2626', disabled, onScrubStateChange, ticks, ranges, className }: SeekBarProps) {
   const barRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<number | null>(null) // local fraction 0..1 while scrubbing
 
@@ -60,6 +62,16 @@ export function SeekBar({ pos, total, onSeek, accent = '#dc2626', disabled, onSc
       className={cn('group relative flex h-3 touch-none items-center', disabled ? 'cursor-default opacity-40' : 'cursor-pointer', className)}>
       <div className="relative h-1 w-full overflow-hidden rounded-full bg-foreground/20">
         <div className="h-full rounded-full" style={{ width: `${pct}%`, background: accent }} />
+        {/* Highlighted ranges (detected ads): amber reads over both track halves and is
+            deliberately not the accent color. */}
+        {total > 0 && ranges?.filter(r => r.endSec > r.startSec && r.startSec < total).map((r, i) => (
+          // design-ok(raw-palette-semantic): semantic "ad range" amber, distinct from the per-player accent
+          <span key={i} aria-hidden className="absolute top-0 h-full rounded-full bg-amber-400/60"
+            style={{
+              left: `${(r.startSec / total) * 100}%`,
+              width: `${((Math.min(r.endSec, total) - r.startSec) / total) * 100}%`,
+            }} />
+        ))}
         {/* Chapter ticks: subtle marks that read over both the played and unplayed track. */}
         {total > 0 && ticks?.filter(t => t > 0 && t < total).map((t, i) => (
           <span key={i} aria-hidden className="absolute top-0 h-full w-px bg-background/70"

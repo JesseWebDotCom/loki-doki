@@ -74,6 +74,46 @@ export async function generateEpisodeInsights(episodeId: string, force = false):
   return d.insights
 }
 
+// ── Ad detection ───────────────────────────────────────────────────────────────────
+
+export interface AdSegment {
+  id: string
+  startSec: number
+  endSec: number
+  kind: 'sponsor' | 'ad' | 'promo'
+  confidence: number
+}
+
+/** 'none' = never scanned (the player requests one lazily when skip-ads is on). */
+export type AdScanStatus = 'none' | 'pending' | 'processing' | 'ready' | 'failed'
+
+export interface AdSegmentsResponse {
+  status: AdScanStatus
+  error: string | null
+  segments: AdSegment[]
+}
+
+export async function getAdSegments(episodeId: string): Promise<AdSegmentsResponse> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/ad-segments`, opts)
+  return jsonOrError<AdSegmentsResponse>(r, 'Could not load ad segments.')
+}
+
+export async function requestAdScan(episodeId: string, force = false): Promise<void> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/ad-scan${force ? '?force=1' : ''}`, { ...opts, method: 'POST' })
+  await jsonOrError(r, 'Could not start the ad scan.')
+}
+
+export type AdCorrection =
+  | { kind: 'not_ad'; startSec: number; endSec: number }
+  | { kind: 'missed'; positionSec: number }
+
+export async function reportAdCorrection(episodeId: string, body: AdCorrection): Promise<void> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/ad-reports`, {
+    ...opts, method: 'POST', headers: J, body: JSON.stringify(body),
+  })
+  await jsonOrError(r, 'Could not send the report.')
+}
+
 // ── Snips ──────────────────────────────────────────────────────────────────────────
 
 export interface Snip {

@@ -275,6 +275,12 @@ export async function runPodcastTranscribeJob(
     const { generateEpisodeInsights } = await import('@/lib/podcast/ai')
     generateEpisodeInsights(episodeId).catch(err =>
       logger.warn(`[podcast-transcribe] auto insights failed for ${episodeId}: ${err}`))
+
+    // Ad scan chains the same way, but only when someone actually has skip-ads on
+    // for this show (the gate lives in maybeEnqueueAdScanForEpisode). Best-effort.
+    const { maybeEnqueueAdScanForEpisode } = await import('@/lib/podcast/adScan')
+    maybeEnqueueAdScanForEpisode(episodeId).catch(err =>
+      logger.warn(`[podcast-transcribe] auto ad scan failed for ${episodeId}: ${err}`))
   } catch (err) {
     // Retries re-enter through the scheduler; the terminal-failure hook flips the row
     // to 'failed'. Reset to 'pending' here so the UI shows "queued" between attempts.

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Chip, ChipRow } from '@/components/shared/ChipRow'
+import { ToggleRow } from '@/components/shared/ToggleRow'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { getShowSettings, saveShowSettings, DEFAULT_SHOW_SETTINGS, type ShowPlaybackSettings as Settings } from '@/lib/podcast/playerApi'
 
@@ -101,6 +102,13 @@ export function ShowPlaybackSettings({ showId, showName, open, onOpenChange }: {
             </div>
             {numField(form.skipOutroSec, n => setForm(f => ({ ...f, skipOutroSec: n })))}
           </div>
+
+          <ToggleRow
+            title="Skip ads"
+            description="Automatically jump past detected ad segments in this show."
+            checked={form.skipAds}
+            onCheckedChange={() => setForm(f => ({ ...f, skipAds: !f.skipAds }))}
+          />
 
           <div>
             <p className="text-sm font-semibold">Trim silence</p>

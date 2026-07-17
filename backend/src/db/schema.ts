@@ -3705,6 +3705,7 @@ export const podcastShowSettings = sqliteTable('podcast_show_settings', {
   skipOutroSec: integer('skip_outro_sec').notNull().default(0),
   trimSilence: integer('trim_silence'),   // null = inherit global; 0/1 per-show override
   voiceBoost: integer('voice_boost'),     // null = inherit global; 0/1 per-show override
+  skipAds: integer('skip_ads').notNull().default(0),   // 0/1: auto-skip detected ad segments
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   userShowUnique: unique().on(t.userId, t.showId),
@@ -3915,4 +3916,40 @@ export const podcastSnips = sqliteTable('podcast_snips', {
 }, t => ({
   userIdx: index('podcast_snips_user_idx').on(t.userId),
   episodeIdx: index('podcast_snips_episode_idx').on(t.episodeId),
+}))
+
+// One ad-scan result per episode, household-shared like the transcript (the LLM
+// verdict is objective and expensive; only the skip behavior is per-user, via
+// podcastShowSettings.skipAds). segmentsJson holds
+// [{ id, startSec, endSec, kind: 'sponsor' | 'ad' | 'promo', confidence }].
+export const podcastAdScans = sqliteTable('podcast_ad_scans', {
+  id: text('id').primaryKey(),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'),
+  segmentsJson: text('segments_json'),
+  segmentCount: integer('segment_count'),
+  model: text('model'),
+  requestedBy: text('requested_by'),    // audit only, no FK (mirrors podcastTranscripts)
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  episodeUnique: unique().on(t.episodeId),
+}))
+
+// User corrections to ad detection. kind 'not_ad' disables a detected range,
+// matched by time overlap so it keeps suppressing after a rescan regenerates
+// segments with fresh ids; kind 'missed' records a spot the scan missed and
+// triggers a forced rescan (endSec 0 = point report). userId is audit; the
+// suppression effect is household-wide, like the scan itself.
+export const podcastAdReports = sqliteTable('podcast_ad_reports', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['not_ad', 'missed'] }).notNull(),
+  startSec: real('start_sec').notNull().default(0),
+  endSec: real('end_sec').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  episodeIdx: index('podcast_ad_reports_episode_idx').on(t.episodeId),
 }))

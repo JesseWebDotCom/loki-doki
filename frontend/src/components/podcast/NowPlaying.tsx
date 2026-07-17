@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Play, Pause, RotateCcw, RotateCw, Moon, GripVertical, X, Download,
   ChevronsLeft, ChevronsRight, BookmarkPlus, MoreHorizontal, Settings2, Trash2, TimerOff,
-  Scissors, ExternalLink,
+  Scissors, ExternalLink, Megaphone,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -24,7 +24,7 @@ import { ShowPlaybackSettings } from '@/components/podcast/ShowPlaybackSettings'
 import { TranscriptPanel } from '@/components/podcast/TranscriptPanel'
 import { coverUrl, getEpisodeDetail, type EpisodeDetail } from '@/lib/podcast/api'
 import { createBookmark } from '@/lib/podcast/playerApi'
-import { createSnip } from '@/lib/podcast/aiApi'
+import { createSnip, reportAdCorrection } from '@/lib/podcast/aiApi'
 import { accentOf, DEFAULT_PALETTE, useArtPalette } from '@/lib/artPalette'
 import { accentVars } from '@/components/shared/ArtAccentScope'
 import { UltraBlur } from '@/components/shared/UltraBlur'
@@ -38,7 +38,7 @@ const SLEEP_MINUTES = [15, 30, 60]
 
 export function NowPlaying() {
   const {
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, sleep,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, adSegments, sleep,
     pause, resume, seek, setRate, setAutoplay, setSleep,
     nextChapter, prevChapter, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
   } = usePodcastPlayback()
@@ -48,6 +48,7 @@ export function NowPlaying() {
   const [detail, setDetail] = useState<EpisodeDetail | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [snipping, setSnipping] = useState(false)
+  const [reportingAd, setReportingAd] = useState(false)
 
   // Immersive backdrop: the show cover through UltraBlur, with the whole panel's
   // chrome (play button, tabs, links) retinted to the cover palette. Always-dark,
@@ -108,6 +109,20 @@ export function NowPlaying() {
     }
   }
 
+  // "This is an ad the scan missed": record the spot and force a rescan.
+  async function handleReportAd() {
+    if (!track || reportingAd) return
+    setReportingAd(true)
+    try {
+      await reportAdCorrection(track.episodeId, { kind: 'missed', positionSec: Math.floor(positionSec) })
+      toast.success('Thanks. This episode will be rescanned for ads.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not send the report.')
+    } finally {
+      setReportingAd(false)
+    }
+  }
+
   function onQueueDragEnd(e: DragEndEvent) {
     const { active, over } = e
     if (!over || active.id === over.id) return
@@ -144,7 +159,8 @@ export function NowPlaying() {
       {/* Scrubber (with chapter tick marks) */}
       <div className="mt-4">
         <SeekBar pos={positionSec} total={total || 100} onSeek={seek} accent={accent}
-          ticks={chapters.length > 1 ? chapters.map(c => c.startSec) : undefined} />
+          ticks={chapters.length > 1 ? chapters.map(c => c.startSec) : undefined}
+          ranges={adSegments.length ? adSegments : undefined} />
         <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
           <span>{fmtTime(positionSec)}</span>
           <span>-{fmtTime(Math.max(0, total - positionSec))}</span>
@@ -234,6 +250,10 @@ export function NowPlaying() {
             {timeSaved > 0 && (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">Time saved so far: {fmtTimeSaved(timeSaved)}</p>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={reportingAd} onSelect={() => void handleReportAd()}>
+              <Megaphone className="size-4" /> Report an ad at this spot
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

@@ -3906,4 +3906,31 @@ export function runMigrations() {
       text, episode_id UNINDEXED, show_id UNINDEXED, start_sec UNINDEXED, end_sec UNINDEXED
     );
   `)
+
+  // ── Podcast ad skipping: LLM ad-scan results + user corrections ──
+  addColumn('podcast_show_settings', 'skip_ads', 'INTEGER NOT NULL DEFAULT 0')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS podcast_ad_scans (
+      id TEXT NOT NULL PRIMARY KEY,
+      episode_id TEXT NOT NULL UNIQUE REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      segments_json TEXT,
+      segment_count INTEGER,
+      model TEXT,
+      requested_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS podcast_ad_reports (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      start_sec REAL NOT NULL DEFAULT 0,
+      end_sec REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS podcast_ad_reports_episode_idx ON podcast_ad_reports(episode_id);
+  `)
 }

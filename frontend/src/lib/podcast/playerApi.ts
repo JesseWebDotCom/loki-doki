@@ -84,10 +84,11 @@ export interface ShowPlaybackSettings {
   skipOutroSec: number
   trimSilence: boolean | null   // null = follow the global toggle
   voiceBoost: boolean | null
+  skipAds: boolean
 }
 
 export const DEFAULT_SHOW_SETTINGS: ShowPlaybackSettings = {
-  speed: null, skipIntroSec: 0, skipOutroSec: 0, trimSilence: null, voiceBoost: null,
+  speed: null, skipIntroSec: 0, skipOutroSec: 0, trimSilence: null, voiceBoost: null, skipAds: false,
 }
 
 export async function getShowSettings(showId: string): Promise<ShowPlaybackSettings> {
