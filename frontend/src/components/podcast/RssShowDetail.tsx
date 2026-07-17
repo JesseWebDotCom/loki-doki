@@ -3,8 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Play, Pause,
-  RotateCw, Rss, ExternalLink, ArrowDownToLine, AlertCircle, Check, ListPlus,
-  Settings2, Trash2,
+  RotateCw, Rss, ExternalLink, ArrowDownToLine, AlertCircle, Check, ListPlus, ListStart,
+  Settings2, Trash2, SlidersHorizontal, Bookmark,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -27,6 +27,9 @@ import {
   downloadEpisode, removeEpisodeDownload,
   type Episode, type Show,
 } from '@/lib/podcast/api'
+import { getBookmarks } from '@/lib/podcast/playerApi'
+import { ShowPlaybackSettings } from '@/components/podcast/ShowPlaybackSettings'
+import { BookmarkRow } from '@/components/podcast/BookmarkRow'
 import { fmtDate, fmtDuration } from '@/lib/podcast/format'
 
 const PAGE_SIZE = EPISODE_PAGE_SIZE
@@ -43,6 +46,7 @@ export function RssShowDetail({ show }: { show: Show }) {
   const [confirmUnsubscribe, setConfirmUnsubscribe] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [playbackSettingsOpen, setPlaybackSettingsOpen] = useState(false)
 
   const { data: episodes = [], isLoading } = useQuery({
     queryKey: ['podcast-episodes', show.id],
@@ -169,6 +173,10 @@ export function RssShowDetail({ show }: { show: Show }) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuItem onSelect={() => setPlaybackSettingsOpen(true)}>
+                  <SlidersHorizontal className="size-4" /> Playback settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <AutoDownloadSettings showId={show.id} subscription={show.subscription} />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={() => setConfirmUnsubscribe(true)}>
@@ -179,6 +187,9 @@ export function RssShowDetail({ show }: { show: Show }) {
           )}
         </>}
       />
+
+      {/* ── Bookmarks in this show ── */}
+      <ShowBookmarksSection showId={show.id} />
 
       {/* ── Episode list ── */}
       <EpisodesToolbar
@@ -227,7 +238,40 @@ export function RssShowDetail({ show }: { show: Show }) {
         destructive
         onConfirm={() => void handleUnsubscribe()}
       />
+
+      <ShowPlaybackSettings showId={show.id} showName={show.name} open={playbackSettingsOpen} onOpenChange={setPlaybackSettingsOpen} />
     </PageContainer>
+  )
+}
+
+/** Bookmarked moments across this show's episodes - collapsed to a short list. */
+function ShowBookmarksSection({ showId }: { showId: string }) {
+  const qc = useQueryClient()
+  const [showAll, setShowAll] = useState(false)
+  const { data: bookmarks = [] } = useQuery({
+    queryKey: ['podcast-bookmarks', showId],
+    queryFn: () => getBookmarks({ showId }),
+  })
+  if (bookmarks.length === 0) return null
+  const visible = showAll ? bookmarks : bookmarks.slice(0, 3)
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['podcast-bookmarks', showId] })
+    void qc.invalidateQueries({ queryKey: ['podcast-bookmarks'] })
+  }
+  return (
+    <section className="mb-6">
+      <h2 className="mb-1 flex items-center gap-1.5 text-sm font-bold">
+        <Bookmark className="size-4 text-brand" /> Bookmarks
+      </h2>
+      <div className="space-y-0.5">
+        {visible.map(b => <BookmarkRow key={b.id} bookmark={b} showThumb={false} onChanged={refresh} />)}
+      </div>
+      {bookmarks.length > 3 && (
+        <button onClick={() => setShowAll(v => !v)} className="mt-1 px-3 text-xs font-medium text-muted-foreground hover:text-foreground">
+          {showAll ? 'Show fewer' : `Show all ${bookmarks.length}`}
+        </button>
+      )}
+    </section>
   )
 }
 
@@ -298,7 +342,7 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
   onToggle: () => void
   onInvalidate: () => Promise<void>
 }) {
-  const { track, playing, play, enqueue, pause, resume } = usePodcastPlayback()
+  const { track, playing, play, enqueue, playNextInQueue, pause, resume } = usePodcastPlayback()
   const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
   const isCurrent = track?.episodeId === episode.id
   const ready = episode.status === 'ready'
@@ -415,9 +459,15 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
               </Button>
             )}
             {ready && (
+              <Button type="button" variant="outline" size="sm" onClick={() => playNextInQueue(toTrack(episode, show))}
+                className="gap-1.5 text-muted-foreground hover:text-foreground">
+                <ListStart className="size-3.5" /> Play next
+              </Button>
+            )}
+            {ready && (
               <Button type="button" variant="outline" size="sm" onClick={() => enqueue(toTrack(episode, show))}
                 className="gap-1.5 text-muted-foreground hover:text-foreground">
-                <ListPlus className="size-3.5" /> Up Next
+                <ListPlus className="size-3.5" /> Add to queue
               </Button>
             )}
             {!dl && (

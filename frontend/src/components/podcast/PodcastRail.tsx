@@ -1,9 +1,8 @@
 import { NavLink, Link } from 'react-router-dom'
-import { Home, Compass, Library, Download, Plus, Settings2, Lock, type LucideIcon } from 'lucide-react'
+import { Home, Compass, Library, Download, Plus, Settings2, ListFilter, Bookmark, type LucideIcon } from 'lucide-react'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
-import { useAuth } from '@/context/AuthContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import type { Show } from '@/lib/podcast/api'
 
@@ -22,7 +21,6 @@ function RailLink({ to, icon: Icon, label, end }: { to: string; icon: LucideIcon
 
 export function PodcastRail({ shows, onCreate, variant = 'sidebar' }: { shows: Show[]; onCreate: () => void; variant?: 'sidebar' | 'drawer' }) {
   const drawer = variant === 'drawer'
-  const { user } = useAuth()
   const myShows = shows.filter(s => s.isOwn)
   return (
     <nav className={cn(
@@ -37,18 +35,12 @@ export function PodcastRail({ shows, onCreate, variant = 'sidebar' }: { shows: S
       <RailLink to="/podcasts" icon={Home} label="Listen Now" end />
       <RailLink to="/podcasts/browse" icon={Compass} label="Browse" />
       <RailLink to="/podcasts/library" icon={Library} label="Library" />
+      <RailLink to="/podcasts/filters" icon={ListFilter} label="Filters" />
+      <RailLink to="/podcasts/bookmarks" icon={Bookmark} label="Bookmarks" />
       <RailLink to="/podcasts/offline" icon={Download} label="Offline" />
-      {user?.role === 'admin' && (
-        <NavLink to="/podcasts/settings"
-          className={({ isActive }) => cn(
-            'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium transition-colors',
-            isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-          )}>
-          <Settings2 className="size-[18px]" />
-          <span className="flex-1">Settings</span>
-          <Lock className="size-3 text-warning/70" />
-        </NavLink>
-      )}
+      {/* Settings now hosts per-user sections (Playback, Subscriptions) - visible to everyone;
+          admin-only sections show a locked notice inside the shell. */}
+      <RailLink to="/podcasts/settings" icon={Settings2} label="Settings" />
 
       <Button variant="tinted" onClick={onCreate}
         className="mt-2 h-auto w-full justify-start gap-3 rounded-control px-3 py-2.5 text-sm font-semibold">
