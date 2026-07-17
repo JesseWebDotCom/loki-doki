@@ -5,7 +5,7 @@ import {
   HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
   ThumbsUp, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
 } from 'lucide-react'
-import { ExternalLink, Share2, PictureInPicture2, Sparkles, ListVideo, FileText, Bookmark, MessageSquare } from 'lucide-react'
+import { type LucideIcon, ExternalLink, Share2, PictureInPicture2, Sparkles, ListVideo, FileText, Bookmark, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useArtPalette } from '@/lib/artPalette'
 import { videoAccentVars } from '@/components/videos/AccentScope'
@@ -184,7 +184,7 @@ function DescriptionCard({ views, description }: { views: string | null; descrip
 /** Tabbed Card shell for the side column: same tab-header style (border-b, active underline)
  *  for every source, whatever tabs it actually has. */
 function SidePanelShell<T extends string>({ tabs, active, onChange, action, children }: {
-  tabs: Array<{ key: T; label: string; icon?: React.ComponentType<{ className?: string }> }>
+  tabs: Array<{ key: T; label: string; icon?: LucideIcon }>
   active: T
   onChange: (t: T) => void
   /** Optional right-aligned control on the tab row (e.g. the queue's Autoplay toggle). */
@@ -1485,7 +1485,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // TranscriptTab's 'none' state) — and Ask is grounded in About/comments even before a
   // transcript exists, so both stay universal. Comments still drops off where there's no
   // comments API at all (TikTok).
-  const tabs: Array<{ key: SideTab; label: string; icon?: React.ComponentType<{ className?: string }> }> = [
+  const tabs: Array<{ key: SideTab; label: string; icon?: LucideIcon }> = [
     { key: 'upnext', label: pq.active && pq.playlistId ? 'Queue' : 'Up next', icon: ListVideo },
     { key: 'transcript', label: 'Transcript', icon: FileText },
     { key: 'ask', label: 'Ask', icon: Sparkles },
