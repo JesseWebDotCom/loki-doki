@@ -70,7 +70,13 @@ function parseCoverTrack(json: string | null): { videoId: string; title: string;
   if (!json) return null
   try {
     const p = JSON.parse(json) as { videoId?: string; title?: string; artist?: string | null }
-    return p.videoId && p.title ? { videoId: p.videoId, title: p.title, artist: p.artist ?? null } : null
+    // Accept ART-ONLY stamps (empty videoId): built-in covers, the LLM backfill, and the
+    // iTunes tune-in tier all carry title+artist with no videoId, and the frontend's
+    // useSongArt resolves their album art via artist+title. Requiring a videoId here was
+    // silently dropping every one of those covers (the vast majority of stations).
+    if (!p.title) return null
+    if (!p.videoId && !p.artist) return null
+    return { videoId: p.videoId ?? '', title: p.title, artist: p.artist ?? null }
   } catch { return null }
 }
 
