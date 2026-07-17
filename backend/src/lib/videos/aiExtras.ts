@@ -141,6 +141,96 @@ export async function catchMeUp(opts: {
   }
 }
 
+// ── Homework mode ────────────────────────────────────────────────────────────────
+// Turn a watched lecture into study material: timestamped notes, the key ideas, and
+// flashcards. "Watch later" is converging with "knowledge base" (Recall, Eightify and the
+// video-note tools all live here), and a family hub with local transcripts + a local model
+// can do it without shipping a child's schoolwork to anyone. Writes a real Note (markdown),
+// so it lands in the notebook they already use rather than a parallel store.
+
+export interface StudyNotes {
+  summary: string
+  keyPoints: Array<{ atSec: number; text: string }>
+  flashcards: Array<{ q: string; a: string }>
+}
+
+export async function studyNotes(opts: {
+  source: string; videoId: string; title: string | null; url: string | null
+  userId: string; userFirstName: string
+}): Promise<StudyNotes | null> {
+  const t = await timedTranscript(opts.source, opts.videoId, opts.userId, opts.userFirstName, opts.url)
+  if (!t) return null
+  try {
+    const model = await getModel()
+    const res = await ollamaChat(
+      model,
+      [
+        {
+          role: 'system',
+          content:
+            'You turn a video transcript into study material for a student. Each transcript line starts with its time as [t=<seconds>].\n' +
+            'Reply in EXACTLY this format and nothing else:\n' +
+            'SUMMARY: <two or three sentences on what the video teaches>\n' +
+            'POINT: [t=<seconds>] <one key idea, one sentence>\n' +
+            '(5 to 8 POINT lines, in order, spread across the video)\n' +
+            'CARD: <question> | <answer>\n' +
+            '(4 to 8 CARD lines: short factual questions a student could be quizzed on)',
+        },
+        { role: 'user', content: `${opts.title ? `Video: ${opts.title}\n\n` : ''}${t.lines}` },
+      ],
+      undefined,
+      { temperature: 0.3, num_predict: 900 },
+      undefined,
+      60_000,
+    )
+    const text = res.message.content ?? ''
+    const summary = text.match(/SUMMARY:\s*(.+?)(?:\n[A-Z]+:|$)/s)?.[1]?.trim() ?? ''
+    const keyPoints: StudyNotes['keyPoints'] = []
+    const flashcards: StudyNotes['flashcards'] = []
+    for (const line of text.split('\n')) {
+      const p = line.match(/^POINT:\s*\[t=(\d+)\]\s*(.+)$/)
+      if (p) {
+        const atSec = Number(p[1])
+        if (Number.isFinite(atSec) && atSec <= t.durationSec + 60) keyPoints.push({ atSec, text: p[2]!.trim().slice(0, 300) })
+        continue
+      }
+      const card = line.match(/^CARD:\s*([^|]+)\|\s*(.+)$/)
+      if (card) flashcards.push({ q: card[1]!.trim().slice(0, 200), a: card[2]!.trim().slice(0, 300) })
+    }
+    // Neither points nor cards means the model ignored the format; a summary alone isn't
+    // study material, and the AI Summary tab already covers that.
+    if (!summary || (keyPoints.length === 0 && flashcards.length === 0)) return null
+    return { summary, keyPoints: keyPoints.sort((a, b) => a.atSec - b.atSec), flashcards }
+  } catch (err) {
+    logger.debug(`[videos/ai] studyNotes failed: ${String(err)}`)
+    return null
+  }
+}
+
+/** Study notes as the markdown body of a Note, timestamps deep-linking back to the video. */
+export function studyNotesMarkdown(notes: StudyNotes, opts: { source: string; videoId: string; title: string | null }): string {
+  const clock = (sec: number) => {
+    const m = Math.floor(sec / 60), s = sec % 60
+    const h = Math.floor(m / 60)
+    return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
+  }
+  const watch = (sec: number) => `/videos/${opts.source}/watch/${encodeURIComponent(opts.videoId)}?t=${sec}`
+  const lines: string[] = []
+  lines.push(notes.summary, '')
+  if (notes.keyPoints.length) {
+    lines.push('## Key points', '')
+    for (const p of notes.keyPoints) lines.push(`- [${clock(p.atSec)}](${watch(p.atSec)}) ${p.text}`)
+    lines.push('')
+  }
+  if (notes.flashcards.length) {
+    lines.push('## Quiz yourself', '')
+    for (const c of notes.flashcards) lines.push(`- **${c.q}**`, `  - ${c.a}`)
+    lines.push('')
+  }
+  lines.push('---', `From [${opts.title ?? 'a video'}](${watch(0)}), summarized on your own server.`)
+  return lines.join('\n')
+}
+
 // ── Clip suggestions ─────────────────────────────────────────────────────────────
 // YouTube's 2026 "Video Clips to Shorts" suggests clippable moments to creators; the same
 // idea serves the Clipper and the Studio here.

@@ -336,6 +336,17 @@ export function getClipSuggestions(source: VideoSource | 'youtube', videoId: str
   return getJson(`/api/videos/${source}/clip-suggestions/${encodeURIComponent(videoId)}`)
 }
 
+export interface StudyNotes {
+  summary: string
+  keyPoints: Array<{ atSec: number; text: string }>
+  flashcards: Array<{ q: string; a: string }>
+}
+
+/** Homework mode: study material from this video, saved as a real Note. */
+export function makeStudyNotes(source: VideoSource | 'youtube', videoId: string): Promise<{ noteId: string; notes: StudyNotes }> {
+  return sendJson(`/api/videos/${source}/study-notes/${encodeURIComponent(videoId)}`, 'POST', {})
+}
+
 // ── Year in Review ───────────────────────────────────────────────────────────────
 
 export interface RecapPerson {

@@ -19,7 +19,8 @@ import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
 import { askVideo } from '@/lib/videos/askVideo'
 import { trickplaySheetPath } from '@/lib/videos/trickplay'
 import { buildRecap } from '@/lib/videos/recap'
-import { autoChapters, catchMeUp, suggestClips } from '@/lib/videos/aiExtras'
+import { autoChapters, catchMeUp, studyNotes, studyNotesMarkdown, suggestClips } from '@/lib/videos/aiExtras'
+import { createNote } from '@/lib/notes/store'
 import { getOrCreateRssToken, parseOpml, subscriptionsAsOpml } from '@/lib/videos/portability'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
@@ -863,6 +864,29 @@ videosRoute.get('/:source/catch-up/:id', async (c) => {
     title: gate.title, url: gate.url, uptoSec, userId: user.id, userFirstName: user.firstName,
   })
   return c.json({ recap })
+})
+
+// Homework mode: turn a watched lecture into study material, saved as a real Note so it
+// lands in the notebook they already use. A child's schoolwork never leaves the server.
+videosRoute.post('/:source/study-notes/:id', async (c) => {
+  const user = c.get('user')
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const source = c.req.param('source')
+  const videoId = c.req.param('id')
+  const notes = await studyNotes({
+    source, videoId, title: gate.title, url: gate.url,
+    userId: user.id, userFirstName: user.firstName,
+  })
+  if (!notes) return c.json({ error: "There's no transcript to study from on this one." }, 422)
+  const note = await createNote({
+    ownerId: user.id,               // personal by default, like every other note
+    createdBy: user.id,
+    title: gate.title ? `Notes: ${gate.title}`.slice(0, 200) : 'Video notes',
+    body: studyNotesMarkdown(notes, { source, videoId, title: gate.title }),
+    source: 'companion',
+  })
+  return c.json({ noteId: note.id, notes })
 })
 
 // Clippable moments, for the Clipper and the Studio.

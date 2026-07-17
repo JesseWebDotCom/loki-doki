@@ -64,6 +64,7 @@ import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
 import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogether'
 import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
 import { CastButton } from '@/components/videos/CastButton'
+import { StudyNotesButton } from '@/components/videos/StudyNotesButton'
 import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
 import { MomentsPanel } from '@/components/videos/MomentsPanel'
@@ -775,6 +776,7 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
       </Button>
       {wtSlot}
       {castSlot}
+      <StudyNotesButton source="youtube" videoId={videoId} />
       {!localKind && (
         <Button size="icon" onClick={saveState === 'saving' ? undefined : saveVideoOffline} disabled={saveState === 'saved'}
           title={saveState === 'saved' ? 'Saved offline' : 'Save offline: this server downloads the video so you can watch it later without streaming.'}
@@ -1499,6 +1501,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           </Button>
           <WatchTogetherPill wt={wt} />
           <CastButton source={source} videoId={id} title={item.title} atSec={currentSec < 0 ? 0 : currentSec} />
+          {capabilities?.transcript !== false && <StudyNotesButton source={source} videoId={id} />}
           {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
           <Button size="icon" onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
             disabled={saveState === 'ready'} aria-label="Save offline"
