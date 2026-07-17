@@ -26,6 +26,7 @@ interface PodcastGraph {
   dryGain: GainNode
   wetGain: GainNode
   mix: GainNode
+  duckGain: GainNode
   outGain: GainNode
   analyser: AnalyserNode
 }
@@ -98,6 +99,9 @@ export function ensurePodcastGraph(el: HTMLMediaElement): PodcastGraph | null {
     wetGain.gain.value = 0
 
     const mix = ctx.createGain()
+    // Announcement ducking rides its own node so it never fights the sleep-timer
+    // fade, which owns outGain (a shared node would leave one of them stranded).
+    const duckGain = ctx.createGain()
     const outGain = ctx.createGain()
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 2048
@@ -110,11 +114,12 @@ export function ensurePodcastGraph(el: HTMLMediaElement): PodcastGraph | null {
     comp.connect(makeup)
     makeup.connect(wetGain)
     wetGain.connect(mix)
-    mix.connect(outGain)
+    mix.connect(duckGain)
+    duckGain.connect(outGain)
     outGain.connect(ctx.destination)
     mix.connect(analyser)   // pre-outGain tap so sleep fades don't read as silence
 
-    const graph: PodcastGraph = { ctx, dryGain, wetGain, mix, outGain, analyser }
+    const graph: PodcastGraph = { ctx, dryGain, wetGain, mix, duckGain, outGain, analyser }
     graphs.set(el, graph)
     applyToGraph(graph)
     startEngine(el, graph)
@@ -153,6 +158,7 @@ export function fadePodcastVolume(el: HTMLMediaElement, value: number, sec: numb
   }
 }
 
+/** Cancel a sleep fade and return the element to its intended level. */
 export function resetPodcastVolume(el: HTMLMediaElement): void {
   const g = graphs.get(el)
   if (g) {
@@ -161,7 +167,61 @@ export function resetPodcastVolume(el: HTMLMediaElement): void {
       g.outGain.gain.setTargetAtTime(1, g.ctx.currentTime, 0.05)
     } catch { g.outGain.gain.value = 1 }
   }
-  el.volume = 1
+  applyElementVolume(el)
+}
+
+// ── Volume + announcement ducking ───────────────────────────────────────────────
+// Three things want to move the podcast's level: the user's volume (remote control /
+// family cap), the sleep-timer fade, and companion-speech ducking. They must not fight,
+// so each owns a distinct control and the element's own volume carries ONLY the base:
+//   • base volume  -> element .volume (via setPodcastVolume)
+//   • sleep fade   -> outGain
+//   • ducking      -> duckGain
+// With no graph attached (Web Audio unavailable, or the element is already sourced
+// elsewhere) there is only one knob, so base and duck are multiplied onto .volume and
+// the sleep fade temporarily overrides it until resetPodcastVolume restores.
+
+const DUCK_LEVEL = 0.2
+let baseVolume = 1
+let duckActive = false
+
+function applyElementVolume(el: HTMLMediaElement): void {
+  // Graphed: ducking lives on duckGain, so the element carries the base level alone.
+  const factor = graphs.get(el) || !duckActive ? 1 : DUCK_LEVEL
+  el.volume = Math.max(0, Math.min(1, baseVolume * factor))
+}
+
+/** The player's user-facing 0..1 level. Called by PodcastPlaybackContext.setVolume,
+ *  which is the public API remote control and the family volume cap drive. */
+export function setPodcastVolume(el: HTMLMediaElement | null, v: number): void {
+  baseVolume = Math.max(0, Math.min(1, v))
+  if (el) applyElementVolume(el)
+}
+
+export function duckPodcastForSpeech(): void {
+  duckActive = true
+  const el = engineEl
+  if (!el) return
+  const g = graphs.get(el)
+  if (g) {
+    try { g.duckGain.gain.setTargetAtTime(DUCK_LEVEL, g.ctx.currentTime, 0.05) } catch { g.duckGain.gain.value = DUCK_LEVEL }
+  } else {
+    applyElementVolume(el)
+  }
+}
+
+export function unduckPodcastAfterSpeech(): void {
+  duckActive = false
+  const el = engineEl
+  if (!el) return
+  const g = graphs.get(el)
+  if (g) {
+    // ~0.5s restore: setTargetAtTime is exponential, so a 0.17 time constant lands
+    // within about a percent of target by 500ms.
+    try { g.duckGain.gain.setTargetAtTime(1, g.ctx.currentTime, 0.17) } catch { g.duckGain.gain.value = 1 }
+  } else {
+    applyElementVolume(el)
+  }
 }
 
 // ── Trim-silence engine ────────────────────────────────────────────────────────────

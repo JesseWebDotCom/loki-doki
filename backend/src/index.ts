@@ -197,6 +197,7 @@ import { studio as deviceStudio } from '@/routes/deviceStudio'
 // so it is intentionally NOT imported here (that would crash boot).
 import { browserSessionRoute } from '@/routes/browserSession'
 import { watchTogether } from '@/routes/watchTogether'
+import { together } from '@/routes/together'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
@@ -606,6 +607,8 @@ app.route('/api/pod', deviceStudio)
 // app.route('/api/stream-deck', streamDeck)  // retired — see controller-layout system
 app.route('/api/browser-session', browserSessionRoute)
 app.route('/api/watch-together', watchTogether)
+// Listening Together: player presence, phone-as-remote commands, Family Jam queue.
+app.route('/api/together', together)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
 app.route('/api/notes', notesRouter)

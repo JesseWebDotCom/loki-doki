@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger'
 import { isSameMachine } from '@/lib/clientMachine'
 
 export interface BrowserCommand {
-  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump' | 'media_transport' | 'watch_invite'
+  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump' | 'media_transport' | 'watch_invite' | 'together'
   path?: string
   url?: string
   action?: string
@@ -34,6 +34,10 @@ export interface SessionEntry {
   /** Arbitration IP (already normalized via clientMachine.getArbitrationIp). */
   ip: string
   lastYield: boolean | null
+  /** Stable client player-device id (localStorage-minted) - lets the Listening
+   *  Together layer route a command to ONE chosen session, cross-user. Optional:
+   *  older clients / the HUD island register without one. */
+  deviceId?: string | null
 }
 
 // userId → Set of active SSE sessions. Insertion order = connection recency.
@@ -85,6 +89,23 @@ export function pushToBrowserSession(userId: string, cmd: BrowserCommand): boole
   const recent = candidates[candidates.length - 1]
   if (recent) { try { recent.send(cmd); return true } catch { return false } }
   return false
+}
+
+/** Push a command to the session registered under a specific player-device id (any user
+ *  in the household - Listening Together is a household surface). When the same device id
+ *  has several live streams (rare: a reconnect race), the most recent non-HUD one wins. */
+export function pushToDeviceSession(deviceId: string, cmd: BrowserCommand): boolean {
+  let target: SessionEntry | null = null
+  for (const set of sessions.values()) {
+    for (const entry of set) {
+      if (entry.deviceId === deviceId && entry.surface !== 'hud') target = entry
+    }
+  }
+  if (!target) {
+    logger.info(`[browser-session] DROP ${cmd.type} - no live session for device=${deviceId}`)
+    return false
+  }
+  try { target.send(cmd); return true } catch { return false }
 }
 
 // ── Command ACK: an action isn't "fired" just because it was delivered — the app POSTs an

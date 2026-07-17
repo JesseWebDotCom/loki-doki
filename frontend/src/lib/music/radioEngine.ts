@@ -276,9 +276,36 @@ export class RadioEngine {
   private applyVol(key: ChKey) {
     const c = this.ch[key]
     c.el.muted = this.muted
-    c.el.volume = Math.max(0, Math.min(1, c.level * this.masterVol))
+    c.el.volume = Math.max(0, Math.min(1, c.level * this.masterVol * this.duckFactor))
   }
   private applyAll() { (Object.keys(this.ch) as ChKey[]).forEach(k => this.applyVol(k)) }
+
+  // ── Announcement ducking ───────────────────────────────────────────────────
+  // A multiplier UNDER the user's volume (so setVolume/the family cap keep their
+  // meaning and the UI slider never moves): companion speech drops it to 0.2, then
+  // it ramps back to 1 over ~500ms. Deliberately separate from the crossfade ramps,
+  // which own per-channel `level`. See lib/speechDucking.ts.
+  private duckFactor = 1
+  private duckRamp: ReturnType<typeof setInterval> | null = null
+
+  private rampDuck(to: number, ms: number) {
+    if (this.duckRamp) { clearInterval(this.duckRamp); this.duckRamp = null }
+    if (!this.built || ms <= 0) { this.duckFactor = to; if (this.built) this.applyAll(); return }
+    const from = this.duckFactor
+    const steps = Math.max(1, Math.round(ms / 50))
+    let i = 0
+    this.duckRamp = setInterval(() => {
+      i++
+      this.duckFactor = from + (to - from) * Math.min(1, i / steps)
+      this.applyAll()
+      if (i >= steps) { clearInterval(this.duckRamp!); this.duckRamp = null }
+    }, 50)
+  }
+
+  /** Duck to ~20 percent for a companion announcement. */
+  duckForSpeech() { this.rampDuck(0.2, 150) }
+  /** Restore over ~half a second once the announcement ends. */
+  unduckAfterSpeech() { this.rampDuck(1, 500) }
 
   private ramp(key: ChKey, to: number, ms: number) {
     const c = this.ch[key]
@@ -855,6 +882,25 @@ export class RadioEngine {
     if (!moved) return
     songs.splice(to, 0, moved)
     this.set({ queue: songs.slice(), nextTrack: songs[this.state.index + 1] ?? null })
+  }
+
+  /** Append a track to the end of Up Next. Splices the LIVE array (like reorderQueue)
+   *  so the running transition loop picks it up; a no-op when nothing is playing, since
+   *  there is no queue to append to yet. Used by the Family Jam host to pull the shared
+   *  queue's head into its own playback. */
+  enqueueTrack(track: QueuedTrack) {
+    const songs = this.songsRef
+    if (!songs || !this.state.active) return
+    songs.push(track)
+    this.set({ queue: songs.slice(), nextTrack: songs[this.state.index + 1] ?? null })
+  }
+
+  /** How many tracks are still queued after the current one. Lets the jam host know
+   *  when to pull the next shared item without reaching into queue internals. */
+  upNextCount(): number {
+    const songs = this.songsRef
+    if (!songs) return 0
+    return Math.max(0, songs.length - this.state.index - 1)
   }
 
   /** Play an Up Next item NOW: pull it to the front of Up Next, then skip into it. */

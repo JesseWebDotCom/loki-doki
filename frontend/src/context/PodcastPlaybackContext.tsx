@@ -12,9 +12,10 @@ import {
   type ShowPlaybackSettings,
 } from '@/lib/podcast/playerApi'
 import {
-  applyPodcastDsp, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
-  setPodcastBaseRate, takeSavedSeconds,
+  applyPodcastDsp, duckPodcastForSpeech, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
+  setPodcastBaseRate, setPodcastVolume, takeSavedSeconds, unduckPodcastAfterSpeech,
 } from '@/lib/podcastAudioGraph'
+import { registerDuckable } from '@/lib/speechDucking'
 
 export interface PodcastChapter { title: string; startSec: number }
 export interface TranscriptTurn { speaker: string; text: string }
@@ -73,6 +74,11 @@ interface PodcastPlaybackCtx {
   resume: () => void
   toggle: () => void
   seek: (sec: number) => void
+  /** 0..1 output level. The player has no volume UI of its own; this exists so
+   *  remote control (Listening Together) and the family volume cap have a public
+   *  API to drive instead of reaching into the audio element. */
+  setVolume: (v: number) => void
+  volume: number
   setRate: (r: number) => void
   setAutoplay: (v: boolean) => void
   setSleep: (mode: SleepMode, minutes?: number) => void
@@ -338,6 +344,20 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     setPositionSec(sec)
   }, [])
 
+  // Volume is applied through the audio graph module, which arbitrates it against the
+  // sleep fade and speech ducking (see podcastAudioGraph) instead of three call sites
+  // racing to set element volume.
+  const [volume, setVolumeState] = useState(1)
+  const setVolume = useCallback((v: number) => {
+    const vol = Math.max(0, Math.min(1, v))
+    setVolumeState(vol)
+    setPodcastVolume(audioRef.current, vol)
+  }, [])
+  // Re-apply on track change so a fresh/remounted element picks up the chosen level.
+  useEffect(() => {
+    setPodcastVolume(audioRef.current, volume)
+  }, [track?.episodeId, volume]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const setRate = useCallback((r: number) => {
     setRateState(r)
     setPodcastBaseRate(r)
@@ -548,7 +568,12 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
       stop: () => ctrlRef.current.close(),
     })
     const unS = registerMediaStop('podcast', () => ctrlRef.current.close())
-    return () => { unT(); unS() }
+    // Duck the episode under companion speech on this device (lib/speechDucking.ts).
+    const unD = registerDuckable('podcast', {
+      duck: () => duckPodcastForSpeech(),
+      restore: () => unduckPodcastAfterSpeech(),
+    })
+    return () => { unT(); unS(); unD() }
   }, [])
 
   // Report now-playing to the shared snapshot so device player bars reflect the podcast.
@@ -587,13 +612,13 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   }, [track])
 
   const value = useMemo<PodcastPlaybackCtx>(() => ({
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, audioRef,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, audioRef, volume,
     play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
-    next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setRate, setAutoplay, setSleep,
+    next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
     refreshShowSettings, close, closeIfShow,
-  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep,
+  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, volume,
        play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
-       next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setRate, setAutoplay, setSleep,
+       next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
        refreshShowSettings, close, closeIfShow])
 
   return (

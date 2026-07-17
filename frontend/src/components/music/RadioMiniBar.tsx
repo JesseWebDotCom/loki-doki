@@ -19,6 +19,7 @@ import { useTitleMask } from '@/lib/music/policy'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
 import { FamilyRemainingChip } from '@/components/shared/FamilyRemainingChip'
+import { DevicesPopover } from '@/components/shared/DevicesPopover'
 
 // Scene selector right on the bar (both breakpoints) - changing the visual must not
 // require opening the full player. Same shared pref as everywhere else (None + every
@@ -196,6 +197,8 @@ export function RadioMiniBar() {
             <div className="flex items-center justify-end gap-1">
               <VisualizerMenu triggerClass={cn('grid size-8 place-items-center rounded-full hover:text-foreground',
                 radio.visualizerEnabled ? 'text-muted-foreground' : 'text-muted-foreground/40')} />
+              {/* Listening Together: play on / control another session in the house. */}
+              <DevicesPopover />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className={cn('grid size-8 place-items-center rounded-full hover:text-foreground',

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ReactNode } from 'react'
 import { LiveRadioEngine, initialLiveRadioState, type LiveRadioState, type LiveStationRef, type LiveRecordingRef } from '@/lib/music/liveRadioEngine'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { registerDuckable } from '@/lib/speechDucking'
 import { uuid } from '@/lib/uuid'
 
 /** Persistent live-internet-radio engine — lives above the router so a station keeps playing
@@ -34,7 +35,12 @@ export function LiveRadioProvider({ children }: { children: ReactNode }) {
       toggle: () => e?.togglePause(), next: () => {},
       prev: () => e?.seek(0), seek: (sec) => e?.seek(sec), stop: () => e?.stop(),
     })
-    return () => { unregister(); unTransport(); engineRef.current?.destroy() }
+    // Duck the stream under companion speech on this device (lib/speechDucking.ts).
+    const unDuck = registerDuckable('liveRadio', {
+      duck: () => engineRef.current?.duckForSpeech(),
+      restore: () => engineRef.current?.unduckAfterSpeech(),
+    })
+    return () => { unregister(); unTransport(); unDuck(); engineRef.current?.destroy() }
   }, [])
 
   // Id for the current play session (see RadioContext for the full rationale) — freshly

@@ -725,6 +725,28 @@ Admin > Family Audio). Three pieces, all driven by `useFamilyAudio()`
   quiet hours) for media hubs; renders nothing while the gate is open, so pages mount it
   unconditionally. Used by the Music home and the Podcasts Listen Now page.
 
+### Listening Together components - `src/components/shared/DevicesPopover.tsx` and siblings
+
+Whole-home player control (backend: `lib/together/`, `routes/together.ts`; see
+`docs/internal/subsystems.md` > Listening Together). One visible component and three
+headless mount points:
+- `DevicesPopover` - THE "play on another device" surface: lists every other live player
+  session in the household, and picking one opens a compact remote (now-playing readout +
+  seek + transport + volume) driving that session. Mounted in the music mini bar and the
+  podcast player bar; do not hand-roll another remote.
+- `TogetherPresence` / `TogetherRemoteReceiver` / `TogetherJamHost` - mounted ONCE each in
+  `App.tsx` inside the player providers (beside `FamilyAudioGuard`). They advertise this
+  session as a player device, execute inbound remote commands through the player contexts'
+  public APIs, and feed the host's player from the Family Jam shared queue. All render nothing.
+
+**Rule: a remote command must go through a player context's public API** (`RadioContext`,
+`PodcastPlaybackContext`, or the media coordinator's `dispatchTransport`), never an audio
+element or engine internals. Add a context method if one is missing, as `enqueueTrack` /
+`upNextCount` (radio) and `setVolume` (podcast) were added for exactly this.
+
+Music-scoped siblings: `components/music/JamBanner.tsx` (start/join/end, on the Music home
+page) and `JamQueueSheet.tsx` (the shared queue with "added by" attribution + dnd reorder).
+
 ### Toasts (app-wide) - `sonner`
 
 Toasts are mounted globally via `AppToaster` (`src/components/shared/AppToaster.tsx`, rendered once in `App.tsx`, theme-synced to light/dark). To show transient feedback after a save or destructive action, call `toast.success(...)` / `toast.error(...)` from `sonner` anywhere. Do **not** build inline "Saving…/Saved" text for new code. Prefer toasts for success/error confirmation; keep optimistic UI updates as-is.

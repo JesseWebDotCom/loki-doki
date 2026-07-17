@@ -21,6 +21,9 @@ import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
 import { MonitoringAnnounceProvider } from '@/context/MonitoringAnnounceContext'
 import { FamilyAudioGuard } from '@/components/shared/FamilyAudioGuard'
+import { TogetherPresence } from '@/components/shared/TogetherPresence'
+import { TogetherRemoteReceiver } from '@/components/shared/TogetherRemoteReceiver'
+import { TogetherJamHost } from '@/components/shared/TogetherJamHost'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
@@ -367,6 +370,12 @@ export default function App() {
           <ChatProvider>
           {/* Family audio guardrails: graceful stop, 5-minute warning, volume cap. */}
           <FamilyAudioGuard />
+          {/* Listening Together: advertise this session as a player device, and run
+              remote commands aimed at it through the player contexts. */}
+          <TogetherPresence />
+          <TogetherRemoteReceiver />
+          {/* Family Jam: when this session hosts, feed its player from the shared queue. */}
+          <TogetherJamHost />
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
             <Route path="/setup" element={<SetupGuard />} />

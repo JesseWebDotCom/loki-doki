@@ -1,6 +1,11 @@
 import type { Tool, ToolResult, PlayMediaDirective } from './index'
 import { innertubeSearch } from '@/lib/youtube/innertube'
 import { getTitleMedia } from '@/lib/titles/media'
+import { findPresenceByName, type PresenceEntry } from '@/lib/together/presence'
+import { sendTogetherCommand } from '@/lib/together/commands'
+import { db } from '@/db'
+import { playerDevices, users } from '@/db/schema'
+import { eq } from 'drizzle-orm'
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -78,6 +83,55 @@ function cleanSeed(subject: string): string {
 function matchesVibe(subject: string): boolean {
   const s = ` ${subject.toLowerCase()} `
   return STATION_VIBE.some((v) => s.includes(` ${v} `) || subject.toLowerCase() === v)
+}
+
+// ── Room / device targeting (Listening Together groundwork) ─────────────────
+// "play jazz on the living room TV" resolves the spoken target against the
+// household presence registry (registered player sessions + their user-set
+// names). Only a REAL match reroutes playback; otherwise behavior is unchanged.
+
+// Trailing "on/in the <something>" phrase - the candidate device name. Only
+// honored when it matches a live session, so "play riders on the storm" stays a
+// song request unless someone actually named a device "Storm".
+const SPOKEN_TARGET_RE = /^(.*?)\s+(?:on|in)\s+(?:the\s+)?([a-z0-9' ._-]{2,40}?)\s*$/i
+
+interface ResolvedTarget { entry: PresenceEntry; name: string; restQuery: string }
+
+/** Match an explicit `target` arg (or a trailing "on the X" phrase) against live
+ *  player sessions. Returns null when nothing matches - callers keep the local path. */
+async function resolveSpokenTarget(query: string, explicitTarget: string | null): Promise<ResolvedTarget | null> {
+  const candidates: Array<{ target: string; rest: string }> = []
+  const m = SPOKEN_TARGET_RE.exec(query.trim())
+  if (explicitTarget?.trim()) {
+    // If the query still embeds the same target phrase ("... on the living room tv"),
+    // strip it so the phrase never pollutes the station seed / video search.
+    const t = explicitTarget.trim().toLowerCase()
+    const tail = m?.[2]?.toLowerCase() ?? ''
+    const overlaps = !!tail && (t.includes(tail) || tail.includes(t))
+    candidates.push({ target: explicitTarget.trim(), rest: overlaps && m?.[1] ? m[1] : query })
+  }
+  if (m?.[1] && m?.[2]) candidates.push({ target: m[2], rest: m[1] })
+  if (!candidates.length) return null
+  let names: Map<string, string>
+  try {
+    const rows = await db.select().from(playerDevices)
+    names = new Map(rows.map((r) => [r.id, r.name]))
+  } catch { names = new Map() }
+  for (const cand of candidates) {
+    const entry = findPresenceByName(cand.target, names)
+    // Each candidate carries the query with ITS target phrase removed (the explicit-arg
+    // candidate keeps the full query; the LLM already put only the media in `query`).
+    if (entry) return { entry, name: names.get(entry.deviceId) ?? entry.label, restQuery: cand.rest }
+  }
+  return null
+}
+
+async function requesterName(userId: string | undefined): Promise<string | undefined> {
+  if (!userId) return undefined
+  try {
+    const [u] = await db.select({ nickname: users.nickname, firstName: users.firstName }).from(users).where(eq(users.id, userId))
+    return u ? (u.nickname?.trim() || u.firstName || undefined) : undefined
+  } catch { return undefined }
 }
 
 // Detect requests that are specifically for a trailer or teaser (not a music video/clip).
@@ -208,14 +262,62 @@ export const playMusicTool: Tool = {
             description:
               'What kind of request this is. "video" for a trailer/music video/clip, "song" for a specific track, "artist" to start that artist\'s radio, "genre"/"mood"/"station" to start a station.',
           },
+          target: {
+            type: 'string',
+            description:
+              'Room or device name to play on, ONLY when the user names one ("play jazz on the living room TV" - target: "living room TV"). Omit otherwise.',
+          },
         },
       },
     },
   },
 
-  async execute(args: unknown): Promise<ToolResult> {
-    const { query, type } = args as { query: string; type?: string }
+  async execute(args: unknown, config?: Record<string, unknown>): Promise<ToolResult> {
+    const { query, type, target } = args as { query: string; type?: string; target?: string }
     if (!query?.trim()) return { success: false, error: 'Query is required' }
+
+    // Room targeting: when the spoken target matches a registered player session,
+    // route the play through the Listening Together remote channel instead of the
+    // local mini-player. No match -> the pre-existing local behavior, untouched.
+    const resolved = await resolveSpokenTarget(query, target ?? null).catch(() => null)
+    if (resolved) {
+      const remotePlan = classify(resolved.restQuery, type)
+      const fromName = await requesterName(config?.['_userId'] as string | undefined)
+      if (remotePlan.media === 'station') {
+        const ok = await sendTogetherCommand(resolved.entry.deviceId, {
+          kind: 'play_station', seedType: remotePlan.seedType, seed: remotePlan.seed, fromName,
+        })
+        if (!ok) return { success: false, error: `Couldn't reach ${resolved.name} - is the app still open there?` }
+        const label = titleCase(remotePlan.seed)
+        return {
+          success: true,
+          data: { query, action: 'play_station_remote', seed: remotePlan.seed, seedType: remotePlan.seedType, device: resolved.name },
+          synthesisHint:
+            `[Now playing]: You just started a ${label} station on "${resolved.name}" (another device in the house) - it's playing THERE, not here. ` +
+            `Confirm in one short, warm, in-character line that the music is going on ${resolved.name}. Do NOT list songs.`,
+        }
+      }
+      // A specific video/song for another room: resolve the top result, then hand it over.
+      const scopedRemote = scopeVideoQuery(remotePlan.searchQuery)
+      try {
+        const { videos } = await innertubeSearch(scopedRemote, 3, 0, 8000, 0)
+        const top = videos[0]
+        if (!top) return { success: false, error: `Couldn't find anything to play for "${resolved.restQuery}"` }
+        const ok = await sendTogetherCommand(resolved.entry.deviceId, {
+          kind: 'play_video', videoId: top.videoId, title: top.title, artist: top.author ?? null,
+          thumbnail: `https://i.ytimg.com/vi/${top.videoId}/mqdefault.jpg`, fromName,
+        })
+        if (!ok) return { success: false, error: `Couldn't reach ${resolved.name} - is the app still open there?` }
+        return {
+          success: true,
+          data: { query, action: 'play_video_remote', topVideoId: top.videoId, topTitle: top.title, device: resolved.name },
+          directReply: `Now playing on ${resolved.name}.`,
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'TimeoutError') return { success: false, offline: true, error: 'Network unavailable' }
+        return { success: false, error: String(err) }
+      }
+    }
 
     const plan = classify(query, type)
 

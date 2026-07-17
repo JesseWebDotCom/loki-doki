@@ -4,6 +4,7 @@ import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack, type
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory, reportHistoryProgress } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { registerDuckable } from '@/lib/speechDucking'
 import { loadDsp, saveDsp, type DspSettings } from '@/lib/music/dsp'
 import { uuid } from '@/lib/uuid'
 
@@ -46,6 +47,10 @@ interface RadioCtx extends RadioState {
   /** Up Next editing: move a queue item (absolute indexes) / play a queue item now. */
   reorderQueue: (from: number, to: number) => void
   jumpTo: (index: number) => void
+  /** Append to Up Next (the Family Jam host pulling from the shared queue). */
+  enqueueTrack: (track: QueuedTrack) => void
+  /** Tracks still queued after the current one. */
+  upNextCount: () => number
   /** How many seconds a lyric line highlights BEFORE it's sung (read-ahead). Per-device pref. */
   lyricLeadSec: number
   setLyricLeadSec: (sec: number) => void
@@ -127,7 +132,12 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       toggle: () => e?.togglePause(), next: () => e?.skip(),
       prev: () => e?.seek(0), seek: (sec) => e?.seek(sec), stop: () => e?.stop(),
     })
-    return () => { unregister(); unTransport(); engineRef.current?.destroy() }
+    // Duck the station under companion speech on this device (lib/speechDucking.ts).
+    const unDuck = registerDuckable('radio', {
+      duck: () => engineRef.current?.duckForSpeech(),
+      restore: () => engineRef.current?.unduckAfterSpeech(),
+    })
+    return () => { unregister(); unTransport(); unDuck(); engineRef.current?.destroy() }
   }, [])
 
   // Log each newly-playing song to history (powers Continue Listening + recently played).
@@ -228,6 +238,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     seekBy: (delta) => e.seekBy(delta),
     reorderQueue: (from, to) => e.reorderQueue(from, to),
     jumpTo: (i) => e.jumpTo(i),
+    enqueueTrack: (t) => e.enqueueTrack(t),
+    upNextCount: () => e.upNextCount(),
     setRepeatOne: (on) => e.setRepeatOne(on),
     getAnalyser: () => e.getAnalyser(),
     togglePause: () => e.togglePause(),
