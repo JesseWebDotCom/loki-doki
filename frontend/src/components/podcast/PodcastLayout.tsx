@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react'
-import { Outlet, useMatch } from 'react-router-dom'
+import { Outlet, useMatch, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
@@ -23,6 +23,8 @@ export function usePodcastUI() {
 export function PodcastLayout() {
   const { data: shows = [] } = useQuery({ queryKey: ['podcast-shows'], queryFn: getShows })
   const { track } = usePodcastPlayback()
+  const navigate = useNavigate()
+  const [headerQuery, setHeaderQuery] = useState('')
   const [editing, setEditing] = useState<Show | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   // Show detail page owns its own two-column layout (episode list + transcript),
@@ -38,7 +40,21 @@ export function PodcastLayout() {
 
   // Publish the rail for the mobile top bar's drawer (desktop renders it inline at lg+).
   const rail = useMemo(() => <PodcastRail shows={shows} onCreate={() => { setEditing(null); setEditorOpen(true) }} variant="drawer" />, [shows])
-  useAppHeader({ query: '', setQuery: () => {}, searchable: false, rail })
+  // Breadcrumb search (submit navigates to the transcript search page) + settings gear.
+  // The dedicated search page publishes its own live-filtering header, so this only
+  // governs every other Podcasts page. The gear opens the per-app settings page, which
+  // is where playback preferences (including Skip ads guidance) live.
+  useAppHeader({
+    query: headerQuery,
+    setQuery: setHeaderQuery,
+    onSubmit: (submitted?: string) => {
+      const t = (submitted ?? headerQuery).trim()
+      navigate(t ? `/podcasts/search?q=${encodeURIComponent(t)}` : '/podcasts/search')
+    },
+    placeholder: 'Search everything you listen to',
+    settingsHref: '/podcasts/settings',
+    rail,
+  })
 
   return (
     <PodcastUICtx.Provider value={ui}>
