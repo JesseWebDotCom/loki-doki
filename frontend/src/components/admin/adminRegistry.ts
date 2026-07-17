@@ -100,12 +100,15 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'system', label: 'Server', icon: Settings2, group: 'System',
-    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'locale', 'units'],
-    description: 'Connectivity, locale, updates, and server maintenance',
+    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'locale', 'units', 'remote', 'tailscale'],
+    description: 'Connectivity, remote access, locale, updates, and server maintenance',
     subsections: [
       { id: 'connectivity', label: 'Connectivity', kind: 'anchor', anchorId: 'connectivity',
         keywords: ['network', 'offline', 'online', 'internet', 'downloads', 'queue'],
         description: 'Online/offline mode and download permissions' },
+      { id: 'remote-access', label: 'Remote Access', kind: 'anchor', anchorId: 'remote-access',
+        keywords: ['remote', 'tailscale', 'vpn', 'tailnet', 'away', 'outside', 'phone', 'magicdns', 'wireguard'],
+        description: 'Reach the app away from home through your private tailnet' },
       { id: 'locale', label: 'Locale & Units', kind: 'anchor', anchorId: 'locale',
         keywords: ['units', 'temperature', 'currency', 'time', 'measurement', 'metric', 'imperial'],
         description: 'Measurement units, temperature, currency, time format' },
