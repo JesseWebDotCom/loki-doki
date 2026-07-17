@@ -37,6 +37,7 @@ import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { filterYtItemsForUser, videoAllowedForUser } from '@/lib/videos/policy'
 import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
+import { ensureVideoIndexed } from '@/lib/videos/semanticIndex'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { logger } from '@/lib/logger'
 import {
@@ -2214,6 +2215,11 @@ youtubeRoute.post('/watch-state', async (c) => {
   // Time budget metering + gate: each heartbeat counts toward today's minutes, and the
   // response tells the player when the budget runs out so it can wind down mid-video.
   recordWatchBeat(user.id)
+  // Watched videos join the semantic search index organically (fire and forget).
+  ensureVideoIndexed('youtube', videoId, {
+    userId: user.id, userFirstName: user.firstName,
+    title: body.title ?? null, creatorName: body.author ?? null,
+  })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
 })

@@ -288,6 +288,23 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+export interface SemanticHit {
+  source: VideoSource
+  videoId: string
+  title: string
+  creatorName: string | null
+  thumbnailUrl: string | null
+  score: number
+  /** Best-matching transcript moment (null when the match was title/description). */
+  seekSec: number | null
+  snippet: string | null
+}
+
+/** Semantic "find the moment" search over everything the household has watched. */
+export function semanticSearch(q: string): Promise<{ hits: SemanticHit[] }> {
+  return getJson(`/api/videos/semantic-search?q=${encodeURIComponent(q)}`)
+}
+
 export interface VideoTimeGate {
   allowed: boolean
   reason?: 'budget' | 'hours'

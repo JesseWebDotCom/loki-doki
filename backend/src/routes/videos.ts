@@ -15,6 +15,7 @@ import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/li
 import { allowlistOnlyEnabled } from '@/lib/videos/allowlist'
 import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
+import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -739,8 +740,23 @@ videosRoute.put('/watch-state', async (c) => {
   // Time budget metering + gate: each heartbeat counts toward today's minutes, and the
   // response tells the player when the budget runs out so it can wind down mid-video.
   recordWatchBeat(user.id)
+  // Watched videos join the semantic search index organically (fire and forget).
+  ensureVideoIndexed(source, body.videoId, {
+    userId: user.id, userFirstName: user.firstName,
+    title: body.title ?? null, creatorName: body.creatorName ?? null,
+  })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Semantic search: "find the video where..." across everything the household watched ──
+
+videosRoute.get('/semantic-search', async (c) => {
+  const user = c.get('user')
+  const q = (c.req.query('q') ?? '').trim()
+  if (q.length < 3) return c.json({ hits: [] })
+  const hits = await semanticSearch(user.id, q, 20)
+  return c.json({ hits })
 })
 
 // ── Saves: offline downloads for non-YouTube sources ────────────────────────────

@@ -2345,6 +2345,22 @@ export const mediaProgress = sqliteTable('media_progress', {
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
 }))
 
+// Semantic video search index (lib/videos/semanticIndex.ts): one row per embedded chunk.
+// segment -1 = title/description meta row; 0+ = transcript windows with their start time,
+// so search results can jump straight to the matching moment. Household-shared.
+export const videoEmbeddings = sqliteTable('video_embeddings', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  segment: integer('segment').notNull(),
+  startSec: integer('start_sec'),
+  text: text('text').notNull(),
+  embedding: text('embedding').notNull(),                  // JSON number[]
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  chunkUnique: uniqueIndex('video_embeddings_chunk').on(t.source, t.videoId, t.segment),
+}))
+
 // Kids time budgets: seconds of video actually watched per user per local day, metered
 // from player position heartbeats (lib/videos/watchTime.ts). Read by the budget gate
 // and the weekly parent report.

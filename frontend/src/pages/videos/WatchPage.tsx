@@ -292,7 +292,10 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const title = da?.title || meta?.title || feedItem?.title || navState.title || 'Video'
   const author = meta?.author ?? feedItem?.author ?? navState.author ?? null
   const channelThumb = meta?.channelThumb ?? feedItem?.channelThumb ?? navState.channelThumb ?? null
-  const resumeSec = (adopt != null ? adopt : meta?.positionSec) ?? 0
+  // A ?t= deep link (semantic search "jump to moment", shared timestamps) beats both the
+  // mini-player adopt and the server-saved resume position.
+  const tParam = Number(params.get('t'))
+  const resumeSec = Number.isFinite(tParam) && tParam > 0 ? Math.floor(tParam) : ((adopt != null ? adopt : meta?.positionSec) ?? 0)
 
   // Watch Together: transport adapter over the imperative player handle plus the live
   // position/play mirrors this page already keeps for the mini-player handoff.
@@ -1039,10 +1042,14 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // Expanding from the mini-player adopts its live position (captured once, synchronously,
   // before clearDock below wipes it). Otherwise fall back to the server-saved watch state,
   // written by every device on a 10s heartbeat. Completed or near-finished videos restart.
+  const [wtParams] = useSearchParams()
   const [adopt] = useState(() => (pb.track?.source === source && pb.track?.videoId === id ? Math.floor(pb.positionSec) : null))
   const savedPos = item?.watch && !item.watch.completed ? item.watch.positionSec : 0
   const nearEnd = !!item?.durationSec && savedPos >= item.durationSec * 0.95
-  const resumeSec = adopt != null && adopt > 1 ? adopt : (savedPos > 5 && !nearEnd ? savedPos : 0)
+  // A ?t= deep link (semantic search "jump to moment", shared timestamps) beats both.
+  const tParamGeneric = Number(wtParams.get('t'))
+  const resumeSec = Number.isFinite(tParamGeneric) && tParamGeneric > 0 ? Math.floor(tParamGeneric)
+    : adopt != null && adopt > 1 ? adopt : (savedPos > 5 && !nearEnd ? savedPos : 0)
   // Applied at most once per video, on the first loadedmetadata (see the <video> below).
   const resumeApplied = useRef(false)
   useEffect(() => { resumeApplied.current = false }, [source, id])
@@ -1059,7 +1066,6 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     isPlaying: () => (showEmbedRef.current ? (embedWtControls.current?.isPlaying() ?? false) : !!videoRef.current && !videoRef.current.paused),
     position: () => (showEmbedRef.current ? (embedWtControls.current?.position() ?? 0) : (videoRef.current?.currentTime ?? 0)),
   })
-  const [wtParams] = useSearchParams()
   const wt = useWatchTogether({
     media: { source, videoId: id, title: item?.title ?? 'A video', thumbnailUrl: item?.thumbnailUrl ?? null },
     controls: wtControls,

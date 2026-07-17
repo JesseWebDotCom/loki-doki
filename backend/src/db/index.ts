@@ -2145,6 +2145,17 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, asset_type, asset_id)
     );
+    CREATE TABLE IF NOT EXISTS video_embeddings (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      segment INTEGER NOT NULL,
+      start_sec INTEGER,
+      text TEXT NOT NULL,
+      embedding TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(source, video_id, segment)
+    );
     CREATE TABLE IF NOT EXISTS video_watch_time (
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       day TEXT NOT NULL,
