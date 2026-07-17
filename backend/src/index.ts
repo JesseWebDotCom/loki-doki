@@ -119,6 +119,11 @@ import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
 import { podcastPlayerRoute } from '@/routes/podcastPlayer'
+import { podcastStats } from '@/routes/podcastStats'
+import { podcastPortability } from '@/routes/podcastPortability'
+import { podcastRssOut } from '@/routes/podcastRssOut'
+import { gpodder } from '@/routes/gpodder'
+import { startScrobbleFlusher } from '@/lib/music/scrobble'
 import { music } from '@/routes/music'
 import { musicStudio } from '@/routes/musicStudio'
 import { musicInfo } from '@/routes/musicInfo'
@@ -132,6 +137,9 @@ import { musicCollection } from '@/routes/musicCollection'
 import { musicMeta } from '@/routes/musicMeta'
 import { musicRails } from '@/routes/musicRails'
 import { musicIntel } from '@/routes/musicIntel'
+import { musicScrobble } from '@/routes/musicScrobble'
+import { musicImport } from '@/routes/musicImport'
+import { musicStats } from '@/routes/musicStats'
 import { adminMusicSources } from '@/routes/adminMusicSources'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
@@ -350,6 +358,9 @@ if (firstBoot) {
   startPodcastFeedPoller()
   // Family audio: weekly parent digest (Monday morning; app_settings key gates reruns).
   startFamilyAudioDigestPoller()
+  // Scrobbling out: drain the listen outbox to ListenBrainz with retry/backoff. All
+  // network I/O for scrobbles lives here, never on a playback path.
+  startScrobbleFlusher()
   // Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
   // that window between polls (bursts / extended downtime) is invisible to the poller forever.
   // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
@@ -678,7 +689,17 @@ app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)
 app.route('/api/podcasts', podcastPlayerRoute)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
+app.route('/api/podcasts', podcastStats)
+app.route('/api/podcasts/portability', podcastPortability)
 app.route('/api/podcasts', podcastsRoute)
+// Private RSS feeds out (token in the URL, no session) so any LAN podcatcher can
+// subscribe to a generated show or the radio recordings. See routes/podcastRssOut.ts.
+app.route('/api/podcast-rss', podcastRssOut)
+// gpodder.net-compatible sync (AntennaPod). Mounted at the ROOT because the protocol
+// fixes its paths at /api/2/* and /subscriptions/* and clients take a bare host, not a
+// path prefix. Basic-auth on every call; no /api/2 or /subscriptions app route exists
+// to collide with. See routes/gpodder.ts.
+app.route('/', gpodder)
 app.route('/api/music', music)
 app.route('/api/music/studio', musicStudio)
 app.route('/api/music/info', musicInfo)
@@ -692,6 +713,9 @@ app.route('/api/music/collection', musicCollection)
 app.route('/api/music/meta', musicMeta)
 app.route('/api/music/rails', musicRails)
 app.route('/api/music/intel', musicIntel)
+app.route('/api/music/scrobble', musicScrobble)
+app.route('/api/music/import', musicImport)
+app.route('/api/music/stats', musicStats)
 app.route('/api/admin/music', adminMusicSources)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
