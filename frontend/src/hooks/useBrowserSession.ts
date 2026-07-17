@@ -7,6 +7,7 @@ import { useServerHealth } from '@/context/ServerHealthContext'
 import { djStationById } from '@/lib/music/catalogApi'
 import { dispatchTransport, hasActiveMedia } from '@/lib/mediaCoordinator'
 import { manageEventSource } from '@/lib/managedEventSource'
+import { getDeviceId, getDeviceLabel } from '@/lib/drop'
 import { setDockYieldFromServer } from '@/lib/voice/dockYield'
 import { getVoiceWants } from '@/lib/voice/voiceOwnership'
 
@@ -50,7 +51,17 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
   useEffect(() => {
     return manageEventSource(() => {
       const isDock = !!window.lokiDesktop
-      const es = new EventSource(`/api/browser-session?dock=${isDock ? 1 : 0}&surface=${surface}`, { withCredentials: true })
+      // Cast addressing: reuse Drop's stable per-browser id + friendly label so this tab
+      // is a "play it here" target. TV mode marks itself so it sorts first in the picker.
+      const isTv = typeof window !== 'undefined' && window.location.pathname.startsWith('/tv')
+      const params = new URLSearchParams({
+        dock: isDock ? '1' : '0',
+        surface,
+        deviceId: getDeviceId(),
+        label: isTv ? `${getDeviceLabel()} (TV)` : getDeviceLabel(),
+        tv: isTv ? '1' : '0',
+      })
+      const es = new EventSource(`/api/browser-session?${params}`, { withCredentials: true })
 
       // Every SSE ping proves the backend is up. This stream is also exactly what starves
       // the /api/health probe when the connection pool fills, so without this signal the

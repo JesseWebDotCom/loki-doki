@@ -63,6 +63,7 @@ import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
 import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
 import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogether'
 import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
+import { CastButton } from '@/components/videos/CastButton'
 import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
 import { MomentsPanel } from '@/components/videos/MomentsPanel'
@@ -510,7 +511,8 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
         <YoutubeActionRail videoId={videoId} title={title} author={author}
           channelId={meta?.channelId ?? null} channelThumb={channelThumb} meta={meta}
           localKind={localKind} isShortVid={isShortVid} onMinimize={minimize}
-          wtSlot={<WatchTogetherPill wt={wt} />} />
+          wtSlot={<WatchTogetherPill wt={wt} />}
+          castSlot={<CastButton source="youtube" videoId={videoId} title={title} atSec={currentSec} />} />
       </div>
 
         {/* Resuming well past the start: offer a spoiler-safe recap of what came before. */}
@@ -702,7 +704,7 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes }:
 /** Vertical icon rail beside the player (the TikTok/Reels pattern): like, save, share,
  *  playlist and the ⋯ menu live here as unlabeled circles, so the title block keeps the
  *  full column width. Wraps to a horizontal row under the player on smaller screens. */
-function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, meta, localKind, isShortVid, onMinimize, wtSlot }: {
+function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, meta, localKind, isShortVid, onMinimize, wtSlot, castSlot }: {
   videoId: string
   title: string
   author: string | null
@@ -714,6 +716,8 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
   onMinimize: () => void
   /** The page's Watch Together pill (state lives with the page's player, not the rail). */
   wtSlot?: React.ReactNode
+  /** The page's cast button (needs the live position, which lives with the player). */
+  castSlot?: React.ReactNode
 }) {
   const online = !localKind
   const ui = useYoutubeUI()
@@ -770,6 +774,7 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
         <Heart className={cn('size-4', liked && 'fill-current')} />
       </Button>
       {wtSlot}
+      {castSlot}
       {!localKind && (
         <Button size="icon" onClick={saveState === 'saving' ? undefined : saveVideoOffline} disabled={saveState === 'saved'}
           title={saveState === 'saved' ? 'Saved offline' : 'Save offline: this server downloads the video so you can watch it later without streaming.'}
@@ -1493,6 +1498,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             <Heart className={cn('size-4', liked && 'fill-current')} />
           </Button>
           <WatchTogetherPill wt={wt} />
+          <CastButton source={source} videoId={id} title={item.title} atSec={currentSec < 0 ? 0 : currentSec} />
           {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
           <Button size="icon" onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
             disabled={saveState === 'ready'} aria-label="Save offline"

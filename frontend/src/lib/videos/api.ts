@@ -288,6 +288,23 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+// ── Cast ─────────────────────────────────────────────────────────────────────────
+
+export interface CastTarget { deviceId: string; label: string; isTv: boolean }
+
+/** Your other signed-in screens, as cast targets. */
+export function listCastTargets(): Promise<{ targets: CastTarget[] }> {
+  return getJson('/api/watch-together/cast/targets')
+}
+
+export function castTo(
+  media: { source: VideoSource | 'youtube'; videoId: string; title: string },
+  deviceId: string,
+  atSec?: number,
+): Promise<{ ok: true }> {
+  return sendJson('/api/watch-together/cast', 'POST', { media, deviceId, atSec })
+}
+
 // ── Portability ──────────────────────────────────────────────────────────────────
 
 /** The per-user RSS token + feed base (the URL carries the credential; readers can't

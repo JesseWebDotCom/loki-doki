@@ -34,6 +34,13 @@ export interface SessionEntry {
   /** Arbitration IP (already normalized via clientMachine.getArbitrationIp). */
   ip: string
   lastYield: boolean | null
+  /** Stable per-browser id + label, so this tab can be addressed as a cast target
+   *  ("play this on the living room TV"). Absent on older clients, which then just
+   *  don't appear in the target list. */
+  deviceId?: string
+  label?: string
+  /** TV-mode sessions sort first in the cast picker: that's what you meant. */
+  isTv?: boolean
 }
 
 // userId → Set of active SSE sessions. Insertion order = connection recency.
@@ -85,6 +92,42 @@ export function pushToBrowserSession(userId: string, cmd: BrowserCommand): boole
   const recent = candidates[candidates.length - 1]
   if (recent) { try { recent.send(cmd); return true } catch { return false } }
   return false
+}
+
+// ── Cast targets ─────────────────────────────────────────────────────────────────
+// "Play this on the living room TV": the target is another signed-in browser of the same
+// user holding its command stream open. Real casting inside the household with no
+// Chromecast, using the channel that already exists.
+
+export interface CastTarget { deviceId: string; label: string; isTv: boolean }
+
+/** This user's other addressable screens. `self` (their own deviceId) is excluded. */
+export function listCastTargets(userId: string, self?: string): CastTarget[] {
+  const set = sessions.get(userId)
+  if (!set) return []
+  const byDevice = new Map<string, CastTarget>()
+  for (const s of set) {
+    // HUD islands can't host a player, and a session with no id predates cast support.
+    if (!s.deviceId || s.surface === 'hud' || s.deviceId === self) continue
+    byDevice.set(s.deviceId, { deviceId: s.deviceId, label: s.label || 'A screen', isTv: !!s.isTv })
+  }
+  return Array.from(byDevice.values()).sort((a, b) => Number(b.isTv) - Number(a.isTv) || a.label.localeCompare(b.label))
+}
+
+/** Send a command to one device (or, with null, to this user's TV if they have exactly
+ *  one). Returns false when nothing was reachable. */
+export function castToDevice(userId: string, deviceId: string | null, cmd: BrowserCommand): boolean {
+  const set = sessions.get(userId)
+  if (!set) return false
+  const candidates = Array.from(set).filter((s) => s.deviceId && s.surface !== 'hud')
+  const targets = deviceId
+    ? candidates.filter((s) => s.deviceId === deviceId)
+    : candidates.filter((s) => s.isTv)
+  if (targets.length === 0) return false
+  // A device can hold more than one stream open (a reconnect racing the old one); the
+  // newest wins, matching pushToBrowserSession's most-recent-tab rule.
+  const target = targets[targets.length - 1]!
+  try { target.send(cmd); return true } catch { return false }
 }
 
 // ── Command ACK: an action isn't "fired" just because it was delivered — the app POSTs an

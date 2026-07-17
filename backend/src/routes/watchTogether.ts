@@ -9,7 +9,7 @@ import type { AppEnv } from '@/types'
 import { requireAuth } from '@/middleware/auth'
 import { db } from '@/db'
 import { users } from '@/db/schema'
-import { pushToBrowserSession } from '@/lib/pod/browserSession'
+import { castToDevice, listCastTargets, pushToBrowserSession } from '@/lib/pod/browserSession'
 import {
   createSession, getSession, joinSession, listSessions, setMedia, setState, endSession,
   type WtEvent, type WtMedia,
@@ -124,6 +124,29 @@ watchTogether.post('/sessions/:id/invite', requireAuth, async (c) => {
     })) notified++
   }
   return c.json({ notified })
+})
+
+// ── Cast: play this on another of your screens ───────────────────────────────────
+// Real casting inside the household without Chromecast: the target device is another
+// signed-in browser (a TV running /tv, a tablet in the kitchen), and the "cast" is a
+// navigate command down the browser-session channel it already holds open. Content
+// ceilings still apply when the target loads the watch page.
+
+watchTogether.get('/cast/targets', requireAuth, (c) => {
+  const user = c.get('user')
+  return c.json({ targets: listCastTargets(user.id) })
+})
+
+watchTogether.post('/cast', requireAuth, async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { media?: unknown; deviceId?: string; atSec?: number }
+  const media = parseMedia(body.media)
+  if (!media) return c.json({ error: 'media required' }, 400)
+  const at = Number.isFinite(body.atSec) && (body.atSec as number) > 0 ? `?t=${Math.floor(body.atSec as number)}` : ''
+  const path = `/videos/${media.source}/watch/${encodeURIComponent(media.videoId)}${at}`
+  const sent = castToDevice(user.id, body.deviceId ?? null, { type: 'navigate', path })
+  if (!sent) return c.json({ error: 'That screen is not connected anymore.' }, 409)
+  return c.json({ ok: true })
 })
 
 export { watchTogether }

@@ -36,6 +36,8 @@ import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
 import { HudPage } from '@/pages/HudPage'
+import { TvPage } from '@/pages/TvPage'
+import { TvSignInPage } from '@/pages/TvSignInPage'
 import { WeatherPage } from '@/pages/WeatherPage'
 import { WeatherSettingsPage } from '@/pages/WeatherSettingsPage'
 import { AppSettingsGenericPage } from '@/pages/AppSettingsGenericPage'
@@ -294,7 +296,9 @@ function AdminGuard() {
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 // Wraps all protected app routes. Requires setup complete + authenticated.
-function AuthGuard() {
+/** `fallback` overrides where a signed-out visitor is sent (TV mode goes to its own
+ *  code-based sign-in, since /login asks for a PIN typed on a remote). */
+function AuthGuard({ fallback = '/login' }: { fallback?: string } = {}) {
   const { user, configured, firstRunComplete, welcomeComplete, loading, refetch } = useAuth()
   // null = checking, false = show boot screen, true = already booted
   const [booted, setBooted] = useState<boolean | null>(null)
@@ -308,7 +312,7 @@ function AuthGuard() {
   if (loading || booted === null) return <AppLoading />
 
   if (!configured || !firstRunComplete) return <Navigate to="/setup" replace />
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to={fallback} replace />
 
   if (!booted) {
     return <BootScreen onComplete={() => setBooted(true)} />
@@ -616,6 +620,16 @@ export default function App() {
                 (a <Navigate> to /login would render the full profile picker in a 480px
                 transparent overlay). */}
             <Route path="/hud" element={<HudPage />} />
+
+            {/* TV mode: the 10-foot surface, its own always-dark full-bleed world outside
+                AppShell (a sofa has no sidebar and a remote has no tab bar). Sign-in is
+                Quick Connect, so /tv/signin is deliberately unguarded: it IS the login,
+                and a <Navigate> to /login would ask for a PIN typed on a remote. /tv
+                itself sits behind the normal guard and bounces there when signed out. */}
+            <Route path="/tv/signin" element={<TvSignInPage />} />
+            <Route element={<AuthGuard fallback="/tv/signin" />}>
+              <Route path="/tv" element={<TvPage />} />
+            </Route>
 
             {/* Public shared bookmark collection: no auth, read-only view by slug. */}
             <Route path="/b/:slug" element={<PublicCollectionPage />} />

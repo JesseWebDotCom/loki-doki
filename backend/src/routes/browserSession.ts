@@ -18,6 +18,11 @@ browserSessionRoute.get('/', requireAuth, (c) => {
   const isDock = c.req.query('dock') === '1'
   const surface = c.req.query('surface') === 'hud' ? 'hud' as const : 'app' as const
   const ip = getArbitrationIp(c)
+  // Cast addressing: a stable per-browser id + label make this tab a "play it here"
+  // target. Older clients send neither and simply don't appear in the picker.
+  const deviceId = c.req.query('deviceId')?.trim().slice(0, 64) || undefined
+  const label = c.req.query('label')?.trim().slice(0, 60) || undefined
+  const isTv = c.req.query('tv') === '1'
   c.header('X-Accel-Buffering', 'no')
   return streamSSE(c, async (stream) => {
     // pushToBrowserSession() can fire `send` from a totally unrelated request at any moment,
@@ -40,6 +45,9 @@ browserSessionRoute.get('/', requireAuth, (c) => {
       surface,
       ip,
       lastYield: null,
+      deviceId,
+      label,
+      isTv,
     }
     const unregister = registerBrowserSession(user.id, entry)
     // Graceful close (dock quit, tab closed) unregisters immediately so same-machine web
