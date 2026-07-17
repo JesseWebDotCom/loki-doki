@@ -312,6 +312,136 @@ const CATEGORY_OF: Record<string, string> = {}
 for (const [cat, ids] of STATION_CATEGORIES) for (const id of ids) CATEGORY_OF[`builtin:${id}`] = cat
 const categoryFor = (id: string) => CATEGORY_OF[id] ?? 'More'
 
+// A known iconic cover song per built-in (artist, title). Its album art resolves via
+// artist+title on iTunes (the same art-only mechanism the LLM backfill uses), so every
+// built-in card + hero shows a real cover instantly on boot: deterministic, offline, and
+// with none of the slow, boot-delayed, GPU-bound LLM backfill. Stamped only while unset
+// (see reconcileBuiltins), so a real tune-in still wins. Songs are validated to resolve on
+// iTunes; a station intentionally omitted here (e.g. cartoon-network) stays on the live
+// StationArt look and remains eligible for the LLM backfill.
+const BUILTIN_COVERS: Record<string, readonly [string, string]> = {
+  'builtin:todays-hits': ['Harry Styles', 'As It Was'],
+  'builtin:viral-hits': ['Doja Cat', 'Say So'],
+  'builtin:feel-good-classics': ['Earth, Wind & Fire', 'September'],
+  'builtin:one-hit-wonders': ['Dexys Midnight Runners', 'Come On Eileen'],
+  'builtin:guilty-pleasures': ['Britney Spears', 'Toxic'],
+  'builtin:hip-hop-now': ['Kendrick Lamar', 'HUMBLE.'],
+  'builtin:classic-rock': ['AC/DC', 'Back In Black'],
+  'builtin:throwback-rnb': ['TLC', 'No Scrubs'],
+  'builtin:country-roads': ['John Denver', 'Take Me Home, Country Roads'],
+  'builtin:jazz-cafe': ['The Dave Brubeck Quartet', 'Take Five'],
+  'builtin:classical': ['Claude Debussy', 'Clair de Lune'],
+  'builtin:metal': ['Metallica', 'Enter Sandman'],
+  'builtin:punk': ['Ramones', 'Blitzkrieg Bop'],
+  'builtin:funk-soul': ['Stevie Wonder', 'Superstition'],
+  'builtin:disco': ['Bee Gees', "Stayin' Alive"],
+  'builtin:blues': ['B.B. King', 'The Thrill Is Gone'],
+  'builtin:folk-acoustic': ['Simon & Garfunkel', 'The Sound of Silence'],
+  'builtin:gospel': ['Edwin Hawkins Singers', 'Oh Happy Day'],
+  'builtin:reggae': ['Bob Marley & The Wailers', 'Three Little Birds'],
+  'builtin:latin': ['Marc Anthony', 'Vivir Mi Vida'],
+  'builtin:reggaeton': ['Daddy Yankee', 'Gasolina'],
+  'builtin:kpop': ['BTS', 'Dynamite'],
+  'builtin:afrobeats': ['WizKid', 'Essence'],
+  'builtin:bollywood': ['A.R. Rahman', 'Jai Ho'],
+  'builtin:electronic-pulse': ['Daft Punk', 'One More Time'],
+  'builtin:synthwave': ['Kavinsky', 'Nightcall'],
+  'builtin:indie-discoveries': ['Franz Ferdinand', 'Take Me Out'],
+  'builtin:alt-2000s': ['The Killers', 'Mr. Brightside'],
+  'builtin:golden-oldies': ['Chuck Berry', 'Johnny B. Goode'],
+  'builtin:70s-gold': ['ABBA', 'Dancing Queen'],
+  'builtin:80s-throwback': ['a-ha', 'Take On Me'],
+  'builtin:90s-nostalgia': ['Nirvana', 'Smells Like Teen Spirit'],
+  'builtin:2000s-throwback': ['OutKast', 'Hey Ya!'],
+  'builtin:workout': ['Eminem', 'Till I Collapse'],
+  'builtin:party': ['The Black Eyed Peas', 'I Gotta Feeling'],
+  'builtin:roadtrip': ['Tom Cochrane', 'Life Is a Highway'],
+  'builtin:deep-focus': ['Ludovico Einaudi', 'Nuvole Bianche'],
+  'builtin:lofi-focus': ['Nujabes', 'Aruarian Dance'],
+  'builtin:chill': ['MGMT', 'Electric Feel'],
+  'builtin:sleep': ['Max Richter', 'On the Nature of Daylight'],
+  'builtin:meditation': ['Marconi Union', 'Weightless'],
+  'builtin:rainy-day': ['Bon Iver', 'Skinny Love'],
+  'builtin:morning-coffee': ['Jack Johnson', 'Banana Pancakes'],
+  'builtin:coffeehouse': ['Jeff Buckley', 'Hallelujah'],
+  'builtin:date-night': ['Marvin Gaye', "Let's Get It On"],
+  'builtin:dinner-party': ['Stan Getz', 'The Girl from Ipanema'],
+  'builtin:retro-gaming': ['Koji Kondo', 'Super Mario Bros. Main Theme'],
+  'builtin:8bit-chiptune': ['Anamanaguchi', 'Airbrushed'],
+  'builtin:vgm-remixes': ['Lindsey Stirling', 'Crystallize'],
+  'builtin:game-soundtracks': ['Gustavo Santaolalla', 'The Last of Us'],
+  'builtin:vaporwave': ['HOME', 'Resonance'],
+  'builtin:movie-scores': ['Hans Zimmer', 'Time'],
+  'builtin:anime': ['Yoko Takahashi', "A Cruel Angel's Thesis"],
+  'builtin:yacht-rock': ['Toto', 'Africa'],
+  'builtin:halloween': ['Michael Jackson', 'Thriller'],
+  'builtin:holiday': ['Mariah Carey', 'All I Want for Christmas Is You'],
+  'builtin:80s-tv-themes': ['Jan Hammer', 'Miami Vice Theme'],
+  'builtin:90s-tv-themes': ['The Rembrandts', "I'll Be There for You"],
+  'builtin:tv-greatest-themes': ['Alabama 3', 'Woke Up This Morning'],
+  'builtin:saturday-cartoons': ["The B-52's", '(Meet) The Flintstones'],
+  'builtin:disney-animated': ['Idina Menzel', 'Let It Go'],
+  'builtin:broadway': ['Original Broadway Cast of Hamilton', 'Alexander Hamilton'],
+  'builtin:90s-nick': ['SpongeBob SquarePants', 'SpongeBob SquarePants Theme Song'],
+  'builtin:2k-nick': ['Miranda Cosgrove', 'Leave It All to Me'],
+  'builtin:disney-channel': ['Hannah Montana', 'The Best of Both Worlds'],
+  'builtin:2010s-throwback': ['Mark Ronson', 'Uptown Funk'],
+  'builtin:summer-beach': ['The Beach Boys', 'Kokomo'],
+  'builtin:motown-gold': ['The Temptations', 'My Girl'],
+  'builtin:karaoke': ['Journey', "Don't Stop Believin'"],
+  'builtin:wedding': ['Whitney Houston', 'I Wanna Dance with Somebody (Who Loves Me)'],
+  'builtin:pride-anthems': ['Lady Gaga', 'Born This Way'],
+  'builtin:movie-soundtracks': ['Berlin', 'Take My Breath Away'],
+  'builtin:80s-movies': ['Simple Minds', "Don't You (Forget About Me)"],
+  'builtin:james-bond': ['Adele', 'Skyfall'],
+  'builtin:tarantino': ['Dick Dale & His Del-Tones', 'Misirlou'],
+  'builtin:spaghetti-western': ['Ennio Morricone', 'The Good, the Bad and the Ugly'],
+  'builtin:sci-fi-scores': ['John Williams', 'Star Wars (Main Title)'],
+  'builtin:horror-scores': ['Mike Oldfield', 'Tubular Bells'],
+  'builtin:rom-com': ['Sixpence None the Richer', 'Kiss Me'],
+  'builtin:training-montage': ['Survivor', 'Eye of the Tiger'],
+  'builtin:superhero-themes': ['Alan Silvestri', 'The Avengers'],
+  'builtin:british-invasion': ['The Beatles', 'I Want to Hold Your Hand'],
+  'builtin:hair-metal': ['Def Leppard', 'Pour Some Sugar on Me'],
+  'builtin:new-wave': ['New Order', 'Blue Monday'],
+  'builtin:grunge': ['Soundgarden', 'Black Hole Sun'],
+  'builtin:golden-age-hiphop': ['Wu-Tang Clan', 'C.R.E.A.M.'],
+  'builtin:boy-bands-divas': ['Backstreet Boys', 'I Want It That Way'],
+  'builtin:power-ballads': ['Foreigner', 'I Want to Know What Love Is'],
+  'builtin:stadium-anthems': ['Queen', 'We Will Rock You'],
+  'builtin:outlaw-country': ['Johnny Cash', 'Folsom Prison Blues'],
+  'builtin:singer-songwriter-70s': ['James Taylor', 'Fire and Rain'],
+  'builtin:y2k-pop': ['Britney Spears', '...Baby One More Time'],
+  'builtin:happy-vibes': ['Pharrell Williams', 'Happy'],
+  'builtin:in-my-feels': ['Adele', 'Someone Like You'],
+  'builtin:heartbreak': ["Sinéad O'Connor", 'Nothing Compares 2 U'],
+  'builtin:confidence': ['Beyoncé', 'Run the World (Girls)'],
+  'builtin:rage': ['Rage Against the Machine', 'Killing In the Name'],
+  'builtin:euphoric': ['David Guetta', 'Titanium'],
+  'builtin:dreamy': ['Beach House', 'Space Song'],
+  'builtin:moody': ['Massive Attack', 'Teardrop'],
+  'builtin:mellow-mood': ['Corinne Bailey Rae', 'Put Your Records On'],
+  'builtin:sensual': ["D'Angelo", 'Untitled (How Does It Feel)'],
+  'builtin:motivation': ['Kanye West', 'Stronger'],
+  'builtin:good-times': ['CHIC', 'Good Times'],
+  'builtin:jazz-age': ['Scott Joplin', 'The Entertainer'],
+  'builtin:big-band': ['Glenn Miller', 'In the Mood'],
+  'builtin:flower-power': ['Jefferson Airplane', 'White Rabbit'],
+  'builtin:2020s-now': ['The Weeknd', 'Blinding Lights'],
+  'builtin:southern-rock': ['Lynyrd Skynyrd', 'Sweet Home Alabama'],
+  'builtin:prog-rock': ['Yes', 'Roundabout'],
+  'builtin:psychedelic-rock': ['Jimi Hendrix', 'Purple Haze'],
+  'builtin:surf-rock': ['The Surfaris', 'Wipe Out'],
+  'builtin:rockabilly': ['Elvis Presley', 'Jailhouse Rock'],
+  'builtin:glam-rock': ['David Bowie', 'Ziggy Stardust'],
+  'builtin:britpop': ['Oasis', 'Wonderwall'],
+  'builtin:ska': ['The Mighty Mighty Bosstones', 'The Impression That I Get'],
+  'builtin:bluegrass': ['The Soggy Bottom Boys', 'I Am a Man of Constant Sorrow'],
+  'builtin:nu-metal': ['Linkin Park', 'In the End'],
+  'builtin:new-jack-swing': ['Bell Biv DeVoe', 'Poison'],
+  'builtin:smooth-jazz': ['Grover Washington, Jr.', 'Just the Two of Us'],
+}
+
 let reconciled = false
 /** Insert any missing built-in stations (idempotent). Called lazily on first list. */
 async function reconcileBuiltins(): Promise<void> {
@@ -345,6 +475,17 @@ async function reconcileBuiltins(): Promise<void> {
       }).where(eq(musicStations.id, s.id))
     }))
   } catch (err) { logger.debug(`[stations] category sync failed: ${String(err)}`) }
+
+  // Stamp each built-in's known iconic cover song, but only while unset so a real tune-in
+  // (which stamps from the actual queue) still wins. The art-only stamp (empty videoId)
+  // resolves through the same artist+title iTunes lookup every consumer already uses, so
+  // built-in cards and the home hero show real album covers immediately, no LLM backfill.
+  try {
+    await Promise.all(Object.entries(BUILTIN_COVERS).map(([id, [artist, title]]) =>
+      db.update(musicStations)
+        .set({ coverTrackJson: JSON.stringify({ videoId: '', title, artist }) })
+        .where(and(eq(musicStations.id, id), isNull(musicStations.coverTrackJson)))))
+  } catch (err) { logger.debug(`[stations] built-in cover stamp failed: ${String(err)}`) }
 }
 
 // ── List ────────────────────────────────────────────────────────────────────────
