@@ -136,6 +136,7 @@ import { createRemoteRoute } from '@/routes/remote'
 import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
 import adminStorageLocations from '@/routes/adminStorageLocations'
+import adminBackups from '@/routes/adminBackups'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -222,6 +223,7 @@ if (firstBoot) {
   startMemorySweep()
   startBriefingRefresh()
   startCompanionCheckins()
+  import('@/lib/backup').then((m) => m.startBackupScheduler()).catch(() => {})
   startDropSweep()
   startMediaAlertsSweep()
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
@@ -697,6 +699,7 @@ app.route('/api/time', time)
 app.route('/api/lookup', lookup)
 app.route('/api/admin/storage', adminStorage)
 app.route('/api/admin/storage-locations', adminStorageLocations)
+app.route('/api/admin/backups', adminBackups)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))

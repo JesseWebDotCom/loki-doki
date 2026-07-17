@@ -305,8 +305,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'storage', label: 'Storage', icon: HardDrive, group: 'Platform',
-    keywords: ['storage', 'disk', 'space', 'usage', 'cleanup', 'locations', 'network', 'unc', 'nas', 'path', 'mapping', 'users'],
-    description: 'Disk usage, cleanup, and storage locations',
+    keywords: ['storage', 'disk', 'space', 'usage', 'cleanup', 'locations', 'network', 'unc', 'nas', 'path', 'mapping', 'users', 'backup', 'restore', 'snapshot'],
+    description: 'Disk usage, cleanup, storage locations, and backups',
     subsections: [
       { id: 'usage', label: 'Usage', kind: 'view',
         keywords: ['storage', 'disk', 'cleanup', 'space', 'usage'],
@@ -314,6 +314,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'locations', label: 'Locations', kind: 'view',
         keywords: ['storage', 'locations', 'network', 'unc', 'nas', 'plex', 'path', 'mapping'],
         description: 'Per-content-type storage roots, incl. network paths, and Plex path mappings' },
+      { id: 'backups', label: 'Backups', kind: 'view',
+        keywords: ['backup', 'backups', 'snapshot', 'restore', 'retention', 'nightly', 'safety', 'nas'],
+        description: 'Nightly database snapshots, user-file mirror, retention, and restore' },
     ],
   },
   {

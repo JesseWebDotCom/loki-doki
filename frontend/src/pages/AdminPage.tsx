@@ -33,6 +33,7 @@ import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { ServerPanel } from '@/components/admin/ServerPanel'
 import { AdminStorageTab } from '@/components/admin/AdminStorageTab'
 import { AdminStorageLocationsTab } from '@/components/admin/AdminStorageLocationsTab'
+import { AdminStorageBackupsTab } from '@/components/admin/AdminStorageBackupsTab'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
 
@@ -252,6 +253,9 @@ export function AdminPage() {
         )}
         {section === 'storage' && sub === 'locations' && (
           <div className="p-5"><AdminStorageLocationsTab /></div>
+        )}
+        {section === 'storage' && sub === 'backups' && (
+          <div className="p-5"><AdminStorageBackupsTab /></div>
         )}
       </div>
       </div>

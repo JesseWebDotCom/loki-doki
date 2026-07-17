@@ -1,12 +1,40 @@
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import { mkdirSync, existsSync, renameSync } from 'node:fs'
+import { mkdirSync, existsSync, renameSync, rmSync } from 'node:fs'
 import { dirname, resolve, join } from 'node:path'
 import * as schema from './schema'
 
-const dbPath = process.env.DATABASE_URL ?? resolve(import.meta.dir, '../../../data/app.db')
+export const dbPath = process.env.DATABASE_URL ?? resolve(import.meta.dir, '../../../data/app.db')
 mkdirSync(dirname(dbPath), { recursive: true })
+
+// Staged restore swap. Admin → Storage → Backups verifies a snapshot and copies it to
+// `<db>.restore-pending`, then restarts the server; the actual swap happens here, before
+// the Database is opened, so no live connection ever sees it. The replaced database is
+// kept alongside as `<db>.pre-restore` (with its WAL, under matching sidecar names) so a
+// bad restore is recoverable by hand. Any failure mid-swap rolls back to the old file.
+const restorePendingPath = `${dbPath}.restore-pending`
+if (existsSync(restorePendingPath)) {
+  const keepPath = `${dbPath}.pre-restore`
+  try {
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(keepPath + suffix)) rmSync(keepPath + suffix)
+      if (existsSync(dbPath + suffix)) renameSync(dbPath + suffix, keepPath + suffix)
+    }
+    renameSync(restorePendingPath, dbPath)
+    console.warn('[backup] restored database snapshot; previous database kept at', keepPath)
+  } catch (err) {
+    console.warn('[backup] restore swap failed, keeping the current database:', err instanceof Error ? err.message : err)
+    try {
+      if (!existsSync(dbPath) && existsSync(keepPath)) {
+        for (const suffix of ['', '-wal', '-shm']) {
+          if (existsSync(keepPath + suffix)) renameSync(keepPath + suffix, dbPath + suffix)
+        }
+      }
+      rmSync(restorePendingPath, { force: true })
+    } catch { /* boot continues with whatever state is on disk */ }
+  }
+}
 
 export const sqlite = new Database(dbPath, { create: true })
 sqlite.exec('PRAGMA journal_mode = WAL;')
@@ -2968,6 +2996,23 @@ export function runMigrations() {
   sqlite.exec(`
     DROP TABLE IF EXISTS coding_sessions;
     DROP TABLE IF EXISTS coding_projects;
+  `)
+
+  // Backups (see schema.ts backups; Admin → Storage → Backups)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS backups (
+      id TEXT NOT NULL PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'manual',
+      status TEXT NOT NULL DEFAULT 'running',
+      destination_path TEXT NOT NULL,
+      db_file_name TEXT,
+      db_size_bytes INTEGER,
+      files_synced INTEGER,
+      files_bytes INTEGER,
+      error TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER
+    );
   `)
 
   // Storage Locations + Plex export (see schema.ts storageLocations/contentTypeStorage/
