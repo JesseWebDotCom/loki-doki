@@ -46,7 +46,7 @@ Stay in execution mode for:
 
 After writing or editing any frontend code, **always run `npx vite build` in `frontend/` before declaring done.** A successful Vite build (no errors, exit 0) is the minimum bar. `tsc --noEmit` passes but Vite's Babel transform catches additional errors (e.g. syntax errors in JSX/TSX that TypeScript misses). Never rely on `tsc` alone.
 
-After writing or editing backend code, run `bun build --target=bun /path/to/src/index.ts` (no output = clean) to confirm the module graph resolves without errors.
+After writing or editing backend code, run `bun run check:build` from `backend/` (exit 0 = clean) to confirm the module graph resolves without errors. It wraps `bun build --target=bun src/index.ts` and marks playwright's optional `chromium-bidi` requires as external, since those modules are lazy-loaded and intentionally not installed.
 
 If either build fails, fix the errors before reporting the task complete.
 
