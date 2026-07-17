@@ -13,6 +13,7 @@ import { PendingActionButtons } from '@/components/companion/PendingActionButton
 import { useVisionStatus } from '@/hooks/useVisionStatus'
 import { IslandTopBar, ISLAND_TABS, type IslandTab } from './IslandTopBar'
 import { IslandPageHome } from './pages/IslandPageHome'
+import { IslandPageActions } from './pages/IslandPageActions'
 import { IslandPageMusic } from './pages/IslandPageMusic'
 import { IslandPageWeather } from './pages/IslandPageWeather'
 import { IslandPageCalendar } from './pages/IslandPageCalendar'
@@ -98,6 +99,7 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
             never resize the island. */}
         <div key={tab} className="island-swap h-[268px] overflow-y-auto px-6 py-1">
           {tab === 'home' && <IslandPageHome nowPlaying={nowPlaying} />}
+          {tab === 'actions' && <IslandPageActions />}
           {tab === 'music' && <IslandPageMusic onStarted={() => setTab('home')} />}
           {tab === 'weather' && <IslandPageWeather />}
           {tab === 'calendar' && <IslandPageCalendar />}

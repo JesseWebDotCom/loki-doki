@@ -377,6 +377,13 @@ videosRoute.get('/:source/item/:id', async (c) => {
   // if a card leaked through. Classifies synchronously here (single item, the watch path
   // tolerates the ~1s) so the verdict is real rather than a pending "unknown".
   if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
+  // Attach this user's saved position so the watch page can resume where any device left
+  // off (the same watch state the history/Continue-watching shelves read).
+  const [watch] = await db.select({ positionSec: videoWatchState.positionSec, completed: videoWatchState.completed })
+    .from(videoWatchState)
+    .where(and(eq(videoWatchState.userId, user.id), eq(videoWatchState.source, source), eq(videoWatchState.videoId, item.id)))
+    .limit(1)
+  if (watch) item.watch = { positionSec: watch.positionSec, completed: watch.completed }
   // Rewrite playback for the client: upstream URLs (signed, Referer-gated) never leave
   // the server — progressive and yt-dlp-piped sources both play through /stream below,
   // just via a different server-side strategy depending on the provider.

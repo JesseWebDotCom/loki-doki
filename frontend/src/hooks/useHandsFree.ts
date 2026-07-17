@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { startMicCapture, type MicCaptureHandle } from '@/lib/voice/mic-capture'
 import { WakeWordLoop } from '@/lib/voice/wake-word-loop'
 import { WhisperWakewordLoop } from '@/lib/voice/whisper-wakeword-loop'
-import { onWakeDetected } from '@/lib/voice/wake-word-events'
+import { onWakeDetected, logActivation } from '@/lib/voice/wake-word-events'
 import { DEFAULT_WAKE_WORD_MODEL_ID, loadInstalledWakewords, listWakeWordModels, getWakewordCoreInstalled } from '@/lib/voice/wake-word-models'
 import { SttCapture } from '@/lib/voice/stt-capture'
 import { transition, type HandsFreeState } from '@/lib/voice/handsfree-state-machine'
 import { getVoicePlayback, stopSpeech } from '@/lib/voice/voicePlaybackStore'
 import { getSileroVad, type SileroVadStream } from '@/lib/voice/silero-vad'
+import { cleanTranscript } from '@/lib/voice/cleanTranscript'
 
 // Hands-free conversation loop:
 //   idle → (wake word) → capturing → (whisper final) → submit → replying →
@@ -33,7 +34,16 @@ const TTS_MUTE_GRACE_MS = 400
 // audio starts, so it can't truncate a working reply — generous enough to outlast a
 // cold model load (20–30s to first token) before any audio has played.
 const REPLY_SAFETY_MS = 45000
-const POST_REPLY_TIMEOUT_MS = 8000
+// Wake-word-free continuation window after a reply. Shortened from 8s to 4s (design
+// P1.4): the long window let TV/other-people speech land a fresh turn well after the
+// companion finished, which read as a false wake. A real follow-up comes promptly.
+const POST_REPLY_TIMEOUT_MS = 4000
+// VAD gate for the trained ONNX wake path (design P1.2): a classifier fire is only
+// accepted if it coincides with recent speech (Silero), which rejects the non-speech
+// transients the model mis-scores. Fail-open when Silero isn't loaded. The Whisper
+// path is inherently speech-gated (it needs a transcript) so it isn't gated here.
+const WAKE_VAD_WINDOW_MS = 1200
+const WAKE_VAD_PROB = 0.4
 // While a staged action awaits confirmation, the wake-word-free follow-up
 // window stays open much longer so a considered "yes" still lands.
 const POST_REPLY_HOLD_MS = 30_000
@@ -64,8 +74,10 @@ const PREROLL_MAX_SAMPLES = 24000   // ~1.5s hard cap once barge-in has fired (c
 
 // Continued conversation: cap auto-continuations so a background voice (TV, other
 // people) can't keep the loop alive forever. After this many follow-ups without a
-// fresh wake word, return to idle and require the wake word again.
-const MAX_CONTINUATIONS = 3
+// fresh wake word, return to idle and require the wake word again. Lowered from 3 to
+// 1 (design P1.4): one prompt follow-up is the natural conversational case; more than
+// that is where background speech hijacks the loop.
+const MAX_CONTINUATIONS = 1
 
 // Stop commands end the turn immediately — kill TTS + exit to idle. Matched only
 // on short utterances so "stop by the store" isn't treated as a stop.
@@ -130,6 +142,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   // Silero speech gate for barge-in; null until loaded (or forever, if the
   // model isn't installed) — the gate is energy-only until then.
   const sileroRef = useRef<SileroVadStream | null>(null)
+  // Last time Silero saw speech-like audio while wake-listening; the VAD gate for
+  // the ONNX wake path (P1.2) accepts a fire only if this is recent.
+  const wakeLastSpeechAtRef = useRef(0)
   const prerollRef = useRef<Float32Array[]>([])
   const prerollLenRef = useRef(0)
   const replySafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -195,7 +210,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           }
           if (text) {
             dispatch({ type: 'stt_final' })
-            submitRef.current(text)
+            // Clean disfluencies (um/uh, false starts) before the text is shown and sent.
+            // isStopCommand above deliberately ran on the raw text.
+            submitRef.current(cleanTranscript(text))
           } else {
             dispatch({ type: 'stop_command' })
           }
@@ -210,6 +227,10 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
               return
             }
             continuationCountRef.current++
+            // This activation is a wake-word-FREE follow-up, not a wake fire, tag it
+            // so it's distinguishable in diagnostics (P0.0) rather than looking like
+            // the wake word triggered.
+            logActivation('follow-up-vad', `continuation ${continuationCountRef.current}/${MAX_CONTINUATIONS}`)
             dispatch({ type: 'vad_onset' })
           }
         },
@@ -312,7 +333,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         }
         if (st === 'wake-detected') dispatch({ type: 'capture_open' })
         dispatch({ type: 'stt_final' })
-        submitRef.current(cmd)
+        submitRef.current(cleanTranscript(cmd))
       }
       wakeLoop = wl
       console.info(`[handsfree] engaging — whisper wakeword phrase "${wakeWordPhrase.trim()}"`)
@@ -332,7 +353,18 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
 
           // Wake loop: gated by the TTS echo guard; setEnabled ensures it
           // only runs during `idle` state.
-          if (!ttsMutedRef.current) wakeRef.current?.pushFrame(samples)
+          if (!ttsMutedRef.current) {
+            wakeRef.current?.pushFrame(samples)
+            // Feed Silero while wake-listening so the ONNX wake VAD gate (below, in
+            // onWakeDetected) has a fresh speech signal. Cheap; fire-and-forget.
+            if (st === 'idle') {
+              const s = sileroRef.current && !sileroRef.current.failed ? sileroRef.current : null
+              if (s) {
+                void s.push(samples)
+                if (s.lastProb >= WAKE_VAD_PROB) wakeLastSpeechAtRef.current = Date.now()
+              }
+            }
+          }
 
           // Buffer mic audio we want but can't send yet, so barge-in never clips the
           // user's opening words. Two parts: a short rolling pre-roll DURING the reply
@@ -388,6 +420,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
                 bargeInCountRef.current = 0
                 bargeInFiredRef.current = true
                 console.info(`[barge-in] FIRED — interrupting (rms=${rms.toFixed(3)} ≥ ${thr}, prob=${silero ? silero.lastProb.toFixed(2) : 'n/a'})`)
+                logActivation('barge-in', `rms=${rms.toFixed(3)} prob=${silero ? silero.lastProb.toFixed(2) : 'n/a'}`)
                 stopSpeech()
                 dispatch({ type: 'barge_in' })
                 openStt(true) // replay the pre-roll so the first interrupting word isn't lost
@@ -431,8 +464,19 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
 
   // Wake-word detected → open STT and start capturing.
   useEffect(() => {
-    const off = onWakeDetected(() => {
+    const off = onWakeDetected((ev) => {
       if (stateRef.current !== 'idle') return
+      // VAD gate for the trained ONNX detector (P1.2): require recent speech, which
+      // rejects the non-speech transients the classifier occasionally mis-scores.
+      // Fail-open when Silero isn't loaded/working. The Whisper path already needs a
+      // transcript, so it's inherently gated and skips this.
+      if (ev.origin === 'onnx-wake') {
+        const s = sileroRef.current
+        if (s && !s.failed && Date.now() - wakeLastSpeechAtRef.current > WAKE_VAD_WINDOW_MS) {
+          console.info(`[wakeword] fire suppressed by VAD gate, no speech in last ${WAKE_VAD_WINDOW_MS}ms`)
+          return
+        }
+      }
       continuationCountRef.current = 0  // fresh wake resets the continuation budget
       dispatch({ type: 'wake_detected' })
       if (wakeRef.current instanceof WhisperWakewordLoop) {

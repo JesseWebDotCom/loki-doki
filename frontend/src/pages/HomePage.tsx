@@ -40,18 +40,20 @@ import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTe
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { DownloadsWidget } from "@/components/home/DownloadsWidget";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpotlight } from "@/components/shared/SpotlightSearch";
 import { useYtFeed } from "@/lib/youtube/useData";
-import { fmtAge } from "@/lib/youtube/format";
+import { fmtAge, thumbUrl } from "@/lib/youtube/format";
 import { ytImageProxy } from "@/lib/youtube/api";
 import { proxyImg } from "@/lib/img";
 import { ytItemToHub } from "@/components/videos/HubCard";
 import { VIDEO_CATEGORIES } from "@/lib/videos/categories";
 import { HUB_PATHS } from "@/components/videos/HubVideoCard";
 import { SOURCE_META } from "@/lib/videos/sources";
-import { getFollowingFeed, type HubVideoItem } from "@/lib/videos/api";
+import { getFollowingFeed, getHubHistory, type HubVideoItem } from "@/lib/videos/api";
+import { getHistory as getYtHistory } from "@/lib/youtube/api";
 import { getHistory, getFavorites, listStations, stationToDj, type Station } from "@/lib/music/catalogApi";
 import { useRadio } from "@/context/RadioContext";
 import { usePodcastFeed, continueListening, newEpisodes } from "@/lib/podcast/useFeed";
@@ -1333,6 +1335,73 @@ function WidgetPodcastsContinue() {
   );
 }
 
+function WidgetVideosContinue() {
+  const { data: yt = [], isLoading: ytLoading } = useQuery({ queryKey: ["yt-history"], queryFn: getYtHistory });
+  const { data: hub, isLoading: hubLoading } = useQuery({ queryKey: ["videos-history"], queryFn: getHubHistory });
+
+  // Same merge as the Videos hub's Continue-watching shelf: every source, freshest first.
+  const items = useMemo(() => {
+    const fromYt = yt
+      .filter((h) => !h.completed && h.positionSec > 5 && h.title.trim())
+      .map((h) => ({
+        key: `youtube:${h.videoId}`, to: `/videos/youtube/watch/${h.videoId}`,
+        title: h.title, creator: h.author, thumb: thumbUrl(h.videoId),
+        positionSec: h.positionSec, durationSec: h.durationSec, updatedAt: h.updatedAt,
+      }));
+    const fromHub = (hub?.history ?? [])
+      .filter((h) => !h.completed && h.positionSec > 5 && h.title.trim())
+      .map((h) => ({
+        key: `${h.source}:${h.videoId}`, to: `/videos/${h.source}/watch/${h.videoId}`,
+        title: h.title, creator: h.creatorName, thumb: h.thumbnailUrl ? proxyImg(h.thumbnailUrl) : null,
+        positionSec: h.positionSec, durationSec: h.durationSec, updatedAt: h.updatedAt,
+      }));
+    return [...fromYt, ...fromHub].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 4);
+  }, [yt, hub]);
+
+  const loading = (ytLoading || hubLoading) && items.length === 0;
+  const pct = (pos: number, dur: number | null | undefined) => (dur ? Math.min(100, Math.round((pos / dur) * 100)) : null);
+
+  return (
+    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-overline text-brand">
+          <Play className="size-3" />
+          <span>Continue Watching</span>
+        </div>
+        <Link to="/videos" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Videos →</Link>
+      </div>
+      {loading && <Spinner className="text-muted-foreground/30" />}
+      {!loading && items.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">Start a video anywhere and resume it here.</p>
+      )}
+      <div className="space-y-2 flex-1">
+        {items.map((it) => {
+          const p = pct(it.positionSec, it.durationSec);
+          return (
+            <Link key={it.key} to={it.to} className="group flex gap-2.5 items-center text-left w-full">
+              {it.thumb ? (
+                <img src={it.thumb} alt="" loading="lazy" className="h-9 w-16 shrink-0 rounded-control object-cover bg-muted" />
+              ) : (
+                <div className="h-9 w-16 shrink-0 rounded-control bg-muted" />
+              )}
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="line-clamp-1 text-[12px] font-semibold leading-snug text-foreground/85">{it.title}</p>
+                {it.creator && <p className="truncate text-[10px] text-muted-foreground/60">{it.creator}</p>}
+                {p != null && (
+                  <div className="h-0.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-brand" style={{ width: `${p}%` }} />
+                  </div>
+                )}
+              </div>
+              <Play className="size-3.5 shrink-0 text-brand opacity-0 transition-opacity group-hover:opacity-100" />
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 interface WatchlistItem {
   id: string; mediaType: 'show' | 'movie'; refId: string;
   title: string; posterUrl?: string | null; subtitle?: string | null;
@@ -1962,6 +2031,7 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'bookmarks-queue':    (m) => <WidgetBookmarksQueue displayMode={m} />,
   'podcasts-recent':    (m) => <WidgetPodcastsRecent displayMode={m} />,
   'podcasts-continue':  () => <WidgetPodcastsContinue />,
+  'videos-continue':    () => <WidgetVideosContinue />,
   'podcasts-shows':     (m) => <WidgetPodcastsShows displayMode={m} />,
   'watchlist':          (m) => <WidgetWatchlist displayMode={m} />,
   'speed-test-internet':        () => <WidgetSpeedTest mode="internet" />,
@@ -2379,7 +2449,7 @@ export function HomePage() {
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
-  const { layout, locked, save } = useHomeLayout();
+  const { layout, locked, save, resetToAuto } = useHomeLayout();
   const { tools } = useInstalledTools();
   const { openSpotlight } = useSpotlight();
 
@@ -2397,6 +2467,7 @@ export function HomePage() {
   const [draftRows, setDraftRows] = useState<HomeRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const toolsMap = useMemo(() => {
     const m = new Map<string, { enabled: boolean }>();
@@ -2435,6 +2506,21 @@ export function HomePage() {
       setIsSaving(false);
     }
   }, [layout, draftRows, save]);
+
+  const handleResetToAuto = useCallback(async () => {
+    setConfirmReset(false);
+    setIsSaving(true);
+    try {
+      await resetToAuto();
+      setEditMode(false);
+      setDraftRows([]);
+      toast.success('Home reset to the auto layout.');
+    } catch {
+      toast.error("Couldn't reset your layout, please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [resetToAuto]);
 
   const handleRemoveWidget = useCallback((toolId: string) => {
     setDraftRows(prev => normalizeRows(
@@ -2545,6 +2631,15 @@ export function HomePage() {
             editMode ? (
               <div className="flex items-center gap-2">
                 <Button
+                  onClick={() => setConfirmReset(true)}
+                  disabled={isSaving}
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto px-3 py-1 text-[11px] font-medium text-muted-foreground/70 hover:text-foreground/80"
+                >
+                  Reset to auto
+                </Button>
+                <Button
                   onClick={cancelEdit}
                   variant="outline"
                   size="sm"
@@ -2592,6 +2687,15 @@ export function HomePage() {
           onClose={() => setPickerOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmReset}
+        onOpenChange={setConfirmReset}
+        title="Reset to the auto layout?"
+        description="This discards your custom home layout and rebuilds it automatically from your installed apps. You can always customize it again."
+        confirmLabel="Reset"
+        onConfirm={() => { void handleResetToAuto(); }}
+      />
 
     </div>
   );

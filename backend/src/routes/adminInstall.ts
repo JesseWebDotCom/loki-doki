@@ -17,7 +17,9 @@ import { isVoiceServerInstalled } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled } from '@/lib/maps/toolchain'
 import { isStemAudioInstalled, isRoformerGuitarInstalled } from '@/lib/stems/pyenv'
 import { isEsrganInstalled, isCodeFormerInstalled, isGFPGANInstalled, isFaceRestoreNodeInstalled, isBiRefNetNodeInstalled } from '@/lib/download'
-import { IMAGE_ROLES, isTesseractInstalled, getInstallComponent, recordInstalled, removeFromLedger } from '@/lib/installRegistry'
+import { IMAGE_ROLES, isTesseractInstalled, isTmuxInstalled, getInstallComponent, recordInstalled, removeFromLedger } from '@/lib/installRegistry'
+import { isClaudeCodeInstalled } from '@/lib/claudeCode'
+import { isSandboxUserInstalled } from '@/lib/codingSandboxUser'
 import { isGloballyOffline, isDownloadBlocked } from '@/lib/connectivity'
 import type { AppEnv } from '@/types'
 
@@ -111,6 +113,31 @@ adminInstall.get('/', requireAdmin, (c) => {
       description: 'Tesseract 5 OCR engine — used by Home Inventory to accurately read text from device label photos without AI hallucination',
       installed: isTesseractInstalled(),
       approxBytes: 30_000_000,
+    },
+    // Coding components: the Features tab gates the tmux and sandbox rows on
+    // claude-code being installed, so these three MUST be reported here. Their
+    // absence left compMap.get('claude-code') undefined and the sandbox Install
+    // button permanently blocked (pointer-events-none).
+    {
+      id: 'claude-code',
+      label: 'Coding (Claude Code)',
+      description: 'Claude Code CLI powering the Coding app\'s terminal sessions and headless companion runs',
+      installed: isClaudeCodeInstalled(),
+      approxBytes: 60_000_000,
+    },
+    {
+      id: 'tmux',
+      label: 'Coding Terminal Multiplexer (tmux)',
+      description: 'Session multiplexing (splits + reload-persistence) for the Coding terminal (macOS/Linux)',
+      installed: isTmuxInstalled(),
+      approxBytes: 1_000_000,
+    },
+    {
+      id: 'coding-sandbox-user',
+      label: 'Coding Sandbox Isolation',
+      description: 'Restricted OS user boundary for coding sessions (one-time OS admin approval via UAC or password)',
+      installed: isSandboxUserInstalled(),
+      approxBytes: 0,
     },
     {
       id: 'esphome',

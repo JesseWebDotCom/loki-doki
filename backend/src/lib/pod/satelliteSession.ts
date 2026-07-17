@@ -22,6 +22,7 @@ import { parseVoiceId, segmentSentences, voiceConfig } from '@/lib/voice'
 import { stripForSpeech, createFenceStripper } from '@/lib/voice/speechText'
 import { runPodBrain } from '@/lib/pod/brain'
 import { WakeDetector, wakeAvailable } from '@/lib/pod/wake'
+import { getSileroStream, type SileroVadStream } from '@/lib/voice/sileroVad'
 import { authenticateDeviceToken } from '@/lib/pod/devices'
 import { addPending, removePending } from '@/lib/pod/pending'
 import { evictForDevice } from '@/lib/pod/registry'
@@ -90,6 +91,11 @@ export class SatelliteSession implements PodFireTarget {
   private wakeEnabled = process.env.POD_WAKE_ENABLED !== '0'
   private wake: WakeDetector | null = null
   private wakeLoading = false
+  // VAD gate for the wake path (design P1.2): a classifier fire is accepted only if
+  // Silero saw speech recently, rejecting the non-speech transients the quiet ESP mic
+  // produces. Loaded alongside the detector; fail-open if unavailable.
+  private wakeVad: SileroVadStream | null = null
+  private wakeVadLastSpeechAt = 0
   private capturing = false
   private captureTimer: ReturnType<typeof setTimeout> | null = null
   // Temporary diagnostics: track incoming audio level so we can tell a silent mic
@@ -438,7 +444,11 @@ export class SatelliteSession implements PodFireTarget {
       // normal-amplitude audio; the full 12× boost pushes the quiet-room noise floor
       // into its fire zone and causes false triggers. A lighter gain keeps real speech
       // audible without amplifying silence into a wake.
-      this.wake.push(gained(pcm, POD_WAKE_GAIN))
+      const wpcm = gained(pcm, POD_WAKE_GAIN)
+      this.wake.push(wpcm)
+      // Feed the same audio to the VAD gate so onWakeDetect() can require recent speech.
+      const v = this.wakeVad
+      if (v && !v.failed) { void v.push(wpcm); if (v.lastProb >= POD_WAKE_VAD_PROB) this.wakeVadLastSpeechAt = Date.now() }
     }
   }
 
@@ -495,6 +505,8 @@ export class SatelliteSession implements PodFireTarget {
       return
     }
     this.wakeLoading = true
+    // Load the Silero speech gate in parallel (best-effort; null → gate is off).
+    if (!this.wakeVad) void getSileroStream().then((s) => { this.wakeVad = s }).catch(() => {})
     // Prefer the resolved wake word (device override → companion's trained model);
     // otherwise the detector falls back to the app default.
     const w = new WakeDetector({
@@ -514,6 +526,14 @@ export class SatelliteSession implements PodFireTarget {
 
   private onWakeDetect(): void {
     if (this.closed || this.capturing) return
+    // VAD gate (P1.2): accept the fire only if Silero saw speech recently. This
+    // rejects the isolated non-speech transients the quiet PDM mic produces. Fail-open
+    // when the gate isn't loaded/working.
+    const v = this.wakeVad
+    if (v && !v.failed && Date.now() - this.wakeVadLastSpeechAt > POD_WAKE_VAD_WINDOW_MS) {
+      logger.info('[pod] wake fire suppressed by VAD gate (no recent speech)')
+      return
+    }
     // Tell the Pod a wake fired (chime / show "listening"), then capture.
     this.send({ type: 'detection', data: { name: this.wake?.modelId ?? 'wake' } })
     this.setState('listening')
@@ -828,6 +848,11 @@ const POD_WAKE_HYSTERESIS = (() => {
   const v = Number(process.env.POD_WAKE_HYSTERESIS)
   return Number.isFinite(v) && v >= 1 ? Math.floor(v) : 4
 })()
+
+// VAD gate for the wake path (design P1.2). A classifier fire is accepted only if
+// Silero saw speech at or above POD_WAKE_VAD_PROB within POD_WAKE_VAD_WINDOW_MS.
+const POD_WAKE_VAD_PROB = 0.4
+const POD_WAKE_VAD_WINDOW_MS = 1200
 
 /** Multiply mono Float32 PCM by a gain, in place, soft-clipped to [-1, 1]. */
 function gained(pcm: Float32Array, gain: number): Float32Array {

@@ -821,6 +821,12 @@ function makeChatRun(p: ChatRunParams) {
         content: m.content,
       }))
 
+      // Capture the citation sources emitted during the turn so they persist with the
+      // assistant message and tappable chips survive a reload (#8). The 'sources' event
+      // payload is already a JSON string of Source[]; the frontend replaces on each event
+      // (last-wins), so persisting the last one mirrors the live view exactly.
+      let capturedSources: string | null = null
+
       // The generation pipeline (routing → tools/directReply → system prompt →
       // LLM stream) lives in the shared runCompanionTurn so the Pod gateway reuses
       // it verbatim. The route keeps the HTTP concerns: SSE plumbing, persistence,
@@ -853,7 +859,10 @@ function makeChatRun(p: ChatRunParams) {
         },
         {
           onToken: (text) => ctx.emit('token', text),
-          onEvent: (type, data) => ctx.emit(type, data),
+          onEvent: (type, data) => {
+            if (type === 'sources') capturedSources = data
+            ctx.emit(type, data)
+          },
           signal: ctx.signal,
         },
       )
@@ -871,6 +880,7 @@ function makeChatRun(p: ChatRunParams) {
             role: 'assistant',
             content: result.text,
             truncated: true,
+            sources: capturedSources,
             createdAt: now,
           }).catch(() => {})
           await db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, p.convId)).catch(() => {})
@@ -895,6 +905,7 @@ function makeChatRun(p: ChatRunParams) {
         role: 'assistant',
         content: result.text,
         toolNote: result.toolNote ?? null,
+        sources: capturedSources,
         // A reply that hit the num_predict cap is a form of truncation too.
         truncated: result.capped ?? false,
         createdAt: now,

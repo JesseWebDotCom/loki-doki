@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Settings, ShieldCheck, LogOut } from "lucide-react";
+import { Settings, ShieldCheck, LogOut, FlaskConical } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { TesterDialog } from "@/components/diagnostics/TesterDialog";
 import { useAuth } from "@/context/AuthContext";
 import type { useNotifications } from "@/hooks/useNotifications";
 import { notifIcon, notifLabel, timeAgo } from "@/lib/notifications";
@@ -27,6 +28,7 @@ export function MobileYouSheet({
   const { user, logout } = useAuth();
   const { unreadCount, notifications, loadNotifications, markRead, markAllRead } = notif;
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [testerOpen, setTesterOpen] = useState(false);
 
   useEffect(() => {
     if (open) void loadNotifications();
@@ -108,6 +110,17 @@ export function MobileYouSheet({
           {user?.role === "admin" && <AccountLink to="/admin" icon={ShieldCheck} label="Admin" onNavigate={close} />}
           <button
             type="button"
+            onClick={() => setTesterOpen(true)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-control px-3 py-2 text-sm text-muted-foreground transition-colors",
+              "hover:bg-foreground/5 hover:text-foreground",
+            )}
+          >
+            <FlaskConical className="size-4" />
+            Tester
+          </button>
+          <button
+            type="button"
             onClick={() => setConfirmSignOut(true)}
             className="ml-auto flex items-center gap-1.5 rounded-control px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
           >
@@ -116,6 +129,7 @@ export function MobileYouSheet({
           </button>
         </div>
 
+        <TesterDialog open={testerOpen} onOpenChange={setTesterOpen} />
         <ConfirmDialog
           open={confirmSignOut}
           onOpenChange={setConfirmSignOut}

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
@@ -66,6 +66,12 @@ import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
   videoId: v.videoId, title: v.title, author: v.author ?? null,
   channelThumb: v.channelThumb ?? null, localKind: v.localKind, durationSec: v.durationSec ?? null,
+})
+
+/** The metadata snapshot sent with every hub watch-state write (feeds Continue-watching cards). */
+const watchSnapshot = (it: HubVideoItem) => ({
+  title: it.title, thumbnailUrl: it.thumbnailUrl, creatorId: it.creator?.id ?? null,
+  creatorName: it.creator?.name ?? null, durationSec: it.durationSec, isAdult: it.isAdult,
 })
 
 type SideTab = 'upnext' | 'transcript' | 'comments'
@@ -1003,6 +1009,46 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   })
   const item: HubVideoItem | undefined = data?.item
 
+  // ── Cross-device resume ────────────────────────────────────────────────────────
+  // Expanding from the mini-player adopts its live position (captured once, synchronously,
+  // before clearDock below wipes it). Otherwise fall back to the server-saved watch state,
+  // written by every device on a 10s heartbeat. Completed or near-finished videos restart.
+  const [adopt] = useState(() => (pb.track?.source === source && pb.track?.videoId === id ? Math.floor(pb.positionSec) : null))
+  const savedPos = item?.watch && !item.watch.completed ? item.watch.positionSec : 0
+  const nearEnd = !!item?.durationSec && savedPos >= item.durationSec * 0.95
+  const resumeSec = adopt != null && adopt > 1 ? adopt : (savedPos > 5 && !nearEnd ? savedPos : 0)
+  // Applied at most once per video, on the first loadedmetadata (see the <video> below).
+  const resumeApplied = useRef(false)
+  useEffect(() => { resumeApplied.current = false }, [source, id])
+
+  // Embed players (TikTok/Vimeo online) report their position up here: the native watch-state
+  // effect below can't see inside an iframe, so this mirrors its 10s heartbeat + unmount flush.
+  const embedPos = useRef({ sec: 0, dur: 0, lastSent: 0 })
+  const itemRef = useRef(item)
+  itemRef.current = item
+  const onEmbedProgress = useCallback((sec: number, dur: number) => {
+    const s = embedPos.current
+    s.sec = sec
+    if (dur > 0) s.dur = dur
+    const now = Date.now()
+    if (now - s.lastSent < 10_000) return
+    s.lastSent = now
+    const it = itemRef.current
+    if (!it) return
+    const completed = s.dur > 0 && sec / s.dur > 0.9
+    void putWatchState(source, id, Math.floor(sec), completed, watchSnapshot(it)).catch(() => {})
+  }, [source, id])
+  useEffect(() => {
+    embedPos.current = { sec: 0, dur: 0, lastSent: 0 }
+    return () => {
+      const { sec, dur } = embedPos.current
+      const it = itemRef.current
+      if (!it || sec <= 5) return
+      const completed = dur > 0 && sec / dur > 0.9
+      void putWatchState(source, id, Math.floor(sec), completed, watchSnapshot(it)).catch(() => {})
+    }
+  }, [source, id])
+
   // Liked / Watch Later use the same cross-source collections store as YouTube - rows carry
   // videoSource so the Liked/Watch Later pages can badge and route them per source.
   const liked = useCollection('liked').some(v => v.videoId === id)
@@ -1139,10 +1185,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   useEffect(() => {
     const video = videoRef.current
     if (!video || !item) return
-    const snapshot = {
-      title: item.title, thumbnailUrl: item.thumbnailUrl, creatorId: item.creator?.id ?? null,
-      creatorName: item.creator?.name ?? null, durationSec: item.durationSec, isAdult: item.isAdult,
-    }
+    const snapshot = watchSnapshot(item)
     const onTime = () => {
       const now = Date.now()
       if (now - lastSent.current < 10_000) return
@@ -1239,9 +1282,11 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           <div className={cn('relative', !item.vertical && 'overflow-hidden rounded-card shadow-2xl')}>
             {showEmbed ? (
               source === 'vimeo' ? (
-                <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
+                <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical}
+                  resumeSec={resumeSec} onProgress={onEmbedProgress} />
               ) : source === 'tiktok' ? (
-                <TikTokWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
+                <TikTokWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical}
+                  resumeSec={resumeSec} onProgress={onEmbedProgress} />
               ) : (
                 <iframe
                   src={embedUrl!}
@@ -1267,7 +1312,17 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   onPause={() => setNativePlaying(false)}
                   onDurationChange={(e) => setNativeDuration(e.currentTarget.duration || 0)}
                   onVolumeChange={(e) => setNativeMuted(e.currentTarget.muted)}
-                  onLoadedMetadata={(e) => { e.currentTarget.volume = readStoredVolume() }}
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget
+                    v.volume = readStoredVolume()
+                    // Resume once per video. The PiP swap (embed to native <video>) instead
+                    // continues from the embed's live position so the handoff feels seamless.
+                    if (!resumeApplied.current) {
+                      resumeApplied.current = true
+                      const at = pipStream ? embedPos.current.sec : resumeSec
+                      if (at > 1 && at < (v.duration || Infinity) * 0.95) v.currentTime = at
+                    }
+                  }}
                   className="size-full"
                 />
                 <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay} />

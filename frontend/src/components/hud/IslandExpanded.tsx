@@ -49,6 +49,8 @@ export function IslandExpanded({ nowPlaying, topInset }: {
     if (next) engine.setVoice(true)
   }
 
+  const EventIcon = engine.capsuleEvent?.icon
+
   return (
     <div className="flex h-full items-center gap-2.5 px-3" style={{ paddingTop: topInset }}>
       <span className="shrink-0">{avatar}</span>
@@ -90,6 +92,23 @@ export function IslandExpanded({ nowPlaying, topInset }: {
               <Square className="size-3.5 fill-current" />
             </Button>
           )}
+        </>
+      ) : engine.capsuleEvent ? (
+        <>
+          {EventIcon && <EventIcon className="size-4 shrink-0 text-white/80" />}
+          <span className="min-w-0 flex-1 truncate text-sm text-white/90">{engine.capsuleEvent.text}</span>
+          {engine.capsuleEvent.actions?.slice(0, 3).map((a) => (
+            <Button
+              key={a.label}
+              variant="ghost"
+              size="sm"
+              onClick={() => { a.run(); engine.dismissCapsuleEvent() }}
+              // design-ok(glass-on-plain-bg): sits inside the black island surface
+              className="h-8 shrink-0 rounded-full px-3 text-xs text-white/85 hover:bg-white/10 hover:text-white"
+            >
+              {a.label}
+            </Button>
+          ))}
         </>
       ) : nowPlaying ? (
         <NowPlayingRow info={nowPlaying} />

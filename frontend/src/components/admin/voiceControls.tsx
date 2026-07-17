@@ -576,7 +576,7 @@ export function WakePhraseField({ value, onChange }: { value: string; onChange: 
 // input level, the wake score vs threshold, and detections — so you can see
 // exactly where the pipeline breaks (no mic level = mic; level but score stuck
 // at 0 = ORT/model; score climbs but won't fire = threshold too high).
-export function WakewordTester({ initialModelId }: { initialModelId?: string } = {}) {
+export function WakewordTester({ initialModelId, allowSave = true }: { initialModelId?: string; allowSave?: boolean } = {}) {
   const [running, setRunning] = useState(false)
   const [micLevel, setMicLevel] = useState(0)
   const [score, setScore] = useState(0)
@@ -779,17 +779,23 @@ export function WakewordTester({ initialModelId }: { initialModelId?: string } =
         <span className="w-10 shrink-0">Sens.</span>
         <input type="range" min={0.2} max={0.95} step={0.05} value={threshold} onChange={(e) => { setThreshold(Number(e.target.value)); setSaveState('idle') }} className="h-1 flex-1 cursor-pointer" />
         <span className="w-7 shrink-0 text-right tabular-nums">{threshold.toFixed(2)}</span>
-        <button
-          type="button"
-          onClick={() => void saveThreshold()}
-          disabled={saveState === 'saving'}
-          title="Save this sensitivity as the model's live threshold"
-          className={cn('flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]', saveState === 'saved' ? 'border-success/50 text-success' : 'border-border hover:bg-foreground/5')}
-        >
-          {saveState === 'saved' ? <><Check className="size-3" /> Saved</> : <><Save className="size-3" /> Save</>}
-        </button>
+        {allowSave && (
+          <button
+            type="button"
+            onClick={() => void saveThreshold()}
+            disabled={saveState === 'saving'}
+            title="Save this sensitivity as the model's live threshold"
+            className={cn('flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]', saveState === 'saved' ? 'border-success/50 text-success' : 'border-border hover:bg-foreground/5')}
+          >
+            {saveState === 'saved' ? <><Check className="size-3" /> Saved</> : <><Save className="size-3" /> Save</>}
+          </button>
+        )}
       </div>
-      <p className="text-[10px] text-muted-foreground">Raise sensitivity (→) if random speech triggers it; lower (←) if your phrase won't fire. Save to apply it to the live companion.</p>
+      <p className="text-[10px] text-muted-foreground">
+        {allowSave
+          ? 'Raise sensitivity (→) if random speech triggers it; lower (←) if your phrase won\'t fire. Save to apply it to the live companion.'
+          : 'Raise sensitivity (→) if random speech triggers it; lower (←) if your phrase won\'t fire. Changes here only affect this test.'}
+      </p>
 
       {error && <p className="rounded-card border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">{error}</p>}
       {log.length > 0 && (

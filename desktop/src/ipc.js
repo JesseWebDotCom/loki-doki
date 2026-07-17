@@ -7,6 +7,7 @@ const { ipcMain, desktopCapturer, screen, shell } = require('electron')
 const { getMacScreenAccessStatus } = require('./permissions')
 const resources = require('./resources')
 const fileAccess = require('./fileAccess')
+const { NOTCH_MIN_INSET } = require('./windows')
 
 // Last engine state reported by the /hud page; drives the tray label and the
 // hide rules ("never hide a live mic").
@@ -50,7 +51,11 @@ function init({ getHud, getMain, getServerUrl, getSettings, onHudStateChanged, a
     const hud = getHud()
     if (!hud || hud.isDestroyed()) return { topInset: 0 }
     const d = screen.getDisplayMatching(hud.getBounds())
-    return { topInset: d.workArea.y - d.bounds.y }
+    const inset = d.workArea.y - d.bounds.y
+    // Only a physical notch (a tall top strip, ~37-44px on notched MacBooks) drives the
+    // notched layout. A plain menu bar on an external display (~24-25px) must NOT draw a
+    // fake notch core, so report 0 there and the renderer shows the slim pill instead.
+    return { topInset: inset >= NOTCH_MIN_INSET ? inset : 0 }
   })
 
   // Screen awareness: a downscaled JPEG still of the display the cursor is on.

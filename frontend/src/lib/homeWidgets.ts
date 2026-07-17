@@ -162,6 +162,13 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     allowWide: true,
   },
   {
+    id: "videos-continue", title: "Continue Watching",
+    description: "Resume videos right where you stopped, on any device",
+    icon: Play, color: "#d946ef",
+    gradient: "linear-gradient(135deg,#581c87,#c026d3)",
+    allowWide: true,
+  },
+  {
     id: "watchlist", title: "Watchlist",
     description: "Shows & movies you want to watch",
     icon: Tv, color: "#f43f5e",

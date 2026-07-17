@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld('lokiDesktop', {
     return () => ipcRenderer.removeListener('hud:toggle-expand', handler)
   },
 
+  // shell → page: open the drop shelf (from the tray "Drop a File…" item) so a file can be
+  // dragged straight onto the dock.
+  onOpenShelf(cb) {
+    const handler = () => cb()
+    ipcRenderer.on('hud:open-shelf', handler)
+    return () => ipcRenderer.removeListener('hud:open-shelf', handler)
+  },
+
   // page → shell
   reportState(state) {
     ipcRenderer.send('hud:state', state)

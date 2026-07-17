@@ -83,12 +83,10 @@ export class WhisperWakewordLoop {
     stt.open(
       {
         onPartial: (text) => {
-          // Fire on a partial so the UI reacts during speech, not after the
-          // silence timeout. The command itself comes from the final below.
-          this.fireWakeIfMatch(text)
-          // Echo the command-so-far live so the overlay shows "what you heard"
-          // during capture (the ONNX path streams partials too; without this the
-          // phrase path stays blank until the final, which read as "slow").
+          // Do NOT fire the wake on a partial: partials are unstable hypotheses and
+          // firing on them is a false-trigger source. Wake fires only on the FINAL
+          // transcript (handleFinal). We still echo the command-so-far once the
+          // phrase has matched, so the overlay shows "what you heard" during capture.
           const cmd = this.commandPortion(text)
           if (cmd) this.onPartial?.(cmd)
         },
@@ -123,29 +121,31 @@ export class WhisperWakewordLoop {
   }
 
   /**
-   * Locate the wake phrase in normalized text. Returns the {start,end} char span of
-   * the match (so the command can be sliced from `end`), or null. Tries exact, then
-   * a fuzzy fallback for whisper-tiny's mis-spellings of uncommon phrases.
+   * Locate the wake phrase at the START of normalized text. Returns the {start,end}
+   * char span of the match (so the command can be sliced from `end`), or null.
+   *
+   * Two deliberate constraints, both to stop the false triggers this path caused
+   * (measured: the old matcher fired "hey loki" on "hey look at this" and "that guy
+   * loki from the movie", "hey sol" on "hey so what do you think"):
+   *   1. START-ANCHORED. A wake phrase is spoken at the beginning of an utterance,
+   *      before any command. Only the first (or, tolerating one filler word, second)
+   *      word position is considered; the phrase appearing mid-sentence is NOT a wake.
+   *   2. TIGHT edit distance, no phonetic-skeleton match. The vowel-free skeleton
+   *      collapsed "loki"/"look" and "sol"/"so", firing on ordinary speech. A short
+   *      phrase gets at most one edit (a single edit already reaches a different real
+   *      word); longer phrases scale to ~0.2×length.
    */
   private match(normText: string): { start: number; end: number } | null {
-    if (!this.normalizedPhrase) return null // empty phrase must never match
-    const exact = normText.indexOf(this.normalizedPhrase)
-    if (exact >= 0) return { start: exact, end: exact + this.normalizedPhrase.length }
-
-    // Fuzzy fallback: whisper-tiny mangles uncommon phrases ("hey velvet" → "hey
-    // belfit", "hey velen", "hay velvet"). Slide a phrase-sized word window and accept
-    // a match by EITHER a close edit distance OR an equal phonetic skeleton — the
-    // latter catches voiced/unvoiced slips (velvet→belfit) that are several edits
-    // apart but sound the same. Thresholds stay tight enough that random speech
-    // shouldn't trip a distinctive multi-word phrase.
     const p = this.normalizedPhrase
-    const maxEdits = Math.max(1, Math.round(p.length * 0.3))
-    const pKey = phoneticKey(p)
-    const phraseWordCount = p.split(' ').length
+    if (!p) return null // empty phrase must never match
     const words = normText.split(' ').filter(Boolean)
-    for (let i = 0; i + phraseWordCount <= words.length; i++) {
-      const window = words.slice(i, i + phraseWordCount).join(' ')
-      if (levenshtein(window, p) <= maxEdits || phoneticKey(window) === pKey) {
+    const n = p.split(' ').length
+    if (words.length < n) return null
+    const maxEdits = p.length <= 9 ? 1 : p.length <= 15 ? 2 : Math.round(p.length * 0.2)
+    const maxStart = Math.min(1, words.length - n) // word 0, or 1 (one leading filler)
+    for (let i = 0; i <= maxStart; i++) {
+      const window = words.slice(i, i + n).join(' ')
+      if (window === p || levenshtein(window, p) <= maxEdits) {
         const start = i === 0 ? 0 : words.slice(0, i).join(' ').length + 1
         return { start, end: start + window.length }
       }
@@ -160,7 +160,7 @@ export class WhisperWakewordLoop {
     if (this.lastFireAt !== null && now - this.lastFireAt < POST_WAKE_SUPPRESS_MS) return
     this.lastFireAt = now
     console.info(`[wakeword/whisper] detected "${text}" contains phrase "${this.phrase}"`)
-    emitWakeDetected({ modelId: `phrase:${this.phrase}`, score: 1, threshold: 1, frameIndex: 0, timestamp: now })
+    emitWakeDetected({ modelId: `phrase:${this.phrase}`, score: 1, threshold: 1, frameIndex: 0, timestamp: now, origin: 'whisper-wake' })
   }
 
   /** The command portion of a transcript: the words after the wake phrase, or
@@ -204,33 +204,6 @@ export class WhisperWakewordLoop {
 
 function normalizePhrase(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
-}
-
-// Confusable-consonant classes — whisper routinely swaps within these (voiced↔unvoiced
-// and same place of articulation). Vowels are intentionally absent so they get dropped.
-const CONSONANT_FOLD: Record<string, string> = {
-  b: 'f', v: 'f', f: 'f', p: 'f',          // labials
-  d: 't', t: 't',                          // dentals
-  g: 'k', k: 'k', c: 'k', q: 'k',          // velars
-  s: 'z', z: 'z', x: 'z',                  // sibilants
-  m: 'n', n: 'n',                          // nasals
-  j: 'j', l: 'l', r: 'r', h: 'h', w: 'w', y: 'y',
-}
-
-/**
- * Reduce text to a rough phonetic skeleton: drop vowels, fold confusable consonants to
- * one representative, collapse runs. "velvet"→"flft", "belfit"→"flft", so whisper's
- * voiced/unvoiced mis-hearings of a wake word still match. Spaces are preserved so the
- * word count is kept.
- */
-function phoneticKey(s: string): string {
-  let out = ''
-  for (const ch of s.toLowerCase()) {
-    if (ch === ' ') { out += ' '; continue }
-    const f = CONSONANT_FOLD[ch]
-    if (f) out += f  // unmapped chars (vowels, digits) are dropped
-  }
-  return out.replace(/(.)\1+/g, '$1').replace(/\s+/g, ' ').trim()
 }
 
 /** Classic edit distance (insert/delete/substitute), for fuzzy wake-phrase matching. */

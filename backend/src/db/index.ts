@@ -371,6 +371,7 @@ export function runMigrations() {
   addColumn('memories', 'status', `TEXT DEFAULT 'active' NOT NULL`)
   addColumn('memories', 'last_used_at', 'INTEGER')
   addColumn('conversations', 'memory_processed_through', 'INTEGER')
+  addColumn('messages', 'sources', 'TEXT')  // JSON citation sources, so chips survive reload (#8)
 
   // Projects
   sqlite.exec(`
@@ -2104,6 +2105,17 @@ export function runMigrations() {
       completed INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, book_id)
+    );
+    CREATE TABLE IF NOT EXISTS media_progress (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      asset_type TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      position_sec REAL NOT NULL DEFAULT 0,
+      duration_sec REAL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, asset_type, asset_id)
     );
     CREATE TABLE IF NOT EXISTS book_indexers (
       id TEXT NOT NULL PRIMARY KEY,

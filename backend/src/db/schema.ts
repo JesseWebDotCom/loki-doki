@@ -336,6 +336,9 @@ export const messages = sqliteTable('messages', {
   // into LLM history on later turns so follow-ups elaborate on real data instead
   // of re-searching; never rendered in the UI.
   toolNote: text('tool_note'),
+  // JSON array of citation sources ({ n, title, url }) backing the [n] markers in content,
+  // so tappable citation chips survive a reload. Null for messages with no sources.
+  sources: text('sources'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
@@ -2326,6 +2329,22 @@ export const bookLibrary = sqliteTable('book_library', {
 // Per-user reading/listening position. One row per (user, book) holding whichever
 // mode was last touched — switching surfaces does NOT preserve position (no forced
 // alignment between ebook text and audiobook audio exists yet).
+// Unified per-user playback position for streamed media (video, YouTube, podcast, music),
+// the media sibling of book_progress, so a show/song/episode resumes at the same spot on any
+// device (#14). Keyed by (userId, assetType, assetId); written on a throttled heartbeat.
+export const mediaProgress = sqliteTable('media_progress', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  assetType: text('asset_type').notNull(), // 'video' | 'youtube' | 'podcast' | 'music' | …
+  assetId: text('asset_id').notNull(),
+  positionSec: real('position_sec').notNull().default(0),
+  durationSec: real('duration_sec'),
+  completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
+}))
+
 export const bookProgress = sqliteTable('book_progress', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

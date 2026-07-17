@@ -99,6 +99,7 @@ export interface LokiDesktopBridge {
   onSetListening: (cb: (on: boolean) => void) => () => void
   /** Hotkey pressed while the HUD is visible: flip between base capsule and composer. Returns unsubscribe. */
   onToggleExpand: (cb: () => void) => () => void
+  onOpenShelf: (cb: () => void) => () => void
   /** Report companion engine state so the tray label and hide rules stay accurate. */
   reportState: (state: HudState) => void
   /** Opt painted regions in/out of mouse interception; the window is click-through by default. */

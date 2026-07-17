@@ -27,8 +27,9 @@ export function IslandCompact({ notched, topInset, nowPlaying }: {
 }) {
   const engine = useCompanionEngine()
   const avatarPx = Math.max(20, (notched ? topInset : 28) - 8)
+  const listening = engine.listeningState === 'on-active' || engine.listeningState === 'on-followup' || !!engine.handsFreePartial
 
-  const avatar = engine.character ? (
+  const avatarInner = engine.character ? (
     <CharacterAvatar
       className="pointer-events-none"
       character={engine.character}
@@ -38,6 +39,18 @@ export function IslandCompact({ notched, topInset, nowPlaying }: {
     />
   ) : (
     <CompanionOrb size={avatarPx} active={!engine.sleeping} />
+  )
+
+  // Persistent mic-live indicator so "listening" is unmistakable even in the compact tier
+  // (it otherwise only reads in peek/full). A small brand dot on the black island surface.
+  const avatar = (
+    <span className="relative inline-flex items-center justify-center">
+      {avatarInner}
+      {listening && (
+        // design-ok(adhoc-pulse): the mic-live dot pulses by design, like the peek listening indicator
+        <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-brand ring-2 ring-black animate-pulse" />
+      )}
+    </span>
   )
 
   const rightChip = nowPlaying ? <NowPlayingChip info={nowPlaying} /> : null

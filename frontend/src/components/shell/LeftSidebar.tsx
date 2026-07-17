@@ -8,9 +8,11 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Circle,
+  FlaskConical,
   Home,
   LayoutGrid,
   LogOut,
+  MonitorDown,
   Settings,
   ShieldCheck,
   Wifi,
@@ -62,6 +64,8 @@ import { useNavPrefs } from "@/context/NavPreferencesContext";
 import { useIntentPrefetch } from "@/lib/prefetch/useIntentPrefetch";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { TesterDialog } from "@/components/diagnostics/TesterDialog";
+import { DesktopAppDialog } from "@/components/shared/DesktopAppDialog";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useNotifications } from "@/hooks/useNotifications";
 import { notifIcon, notifLabel, timeAgo } from "@/lib/notifications";
@@ -367,6 +371,8 @@ export function LeftSidebar() {
   const connectivity = useConnectivity()
   const [confirmOffline, setConfirmOffline] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
+  const [testerOpen, setTesterOpen] = useState(false)
+  const [desktopAppOpen, setDesktopAppOpen] = useState(false)
   const { unreadCount, notifications, loadNotifications, markRead, markAllRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
   const presence = usePresenceStatus(user?.id)
@@ -672,6 +678,23 @@ export function LeftSidebar() {
                     </Link>
                   </DropdownMenuItem>
                 )}
+                <DropdownMenuItem
+                  onClick={() => setTesterOpen(true)}
+                  className="flex items-center gap-2"
+                >
+                  <FlaskConical className="size-4" />
+                  Tester
+                </DropdownMenuItem>
+                {/* Doki Dock installer, pointless when already inside the shell. */}
+                {!window.lokiDesktop && (
+                  <DropdownMenuItem
+                    onClick={() => setDesktopAppOpen(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <MonitorDown className="size-4" />
+                    Get the desktop app
+                  </DropdownMenuItem>
+                )}
                 {connectivity && (
                   <DropdownMenuItem
                     onClick={toggleConnectivity}
@@ -828,6 +851,8 @@ export function LeftSidebar() {
         onPin={pin}
         onUnpin={unpin}
       />
+      <TesterDialog open={testerOpen} onOpenChange={setTesterOpen} />
+      <DesktopAppDialog open={desktopAppOpen} onOpenChange={setDesktopAppOpen} />
       <ConfirmDialog
         open={confirmOffline}
         onOpenChange={setConfirmOffline}
