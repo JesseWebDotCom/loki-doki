@@ -96,7 +96,13 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function getVideoSources(): Promise<{ sources: SourceInfo[]; allowlistOnly?: boolean }> {
+export interface VideoViewFlags {
+  noAutoplay: boolean
+  noShorts: boolean
+  noSuggestions: boolean
+}
+
+export function getVideoSources(): Promise<{ sources: SourceInfo[]; allowlistOnly?: boolean; viewFlags?: VideoViewFlags }> {
   return getJson('/api/videos/sources')
 }
 

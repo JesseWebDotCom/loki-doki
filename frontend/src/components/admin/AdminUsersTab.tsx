@@ -828,6 +828,57 @@ function UserVideoAllowlist({ userId }: { userId: string }) {
   )
 }
 
+// ── Per-user video view limits (no autoplay / Shorts / suggestions) ───────────
+
+interface VideoFlags { noAutoplay: boolean; noShorts: boolean; noSuggestions: boolean }
+
+const VIDEO_LIMITS: Array<{ key: keyof VideoFlags; label: string; help: string }> = [
+  { key: 'noAutoplay', label: 'No autoplay', help: 'Watching ends when the video ends; no "playing next" countdown.' },
+  { key: 'noShorts', label: 'No Shorts', help: 'Hides the vertical Shorts feed and Shorts shelves.' },
+  { key: 'noSuggestions', label: 'No suggestions', help: 'Hides Suggested/Recommended/Popular/Trending rails; subscriptions and library only.' },
+]
+
+function UserVideoLimits({ userId }: { userId: string }) {
+  const [flags, setFlags] = useState<VideoFlags | null>(null)
+
+  useEffect(() => {
+    void apiFetch<{ flags: VideoFlags }>(`/api/admin/content/users/${userId}/video-flags`)
+      .then((r) => setFlags(r?.flags ?? { noAutoplay: false, noShorts: false, noSuggestions: false }))
+  }, [userId])
+
+  async function toggle(key: keyof VideoFlags, value: boolean) {
+    if (!flags) return
+    const prev = flags
+    setFlags({ ...flags, [key]: value })
+    const r = await apiFetch<{ ok: boolean; flags: VideoFlags }>(`/api/admin/content/users/${userId}/video-flags`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [key]: value }),
+    })
+    if (r?.ok) toast.success('Video limit updated')
+    else { setFlags(prev); toast.error('Failed to save') }
+  }
+
+  return (
+    <div className="rounded-card border border-border/50 bg-card/50 p-3 space-y-2">
+      <div>
+        <p className="text-sm font-medium leading-tight">Video limits</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Shape how the Videos apps behave for this person. Content ceilings above control what
+          they can see; these control how it is served.
+        </p>
+      </div>
+      {VIDEO_LIMITS.map(({ key, label, help }) => (
+        <div key={key} className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm leading-tight">{label}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{help}</p>
+          </div>
+          <Switch checked={flags?.[key] === true} disabled={!flags} onCheckedChange={(v) => void toggle(key, v)} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Protections tab ───────────────────────────────────────────────────────────
 
 function UserProtectionsTab({ userId }: { userId: string }) {
@@ -887,6 +938,7 @@ function UserProtectionsTab({ userId }: { userId: string }) {
 
       <UserContentCeiling userId={userId} />
       <UserVideoAllowlist userId={userId} />
+      <UserVideoLimits userId={userId} />
 
       {protectionItems.map(({ key, label, description }) => (
         <div key={key} className="flex items-start justify-between gap-4">

@@ -61,7 +61,9 @@ function HubLanding() {
   const sources = (sourcesData?.sources ?? []).filter((s) => s.enabled)
   // Approved-only mode (kids): no discovery affordances. The feed below is already
   // server-filtered to approved creators; hiding chips/suggestions removes dead ends.
+  // noSuggestions is the softer per-user limit that hides just the discovery rails.
   const allowlistOnly = sourcesData?.allowlistOnly === true
+  const hideDiscovery = allowlistOnly || sourcesData?.viewFlags?.noSuggestions === true
   const allIds = useMemo(() => sources.map((s) => s.source), [sources])
   const active: VideoSource[] = selected.length === 0 ? allIds : selected
 
@@ -226,7 +228,7 @@ function HubLanding() {
             <HubMediaShelf title="Continue watching" items={railContinue} view={view} />
           ) : historyLoading ? <ShelfSkeleton /> : null}
 
-          {!allowlistOnly && (
+          {!hideDiscovery && (
             <HubMediaShelf
               title="Suggested for you"
               items={suggested}
@@ -237,7 +239,7 @@ function HubLanding() {
           )}
 
           {/* One mixed Popular + one mixed Trending, interleaved across every active source. */}
-          {!allowlistOnly && <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />}
+          {!hideDiscovery && <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />}
 
           <section>
             <SectionHeader title="Across your sources" className="mb-4" />

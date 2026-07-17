@@ -35,6 +35,7 @@ import {
 } from '@/lib/youtube/quality'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { filterYtItemsForUser, videoAllowedForUser } from '@/lib/videos/policy'
+import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { logger } from '@/lib/logger'
 import {
@@ -1574,6 +1575,9 @@ youtubeRoute.get('/playlist/:playlistId', async (c) => {
 // the newest watches → subscription uploads → popular.
 youtubeRoute.get('/recommended', async (c) => {
   const user = c.get('user')
+
+  // Per-user "no suggestions" limit (kids): serve nothing rather than trust the UI to hide.
+  if ((await getVideoViewFlags(user.id)).noSuggestions) return c.json({ videos: [], building: false })
 
   const suggested = await serveYtRecommended(user.id, 24)
   if (!suggested.building && suggested.videos.length) {

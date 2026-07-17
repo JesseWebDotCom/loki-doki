@@ -13,6 +13,7 @@ import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
 import { allowlistOnlyEnabled } from '@/lib/videos/allowlist'
+import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -70,8 +71,12 @@ videosRoute.get('/sources', async (c) => {
   })))
   // Approved-only mode (kids): the UI hides discovery affordances (search, browse,
   // suggestions) when on; the server filters regardless (lib/videos/allowlist.ts).
-  const allowlistOnly = await allowlistOnlyEnabled(c.get('user').id)
-  return c.json({ sources, allowlistOnly })
+  // viewFlags are the softer per-user limits (no autoplay / Shorts / suggestions).
+  const [allowlistOnly, viewFlags] = await Promise.all([
+    allowlistOnlyEnabled(c.get('user').id),
+    getVideoViewFlags(c.get('user').id),
+  ])
+  return c.json({ sources, allowlistOnly, viewFlags })
 })
 
 // Admin: which sources show up on discovery surfaces (rail, home feed, browse pages).
@@ -186,6 +191,8 @@ videosRoute.get('/home', async (c) => {
 
 videosRoute.get('/suggested', async (c) => {
   const user = c.get('user')
+  // Per-user "no suggestions" limit (kids): serve nothing rather than trust the UI to hide.
+  if ((await getVideoViewFlags(user.id)).noSuggestions) return c.json({ items: [], building: false })
   const { items, building } = await serveVideosSuggested(user.id, 18)
   return c.json({ items: await stampSmartTitles(items, user.id), building })
 })

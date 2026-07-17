@@ -11,6 +11,10 @@ import {
   getUserPref, setUserPref,
 } from '@/lib/contentPolicy'
 import { ALLOWLIST_PREF, invalidateAllowlistCache } from '@/lib/videos/allowlist'
+import {
+  DEFAULT_VIDEO_VIEW_FLAGS, VIDEO_FLAG_PREFS, getVideoViewFlags, invalidateVideoViewFlags,
+  type VideoViewFlags,
+} from '@/lib/videos/viewFlags'
 import type { AppEnv } from '@/types'
 
 const adminContent = new Hono<AppEnv>()
@@ -134,6 +138,27 @@ adminContent.delete('/users/:userId/video-allowlist/entries/:entryId', requireAd
   ))
   invalidateAllowlistCache(userId)
   return c.json({ ok: true })
+})
+
+// ── Per-user video view limits (no autoplay / Shorts / suggestions) ───────────────
+
+adminContent.get('/users/:userId/video-flags', requireAdmin, async (c) => {
+  const userId = c.req.param('userId')
+  const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1)
+  if (!u) return c.json({ error: 'User not found' }, 404)
+  return c.json({ flags: await getVideoViewFlags(userId) })
+})
+
+adminContent.put('/users/:userId/video-flags', requireAdmin, async (c) => {
+  const userId = c.req.param('userId')
+  const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1)
+  if (!u) return c.json({ error: 'User not found' }, 404)
+  const body = await c.req.json().catch(() => ({})) as Partial<VideoViewFlags>
+  for (const key of Object.keys(DEFAULT_VIDEO_VIEW_FLAGS) as Array<keyof VideoViewFlags>) {
+    if (typeof body[key] === 'boolean') await setUserPref(userId, VIDEO_FLAG_PREFS[key], body[key])
+  }
+  invalidateVideoViewFlags(userId)
+  return c.json({ ok: true, flags: await getVideoViewFlags(userId) })
 })
 
 // Approval candidates: every creator anyone in the household already follows (the natural

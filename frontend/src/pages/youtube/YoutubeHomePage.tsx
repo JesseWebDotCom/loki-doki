@@ -21,6 +21,7 @@ import { ViewToggle, type CardListView } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { useYoutubeMode } from '@/components/videos/VideosLayout'
+import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 
 type Filter = 'all' | 'videos' | 'shorts' | 'channels'
 const FILTERS: [Filter, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['channels', 'Channels']]
@@ -69,6 +70,8 @@ function HomeLanding() {
   const mode = useYoutubeMode()
   const online = mode === 'online'
   const heroArt = useSourceHeroArt('youtube', online ? 'popular' : null)
+  // Per-user limits (kids): hide Shorts and suggestion shelves when switched off.
+  const viewFlags = useVideoViewFlags()
   const [filter, setFilter] = useState<Filter>('all')
   // A selected topic overrides the type filter and shows a live topic feed instead.
   const [topic, setTopic] = useState<string | null>(null)
@@ -133,7 +136,7 @@ function HomeLanding() {
       </div>
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
-          {FILTERS.map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} activeClassName={SOURCE_META.youtube.pillActiveClass} onClick={() => { setTopic(null); setFilter(k) }} />)}
+          {FILTERS.filter(([k]) => !(viewFlags.noShorts && k === 'shorts')).map(([k, label]) => <Chip key={k} label={label} active={!topic && filter === k} activeClassName={SOURCE_META.youtube.pillActiveClass} onClick={() => { setTopic(null); setFilter(k) }} />)}
           {online && (
             <>
               <span className="mx-1 shrink-0 self-center h-5 w-px bg-border/70" aria-hidden />
@@ -150,15 +153,15 @@ function HomeLanding() {
         <ChannelGrid channels={channels} />
       ) : filter === 'videos' ? (
         <VideoGrid items={regular} view={view} />
-      ) : filter === 'shorts' ? (
+      ) : filter === 'shorts' && !viewFlags.noShorts ? (
         <ShortsGrid items={shorts} view={view} />
       ) : (
         <div className="space-y-10">
-          {online && (popularItems.length > 0 ? <MediaShelf title="🔥 Popular" items={popularItems} view={view} /> : popularLoading ? <ShelfSkeleton /> : null)}
-          {online && (trendingItems.length > 0 ? <MediaShelf title="📈 Trending" items={trendingItems} view={view} /> : trendingLoading ? <ShelfSkeleton /> : null)}
+          {online && !viewFlags.noSuggestions && (popularItems.length > 0 ? <MediaShelf title="🔥 Popular" items={popularItems} view={view} /> : popularLoading ? <ShelfSkeleton /> : null)}
+          {online && !viewFlags.noSuggestions && (trendingItems.length > 0 ? <MediaShelf title="📈 Trending" items={trendingItems} view={view} /> : trendingLoading ? <ShelfSkeleton /> : null)}
           {continueWatching.length > 0 ? <MediaShelf title="Continue watching" items={continueWatching} view={view} /> : (online && historyLoading) ? <ShelfSkeleton /> : null}
           {channels.length > 0 && <ChannelRail title="Your subscriptions" channels={channels} />}
-          {recommendedItems.length > 0 ? (
+          {!viewFlags.noSuggestions && recommendedItems.length > 0 ? (
             <MediaShelf
               title="Recommended for you"
               items={recommendedItems}
@@ -166,7 +169,7 @@ function HomeLanding() {
               onDismiss={online ? (i) => dismiss({ ref: `youtube:${i.videoId}`, creatorId: i.channelId, creatorName: i.author, title: i.title }) : undefined}
             />
           ) : (online && recommendedLoading) ? <ShelfSkeleton /> : null}
-          {shorts.length > 0 && <MediaShelf title="Shorts" items={shorts.slice(0, 12)} aspect="short" view={view} />}
+          {!viewFlags.noShorts && shorts.length > 0 && <MediaShelf title="Shorts" items={shorts.slice(0, 12)} aspect="short" view={view} />}
           {regular.length > 0 ? (
             <section>
               <SectionHeader title="Latest from your subscriptions" className="mb-4" />
