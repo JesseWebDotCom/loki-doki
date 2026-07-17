@@ -135,21 +135,22 @@ export function DesktopAppDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const isMac = /Macintosh/.test(navigator.userAgent)
-  const isWin = /Windows/.test(navigator.userAgent)
-  const visitorPlatform: 'mac' | 'win' | null = isMac ? 'mac' : isWin ? 'win' : null
+  // Strictly OS-aware: only the detected OS's installers and instructions are
+  // shown. iPad Safari reports "Macintosh" in desktop mode; real Macs have no
+  // multi-touch, so treat touchy Macintosh UAs as unsupported (it's a phone/pad).
+  const ua = navigator.userAgent
+  const isMac = /Macintosh/.test(ua) && navigator.maxTouchPoints <= 1
+  const isWin = /Windows/.test(ua)
+  const visitorPlatform: 'mac' | 'win' | null = isWin ? 'win' : isMac ? 'mac' : null
 
-  // The visitor's platform first; Apple Silicon before Intel within Macs.
-  const assets = [...(release?.assets ?? [])].sort((a, b) => {
-    const rank = (x: DesktopAssetInfo) => (x.platform === visitorPlatform ? 0 : 1)
-    if (rank(a) !== rank(b)) return rank(a) - rank(b)
-    if (a.platform !== b.platform) return a.platform === 'mac' ? -1 : 1
-    return a.arch === 'arm64' ? -1 : 1
-  })
-  const preferredName = assets.find((a) => a.platform === visitorPlatform)?.name
+  // Only the visitor's platform; Apple Silicon before Intel within Macs.
+  const assets = (release?.assets ?? [])
+    .filter((a) => a.platform === visitorPlatform)
+    .sort((a, b) => (a.arch === b.arch ? 0 : a.arch === 'arm64' ? -1 : 1))
+  const preferredName = assets[0]?.name
 
   const isAdmin = user?.role === 'admin'
-  const missingForVisitor = visitorPlatform !== null && !assets.some((a) => a.platform === visitorPlatform)
+  const missingForVisitor = visitorPlatform !== null && assets.length === 0
   const serverCanBuildVisitor = release?.canBuild && release.serverPlatform === visitorPlatform
 
   return (
@@ -171,6 +172,11 @@ export function DesktopAppDialog({
           </div>
         ) : loadError ? (
           <p className="py-2 text-sm text-muted-foreground">{loadError}</p>
+        ) : release && visitorPlatform === null ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            Doki Dock is a Mac and Windows desktop app, and this doesn't look like either. Open
+            Loki Doki on that computer and grab it from this same menu.
+          </p>
         ) : release ? (
           <div className="space-y-4">
             {assets.length > 0 && (
@@ -229,7 +235,7 @@ export function DesktopAppDialog({
                       : 'This server cannot build a Windows installer. Build one with "cd desktop && bun run dist:win" on a Windows machine, then copy the .exe into data/desktop-installers on the server.'}
                   </p>
                 )}
-                {isAdmin && !missingForVisitor && release.canBuild && (
+                {isAdmin && !missingForVisitor && release.canBuild && release.serverPlatform === visitorPlatform && (
                   <button
                     type="button"
                     onClick={() => void runBuild()}
@@ -244,13 +250,20 @@ export function DesktopAppDialog({
 
             <div className="space-y-2 rounded-control bg-secondary/60 p-3 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground">After installing</p>
-              {(isMac || !isWin) && (
-                <p>
-                  macOS blocks the first open of home-built apps: right-click Doki Dock in
-                  Applications, choose Open, then Open again.
-                </p>
-              )}
-              {(isWin || !isMac) && (
+              {visitorPlatform === 'mac' ? (
+                <>
+                  <p>
+                    {assets.some((a) => a.name.endsWith('.zip')) &&
+                      'Unzip the download and drag Doki Dock into Applications. '}
+                    If your browser warns about the download, choose Keep.
+                  </p>
+                  <p>
+                    macOS blocks the first open of home-built apps: open Doki Dock and dismiss
+                    the warning, then go to System Settings, Privacy &amp; Security, scroll to
+                    the Security section, and click Open Anyway next to Doki Dock.
+                  </p>
+                </>
+              ) : (
                 <p>Windows SmartScreen warns once: click More info, then Run anyway.</p>
               )}
               <p>

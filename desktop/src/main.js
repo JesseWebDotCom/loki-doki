@@ -22,6 +22,23 @@ let isQuitting = false
 let serverReachable = false
 let currentSettings = settings.load()
 
+// The shell usually points at a plain-http LAN origin (http://192.168.x.x:3000),
+// which Chromium treats as insecure: navigator.mediaDevices does not exist
+// there, so the wake word and mic can never start and the island's companion
+// fails to boot. The server is the user's own home hub, so declare its origin
+// trustworthy; the renderer then gets the full secure-context APIs. localhost
+// dev setups count as secure already, which is how this stayed hidden.
+// (Must be set before app 'ready'; a server change relaunches the app, so the
+// switch always carries the current origin.)
+if (currentSettings.serverUrl) {
+  try {
+    app.commandLine.appendSwitch(
+      'unsafely-treat-insecure-origin-as-secure',
+      new URL(currentSettings.serverUrl).origin,
+    )
+  } catch { /* malformed stored URL; setup flow will replace it */ }
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {

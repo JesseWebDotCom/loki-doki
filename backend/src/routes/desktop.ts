@@ -33,7 +33,11 @@ function classifyAsset(name: string): Pick<DesktopAsset, 'platform' | 'arch'> | 
   const lower = name.toLowerCase()
   if (lower.endsWith('.exe')) return { platform: 'win', arch: 'x64' }
   if (lower.endsWith('.dmg')) return { platform: 'mac', arch: lower.includes('arm64') ? 'arm64' : 'x64' }
-  // .zip/.blockmap exist for updater tooling; users install via dmg/exe.
+  // Mac apps also ship as plain zips (the Windows-built cross-compile pipeline
+  // produces these, and electron-builder emits them next to every dmg).
+  if (lower.endsWith('.zip') && (lower.includes('mac') || lower.includes('darwin'))) {
+    return { platform: 'mac', arch: lower.includes('arm64') ? 'arm64' : 'x64' }
+  }
   return null
 }
 
@@ -60,7 +64,11 @@ function listAssets(): DesktopAsset[] {
     if (!stat.isFile()) continue
     assets.push({ name, ...kind, sizeBytes: stat.size, builtAt: stat.mtimeMs, version: assetVersion(name) })
   }
-  return assets
+  // A dmg and a zip of the same Mac build can coexist (electron-builder emits
+  // both); offer only the dmg in that case.
+  return assets.filter((a) =>
+    !(a.platform === 'mac' && a.name.toLowerCase().endsWith('.zip') &&
+      assets.some((b) => b.platform === 'mac' && b.arch === a.arch && b.name.toLowerCase().endsWith('.dmg'))))
 }
 
 function serverPlatform(): 'win' | 'mac' | 'linux' {
@@ -279,10 +287,14 @@ desktopApp.get('/download/:name', requireAuth, (c) => {
 
   const file = Bun.file(path)
   const contentType = name.toLowerCase().endsWith('.dmg') ? 'application/x-apple-diskimage' : 'application/octet-stream'
-  return c.body(file.stream(), 200, {
-    'Content-Type': contentType,
-    'Content-Length': String(file.size),
-    'Content-Disposition': `attachment; filename="${name.replace(/["\r\n]/g, '_')}"`,
+  // Hand Bun the file itself (not a stream): a streamed body goes out chunked
+  // with no Content-Length, so the browser can't show progress on an 80 MB file.
+  return new Response(file, {
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(file.size),
+      'Content-Disposition': `attachment; filename="${name.replace(/["\r\n]/g, '_')}"`,
+    },
   })
 })
 
