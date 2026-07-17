@@ -190,6 +190,7 @@ import { studio as deviceStudio } from '@/routes/deviceStudio'
 // + controllerStudio.ts). Its old module still imports the dropped stream_deck_* tables,
 // so it is intentionally NOT imported here (that would crash boot).
 import { browserSessionRoute } from '@/routes/browserSession'
+import { watchTogether } from '@/routes/watchTogether'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
@@ -589,6 +590,7 @@ app.route('/api/pod', pod)
 app.route('/api/pod', deviceStudio)
 // app.route('/api/stream-deck', streamDeck)  // retired — see controller-layout system
 app.route('/api/browser-session', browserSessionRoute)
+app.route('/api/watch-together', watchTogether)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
 app.route('/api/notes', notesRouter)

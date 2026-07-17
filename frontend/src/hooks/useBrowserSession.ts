@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast as sonnerToast } from 'sonner'
 import { useRadio } from '@/context/RadioContext'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { useServerHealth } from '@/context/ServerHealthContext'
@@ -104,6 +105,20 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
                   }
                 }
                 else handled = false
+                break
+              }
+              case 'watch_invite': {
+                // Watch Together: someone in the household started a synced session and
+                // invited everyone. Surface a live toast with a one-tap Join.
+                const p = (cmd.payload ?? {}) as { title?: string; fromName?: string }
+                if (typeof cmd.path === 'string') {
+                  const path = cmd.path
+                  sonnerToast(`${p.fromName ?? 'Someone'} invited you to watch together`, {
+                    description: typeof p.title === 'string' ? p.title : undefined,
+                    duration: 30_000,
+                    action: { label: 'Join', onClick: () => navigateRef.current(path) },
+                  })
+                } else handled = false
                 break
               }
               case 'media_transport': {

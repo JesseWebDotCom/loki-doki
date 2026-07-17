@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger'
 import { isSameMachine } from '@/lib/clientMachine'
 
 export interface BrowserCommand {
-  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump' | 'media_transport'
+  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump' | 'media_transport' | 'watch_invite'
   path?: string
   url?: string
   action?: string

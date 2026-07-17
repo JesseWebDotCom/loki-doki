@@ -61,6 +61,8 @@ import { TikTokWatchPlayer } from '@/components/videos/TikTokWatchPlayer'
 import { PlayerControlBar } from '@/components/videos/PlayerControlBar'
 import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
 import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
+import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogether'
+import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -289,6 +291,21 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const channelThumb = meta?.channelThumb ?? feedItem?.channelThumb ?? navState.channelThumb ?? null
   const resumeSec = (adopt != null ? adopt : meta?.positionSec) ?? 0
 
+  // Watch Together: transport adapter over the imperative player handle plus the live
+  // position/play mirrors this page already keeps for the mini-player handoff.
+  const ytWtControls = useRef<WtPlayerControls>({
+    play: () => { if (!playingRef.current) playerRef.current?.togglePlay() },
+    pause: () => playerRef.current?.pause(),
+    seek: (sec) => playerRef.current?.seek(sec),
+    isPlaying: () => playingRef.current,
+    position: () => secRef.current,
+  })
+  const wt = useWatchTogether({
+    media: { source: 'youtube', videoId, title, thumbnailUrl: thumbUrl(videoId, 'hq') },
+    controls: ytWtControls,
+    autoJoinId: params.get('wt'),
+  })
+
   // Landing on a watch page means a full player owns playback, so stop any other audio source.
   useEffect(() => { acquireAudio('youtube'); if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -455,7 +472,8 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
       </div>
         <YoutubeActionRail videoId={videoId} title={title} author={author}
           channelId={meta?.channelId ?? null} channelThumb={channelThumb} meta={meta}
-          localKind={localKind} isShortVid={isShortVid} onMinimize={minimize} />
+          localKind={localKind} isShortVid={isShortVid} onMinimize={minimize}
+          wtSlot={<WatchTogetherPill wt={wt} />} />
       </div>
 
         <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
@@ -640,7 +658,7 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes }:
 /** Vertical icon rail beside the player (the TikTok/Reels pattern): like, save, share,
  *  playlist and the ⋯ menu live here as unlabeled circles, so the title block keeps the
  *  full column width. Wraps to a horizontal row under the player on smaller screens. */
-function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, meta, localKind, isShortVid, onMinimize }: {
+function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, meta, localKind, isShortVid, onMinimize, wtSlot }: {
   videoId: string
   title: string
   author: string | null
@@ -650,6 +668,8 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
   localKind?: 'audio' | 'video'
   isShortVid: boolean
   onMinimize: () => void
+  /** The page's Watch Together pill (state lives with the page's player, not the rail). */
+  wtSlot?: React.ReactNode
 }) {
   const online = !localKind
   const ui = useYoutubeUI()
@@ -705,6 +725,7 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
         className={cn(railBtn, liked && 'text-[var(--yt-accent-fg)]')}>
         <Heart className={cn('size-4', liked && 'fill-current')} />
       </Button>
+      {wtSlot}
       {!localKind && (
         <Button size="icon" onClick={saveState === 'saving' ? undefined : saveVideoOffline} disabled={saveState === 'saved'}
           title={saveState === 'saved' ? 'Saved offline' : 'Save offline: this server downloads the video so you can watch it later without streaming.'}
@@ -1021,6 +1042,25 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const resumeApplied = useRef(false)
   useEffect(() => { resumeApplied.current = false }, [source, id])
 
+  // ── Watch Together ─────────────────────────────────────────────────────────────
+  // One delegating transport handle covering whichever player is live (native <video>
+  // or an embed iframe), read at call time via refs so the hook never re-wires.
+  const showEmbedRef = useRef(false)
+  const embedWtControls = useRef<WtPlayerControls | null>(null)
+  const wtControls = useRef<WtPlayerControls>({
+    play: () => { if (showEmbedRef.current) embedWtControls.current?.play(); else void videoRef.current?.play().catch(() => {}) },
+    pause: () => { if (showEmbedRef.current) embedWtControls.current?.pause(); else videoRef.current?.pause() },
+    seek: (sec) => { if (showEmbedRef.current) embedWtControls.current?.seek(sec); else if (videoRef.current) videoRef.current.currentTime = sec },
+    isPlaying: () => (showEmbedRef.current ? (embedWtControls.current?.isPlaying() ?? false) : !!videoRef.current && !videoRef.current.paused),
+    position: () => (showEmbedRef.current ? (embedWtControls.current?.position() ?? 0) : (videoRef.current?.currentTime ?? 0)),
+  })
+  const [wtParams] = useSearchParams()
+  const wt = useWatchTogether({
+    media: { source, videoId: id, title: item?.title ?? 'A video', thumbnailUrl: item?.thumbnailUrl ?? null },
+    controls: wtControls,
+    autoJoinId: wtParams.get('wt'),
+  })
+
   // Embed players (TikTok/Vimeo online) report their position up here: the native watch-state
   // effect below can't see inside an iframe, so this mirrors its 10s heartbeat + unmount flush.
   const embedPos = useRef({ sec: 0, dur: 0, lastSent: 0 })
@@ -1077,6 +1117,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // on (user hit PiP on an embed source) we drop the iframe and stream a real <video> instead.
   const embedUrl = !localUrl && data?.playback?.mode === 'embed' ? data.playback.embedUrl : null
   const showEmbed = !!embedUrl && !pipStream
+  showEmbedRef.current = showEmbed
   const vstreamUrl = `/api/vstream/${source}/${encodeURIComponent(id)}`
   // A real <video> exists whenever we're not showing the embed (native stream/hls/file modes,
   // or the PiP stream swap) — that's what PiP can target.
@@ -1283,10 +1324,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             {showEmbed ? (
               source === 'vimeo' ? (
                 <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical}
-                  resumeSec={resumeSec} onProgress={onEmbedProgress} />
+                  resumeSec={resumeSec} onProgress={onEmbedProgress} controlsRef={embedWtControls} />
               ) : source === 'tiktok' ? (
                 <TikTokWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical}
-                  resumeSec={resumeSec} onProgress={onEmbedProgress} />
+                  resumeSec={resumeSec} onProgress={onEmbedProgress} controlsRef={embedWtControls} />
               ) : (
                 <iframe
                   src={embedUrl!}
@@ -1355,6 +1396,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             className={cn('size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15', liked && 'text-[var(--yt-accent-fg)]')}>
             <Heart className={cn('size-4', liked && 'fill-current')} />
           </Button>
+          <WatchTogetherPill wt={wt} />
           {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
           <Button size="icon" onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
             disabled={saveState === 'ready'} aria-label="Save offline"
