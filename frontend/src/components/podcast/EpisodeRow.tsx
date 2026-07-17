@@ -1,8 +1,13 @@
 import { useState } from 'react'
-import { Play, Pause, Clock, AlertCircle, ListPlus, ListStart, MoreHorizontal, Check, RotateCw, Trash2, ArrowDownToLine } from 'lucide-react'
+import { Play, Pause, Clock, AlertCircle, ListPlus, ListStart, MoreHorizontal, Check, RotateCw, Trash2, ArrowDownToLine, GraduationCap } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
+// The legacy @/lib/toast shim has no loading/dismiss/action support, so the study-kit
+// flow (a slow LLM call with an "Open" follow-up) uses sonner, per the toast contract
+// in agents.md. Existing callers above are left on the shim.
+import { toast as sonnerToast } from 'sonner'
 import { usePodcastPlayback, type PodcastTrack } from '@/context/PodcastPlaybackContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -13,7 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { fmtDate, fmtDuration } from '@/lib/podcast/format'
 import {
-  toTrack, regenerateEpisode, deleteEpisode, downloadEpisode, removeEpisodeDownload,
+  toTrack, regenerateEpisode, deleteEpisode, downloadEpisode, removeEpisodeDownload, makeStudyKit,
   type Episode, type Show,
 } from '@/lib/podcast/api'
 
@@ -28,8 +33,10 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
 }) {
   const { track, playing, play, playQueue, enqueue, playNextInQueue, pause, resume, close } = usePodcastPlayback()
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
+  const [studying, setStudying] = useState(false)
   const isCurrent = track?.episodeId === episode.id
   const ready = episode.status === 'ready'
   const progress = episode.watchState
@@ -73,6 +80,27 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
       await invalidate()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not remove the download.')
+    }
+  }
+
+  // Homework mode: only offered when the episode actually carries a transcript to
+  // study from (generated episodes; RSS episodes have none).
+  const canStudy = ready && episode.hasScript === true
+  async function handleStudyKit() {
+    if (studying) return
+    setStudying(true)
+    const pending = sonnerToast.loading('Making study notes…')
+    try {
+      const { noteId } = await makeStudyKit(episode.id)
+      sonnerToast.dismiss(pending)
+      sonnerToast.success('Study notes saved to your notes', {
+        action: { label: 'Open', onClick: () => navigate(`/notes/${noteId}`) },
+      })
+    } catch (err) {
+      sonnerToast.dismiss(pending)
+      sonnerToast.error(err instanceof Error ? err.message : 'Could not make study notes')
+    } finally {
+      setStudying(false)
     }
   }
 
@@ -158,6 +186,11 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
                 {ready && <DropdownMenuItem onSelect={handlePlay}><Play className="size-4" /> Play</DropdownMenuItem>}
                 {ready && <DropdownMenuItem onSelect={() => playNextInQueue(toTrack(episode, show))}><ListStart className="size-4" /> Play next</DropdownMenuItem>}
                 {ready && <DropdownMenuItem onSelect={() => enqueue(toTrack(episode, show))}><ListPlus className="size-4" /> Add to queue</DropdownMenuItem>}
+                {canStudy && (
+                  <DropdownMenuItem disabled={studying} onSelect={(e) => { e.preventDefault(); void handleStudyKit() }}>
+                    {studying ? <Spinner className="size-4 text-current" /> : <GraduationCap className="size-4" />} Make study notes
+                  </DropdownMenuItem>
+                )}
                 {isRss && !dl && (
                   <DropdownMenuItem onSelect={() => void handleDownload()}><ArrowDownToLine className="size-4" /> Download</DropdownMenuItem>
                 )}

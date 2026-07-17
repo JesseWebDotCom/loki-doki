@@ -252,6 +252,16 @@ export function getLyrics(artist: string, title: string, duration?: number) {
   if (duration) p.set('duration', String(duration))
   return mfetch<{ synced: LyricLine[] | null; plain: string | null; source: string; restricted?: boolean }>(`/info/lyrics?${p}`)
 }
+// LLM lyric translation: one entry per source line, in order. `t` is the translation into
+// the requested language; `r` is a romanized pronunciation of the ORIGINAL line (only set
+// for non-Latin-script sources). Cached server-side per (track, language).
+export interface TranslatedLyricLine { t: string; r: string | null }
+export function translateLyrics(artist: string, title: string, lang: string, lines: string[]) {
+  return mfetch<{ lines: TranslatedLyricLine[] }>('/info/lyrics/translate', {
+    method: 'POST', body: JSON.stringify({ artist, title, lang, lines }),
+  })
+}
+
 export interface WikiInfo { found: boolean; title?: string; extract?: string; image?: string | null; url?: string | null; logo?: string | null }
 export function getSongInfo(artist: string, title: string) {
   return mfetch<WikiInfo>(`/info/song?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`)

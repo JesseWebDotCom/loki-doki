@@ -56,6 +56,8 @@ export interface Episode {
   link?: string | null
   /** This user's offline copy state — null when not downloaded. */
   download?: { status: 'pending' | 'downloading' | 'ready' | 'failed'; auto: boolean } | null
+  /** True when the episode carries a transcript, so study notes can be made from it. */
+  hasScript?: boolean
 }
 
 export interface EpisodeSource {
@@ -153,6 +155,8 @@ export interface ShowInput {
   sourceRef?: string
   autoGenerate?: boolean
   targetMinutes?: number | null
+  /** Recurring generation, e.g. { cadence: 'daily', hour: 6 } (Household Daily preset). */
+  schedule?: { cadence: 'daily'; hour?: number } | null
 }
 
 export async function createShow(input: ShowInput): Promise<Show> {
@@ -174,6 +178,20 @@ export async function generateEpisode(showId: string): Promise<{ episodeId: stri
   const r = await fetch(`/api/podcasts/shows/${showId}/generate`, { ...opts, method: 'POST' })
   if (!r.ok) throw new Error('generate')
   return r.json() as Promise<{ episodeId: string }>
+}
+
+export interface StudyKit {
+  summary: string[]
+  flashcards: { q: string; a: string }[]
+  keyPoints: { time: string; point: string }[]
+}
+
+/** Homework mode: build a study kit from the episode's transcript and save it as a note. */
+export async function makeStudyKit(episodeId: string): Promise<{ noteId: string; kit: StudyKit }> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/study-kit`, { ...opts, method: 'POST' })
+  const data = await r.json().catch(() => null) as { noteId?: string; kit?: StudyKit; error?: string } | null
+  if (!r.ok || !data?.noteId || !data.kit) throw new Error(data?.error ?? 'Could not make study notes')
+  return { noteId: data.noteId, kit: data.kit }
 }
 
 export async function regenerateEpisode(episodeId: string): Promise<void> {

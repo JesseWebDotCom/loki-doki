@@ -11,6 +11,7 @@ import { proxyImg } from '@/lib/img'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 import { useRadio } from '@/context/RadioContext'
 import { SongArt } from '@/components/music/SongArt'
+import { useLyricsTranslation, LyricsLanguageMenu } from '@/components/music/LyricsTranslation'
 import { useTitleMask } from '@/lib/music/policy'
 import type { QueuedTrack } from '@/lib/music/radioEngine'
 
@@ -108,6 +109,8 @@ export function LyricsPanel({ artist, title, position, duration, onSeek, offsetS
   const activeRef = useRef<HTMLParagraphElement>(null)
   const activeIdx = useActiveLyricIndex(synced, position, effOffset, lyricLeadSec)
   const cue = nextLineCue(synced, position - effOffset, activeIdx)
+  // Optional translation/pronunciation, rendered as a secondary line under each lyric line.
+  const translation = useLyricsTranslation(artist, title, synced)
 
   // Scroll ONLY the lyrics box (not the page) to keep the active line centered.
   useEffect(() => {
@@ -128,16 +131,30 @@ export function LyricsPanel({ artist, title, position, duration, onSeek, offsetS
   if (synced?.length) {
     return (
       <div className="relative h-full">
+        <div className="absolute right-3 top-2 z-10">
+          <LyricsLanguageMenu state={translation} />
+        </div>
         <div ref={containerRef} className="h-full space-y-1.5 overflow-y-auto px-5 py-6">
-          {synced.map((l, i) => (
-            <p key={i} ref={i === activeIdx ? activeRef : undefined}
-              onClick={onSeek ? () => onSeek(l.sec + effOffset) : undefined}
-              className={cn('text-lg font-semibold leading-snug transition-all duration-150',
-                onSeek && 'cursor-pointer hover:text-foreground',
-                i === activeIdx ? 'scale-[1.02] text-foreground' : i < activeIdx ? 'text-muted-foreground/40' : 'text-muted-foreground/70')}>
-              {l.text || '♪'}
-            </p>
-          ))}
+          {synced.map((l, i) => {
+            const sec = translation.secondary?.[i] ?? null
+            return (
+              <div key={i}>
+                <p ref={i === activeIdx ? activeRef : undefined}
+                  onClick={onSeek ? () => onSeek(l.sec + effOffset) : undefined}
+                  className={cn('text-lg font-semibold leading-snug transition-all duration-150',
+                    onSeek && 'cursor-pointer hover:text-foreground',
+                    i === activeIdx ? 'scale-[1.02] text-foreground' : i < activeIdx ? 'text-muted-foreground/40' : 'text-muted-foreground/70')}>
+                  {l.text || '♪'}
+                </p>
+                {sec && translation.showRoman && sec.r && (
+                  <p className={cn('text-sm leading-snug', i === activeIdx ? 'text-foreground/70' : 'text-muted-foreground/50')}>{sec.r}</p>
+                )}
+                {sec?.t && (
+                  <p className={cn('text-sm leading-snug', i === activeIdx ? 'text-foreground/60' : 'text-muted-foreground/40')}>{sec.t}</p>
+                )}
+              </div>
+            )
+          })}
         </div>
         {/* Count-in bar pinned at the bottom: fills as the next line's cue approaches. */}
         <div className="pointer-events-none absolute inset-x-5 bottom-3">
