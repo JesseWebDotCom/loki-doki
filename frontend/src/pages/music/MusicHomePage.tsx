@@ -25,6 +25,7 @@ import { PitchBanner } from '@/components/shared/PitchBanner'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { getAppByPath } from '@/lib/appCategories'
 import { FamilyAudioBlockedCard } from '@/components/shared/FamilyAudioBlockedCard'
+import { JamBanner } from '@/components/music/JamBanner'
 
 // (SongTile moved to components/music/SongTile - shared with Browse.)
 
@@ -275,6 +276,11 @@ export function MusicHomePage() {
     <PageContainer width="wide" className="pb-10 pt-6">
       {/* Family audio: friendly full-state card when the profile's audio gate is closed. */}
       <FamilyAudioBlockedCard className="mb-6" />
+
+      {/* Family Jam: start one, or join the household's live shared queue. */}
+      <div className="mb-6 empty:mb-0">
+        <JamBanner />
+      </div>
 
       {/* No page title: the rail states where we are and the billboard is the focal point. */}
       <StationBillboard stations={buckets?.builtin ?? []} />

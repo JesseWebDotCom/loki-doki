@@ -884,6 +884,25 @@ export class RadioEngine {
     this.set({ queue: songs.slice(), nextTrack: songs[this.state.index + 1] ?? null })
   }
 
+  /** Append a track to the end of Up Next. Splices the LIVE array (like reorderQueue)
+   *  so the running transition loop picks it up; a no-op when nothing is playing, since
+   *  there is no queue to append to yet. Used by the Family Jam host to pull the shared
+   *  queue's head into its own playback. */
+  enqueueTrack(track: QueuedTrack) {
+    const songs = this.songsRef
+    if (!songs || !this.state.active) return
+    songs.push(track)
+    this.set({ queue: songs.slice(), nextTrack: songs[this.state.index + 1] ?? null })
+  }
+
+  /** How many tracks are still queued after the current one. Lets the jam host know
+   *  when to pull the next shared item without reaching into queue internals. */
+  upNextCount(): number {
+    const songs = this.songsRef
+    if (!songs) return 0
+    return Math.max(0, songs.length - this.state.index - 1)
+  }
+
   /** Play an Up Next item NOW: pull it to the front of Up Next, then skip into it. */
   jumpTo(index: number) {
     const songs = this.songsRef
