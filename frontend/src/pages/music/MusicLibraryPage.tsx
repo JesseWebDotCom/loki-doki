@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight, Wand2, Filter } from 'lucide-react'
+import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight, Wand2, Filter, Users, Rss } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { SongArt } from '@/components/music/SongArt'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { listTracks, renameTrack, deleteTrack, trackAudioUrl, type MusicTrack } from '@/lib/music/api'
 import { fmtBytes } from '@/lib/youtube/format'
+import { getRssToken, radioFeedUrl } from '@/lib/podcast/portabilityApi'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { AppTabBar, type AppTab } from '@/components/shared/AppTabBar'
@@ -33,6 +34,10 @@ import { CollectionTab } from '@/components/music/CollectionTab'
 import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
 import { AddToPlaylistButton } from '@/components/music/AddToPlaylistButton'
 import { MagicVibeDialog, SmartPlaylistDialog } from '@/components/music/PlaylistCreators'
+import { FamilyBlendDialog } from '@/components/music/FamilyBlendDialog'
+import { TrackRadioButton } from '@/components/music/TrackRadioButton'
+import { Switch } from '@/components/ui/switch'
+import { getAutocache, setAutocache } from '@/lib/music/intelApi'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import {
   getFavorites, getHistory, listPlaylists, createPlaylist,
@@ -149,6 +154,7 @@ function FavoritesTab() {
           </button>
           {f.kind === 'song' && (
             <>
+              <TrackRadioButton videoId={f.refId} title={f.title ?? ''} artist={f.artist} />
               <AddToPlaylistButton song={{ videoId: f.refId, title: f.title ?? '', artist: f.artist ?? undefined }} />
               <OpenInYoutubeButton videoId={f.refId} title={f.title ?? ''} />
               <SongDownloadButton videoId={f.refId} title={f.title ?? ''} />
@@ -167,6 +173,7 @@ function PlaylistsTab() {
   const [creating, setCreating] = useState(false)
   const [magicOpen, setMagicOpen] = useState(false)
   const [smartOpen, setSmartOpen] = useState(false)
+  const [blendOpen, setBlendOpen] = useState(false)
   const [name, setName] = useState('')
   const create = async () => {
     const n = name.trim()
@@ -181,9 +188,11 @@ function PlaylistsTab() {
         <Button size="sm" onClick={() => { setName(''); setCreating(true) }}><Plus className="size-4" /> New playlist</Button>
         <Button size="sm" variant="secondary" onClick={() => setMagicOpen(true)}><Wand2 className="size-4" /> Magic mix</Button>
         <Button size="sm" variant="secondary" onClick={() => setSmartOpen(true)}><Filter className="size-4" /> Smart playlist</Button>
+        <Button size="sm" variant="secondary" onClick={() => setBlendOpen(true)}><Users className="size-4" /> Family blend</Button>
       </div>
       <MagicVibeDialog open={magicOpen} onOpenChange={v => { setMagicOpen(v); if (!v) void qc.invalidateQueries({ queryKey: ['music-playlists'] }) }} />
       <SmartPlaylistDialog open={smartOpen} onOpenChange={v => { setSmartOpen(v); if (!v) void qc.invalidateQueries({ queryKey: ['music-playlists'] }) }} />
+      <FamilyBlendDialog open={blendOpen} onOpenChange={v => { setBlendOpen(v); if (!v) void qc.invalidateQueries({ queryKey: ['music-playlists'] }) }} />
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>New playlist</DialogTitle></DialogHeader>
@@ -200,10 +209,10 @@ function PlaylistsTab() {
           {all.map(p => (
             <Card key={p.id} variant="interactive" className="p-3" onClick={() => navigate(`/music/playlist/${p.id}`)}>
               <div className="relative mb-2 flex aspect-square items-center justify-center rounded-control bg-gradient-to-br from-brand/30 to-brand/10">
-                {p.kind === 'magic' ? <Wand2 className="size-8 text-brand" /> : p.kind === 'smart' ? <Filter className="size-8 text-brand" /> : <ListMusic className="size-8 text-brand" />}
+                {p.kind === 'magic' ? <Wand2 className="size-8 text-brand" /> : p.kind === 'smart' ? <Filter className="size-8 text-brand" /> : p.kind === 'blend' ? <Users className="size-8 text-brand" /> : <ListMusic className="size-8 text-brand" />}
                 {p.kind !== 'manual' && (
                   <span className="absolute right-1.5 top-1.5 rounded-full bg-brand/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
-                    {p.kind === 'magic' ? 'Magic' : 'Smart'}
+                    {p.kind === 'magic' ? 'Magic' : p.kind === 'blend' ? 'Blend' : 'Smart'}
                   </span>
                 )}
               </div>
@@ -233,11 +242,60 @@ function HistoryTab() {
             <SongThumb videoId={h.videoId} title={h.title} artist={h.artist} />
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{h.title}</p>{h.artist && <p className="truncate text-xs text-muted-foreground">{h.artist}</p>}</div>
           </button>
+          <TrackRadioButton videoId={h.videoId} title={h.title} artist={h.artist} />
           <AddToPlaylistButton song={{ videoId: h.videoId, title: h.title, artist: h.artist ?? undefined }} />
           <OpenInYoutubeButton videoId={h.videoId} title={h.title} />
           <SongDownloadButton videoId={h.videoId} title={h.title} />
         </div>
       ))}
+    </div>
+  )
+}
+
+// Offline mix auto-cache: a per-user toggle that keeps the listener's top N most-played
+// and favorited tracks downloaded via the normal offline pipeline. The downloads land in
+// the Songs list below like any other save; this card owns the toggle, size, and status.
+function AutocacheCard() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['music-autocache'], queryFn: getAutocache,
+    refetchInterval: q => ((q.state.data?.inProgress ?? 0) > 0 ? 5000 : false),
+  })
+  const mutate = async (patch: { enabled?: boolean; count?: number }) => {
+    try {
+      const next = await setAutocache(patch)
+      qc.setQueryData(['music-autocache'], next)
+      void qc.invalidateQueries({ queryKey: ['music-offline'] })
+      if (patch.enabled === true) toast.success('Keeping your top songs downloaded')
+      if (patch.enabled === false) toast.success('Auto-download off. Downloads are kept.')
+    } catch { toast.error('Could not update the setting') }
+  }
+  const status = data?.enabled
+    ? `${data.ready} of ${data.total} ready${data.inProgress ? ` · ${data.inProgress} downloading` : ''}`
+    : 'Your most-played and favorited songs, always ready offline.'
+  return (
+    <div className="max-w-3xl rounded-card border border-border/60 bg-card/30 p-4">
+      <label className="flex items-center justify-between gap-4">
+        <span>
+          <span className="block text-sm font-semibold">Keep my favorites downloaded</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">{isLoading ? 'Checking…' : status}</span>
+        </span>
+        <Switch checked={data?.enabled ?? false} disabled={isLoading}
+          onCheckedChange={v => void mutate({ enabled: v === true })} />
+      </label>
+      {data?.enabled && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Songs to keep</span>
+          {[25, 50, 100].map(n => (
+            // design-ok(hand-styled-button): preset chip, not a chrome control
+            <button key={n} type="button" onClick={() => void mutate({ count: n })}
+              className={cn('rounded-full px-2.5 py-1 font-medium transition',
+                data.count === n ? 'bg-brand text-brand-foreground' : 'bg-foreground/8 hover:bg-foreground/15')}>
+              {n}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -293,7 +351,12 @@ function OfflineTab() {
   }
 
   if (!stations.length && !songs.length) {
-    return <Empty icon={Download} text="Save a station or a song for offline play. They'll show up here, ready without internet." />
+    return (
+      <div className="space-y-6">
+        <AutocacheCard />
+        <Empty icon={Download} text="Save a station or a song for offline play. They'll show up here, ready without internet." />
+      </div>
+    )
   }
   // Total storage used by offline audio (every downloaded track, station or à-la-carte).
   const readyAll = (data?.offline ?? []).filter(t => t.status === 'ready')
@@ -307,6 +370,7 @@ function OfflineTab() {
   return (
     <div className="space-y-8">
       {summary && <p className="-mt-1 text-xs text-muted-foreground">{summary} downloaded</p>}
+      <AutocacheCard />
       {stations.length > 0 && (
         <section>
           <SectionHeader title="Stations" />
@@ -515,6 +579,25 @@ function cnBadge(status: LiveRecording['status']): string {
   return `${base} bg-destructive/15 text-destructive`
 }
 
+/** Copies the private feed URL for the whole recordings collection, so a podcatcher on
+ *  the LAN can subscribe once and pick up every future capture. */
+function CopyRadioFeedButton() {
+  async function copy() {
+    try {
+      const token = await getRssToken()
+      await navigator.clipboard.writeText(radioFeedUrl(token))
+      toast.success('RSS feed URL copied. Paste it into any podcast app on your network.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not copy the feed URL.')
+    }
+  }
+  return (
+    <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground hover:text-foreground" onClick={() => void copy()}>
+      <Rss className="size-3.5" /> Copy RSS feed
+    </Button>
+  )
+}
+
 function RadioTab() {
   const { data: stations } = useQuery({ queryKey: ['live-radio-library'], queryFn: fetchLiveLibrary })
   const { data: recordings } = useQuery({
@@ -538,9 +621,9 @@ function RadioTab() {
         </section>
       )}
       {recs.length > 0 && (
-        <section>
-          <SectionHeader title="Recordings" />
-          <div className="mt-3 max-w-3xl divide-y divide-border/50 overflow-hidden rounded-card border border-border/60 bg-card/30">
+        <section className="max-w-3xl">
+          <SectionHeader title="Recordings" action={<CopyRadioFeedButton />} />
+          <div className="mt-3 divide-y divide-border/50 overflow-hidden rounded-card border border-border/60 bg-card/30">
             {recs.map(r => <RecordingRow key={r.id} rec={r} />)}
           </div>
         </section>

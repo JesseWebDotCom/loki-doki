@@ -8,6 +8,7 @@ import { db } from '@/db'
 import { musicFavorites, musicHistory, ytDownloads, musicOfflineStationTracks } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { enqueueVideoSave, enqueuePrefetch } from '@/lib/youtube/automation'
+import { enqueueListen } from '@/lib/music/scrobble'
 import { releaseAssetsIfOrphaned, AUDIO_FORMATS, type AudioFormat } from '@/lib/youtube/assets'
 import { resolveUserPath } from '@/lib/storage/paths'
 import { looksLikeVideo } from '@/lib/music/junk'
@@ -61,6 +62,14 @@ musicLibrary.post('/history', async (c) => {
     positionSec: body.positionSec ?? 0,
     durationSec: typeof body.durationSec === 'number' && body.durationSec > 0 ? body.durationSec : null,
     playedAt: new Date(),
+  })
+  // Scrobbling out: a local queue insert only (no-op unless the user enabled it); the
+  // background flusher does the network. Never blocks or fails the history write.
+  void enqueueListen(user.id, {
+    artist: body.artist ?? '',
+    title: body.title,
+    durationSec: typeof body.durationSec === 'number' && body.durationSec > 0 ? body.durationSec : null,
+    listenedAt: Math.floor(Date.now() / 1000),
   })
   return c.json({ ok: true, id })
 })

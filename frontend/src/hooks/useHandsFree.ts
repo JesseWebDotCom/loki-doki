@@ -92,7 +92,10 @@ export interface UseHandsFreeOptions {
   characterId: string | null | undefined
   wakeWordModelId?: string | null
   wakeWordPhrase?: string | null
-  submit: (text: string) => void
+  /** `whispered`: this utterance was auto-detected as spoken quietly (design:
+   *  keen-percolating-swan); callers thread this to the eventual reply's TTS
+   *  gain via useCompanionVoice's `hushedThisTurn`. Never true for typed input. */
+  submit: (text: string, whispered?: boolean) => void
   /** Hold the post-reply (wake-word-free) listening window open for
    *  POST_REPLY_HOLD_MS instead of the normal timeout, e.g. while a staged
    *  action awaits a spoken confirmation. Re-arms live on change. */
@@ -191,7 +194,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           if (stateRef.current === 'wake-detected') dispatch({ type: 'capture_open' })
         },
         onPartial: (t) => { setPartial(t) },
-        onFinal: (text) => {
+        onFinal: (text, whispered) => {
           setPartial('')
           // Stop command — works in any active state: kill TTS + exit to idle.
           if (isStopCommand(text)) {
@@ -212,7 +215,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
             dispatch({ type: 'stt_final' })
             // Clean disfluencies (um/uh, false starts) before the text is shown and sent.
             // isStopCommand above deliberately ran on the raw text.
-            submitRef.current(cleanTranscript(text))
+            submitRef.current(cleanTranscript(text), whispered)
           } else {
             dispatch({ type: 'stop_command' })
           }
@@ -317,7 +320,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
       }
       // The wake loop captured "<phrase> <command>" in one breath — submit the
       // command directly instead of opening a lossy second capture session.
-      wl.onCommand = (cmd) => {
+      wl.onCommand = (cmd, whispered) => {
         const st = stateRef.current
         if (st !== 'wake-detected' && st !== 'capturing') return
         if (captureTimeoutRef.current) { clearTimeout(captureTimeoutRef.current); captureTimeoutRef.current = null }
@@ -333,7 +336,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         }
         if (st === 'wake-detected') dispatch({ type: 'capture_open' })
         dispatch({ type: 'stt_final' })
-        submitRef.current(cleanTranscript(cmd))
+        submitRef.current(cleanTranscript(cmd), whispered)
       }
       wakeLoop = wl
       console.info(`[handsfree] engaging — whisper wakeword phrase "${wakeWordPhrase.trim()}"`)

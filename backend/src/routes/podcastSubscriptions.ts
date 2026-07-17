@@ -9,6 +9,7 @@ import { podcastEpisodes, podcastShows, podcastSubscriptions } from '@/db/schema
 import { requireAuth } from '@/middleware/auth'
 import { chartPodcasts, lookupItunes, PODCAST_GENRES, podcastIndexConfigured, previewFeed, searchPodcasts } from '@/lib/podcast/directory'
 import { filterDirectoryForUser } from '@/lib/podcast/policy'
+import { familyEntrySetsFor, podcastShowAllowed, type FamilyEntrySets } from '@/lib/family/audioPolicy'
 import { refreshPodcastFeed, subscribeToFeed, unsubscribe, runAutoDownloadPass, DEFAULT_AUTO_KEEP } from '@/lib/podcast/feeds'
 import { enqueueEpisodeDownload, removeEpisodeDownload } from '@/lib/podcast/offline'
 import type { AppEnv } from '@/types'
@@ -18,12 +19,23 @@ podcastSubscriptionsRoute.use('*', requireAuth)
 
 // ── Directory ─────────────────────────────────────────────────────────────────────
 
+// Family audio: allowlist-only profiles only see approved shows in the public
+// directory; blocklisted shows disappear for anyone they apply to.
+function filterDirectoryBySets<T extends { feedUrl?: string | null; itunesId?: number | null }>(
+  sets: FamilyEntrySets, results: T[],
+): T[] {
+  if (!sets.hasAny) return results
+  return results.filter(r => podcastShowAllowed(sets, r))
+}
+
 podcastSubscriptionsRoute.get('/directory/search', async (c) => {
   const q = c.req.query('q')?.trim() ?? ''
   const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '25', 10) || 25, 50)
   if (!q) return c.json({ results: [] })
   try {
-    return c.json({ results: await filterDirectoryForUser(c.get('user').id, await searchPodcasts(q, limit)) })
+    const sets = await familyEntrySetsFor(c.get('user').id)
+    const results = filterDirectoryBySets(sets, await searchPodcasts(q, limit))
+    return c.json({ results: await filterDirectoryForUser(c.get('user').id, results) })
   } catch (err) {
     return c.json({ results: [], error: String(err) })
   }
@@ -35,7 +47,8 @@ podcastSubscriptionsRoute.get('/directory/charts', async (c) => {
   const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '40', 10) || 40, 100)
   try {
     const { results, provider } = await chartPodcasts(genreId, limit)
-    return c.json({ results: await filterDirectoryForUser(c.get('user').id, results), provider, genres: PODCAST_GENRES })
+    const sets = await familyEntrySetsFor(c.get('user').id)
+    return c.json({ results: await filterDirectoryForUser(c.get('user').id, filterDirectoryBySets(sets, results)), provider, genres: PODCAST_GENRES })
   } catch (err) {
     return c.json({ results: [], provider: 'itunes', genres: PODCAST_GENRES, error: String(err) })
   }
@@ -71,6 +84,7 @@ podcastSubscriptionsRoute.get('/subscriptions', async (c) => {
     showId: podcastSubscriptions.showId,
     autoDownload: podcastSubscriptions.autoDownload,
     autoDownloadKeep: podcastSubscriptions.autoDownloadKeep,
+    autoTranscribe: podcastSubscriptions.autoTranscribe,
     addedAt: podcastSubscriptions.addedAt,
     name: podcastShows.name,
     feedUrl: podcastShows.feedUrl,

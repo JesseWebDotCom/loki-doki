@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger'
 import { isSameMachine } from '@/lib/clientMachine'
 
 export interface BrowserCommand {
-  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump' | 'media_transport' | 'watch_invite'
+  type: 'navigate' | 'open_url' | 'app_action' | 'stream_deck_page_jump' | 'media_transport' | 'watch_invite' | 'together'
   path?: string
   url?: string
   action?: string
@@ -34,10 +34,12 @@ export interface SessionEntry {
   /** Arbitration IP (already normalized via clientMachine.getArbitrationIp). */
   ip: string
   lastYield: boolean | null
-  /** Stable per-browser id + label, so this tab can be addressed as a cast target
-   *  ("play this on the living room TV"). Absent on older clients, which then just
-   *  don't appear in the target list. */
-  deviceId?: string
+  /** Stable client device id (localStorage-minted). Two features address sessions by it:
+   *  Listening Together routes a command to ONE chosen session (cross-user), and video
+   *  casting picks a screen to play on. Optional: older clients / the HUD register
+   *  without one and simply aren't addressable. */
+  deviceId?: string | null
+  /** Friendly name for the cast picker ("Chrome · macOS"). */
   label?: string
   /** TV-mode sessions sort first in the cast picker: that's what you meant. */
   isTv?: boolean
@@ -94,10 +96,29 @@ export function pushToBrowserSession(userId: string, cmd: BrowserCommand): boole
   return false
 }
 
+/** Push a command to the session registered under a specific player-device id (any user
+ *  in the household - Listening Together is a household surface). When the same device id
+ *  has several live streams (rare: a reconnect race), the most recent non-HUD one wins. */
+export function pushToDeviceSession(deviceId: string, cmd: BrowserCommand): boolean {
+  let target: SessionEntry | null = null
+  for (const set of sessions.values()) {
+    for (const entry of set) {
+      if (entry.deviceId === deviceId && entry.surface !== 'hud') target = entry
+    }
+  }
+  if (!target) {
+    logger.info(`[browser-session] DROP ${cmd.type} - no live session for device=${deviceId}`)
+    return false
+  }
+  try { target.send(cmd); return true } catch { return false }
+}
+
 // ── Cast targets ─────────────────────────────────────────────────────────────────
 // "Play this on the living room TV": the target is another signed-in browser of the same
 // user holding its command stream open. Real casting inside the household with no
-// Chromecast, using the channel that already exists.
+// Chromecast, using the channel that already exists. Sibling of pushToDeviceSession
+// above: that one routes household-wide by device for Listening Together, this one lists
+// and picks among ONE user's own screens.
 
 export interface CastTarget { deviceId: string; label: string; isTv: boolean }
 
@@ -114,8 +135,8 @@ export function listCastTargets(userId: string, self?: string): CastTarget[] {
   return Array.from(byDevice.values()).sort((a, b) => Number(b.isTv) - Number(a.isTv) || a.label.localeCompare(b.label))
 }
 
-/** Send a command to one device (or, with null, to this user's TV if they have exactly
- *  one). Returns false when nothing was reachable. */
+/** Send a command to one of this user's devices (or, with null, to their TV). Returns
+ *  false when nothing was reachable. */
 export function castToDevice(userId: string, deviceId: string | null, cmd: BrowserCommand): boolean {
   const set = sessions.get(userId)
   if (!set) return false

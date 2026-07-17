@@ -20,6 +20,10 @@ import { LiveRadioProvider } from '@/context/LiveRadioContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
 import { MonitoringAnnounceProvider } from '@/context/MonitoringAnnounceContext'
+import { FamilyAudioGuard } from '@/components/shared/FamilyAudioGuard'
+import { TogetherPresence } from '@/components/shared/TogetherPresence'
+import { TogetherRemoteReceiver } from '@/components/shared/TogetherRemoteReceiver'
+import { TogetherJamHost } from '@/components/shared/TogetherJamHost'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
@@ -128,6 +132,12 @@ const PodcastBrowsePage = lazy(() => import('@/pages/podcast/PodcastBrowsePage')
 const PodcastPreviewPage = lazy(() => import('@/pages/podcast/PodcastPreviewPage').then((m) => ({ default: m.PodcastPreviewPage })))
 const PodcastLibraryPage = lazy(() => import('@/pages/podcast/PodcastLibraryPage').then((m) => ({ default: m.PodcastLibraryPage })))
 const PodcastOfflinePage = lazy(() => import('@/pages/podcast/PodcastOfflinePage').then((m) => ({ default: m.PodcastOfflinePage })))
+const PodcastFiltersPage = lazy(() => import('@/pages/podcast/PodcastFiltersPage').then((m) => ({ default: m.PodcastFiltersPage })))
+const PodcastBookmarksPage = lazy(() => import('@/pages/podcast/PodcastBookmarksPage').then((m) => ({ default: m.PodcastBookmarksPage })))
+const PodcastReplayPage = lazy(() => import('@/pages/podcast/PodcastReplayPage').then((m) => ({ default: m.PodcastReplayPage })))
+const PodcastSnipsPage = lazy(() => import('@/pages/podcast/PodcastSnipsPage').then((m) => ({ default: m.PodcastSnipsPage })))
+const PodcastSearchPage = lazy(() => import('@/pages/podcast/PodcastSearchPage').then((m) => ({ default: m.PodcastSearchPage })))
+const EpisodePage = lazy(() => import('@/pages/podcast/EpisodePage').then((m) => ({ default: m.EpisodePage })))
 const ShowDetailPage = lazy(() => import('@/pages/podcast/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
 const PodcastSettingsPage = lazy(() => import('@/pages/podcast/PodcastSettingsPage').then((m) => ({ default: m.PodcastSettingsPage })))
 const DictionaryPage = lazy(() => import('@/pages/DictionaryPage').then((m) => ({ default: m.DictionaryPage })))
@@ -165,6 +175,8 @@ const MusicArtistPage = lazy(() => import('@/pages/music/MusicArtistPage').then(
 const MusicAlbumPage = lazy(() => import('@/pages/music/MusicAlbumPage').then((m) => ({ default: m.MusicAlbumPage })))
 const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').then((m) => ({ default: m.MusicLibraryPage })))
 const MusicReplayPage = lazy(() => import('@/pages/music/MusicReplayPage').then((m) => ({ default: m.MusicReplayPage })))
+const MusicStatsPage = lazy(() => import('@/pages/music/MusicStatsPage').then((m) => ({ default: m.MusicStatsPage })))
+const MusicImportPage = lazy(() => import('@/pages/music/MusicImportPage').then((m) => ({ default: m.MusicImportPage })))
 const MusicPlaylistPage = lazy(() => import('@/pages/music/MusicPlaylistPage').then((m) => ({ default: m.MusicPlaylistPage })))
 const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicGeneratePage })))
 const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
@@ -368,6 +380,14 @@ export default function App() {
           <FrigateAnnounceProvider>
           <MonitoringAnnounceProvider>
           <ChatProvider>
+          {/* Family audio guardrails: graceful stop, 5-minute warning, volume cap. */}
+          <FamilyAudioGuard />
+          {/* Listening Together: advertise this session as a player device, and run
+              remote commands aimed at it through the player contexts. */}
+          <TogetherPresence />
+          <TogetherRemoteReceiver />
+          {/* Family Jam: when this session hosts, feed its player from the shared queue. */}
+          <TogetherJamHost />
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
             <Route path="/setup" element={<SetupGuard />} />
@@ -408,6 +428,8 @@ export default function App() {
                   <Route path="remix" element={<MusicRemixPage />} />
                   <Route path="library" element={<MusicLibraryPage />} />
                   <Route path="replay" element={<MusicReplayPage />} />
+                  <Route path="stats" element={<MusicStatsPage />} />
+                  <Route path="import" element={<MusicImportPage />} />
                   <Route path="studio" element={<MusicStudioPage />} />
                   <Route path="studio/:id" element={<MusicStudioLayout />}>
                     <Route index element={<MusicStudioDetailPage />} />
@@ -518,6 +540,12 @@ export default function App() {
                   <Route path="browse" element={<PodcastBrowsePage />} />
                   <Route path="preview" element={<PodcastPreviewPage />} />
                   <Route path="library" element={<PodcastLibraryPage />} />
+                  <Route path="filters" element={<PodcastFiltersPage />} />
+                  <Route path="bookmarks" element={<PodcastBookmarksPage />} />
+                  <Route path="replay" element={<PodcastReplayPage />} />
+                  <Route path="snips" element={<PodcastSnipsPage />} />
+                  <Route path="search" element={<PodcastSearchPage />} />
+                  <Route path="episode/:id" element={<EpisodePage />} />
                   <Route path="offline" element={<PodcastOfflinePage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
                   <Route path="settings" element={<PodcastSettingsPage />} />

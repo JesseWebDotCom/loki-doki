@@ -1703,6 +1703,61 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS podcast_shows_owner_idx ON podcast_shows(owner_user_id);
   `)
 
+  // Podcast player pack: Podcasting 2.0 chapters cache columns + per-show playback
+  // settings, server-persisted Up Next queue, bookmarks, and saved episode filters.
+  addColumn('podcast_episodes', 'chapters_url', 'TEXT')
+  addColumn('podcast_episodes', 'chapters_fetched_at', 'INTEGER')
+  // The parental-advisory addColumns earlier in this function run BEFORE the podcast
+  // tables' CREATEs, so on a fresh DB they no-op and the columns end up missing (any
+  // select of episode.explicit then fails). Re-run them here, after the CREATEs.
+  addColumn('podcast_shows', 'explicit', 'INTEGER')
+  addColumn('podcast_episodes', 'explicit', 'INTEGER')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS podcast_show_settings (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      show_id TEXT NOT NULL REFERENCES podcast_shows(id) ON DELETE CASCADE,
+      speed REAL,
+      skip_intro_sec INTEGER NOT NULL DEFAULT 0,
+      skip_outro_sec INTEGER NOT NULL DEFAULT 0,
+      trim_silence INTEGER,
+      voice_boost INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS podcast_show_settings_user_show ON podcast_show_settings(user_id, show_id);
+
+    CREATE TABLE IF NOT EXISTS podcast_queue (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      added_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS podcast_queue_user_ep ON podcast_queue(user_id, episode_id);
+    CREATE INDEX IF NOT EXISTS podcast_queue_user_pos_idx ON podcast_queue(user_id, position);
+
+    CREATE TABLE IF NOT EXISTS podcast_bookmarks (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      position_sec REAL NOT NULL DEFAULT 0,
+      note TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS podcast_bookmarks_user_idx ON podcast_bookmarks(user_id);
+    CREATE INDEX IF NOT EXISTS podcast_bookmarks_episode_idx ON podcast_bookmarks(episode_id);
+
+    CREATE TABLE IF NOT EXISTS podcast_episode_filters (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      rules_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS podcast_episode_filters_user_idx ON podcast_episode_filters(user_id);
+  `)
+
   // NOTE: the legacy Organizr-style bookmarks CREATE that used to live here was removed.
   // The unified Bookmarks library (formerly Reader) is now created in the belt-and-suspenders
   // block below (search for "CREATE TABLE IF NOT EXISTS bookmarks"). Keeping the old schema
@@ -3060,6 +3115,27 @@ export function runMigrations() {
     DROP TABLE IF EXISTS coding_projects;
   `)
 
+  // Network protection / DNS filtering (see schema.ts dnsDevices/dnsRules; lib/dns)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS dns_devices (
+      ip TEXT NOT NULL PRIMARY KEY,
+      label TEXT NOT NULL,
+      profile TEXT NOT NULL DEFAULT 'default',
+      last_seen_at INTEGER,
+      queries INTEGER NOT NULL DEFAULT 0,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS dns_rules (
+      id TEXT NOT NULL PRIMARY KEY,
+      domain TEXT NOT NULL,
+      action TEXT NOT NULL,
+      profile TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS dns_rules_domain_idx ON dns_rules(domain);
+  `)
+
   // Routines (see schema.ts routines/routineRuns; lib/routines/engine.ts)
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS routines (
@@ -3588,5 +3664,245 @@ export function runMigrations() {
       UNIQUE(user_id, domain, ref)
     );
     CREATE INDEX IF NOT EXISTS suggestion_impressions_user_domain_idx ON suggestion_impressions(user_id, domain);
+  `)
+
+  // Music intelligence: cached "Mixes For You" per user + Family Blend definitions
+  // (see schema.ts musicMixes / musicBlends).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS music_mixes (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      subtitle TEXT,
+      tracks_json TEXT NOT NULL,
+      computed_at INTEGER NOT NULL,
+      UNIQUE(user_id, key)
+    );
+    CREATE TABLE IF NOT EXISTS music_blends (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      member_ids_json TEXT NOT NULL,
+      playlist_id TEXT NOT NULL,
+      match_percent INTEGER,
+      refreshed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
+
+  // Family audio controls: per-profile allowlist/blocklist, time budgets, quiet hours,
+  // volume cap, usage ledger, guardrail events, weekly parent digests (see schema.ts
+  // familyAudio* tables and lib/family/audioPolicy.ts).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS family_audio_settings (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      allowlist_only INTEGER NOT NULL DEFAULT 0,
+      daily_audio_minutes INTEGER,
+      quiet_hours_start TEXT,
+      quiet_hours_end TEXT,
+      max_volume_percent INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS family_audio_entries (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      list TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      alt_ref TEXT,
+      label TEXT NOT NULL,
+      added_by TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, list, kind, ref)
+    );
+    CREATE INDEX IF NOT EXISTS family_audio_entries_user_idx ON family_audio_entries(user_id);
+    CREATE TABLE IF NOT EXISTS family_audio_usage (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      medium TEXT NOT NULL,
+      seconds INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, day, medium)
+    );
+    CREATE INDEX IF NOT EXISTS family_audio_usage_day_idx ON family_audio_usage(day);
+    CREATE TABLE IF NOT EXISTS family_audio_events (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      detail TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS family_audio_events_user_created_idx ON family_audio_events(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS family_audio_digests (
+      id TEXT NOT NULL PRIMARY KEY,
+      week_start TEXT NOT NULL UNIQUE,
+      payload TEXT NOT NULL DEFAULT '{}',
+      summary TEXT,
+      created_at INTEGER NOT NULL
+    );
+  `)
+
+  // Lyric translations: cached LLM output per (track, language) so a song is translated
+  // once for the whole household (see schema.ts lyricTranslations).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS lyric_translations (
+      id TEXT NOT NULL PRIMARY KEY,
+      track_key TEXT NOT NULL,
+      lang TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      lines TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(track_key, lang)
+    );
+  `)
+
+  // Listening Together: persisted player-device names + Family Jam shared queue
+  // (schema.ts playerDevices / musicJams / musicJamItems, lib/together/, routes/together.ts).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS player_devices (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS music_jams (
+      id TEXT NOT NULL PRIMARY KEY,
+      host_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      host_name TEXT NOT NULL,
+      host_device_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Family Jam',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      ended_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS music_jam_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      jam_id TEXT NOT NULL REFERENCES music_jams(id) ON DELETE CASCADE,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT,
+      thumbnail TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0,
+      added_by_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      added_by_name TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS music_jam_items_jam_pos_idx ON music_jam_items(jam_id, position);
+  `)
+
+  // Portability pack: Podcasting 2.0 credits/funding/soundbites on the podcast tables,
+  // plus the scrobble outbox and gPodder-compatible sync state (see schema.ts).
+  addColumn('podcast_shows', 'persons_json', 'TEXT')
+  addColumn('podcast_shows', 'funding_json', 'TEXT')
+  addColumn('podcast_episodes', 'persons_json', 'TEXT')
+  addColumn('podcast_episodes', 'soundbites_json', 'TEXT')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS scrobble_queue (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      service TEXT NOT NULL DEFAULT 'listenbrainz',
+      payload_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER,
+      last_error TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS scrobble_queue_status_idx ON scrobble_queue(status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS scrobble_queue_user_idx ON scrobble_queue(user_id);
+    CREATE TABLE IF NOT EXISTS gpodder_devices (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      device_id TEXT NOT NULL,
+      caption TEXT,
+      type TEXT,
+      last_seen_at INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, device_id)
+    );
+    CREATE TABLE IF NOT EXISTS gpodder_subscription_log (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      feed_url TEXT NOT NULL,
+      action TEXT NOT NULL,
+      device_id TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS gpodder_sub_log_user_ts_idx ON gpodder_subscription_log(user_id, timestamp);
+    CREATE TABLE IF NOT EXISTS gpodder_episode_actions (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      device_id TEXT,
+      podcast_url TEXT NOT NULL,
+      episode_url TEXT NOT NULL,
+      action TEXT NOT NULL,
+      position_sec INTEGER,
+      started_sec INTEGER,
+      total_sec INTEGER,
+      action_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS gpodder_episode_actions_user_at_idx ON gpodder_episode_actions(user_id, action_at);
+  `)
+
+  // ── AI-native podcast listening: transcripts, AI insights, snips, search ──
+  // Podcasting 2.0 <podcast:transcript> URL + MIME from the feed (lazily fetched).
+  addColumn('podcast_episodes', 'transcript_url', 'TEXT')
+  addColumn('podcast_episodes', 'transcript_type', 'TEXT')
+  // Per-user "auto-transcribe new episodes" subscription pref.
+  addColumn('podcast_subscriptions', 'auto_transcribe', 'INTEGER NOT NULL DEFAULT 0')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS podcast_transcripts (
+      id TEXT NOT NULL PRIMARY KEY,
+      episode_id TEXT NOT NULL UNIQUE REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      format TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      segments_json TEXT,
+      segment_count INTEGER,
+      requested_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS podcast_episode_ai (
+      id TEXT NOT NULL PRIMARY KEY,
+      episode_id TEXT NOT NULL UNIQUE REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      summary TEXT,
+      takeaways_json TEXT,
+      chapters_generated INTEGER NOT NULL DEFAULT 0,
+      model TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS podcast_snips (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      start_sec REAL NOT NULL DEFAULT 0,
+      end_sec REAL NOT NULL DEFAULT 0,
+      title TEXT NOT NULL,
+      summary TEXT,
+      transcript_text TEXT NOT NULL,
+      note_id TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS podcast_snips_user_idx ON podcast_snips(user_id);
+    CREATE INDEX IF NOT EXISTS podcast_snips_episode_idx ON podcast_snips(episode_id);
+
+    -- FTS5 over transcript windows (merged segments), maintained by lib/podcast/
+    -- transcripts.ts on every transcript save (delete-by-episode then insert). Not an
+    -- external-content mirror: the canonical segments live in podcast_transcripts'
+    -- segments_json, and search results re-join podcast_episodes so rows for deleted
+    -- episodes simply never surface.
+    CREATE VIRTUAL TABLE IF NOT EXISTS podcast_transcript_fts USING fts5(
+      text, episode_id UNINDEXED, show_id UNINDEXED, start_sec UNINDEXED, end_sec UNINDEXED
+    );
   `)
 }

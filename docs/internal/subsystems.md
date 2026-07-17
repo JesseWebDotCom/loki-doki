@@ -348,3 +348,61 @@ LoRA catalog management tab inside AdminModal. Features:
 - Upload .safetensors file directly
 
 Accessed via Admin Panel → LoRAs tab (admin-only).
+
+---
+
+## Listening Together (player presence, remote control, Family Jam)
+
+Software-tier whole-home audio: every app session is a nameable player device other
+household members can see, drive, and share a queue with. Pod hardware audio out is out
+of scope here.
+
+**Presence** (`backend/src/lib/together/presence.ts`, `frontend/src/hooks/useTogetherPresence.ts`)
+- Each session mints a stable device id (localStorage, `lib/together/deviceIdentity.ts`) and
+  heartbeats `POST /api/together/presence` with a user-agent label ("Mac / Chrome") and a
+  snapshot of its player (source, title, position, playing, volume). 5s while playing, 20s idle.
+- The registry is **in-memory** and household-wide: live player state is ephemeral and a stale
+  entry ages out (140s). The ONLY durable piece is the user-chosen device name (`player_devices`).
+- A session advertises itself only while its command stream is actually up (visible, or
+  hidden-but-playing, mirroring `useBrowserSession`'s `keepWhenHidden`). A hidden idle tab drops
+  its SSE stream to spare the per-origin connection pool, so listing it would offer a target
+  whose commands silently go nowhere.
+
+**Remote control** (`lib/together/commands.ts`, `routes/together.ts`, `components/shared/DevicesPopover.tsx`)
+- Commands ride the EXISTING browser-session SSE channel: sessions register their device id at
+  connect time (`?device=`), and `pushToDeviceSession()` routes to that one session rather than
+  "the user's most recent tab". Same fire-and-verify ack contract as the controller tiles, so an
+  undelivered command reports honestly instead of a false success.
+- The target executes everything through the player contexts' **public APIs only**
+  (`TogetherRemoteReceiver`): transport verbs via the media coordinator (landing on whichever
+  engine owns audio), volume per-engine, `play_station`/`play_video` via RadioContext,
+  `play_episode`/`queue_episode` via PodcastPlaybackContext. Nothing touches audio elements.
+- Surface: a Devices popover in the music mini bar and podcast player bar.
+
+**Family Jam** (`musicJams` / `musicJamItems`, `components/music/JamBanner.tsx` + `JamQueueSheet.tsx`)
+- One active jam per household. Starting seeds the shared queue from the host's Up Next; members
+  add (via the existing catalog search + `resolveSong`) and reorder; every item carries
+  "added by <name>" attribution. Ending returns the host to their own queue.
+- **DB-backed rather than in-memory** (unlike presence): reorder and attribution want durable
+  ordering, the rows are tiny, and a server restart mid-party should not eat the queue.
+- The host's `TogetherJamHost` pulls the shared head into the radio engine only when local Up Next
+  runs low, so members can still reorder what is waiting. The item is claimed server-side BEFORE
+  being enqueued locally, so a failed claim retries instead of double-queueing.
+
+**Announcement ducking** (`frontend/src/lib/speechDucking.ts`)
+- Companion TTS ducks same-device media to ~20 percent, restoring over ~500ms. The bus is driven
+  from the TTS singleton's `notify()` (the one funnel for REAL speech audio start/end), so every
+  speech surface ducks identically. Music/live radio duck via a multiplier UNDER the user's volume
+  (so `setVolume` and the family volume cap keep their meaning and the slider never moves);
+  podcasts duck via a dedicated `duckGain` node so it never fights the sleep fade that owns
+  `outGain`. Same-device only; cross-session announce ducking is not wired.
+
+**Voice room targeting** (`backend/src/tools/playMusic.ts`)
+- The `play_music` tool schema gained ONE optional property: `target` ("Room or device name to play
+  on, ONLY when the user names one"). The tool also parses a trailing "on/in the X" phrase itself,
+  so the Tier-1 fast path (whole message as `query`) works without the LLM filling `target`.
+- A target is honored **only when it matches a live session** by custom name, then derived label
+  (exact, then substring, then token overlap). On a match the play is routed through the remote
+  channel and the target phrase is stripped from the station seed / video query. **No match means
+  current behavior, unchanged** - so "play riders on the storm" stays a song request unless someone
+  actually named a device "Storm".

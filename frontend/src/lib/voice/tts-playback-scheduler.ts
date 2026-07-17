@@ -4,6 +4,15 @@
 // max(now + PRE_BUFFER_S, nextStart) so sentences play back-to-back without gaps
 // while later sentences are still being fetched/synthesized. This is the core of
 // the "stream output as fast as it arrives" behavior.
+//
+// Pitch-shift insert (design: keen-percolating-swan): a per-user, client-side-only
+// preference (Kokoro has no native pitch parameter) applied via @soundtouchjs/
+// audio-worklet, the exact same package + registration pattern the Music app's
+// stemEngine.ts pioneered in this repo for karaoke tempo/pitch. Never reaches the
+// server or pod devices: browser-only DSP on already-decoded PCM.
+
+import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
+import soundtouchProcessorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
 export interface SentencePayload {
   sentence: string
@@ -36,6 +45,12 @@ export class TTSPlaybackScheduler {
   private sentenceEnqueueListeners: ((payload: SentencePayload, startAt: number) => void)[] = []
   private activeNodes: AudioBufferSourceNode[] = []
   private endGraceTimer: ReturnType<typeof setTimeout> | null = null
+  // One SoundTouchNode reused across every sentence's fresh source node, mirroring
+  // stemEngine.ts. Registration is async/best-effort: a sentence enqueued before it
+  // completes (or if it fails) just plays without pitch-shift, never blocked/broken.
+  private st: SoundTouchNode | null = null
+  private stRegistering = false
+  private pitchSemitones = 0
 
   constructor(private ctx: AudioContext) {
     this.gain = ctx.createGain()
@@ -51,11 +66,36 @@ export class TTSPlaybackScheduler {
     this.gain.gain.value = Math.max(0, Math.min(2, g))
   }
 
+  /** Pitch-shift (semitones) applied to every FUTURE sentence; the caller is
+   *  expected to clamp (±12, matching the Music app's range). 0 = no shift. */
+  setPitch(semitones: number): void {
+    this.pitchSemitones = semitones
+    if (this.st) this.st.pitchSemitones.value = semitones
+    else if (semitones !== 0) void this.ensureSoundTouch()
+  }
+
+  private async ensureSoundTouch(): Promise<void> {
+    if (this.st || this.stRegistering) return
+    this.stRegistering = true
+    try {
+      await SoundTouchNode.register(this.ctx, soundtouchProcessorUrl)
+      const st = new SoundTouchNode({ context: this.ctx })
+      st.connect(this.gain)
+      st.pitchSemitones.value = this.pitchSemitones
+      this.st = st
+    } catch {
+      this.st = null // stays unshifted; playback still works via the gain-only path
+    } finally {
+      this.stRegistering = false
+    }
+  }
+
   enqueue(payload: SentencePayload): void {
     const buffer = decodePcmBase64(this.ctx, payload.pcm_b64, payload.sample_rate)
     const source = this.ctx.createBufferSource()
     source.buffer = buffer
-    source.connect(this.gain)
+    if (this.st) source.connect(this.st)
+    else source.connect(this.gain)
 
     // The reply is continuing — cancel any pending "end" from a momentary queue drain
     // so we don't fire a spurious playbackEnd/playbackStart pair between sentences.

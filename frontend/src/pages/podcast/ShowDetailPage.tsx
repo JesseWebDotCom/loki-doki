@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Pencil, Sparkles, Video, Plus, Search, Radio, ArrowUpDown,
   MoreHorizontal, Trash2, ListPlus, Music, Play, Pause, Download, Clock, AlertCircle,
-  Check, RotateCw, ArrowDownToLine,
+  Check, RotateCw, ArrowDownToLine, Rss,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -30,6 +30,7 @@ import {
   type Episode, type EpisodeDetail, type EpisodeSource,
 } from '@/lib/podcast/api'
 import { fmtDate, fmtDuration, fmtTime } from '@/lib/podcast/format'
+import { getRssToken, showFeedUrl } from '@/lib/podcast/portabilityApi'
 import { Switch } from '@/components/ui/switch'
 
 export function ShowDetailPage() {
@@ -113,6 +114,18 @@ export function ShowDetailPage() {
       await generateEpisode(id)
       await qc.invalidateQueries({ queryKey: ['podcast-episodes', id] })
     } finally { setGenerating(false) }
+  }
+
+  /** Private feed URL for this show, so any podcatcher on the LAN can subscribe. The
+   *  token is fetched on demand (and minted on first use) rather than held on the page. */
+  async function handleCopyFeed() {
+    try {
+      const token = await getRssToken()
+      await navigator.clipboard.writeText(showFeedUrl(token, id))
+      toast.success('RSS feed URL copied. Paste it into any podcast app on your network.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not copy the feed URL.')
+    }
   }
 
   async function handleNextBatch() {
@@ -282,6 +295,8 @@ export function ShowDetailPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start">
                           <DropdownMenuItem disabled={anyGenerating} onSelect={() => void handleGenerate()}><Plus className="size-4" /> New Episode</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => void handleCopyFeed()}><Rss className="size-4" /> Copy RSS feed</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDeleteShow(true)}><Trash2 className="size-4" /> Delete Show</DropdownMenuItem>
                         </DropdownMenuContent>

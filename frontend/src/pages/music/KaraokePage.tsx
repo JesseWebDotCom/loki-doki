@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Mic2, Play, Pause, SkipForward, RotateCcw, Plus, X, Search, Maximize2, Minimize2, Music2, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -11,7 +11,10 @@ import { catalogSearchSongs, resolveSong, getLyrics } from '@/lib/music/catalogA
 import { drainKaraokeSeeds, subscribeKaraoke } from '@/lib/music/karaokeQueue'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 import { useArtPalette } from '@/lib/artPalette'
+import { useAuth } from '@/context/AuthContext'
+import { useUserPreferences, patchUserPreferencesCache } from '@/hooks/useUserPreferences'
 import { KaraokeLyrics } from '@/components/music/KaraokeLyrics'
+import { useLyricsTranslation, LyricsLanguageMenu } from '@/components/music/LyricsTranslation'
 import { Spinner } from '@/components/ui/spinner'
 
 interface QueueItem {
@@ -27,7 +30,8 @@ interface QueueItem {
   prep: 'resolving' | 'idle' | 'preparing' | 'ready' | 'failed'
 }
 
-const VOCAL_KEY = 'music.karaokeVocalGuide'
+const VOCAL_KEY = 'music.karaokeVocalGuide'          // legacy per-device fallback
+const VOCAL_PREF_KEY = 'music.karaokeVocalLevel'     // per-user, 0-100 (user_preferences)
 const QUEUE_KEY = 'music.karaokeQueue.v1'
 const uid = () => Math.random().toString(36).slice(2, 9)
 
@@ -67,10 +71,16 @@ export function KaraokePage() {
   const radio = useRadio()
   const [queue, setQueue] = useState<QueueItem[]>(() => loadStoredQueue().items)
   const [currentIdx, setCurrentIdx] = useState(() => loadStoredQueue().currentIdx)
+  // Vocal level (0-1). Pure instrumental (0) is the default; the saved per-user preference
+  // wins once loaded, with the old per-device localStorage value as a legacy fallback.
   const [vocalGuide, setVocalGuide] = useState(() => {
     const raw = parseFloat(localStorage.getItem(VOCAL_KEY) ?? '')
-    return Number.isFinite(raw) ? raw : 0.18
+    return Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0
   })
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  const prefsQuery = useUserPreferences()
+  const vocalPrefLoaded = useRef(false)
   const [semitones, setSemitones] = useState(0)
   const [tempoPct, setTempoPct] = useState(100)   // 100 = original; lower = slower (pitch preserved)
   const [pos, setPos] = useState(0)
@@ -82,6 +92,21 @@ export function KaraokePage() {
   const engine = engineRef.current
   const loadedKeyRef = useRef('')
   const [vocalOnset, setVocalOnset] = useState<number | null>(null)
+
+  // Seed the vocal level from the per-user preference once it resolves (survives devices,
+  // unlike the old localStorage-only value). Applied to the engine too, in case stems
+  // finished loading before the preference arrived.
+  useEffect(() => {
+    if (vocalPrefLoaded.current) return
+    if (prefsQuery.data === undefined && !prefsQuery.isError) return // still loading
+    const saved = (prefsQuery.data ?? {})[VOCAL_PREF_KEY]
+    if (typeof saved === 'number' && Number.isFinite(saved)) {
+      const v = Math.max(0, Math.min(1, saved / 100))
+      setVocalGuide(v)
+      engine.setStemVolume('vocals', v)
+    }
+    vocalPrefLoaded.current = true
+  }, [prefsQuery.data, prefsQuery.isError, engine])
 
   const current = queue[currentIdx] ?? null
   const upNext = queue.slice(currentIdx + 1)
@@ -209,6 +234,8 @@ export function KaraokePage() {
     enabled: !!current?.title && !aligned, staleTime: Infinity,
   })
   const lyricLines = aligned ?? lyricsData?.synced ?? null
+  // Translation + pronunciation overlay for the lyric lines (per-user language pref).
+  const translation = useLyricsTranslation(current?.artist ?? '', current?.title ?? '', lyricLines)
   const offsetSec = useMemo(() => {
     if (aligned) return 0
     if (vocalOnset == null) return 0
@@ -236,7 +263,23 @@ export function KaraokePage() {
     setCurrentIdx((i) => i + 1)
   }, [])
   advanceRef.current = advance
-  const setGuide = (v: number) => { setVocalGuide(v); localStorage.setItem(VOCAL_KEY, String(v)); engine.setStemVolume('vocals', v) }
+  // Persist per user (0-100 in user_preferences) so the level follows the singer across
+  // devices; localStorage stays as a first-paint fallback for signed-out edge cases.
+  const setGuide = (v: number) => {
+    setVocalGuide(v)
+    localStorage.setItem(VOCAL_KEY, String(v))
+    engine.setStemVolume('vocals', v)
+    vocalPrefLoaded.current = true // a manual change always wins over a late pref load
+    if (user?.id) {
+      const pct = Math.round(v * 100)
+      patchUserPreferencesCache(queryClient, user.id, { [VOCAL_PREF_KEY]: pct })
+      void fetch(`/api/users/${user.id}/preferences`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [VOCAL_PREF_KEY]: pct }),
+      }).catch(() => {})
+    }
+  }
   const setKey = (n: number) => { const s = Math.max(-6, Math.min(6, n)); setSemitones(s); engine.setSemitones(s) }
   const setTempo = (pct: number) => { const p = Math.max(60, Math.min(120, Math.round(pct / 5) * 5)); setTempoPct(p); engine.setTempoRatio(p / 100) }
   // The Play button is the user gesture that unlocks the AudioContext (browsers block autoplay).
@@ -320,6 +363,7 @@ export function KaraokePage() {
       <div className="flex items-center justify-between gap-3 px-6 py-4">
         <div className="flex items-center gap-2 text-lg font-bold"><Mic2 className="size-5" style={{ color: palette.vibrant }} /> Karaoke</div>
         <div className="flex items-center gap-2">
+          <LyricsLanguageMenu state={translation} tone="stage" />
           <AddSongPopover onPick={pickSong} onPickReady={addReady} onSeedNowPlaying={seedFromNowPlaying} accent={palette.vibrant} />
           <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="grid size-9 place-items-center rounded-full bg-white/10 hover:bg-white/20">
             {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
@@ -390,7 +434,8 @@ export function KaraokePage() {
                   <div className="truncate text-sm text-white/60">{current.artist}{current.singer ? ` · 🎤 ${current.singer}` : ''}</div>
                 </div>
               </div>
-              <KaraokeLyrics lines={lyricLines} position={pos} offsetSec={offsetSec} accent={palette.vibrant} className="flex-1" />
+              <KaraokeLyrics lines={lyricLines} position={pos} offsetSec={offsetSec} accent={palette.vibrant} className="flex-1"
+                secondary={translation.secondary} showRoman={translation.showRoman} />
             </>
           )}
         </div>
@@ -455,8 +500,9 @@ export function KaraokePage() {
                   style={Math.abs(vocalGuide - p.v) < 0.02 ? { background: palette.vibrant } : undefined}>{p.label}</button>
               ))}
             </div>
-            <input type="range" min={0} max={1} step={0.02} value={vocalGuide} onChange={(e) => setGuide(Number(e.target.value))}
-              aria-label="Vocal guide level" title="Fine-tune how loud the original vocal is" className="h-1 w-24 cursor-pointer" style={{ accentColor: palette.vibrant }} />
+            <input type="range" min={0} max={1} step={0.01} value={vocalGuide} onChange={(e) => setGuide(Number(e.target.value))}
+              aria-label="Vocal level" title="Fine-tune how loud the original vocal is (0% = pure instrumental)" className="h-1 w-24 cursor-pointer" style={{ accentColor: palette.vibrant }} />
+            <span className="w-9 text-right text-xs tabular-nums text-white/60">{Math.round(vocalGuide * 100)}%</span>
           </div>
 
           {/* Tempo (pitch-preserved; slow a fast rap down to keep up) */}

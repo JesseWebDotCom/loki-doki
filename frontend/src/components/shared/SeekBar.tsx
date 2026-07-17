@@ -22,11 +22,13 @@ export interface SeekBarProps {
   disabled?: boolean
   /** Fires true on grab / false on release; lets the parent pause position polling mid-drag. */
   onScrubStateChange?: (scrubbing: boolean) => void
+  /** Optional marker positions in seconds (e.g. podcast chapter starts): subtle ticks on the track. */
+  ticks?: number[]
   className?: string
 }
 
 // design-ok(hex-in-tsx): per-player accent default (YouTube red), passed into inline styles
-export function SeekBar({ pos, total, onSeek, accent = '#dc2626', disabled, onScrubStateChange, className }: SeekBarProps) {
+export function SeekBar({ pos, total, onSeek, accent = '#dc2626', disabled, onScrubStateChange, ticks, className }: SeekBarProps) {
   const barRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<number | null>(null) // local fraction 0..1 while scrubbing
 
@@ -56,8 +58,13 @@ export function SeekBar({ pos, total, onSeek, accent = '#dc2626', disabled, onSc
   return (
     <div ref={barRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
       className={cn('group relative flex h-3 touch-none items-center', disabled ? 'cursor-default opacity-40' : 'cursor-pointer', className)}>
-      <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/20">
+      <div className="relative h-1 w-full overflow-hidden rounded-full bg-foreground/20">
         <div className="h-full rounded-full" style={{ width: `${pct}%`, background: accent }} />
+        {/* Chapter ticks: subtle marks that read over both the played and unplayed track. */}
+        {total > 0 && ticks?.filter(t => t > 0 && t < total).map((t, i) => (
+          <span key={i} aria-hidden className="absolute top-0 h-full w-px bg-background/70"
+            style={{ left: `${(t / total) * 100}%` }} />
+        ))}
       </div>
       {!disabled && (
         <span className="absolute size-3 -translate-x-1/2 rounded-full shadow transition-transform group-hover:scale-110"

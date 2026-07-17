@@ -21,6 +21,7 @@ import { layoutToDevice, soundToDevice, assetSyncToDevice, streamDeckToDevice } 
 import { pushDisplayData, pushDisplayDataForUser } from '@/lib/pod/displayData'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { setNowPlaying, getNowPlaying, clearNowPlaying, type NowPlaying, type NowPlayingSource } from '@/lib/pod/nowPlaying'
+import { accrueUsageFromHeartbeat } from '@/lib/family/audioPolicy'
 import { getServerHost } from '@/lib/pod/firmware'
 import {
   AUDIO_DIR, DEFAULT_TEMPLATE_ID, safeId, validateWidgets, renderChimeToDisk,
@@ -324,6 +325,11 @@ studio.post('/now-playing', requireAuth, async (c) => {
   if (!b.title && !b.videoId && !b.stationId) return c.json({ ok: true, ignored: true })
   if (!NOW_PLAYING_SOURCES.includes(b.source as NowPlayingSource)) return c.json({ ok: true, ignored: true })
   if (typeof b.sessionId !== 'string' || !b.sessionId) return c.json({ ok: true, ignored: true })
+  // Family audio: this heartbeat (every ~4-5s from every playing tab) is the usage
+  // ledger for the daily time budget. Radio and podcasts count; YouTube is video.
+  if (b.playing && (b.source === 'radio' || b.source === 'podcast')) {
+    void accrueUsageFromHeartbeat(user.id, b.sessionId, b.source === 'podcast' ? 'podcast' : 'music')
+  }
   setNowPlaying(user.id, {
     source: b.source as NowPlayingSource,
     sessionId: b.sessionId,

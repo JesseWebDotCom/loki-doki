@@ -42,6 +42,20 @@ const MIN_SPEECH_SAMPLES_FRAC = 0.2 // ignore bursts shorter than 0.2s
 // finalize once we hit this so memory stays flat.
 const MAX_SPEECH_SECONDS = 30
 
+// Auto whisper-match (design: keen-percolating-swan): an utterance is classified
+// "whispered" when its average RMS across genuine speech frames (NOT the preroll
+// or trailing-silence hangover, both near-silent by construction and otherwise
+// dilute the average) falls below this. Deliberately a WEAK prior, not a tuned
+// constant: on the primary Silero path, onset/offset is decided by voice-activity
+// probability, not amplitude, so a real whisper Silero confidently detects as
+// speech can register well below the other RMS constants above (which were tuned
+// for onset/offset gating, not loudness classification). It also has a real
+// confound: mic-capture.ts requests autoGainControl:true, which may normalize a
+// deliberate whisper toward normal loudness before it ever reaches this code;
+// this is the single biggest risk to the feature working reliably and needs
+// real-world tuning, not just a threshold tweak.
+const WHISPER_RMS_THRESHOLD = 0.01
+
 // whisper.cpp transcribes non-speech sounds (typing, clicks, music, breathing)
 // as bracketed/parenthetical annotations — "[BLANK_AUDIO]", "(keyboard
 // clicking)", "(typing)", "♪♪♪", "*sighs*". The energy VAD can't tell these
@@ -78,6 +92,10 @@ export class SttSession {
   private sileroVoiced = false
   private preroll: Float32Array[] = []
   private prerollLen = 0
+  // Accumulated only over genuine-speech frames (the `voiced` branch below); see
+  // WHISPER_RMS_THRESHOLD's comment for why preroll/trailing-silence are excluded.
+  private speechRmsSum = 0
+  private speechRmsCount = 0
   // Serializes frame processing: Silero inference is async, but wire messages
   // (vad/partial/final) must go out in frame-arrival order.
   private chain: Promise<void> = Promise.resolve()
@@ -147,6 +165,8 @@ export class SttSession {
       this.silenceSamples = 0
       this.speech.push(samples.slice())
       this.speechLen += samples.length
+      this.speechRmsSum += rms
+      this.speechRmsCount++
       this.samplesSincePartial += samples.length
       if (this.samplesSincePartial >= this.cfg.partialIntervalS * this.cfg.sampleRate) {
         this.samplesSincePartial = 0
@@ -234,6 +254,9 @@ export class SttSession {
       return
     }
 
+    // Captured before reset() clears the accumulators below.
+    const whispered = this.speechRmsCount > 0 && (this.speechRmsSum / this.speechRmsCount) < WHISPER_RMS_THRESHOLD
+
     const wav = encodeWav(this.flatten(), this.cfg.sampleRate)
     let text = ''
     try {
@@ -249,7 +272,7 @@ export class SttSession {
     if (this.closed) return
     // Only real speech becomes a turn — non-speech annotations (typing, music,
     // silence) are dropped as no_speech so the companion never replies to them.
-    if (text && isLikelySpeech(text)) this.send({ t: 'final', v: text })
+    if (text && isLikelySpeech(text)) this.send({ t: 'final', v: text, whispered })
     else this.send({ t: 'no_speech' })
   }
 
@@ -273,6 +296,8 @@ export class SttSession {
     this.sileroVoiced = false
     this.preroll = []
     this.prerollLen = 0
+    this.speechRmsSum = 0
+    this.speechRmsCount = 0
     // Fresh RNN state for the next utterance in this WS session.
     this.silero?.reset()
   }

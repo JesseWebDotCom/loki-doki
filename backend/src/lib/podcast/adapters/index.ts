@@ -209,13 +209,30 @@ async function onThisDayAdapter(_userId: string, _params?: Record<string, unknow
   }
 }
 
-async function weatherAdapter(_userId: string, params?: Record<string, unknown>): Promise<SegmentContent> {
+async function weatherAdapter(userId: string, params?: Record<string, unknown>): Promise<SegmentContent> {
   try {
-    const lat = params?.lat as number | undefined
-    const lng = params?.lng as number | undefined
+    let lat = params?.lat as number | undefined
+    let lng = params?.lng as number | undefined
+    let locationName: string | undefined
+    if (!lat || !lng) {
+      // No explicit coordinates on the segment: fall back to the show owner's saved
+      // location (the same 'user.location' preference the briefing system uses), so a
+      // weather segment works out of the box for preset-created shows.
+      const { userPreferences } = await import('@/db/schema')
+      const { and: andOp } = await import('drizzle-orm')
+      const [row] = await db.select({ value: userPreferences.value }).from(userPreferences)
+        .where(andOp(eq(userPreferences.userId, userId), eq(userPreferences.key, 'user.location')))
+        .limit(1)
+      if (row?.value) {
+        try {
+          const loc = JSON.parse(row.value) as { displayName?: string; lat?: number; lng?: number }
+          lat = loc.lat; lng = loc.lng; locationName = loc.displayName
+        } catch { /* malformed pref */ }
+      }
+    }
     if (!lat || !lng) return { label: 'Weather', items: [] }
     const { weatherSummary } = await import('@/lib/briefing/sources/weather')
-    const summary = await weatherSummary({ lat, lng, unit: 'fahrenheit' })
+    const summary = await weatherSummary({ location: locationName, lat, lng, unit: 'fahrenheit' })
     return { label: 'Weather', items: summary ? [summary] : [] }
   } catch {
     return { label: 'Weather', items: [] }
@@ -316,6 +333,75 @@ async function bookmarksAdapter(userId: string, userFirstName: string, params?: 
   return { label: 'Your Reading Week', items }
 }
 
+// ── Household / "Around the House" ─────────────────────────────────────────────
+// Today's household happenings for a private family morning show: upcoming profile
+// birthdays (users.birthdate) and recently updated household-shared notes (the family
+// board). These are the two household data sources that actually exist server-side;
+// there is no calendar or reminders subsystem to pull from.
+async function householdAdapter(_userId: string, _userFirstName: string, params?: Record<string, unknown>): Promise<SegmentContent> {
+  const label = 'Around the House'
+  const items: string[] = []
+  const now = new Date()
+
+  // Upcoming birthdays within the window (default 14 days), soonest first.
+  try {
+    const { users: usersTable } = await import('@/db/schema')
+    const windowDays = Math.max(1, Math.min(60, Number(params?.birthdayDays) || 14))
+    const people = await db.select({
+      firstName: usersTable.firstName, nickname: usersTable.nickname, birthdate: usersTable.birthdate,
+    }).from(usersTable)
+    const upcoming: Array<{ name: string; when: Date; turning: number | null; daysAway: number }> = []
+    for (const p of people) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.birthdate ?? '')
+      if (!m) continue
+      const [, y, mo, d] = m
+      let next = new Date(now.getFullYear(), Number(mo) - 1, Number(d))
+      next.setHours(12, 0, 0, 0)
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+      if (next < today) next = new Date(now.getFullYear() + 1, Number(mo) - 1, Number(d), 12)
+      const daysAway = Math.round((next.getTime() - today.getTime()) / 86_400_000)
+      if (daysAway > windowDays) continue
+      const birthYear = Number(y)
+      const turning = birthYear > 1900 ? next.getFullYear() - birthYear : null
+      upcoming.push({ name: p.nickname || p.firstName, when: next, turning, daysAway })
+    }
+    upcoming.sort((a, b) => a.daysAway - b.daysAway)
+    for (const b of upcoming.slice(0, 4)) {
+      const whenText = b.daysAway === 0 ? 'TODAY'
+        : b.daysAway === 1 ? 'tomorrow'
+        : `on ${b.when.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} (${b.daysAway} days away)`
+      items.push(`Birthday: ${b.name}'s birthday is ${whenText}${b.turning ? `, turning ${b.turning}` : ''}. ${b.daysAway === 0 ? 'Make a big deal of it on the show!' : 'Worth a mention so nobody forgets.'}`)
+    }
+  } catch { /* best-effort */ }
+
+  // Household-shared notes: pinned board notes plus anything updated recently.
+  try {
+    const { notes } = await import('@/db/schema')
+    const { and: andOp, desc: descOp, gt, isNull, or: orOp } = await import('drizzle-orm')
+    const days = Math.max(1, Math.min(31, Number(params?.noteDays) || 3))
+    const cutoff = new Date(Date.now() - days * 86_400_000)
+    const rows = await db.select({
+      title: notes.title, body: notes.body, pinned: notes.pinned, updatedAt: notes.updatedAt,
+    }).from(notes)
+      .where(andOp(isNull(notes.ownerId), orOp(eq(notes.pinned, true), gt(notes.updatedAt, cutoff))))
+      .orderBy(descOp(notes.pinned), descOp(notes.updatedAt))
+      .limit(6)
+    for (const n of rows) {
+      const gist = n.body.replace(/[#*`>\-\[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240)
+      const title = n.title.trim() || 'Untitled note'
+      items.push(`${n.pinned ? 'Pinned family note' : 'Family note'} "${title}"${gist ? `: ${gist}` : ''}`)
+    }
+  } catch { /* best-effort */ }
+
+  if (items.length) {
+    items.unshift(
+      `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. ` +
+      'These are this household\'s own updates (family notes and birthdays). Chat through them warmly, like a neighborhood bulletin, and keep names exactly as given.',
+    )
+  }
+  return { label, items }
+}
+
 export async function runAdapter(segment: ShowSegment, userId: string, userFirstName: string): Promise<SegmentContent> {
   try {
     switch (segment.type) {
@@ -328,6 +414,7 @@ export async function runAdapter(segment: ShowSegment, userId: string, userFirst
       case 'tvshow':    return await tvshowAdapter(segment.params)
       case 'movie':     return await movieAdapter(segment.params)
       case 'bookmarks': return await bookmarksAdapter(userId, userFirstName, segment.params)
+      case 'household': return await householdAdapter(userId, userFirstName, segment.params)
       default:          return { label: segment.label ?? segment.type, items: [] }
     }
   } catch {
