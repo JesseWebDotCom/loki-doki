@@ -1060,6 +1060,20 @@ export const musicRatings = sqliteTable('music_ratings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userRefUnique: unique().on(t.userId, t.ref) }))
 
+// The household social layer for a track — mirrors video_moments (see there), keyed by
+// the unified track ref (frontend/src/lib/music/trackRef.ts: bare YouTube id,
+// `local:<id>`, or `plex:<machine>:<ratingKey>`) instead of source+videoId. Household-
+// visible by design, same as video moments — no per-user scoping on read.
+export const musicMoments = sqliteTable('music_moments', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  ref: text('ref').notNull(),
+  atSec: integer('at_sec').notNull(),
+  emoji: text('emoji'),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
 // Parental-advisory state per track ref, feeding the per-profile music protections.
 // explicit: null=unknown, 0=clean, 1=explicit, 2=clean edit of an explicit song.
 // source precedence when writing: manual > tag > deezer/itunes (see lib/music/advisory).

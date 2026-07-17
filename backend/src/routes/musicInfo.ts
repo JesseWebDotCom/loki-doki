@@ -3,12 +3,15 @@
 // and only call it when a track search is explicitly requested.
 
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { requireAuth } from '@/middleware/auth'
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { getArtist, searchArtists, itunesSongArt, sameArtistName } from '@/lib/music/catalog'
 import { getSongSmartLinks, getAlbumSmartLinks } from '@/lib/music/smartLinks'
 import { musicPolicyFor, itunesSongAdvisory, lyricsHidden, OPEN_POLICY } from '@/lib/music/advisory'
 import { deezerArtistPicture } from '@/lib/music/deezer'
+import { ollamaChatStream } from '@/llm/ollama'
+import { getModel } from '@/lib/models'
 import type { AppEnv } from '@/types'
 
 export const musicInfo = new Hono<AppEnv>()
@@ -23,7 +26,7 @@ const COMMONS_FILEPATH = 'https://commons.wikimedia.org/wiki/Special:FilePath'
 
 const wikiHeaders = { 'User-Agent': MB_UA, Accept: 'application/json' }
 
-interface WikiSummary { title: string; description: string; extract: string; image: string | null; url: string | null }
+export interface WikiSummary { title: string; description: string; extract: string; image: string | null; url: string | null }
 
 async function wikipediaSummary(title: string): Promise<WikiSummary | null> {
   const res = await fetch(`${WP_REST}/${encodeURIComponent(title)}`, {
@@ -130,7 +133,7 @@ function looksLikeArtist(info: Pick<WikiSummary, 'description' | 'extract'>): bo
 //   2. Direct Wikipedia summary by name (+ standard "(band)"/"(musician)" titles),
 //      accepted only when the page verifiably describes a musical act.
 //   3. Music-biased Wikipedia search as a last resort (same verification + name match).
-async function resolveArtistInfo(name: string, mbid: string | null): Promise<(WikiSummary & { found: true; logo: string | null }) | { found: false }> {
+export async function resolveArtistInfo(name: string, mbid: string | null): Promise<(WikiSummary & { found: true; logo: string | null }) | { found: false }> {
   let image: string | null = null
   let extract = ''
   let url: string | null = null
@@ -325,19 +328,16 @@ musicInfo.get('/track', async (c) => {
   }
 })
 
-// GET /api/music/info/song?artist=X&title=Y — Wikipedia summary for a song (for the Now-Playing
-// info panel). Tries the song page, then "artist song", then falls back to the artist.
-musicInfo.get('/song', async (c) => {
-  const artist = c.req.query('artist')?.trim() ?? ''
-  const title = c.req.query('title')?.trim()
-  if (!title) return c.json({ found: false })
+// Wikipedia summary for a song. Tries the song page, then "artist song", then falls back
+// to a bare-title lookup gated on it actually reading as a song by/naming this artist.
+export async function resolveSongInfo(artist: string, title: string): Promise<(WikiSummary & { found: true }) | { found: false }> {
   try {
     // Disambiguated page forms are inherently song articles, so accept them on sight. Wikipedia
     // uses "<Title> (<Artist> song)" and "<Title> (song)" exactly for this.
     const songForms = [artist ? `${title} (${artist} song)` : '', `${title} (song)`].filter(Boolean)
     for (const cand of songForms) {
       const info = await wikipediaSummary(cand)
-      if (info?.extract) return c.json({ found: true, ...info })
+      if (info?.extract) return { found: true, ...info }
     }
     // Bare title is ambiguous ("Columns" → architectural columns), so only accept it when the page
     // is clearly about a song / the artist is named in the blurb. And for COVERS the bare article
@@ -347,17 +347,26 @@ musicInfo.get('/song', async (c) => {
     const info = await wikipediaSummary(title)
     const namesArtist = !artist
       || tokenOverlap(artist, info?.extract ?? '') >= Math.ceil(lyricTokens(artist).size / 2)
-    if (info?.extract && looksLikeSong(info, artist) && namesArtist) return c.json({ found: true, ...info })
-    return c.json({ found: false })
+    if (info?.extract && looksLikeSong(info, artist) && namesArtist) return { found: true, ...info }
+    return { found: false }
   } catch {
-    return c.json({ found: false })
+    return { found: false }
   }
+}
+
+// GET /api/music/info/song?artist=X&title=Y — Wikipedia summary for a song (for the Now-Playing
+// info panel).
+musicInfo.get('/song', async (c) => {
+  const artist = c.req.query('artist')?.trim() ?? ''
+  const title = c.req.query('title')?.trim()
+  if (!title) return c.json({ found: false })
+  return c.json(await resolveSongInfo(artist, title))
 })
 
 // ── Lyrics (LRCLIB) ────────────────────────────────────────────────────────────────
 // Free, keyless, open lyrics database with time-synced LRC. Cached hard (lyrics don't change).
 export interface LyricLine { sec: number; text: string }
-interface LyricsResult { synced: LyricLine[] | null; plain: string | null; source: string }
+export interface LyricsResult { synced: LyricLine[] | null; plain: string | null; source: string }
 
 // Normalise a title/artist to comparable tokens: lowercase, drop parentheticals &
 // "feat." tails, keep alphanumerics + CJK, split on whitespace.
@@ -415,7 +424,7 @@ function parseLrc(lrc: string): LyricLine[] {
   return out.sort((a, b) => a.sec - b.sec)
 }
 
-async function fetchLrclib(artist: string, title: string, duration?: number): Promise<LyricsResult> {
+export async function fetchLrclib(artist: string, title: string, duration?: number): Promise<LyricsResult> {
   const headers = { 'User-Agent': MB_UA, Accept: 'application/json' }
   // Exact match endpoint first (best, includes duration disambiguation).
   try {
@@ -516,6 +525,83 @@ musicInfo.get('/lyrics', async (c) => {
     () => fetchLrclib(artist, title, duration),
   )
   return c.json(result)
+})
+
+// ── Ask the song ─────────────────────────────────────────────────────────────────
+// A lightweight per-track chat grounded in lyrics + the artist/song bios already
+// surfaced in the Now Playing "About" tab (see resolveArtistInfo/resolveSongInfo
+// above) — the video watch page's Ask-the-video, for music. Session-only: the client
+// holds the thread and replays it, so nothing is persisted server-side. Streams via
+// SSE, same contract as Ask-the-video/Ask-the-episode. Lyrics respect the same
+// hide-explicit content policy as the /lyrics route (fail closed on unknowns).
+musicInfo.post('/ask', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json<{
+    artist?: string; title?: string; question?: string
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  }>().catch(() => ({}) as Record<string, never>)
+  const artist = body.artist?.trim() ?? ''
+  const title = body.title?.trim() ?? ''
+  const question = body.question?.trim()?.slice(0, 500)
+  if (!title || !question) return c.json({ error: 'title and question required' }, 400)
+  const history = (body.history ?? [])
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .slice(-6)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 1000) }))
+
+  let lyricsText: string | null = null
+  let lyricsRestricted = false
+  const policy = await musicPolicyFor(user.id)
+  if (policy.lyrics === 'hide-explicit') {
+    const advisory = await itunesSongAdvisory(artist, title).catch(() => null)
+    lyricsRestricted = lyricsHidden(policy, advisory)
+  }
+  if (!lyricsRestricted) {
+    const lyrics = await cachedLookup<LyricsResult>(
+      'lrclib', `${artist}|${title}|`, THIRTY_DAYS_MS, () => fetchLrclib(artist, title),
+    )
+    lyricsText = lyrics.plain ?? (lyrics.synced?.length ? lyrics.synced.map((l) => l.text).join('\n') : null)
+  }
+
+  const [artistInfo, songInfo] = await Promise.all([
+    artist
+      ? cachedLookup('artist-info-v3', `|${artist}`, THIRTY_DAYS_MS, () => resolveArtistInfo(artist, null))
+      : Promise.resolve({ found: false as const }),
+    resolveSongInfo(artist, title),
+  ])
+
+  const header = `Song: "${title}"${artist ? ` by ${artist}` : ''}`
+  const lyricsBlock = lyricsRestricted
+    ? '\n\n(Lyrics are hidden by this profile\'s content settings — do not quote or guess at them.)'
+    : lyricsText ? `\n\nLyrics:\n${lyricsText.slice(0, 4000)}` : '\n\n(Lyrics were not found for this song.)'
+  const artistBlock = artistInfo.found ? `\n\nAbout ${artist}: ${artistInfo.extract.slice(0, 1200)}` : ''
+  const songBlock = songInfo.found ? `\n\nAbout this song: ${songInfo.extract.slice(0, 1200)}` : ''
+
+  const systemPrompt =
+    'You answer questions about one specific song for a family member, using ONLY the material below: its lyrics ' +
+    'and background about the song/artist. Quote lyrics sparingly and only when it directly answers the question. ' +
+    'If the material below does not cover the question, say so briefly rather than guessing. ' +
+    'Keep answers short, warm, and conversational. Explain simply if the question sounds like it comes from a child. ' +
+    'Do not use em dashes.'
+
+  const model = await getModel()
+  return streamSSE(c, async (stream) => {
+    try {
+      const chunks = ollamaChatStream(model, [
+        { role: 'system', content: systemPrompt },
+        ...history,
+        { role: 'user', content: `${header}${lyricsBlock}${artistBlock}${songBlock}\n\nQuestion: ${question}` },
+      ], { temperature: 0.3, num_predict: 500 })
+      for await (const chunk of chunks) {
+        if (chunk.message?.content) {
+          await stream.writeSSE({ data: JSON.stringify({ token: chunk.message.content }) })
+        }
+      }
+      await stream.writeSSE({ data: JSON.stringify({ done: true }) })
+    } catch (err) {
+      await stream.writeSSE({ data: JSON.stringify({ error: String(err instanceof Error ? err.message : err) }) })
+    }
+  })
 })
 
 // POST /api/music/info/lyrics/translate: LLM translation (+ romanized pronunciation for

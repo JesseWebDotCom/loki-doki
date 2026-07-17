@@ -7,12 +7,20 @@ import { Spinner } from '@/components/ui/spinner'
 import { ScrollFade } from '@/components/shared/ScrollFade'
 import { cn } from '@/lib/cn'
 import { toast } from 'sonner'
-import { addMoment, listMoments, removeMoment, type VideoSource } from '@/lib/videos/api'
 
-// Moments: the family's private reactions on a video. A saved moment is both a bookmark
-// (jump back to the bit worth rewatching) and a note to the rest of the household ("Dad at
-// 12:31"). Netflix ships Moments and niconico ships timed comments; neither is private, and
-// nobody offers this scoped to one family. Everything stays on the home server.
+// Moments: the family's private reactions on a piece of media (video, track, episode). A
+// saved moment is both a bookmark (jump back to the bit worth rewatching) and a note to
+// the rest of the household ("Dad at 12:31"). Netflix ships Moments and niconico ships
+// timed comments; neither is private, and nobody offers this scoped to one family.
+// Everything stays on the home server. Media-agnostic: the caller injects its own
+// list/add/remove calls (each media type keys moments differently — source+videoId for
+// video, a unified track ref for music, episodeId for podcasts) so this component owns
+// only the shared UI, not any one backend's shape.
+
+export interface MomentItem {
+  id: string; userId: string; atSec: number; emoji: string | null; note: string | null
+  by: string; mine: boolean; createdAt: number
+}
 
 const QUICK_EMOJI = ['😂', '😮', '❤️', '🔥', '👀']
 
@@ -22,23 +30,26 @@ function fmtAt(sec: number): string {
   return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
 }
 
-export function MomentsPanel({ source, videoId, currentSec, onSeek }: {
-  source: VideoSource | 'youtube'
-  videoId: string
+export function MomentsPanel({ queryKey, currentSec, onSeek, listMoments, addMoment, removeMoment, emptyHint }: {
+  /** react-query cache key for this item's moments — must be stable/unique per item. */
+  queryKey: readonly unknown[]
   /** Live playhead: where a new moment lands. */
   currentSec: number
   onSeek: (sec: number) => void
+  listMoments: () => Promise<{ moments: MomentItem[] }>
+  addMoment: (atSec: number, opts: { emoji?: string; note?: string }) => Promise<{ id: string }>
+  removeMoment: (id: string) => Promise<{ ok: true }>
+  emptyHint?: string
 }) {
   const qc = useQueryClient()
-  const key = ['videos-moments', source, videoId]
-  const { data, isLoading } = useQuery({ queryKey: key, queryFn: () => listMoments(source, videoId) })
+  const { data, isLoading } = useQuery({ queryKey, queryFn: listMoments })
   const moments = data?.moments ?? []
   const [note, setNote] = useState('')
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: key })
+  const invalidate = () => qc.invalidateQueries({ queryKey })
   const add = useMutation({
     mutationFn: ({ emoji, note: n }: { emoji?: string; note?: string }) =>
-      addMoment(source, videoId, Math.max(0, Math.floor(currentSec)), { emoji, note: n }),
+      addMoment(Math.max(0, Math.floor(currentSec)), { emoji, note: n }),
     onSuccess: () => { setNote(''); void invalidate() },
     onError: () => toast.error('Could not save that moment'),
   })
@@ -57,8 +68,7 @@ export function MomentsPanel({ source, videoId, currentSec, onSeek }: {
             <div className="px-1 py-6 text-center">
               <Bookmark className="mx-auto mb-2 size-5 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">
-                Save a moment for your family: a reaction, or a note about the bit worth rewatching.
-                It stays on your home server.
+                {emptyHint ?? 'Save a moment for your family: a reaction, or a note about the bit worth rewatching. It stays on your home server.'}
               </p>
             </div>
           )}

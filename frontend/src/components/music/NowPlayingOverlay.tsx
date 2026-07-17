@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import {
   ChevronDown, Heart, Download, MonitorPlay, Play, Pause, SkipForward, AudioLines,
   Mic, Mic2, Moon, Volume2, VolumeX, ListMusic, Disc3, Sparkles, RotateCcw, RotateCw, Repeat1,
-  SlidersHorizontal, MoreHorizontal, Radio, Shuffle,
+  SlidersHorizontal, MoreHorizontal, Radio, Shuffle, Bookmark,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
@@ -27,13 +27,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu'
 import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel, UpNextList, TuningLyrics, useSourceBackLink, useNowPlayingPrefetch } from './nowPlayingParts'
 import { EqPanel } from './EqPanel'
-import { addFavorite, saveOffline } from '@/lib/music/catalogApi'
+import { addFavorite, saveOffline, listTrackMoments, addTrackMoment, removeTrackMoment } from '@/lib/music/catalogApi'
+import { MomentsPanel } from '@/components/videos/MomentsPanel'
+import { AskTrackPanel } from '@/components/music/AskTrackPanel'
 import { startTrackRadio } from '@/components/music/TrackRadioButton'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 import { useWaveform } from '@/lib/music/metaApi'
 import { queueForKaraoke } from '@/lib/music/karaokeQueue'
 
-type Tab = 'lyrics' | 'up-next' | 'about'
+type Tab = 'lyrics' | 'ask' | 'moments' | 'up-next' | 'about'
 
 // The app-wide, immersive "full page" player (Apple Music / Plexamp style). It reuses the
 // existing playback engine wholesale via useRadio() (no engine changes). Raised from the
@@ -360,8 +362,14 @@ export function NowPlayingOverlay() {
         {/* Tabs: Lyrics / Up Next / About, themed on a dark card so tokens stay readable */}
         <div data-theme="dark" className="mt-5 flex min-h-0 flex-1 flex-col text-foreground">
           <AppTabBar
-            tabs={[{ id: 'lyrics', label: 'Lyrics' }, { id: 'up-next', label: 'Up Next' }, { id: 'about', label: 'About' }]}
-            value={tab} onChange={setTab} variant="glass" className="shrink-0"
+            tabs={[
+              { id: 'lyrics', label: 'Lyrics' },
+              { id: 'ask', label: 'Ask', icon: Sparkles },
+              { id: 'moments', label: 'Moments', icon: Bookmark },
+              { id: 'up-next', label: 'Up Next' },
+              { id: 'about', label: 'About' },
+            ]}
+            value={tab} onChange={setTab} variant="glass" compact className="shrink-0"
           />
 
           <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
@@ -371,6 +379,23 @@ export function NowPlayingOverlay() {
               cur && !(radio.phase === 'intro' && !radio.djSpeaking)
                 ? <LyricsPanel artist={artist} title={cur.title} position={radio.positionSec} duration={radio.durationSec} />
                 : <TuningLyrics stationId={radio.station?.stationId} color={c1} />
+            )}
+
+            {tab === 'ask' && (
+              cur ? <AskTrackPanel artist={artist} title={cur.title} /> : null
+            )}
+
+            {tab === 'moments' && (
+              cur ? (
+                <MomentsPanel
+                  queryKey={['music-moments', cur.videoId]}
+                  currentSec={radio.positionSec} onSeek={radio.seek}
+                  listMoments={() => listTrackMoments(cur.videoId)}
+                  addMoment={(atSec, opts) => addTrackMoment(cur.videoId, atSec, opts)}
+                  removeMoment={removeTrackMoment}
+                  emptyHint="Save a moment for your family: a reaction, or a note about the bit worth catching again. It stays on your home server."
+                />
+              ) : null
             )}
 
             {tab === 'about' && (

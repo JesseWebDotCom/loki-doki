@@ -1164,6 +1164,16 @@ export function runMigrations() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_music_ratings_user_ref ON music_ratings(user_id, ref);
 
+    CREATE TABLE IF NOT EXISTS music_moments (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      ref TEXT NOT NULL,
+      at_sec INTEGER NOT NULL,
+      emoji TEXT,
+      note TEXT,
+      created_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS music_track_advisory (
       ref TEXT NOT NULL PRIMARY KEY,
       explicit INTEGER,

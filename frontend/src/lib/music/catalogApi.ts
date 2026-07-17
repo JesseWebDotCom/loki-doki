@@ -272,6 +272,60 @@ export function getArtistInfo(name: string, mbid?: string) {
   return mfetch<WikiInfo>(`/info/artist?${p}`)
 }
 
+// ── Ask the song ─────────────────────────────────────────────────────────────────
+// Streams token-by-token, same SSE contract as lib/videos/api.ts's askVideo() /
+// lib/podcast/aiApi.ts's askEpisode() — `onToken` fires per token, the promise
+// resolves when the stream ends.
+export interface AskTrackMessage { role: 'user' | 'assistant'; content: string }
+export async function askTrack(
+  artist: string, title: string, question: string, history: AskTrackMessage[],
+  onToken: (token: string) => void, signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/music/info/ask', {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, signal,
+    body: JSON.stringify({ artist, title, question, history }),
+  })
+  if (!res.ok || !res.body) {
+    const d = await res.json().catch(() => null) as { error?: string } | null
+    throw new Error(d?.error || 'Could not answer that right now.')
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      let payload: { token?: string; done?: boolean; error?: string }
+      try { payload = JSON.parse(line.slice(6)) } catch { continue }
+      if (payload.error) throw new Error(payload.error)
+      if (payload.token) onToken(payload.token)
+      if (payload.done) return
+    }
+  }
+}
+
+// ── Moments ──────────────────────────────────────────────────────────────────────
+// The household social layer for a track, keyed by the unified track ref (see
+// lib/music/trackRef.ts) — same shape as videos' MomentsPanel/lib/videos/api.ts.
+export interface TrackMoment {
+  id: string; userId: string; atSec: number; emoji: string | null; note: string | null
+  by: string; mine: boolean; createdAt: number
+}
+export function listTrackMoments(ref: string) {
+  return mfetch<{ moments: TrackMoment[] }>(`/meta/moments/${encodeURIComponent(ref)}`)
+}
+export function addTrackMoment(ref: string, atSec: number, opts: { emoji?: string; note?: string }) {
+  return mfetch<{ id: string }>('/meta/moments', { method: 'POST', body: body({ ref, atSec, ...opts }) })
+}
+export function removeTrackMoment(momentId: string) {
+  return mfetch<{ ok: true }>(`/meta/moments/${momentId}`, { method: 'DELETE' })
+}
+
 export interface PlatformLink { platform: string; url: string }
 export function getSongSmartLinks(artist: string, track: string) {
   return mfetch<{ links: PlatformLink[] }>(`/info/smart-links?artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}`)

@@ -5,9 +5,9 @@
 
 import { randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { musicRatings, musicTrackAudio } from '@/db/schema'
+import { musicRatings, musicTrackAudio, musicMoments, users } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { queueAudioScan } from '@/lib/music/audioScan'
 import { resolveStreamMeta } from '@/lib/music/trackRef'
@@ -86,5 +86,55 @@ musicMeta.delete('/ratings/:ref', async (c) => {
   const user = c.get('user')
   await db.delete(musicRatings)
     .where(and(eq(musicRatings.userId, user.id), eq(musicRatings.ref, c.req.param('ref'))))
+  return c.json({ ok: true })
+})
+
+// ── Moments ─────────────────────────────────────────────────────────────────────────
+// The household social layer for a track (bookmark + emoji reaction at a timestamp) —
+// mirrors video_moments' three-route shape. Household-visible on read; only the author
+// can delete their own.
+musicMeta.get('/moments/:ref', async (c) => {
+  const rows = await db.select({
+    id: musicMoments.id, userId: musicMoments.userId, atSec: musicMoments.atSec,
+    emoji: musicMoments.emoji, note: musicMoments.note, createdAt: musicMoments.createdAt,
+    name: users.nickname, firstName: users.firstName,
+  })
+    .from(musicMoments)
+    .leftJoin(users, eq(users.id, musicMoments.userId))
+    .where(eq(musicMoments.ref, c.req.param('ref')))
+    .orderBy(asc(musicMoments.atSec))
+  return c.json({
+    moments: rows.map((r) => ({
+      id: r.id, userId: r.userId, atSec: r.atSec, emoji: r.emoji, note: r.note,
+      by: r.name || r.firstName || 'Someone',
+      mine: r.userId === c.get('user').id,
+      createdAt: r.createdAt?.getTime() ?? 0,
+    })),
+  })
+})
+
+musicMeta.post('/moments', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { ref?: string; atSec?: number; emoji?: string; note?: string }
+  if (!body.ref) return c.json({ error: 'ref required' }, 400)
+  if (!Number.isFinite(body.atSec)) return c.json({ error: 'atSec required' }, 400)
+  const emoji = body.emoji?.trim().slice(0, 8) || null
+  const note = body.note?.trim().slice(0, 300) || null
+  if (!emoji && !note) return c.json({ error: 'emoji or note required' }, 400)
+  const id = randomUUID()
+  await db.insert(musicMoments).values({
+    id, userId: user.id, ref: body.ref,
+    atSec: Math.max(0, Math.floor(body.atSec as number)), emoji, note, createdAt: new Date(),
+  })
+  return c.json({ id })
+})
+
+// Only the author may remove their own reaction.
+musicMeta.delete('/moments/:momentId', async (c) => {
+  const user = c.get('user')
+  await db.delete(musicMoments).where(and(
+    eq(musicMoments.id, c.req.param('momentId')),
+    eq(musicMoments.userId, user.id),
+  ))
   return c.json({ ok: true })
 })

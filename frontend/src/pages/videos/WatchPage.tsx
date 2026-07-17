@@ -52,6 +52,7 @@ import {
   getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, getAutoChapters, listSaves, saveVideo, putWatchState, savedFileUrl,
   listFollows, addFollow, removeFollow, getVideoSources,
   getVideoTranscriptStatus, transcribeVideo,
+  listMoments, addMoment, removeMoment,
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
@@ -581,7 +582,15 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           )}
           {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
           {tab === 'ask' && <AskVideoPanel source="youtube" videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} />}
-          {tab === 'moments' && <MomentsPanel source="youtube" videoId={videoId} currentSec={currentSec} onSeek={(sec) => playerRef.current?.seek(sec)} />}
+          {tab === 'moments' && (
+            <MomentsPanel
+              queryKey={['videos-moments', 'youtube', videoId]}
+              currentSec={currentSec} onSeek={(sec) => playerRef.current?.seek(sec)}
+              listMoments={() => listMoments('youtube', videoId)}
+              addMoment={(atSec, opts) => addMoment('youtube', videoId, atSec, opts)}
+              removeMoment={removeMoment}
+            />
+          )}
           {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
         </SidePanelShell>
       </aside>
@@ -1739,7 +1748,15 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           )}
           {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
           {tab === 'ask' && <AskVideoPanel source={source} videoId={id} onSeek={seekTo} />}
-          {tab === 'moments' && <MomentsPanel source={source} videoId={id} currentSec={currentSec < 0 ? 0 : currentSec} onSeek={seekTo} />}
+          {tab === 'moments' && (
+            <MomentsPanel
+              queryKey={['videos-moments', source, id]}
+              currentSec={currentSec < 0 ? 0 : currentSec} onSeek={seekTo}
+              listMoments={() => listMoments(source, id)}
+              addMoment={(atSec, opts) => addMoment(source, id, atSec, opts)}
+              removeMoment={removeMoment}
+            />
+          )}
           {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
         </SidePanelShell>
       </aside>
