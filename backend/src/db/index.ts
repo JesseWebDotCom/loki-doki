@@ -3444,4 +3444,59 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS suggestion_impressions_user_domain_idx ON suggestion_impressions(user_id, domain);
   `)
+
+  // Family audio controls: per-profile allowlist/blocklist, time budgets, quiet hours,
+  // volume cap, usage ledger, guardrail events, weekly parent digests (see schema.ts
+  // familyAudio* tables and lib/family/audioPolicy.ts).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS family_audio_settings (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      allowlist_only INTEGER NOT NULL DEFAULT 0,
+      daily_audio_minutes INTEGER,
+      quiet_hours_start TEXT,
+      quiet_hours_end TEXT,
+      max_volume_percent INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS family_audio_entries (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      list TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      alt_ref TEXT,
+      label TEXT NOT NULL,
+      added_by TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, list, kind, ref)
+    );
+    CREATE INDEX IF NOT EXISTS family_audio_entries_user_idx ON family_audio_entries(user_id);
+    CREATE TABLE IF NOT EXISTS family_audio_usage (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      medium TEXT NOT NULL,
+      seconds INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, day, medium)
+    );
+    CREATE INDEX IF NOT EXISTS family_audio_usage_day_idx ON family_audio_usage(day);
+    CREATE TABLE IF NOT EXISTS family_audio_events (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      detail TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS family_audio_events_user_created_idx ON family_audio_events(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS family_audio_digests (
+      id TEXT NOT NULL PRIMARY KEY,
+      week_start TEXT NOT NULL UNIQUE,
+      payload TEXT NOT NULL DEFAULT '{}',
+      summary TEXT,
+      created_at INTEGER NOT NULL
+    );
+  `)
 }

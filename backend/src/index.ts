@@ -81,6 +81,9 @@ import { home } from '@/routes/home'
 import { privacy } from '@/routes/privacy'
 import { adminContent } from '@/routes/adminContent'
 import { content } from '@/routes/content'
+import { familyAudio } from '@/routes/familyAudio'
+import { adminFamilyAudio } from '@/routes/adminFamilyAudio'
+import { startFamilyAudioDigestPoller } from '@/lib/family/digest'
 import { consent } from '@/routes/consent'
 import { adminLocale } from '@/routes/adminLocale'
 import { adminSpeedtest } from '@/routes/adminSpeedtest'
@@ -340,6 +343,8 @@ if (firstBoot) {
   startFeedPoller()
   // Real podcast subscriptions: refresh RSS shows for new episodes (+ auto-download pass).
   startPodcastFeedPoller()
+  // Family audio: weekly parent digest (Monday morning; app_settings key gates reruns).
+  startFamilyAudioDigestPoller()
   // Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
   // that window between polls (bursts / extended downtime) is invisible to the poller forever.
   // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
@@ -620,6 +625,8 @@ app.route('/api/home', home)
 app.route('/api/privacy', privacy)
 app.route('/api/admin/content', adminContent)
 app.route('/api/content', content)
+app.route('/api/family-audio', familyAudio)
+app.route('/api/admin/family-audio', adminFamilyAudio)
 app.route('/api/consent', consent)
 app.route('/api/admin/locale', adminLocale)
 app.route('/api/admin/speedtest', adminSpeedtest)
