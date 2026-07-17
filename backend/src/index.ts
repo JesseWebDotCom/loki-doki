@@ -140,6 +140,7 @@ import adminBackups from '@/routes/adminBackups'
 import adminRemoteAccess from '@/routes/adminRemoteAccess'
 import routinesRoute from '@/routes/routines'
 import adminNetworkProtection from '@/routes/adminNetworkProtection'
+import mcpAdmin, { mcpPublic } from '@/routes/mcp'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -714,6 +715,8 @@ app.route('/api/admin/backups', adminBackups)
 app.route('/api/admin/remote-access', adminRemoteAccess)
 app.route('/api/routines', routinesRoute)
 app.route('/api/admin/network-protection', adminNetworkProtection)
+app.route('/api/admin/mcp', mcpAdmin)
+app.route('/api/mcp', mcpPublic)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))
