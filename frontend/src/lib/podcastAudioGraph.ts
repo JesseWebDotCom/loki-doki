@@ -158,6 +158,7 @@ export function fadePodcastVolume(el: HTMLMediaElement, value: number, sec: numb
   }
 }
 
+/** Cancel a sleep fade and return the element to its intended level. */
 export function resetPodcastVolume(el: HTMLMediaElement): void {
   const g = graphs.get(el)
   if (g) {
@@ -166,19 +167,36 @@ export function resetPodcastVolume(el: HTMLMediaElement): void {
       g.outGain.gain.setTargetAtTime(1, g.ctx.currentTime, 0.05)
     } catch { g.outGain.gain.value = 1 }
   }
-  // The element's own volume is the ducking fallback when no graph attached, so
-  // restore it to whatever ducking currently wants rather than blindly to 1.
-  el.volume = duckActive ? DUCK_LEVEL : 1
+  applyElementVolume(el)
 }
 
-// ── Announcement ducking ────────────────────────────────────────────────────────
-// Duck the podcast while companion speech plays on this device (lib/speechDucking.ts).
-// Applies to whichever element the graph engine currently owns; with no graph
-// (Web Audio unavailable / element already sourced elsewhere) it falls back to
-// element volume, which the sleep fade also uses.
+// ── Volume + announcement ducking ───────────────────────────────────────────────
+// Three things want to move the podcast's level: the user's volume (remote control /
+// family cap), the sleep-timer fade, and companion-speech ducking. They must not fight,
+// so each owns a distinct control and the element's own volume carries ONLY the base:
+//   • base volume  -> element .volume (via setPodcastVolume)
+//   • sleep fade   -> outGain
+//   • ducking      -> duckGain
+// With no graph attached (Web Audio unavailable, or the element is already sourced
+// elsewhere) there is only one knob, so base and duck are multiplied onto .volume and
+// the sleep fade temporarily overrides it until resetPodcastVolume restores.
 
 const DUCK_LEVEL = 0.2
+let baseVolume = 1
 let duckActive = false
+
+function applyElementVolume(el: HTMLMediaElement): void {
+  // Graphed: ducking lives on duckGain, so the element carries the base level alone.
+  const factor = graphs.get(el) || !duckActive ? 1 : DUCK_LEVEL
+  el.volume = Math.max(0, Math.min(1, baseVolume * factor))
+}
+
+/** The player's user-facing 0..1 level. Called by PodcastPlaybackContext.setVolume,
+ *  which is the public API remote control and the family volume cap drive. */
+export function setPodcastVolume(el: HTMLMediaElement | null, v: number): void {
+  baseVolume = Math.max(0, Math.min(1, v))
+  if (el) applyElementVolume(el)
+}
 
 export function duckPodcastForSpeech(): void {
   duckActive = true
@@ -188,7 +206,7 @@ export function duckPodcastForSpeech(): void {
   if (g) {
     try { g.duckGain.gain.setTargetAtTime(DUCK_LEVEL, g.ctx.currentTime, 0.05) } catch { g.duckGain.gain.value = DUCK_LEVEL }
   } else {
-    el.volume = Math.min(el.volume, DUCK_LEVEL)
+    applyElementVolume(el)
   }
 }
 
@@ -202,7 +220,7 @@ export function unduckPodcastAfterSpeech(): void {
     // within about a percent of target by 500ms.
     try { g.duckGain.gain.setTargetAtTime(1, g.ctx.currentTime, 0.17) } catch { g.duckGain.gain.value = 1 }
   } else {
-    el.volume = 1
+    applyElementVolume(el)
   }
 }
 

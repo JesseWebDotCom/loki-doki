@@ -13,7 +13,7 @@ import {
 } from '@/lib/podcast/playerApi'
 import {
   applyPodcastDsp, duckPodcastForSpeech, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
-  setPodcastBaseRate, takeSavedSeconds, unduckPodcastAfterSpeech,
+  setPodcastBaseRate, setPodcastVolume, takeSavedSeconds, unduckPodcastAfterSpeech,
 } from '@/lib/podcastAudioGraph'
 import { registerDuckable } from '@/lib/speechDucking'
 
@@ -344,16 +344,18 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     setPositionSec(sec)
   }, [])
 
+  // Volume is applied through the audio graph module, which arbitrates it against the
+  // sleep fade and speech ducking (see podcastAudioGraph) instead of three call sites
+  // racing to set element volume.
   const [volume, setVolumeState] = useState(1)
   const setVolume = useCallback((v: number) => {
     const vol = Math.max(0, Math.min(1, v))
     setVolumeState(vol)
-    if (audioRef.current) audioRef.current.volume = vol
+    setPodcastVolume(audioRef.current, vol)
   }, [])
-  // Re-apply on track change: a fresh <audio> src keeps the element's volume, but a
-  // remounted element would not, so this keeps the two in sync either way.
+  // Re-apply on track change so a fresh/remounted element picks up the chosen level.
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = volume
+    setPodcastVolume(audioRef.current, volume)
   }, [track?.episodeId, volume]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setRate = useCallback((r: number) => {
