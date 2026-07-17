@@ -3080,6 +3080,30 @@ export const plexPathMappings = sqliteTable('plex_path_mappings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Network protection (DNS filtering) ────────────────────────────────────────
+// Per-device query log rollup and custom rules for the opt-in DNS ad/tracker
+// blocker (lib/dns). Blocklists themselves live on disk (data/dns); this table is
+// just the small relational state: named device profiles keyed by client IP, and
+// manual allow/deny overrides. Global config (enabled, upstreams, categories)
+// lives in app_settings under 'dns.config'.
+export const dnsDevices = sqliteTable('dns_devices', {
+  ip: text('ip').primaryKey(),
+  label: text('label').notNull(),
+  profile: text('profile').notNull().default('default'), // 'default' | 'kids' | 'unfiltered'
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  queries: integer('queries').notNull().default(0),
+  blocked: integer('blocked').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const dnsRules = sqliteTable('dns_rules', {
+  id: text('id').primaryKey(),
+  domain: text('domain').notNull(),
+  action: text('action').notNull(), // 'allow' | 'deny'
+  profile: text('profile'), // null = applies to all profiles
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── Routines ────────────────────────────────────────────────────────────────
 // User-defined trigger/condition/action automations. Authored in the Routines app
 // or conversationally by the companion (with a staged confirm), executed

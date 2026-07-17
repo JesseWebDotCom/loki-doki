@@ -276,12 +276,15 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'security', label: 'Content & Safety', icon: ShieldCheck, group: 'Household',
-    keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored'],
-    description: 'Style flags, filtering, and privacy mode',
+    keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored', 'network', 'dns', 'adblock', 'parental'],
+    description: 'Style flags, filtering, privacy mode, and network protection',
     subsections: [
       { id: 'styles', label: 'Styles', kind: 'view',
         keywords: ['lora', 'style', 'adult', 'flag', 'rescan', 'image'],
         description: 'Manually mark image styles as adult' },
+      { id: 'network', label: 'Network', kind: 'view',
+        keywords: ['network', 'dns', 'adblock', 'ads', 'trackers', 'blocklist', 'parental', 'kids', 'filter', 'malware'],
+        description: 'Network-wide DNS ad/tracker blocking and per-device parental profiles' },
       { id: 'filtering', label: 'Filtering', kind: 'view',
         keywords: ['keywords', 'adult', 'detection', 'lora', 'nsfw', 'scan', 'filter'],
         description: 'Keywords used to flag adult image styles at import' },
