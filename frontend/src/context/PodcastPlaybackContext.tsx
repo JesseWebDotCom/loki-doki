@@ -63,6 +63,10 @@ interface PodcastPlaybackCtx {
   adSegments: AdSegment[]
   /** Ad-detection pipeline state for the current track (see AdPrepStatus). */
   adStatus: AdPrepStatus
+  /** A short human line describing the current ad stage or the failure reason. */
+  adPrepLabel: string | null
+  /** Retry ad detection after it went 'unavailable' (forces a fresh scan/transcribe). */
+  retryAdDetection: () => void
   sleep: SleepState
   audioRef: React.RefObject<HTMLAudioElement | null>
   /** Play a single track now. Up Next is left intact and plays after it. */
@@ -147,9 +151,15 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   const [sleep, setSleepState] = useState<SleepState>({ mode: 'off' })
   const [adSegments, setAdSegments] = useState<AdSegment[]>([])
   const [adStatus, setAdStatus] = useState<AdPrepStatus>('off')
-  // Auto-transcribe is kicked at most once per episode per session, so a failing
-  // sidecar (or an un-transcribable episode) is not re-hammered on every poll tick.
+  // A short line describing what the ad pipeline is doing (e.g. "Finding ads 40%",
+  // "Transcribing") or why it stopped (the failure reason), shown under the scrubber.
+  const [adPrepLabel, setAdPrepLabel] = useState<string | null>(null)
+  // Bumped by retryAdDetection to force the effect below to re-run after a failure.
+  const [adRetryNonce, setAdRetryNonce] = useState(0)
+  // Auto-transcribe / auto-scan are each kicked at most once per episode per session,
+  // so a failing sidecar or model is not re-hammered on every poll tick.
   const preparedEpisodes = useRef(new Set<string>())
+  const requestedScans = useRef(new Set<string>())
   // Each detected range fires at most once per play session, so a user who scrubs
   // back into one deliberately can listen through it (the natural way to verify a
   // detection) without the player fighting them.
@@ -411,47 +421,74 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   // background we make sure it has a transcript, then a scan, then live ad ranges.
   // Auto-transcribe is the point of this: an episode with no transcript gets one
   // started automatically (once per session), and the transcribe job chains into the
-  // ad scan on completion. Ads only start being skipped once ranges arrive; until
-  // then adStatus is 'preparing' so the UI can say so.
+  // ad scan on completion. Ads only start being skipped once ranges arrive; until then
+  // adStatus is 'preparing' (with adPrepLabel saying what stage / how far). A failed
+  // scan or an un-transcribable episode goes 'unavailable' with the reason, and does
+  // NOT silently retry forever (retryAdDetection re-runs it on demand).
   useEffect(() => {
     const episodeId = track?.episodeId
     setAdSegments([])
-    if (!episodeId || !effectiveSkipAds) { setAdStatus('off'); return }
-    setAdStatus('preparing')
+    if (!episodeId || !effectiveSkipAds) { setAdStatus('off'); setAdPrepLabel(null); return }
+    setAdStatus('preparing'); setAdPrepLabel('Finding ads')
     let alive = true
     let tries = 0
     let timer: number | undefined
-    const poll = () => { if (++tries <= 60) timer = window.setTimeout(() => { void check() }, 20_000) }
+    const poll = () => { if (++tries <= 90) timer = window.setTimeout(() => { void check() }, 20_000) }
+    const stop = (label: string) => { setAdStatus('unavailable'); setAdPrepLabel(label) }
     const check = async () => {
-      // 1. Scan already done?
+      // 1. Scan state first.
       const scan = await getAdSegments(episodeId).catch(() => null)
       if (!alive) return
-      if (scan?.status === 'ready') { setAdSegments(scan.segments); setAdStatus('ready'); return }
-      if (scan && (scan.status === 'pending' || scan.status === 'processing')) { setAdStatus('preparing'); poll(); return }
+      if (scan?.status === 'ready') { setAdSegments(scan.segments); setAdStatus('ready'); setAdPrepLabel(null); return }
+      if (scan && (scan.status === 'pending' || scan.status === 'processing')) {
+        setAdStatus('preparing')
+        setAdPrepLabel(scan.progress?.percent != null ? `Finding ads ${scan.progress.percent}%` : (scan.progress?.note || 'Finding ads'))
+        poll(); return
+      }
+      // A scan that gave up: surface the reason and stop (no infinite re-request).
+      if (scan?.status === 'failed') { stop(scan.error ? `Ad scan failed: ${scan.error.slice(0, 120)}` : 'Ad scan failed'); return }
 
-      // 2. No scan yet: make sure the transcript it needs exists or is being made.
+      // 2. No scan yet ('none'): make sure the transcript it needs exists or is being made.
       const t = await getEpisodeTranscript(episodeId).catch(() => null)
       if (!alive) return
       if (t?.status === 'ready') {
-        try { await requestAdScan(episodeId); setAdStatus('preparing'); poll() }
-        catch { setAdStatus('unavailable') }
-        return
+        if (!requestedScans.current.has(episodeId)) {
+          requestedScans.current.add(episodeId)
+          try { await requestAdScan(episodeId) } catch (err) { stop(err instanceof Error ? err.message : 'Could not start the ad scan'); return }
+        }
+        setAdStatus('preparing'); setAdPrepLabel('Finding ads'); poll(); return
       }
-      if (t && (t.status === 'pending' || t.status === 'processing')) { setAdStatus('preparing'); poll(); return }
-
-      // 3. No transcript (never made, or a prior attempt failed): auto-start one,
-      //    but only once per episode per session so a broken sidecar is not hammered.
+      if (t && (t.status === 'pending' || t.status === 'processing')) {
+        setAdStatus('preparing'); setAdPrepLabel(t.progress?.percent != null ? `Transcribing ${t.progress.percent}%` : 'Transcribing'); poll(); return
+      }
+      // 3. No transcript (never made, or a prior attempt failed): auto-start one, but
+      //    only once per episode per session so a broken sidecar is not re-hammered.
       if (!preparedEpisodes.current.has(episodeId)) {
         preparedEpisodes.current.add(episodeId)
-        try { await transcribeEpisode(episodeId); setAdStatus('preparing'); poll() }
-        catch { setAdStatus('unavailable') }
+        try { await transcribeEpisode(episodeId); setAdStatus('preparing'); setAdPrepLabel('Transcribing'); poll() }
+        catch (err) { stop(err instanceof Error ? err.message : 'This episode cannot be transcribed') }
         return
       }
-      setAdStatus('unavailable')
+      stop(t?.status === 'failed' ? 'Transcription failed, so ads cannot be detected' : 'No transcript available for this episode')
     }
     void check()
     return () => { alive = false; if (timer) clearTimeout(timer) }
-  }, [track?.episodeId, effectiveSkipAds]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [track?.episodeId, effectiveSkipAds, adRetryNonce]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Manual "try again" after a failure: clear the once-per-session guards, force a
+  // fresh scan (or re-transcribe if there is no transcript), and re-run the effect.
+  const retryAdDetection = useCallback(() => {
+    const episodeId = trackRef.current?.episodeId
+    if (!episodeId) return
+    preparedEpisodes.current.delete(episodeId)
+    requestedScans.current.delete(episodeId)
+    setAdStatus('preparing'); setAdPrepLabel('Finding ads')
+    void (async () => {
+      try { await requestAdScan(episodeId, true) }
+      catch { try { await transcribeEpisode(episodeId) } catch { /* effect will surface it */ } }
+      setAdRetryNonce(n => n + 1)
+    })()
+  }, [])
 
   // "Not an ad?": rewind to where the skip fired, stop skipping the range locally,
   // and record a household-wide suppression. Time-saved credit is not clawed back
@@ -725,11 +762,11 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   }, [track])
 
   const value = useMemo<PodcastPlaybackCtx>(() => ({
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, adStatus, sleep, audioRef, volume,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, adStatus, adPrepLabel, retryAdDetection, sleep, audioRef, volume,
     play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
     next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
     refreshShowSettings, close, closeIfShow,
-  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, adStatus, sleep, volume,
+  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, adStatus, adPrepLabel, retryAdDetection, sleep, volume,
        play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
        next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
        refreshShowSettings, close, closeIfShow])

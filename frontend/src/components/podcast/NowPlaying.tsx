@@ -39,7 +39,7 @@ const SLEEP_MINUTES = [15, 30, 60]
 
 export function NowPlaying() {
   const {
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, adSegments, adStatus, sleep,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, adSegments, adStatus, adPrepLabel, retryAdDetection, sleep,
     pause, resume, seek, setRate, setAutoplay, setSleep,
     nextChapter, prevChapter, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
   } = usePodcastPlayback()
@@ -169,12 +169,15 @@ export function NowPlaying() {
         {adStatus === 'preparing' && (
           <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Spinner size="sm" />
-            Finding ads. Playing with ads until it is ready.
+            {adPrepLabel || 'Finding ads'}. Playing with ads until it is ready.
           </p>
         )}
         {adStatus === 'unavailable' && (
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Ad skipping needs a transcript, which is not available for this episode.
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="min-w-0 flex-1 truncate" title={adPrepLabel ?? undefined}>
+              {adPrepLabel || 'Ad detection is unavailable for this episode.'}
+            </span>
+            <button onClick={retryAdDetection} className="shrink-0 font-medium text-brand hover:underline">Try again</button>
           </p>
         )}
       </div>

@@ -17,7 +17,7 @@ import { filterEpisodesForUser, podcastEpisodeAllowed } from '@/lib/podcast/poli
 import { familyEntrySetsFor, podcastShowAllowed } from '@/lib/family/audioPolicy'
 import { resolveEpisodeTranscript, searchTranscriptWindows } from '@/lib/podcast/transcripts'
 import { enqueueEpisodeTranscription, transcribeJobRefId } from '@/lib/podcast/transcribe'
-import { enqueueAdScan, getAdSegments } from '@/lib/podcast/adScan'
+import { adScanJobRefId, enqueueAdScan, getAdSegments } from '@/lib/podcast/adScan'
 import { buildAskContext, generateEpisodeInsights, getEpisodeInsights } from '@/lib/podcast/ai'
 import { createSnip, deleteSnip, listSnips } from '@/lib/podcast/snips'
 import { logger } from '@/lib/logger'
@@ -129,13 +129,28 @@ podcastAiRoute.get('/episodes/:id/transcript/search', async (c) => {
 // ── Ad detection ──────────────────────────────────────────────────────────────────
 
 /** The player's one read: detected ad ranges with household 'not_ad' corrections
- *  already applied. status 'none' means no scan has ever been requested. */
+ *  already applied. status 'none' means no scan has ever been requested. While a scan
+ *  is in flight, surfaces its job progress (percent + note) so the player can show it. */
 podcastAiRoute.get('/episodes/:id/ad-segments', async (c) => {
   const user = c.get('user')
   const episodeId = c.req.param('id')
   const episode = await visibleEpisode(episodeId, user)
   if (!episode) return c.json({ error: 'Not found' }, 404)
-  return c.json(await getAdSegments(episodeId))
+  const result = await getAdSegments(episodeId)
+  let progress: { note: string | null; percent: number | null } | null = null
+  if (result.status === 'pending' || result.status === 'processing') {
+    const [job] = await db.select({ progress: downloadJobs.progress }).from(downloadJobs)
+      .where(and(eq(downloadJobs.type, 'podcast-ad-scan'), eq(downloadJobs.refId, adScanJobRefId(episodeId))))
+      .limit(1)
+    if (job?.progress) {
+      try {
+        const p = JSON.parse(job.progress) as { completed?: number; total?: number; note?: string }
+        const percent = p.total && p.total > 0 ? Math.min(99, Math.round(((p.completed ?? 0) / p.total) * 100)) : null
+        progress = { note: p.note ?? null, percent }
+      } catch { progress = null }
+    }
+  }
+  return c.json({ ...result, progress })
 })
 
 /** Queue an ad scan. Returns immediately; the player polls the GET above. Requires a

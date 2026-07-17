@@ -91,6 +91,7 @@ export interface AdSegmentsResponse {
   status: AdScanStatus
   error: string | null
   segments: AdSegment[]
+  progress?: { note: string | null; percent: number | null } | null
 }
 
 export async function getAdSegments(episodeId: string): Promise<AdSegmentsResponse> {
