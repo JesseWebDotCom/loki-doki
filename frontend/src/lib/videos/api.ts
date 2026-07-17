@@ -288,6 +288,18 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+// ── Portability ──────────────────────────────────────────────────────────────────
+
+/** The per-user RSS token + feed base (the URL carries the credential; readers can't
+ *  send our session cookie). */
+export function getRssToken(): Promise<{ token: string; base: string }> {
+  return getJson('/api/videos/rss/token')
+}
+
+export function importOpml(opml: string): Promise<{ imported: number; skipped: number; unsupported: number; total: number }> {
+  return sendJson('/api/videos/opml/import', 'POST', { opml })
+}
+
 // ── AI extras ────────────────────────────────────────────────────────────────────
 
 export interface AiChapter { start: number; title: string }

@@ -20,6 +20,7 @@ import { askVideo } from '@/lib/videos/askVideo'
 import { trickplaySheetPath } from '@/lib/videos/trickplay'
 import { buildRecap } from '@/lib/videos/recap'
 import { autoChapters, catchMeUp, suggestClips } from '@/lib/videos/aiExtras'
+import { getOrCreateRssToken, parseOpml, subscriptionsAsOpml } from '@/lib/videos/portability'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -751,6 +752,64 @@ videosRoute.put('/watch-state', async (c) => {
   })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Portability: RSS out, OPML in/out ────────────────────────────────────────────
+// Lock-in is disqualifying to this audience: every alt-frontend ships OPML import, and
+// Invidious's per-channel RSS is the most-loved thing about it. See lib/videos/portability.
+
+videosRoute.get('/rss/token', async (c) => {
+  const token = await getOrCreateRssToken(c.get('user').id)
+  return c.json({ token, base: `/api/video-rss/${token}` })
+})
+
+videosRoute.get('/opml/export', async (c) => {
+  const user = c.get('user')
+  const token = await getOrCreateRssToken(user.id)
+  const origin = new URL(c.req.url).origin
+  const opml = await subscriptionsAsOpml(user.id, `${origin}/api/video-rss/${token}`)
+  c.header('Content-Type', 'text/x-opml; charset=utf-8')
+  c.header('Content-Disposition', 'attachment; filename="loki-subscriptions.opml"')
+  return c.body(opml)
+})
+
+// Import: parse, then subscribe to everything we don't already follow. Reports what
+// landed rather than silently succeeding, since a partial import is the normal case.
+videosRoute.post('/opml/import', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { opml?: string }
+  if (!body.opml?.trim()) return c.json({ error: 'opml required' }, 400)
+  const candidates = parseOpml(body.opml)
+  if (candidates.length === 0) return c.json({ imported: 0, skipped: 0, unsupported: 0, total: 0 })
+
+  const enabled = await getEnabledSources()
+  let imported = 0, skipped = 0, unsupported = 0
+  const now = new Date()
+  for (const cand of candidates) {
+    if (cand.source === 'youtube') {
+      const [existing] = await db.select({ id: ytSubscriptions.id }).from(ytSubscriptions)
+        .where(and(eq(ytSubscriptions.userId, user.id), eq(ytSubscriptions.externalId, cand.externalId))).limit(1)
+      if (existing) { skipped++; continue }
+      await db.insert(ytSubscriptions).values({
+        id: randomUUID(), userId: user.id, kind: 'channel',
+        externalId: cand.externalId, title: cand.title, createdAt: now,
+      })
+      imported++
+      continue
+    }
+    if (!isGenericSource(cand.source) || !enabled.includes(cand.source)) { unsupported++; continue }
+    const [existing] = await db.select({ id: videoFollows.id }).from(videoFollows)
+      .where(and(eq(videoFollows.userId, user.id), eq(videoFollows.source, cand.source), eq(videoFollows.externalId, cand.externalId))).limit(1)
+    if (existing) { skipped++; continue }
+    await db.insert(videoFollows).values({
+      id: randomUUID(), userId: user.id,
+      source: cand.source as 'reddit' | 'tiktok' | 'vimeo',
+      kind: cand.source === 'reddit' ? 'subreddit' : 'creator',
+      externalId: cand.externalId, title: cand.title, createdAt: now,
+    })
+    imported++
+  }
+  return c.json({ imported, skipped, unsupported, total: candidates.length })
 })
 
 // ── AI extras: auto-chapters, catch-me-up, clip suggestions ─────────────────────

@@ -110,6 +110,7 @@ import { ytPlaylists } from '@/routes/ytPlaylists'
 import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
 import { clipperRoute } from '@/routes/clipper'
 import { videosRoute } from '@/routes/videos'
+import { videoRss } from '@/routes/videoRss'
 import { interestsRoute } from '@/routes/interests'
 import { videoStreamRoute } from '@/routes/videoStream'
 import { studioRoute } from '@/routes/videoStudio'
@@ -666,6 +667,9 @@ app.route('/api/integrations', integrationsStatus)
 app.route('/api/features', features)
 app.route('/api/videos/studio', studioRoute)
 app.route('/api/videos', videosRoute)
+// Per-user video RSS feeds (token in the URL, no app session) — point any RSS reader at
+// /api/video-rss/<token>/... A separate mount because /api/videos requires a session.
+app.route('/api/video-rss', videoRss)
 app.route('/api/interests', interestsRoute)
 app.route('/api/vstream', videoStreamRoute)
 app.route('/api/youtube', youtubeRoute)
