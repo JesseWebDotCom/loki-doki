@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { ScrollFade } from '@/components/shared/ScrollFade'
 import { cn } from '@/lib/cn'
-import type { VideoSource } from '@/lib/videos/api'
+import { askVideo, type VideoSource } from '@/lib/videos/api'
 
 // Ask-the-video: the watch page's grounded Q&A tab. Answers come from the local model
 // over this video's transcript; [t=123] citations render as tappable chips that seek the
@@ -48,6 +48,11 @@ export function AskVideoPanel({ source, videoId, onSeek }: {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  function scrollToEnd() {
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }))
+  }
 
   async function send() {
     const question = input.trim()
@@ -55,22 +60,37 @@ export function AskVideoPanel({ source, videoId, onSeek }: {
     setInput('')
     setBusy(true)
     const history = turns
-    setTurns((t) => [...t, { role: 'user', content: question }])
+    // The user turn plus the empty assistant turn tokens stream into.
+    setTurns((t) => [...t, { role: 'user', content: question }, { role: 'assistant', content: '' }])
+    scrollToEnd()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     try {
-      const r = await fetch(`/api/videos/${source}/ask/${encodeURIComponent(videoId)}`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, history }),
-      })
-      const data = await r.json().catch(() => null) as { answer?: string; error?: string } | null
-      setTurns((t) => [...t, {
-        role: 'assistant',
-        content: r.ok && data?.answer ? data.answer : (data?.error ?? 'I could not answer that right now.'),
-      }])
-    } catch {
-      setTurns((t) => [...t, { role: 'assistant', content: 'I could not answer that right now.' }])
+      await askVideo(source, videoId, question, history, (token) => {
+        setTurns((t) => {
+          const next = [...t]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + token }
+          return next
+        })
+        scrollToEnd()
+      }, ctrl.signal)
+    } catch (err) {
+      if (!ctrl.signal.aborted) {
+        const message = err instanceof Error ? err.message : 'I could not answer that right now.'
+        setTurns((t) => {
+          const next = [...t]
+          const last = next[next.length - 1]
+          // Replace the still-empty streamed turn rather than leave a blank bubble.
+          if (last?.role === 'assistant' && last.content === '') next[next.length - 1] = { ...last, content: message }
+          else next.push({ role: 'assistant', content: message })
+          return next
+        })
+      }
     } finally {
       setBusy(false)
-      requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }))
+      abortRef.current = null
+      scrollToEnd()
     }
   }
 
@@ -82,20 +102,23 @@ export function AskVideoPanel({ source, videoId, onSeek }: {
             <div className="px-1 py-6 text-center">
               <Sparkles className="mx-auto mb-2 size-5 text-brand" />
               <p className="text-xs text-muted-foreground">
-                Ask anything about this video. Answers come from its transcript, with
-                tappable timestamps, and never leave your home server.
+                Ask anything about this video — what's shown, who's in it, why it's notable.
+                Answers draw on the transcript, the channel's About text, and top comments,
+                with tappable timestamps, and never leave your home server.
               </p>
             </div>
           )}
-          {turns.map((t, i) => (
-            <div key={i} className={cn('max-w-[92%] rounded-card px-3 py-2',
-              t.role === 'user' ? 'ml-auto bg-brand/15' : 'bg-foreground/5')}>
-              {t.role === 'assistant'
-                ? <AnswerText text={t.content} onSeek={onSeek} />
-                : <p className="text-xs leading-relaxed">{t.content}</p>}
-            </div>
-          ))}
-          {busy && <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground"><Spinner className="size-3.5" /> Thinking about the video…</div>}
+          {turns.map((t, i) => {
+            const pending = busy && i === turns.length - 1 && t.role === 'assistant' && t.content === ''
+            return (
+              <div key={i} className={cn('max-w-[92%] rounded-card px-3 py-2',
+                t.role === 'user' ? 'ml-auto bg-brand/15' : 'bg-foreground/5')}>
+                {pending ? <Spinner className="size-3.5 text-muted-foreground" /> : t.role === 'assistant'
+                  ? <AnswerText text={t.content} onSeek={onSeek} />
+                  : <p className="text-xs leading-relaxed">{t.content}</p>}
+              </div>
+            )
+          })}
         </div>
       </ScrollFade>
       <form className="mt-2 flex shrink-0 items-center gap-2" onSubmit={(e) => { e.preventDefault(); void send() }}>

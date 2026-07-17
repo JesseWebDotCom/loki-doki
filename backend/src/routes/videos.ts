@@ -3,6 +3,7 @@
 // hub surfaces (mixed home, universal clipper resolve, per-source browse).
 
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { and, asc, count as sqlCount, desc, eq, inArray } from 'drizzle-orm'
@@ -16,7 +17,9 @@ import { allowlistOnlyEnabled } from '@/lib/videos/allowlist'
 import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
 import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
-import { askVideo } from '@/lib/videos/askVideo'
+import { buildAskVideoContext, ASK_VIDEO_SYSTEM_PROMPT } from '@/lib/videos/askVideo'
+import { ollamaChatStream } from '@/llm/ollama'
+import { getModel } from '@/lib/models'
 import { trickplaySheetPath } from '@/lib/videos/trickplay'
 import { buildRecap } from '@/lib/videos/recap'
 import { autoChapters, catchMeUp, studyNotes, studyNotesMarkdown, suggestClips } from '@/lib/videos/aiExtras'
@@ -1187,12 +1190,14 @@ videosRoute.post('/:source/ask/:id', async (c) => {
   // Same content gates as watching: ceiling/allowlist verdicts apply to asking too.
   let title: string | null = null
   let creatorName: string | null = null
+  let creatorId: string | null = null
   let url: string | null = null
   if (source === 'youtube') {
     const [v] = await db.select({ title: ytVideosTable.title, author: ytVideosTable.author, channelId: ytVideosTable.channelId })
       .from(ytVideosTable).where(eq(ytVideosTable.videoId, id)).limit(1)
     title = v?.title ?? null
     creatorName = v?.author ?? null
+    creatorId = v?.channelId ?? null
     if (v?.title && !(await videoAllowedForUser(user.id, {
       source: 'youtube', id, url: `https://www.youtube.com/watch?v=${id}`,
       title: v.title, creator: v.channelId ? { id: v.channelId, name: v.author ?? '' } : null,
@@ -1205,16 +1210,34 @@ videosRoute.post('/:source/ask/:id', async (c) => {
     if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
     title = item.title
     creatorName = item.creator?.name ?? null
+    creatorId = item.creator?.id ?? null
     url = item.url
   }
 
-  const result = await askVideo({
-    source, videoId: id, question: body.question, history,
-    title, creatorName, url,
+  const context = await buildAskVideoContext({
+    source, videoId: id, question: body.question,
+    title, creatorName, creatorId, url,
     userId: user.id, userFirstName: user.firstName,
   })
-  if (!result) return c.json({ error: 'The companion could not answer right now.' }, 503)
-  return c.json(result)
+
+  const model = await getModel()
+  return streamSSE(c, async (stream) => {
+    try {
+      const chunks = ollamaChatStream(model, [
+        { role: 'system', content: ASK_VIDEO_SYSTEM_PROMPT },
+        ...history.slice(-6).map((t) => ({ role: t.role, content: t.content.slice(0, 1000) })),
+        { role: 'user', content: context.content },
+      ], { temperature: 0.3, num_predict: 500 })
+      for await (const chunk of chunks) {
+        if (chunk.message?.content) {
+          await stream.writeSSE({ data: JSON.stringify({ token: chunk.message.content }) })
+        }
+      }
+      await stream.writeSSE({ data: JSON.stringify({ done: true, grounded: context.grounded }) })
+    } catch (err) {
+      await stream.writeSSE({ data: JSON.stringify({ error: String(err instanceof Error ? err.message : err) }) })
+    }
+  })
 })
 
 // ── Semantic search: "find the video where..." across everything the household watched ──

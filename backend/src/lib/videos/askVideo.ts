@@ -1,20 +1,21 @@
-// Ask-the-video: conversational Q&A over the current video's transcript, grounded and
-// cited. Excerpts come from the semantic index when the video is already embedded
+// Ask-the-video: conversational Q&A over the current video, grounded and cited.
+// Transcript excerpts come from the semantic index when the video is already embedded
 // (question-relevant chunks win), else fresh VTT chunks; the model must cite moments as
-// [t=<seconds>] tokens, which the watch panel renders as seek chips. All local:
-// same Ollama chat stack as summaries, nothing leaves the house.
+// [t=<seconds>] tokens, which the watch panel renders as seek chips. Alongside the
+// transcript, a channel/creator "About" blurb and the video's top comments give the model
+// background the video itself never says aloud ("who is this", "what's special about
+// them") — see askContext.ts. All local: same Ollama chat stack as summaries, nothing
+// leaves the house except the (keyless, non-attributed) web-search fallback for About.
 
 import { and, eq } from 'drizzle-orm'
 import { readFile } from 'node:fs/promises'
 import { db } from '@/db'
 import { videoEmbeddings } from '@/db/schema'
-import { ollamaChat } from '@/llm/ollama'
-import { getModel } from '@/lib/models'
 import { embed, cachedVector, cosineSimilarity } from '@/llm/embed'
 import { ensureTranscript } from '@/lib/youtube/download'
 import { resolveVideoVtt } from '@/lib/podcast/transcript'
 import { parseVttCues, chunkCues, ensureVideoIndexed } from '@/lib/videos/semanticIndex'
-import { logger } from '@/lib/logger'
+import { getVideoAboutBlurb, getVideoTopComments } from '@/lib/videos/askContext'
 
 export interface AskTurn { role: 'user' | 'assistant'; content: string }
 
@@ -68,52 +69,56 @@ async function relevantExcerpts(
   return picked
 }
 
-export async function askVideo(opts: {
+export const ASK_VIDEO_SYSTEM_PROMPT =
+  'You answer questions about one specific video for a family member. Ground your answer in the transcript ' +
+  'excerpts, the About text, and the comments below, in that order of trust. ' +
+  'Each transcript excerpt starts with its start time as [t=<seconds>]. When your answer draws on a moment ' +
+  'actually shown in the video, cite it inline with that exact token, e.g. "they explain the seal at [t=312]". ' +
+  'The About text and comments give background the video itself may never say aloud (who the people are, why ' +
+  'something is notable) — you may draw on them too, but never invent a [t=] citation for something that only ' +
+  'came from About or a comment. ' +
+  'If none of the material below answers the question, say so briefly rather than guessing. ' +
+  'Keep answers short, warm, and conversational. Explain simply if the question sounds like it comes from a child.'
+
+export interface AskVideoContext {
+  /** The user-turn content: video header + About + comments + transcript excerpts + the question. */
+  content: string
+  /** True once anything beyond bare metadata backs the answer (transcript, About, or comments). */
+  grounded: boolean
+}
+
+/** Build the grounded context for one question about a video. Fetches transcript
+ *  excerpts, the channel/creator About blurb, and top comments in parallel — all three
+ *  are independently cached or best-effort, so a slow/missing one never blocks the rest. */
+export async function buildAskVideoContext(opts: {
   source: string
   videoId: string
   question: string
-  history: AskTurn[]
   title: string | null
   creatorName: string | null
+  creatorId: string | null
   url: string | null
   userId: string
   userFirstName: string
-}): Promise<{ answer: string; grounded: boolean } | null> {
+}): Promise<AskVideoContext> {
   const question = opts.question.trim().slice(0, 500)
-  if (question.length < 2) return null
-  const excerpts = await relevantExcerpts(opts.source, opts.videoId, question, opts.userId, opts.userFirstName, opts.url)
+  const [excerpts, about, comments] = await Promise.all([
+    relevantExcerpts(opts.source, opts.videoId, question, opts.userId, opts.userFirstName, opts.url),
+    getVideoAboutBlurb(opts.source, opts.creatorId, opts.creatorName),
+    getVideoTopComments(opts.source, opts.videoId),
+  ])
 
   const header = `Video: ${opts.title ?? opts.videoId}${opts.creatorName ? ` (by ${opts.creatorName})` : ''}`
-  const body = excerpts.length
+  const aboutBlock = about ? `\n\nAbout ${opts.creatorName ?? 'the creator'}: ${about}` : ''
+  const commentsBlock = comments.length
+    ? `\n\nTop comments:\n${comments.map((c) => `- ${c.author}: ${c.text}`).join('\n')}`
+    : ''
+  const transcriptBlock = excerpts.length
     ? excerpts.map((e) => `[t=${e.startSec ?? 0}] ${e.text}`).join('\n')
     : '(no transcript is available for this video)'
 
-  try {
-    const model = await getModel()
-    const res = await ollamaChat(
-      model,
-      [
-        {
-          role: 'system',
-          content:
-            'You answer questions about one specific video for a family member, using ONLY the transcript excerpts provided. ' +
-            'Each excerpt starts with its start time as [t=<seconds>]. When your answer draws on a moment, cite it inline with that exact token, e.g. "they explain the seal at [t=312]". ' +
-            'If the excerpts do not contain the answer, say so briefly rather than guessing. ' +
-            'Keep answers short, warm, and conversational. Explain simply if the question sounds like it comes from a child.',
-        },
-        ...opts.history.slice(-6).map((t) => ({ role: t.role, content: t.content.slice(0, 1000) })),
-        { role: 'user', content: `${header}\n\nTranscript excerpts:\n${body}\n\nQuestion: ${question}` },
-      ],
-      undefined,
-      { temperature: 0.3, num_predict: 500 },
-      undefined,
-      45_000,
-    )
-    const answer = res.message.content?.trim()
-    if (!answer) return null
-    return { answer, grounded: excerpts.length > 0 }
-  } catch (err) {
-    logger.debug(`[videos/ask] failed for ${opts.source}:${opts.videoId}: ${String(err)}`)
-    return null
+  return {
+    content: `${header}${aboutBlock}${commentsBlock}\n\nTranscript excerpts:\n${transcriptBlock}\n\nQuestion: ${question}`,
+    grounded: excerpts.length > 0 || !!about || comments.length > 0,
   }
 }

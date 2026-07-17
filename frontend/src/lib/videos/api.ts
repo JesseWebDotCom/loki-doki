@@ -526,6 +526,52 @@ export async function routeVideoUrl(url: string): Promise<{ source: VideoSource;
   return { source: data.source, kind: data.kind ?? 'video', id: data.id }
 }
 
+// ── Ask the video ────────────────────────────────────────────────────────────────
+
+export interface AskVideoMessage { role: 'user' | 'assistant'; content: string }
+
+/**
+ * Stream an answer grounded in the video's transcript, About text, and top comments.
+ * Follows the app's SSE pattern (`data: {"token"|"done"|"error"}` lines, one JSON object
+ * per line) — same contract as `askEpisode()` in lib/podcast/aiApi.ts. `onToken` fires
+ * per token; the promise resolves when the stream ends.
+ */
+export async function askVideo(
+  source: VideoSource | 'youtube',
+  videoId: string,
+  question: string,
+  history: AskVideoMessage[],
+  onToken: (token: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/videos/${source}/ask/${encodeURIComponent(videoId)}`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, signal,
+    body: JSON.stringify({ question, history }),
+  })
+  if (!res.ok || !res.body) {
+    const d = await res.json().catch(() => null) as { error?: string } | null
+    throw new Error(d?.error || 'Could not answer that right now.')
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      let payload: { token?: string; done?: boolean; error?: string }
+      try { payload = JSON.parse(line.slice(6)) } catch { continue }
+      if (payload.error) throw new Error(payload.error)
+      if (payload.token) onToken(payload.token)
+      if (payload.done) return
+    }
+  }
+}
+
 export async function resolveVideoUrl(url: string): Promise<ResolveResult> {
   const res = await fetch('/api/videos/resolve', {
     method: 'POST',
