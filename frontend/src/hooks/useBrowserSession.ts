@@ -9,6 +9,8 @@ import { dispatchTransport, hasActiveMedia } from '@/lib/mediaCoordinator'
 import { manageEventSource } from '@/lib/managedEventSource'
 import { setDockYieldFromServer } from '@/lib/voice/dockYield'
 import { getVoiceWants } from '@/lib/voice/voiceOwnership'
+import { dispatchTogetherCommand, parseTogetherCommand } from '@/lib/together/commandBus'
+import { getDeviceId } from '@/lib/together/deviceIdentity'
 
 // Receives commands pushed from a controller device (a Tab5 button press → server →
 // here) and acts on them in THIS browser session: navigate, open a URL, or drive the
@@ -50,7 +52,12 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
   useEffect(() => {
     return manageEventSource(() => {
       const isDock = !!window.lokiDesktop
-      const es = new EventSource(`/api/browser-session?dock=${isDock ? 1 : 0}&surface=${surface}`, { withCredentials: true })
+      // The device id registers this session as a Listening Together remote target, so
+      // a command can be routed to THIS tab rather than "the user's most recent tab".
+      const es = new EventSource(
+        `/api/browser-session?dock=${isDock ? 1 : 0}&surface=${surface}&device=${encodeURIComponent(getDeviceId())}`,
+        { withCredentials: true },
+      )
 
       // Every SSE ping proves the backend is up. This stream is also exactly what starves
       // the /api/health probe when the connection pool fills, so without this signal the
@@ -125,6 +132,14 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
                 // Transport from a device's native player bar → drive whichever engine is
                 // active (radio or youtube), routed through the media coordinator.
                 dispatchTransport(String(cmd.transport ?? ''), typeof cmd.position === 'number' ? cmd.position : undefined)
+                break
+              }
+              case 'together': {
+                // Listening Together: someone is remote-controlling THIS session (their
+                // Devices popover, or a voice request routed here by a room target). The
+                // player contexts execute it - see TogetherRemoteReceiver.
+                const tc = parseTogetherCommand(cmd.payload)
+                handled = tc ? await dispatchTogetherCommand(tc) : false
                 break
               }
               default:

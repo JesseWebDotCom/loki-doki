@@ -74,6 +74,11 @@ interface PodcastPlaybackCtx {
   resume: () => void
   toggle: () => void
   seek: (sec: number) => void
+  /** 0..1 output level. The player has no volume UI of its own; this exists so
+   *  remote control (Listening Together) and the family volume cap have a public
+   *  API to drive instead of reaching into the audio element. */
+  setVolume: (v: number) => void
+  volume: number
   setRate: (r: number) => void
   setAutoplay: (v: boolean) => void
   setSleep: (mode: SleepMode, minutes?: number) => void
@@ -339,6 +344,18 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     setPositionSec(sec)
   }, [])
 
+  const [volume, setVolumeState] = useState(1)
+  const setVolume = useCallback((v: number) => {
+    const vol = Math.max(0, Math.min(1, v))
+    setVolumeState(vol)
+    if (audioRef.current) audioRef.current.volume = vol
+  }, [])
+  // Re-apply on track change: a fresh <audio> src keeps the element's volume, but a
+  // remounted element would not, so this keeps the two in sync either way.
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume
+  }, [track?.episodeId, volume]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const setRate = useCallback((r: number) => {
     setRateState(r)
     setPodcastBaseRate(r)
@@ -593,13 +610,13 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   }, [track])
 
   const value = useMemo<PodcastPlaybackCtx>(() => ({
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, audioRef,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, audioRef, volume,
     play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
-    next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setRate, setAutoplay, setSleep,
+    next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
     refreshShowSettings, close, closeIfShow,
-  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep,
+  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, sleep, volume,
        play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
-       next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setRate, setAutoplay, setSleep,
+       next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
        refreshShowSettings, close, closeIfShow])
 
   return (

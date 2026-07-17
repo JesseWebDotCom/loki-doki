@@ -72,16 +72,10 @@ export function FamilyAudioGuard() {
     if (live.volume > capV) live.setVolume(capV)
   }, [cap, live, live.volume])
   useEffect(() => {
-    // The podcast player is a raw <audio> element; clamp now and on every volume change.
     if (cap == null) return
-    const el = pod.audioRef.current
-    if (!el) return
     const capV = cap / 100
-    if (el.volume > capV) el.volume = capV
-    const onVolume = () => { if (el.volume > capV) el.volume = capV }
-    el.addEventListener('volumechange', onVolume)
-    return () => el.removeEventListener('volumechange', onVolume)
-  }, [cap, pod.audioRef, pod.track])
+    if (pod.volume > capV) pod.setVolume(capV)
+  }, [cap, pod, pod.volume])
 
   return null
 }
